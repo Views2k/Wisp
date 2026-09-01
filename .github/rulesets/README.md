@@ -5,11 +5,10 @@ definitions for Wisp's default branch and `v*` release tags. Keeping the
 definitions in the repository makes the intended policy auditable, but these
 files do not enforce anything by themselves.
 
-Repository rulesets are available for public repositories on GitHub Free. A
-private repository requires GitHub Pro, GitHub Team, or GitHub Enterprise
-Cloud. On GitHub Free, a private Wisp repository can retain these definitions
-for review, but GitHub will not enforce them; `CODEOWNERS` approval and private
-branch protection have the same paid-plan limitation.
+Wisp's public repository can use repository rulesets on GitHub Free, but these
+checked-in definitions still do not enforce anything until an administrator
+imports and activates them. `CODEOWNERS` records review ownership; enforceable
+review requirements come from the active ruleset.
 
 When the repository and account plan support rulesets, an administrator must
 import both JSON files under **Settings > Rules > Rulesets**, leave their

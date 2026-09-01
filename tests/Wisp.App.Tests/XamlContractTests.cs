@@ -487,6 +487,36 @@ public sealed class XamlContractTests
         Assert.Null(verticalAxis.Attribute("Margin"));
     }
 
+    [Theory]
+    [InlineData("GForceMeterView.xaml", "{StaticResource AccentBrush}")]
+    [InlineData("NativeGForceMeterView.xaml", "#66FFFFFF")]
+    public void GForceMetersShareTheBoundedTelemetryTrail(string fileName, string expectedBrush)
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), fileName));
+        var trails = document.Descendants(Local + "GForceTrailView").ToArray();
+
+        var trail = Assert.Single(trails);
+        Assert.Equal("{Binding GForceTrailPosition}", trail.Attribute("Position")?.Value);
+        Assert.Equal("{Binding HasLiveTelemetry}", trail.Attribute("IsActive")?.Value);
+        Assert.Equal(expectedBrush, trail.Attribute("TrailBrush")?.Value);
+    }
+
+    [Fact]
+    public void GForceTrailUsesOneFixedHistoryWithoutASecondAnimationLoop()
+    {
+        var source = File.ReadAllText(Path.Combine(AppSourceDirectory(), "GForceTrailView.cs"));
+
+        Assert.Contains("private readonly Point[] _samples = new Point[Capacity];", source, StringComparison.Ordinal);
+        Assert.Contains("internal const int Capacity = 8;", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "private readonly Pen?[] _segmentPens = new Pen?[GForceTrailHistory.Capacity - 1];",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("drawingContext.DrawLine(pen, previous, current);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CompositionTarget.Rendering", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DispatcherTimer", source, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ControlWindowPackagesItsOriginalLogo()
     {

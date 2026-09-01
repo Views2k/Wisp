@@ -127,9 +127,10 @@ GitHub's source ZIP and TAR.GZ are generated from the same release tag.
 For the in-application updater, the published release must use a strict `vX.Y.Z`
 tag, be neither a draft nor a prerelease, and be immutable. It must contain
 exactly one uploaded `Wisp-Setup-<version>.exe` asset whose GitHub metadata
-includes the byte length and SHA-256 digest. A private repository cannot serve
-this anonymous update path; the failure must remain non-destructive. Enabling an
-immutable public release is an external release operation, not part of the
+includes the byte length and SHA-256 digest. This anonymous update path is
+available only after the repository and release assets are public; before
+publication, failure must remain non-destructive. Publishing an immutable
+release is an external release operation, not part of the
 local packaging script.
 
 The installer job also runs the real Inno artifact through a lifecycle canary on

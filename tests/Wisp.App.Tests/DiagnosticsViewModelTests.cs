@@ -579,6 +579,9 @@ public sealed class DiagnosticsViewModelTests
             60,
             refreshDiagnostics: true,
             updateGForce: true);
+        Assert.Equal(viewModel.GForceOffsetX, viewModel.GForceTrailPosition.X);
+        Assert.Equal(viewModel.GForceOffsetY, viewModel.GForceTrailPosition.Y);
+        Assert.NotEqual(default, viewModel.GForceTrailPosition);
 
         viewModel.UpdateWaiting(
             default,
@@ -590,6 +593,7 @@ public sealed class DiagnosticsViewModelTests
         Assert.False(viewModel.NativeGaugeFrame.SpeedAvailable);
         Assert.Equal(0, viewModel.GForceOffsetX);
         Assert.Equal(0, viewModel.GForceOffsetY);
+        Assert.Equal(default, viewModel.GForceTrailPosition);
     }
 
     [Theory]

@@ -2,7 +2,7 @@
 
 Notable changes to Wisp are recorded here.
 
-## 1.0.2 - 2026-08-31
+## 1.0.2 - 2026-09-01
 
 ### Changed
 

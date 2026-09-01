@@ -16,7 +16,7 @@ body:
     attributes:
       label: Wisp version
       description: Find this in the lower-right corner of the Wisp window.
-      placeholder: "1.0.1"
+      placeholder: "1.0.2"
     validations:
       required: true
 
@@ -89,7 +89,7 @@ body:
     attributes:
       label: Last known working version
       description: Leave blank if the problem has always existed or is unknown.
-      placeholder: "1.0.1"
+      placeholder: "1.0.2"
 
   - type: textarea
     id: diagnostics

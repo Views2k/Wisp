@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Windows;
 using Wisp.Core;
 using Wisp.Telemetry;
 
@@ -44,6 +45,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private string _gForceScaleText = "1.0 G";
     private double _gForceOffsetX;
     private double _gForceOffsetY;
+    private Point _gForceTrailPosition;
     private int _udpPort;
     private string _udpPortText;
     private int _unitSelectionIndex;
@@ -175,6 +177,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         : "—";
     public double GForceOffsetX { get => _gForceOffsetX; private set => Set(ref _gForceOffsetX, value); }
     public double GForceOffsetY { get => _gForceOffsetY; private set => Set(ref _gForceOffsetY, value); }
+    public Point GForceTrailPosition { get => _gForceTrailPosition; private set => Set(ref _gForceTrailPosition, value); }
     public NativeGaugeFrame NativeGaugeFrame
     {
         get => _nativeGaugeFrame;
@@ -450,8 +453,11 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
                 state.LateralAccelerationMetersPerSecondSquared,
                 state.LongitudinalAccelerationMetersPerSecondSquared,
                 state.ReceivedAtUtc);
-            GForceOffsetX = gForce.Value.NormalizedX * displayRadius * (InvertLateralG ? -1 : 1);
-            GForceOffsetY = gForce.Value.NormalizedY * displayRadius * (InvertLongitudinalG ? -1 : 1);
+            var offsetX = gForce.Value.NormalizedX * displayRadius * (InvertLateralG ? -1 : 1);
+            var offsetY = gForce.Value.NormalizedY * displayRadius * (InvertLongitudinalG ? -1 : 1);
+            GForceOffsetX = offsetX;
+            GForceOffsetY = offsetY;
+            GForceTrailPosition = new Point(offsetX, offsetY);
         }
 
         if (!refreshDiagnostics)
@@ -609,6 +615,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         GameplayHudVisibility = "Unavailable";
         GForceOffsetX = 0;
         GForceOffsetY = 0;
+        GForceTrailPosition = default;
         _gForceDisplayModel.Reset();
         LateralGText = "0.00 g";
         LongitudinalGText = "0.00 g";

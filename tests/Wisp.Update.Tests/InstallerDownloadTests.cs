@@ -52,7 +52,7 @@ public sealed class InstallerDownloadTests
     [InlineData("http://release-assets.githubusercontent.com/github-production-release-asset/123/file")]
     [InlineData("https://example.com/github-production-release-asset/123/file")]
     [InlineData("https://release-assets.githubusercontent.com/not-a-release-asset/123/file")]
-    [InlineData("https://user@release-assets.githubusercontent.com/github-production-release-asset/123/file")]
+    [InlineData("https://user%40example.com@release-assets.githubusercontent.com/github-production-release-asset/123/file")]
     [InlineData("https://release-assets.githubusercontent.com/github-production-release-asset/123/file#fragment")]
     public async Task RedirectsOutsideTheHttpsHostAndPathAllowlistAreRejected(string location)
     {

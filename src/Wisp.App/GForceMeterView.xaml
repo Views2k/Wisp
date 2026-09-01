@@ -1,6 +1,7 @@
 <UserControl x:Class="Wisp.App.GForceMeterView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Wisp.App"
              IsHitTestVisible="False">
     <Grid>
         <Grid.RowDefinitions>
@@ -53,6 +54,10 @@
                        FontFamily="Bahnschrift, Segoe UI" FontSize="7" Foreground="#75869A" />
             <TextBlock Text="ACCEL" HorizontalAlignment="Center" VerticalAlignment="Bottom"
                        FontFamily="Bahnschrift, Segoe UI" FontSize="7" Foreground="#75869A" />
+
+            <local:GForceTrailView Position="{Binding GForceTrailPosition}"
+                                   IsActive="{Binding HasLiveTelemetry}"
+                                   TrailBrush="{StaticResource AccentBrush}" />
 
             <Ellipse Width="14" Height="14" Fill="{StaticResource AccentBrush}"
                      HorizontalAlignment="Center" VerticalAlignment="Center">

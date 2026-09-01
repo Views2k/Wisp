@@ -245,6 +245,10 @@ internal static class Program
                         surface.Measure(size);
                         surface.Arrange(new Rect(size));
                         surface.UpdateLayout();
+                        if (pass == 0 && !options.Waiting)
+                        {
+                            PopulateGForceTrails(surface);
+                        }
                         surface.Dispatcher.Invoke(static () => { }, DispatcherPriority.ContextIdle,
                             cancellationToken, TimeSpan.FromSeconds(2));
                     }
@@ -296,6 +300,38 @@ internal static class Program
 
                     Directory.Delete(stateDirectory, recursive: false);
                 }
+            }
+        }
+    }
+
+    private static void PopulateGForceTrails(DependencyObject root)
+    {
+        Point[] samples =
+        [
+            new(-24, 10),
+            new(-18, 5),
+            new(-10, -2),
+            new(-2, -8),
+            new(8, -13),
+            new(17, -8),
+            new(23, 2)
+        ];
+        var pending = new Queue<DependencyObject>();
+        pending.Enqueue(root);
+        while (pending.TryDequeue(out var current))
+        {
+            if (current is GForceTrailView trail)
+            {
+                trail.SetCurrentValue(GForceTrailView.IsActiveProperty, true);
+                foreach (var sample in samples)
+                {
+                    trail.SetCurrentValue(GForceTrailView.PositionProperty, sample);
+                }
+            }
+
+            for (var index = 0; index < VisualTreeHelper.GetChildrenCount(current); index++)
+            {
+                pending.Enqueue(VisualTreeHelper.GetChild(current, index));
             }
         }
     }
