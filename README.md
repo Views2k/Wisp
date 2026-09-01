@@ -1,3 +1,5 @@
+![Wisp header](docs/images/wisp-header.png)
+
 <p align="center">
   <img src="src/Wisp.App/Assets/Wisp-logo.png" width="92" alt="Wisp logo">
 </p>
