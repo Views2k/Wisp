@@ -212,6 +212,27 @@ public sealed class AmbientBackdropSceneTests
         Assert.True(moving >= AmbientBackdropScene.ParticleCount - 2);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(31.99)]
+    [InlineData(79.99)]
+    public void OneSecondOfMotionIsVisibleWithoutBreakingTheRibbon(double seconds)
+    {
+        var scene = new AmbientBackdropScene();
+        scene.Update(1280, 800, seconds);
+        var particles = scene.Particles.ToArray();
+
+        scene.Update(1280, 800, seconds + 1);
+
+        var displacements = particles
+            .Zip(scene.Particles.ToArray())
+            .Select(pair => Distance(pair.First.Position, pair.Second.Position))
+            .ToArray();
+        Assert.True(displacements.Average() > 0.5);
+        Assert.True(displacements.Count(displacement => displacement > 0.25) >= 180);
+        Assert.All(displacements, displacement => Assert.InRange(displacement, 0, 14));
+    }
+
     [Fact]
     public void ResizeAndReturningToZeroRestoresTheStaticFrame()
     {

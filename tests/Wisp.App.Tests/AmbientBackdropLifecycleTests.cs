@@ -33,19 +33,19 @@ public sealed class AmbientBackdropLifecycleTests
             Active with { IsVisible = false },
             Active with { HasHost = false },
             Active with { HostIsVisible = false },
-            Active with { HostIsActive = false },
             Active with { HostIsMinimized = true },
             Active with { IsAnimationEnabled = false },
             Active with { ClientAreaAnimation = false },
             Active with { HighContrast = true },
             Active with { RenderingTier = 0 },
-            Active with { RenderingTier = 1 },
             Active with { HasViewport = false },
             Active with { IsDesignMode = true },
             Active with { Intensity = 0 },
             Active with { Intensity = double.NaN }
         };
         Assert.All(disabled, state => Assert.False(state.CanAnimate));
+        Assert.True((Active with { HostIsActive = false }).CanAnimate);
+        Assert.True((Active with { RenderingTier = 1 }).CanAnimate);
         Assert.False(default(AmbientBackdropPlaybackState).CanAnimate);
     }
 
@@ -89,7 +89,7 @@ public sealed class AmbientBackdropLifecycleTests
         Assert.True(clock.Advance(100.025));
         Assert.Equal(0.125, clock.Seconds, 8);
         Assert.Equal(0.025, clock.LastStepSeconds, 8);
-        Assert.Equal(24, AmbientBackdropClock.FramesPerSecond);
+        Assert.Equal(30, AmbientBackdropClock.FramesPerSecond);
     }
 
     [Fact]

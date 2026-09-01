@@ -192,3 +192,49 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+  publish-release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download verified installer bundle
+        shell: bash
+        run: >-
+          gh run download "$GITHUB_RUN_ID"
+          --name "wisp-installer-$GITHUB_SHA"
+          --dir outputs
+
+      - name: Publish immutable release with stable download alias
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          installer="outputs/Wisp-Setup-${version}.exe"
+          archive="outputs/Wisp-Setup-${version}.zip"
+          test -f "$installer"
+          test -f "${installer}.sha256"
+          test -f "$archive"
+          test -f "${archive}.sha256"
+          cp -- "$installer" outputs/Wisp-Setup.exe
+          cmp --silent "$installer" outputs/Wisp-Setup.exe
+          stable_hash="$(sha256sum outputs/Wisp-Setup.exe | cut -d ' ' -f 1)"
+          printf '%s *Wisp-Setup.exe\n' "$stable_hash" > outputs/Wisp-Setup.exe.sha256
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "Wisp ${version}" \
+            --generate-notes \
+            "$installer" \
+            "${installer}.sha256" \
+            "$archive" \
+            "${archive}.sha256" \
+            outputs/Wisp-Setup.exe \
+            outputs/Wisp-Setup.exe.sha256

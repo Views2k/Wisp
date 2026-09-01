@@ -27,11 +27,11 @@ internal sealed class AmbientBackdropScene
     private const double PrimaryAmplitude = 0.085;
     private const double PrimarySpatialFrequency = 0.83;
     private const double PrimaryPhase = 0.08;
-    private const double PrimaryPeriodSeconds = 181;
+    private const double PrimaryPeriodSeconds = 72;
     private const double SecondaryAmplitude = 0.028;
     private const double SecondarySpatialFrequency = 2.15;
     private const double SecondaryPhase = 0.31;
-    private const double SecondaryPeriodSeconds = 137;
+    private const double SecondaryPeriodSeconds = 53;
     private const double PointerRadius = 0.22;
 
     private static readonly double[] GroupCenters = [0.08, 0.27, 0.49, 0.72, 0.93];
@@ -112,7 +112,7 @@ internal sealed class AmbientBackdropScene
             var alongOscillation = Math.Sin(
                 seconds / seed.Motion.WaveSeconds * Math.Tau + seed.Phase);
             var along = Math.Clamp(
-                seed.Along + parallax * (alongNoise * 0.010 + alongOscillation * 0.004),
+                seed.Along + parallax * (alongNoise * 0.014 + alongOscillation * 0.006),
                 0.012,
                 0.988);
             var center = RibbonCenter(along, seconds);
@@ -127,7 +127,7 @@ internal sealed class AmbientBackdropScene
                 seed.Motion.Key ^ 0x9E3779B9);
             var acrossWave = Math.Sin(
                 seconds / (seed.Motion.WaveSeconds * 1.23) * Math.Tau + seed.Phase * 0.63);
-            var across = seed.Across + parallax * (acrossNoise * 0.008 + acrossWave * 0.003);
+            var across = seed.Across + parallax * (acrossNoise * 0.012 + acrossWave * 0.0045);
             var offset = across * minimumDimension;
             var x = width * along + normalX * offset;
             var y = height * center + normalY * offset;
@@ -235,9 +235,9 @@ internal sealed class AmbientBackdropScene
 
     private static MotionSeed CreateMotion(ref uint state) => new(
         Hash(state),
-        48 + Next(ref state) * 68,
-        56 + Next(ref state) * 82,
-        62 + Next(ref state) * 96,
+        18 + Next(ref state) * 26,
+        24 + Next(ref state) * 34,
+        28 + Next(ref state) * 42,
         Next(ref state) * 80);
 
     private static double Noise(double coordinate, uint key)

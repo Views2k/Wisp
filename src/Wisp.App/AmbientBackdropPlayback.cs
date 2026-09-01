@@ -17,14 +17,14 @@ internal readonly record struct AmbientBackdropPlaybackState
     internal double Intensity { get; init; }
 
     internal bool CanAnimate =>
-        IsLoaded && IsVisible && HasHost && HostIsVisible && HostIsActive && !HostIsMinimized &&
-        IsAnimationEnabled && ClientAreaAnimation && !HighContrast && RenderingTier >= 2 &&
+        IsLoaded && IsVisible && HasHost && HostIsVisible && !HostIsMinimized &&
+        IsAnimationEnabled && ClientAreaAnimation && !HighContrast && RenderingTier >= 1 &&
         HasViewport && !IsDesignMode && double.IsFinite(Intensity) && Intensity > 0;
 }
 
 internal sealed class AmbientBackdropClock
 {
-    internal const int FramesPerSecond = 24;
+    internal const int FramesPerSecond = 30;
     internal const double MaximumStepSeconds = 0.1;
     private double? _lastTimestamp;
 

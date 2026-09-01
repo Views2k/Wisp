@@ -2,6 +2,17 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.2 - 2026-08-31
+
+### Changed
+
+- Made the setup backdrop motion visibly dynamic while preserving its grouped
+  particle composition and lightweight WPF renderer.
+- Kept setup animation running while the visible wizard is inactive, while
+  still pausing when hidden, minimized, disabled, or reduced motion is active.
+- Added a stable `Wisp-Setup.exe` release asset so the website can always link
+  directly to the latest installer without a site update.
+
 ## 1.0.1 - 2026-08-31
 
 ### Added

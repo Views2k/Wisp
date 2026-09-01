@@ -43,7 +43,7 @@ public sealed class AmbientBackdrop : FrameworkElement
         Focusable = false;
         ClipToBounds = true;
         _designMode = DesignerProperties.GetIsInDesignMode(this);
-        _timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+        _timer = new DispatcherTimer(DispatcherPriority.Render, Dispatcher)
         {
             Interval = TimeSpan.FromSeconds(1d / AmbientBackdropClock.FramesPerSecond)
         };
