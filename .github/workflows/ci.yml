@@ -234,6 +234,7 @@ jobs:
           stable_hash="$(sha256sum outputs/Wisp-Setup.exe | cut -d ' ' -f 1)"
           printf '%s *Wisp-Setup.exe\n' "$stable_hash" > outputs/Wisp-Setup.exe.sha256
           gh release create "$GITHUB_REF_NAME" \
+            --draft \
             --verify-tag \
             --title "Wisp ${version}" \
             --notes-file "Wisp-${version}-release-notes.md" \
@@ -241,3 +242,4 @@ jobs:
             "$archive" \
             outputs/Wisp-Setup.exe \
             outputs/Wisp-Setup.exe.sha256
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
