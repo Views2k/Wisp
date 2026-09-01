@@ -2,6 +2,14 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.4 - 2026-09-01
+
+### Changed
+
+- Reduced uploaded release files to one versioned installer and one installer
+  archive. GitHub's generated source archives remain available.
+- Kept application behavior unchanged from 1.0.3.
+
 ## 1.0.3 - 2026-09-01
 
 ### Added
