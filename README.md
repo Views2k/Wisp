@@ -205,6 +205,5 @@ project and is not endorsed by or affiliated with Microsoft.
 
 The Native HUD content under `src/Wisp.App/Assets/Native` is based on publicly
 circulated Forza Horizon 6 material. Views2k claims no ownership of Microsoft
-Game Content and does not claim that Microsoft authorized its extraction or
-redistribution. See [Third-party notices](THIRD-PARTY-NOTICES.md) and the
+Game Content. See [Third-party notices](THIRD-PARTY-NOTICES.md) and the
 [Microsoft Game Content Usage Rules](https://www.xbox.com/en-us/developers/rules).
