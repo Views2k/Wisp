@@ -238,8 +238,6 @@ jobs:
             --title "Wisp ${version}" \
             --notes-file "Wisp-${version}-release-notes.md" \
             "$installer" \
-            "${installer}.sha256" \
             "$archive" \
-            "${archive}.sha256" \
             outputs/Wisp-Setup.exe \
             outputs/Wisp-Setup.exe.sha256

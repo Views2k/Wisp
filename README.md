@@ -1,17 +1,8 @@
 ![Wisp header](docs/images/wisp-header.png)
 
 <p align="center">
-  <img src="src/Wisp.App/Assets/Wisp-logo.png" width="92" alt="Wisp logo">
-</p>
-
-<h1 align="center">Wisp</h1>
-
-<p align="center">
-  A wheel-indicated speed and G-force companion for Forza Horizon 6.
-</p>
-
-<p align="center">
-  <a href="https://github.com/Views2k/Wisp/releases/latest">Download</a> ·
+  <strong>A wheel-indicated speed and G-force companion for Forza Horizon 6.</strong><br><br>
+  <a href="https://github.com/Views2k/Wisp/releases/latest"><strong>Download</strong></a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
