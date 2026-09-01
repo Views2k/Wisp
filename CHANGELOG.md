@@ -2,6 +2,21 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.3 - 2026-09-01
+
+### Added
+
+- Added a short, connected trajectory trail to the standard and Native G-force
+  meters. The trail keeps eight meaningful samples, fades and tapers older
+  movement, ignores small positional jiggle, and clears when live telemetry stops.
+
+### Changed
+
+- Updated public issue, security-reporting, and release-validation guidance for
+  public distribution.
+- Aligned public version examples with the current release and used reserved
+  example values for sample data.
+
 ## 1.0.2 - 2026-09-01
 
 ### Changed
