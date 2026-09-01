@@ -1,0 +1,14 @@
+# Owner for every repository path.
+* @Views2k
+
+# Keep ownership of governance and automation explicit.
+/.github/ @Views2k
+/LICENSE @Views2k
+/LICENSES/ @Views2k
+/CONTRIBUTING.md @Views2k
+/installer/ @Views2k
+
+# Keep compatibility contracts and third-party game content owner-gated.
+/src/Wisp.App/NativeCompatibility/ @Views2k
+/src/Wisp.App/NativeHudProcessMemory.cs @Views2k
+/src/Wisp.App/Assets/Native/ @Views2k

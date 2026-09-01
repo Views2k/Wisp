@@ -1,0 +1,24 @@
+* text=auto eol=lf
+
+*.cs text
+*.csproj text
+*.props text
+*.targets text
+*.xaml text
+*.xml text
+*.json text
+*.md text
+*.ps1 text eol=crlf
+*.iss text eol=crlf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+*.ico binary
+*.png binary
+*.ps binary
+
+# Preserve authoritative runtime notice bytes exactly as published.
+/LICENSES/dotnet-runtime-8.0.30-LICENSE.txt -text whitespace=cr-at-eol
+/LICENSES/dotnet-runtime-8.0.30-THIRD-PARTY-NOTICES.txt -text whitespace=cr-at-eol
+/LICENSES/windowsdesktop-runtime-8.0.30-LICENSE.txt -text whitespace=cr-at-eol

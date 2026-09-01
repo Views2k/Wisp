@@ -1,0 +1,81 @@
+# .NET build and package output
+bin/
+obj/
+packages/
+.nuget/
+*.nupkg
+*.snupkg
+
+# Root-generated output
+/artifacts/
+/outputs/
+/work/
+/publish/
+/dist/
+
+# Test and analysis output
+TestResults/
+coverage/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+BenchmarkDotNet.Artifacts/
+*.trx
+*.coverage
+*.coveragexml
+
+# Python environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+
+# IDE and user state
+.vs/
+.vscode/
+.idea/
+.fleet/
+_ReSharper*/
+*.user
+*.suo
+*.rsuser
+*.userosscache
+*.DotSettings.user
+*.sln.docstates
+*.sln.iml
+
+# Local configuration and signing material
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.pfx
+*.p12
+*.snk
+*.key
+*.pem
+
+# Logs, temporary files, and crash diagnostics
+*.log
+*.tmp
+*.bak
+*.dmp
+*.mdmp
+*.wer
+*.crash
+*.swp
+*.swo
+*~
+
+# Operating-system metadata
+.DS_Store
+.Spotlight-V100/
+.Trashes/
+Thumbs.db
+Desktop.ini
+ehthumbs.db

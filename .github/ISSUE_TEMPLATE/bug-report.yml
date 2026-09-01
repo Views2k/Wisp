@@ -1,0 +1,117 @@
+name: Bug report
+description: Report a reproducible problem in Wisp.
+title: "[Bug] "
+labels:
+  - bug
+assignees:
+  - Views2k
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues before filing a new report. Remove personal information, local paths, account data, and secrets from screenshots or diagnostics.
+
+  - type: input
+    id: wisp_version
+    attributes:
+      label: Wisp version
+      description: Find this in the lower-right corner of the Wisp window.
+      placeholder: "1.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: windows_version
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Setup or first run
+        - Dashboard
+        - HUD appearance or layout
+        - Telemetry or vehicle data
+        - Diagnostics or compatibility
+        - Tray or window behavior
+        - Installer or update
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and its effect.
+      placeholder: Explain what Wisp did and when it happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: Explain what should have happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      options:
+        - Every time
+        - Often
+        - Intermittent
+        - Once
+    validations:
+      required: true
+
+  - type: input
+    id: last_working_version
+    attributes:
+      label: Last known working version
+      description: Leave blank if the problem has always existed or is unknown.
+      placeholder: "1.0.1"
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Relevant diagnostics
+      description: Paste only the smallest sanitized excerpt needed to identify the failure. Do not include game executables, save data, raw memory dumps, private captures, or credentials.
+      render: text
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Add sanitized screenshots or other details that materially help reproduce the problem.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Before submitting
+      options:
+        - label: I reproduced this on the latest available Wisp version.
+          required: true
+        - label: I searched the existing issues for the same problem.
+          required: true
+        - label: I removed personal information, secrets, machine-specific paths, and copyrighted game files from this report.
+          required: true

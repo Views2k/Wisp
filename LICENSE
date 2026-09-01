@@ -1,0 +1,52 @@
+Wisp Proprietary Source License
+
+Copyright (c) 2026 Views2k. All Rights Reserved.
+
+The source code, executable binaries, documentation, and original visual
+materials owned by Views2k, or licensed to Views2k with authority to sublicense
+them, are the "Wisp Materials." You may download an unmodified source copy
+solely to review and evaluate it. You may also download, install, and run an
+unmodified official Wisp binary for personal, non-commercial use. Except for
+those limited permissions, and where applicable law or the terms of the hosting
+platform require otherwise, no license or permission is granted to use the
+Wisp Materials.
+
+Without prior written permission from the copyright holder, you may not:
+
+1. copy, reproduce, modify, adapt, translate, or create derivative works from
+   the Wisp Materials;
+2. publish, distribute, sublicense, sell, lease, host, or otherwise make the
+   Wisp Materials available to another person;
+3. incorporate the Wisp Materials, or any substantial portion of them, into
+   another product, service, or project; or
+4. remove or alter ownership notices, misrepresent the origin of the Wisp
+   Materials, or claim the Wisp Materials or a substantially derived work as
+   original work.
+
+A technical copy or fork created through the hosting platform does not grant
+any rights beyond those required to use that platform's features. All other
+rights are expressly reserved. Permission requests may be submitted to the
+repository owner through GitHub.
+
+A written invitation from Views2k to contribute a specific change grants only
+the limited permission needed to prepare and submit that change under
+CONTRIBUTING.md. It does not grant permission to publish, redistribute, or use
+the resulting work outside Wisp.
+
+No patent or trademark license is granted. The Wisp name, logo, and branding
+may be used only to identify an unmodified official copy.
+
+This license does not apply to third-party material that is not included in the
+Wisp Materials above because Views2k does not own it or does not have authority
+to sublicense it. Forza Horizon 6 names, artwork, Native HUD assets, Microsoft Game
+Content, the .NET runtime, and other excluded third-party components remain the
+property of their respective owners and are governed by their own terms. Those
+materials are not licensed under this license. See `THIRD-PARTY-NOTICES.md` and
+the notices shipped with Wisp.
+
+THE WISP MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. TO THE MAXIMUM EXTENT
+PERMITTED BY LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR ANY CLAIM,
+DAMAGES, OR OTHER LIABILITY ARISING FROM OR RELATED TO THE WISP MATERIALS OR
+THEIR USE.

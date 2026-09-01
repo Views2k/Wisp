@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 3,
+  "readerVersion": 3,
+  "id": "fh6-steam-6.430.771.0-x64",
+  "revision": 5,
+  "gameVersion": "6.430.771.0",
+  "executableLength": 183853016,
+  "executableSha256": "B62B5EC1933B2D11A6B80941AE0D2B38C4A5AAEFDD880E487453D178081D7B44",
+  "imageSize": 188293120,
+  "sourceVectorRva": 177052256,
+  "thresholdRva": 104634756,
+  "leadVtableRva": 108570944,
+  "expectedThresholdBits": 1036831949,
+  "fields": {
+    "sourceProvider": 30528,
+    "sourceCarOrdinal": 29708,
+    "providerRpm": 432,
+    "providerSimRedlineAngularVelocity": 584,
+    "providerTachometerMaximumAngularVelocity": 588,
+    "localPlayerFlag": 5220,
+    "localPlayerProviderFlag": 49968,
+    "stmState": 5168,
+    "absState": 5172,
+    "stmAvailable": 6068,
+    "tcrAvailable": 6069,
+    "absAvailable": 6070,
+    "lcAvailable": 6071,
+    "lcPrimary": 5356,
+    "lcMode": 8060,
+    "lcSecondary": 49696,
+    "tcrSecondary": 49696,
+    "tcrPrimary": 49700,
+    "tcrTertiary": 49704,
+    "tcrWheelValues": 49864,
+    "firstWheelPointer": 2976,
+    "secondWheelPointer": 2984,
+    "thirdWheelPointer": 2992,
+    "wheelId": 1440
+  },
+  "gameplayVisibility": {
+    "uiServiceRva": 176558664,
+    "uiServiceVtableRva": 107727096,
+    "dependencyVtableRva": 107645440,
+    "transitionManagerVtableRva": 107645328,
+    "hudPageVtableRva": 115886568,
+    "serviceDependencyOffset": 160,
+    "rootTransitionManagerOffset": 56,
+    "managerOwnerOffset": 192,
+    "managerCurrentPageOffset": 144,
+    "managerStateOffset": 104,
+    "pageTransitionManagerOffset": 656,
+    "pageUiVisibleOffset": 964
+  },
+  "nativeGauge": {
+    "registryGlobalRva": 176282936,
+    "registryKeyHash": 14601433220641418792,
+    "registryWrapperVtableRva": 106542456,
+    "registryContextVtableRva": 109590624,
+    "registryContextControlVtableRva": 106545608,
+    "registryContextOffset": 8,
+    "registryContextControlOffset": 16,
+    "registrySentinelOffset": 504,
+    "registryCountOffset": 512,
+    "registryBucketsOffset": 520,
+    "registryBucketsEndOffset": 528,
+    "registryBucketsCapacityOffset": 536,
+    "registryMaskOffset": 544,
+    "registryBucketCountOffset": 552,
+    "registryBucketStride": 16,
+    "registryBucketBoundaryOffset": 0,
+    "registryBucketNodeOffset": 8,
+    "registryNodeNextOffset": 8,
+    "registryNodeHashOffset": 16,
+    "registryNodeObjectOffset": 24,
+    "registryNodeControlOffset": 32,
+    "sharedControlObjectOffset": 16,
+    "hudVtableRva": 109627624,
+    "hudControlVtableRva": 105260696,
+    "hudSubobjectOffset": 48,
+    "hudSubobjectPointerOffset": 304,
+    "hudSubobjectVtableRva": 109627704,
+    "hudSubobjectSlotZeroTargetRva": 5593152,
+    "hudSubobjectSlotZeroPrologueHex": "488D4170C3",
+    "hudTypeVectorOffset": 112,
+    "hudTypeVectorMaximumCount": 64,
+    "hudTypeVectorBeginOffset": 0,
+    "hudTypeVectorEndOffset": 8,
+    "hudTypeVectorCapacityOffset": 16,
+    "hudTypeVectorEntryStride": 32,
+    "hudTypeTokenRva": 178694936,
+    "hudTypeTokenOffset": 0,
+    "hudTypeInstancesBeginOffset": 8,
+    "hudTypeInstancesEndOffset": 16,
+    "hudTypeInstancesCapacityOffset": 24,
+    "hudTypeInstanceCount": 1,
+    "hudTypeInstanceStride": 16,
+    "hudTypeInstanceObjectOffset": 0,
+    "hudTypeInstanceControlOffset": 8,
+    "outerControlVtableRva": 109609752,
+    "outerPrimaryVtableRva": 117472608,
+    "outerSecondaryVtableRva": 117472896,
+    "outerSecondaryOffset": 8,
+    "outerHudBackReferenceOffset": 16,
+    "outerHudControlBackReferenceOffset": 24,
+    "outerChildOffset": 56,
+    "outerSourceOffset": 64,
+    "outerPowerFillOffset": 112,
+    "outerRegenFillOffset": 136,
+    "childlessRegenPowerRatioBits": 1050253722,
+    "childVtableRva": 118054864,
+    "childModeOffset": 228,
+    "childAngleOffset": 244,
+    "childBlurOffset": 248,
+    "childSpeedDigitOneOffset": 252,
+    "childSpeedDigitTenOffset": 256,
+    "childSpeedDigitHundredOffset": 260,
+    "childSpeedLessOrEqualOneOffset": 264,
+    "childSpeedLessTenOffset": 265,
+    "childSpeedLessHundredOffset": 266,
+    "childHeadlightsOnOffset": 268,
+    "childGearOffset": 272,
+    "childGearPreviousOffset": 276,
+    "childGearNextOffset": 280,
+    "childRegenOffset": 304,
+    "childPowerOffset": 308,
+    "childGearGaugeStateOffset": 312,
+    "childUseDriveFor1Offset": 316,
+    "childRatioOffset": 320,
+    "childSpeedUnitObjectOffset": 360,
+    "childMaximumTachometerOffset": 368,
+    "childElectricMaximumSpeedOffset": 392,
+    "speedUnitEnumOffset": 4,
+    "speedUnitMphValue": 22,
+    "speedUnitKphValue": 23,
+    "providerPowerLimitFirstOffset": 9136,
+    "providerPowerLimitSecondOffset": 9148,
+    "providerPowerNumeratorOffset": 504,
+    "providerPowerDenominatorOffset": 2696,
+    "providerRegenTargetOffset": 5160,
+    "providerPowerDenominatorScaleBits": 1008981770,
+    "providerRegenScaleBits": 3214934016,
+    "providerRegenUpperBaseBits": 1048576000,
+    "providerElectricSpeedOffset": 5356,
+    "requiredProviderVtableSlots": [
+      {
+        "offset": 664,
+        "targetRva": 32582352
+      },
+      {
+        "offset": 856,
+        "targetRva": 32593248
+      },
+      {
+        "offset": 1464,
+        "targetRva": 32608240
+      },
+      {
+        "offset": 1824,
+        "targetRva": 32592752
+      },
+      {
+        "offset": 1944,
+        "targetRva": 32602464
+      },
+      {
+        "offset": 3624,
+        "targetRva": 32608000
+      }
+    ]
+  },
+  "requiredVtableSlots": [
+    {
+      "offset": 528,
+      "targetRva": 32593296
+    },
+    {
+      "offset": 680,
+      "targetRva": 32612016
+    },
+    {
+      "offset": 688,
+      "targetRva": 32608320
+    },
+    {
+      "offset": 696,
+      "targetRva": 32581424
+    },
+    {
+      "offset": 1664,
+      "targetRva": 32593280
+    },
+    {
+      "offset": 4184,
+      "targetRva": 32610496
+    },
+    {
+      "offset": 4192,
+      "targetRva": 32579504
+    },
+    {
+      "offset": 4200,
+      "targetRva": 32595360
+    },
+    {
+      "offset": 4216,
+      "targetRva": 32595504
+    }
+  ]
+}

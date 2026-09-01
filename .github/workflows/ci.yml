@@ -1,0 +1,194 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate repository policy
+        shell: pwsh
+        run: ./.github/scripts/Test-RepositoryPolicy.ps1
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Install Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14.7"
+
+      - name: Restore
+        run: dotnet restore Wisp.sln --nologo --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
+
+      - name: Verify formatting
+        run: dotnet format Wisp.sln --verify-no-changes --no-restore --verbosity minimal
+
+      - name: Test .NET projects
+        run: dotnet test Wisp.sln --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false
+
+      - name: Build UI review harness
+        run: dotnet build tools/Wisp.UiReview/Wisp.UiReview.csproj --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false
+
+      - name: Capture reviewed setup wizard
+        run: dotnet run --project tools/Wisp.UiReview/Wisp.UiReview.csproj --configuration Release --no-build --no-restore --no-launch-profile -- --output .\work\ui-review\ci-wizard --scope wizard --step welcome --dpi 144
+
+      - name: Upload reviewed setup wizard
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: wisp-wizard-review
+          path: |
+            work/ui-review/ci-wizard/wizard-native-digital-baseline-144dpi-welcome.png
+            work/ui-review/ci-wizard/wizard-native-digital-compact-144dpi-welcome.png
+            work/ui-review/ci-wizard/wizard-native-digital-launch-144dpi-welcome.png
+            work/ui-review/ci-wizard/wizard-native-digital-wide-144dpi-welcome.png
+            work/ui-review/ci-wizard/review.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Capture reviewed Appearance surface
+        run: dotnet run --project tools/Wisp.UiReview/Wisp.UiReview.csproj --configuration Release --no-build --no-restore --no-launch-profile -- --output .\work\ui-review\ci-appearance --fixture separate-boxes --dpi 144
+
+      - name: Upload reviewed Appearance surface
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: wisp-appearance-review
+          path: |
+            work/ui-review/ci-appearance/separate-boxes-wide-144dpi-appearance.png
+            work/ui-review/ci-appearance/review.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Test compatibility audit
+        run: python -m unittest discover -s tools/tests -p "test_*.py" -v
+
+  package-review:
+    name: Build installer
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release tag provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: ./.github/scripts/Test-ReleaseTag.ps1 -Tag $env:GITHUB_REF_NAME
+
+      - name: Validate manual release-candidate provenance
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF -cne 'refs/heads/main') {
+            throw 'Manual installer validation must be dispatched from main.'
+          }
+          $head = @(& git rev-parse --verify 'HEAD^{commit}')
+          if ($LASTEXITCODE -ne 0 -or $head.Count -ne 1) {
+            throw 'The checked-out release candidate could not be resolved.'
+          }
+          $main = @(& git rev-parse --verify 'refs/remotes/origin/main^{commit}')
+          if ($LASTEXITCODE -ne 0 -or $main.Count -ne 1 -or $head[0] -cne $main[0]) {
+            throw 'The manual installer validation checkout is not the current main commit.'
+          }
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Install Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14.7"
+
+      - name: Install pinned Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.1.exe'
+          $installDirectory = Join-Path $PWD 'work\innosetup'
+          $expectedHash = '4D11E8050B6185E0D49BD9E8CC661A7A59F44959A621D31D11033124C4E8A7B0'
+          try {
+            Invoke-WebRequest `
+              -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_1/innosetup-6.7.1.exe' `
+              -OutFile $installer
+            if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -cne $expectedHash) {
+              throw 'The Inno Setup download did not match the pinned SHA-256.'
+            }
+            $process = Start-Process `
+              -FilePath $installer `
+              -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$installDirectory") `
+              -Wait `
+              -PassThru
+            if ($process.ExitCode -ne 0 -or
+                -not (Test-Path -LiteralPath (Join-Path $installDirectory 'ISCC.exe') -PathType Leaf)) {
+              throw "Inno Setup installation failed with exit code $($process.ExitCode)."
+            }
+          }
+          finally {
+            if (Test-Path -LiteralPath $installer -PathType Leaf) {
+              Remove-Item -LiteralPath $installer -Force
+            }
+          }
+
+      - name: Build verified installer bundle
+        shell: pwsh
+        run: ./installer/Build-Installer.ps1 -InnoCompiler (Resolve-Path .\work\innosetup\ISCC.exe).Path
+
+      - name: Test installer lifecycle
+        shell: pwsh
+        run: |
+          $project = [xml](Get-Content -LiteralPath .\src\Wisp.App\Wisp.App.csproj -Raw)
+          $version = @($project.Project.PropertyGroup | Where-Object { $null -ne $_.Version })[0].Version
+          $installer = (Resolve-Path -LiteralPath ".\outputs\Wisp-Setup-$version.exe").Path
+          ./.github/scripts/Test-InstallerLifecycle.ps1 `
+            -InstallerPath $installer `
+            -ExpectedVersion $version
+
+      - name: Upload installer bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: wisp-installer-${{ github.sha }}
+          path: outputs/Wisp-Setup-*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

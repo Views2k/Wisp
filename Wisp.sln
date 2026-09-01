@@ -1,0 +1,84 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.Core", "src\Wisp.Core\Wisp.Core.csproj", "{A3CBA78B-5D94-46F0-B796-B7291D1D1B23}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.Telemetry", "src\Wisp.Telemetry\Wisp.Telemetry.csproj", "{90C0837E-06EB-4353-AEA7-9B877EA1C2F7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.App", "src\Wisp.App\Wisp.App.csproj", "{18AF1740-7B16-40C6-BEFB-4DA554008F13}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.Update", "src\Wisp.Update\Wisp.Update.csproj", "{AFFB93B4-522F-4E16-A8D5-5A24A39BDA3A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.Updater", "src\Wisp.Updater\Wisp.Updater.csproj", "{656B34F9-CE92-4623-B257-9A5951DFC62A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.Core.Tests", "tests\Wisp.Core.Tests\Wisp.Core.Tests.csproj", "{44288EF5-E025-47CE-AC2A-009954F8E855}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.Telemetry.Tests", "tests\Wisp.Telemetry.Tests\Wisp.Telemetry.Tests.csproj", "{B2DA3E0E-0DDD-4C79-B414-70531D1B54F7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.App.Tests", "tests\Wisp.App.Tests\Wisp.App.Tests.csproj", "{53509D4C-9D53-47C0-9C14-D2A2F5F4BE39}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.Update.Tests", "tests\Wisp.Update.Tests\Wisp.Update.Tests.csproj", "{C1EF5F39-ED94-499F-997D-28F38E69F8D9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.Updater.Tests", "tests\Wisp.Updater.Tests\Wisp.Updater.Tests.csproj", "{17A434C8-2DCF-45EF-90FF-F25DAA1BCF24}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{F083F8DD-B804-44D2-8C9F-0248E642EE77}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wisp.UiReview", "tools\Wisp.UiReview\Wisp.UiReview.csproj", "{1764A430-62ED-4D08-BF15-3DFF7906A47E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A3CBA78B-5D94-46F0-B796-B7291D1D1B23}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A3CBA78B-5D94-46F0-B796-B7291D1D1B23}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A3CBA78B-5D94-46F0-B796-B7291D1D1B23}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A3CBA78B-5D94-46F0-B796-B7291D1D1B23}.Release|Any CPU.Build.0 = Release|Any CPU
+		{90C0837E-06EB-4353-AEA7-9B877EA1C2F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{90C0837E-06EB-4353-AEA7-9B877EA1C2F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{90C0837E-06EB-4353-AEA7-9B877EA1C2F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{90C0837E-06EB-4353-AEA7-9B877EA1C2F7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{18AF1740-7B16-40C6-BEFB-4DA554008F13}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{18AF1740-7B16-40C6-BEFB-4DA554008F13}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{18AF1740-7B16-40C6-BEFB-4DA554008F13}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{18AF1740-7B16-40C6-BEFB-4DA554008F13}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AFFB93B4-522F-4E16-A8D5-5A24A39BDA3A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AFFB93B4-522F-4E16-A8D5-5A24A39BDA3A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AFFB93B4-522F-4E16-A8D5-5A24A39BDA3A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AFFB93B4-522F-4E16-A8D5-5A24A39BDA3A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{656B34F9-CE92-4623-B257-9A5951DFC62A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{656B34F9-CE92-4623-B257-9A5951DFC62A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{656B34F9-CE92-4623-B257-9A5951DFC62A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{656B34F9-CE92-4623-B257-9A5951DFC62A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{44288EF5-E025-47CE-AC2A-009954F8E855}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{44288EF5-E025-47CE-AC2A-009954F8E855}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{44288EF5-E025-47CE-AC2A-009954F8E855}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{44288EF5-E025-47CE-AC2A-009954F8E855}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B2DA3E0E-0DDD-4C79-B414-70531D1B54F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B2DA3E0E-0DDD-4C79-B414-70531D1B54F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B2DA3E0E-0DDD-4C79-B414-70531D1B54F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B2DA3E0E-0DDD-4C79-B414-70531D1B54F7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{53509D4C-9D53-47C0-9C14-D2A2F5F4BE39}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{53509D4C-9D53-47C0-9C14-D2A2F5F4BE39}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{53509D4C-9D53-47C0-9C14-D2A2F5F4BE39}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{53509D4C-9D53-47C0-9C14-D2A2F5F4BE39}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C1EF5F39-ED94-499F-997D-28F38E69F8D9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C1EF5F39-ED94-499F-997D-28F38E69F8D9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C1EF5F39-ED94-499F-997D-28F38E69F8D9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C1EF5F39-ED94-499F-997D-28F38E69F8D9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{17A434C8-2DCF-45EF-90FF-F25DAA1BCF24}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{17A434C8-2DCF-45EF-90FF-F25DAA1BCF24}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{17A434C8-2DCF-45EF-90FF-F25DAA1BCF24}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{17A434C8-2DCF-45EF-90FF-F25DAA1BCF24}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1764A430-62ED-4D08-BF15-3DFF7906A47E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1764A430-62ED-4D08-BF15-3DFF7906A47E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1764A430-62ED-4D08-BF15-3DFF7906A47E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1764A430-62ED-4D08-BF15-3DFF7906A47E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1764A430-62ED-4D08-BF15-3DFF7906A47E} = {F083F8DD-B804-44D2-8C9F-0248E642EE77}
+	EndGlobalSection
+EndGlobal

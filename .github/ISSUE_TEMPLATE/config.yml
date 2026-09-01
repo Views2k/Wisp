@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Views2k/Wisp/security/policy
+    about: Use the private reporting instructions in the security policy. Do not disclose vulnerability details in a public issue.

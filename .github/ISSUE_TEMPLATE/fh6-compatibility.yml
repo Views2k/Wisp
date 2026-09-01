@@ -1,0 +1,111 @@
+name: FH6 compatibility failure
+description: Report a Native HUD or compatibility failure after an FH6 update.
+title: "[Compatibility] "
+labels:
+  - bug
+assignees:
+  - Views2k
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when FH6 updates and Wisp disables, partially disables, or misreads a Native HUD feature. Do not attach FH6 binaries, decrypted game content, raw memory dumps, save data, or private telemetry captures.
+
+  - type: input
+    id: wisp_version
+    attributes:
+      label: Wisp version
+      placeholder: "1.0.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: game_platform
+    attributes:
+      label: FH6 platform
+      options:
+        - Microsoft Store or Xbox app
+        - Steam
+    validations:
+      required: true
+
+  - type: input
+    id: game_build
+    attributes:
+      label: FH6 build
+      description: Enter the build shown by Wisp Diagnostics. Do not upload the game executable.
+      placeholder: "Example: 6.430.771.0"
+    validations:
+      required: true
+
+  - type: input
+    id: car
+    attributes:
+      label: Vehicle
+      description: Include the year, manufacturer, and model if the failure is vehicle-specific.
+      placeholder: "2025 Manufacturer Model"
+
+  - type: dropdown
+    id: affected_feature
+    attributes:
+      label: Affected feature
+      multiple: true
+      options:
+        - Entire Wisp HUD
+        - Analogue tachometer
+        - Electric gauge
+        - Speed digits or units
+        - Power or regeneration meter
+        - Gear indicator
+        - Driver-assist indicators
+        - Menu or cutscene visibility
+        - Exact redline or gauge scale
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: compatibility_state
+    attributes:
+      label: Compatibility status
+      description: Copy the State, Source, Build validation, and Native HUD state values from Diagnostics. Remove local paths and personal information.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed_behavior
+    attributes:
+      label: Observed behavior
+      description: Describe exactly which parts still work and which parts fail.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      value: |
+        1. Start FH6 and enter gameplay.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: comparison
+    attributes:
+      label: Native HUD comparison
+      description: If safe and relevant, describe the stock FH6 HUD state seen at the same moment. A sanitized screenshot may be attached, but visual comparison does not establish memory-layout compatibility by itself.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Before submitting
+      options:
+        - label: I reproduced this with FH6 Data Out enabled and Wisp connected.
+          required: true
+        - label: I used the latest available Wisp version and copied the compatibility state shown in Diagnostics.
+          required: true
+        - label: I did not include game binaries, decrypted content, raw memory dumps, save data, credentials, or personal information.
+          required: true

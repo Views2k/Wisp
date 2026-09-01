@@ -1,0 +1,79 @@
+name: Feature proposal
+description: Propose a focused improvement to Wisp's usability, functionality, or feel.
+title: "[Feature] "
+labels:
+  - enhancement
+assignees:
+  - Views2k
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Proposals should solve a specific user problem without weakening Wisp's local-only telemetry, read-only FH6 access, performance, or compatibility safeguards. Owner approval is required before implementation begins.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user need or limitation, not only the requested control or visual treatment.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Proposed outcome
+      description: Explain how Wisp should behave from the user's perspective.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: benefit
+    attributes:
+      label: Primary benefit
+      options:
+        - Usability or accessibility
+        - Functionality
+        - Visual or interaction quality
+        - Performance or reliability
+        - Compatibility or maintenance
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Intended workflow
+      description: Walk through the interaction or behavior from start to finish.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Note existing Wisp behavior, workarounds, or smaller changes that may address the same need.
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and risks
+      description: Identify any effect on FH6 performance, privacy, offline use, compatibility, settings migration, or Native HUD parity.
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Add sketches or screenshots only when they clarify the proposal. Do not include copyrighted game assets or private data.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched for an existing issue covering the same need.
+          required: true
+        - label: I understand that filing a proposal does not authorize implementation or guarantee acceptance.
+          required: true

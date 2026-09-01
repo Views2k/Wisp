@@ -1,0 +1,48 @@
+<Window x:Class="Wisp.App.GForceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Wisp.App"
+        Title="Wisp G-Force" Width="210" Height="150"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
+        Background="Transparent" Topmost="False" ShowInTaskbar="False"
+        ShowActivated="False">
+    <Window.Resources>
+        <SolidColorBrush x:Key="HudBorderBrush" Color="#6663D8D4" />
+    </Window.Resources>
+    <Viewbox x:Name="RootViewbox" Stretch="Fill" Opacity="0">
+        <Grid x:Name="RootPanel" Width="210" Height="150" Background="Transparent">
+            <Border x:Name="GForcePanelBorder" Margin="4" CornerRadius="12" Background="#E10A0E14"
+                    BorderThickness="1">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="BorderBrush" Value="#66394A5D" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="2">
+                                <Setter Property="BorderBrush" Value="{DynamicResource HudBorderBrush}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <local:GForceMeterView Margin="13,10,13,11" />
+            </Border>
+
+            <local:NativeGForceMeterView x:Name="NativeGForceMeter" />
+
+            <Grid x:Name="EditChrome" Visibility="Collapsed" IsHitTestVisible="False">
+                <Border x:Name="EditBorder" Margin="4" CornerRadius="12" BorderThickness="1">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter Property="Opacity" Value="1" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsNativeLayout}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                </Border>
+            </Grid>
+        </Grid>
+    </Viewbox>
+</Window>

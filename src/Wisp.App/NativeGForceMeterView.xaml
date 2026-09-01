@@ -1,0 +1,52 @@
+<UserControl x:Class="Wisp.App.NativeGForceMeterView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="144" Height="100"
+             IsHitTestVisible="False"
+             SnapsToDevicePixels="True" UseLayoutRounding="True">
+    <Grid Width="144" Height="100">
+        <Ellipse Width="112" Height="96">
+            <Ellipse.Fill>
+                <RadialGradientBrush>
+                    <GradientStop Color="#33000000" Offset="0" />
+                    <GradientStop Color="#14000000" Offset="0.62" />
+                    <GradientStop Color="#00000000" Offset="1" />
+                </RadialGradientBrush>
+            </Ellipse.Fill>
+        </Ellipse>
+
+        <Grid Width="120" Height="92">
+            <Ellipse Width="76" Height="76" Stroke="#66FFFFFF" StrokeThickness="1.5" />
+            <Ellipse Width="57" Height="57" Stroke="#3DFFFFFF" StrokeThickness="1" />
+            <Ellipse Width="38" Height="38" Stroke="#3DFFFFFF" StrokeThickness="1" />
+            <Ellipse Width="19" Height="19" Stroke="#29FFFFFF" StrokeThickness="1" />
+
+            <Rectangle Height="1" Fill="#66FFFFFF" Margin="5,0" />
+            <Rectangle x:Name="VerticalAxis" Width="1" Height="68"
+                       VerticalAlignment="Center" Fill="#66FFFFFF" />
+
+            <TextBlock Text="L" HorizontalAlignment="Left" VerticalAlignment="Center"
+                       FontFamily="Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"
+                       FontSize="8" FontWeight="SemiBold" Foreground="#66FFFFFF" />
+            <TextBlock Text="R" HorizontalAlignment="Right" VerticalAlignment="Center"
+                       FontFamily="Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"
+                       FontSize="8" FontWeight="SemiBold" Foreground="#66FFFFFF" />
+            <TextBlock Text="BRAKE" HorizontalAlignment="Center" VerticalAlignment="Top"
+                       FontFamily="Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"
+                       FontSize="7" FontWeight="SemiBold" Foreground="#4DFFFFFF" />
+            <TextBlock Text="ACCEL" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                       FontFamily="Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"
+                       FontSize="7" FontWeight="SemiBold" Foreground="#4DFFFFFF" />
+
+            <Ellipse Width="14" Height="14" Fill="#CCFFFFFF" Stroke="#66FFFFFF" StrokeThickness="1"
+                     HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Ellipse.RenderTransform>
+                    <TranslateTransform X="{Binding GForceOffsetX}" Y="{Binding GForceOffsetY}" />
+                </Ellipse.RenderTransform>
+                <Ellipse.Effect>
+                    <DropShadowEffect Color="#FFFFFFFF" BlurRadius="7" ShadowDepth="0" Opacity="0.30" />
+                </Ellipse.Effect>
+            </Ellipse>
+        </Grid>
+    </Grid>
+</UserControl>

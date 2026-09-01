@@ -1,0 +1,1337 @@
+<Window x:Class="Wisp.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:local="clr-namespace:Wisp.App"
+        Title="Wisp" Width="1080" Height="780" MinWidth="720" MinHeight="440"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
+        Foreground="{DynamicResource TextBrush}" Background="{DynamicResource WindowBrush}" WindowStartupLocation="CenterScreen" Cursor="Arrow"
+        WindowStyle="None" ResizeMode="CanResize">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="55" ResizeBorderThickness="6"
+                            CornerRadius="8" GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="CalmWindowResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <local:ResponsivePageWidthConverter x:Key="ResponsivePageWidthConverter" />
+            <SolidColorBrush x:Key="HudBorderBrush" Color="#6663D8D4" />
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Border Background="{DynamicResource WindowBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1"
+            CornerRadius="8">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="56" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="34" />
+            </Grid.RowDefinitions>
+
+            <Grid x:Name="TitleBar" Grid.Row="0" Background="{DynamicResource PanelBrush}"
+                  MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel x:Name="WindowControls" Grid.Column="0" Orientation="Horizontal"
+                            HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,12,0"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button x:Name="CloseWindowButton" Style="{StaticResource WindowButtonStyle}"
+                            Background="#FF5F57" Click="Close_Click"
+                            AutomationProperties.Name="Close Wisp" ToolTip="Close window">
+                        <Path Width="6" Height="6" Data="M0,0 L6,6 M6,0 L0,6"
+                              Stroke="#C21E0C0D" StrokeThickness="1" />
+                    </Button>
+                    <Button x:Name="MinimizeWindowButton" Style="{StaticResource WindowButtonStyle}"
+                            Background="#FEBC2E" Click="Minimize_Click"
+                            AutomationProperties.Name="Minimize Wisp" ToolTip="Minimize">
+                        <Path Width="6" Height="6" Data="M0,3 L6,3"
+                              Stroke="#C21E0C0D" StrokeThickness="1" />
+                    </Button>
+                    <Button x:Name="MaximizeWindowButton" Style="{StaticResource WindowButtonStyle}"
+                            Background="#28C840" Click="Maximize_Click"
+                            AutomationProperties.Name="Maximize or restore Wisp" ToolTip="Maximize or restore">
+                        <Rectangle Width="6" Height="6" Stroke="#B80C3419" StrokeThickness="1"
+                                   RadiusX="1" RadiusY="1" />
+                    </Button>
+                </StackPanel>
+
+                <Button x:Name="SidebarToggleButton" Grid.Column="0" HorizontalAlignment="Left"
+                        VerticalAlignment="Center" Margin="98,0,0,0" Style="{StaticResource SidebarToggleStyle}"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="SidebarToggle_Click"
+                        ToolTip="Hide sidebar" AutomationProperties.Name="Hide sidebar">
+                    <Canvas Width="18" Height="16" IsHitTestVisible="False">
+                        <Rectangle Canvas.Top="1" Width="18" Height="14" RadiusX="2" RadiusY="2"
+                                   Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.2" />
+                        <Line X1="6" Y1="1" X2="6" Y2="15" Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.2" />
+                        <Path Canvas.Left="9" Canvas.Top="4" Data="M4,0 L0,4 L4,8"
+                              Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.2"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
+                            <Path.RenderTransform>
+                                <RotateTransform x:Name="SidebarChevronRotation" CenterX="2" CenterY="4" />
+                            </Path.RenderTransform>
+                        </Path>
+                    </Canvas>
+                </Button>
+
+                <StackPanel x:Name="HeaderBrand" Grid.Column="1" Orientation="Horizontal"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Image x:Name="HeaderLogo" Width="20" Height="20"
+                           Source="pack://application:,,,/Wisp;component/Assets/Wisp-logo.png"
+                           AutomationProperties.Name="Wisp logo"
+                           Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
+                    <TextBlock x:Name="HeaderTitle" Text="Wisp" FontSize="14" FontWeight="SemiBold"
+                               Margin="7,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <Border x:Name="HeaderStatus" Grid.Column="2" HorizontalAlignment="Right"
+                        VerticalAlignment="Center" Height="24" Margin="12,0,18,0"
+                        Background="Transparent" BorderBrush="Transparent"
+                        BorderThickness="0" CornerRadius="12" Padding="9,2">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="6" Height="6" Margin="0,0,8,0" VerticalAlignment="Center">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="{DynamicResource FaintBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasLiveTelemetry}" Value="True">
+                                            <Setter Property="Fill" Value="{DynamicResource AccentBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                        <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid x:Name="ControlBody" Grid.Row="1" ClipToBounds="True">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="SidebarColumn" Width="168" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border x:Name="SidebarHost" Grid.Column="0" Width="168" HorizontalAlignment="Left"
+                        Panel.ZIndex="1" Background="{DynamicResource SidebarBrush}">
+                    <Border.RenderTransform>
+                        <TranslateTransform x:Name="SidebarTranslation" />
+                    </Border.RenderTransform>
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                        <TextBlock Text="Workspace" Margin="22,24,0,8" FontSize="11" Foreground="{DynamicResource MutedBrush}" />
+                        <ListBox x:Name="SidebarNavigation" Grid.Row="1" Margin="10,0" Padding="0"
+                                 Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource SidebarItemStyle}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                 SelectedIndex="{Binding SelectedIndex, ElementName=RootTabs, Mode=TwoWay}"
+                                 AutomationProperties.Name="Wisp pages">
+                            <ListBoxItem AutomationProperties.Name="Dashboard"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,1 H7 V7 H1 Z M11,1 H17 V7 H11 Z M1,11 H7 V17 H1 Z M11,11 H17 V17 H11 Z" /><TextBlock Text="Dashboard" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                            <ListBoxItem AutomationProperties.Name="Appearance"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,3 H7 M11,3 H17 M1,9 H11 M15,9 H17 M1,15 H4 M8,15 H17 M7,1 V5 H11 V1 Z M11,7 V11 H15 V7 Z M4,13 V17 H8 V13 Z" /><TextBlock Text="Appearance" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                            <ListBoxItem AutomationProperties.Name="Diagnostics"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M0,9 H4 L7,2 L11,16 L14,9 H18" /><TextBlock Text="Diagnostics" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                            <ListBoxItem AutomationProperties.Name="Setup"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M9,1 L11,4 L14,4 L14,7 L17,9 L14,11 L14,14 L11,14 L9,17 L7,14 L4,14 L4,11 L1,9 L4,7 L4,4 L7,4 Z M12,9 A3,3 0 1 1 6,9 A3,3 0 1 1 12,9" /><TextBlock Text="Setup" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                            <ListBoxItem AutomationProperties.Name="Extras"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M9,1 A8,8 0 1 0 17,9 C17,6 13,6 12,8 C11,11 8,10 9,7 C10,4 12,2 9,1 Z M5,5 L5,5.2 M4,10 L4,10.2 M8,14 L8,14.2" /><TextBlock Text="Extras" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                        </ListBox>
+                        <StackPanel Grid.Row="2" VerticalAlignment="Bottom" Margin="22,18,10,20">
+                            <TextBlock Text="Made for" FontSize="11" Foreground="{DynamicResource FaintBrush}" />
+                            <TextBlock Text="Forza Horizon 6" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource MutedBrush}" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <Grid x:Name="ContentPane" Grid.Column="1" Margin="24,22,24,0">
+                    <Grid.RenderTransform><TranslateTransform x:Name="ContentTranslation" /></Grid.RenderTransform>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <TextBlock x:Name="PageTitleText" Text="{Binding SelectedItem.Header, ElementName=RootTabs}"
+                               FontSize="23" FontWeight="SemiBold" Margin="0,0,0,18" />
+                    <TabControl x:Name="RootTabs" Grid.Row="1" Style="{StaticResource SidebarPagesStyle}">
+                        <TabItem x:Name="DashboardTab" Header="Dashboard">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <!-- Keep scrolling translation outside the page's scale transform. -->
+                                <Decorator>
+                                <Viewbox x:Name="DashboardScaleView" Stretch="Uniform" StretchDirection="DownOnly"
+                                         HorizontalAlignment="Stretch" VerticalAlignment="Top">
+                                <StackPanel Margin="0,0,0,22"
+                                            Width="{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="1.45*" />
+                                            <ColumnDefinition Width="14" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Style="{StaticResource CardStyle}">
+                                            <StackPanel>
+                                                <TextBlock Text="LIVE DRIVE" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="{Binding StatusText}" FontSize="24" FontWeight="SemiBold"
+                                                           AutomationProperties.LiveSetting="Polite" Margin="0,4,0,0" />
+                                                <TextBlock Text="{Binding StatusDetail}" Foreground="{DynamicResource MutedBrush}"
+                                                           Margin="0,4,0,0" TextWrapping="Wrap" />
+                                                <Grid Margin="0,22,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="1.35*" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="SPEED" Style="{StaticResource DashboardMetricLabelStyle}" />
+                                                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                                            <TextBlock Text="{Binding DashboardSpeed}" FontSize="34" FontWeight="SemiBold" />
+                                                            <TextBlock Text="{Binding DashboardSpeedUnit}" FontSize="10" FontWeight="SemiBold"
+                                                                       Foreground="{DynamicResource MutedBrush}" Margin="5,15,0,0" />
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1">
+                                                        <TextBlock Text="GEAR" Style="{StaticResource DashboardMetricLabelStyle}" />
+                                                        <TextBlock Text="{Binding DashboardGear}" Style="{StaticResource DashboardMetricValueStyle}" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="2">
+                                                        <TextBlock Text="ENGINE" Style="{StaticResource DashboardMetricLabelStyle}" />
+                                                        <TextBlock Text="{Binding EngineRpm}" Style="{StaticResource DashboardMetricValueStyle}" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="3">
+                                                        <TextBlock Text="POWER" Style="{StaticResource DashboardMetricLabelStyle}" />
+                                                        <TextBlock Text="{Binding DashboardPower}" Style="{StaticResource DashboardMetricValueStyle}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+                                            <StackPanel>
+                                                <TextBlock Text="CURRENT VEHICLE" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Vehicle profile" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,12" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="1.25*" /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                                    <TextBlock Text="Car ID" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding CarOrdinal}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="1" Text="Powertrain" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DashboardVehicleType}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="2" Text="Drivetrain" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Drivetrain}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="3" Text="Driven wheels" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedWheels}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="4" Text="Tire profile" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Confidence}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="5" Text="Torque" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DashboardTorque}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
+
+                                    <UniformGrid Columns="3" Margin="0,14,0,0">
+                                        <Border Style="{StaticResource CardStyle}" Margin="0,0,5,0">
+                                            <StackPanel>
+                                                <TextBlock Text="MOTION" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Road and chassis" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,12" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="INDICATED" Style="{StaticResource DashboardMetricLabelStyle}" />
+                                                        <TextBlock Text="{Binding IndicatedSpeed}" Style="{StaticResource DashboardMetricValueStyle}" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1">
+                                                        <TextBlock Text="GROUND" Style="{StaticResource DashboardMetricLabelStyle}" />
+                                                        <TextBlock Text="{Binding GroundSpeed}" Style="{StaticResource DashboardMetricValueStyle}" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Row="1" Margin="0,16,0,0">
+                                                        <TextBlock Text="LATERAL" Style="{StaticResource DashboardMetricLabelStyle}" />
+                                                        <TextBlock Text="{Binding LateralGText}" Style="{StaticResource DashboardMetricValueStyle}" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,16,0,0">
+                                                        <TextBlock Text="LONGITUDINAL" Style="{StaticResource DashboardMetricLabelStyle}" />
+                                                        <TextBlock Text="{Binding LongitudinalGText}" Style="{StaticResource DashboardMetricValueStyle}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Style="{StaticResource CardStyle}" Margin="5,0">
+                                            <StackPanel>
+                                                <TextBlock Text="NATIVE HUD" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Gauge state" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,12" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="1.45*" /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                                    <TextBlock Text="Exact redline" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding ExactNativeRedline}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="1" Text="Tach scale" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding NativeTachScale}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="2" Text="Assists" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding NativeAssistDetails}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="3" Text="Game HUD" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding GameplayHudVisibility}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Style="{StaticResource CardStyle}" Margin="5,0,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="CONNECTION" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Data Out health" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,12" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                                    <TextBlock Text="Packet rate" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding PacketRate}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="1" Text="Packet age" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding PacketAge}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="2" Text="Display rate" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding RenderRate}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                    <TextBlock Grid.Row="3" Text="Rejected" Style="{StaticResource DashboardDataLabelStyle}" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding RejectedPackets}" Style="{StaticResource DashboardDataValueStyle}" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </UniformGrid>
+
+                                    <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="42" Height="42" CornerRadius="21" Background="{DynamicResource RaisedBrush}">
+                                                <TextBlock Text="✓" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           FontSize="18" Foreground="{DynamicResource AccentBrush}" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Margin="15,0" VerticalAlignment="Center">
+                                                <TextBlock Text="HUD controls" FontWeight="SemiBold" FontSize="15" />
+                                                <TextBlock Text="Move or resize the overlay, or refresh the learned tire profile for the current car."
+                                                           Foreground="{DynamicResource MutedBrush}" Margin="0,3,0,0"
+                                                           TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <Button Grid.Column="2" Content="Relearn tires" Margin="0,0,8,0"
+                                                    IsEnabled="{Binding CanRelearnCurrentTires}" Click="RelearnTires_Click" />
+                                            <Button Grid.Column="3" x:Name="LockButton" Content="Edit HUD layout"
+                                                    VerticalAlignment="Center" Click="ToggleLock_Click" />
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                                </Viewbox>
+                                </Decorator>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="Appearance">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <Decorator>
+                                <Viewbox x:Name="AppearanceScaleView" Stretch="Uniform" StretchDirection="DownOnly"
+                                         HorizontalAlignment="Stretch" VerticalAlignment="Top">
+                                <Grid Margin="0,0,0,22"
+                                      Width="{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1.05*" />
+                                        <ColumnDefinition Width="14" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel>
+                                        <Border Style="{StaticResource CardStyle}">
+                                            <StackPanel>
+                                                <TextBlock Text="HUD PREVIEW" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Selected layout" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,4" />
+                                                <TextBlock x:Name="PreviewCaptionText" Text="{Binding PreviewCaption}"
+                                                           FontSize="11" Foreground="{DynamicResource MutedBrush}"
+                                                           TextWrapping="Wrap" Margin="0,0,0,16" />
+                                                <Border x:Name="HudPreviewSurface" Height="330" CornerRadius="12" Background="#080C11"
+                                                        BorderBrush="#243140" BorderThickness="1">
+                                                    <Grid Margin="16">
+                                                        <Grid x:Name="MinimalLayoutPreview">
+                                                            <Grid.Style>
+                                                                <Style TargetType="Grid">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="0">
+                                                                            <Setter Property="Visibility" Value="Visible" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Grid.Style>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="0.75*" />
+                                                                <ColumnDefinition Width="12" />
+                                                                <ColumnDefinition Width="1.25*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Viewbox Margin="18,38" Stretch="Uniform">
+                                                                <Viewbox.Style>
+                                                                    <Style TargetType="Viewbox">
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
+                                                                                <Setter Property="Grid.ColumnSpan" Value="3" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Viewbox.Style>
+                                                                <TextBlock Text="{Binding PreviewSpeed}"
+                                                                           FontFamily="Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"
+                                                                           FontSize="104" FontWeight="SemiBold" />
+                                                            </Viewbox>
+                                                            <Border Grid.Column="2" CornerRadius="11" Background="#E10A0E14"
+                                                                    BorderBrush="#66394A5D" BorderThickness="1">
+                                                                <Border.Style>
+                                                                    <Style TargetType="Border">
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
+                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Border.Style>
+                                                                <local:GForceMeterView Margin="12,10" />
+                                                            </Border>
+                                                        </Grid>
+
+                                                        <Grid x:Name="CombinedLayoutPreview">
+                                                            <Grid.Style>
+                                                                <Style TargetType="Grid">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="1">
+                                                                            <Setter Property="Visibility" Value="Visible" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Grid.Style>
+                                                            <Border x:Name="CombinedPreviewBorder" CornerRadius="11" Background="#E10A0E14"
+                                                                    BorderBrush="{DynamicResource HudBorderBrush}" BorderThickness="1">
+                                                                <Grid Margin="13,11">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="0.78*" />
+                                                                        <ColumnDefinition Width="1" />
+                                                                        <ColumnDefinition Width="1.22*" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <Viewbox Margin="18,34" Stretch="Uniform">
+                                                                        <TextBlock Text="{Binding PreviewSpeed}"
+                                                                                   FontFamily="Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"
+                                                                                   FontSize="104" FontWeight="SemiBold" />
+                                                                    </Viewbox>
+                                                                    <Border Grid.Column="1" Background="#33485C" Margin="0,9" />
+                                                                    <local:GForceMeterView Grid.Column="2" Margin="14,4,0,4" />
+                                                                </Grid>
+                                                            </Border>
+                                                        </Grid>
+
+                                                        <Grid x:Name="SeparateBoxesLayoutPreview">
+                                                            <Grid.Style>
+                                                                <Style TargetType="Grid">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="2">
+                                                                            <Setter Property="Visibility" Value="Visible" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Grid.Style>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="0.75*" />
+                                                                <ColumnDefinition Width="12" />
+                                                                <ColumnDefinition Width="1.25*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border x:Name="SeparateSpeedPreviewBorder" CornerRadius="11" Background="#E10A0E14"
+                                                                    BorderBrush="{DynamicResource HudBorderBrush}" BorderThickness="1">
+                                                                <Border.Style>
+                                                                    <Style TargetType="Border">
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
+                                                                                <Setter Property="Grid.ColumnSpan" Value="3" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Border.Style>
+                                                                <Viewbox Margin="18,34" Stretch="Uniform">
+                                                                    <TextBlock Text="{Binding PreviewSpeed}"
+                                                                               FontFamily="Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"
+                                                                               FontSize="104" FontWeight="SemiBold" />
+                                                                </Viewbox>
+                                                            </Border>
+                                                            <Border x:Name="SeparateGForcePreviewBorder" Grid.Column="2" CornerRadius="11" Background="#E10A0E14"
+                                                                    BorderBrush="{DynamicResource HudBorderBrush}" BorderThickness="1">
+                                                                <Border.Style>
+                                                                    <Style TargetType="Border">
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
+                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Border.Style>
+                                                                <local:GForceMeterView Margin="12,10" />
+                                                            </Border>
+                                                        </Grid>
+
+                                                        <Grid x:Name="NativeLayoutPreview">
+                                                            <Grid.Style>
+                                                                <Style TargetType="Grid">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="3">
+                                                                            <Setter Property="Visibility" Value="Visible" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Grid.Style>
+                                                            <Viewbox x:Name="NativePreviewScaleView" Stretch="Uniform"
+                                                                     HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                <Grid>
+                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                        <StackPanel.Style>
+                                                                            <Style TargetType="StackPanel">
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding NativeGaugeSelectionIndex}" Value="1">
+                                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </StackPanel.Style>
+                                                                        <local:NativeGForceMeterView HorizontalAlignment="Center" Margin="0,0,0,12">
+                                                                            <local:NativeGForceMeterView.Style>
+                                                                                <Style TargetType="local:NativeGForceMeterView">
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
+                                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </local:NativeGForceMeterView.Style>
+                                                                        </local:NativeGForceMeterView>
+                                                                        <Grid>
+                                                                            <local:NativeDigitalSpeedometer Frame="{Binding NativePreviewFrame}">
+                                                                                <local:NativeDigitalSpeedometer.Style>
+                                                                                    <Style TargetType="local:NativeDigitalSpeedometer">
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding NativePreviewFrame.IsElectric}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:NativeDigitalSpeedometer.Style>
+                                                                            </local:NativeDigitalSpeedometer>
+                                                                            <local:NativeElectricDigitalSpeedometer Frame="{Binding NativePreviewFrame}">
+                                                                                <local:NativeElectricDigitalSpeedometer.Style>
+                                                                                    <Style TargetType="local:NativeElectricDigitalSpeedometer">
+                                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding NativePreviewFrame.IsElectric}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:NativeElectricDigitalSpeedometer.Style>
+                                                                            </local:NativeElectricDigitalSpeedometer>
+                                                                        </Grid>
+                                                                    </StackPanel>
+                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                        <StackPanel.Style>
+                                                                            <Style TargetType="StackPanel">
+                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding NativeGaugeSelectionIndex}" Value="1">
+                                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </StackPanel.Style>
+                                                                        <local:NativeGForceMeterView HorizontalAlignment="Center" Margin="0,0,0,12">
+                                                                            <local:NativeGForceMeterView.Style>
+                                                                                <Style TargetType="local:NativeGForceMeterView">
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
+                                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </local:NativeGForceMeterView.Style>
+                                                                        </local:NativeGForceMeterView>
+                                                                        <Grid>
+                                                                            <local:NativeAnalogSpeedometer Frame="{Binding NativePreviewFrame}">
+                                                                                <local:NativeAnalogSpeedometer.Style>
+                                                                                    <Style TargetType="local:NativeAnalogSpeedometer">
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding NativePreviewFrame.IsElectric}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:NativeAnalogSpeedometer.Style>
+                                                                            </local:NativeAnalogSpeedometer>
+                                                                            <local:NativeElectricAnalogSpeedometer Frame="{Binding NativePreviewFrame}">
+                                                                                <local:NativeElectricAnalogSpeedometer.Style>
+                                                                                    <Style TargetType="local:NativeElectricAnalogSpeedometer">
+                                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding NativePreviewFrame.IsElectric}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:NativeElectricAnalogSpeedometer.Style>
+                                                                            </local:NativeElectricAnalogSpeedometer>
+                                                                        </Grid>
+                                                                    </StackPanel>
+                                                                </Grid>
+                                                            </Viewbox>
+                                                        </Grid>
+                                                    </Grid>
+                                                </Border>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Margin="0,14,0,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="1">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <Grid>
+                                                <StackPanel>
+                                                    <TextBlock Text="SEPARATE G-METER" Style="{StaticResource EyebrowTextStyle}" />
+                                                    <TextBlock Text="Show the standalone meter" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" />
+                                                    <TextBlock Text="Adds a separate movable meter. Combined mode keeps its built-in meter."
+                                                               FontSize="11" Foreground="{DynamicResource FaintBrush}" Margin="0,5,60,0"
+                                                               TextWrapping="Wrap" LineHeight="16" />
+                                                </StackPanel>
+                                                <CheckBox HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                          IsChecked="{Binding GForceEnabled}"
+                                                          AutomationProperties.Name="Show standalone G-meter"
+                                                          Style="{StaticResource ToggleSwitchStyle}"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                            </Grid>
+                                        </Border>
+
+                                        <Border x:Name="CombinedGForceNotice" Margin="0,14,0,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="1">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <StackPanel>
+                                                <TextBlock Text="G-METER INCLUDED" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Combined uses one G-meter" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" />
+                                                <TextBlock Text="The shared panel already includes G-force. Choose Minimal or Two boxes to use the standalone movable meter."
+                                                           TextWrapping="Wrap" FontSize="11" LineHeight="16"
+                                                           Foreground="{DynamicResource FaintBrush}" Margin="0,5,0,0" />
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="FH6 AUTOMATION" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Ready when you drive" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,17" />
+
+                                                <CheckBox Content="Game-aware visibility"
+                                                          IsChecked="{Binding GameAwareVisibility}"
+                                                          Style="{StaticResource ToggleSwitchStyle}"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="Shows the HUD while driving and hides it in menus and loading screens."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" LineHeight="16" Margin="54,5,0,0" />
+
+                                                <CheckBox Content="Minimize when driving starts"
+                                                          IsChecked="{Binding AutoMinimizeOnTelemetry}"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,18,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="Minimizes this window when driving begins. Your overlays stay in place."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" LineHeight="16" Margin="54,5,0,0" />
+
+                                                <CheckBox x:Name="StartWithForzaToggle" Content="Start with Forza"
+                                                          IsChecked="{Binding StartWithForza}"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,18,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="Keeps a small companion in the Windows tray. Opens Wisp when FH6 starts; closing Wisp returns it to waiting. Choose Exit Wisp in the tray to quit."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" LineHeight="16" Margin="54,5,0,0" />
+
+                                                <CheckBox x:Name="StartMinimizedWithForzaToggle" Content="Start minimized with Forza"
+                                                          IsChecked="{Binding StartMinimizedWithForza}" IsEnabled="{Binding StartWithForza}"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="18,13,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="Keeps the dashboard minimized on game-triggered launches. Opening Wisp yourself still shows the dashboard."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" LineHeight="16" Margin="72,5,0,0" />
+
+                                                <CheckBox x:Name="StartWithWindowsToggle" Content="Start Wisp with Windows"
+                                                          IsChecked="{Binding StartWithWindows}"
+                                                          IsEnabled="{Binding CanSetWindowsStartup}"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,18,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="Starts the full companion minimized when you sign in. Start with Forza takes priority and runs only the quiet watcher until the game opens."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" LineHeight="16" Margin="54,5,0,0" />
+
+                                                <CheckBox Content="Traction hook cue"
+                                                          IsChecked="{Binding TractionCueEnabled}"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,18,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="Briefly accents the speed number when driven-wheel slip converges with road speed."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" LineHeight="16" Margin="54,5,0,0" />
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="2">
+                                        <Border Style="{StaticResource CardStyle}">
+                                            <StackPanel>
+                                                <TextBlock Text="DISPLAY" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="HUD controls" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,18" />
+
+                                                <TextBlock Text="Layout" Foreground="{DynamicResource MutedBrush}" />
+                                                <Border Margin="0,7,0,17" Background="{DynamicResource InputBrush}" CornerRadius="9" Padding="3">
+                                                    <UniformGrid Columns="4">
+                                                        <RadioButton x:Name="MinimalLayoutRadio" GroupName="Layout" Content="Minimal"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="Layout_Checked" />
+                                                        <RadioButton x:Name="CombinedLayoutRadio" GroupName="Layout" Content="Combined"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="Layout_Checked" />
+                                                        <RadioButton x:Name="SeparateBoxesLayoutRadio" GroupName="Layout" Content="Two boxes"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="Layout_Checked" />
+                                                        <RadioButton x:Name="NativeLayoutRadio" GroupName="Layout" Content="Native"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="Layout_Checked" />
+                                                    </UniformGrid>
+                                                </Border>
+
+                                                <StackPanel Margin="0,0,0,17">
+                                                    <StackPanel.Style>
+                                                        <Style TargetType="StackPanel">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="3">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </StackPanel.Style>
+                                                    <TextBlock Text="Native speedometer" Foreground="{DynamicResource MutedBrush}" />
+                                                    <Border Margin="0,7,0,0" Background="{DynamicResource InputBrush}" CornerRadius="9" Padding="3">
+                                                        <UniformGrid Columns="2">
+                                                            <RadioButton x:Name="NativeDigitalRadio" GroupName="NativeGauge" Content="Digital"
+                                                                         Style="{StaticResource SegmentRadioStyle}" Checked="NativeGauge_Checked" />
+                                                            <RadioButton x:Name="NativeAnalogueRadio" GroupName="NativeGauge" Content="Analogue"
+                                                                         Style="{StaticResource SegmentRadioStyle}" Checked="NativeGauge_Checked" />
+                                                        </UniformGrid>
+                                                    </Border>
+                                                    <TextBlock Text="Turn off FH6's stock speedometer to use Native in its place. Digital and analogue automatically adapt to electric vehicles."
+                                                               TextWrapping="Wrap" FontSize="11" LineHeight="16"
+                                                               Foreground="{DynamicResource FaintBrush}" Margin="0,8,0,0" />
+                                                    <TextBlock Text="{Binding ExactRedlineStateText, StringFormat=Exact redline: {0}}"
+                                                               TextWrapping="Wrap" FontSize="11" LineHeight="16"
+                                                               Foreground="{DynamicResource FaintBrush}" Margin="0,5,0,0" />
+                                                </StackPanel>
+
+                                                <TextBlock Text="Speed source" Foreground="{DynamicResource MutedBrush}" />
+                                                <Border Margin="0,7,0,0" Background="{DynamicResource InputBrush}" CornerRadius="9" Padding="3">
+                                                    <UniformGrid Columns="2">
+                                                        <RadioButton x:Name="WheelSpeedSourceRadio" GroupName="SpeedSource" Content="Wheel-indicated"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="SpeedSource_Checked" />
+                                                        <RadioButton x:Name="Fh6SpeedSourceRadio" GroupName="SpeedSource" Content="FH6 speed"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="SpeedSource_Checked" />
+                                                    </UniformGrid>
+                                                </Border>
+                                                <TextBlock Text="Wheel-indicated follows driven-wheel rotation. FH6 speed mirrors the game's vehicle-speed value directly, with no tire learning or smoothing."
+                                                           TextWrapping="Wrap" FontSize="11" LineHeight="16"
+                                                           Foreground="{DynamicResource FaintBrush}" Margin="0,8,0,17" />
+
+                                                <TextBlock Text="Gear display" Foreground="{DynamicResource MutedBrush}" />
+                                                <Border Margin="0,7,0,0" Background="{DynamicResource InputBrush}" CornerRadius="9" Padding="3">
+                                                    <UniformGrid Columns="2">
+                                                        <RadioButton x:Name="AutomaticGearDisplayRadio" GroupName="GearDisplay" Content="Automatic (D)"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="GearDisplay_Checked" />
+                                                        <RadioButton x:Name="ManualGearDisplayRadio" GroupName="GearDisplay" Content="Manual (1–10)"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="GearDisplay_Checked" />
+                                                    </UniformGrid>
+                                                </Border>
+                                                <TextBlock Text="Automatic shows D on every Native gauge. Wisp retains the physical forward gear for telemetry and shift logic."
+                                                           TextWrapping="Wrap" FontSize="11" LineHeight="16"
+                                                           Foreground="{DynamicResource FaintBrush}" Margin="0,8,0,17" />
+
+                                                <TextBlock Text="Units" Foreground="{DynamicResource MutedBrush}" />
+                                                <Border Margin="0,7,0,0" Background="{DynamicResource InputBrush}" CornerRadius="9" Padding="3">
+                                                    <UniformGrid Columns="2">
+                                                        <RadioButton x:Name="MphRadio" GroupName="Units" Content="MPH"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="Unit_Checked" />
+                                                        <RadioButton x:Name="KphRadio" GroupName="Units" Content="KM/H"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="Unit_Checked" />
+                                                    </UniformGrid>
+                                                </Border>
+
+                                                <Grid Margin="0,18,0,5">
+                                                    <TextBlock Text="Speed panel size" Foreground="{DynamicResource MutedBrush}" />
+                                                    <TextBlock Text="50–200%" HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" FontSize="11" />
+                                                </Grid>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="12" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <Grid Margin="0,0,0,3">
+                                                            <TextBlock Text="WIDTH" Style="{StaticResource EyebrowTextStyle}" />
+                                                            <TextBlock Text="{Binding OverlayWidthScale, StringFormat={}{0:P0}}"
+                                                                       HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" />
+                                                        </Grid>
+                                                        <Slider Minimum="0.5" Maximum="2" Value="{Binding OverlayWidthScale}"
+                                                                AutomationProperties.Name="Speed panel width"
+                                                                TickFrequency="0.05" ValueChanged="Option_Changed" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="2">
+                                                        <Grid Margin="0,0,0,3">
+                                                            <TextBlock Text="HEIGHT" Style="{StaticResource EyebrowTextStyle}" />
+                                                            <TextBlock Text="{Binding OverlayHeightScale, StringFormat={}{0:P0}}"
+                                                                       HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" />
+                                                        </Grid>
+                                                        <Slider Minimum="0.5" Maximum="2" Value="{Binding OverlayHeightScale}"
+                                                                AutomationProperties.Name="Speed panel height"
+                                                                TickFrequency="0.05" ValueChanged="Option_Changed" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <StackPanel>
+                                                    <StackPanel.Style>
+                                                        <Style TargetType="StackPanel">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="1">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </StackPanel.Style>
+                                                    <Grid Margin="0,13,0,5">
+                                                        <TextBlock Text="Standalone G-meter size" Foreground="{DynamicResource MutedBrush}" />
+                                                        <TextBlock Text="50–200%" HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" FontSize="11" />
+                                                    </Grid>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="12" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel>
+                                                            <Grid Margin="0,0,0,3">
+                                                                <TextBlock Text="WIDTH" Style="{StaticResource EyebrowTextStyle}" />
+                                                                <TextBlock Text="{Binding GForceWidthScale, StringFormat={}{0:P0}}"
+                                                                           HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" />
+                                                            </Grid>
+                                                            <Slider Minimum="0.5" Maximum="2" Value="{Binding GForceWidthScale}"
+                                                                    AutomationProperties.Name="G-meter width"
+                                                                    TickFrequency="0.05" ValueChanged="Option_Changed" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="2">
+                                                            <Grid Margin="0,0,0,3">
+                                                                <TextBlock Text="HEIGHT" Style="{StaticResource EyebrowTextStyle}" />
+                                                                <TextBlock Text="{Binding GForceHeightScale, StringFormat={}{0:P0}}"
+                                                                           HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" />
+                                                            </Grid>
+                                                            <Slider Minimum="0.5" Maximum="2" Value="{Binding GForceHeightScale}"
+                                                                    AutomationProperties.Name="G-meter height"
+                                                                    TickFrequency="0.05" ValueChanged="Option_Changed" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </StackPanel>
+
+                                                <StackPanel Margin="0,15,0,0">
+                                                    <StackPanel.Style>
+                                                        <Style TargetType="StackPanel">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="3">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </StackPanel.Style>
+                                                    <TextBlock Text="Native G-force axes" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,8" />
+                                                    <CheckBox Content="Invert lateral axis (X)"
+                                                              IsChecked="{Binding InvertLateralG}"
+                                                              Style="{StaticResource ToggleSwitchStyle}"
+                                                              Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                    <TextBlock Text="Default: left turn moves the bubble right."
+                                                               TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                               FontSize="11" Margin="54,4,0,0" />
+                                                    <CheckBox Content="Invert longitudinal axis (Y)"
+                                                              IsChecked="{Binding InvertLongitudinalG}"
+                                                              Style="{StaticResource ToggleSwitchStyle}" Margin="0,13,0,0"
+                                                              Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                    <TextBlock Text="Default: acceleration moves down and braking moves up."
+                                                               TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                               FontSize="11" Margin="54,4,0,0" />
+                                                </StackPanel>
+
+                                                <Grid Margin="0,13,0,5">
+                                                    <TextBlock Text="Opacity" Foreground="{DynamicResource MutedBrush}" />
+                                                    <TextBlock Text="{Binding OverlayOpacity, StringFormat={}{0:P0}}" HorizontalAlignment="Right"
+                                                               Foreground="{DynamicResource FaintBrush}" FontSize="11" />
+                                                </Grid>
+                                                <Slider Minimum="0.35" Maximum="1" Value="{Binding OverlayOpacity}"
+                                                        AutomationProperties.Name="HUD opacity"
+                                                        TickFrequency="0.05" ValueChanged="Option_Changed" />
+
+                                                <Grid Margin="0,13,0,5">
+                                                    <TextBlock Text="Speed smoothing" Foreground="{DynamicResource MutedBrush}" />
+                                                    <TextBlock Text="{Binding Smoothing, StringFormat={}{0:P0}}" HorizontalAlignment="Right"
+                                                               Foreground="{DynamicResource FaintBrush}" FontSize="11" />
+                                                </Grid>
+                                                <Slider Minimum="0" Maximum="1" Value="{Binding Smoothing}"
+                                                        AutomationProperties.Name="Wheel-speed smoothing"
+                                                        TickFrequency="0.05" ValueChanged="Option_Changed" />
+
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="POSITION" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Arrange overlays" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,10" />
+                                                <TextBlock Text="Edit mode unlocks both windows. Each keeps its own position per monitor and resolution."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" LineHeight="19" />
+                                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                                    <Button x:Name="AppearanceLockButton" Content="Edit HUD layout" Click="ToggleLock_Click" />
+                                                    <Button Content="Reset HUD positions" Margin="8,0,0,0" Click="ResetPosition_Click" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                                </Viewbox>
+                                </Decorator>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="Diagnostics">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <Decorator>
+                                <Viewbox x:Name="DiagnosticsScaleView" Stretch="Uniform" StretchDirection="DownOnly"
+                                         HorizontalAlignment="Stretch" VerticalAlignment="Top">
+                                <StackPanel Margin="0,0,0,22"
+                                            Width="{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}">
+                                    <Border Style="{StaticResource CardStyle}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="28" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="CONNECTION" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Telemetry stream" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,16" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                                    </Grid.RowDefinitions>
+                                                    <TextBlock Text="Packet rate" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding PacketRate}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="1" Text="Packet age" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding PacketAge}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="2" Text="Display rate" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding RenderRate}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="3" Text="Rejected" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding RejectedPackets}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="4" Text="Car ID" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding CarOrdinal}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="5" Text="Drivetrain" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding Drivetrain}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                </Grid>
+                                            </StackPanel>
+
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="VEHICLE MODEL" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Wheel-speed calculation" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,16" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="1.4*" /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                                    </Grid.RowDefinitions>
+                                                    <TextBlock Text="Ground speed" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding GroundSpeed}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="1" Text="Indicated" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding IndicatedSpeed}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" TextWrapping="Wrap" TextAlignment="Right" />
+                                                    <TextBlock Grid.Row="2" Text="Wheel rad/s" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding WheelSpeeds}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" FontSize="10" Margin="0,6" TextWrapping="Wrap" TextAlignment="Right" />
+                                                    <TextBlock Grid.Row="3" Text="Slip ratios" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SlipRatios}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" FontSize="10" Margin="0,6" TextWrapping="Wrap" TextAlignment="Right" />
+                                                    <TextBlock Grid.Row="4" Text="Rolling radius" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Radius}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" TextWrapping="Wrap" TextAlignment="Right" />
+                                                    <TextBlock Grid.Row="5" Text="Driven wheels" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelectedWheels}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="6" Text="Engine RPM" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding EngineRpm}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="7" Text="Maximum RPM" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding EngineMaximumRpm}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="8" Text="Native tach scale" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding NativeTachScale}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" FontSize="11" Margin="0,6" TextWrapping="Wrap" TextAlignment="Right" />
+                                                    <TextBlock Grid.Row="9" Text="Native assists" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="9" Grid.Column="1" Text="{Binding NativeAssistState}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" Margin="0,6" TextWrapping="Wrap" TextAlignment="Right" />
+                                                    <TextBlock Grid.Row="10" Text="Assist states" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="10" Grid.Column="1" Text="{Binding NativeAssistDetails}" HorizontalAlignment="Right" FontFamily="Cascadia Mono, Consolas" FontSize="10" Margin="0,6" TextWrapping="Wrap" TextAlignment="Right" />
+                                                </Grid>
+                                                <Button Content="Relearn current tires" HorizontalAlignment="Right" Margin="0,14,0,0"
+                                                        IsEnabled="{Binding CanRelearnCurrentTires}"
+                                                        Click="RelearnTires_Click"
+                                                        ToolTip="Use after changing wheel or tire diameter on this car." />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+
+                                    <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="28" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="EXACT NATIVE REDLINE" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Game compatibility" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,16" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition /><RowDefinition /><RowDefinition />
+                                                    </Grid.RowDefinitions>
+                                                    <TextBlock Text="State" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding ExactRedlineStateText}" HorizontalAlignment="Right"
+                                                               TextWrapping="Wrap" TextAlignment="Right"
+                                                               FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="1" Text="Source" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ExactRedlineSource}" HorizontalAlignment="Right"
+                                                               TextWrapping="Wrap" TextAlignment="Right" FontSize="11"
+                                                               FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="2" Text="Build validation" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding NativeCompatibilityValidation}" HorizontalAlignment="Right"
+                                                               TextWrapping="Wrap" TextAlignment="Right" FontSize="10"
+                                                               FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                </Grid>
+                                                <TextBlock x:Name="CompatibilityStatusText" Text="{Binding NativeCompatibilityUpdates}" Foreground="{DynamicResource MutedBrush}"
+                                                           TextWrapping="Wrap" FontSize="11" Margin="0,10,0,0"
+                                                           AutomationProperties.LiveSetting="Polite" />
+                                                <WrapPanel Margin="0,8,0,0">
+                                                    <Button x:Name="CompatibilityCheckButton" Content="Check compatibility" IsEnabled="{Binding CanCheckNativeCompatibility}"
+                                                            Click="CheckCompatibility_Click" FontSize="11" Margin="0,0,8,0"
+                                                            ToolTip="Available when a signed update publisher is configured. Bundled support works offline."
+                                                            ToolTipService.ShowOnDisabled="True" />
+                                                    <Button x:Name="CompatibilityImportButton" Content="Import signed pack" IsEnabled="{Binding CanImportNativeCompatibility}"
+                                                            Click="ImportCompatibility_Click" FontSize="11"
+                                                            ToolTip="Available when a trusted publisher key is configured."
+                                                            ToolTipService.ShowOnDisabled="True" />
+                                                </WrapPanel>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="CURRENT CAR" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Native HUD capabilities" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,16" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="1.45*" /></Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                                    </Grid.RowDefinitions>
+                                                    <TextBlock Text="Exact redline" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding ExactNativeRedline}" HorizontalAlignment="Right"
+                                                               FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="1" Text="Rendered scale" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding NativeTachScale}" HorizontalAlignment="Right"
+                                                               TextWrapping="Wrap" TextAlignment="Right" FontSize="11"
+                                                               FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="2" Text="Native assists" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding NativeAssistState}" HorizontalAlignment="Right"
+                                                               TextWrapping="Wrap" TextAlignment="Right" FontSize="10"
+                                                               FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
+                                                    <TextBlock Grid.Row="3" Text="Gameplay HUD visibility" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding GameplayHudVisibility, Mode=OneWay}" HorizontalAlignment="Right"
+                                                               TextWrapping="Wrap" TextAlignment="Right" FontSize="10"
+                                                               FontFamily="Cascadia Mono, Consolas" Margin="0,6"
+                                                               ToolTip="Guarded gameplay HUD state. Stale means the last observation is older than 250 ms." />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                                </Viewbox>
+                                </Decorator>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem x:Name="SetupTab" Header="Setup">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <Decorator>
+                                <Viewbox x:Name="SetupScaleView" Stretch="Uniform" StretchDirection="DownOnly"
+                                         HorizontalAlignment="Stretch" VerticalAlignment="Top">
+                                <StackPanel Margin="0,0,0,22"
+                                            Width="{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}">
+                                    <TextBlock Text="CONNECT THE GAME" Style="{StaticResource EyebrowTextStyle}" />
+                                    <TextBlock Text="One-time FH6 setup" FontSize="28" FontWeight="SemiBold" Margin="0,4,0,5" />
+                                    <TextBlock Text="Connect once, then choose FH6 speed or wheel-indicated speed in Appearance."
+                                               Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" />
+
+                                    <UniformGrid Columns="3" Margin="0,20,0,0">
+                                        <Border Style="{StaticResource CardStyle}" Margin="0,0,9,0">
+                                            <StackPanel>
+                                                <TextBlock Text="01" FontSize="28" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" />
+                                                <TextBlock Text="Open Data Out" FontSize="17" FontWeight="SemiBold" Margin="0,12,0,0" />
+                                                <TextBlock Text="FH6 → Settings → HUD and Gameplay. Enable Data Out."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" LineHeight="20" Margin="0,7,0,0" />
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Style="{StaticResource CardStyle}" Margin="5,0">
+                                            <StackPanel>
+                                                <TextBlock Text="02" FontSize="28" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" />
+                                                <TextBlock Text="Keep it local" FontSize="17" FontWeight="SemiBold" Margin="0,12,0,0" />
+                                                <TextBlock Text="Set the Data Out IP to 127.0.0.1. No telemetry leaves this PC."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" LineHeight="20" Margin="0,7,0,0" />
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Style="{StaticResource CardStyle}" Margin="9,0,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="03" FontSize="28" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" />
+                                                <TextBlock Text="Match the port" FontSize="17" FontWeight="SemiBold" Margin="0,12,0,0" />
+                                                <DockPanel Margin="0,9,0,0">
+                                                    <Button DockPanel.Dock="Right" Content="Apply" Margin="8,0,0,0"
+                                                            Style="{StaticResource PrimaryButtonStyle}" Click="ApplyPort_Click" />
+                                                    <TextBox Text="{Binding UdpPortText, UpdateSourceTrigger=PropertyChanged}"
+                                                             AutomationProperties.Name="FH6 Data Out UDP port" />
+                                                </DockPanel>
+                                                <TextBlock Text="Avoid ports 5200–5300." Foreground="{DynamicResource FaintBrush}" FontSize="11" Margin="0,7,0,0" />
+                                            </StackPanel>
+                                        </Border>
+                                    </UniformGrid>
+
+                                    <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                            <TextBlock Text="!" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource WarningBrush}" VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                                                <TextBlock Text="Fullscreen compatibility" FontWeight="SemiBold" />
+                                                <TextBlock Text="Use borderless fullscreen so Wisp can appear over FH6. If the overlay is hidden, check this display setting first."
+                                                           Foreground="{DynamicResource MutedBrush}" Margin="0,3,0,0"
+                                                           TextWrapping="Wrap" LineHeight="19" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+
+                                </StackPanel>
+                                </Viewbox>
+                                </Decorator>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem x:Name="ExtrasTab" Header="Extras">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Margin="0,0,0,22">
+                                    <Border Style="{StaticResource CardStyle}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Margin="0,0,24,0">
+                                                <TextBlock Text="APPLICATION UPDATE" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Application updates" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,0" />
+                                                <TextBlock Text="{Binding ApplicationUpdateStatus}" Foreground="{DynamicResource MutedBrush}"
+                                                           TextWrapping="Wrap" Margin="0,7,0,0"
+                                                           AutomationProperties.LiveSetting="Polite" />
+                                                <TextBlock Text="Immutable GitHub release assets are checked for an exact version, size, and SHA-256 match before installation."
+                                                           Foreground="{DynamicResource FaintBrush}" FontSize="11" LineHeight="16"
+                                                           TextWrapping="Wrap" Margin="0,8,0,0" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding InstalledApplicationVersion, StringFormat={}Version {0}}"
+                                                           HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" Margin="0,0,0,9" />
+                                                <Button x:Name="ApplicationUpdateButton"
+                                                        Content="{Binding ApplicationUpdateAction}"
+                                                        IsEnabled="{Binding CanCheckApplicationUpdate}"
+                                                        Style="{StaticResource PrimaryButtonStyle}"
+                                                        Click="CheckApplicationUpdate_Click"
+                                                        AutomationProperties.Name="Check for Wisp updates" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+
+                                    <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="Make it yours" Style="{StaticResource SectionTitleStyle}" />
+                                                <TextBlock Text="Choose the app colors and boxed HUD outline independently. Native remains unchanged."
+                                                           Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,0" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+
+                                    <WrapPanel x:Name="ThemePickerLayout" Margin="-10,20,-10,-24"
+                                               HorizontalAlignment="Center">
+                                    <StackPanel Width="440" Margin="10,0,10,24">
+                                    <Grid>
+                                        <StackPanel>
+                                            <TextBlock Text="ACCENT COLOR" Style="{StaticResource EyebrowTextStyle}" />
+                                            <TextBlock Text="Highlights, selections, and status color" Foreground="{DynamicResource MutedBrush}"
+                                                       TextWrapping="Wrap" Margin="0,4,130,0" />
+                                        </StackPanel>
+                                        <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="10,5">
+                                            <TextBlock x:Name="ActiveThemeName" Text="Aqua" Foreground="{DynamicResource AccentBrush}"
+                                                       FontSize="12" AutomationProperties.Name="Active accent theme" />
+                                        </Border>
+                                    </Grid>
+                                    <ListBox x:Name="ThemePicker" Margin="-4,14,-4,0" Padding="0"
+                                             Background="Transparent" BorderThickness="0"
+                                             ItemsSource="{x:Static local:AppColorThemes.All}" SelectedValuePath="Name"
+                                             ItemContainerStyle="{StaticResource ThemeChoiceStyle}"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                             SelectionChanged="ThemePicker_SelectionChanged" AutomationProperties.Name="App color palette">
+                                        <ListBox.ItemsPanel>
+                                            <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type local:AppColorTheme}">
+                                                <StackPanel>
+                                                    <Grid Height="30">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="1.2*" />
+                                                            <ColumnDefinition Width="1.2*" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Background="{DynamicResource WindowBrush}" CornerRadius="4,0,0,4" />
+                                                        <Border Grid.Column="1" Background="{DynamicResource RaisedBrush}" />
+                                                        <Border Grid.Column="2" Background="{Binding Accent}" CornerRadius="0,4,4,0" />
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}"
+                                                               AutomationProperties.Name="{Binding Name, StringFormat={}Accent theme: {0}}"
+                                                               FontSize="12" Margin="0,10,20,0" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+
+                                    </StackPanel>
+                                    <StackPanel Width="440" Margin="10,0,10,24">
+                                    <Grid>
+                                        <StackPanel>
+                                            <TextBlock Text="BACKGROUND" Style="{StaticResource EyebrowTextStyle}" />
+                                            <TextBlock Text="Window, panel, and control surfaces" Foreground="{DynamicResource MutedBrush}"
+                                                       TextWrapping="Wrap" Margin="0,4,130,0" />
+                                        </StackPanel>
+                                        <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="10,5">
+                                            <TextBlock x:Name="ActiveBackgroundThemeName" Text="Neutral"
+                                                       Foreground="{DynamicResource AccentBrush}" FontSize="12"
+                                                       AutomationProperties.Name="Active background theme" />
+                                        </Border>
+                                    </Grid>
+                                    <ListBox x:Name="BackgroundThemePicker" Margin="-4,14,-4,0" Padding="0"
+                                             Background="Transparent" BorderThickness="0"
+                                             ItemsSource="{x:Static local:AppBackgroundThemes.All}" SelectedValuePath="Name"
+                                             ItemContainerStyle="{StaticResource ThemeChoiceStyle}"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                             SelectionChanged="BackgroundThemePicker_SelectionChanged"
+                                             AutomationProperties.Name="App background palette">
+                                        <ListBox.ItemsPanel>
+                                            <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type local:AppBackgroundTheme}">
+                                                <StackPanel>
+                                                    <Border Height="30" BorderBrush="{Binding Stroke}" BorderThickness="1" CornerRadius="4">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border Background="{Binding Window}" CornerRadius="3,0,0,3" />
+                                                            <Border Grid.Column="1" Background="{Binding Panel}" />
+                                                            <Border Grid.Column="2" Background="{Binding Card}" />
+                                                            <Border Grid.Column="3" Background="{Binding Raised}" CornerRadius="0,3,3,0" />
+                                                        </Grid>
+                                                    </Border>
+                                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}"
+                                                               AutomationProperties.Name="{Binding Name, StringFormat={}Background theme: {0}}"
+                                                               FontSize="12" Margin="0,10,20,0" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    </StackPanel>
+                                    <StackPanel Width="440" Margin="10,0,10,24">
+                                    <Grid>
+                                        <StackPanel>
+                                            <TextBlock Text="HUD BORDER" Style="{StaticResource EyebrowTextStyle}" />
+                                            <TextBlock Text="Panel outline in Combined and Two boxes" Foreground="{DynamicResource MutedBrush}"
+                                                       TextWrapping="Wrap" Margin="0,4,130,0" />
+                                        </StackPanel>
+                                        <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="10,5">
+                                            <TextBlock x:Name="ActiveHudBorderThemeName" Text="Aqua"
+                                                       Foreground="{DynamicResource TextBrush}" FontSize="12"
+                                                       AutomationProperties.Name="Active HUD border theme" />
+                                        </Border>
+                                    </Grid>
+                                    <ListBox x:Name="HudBorderThemePicker" Margin="-4,14,-4,0" Padding="0"
+                                             Background="Transparent" BorderThickness="0"
+                                             ItemsSource="{x:Static local:AppColorThemes.All}" SelectedValuePath="Name"
+                                             ItemContainerStyle="{StaticResource ThemeChoiceStyle}"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                             SelectionChanged="HudBorderThemePicker_SelectionChanged"
+                                             AutomationProperties.Name="HUD border color palette">
+                                        <ListBox.ItemsPanel>
+                                            <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type local:AppColorTheme}">
+                                                <StackPanel>
+                                                    <Grid Height="30">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="1.2*" />
+                                                            <ColumnDefinition Width="1.2*" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Background="{DynamicResource WindowBrush}" CornerRadius="4,0,0,4" />
+                                                        <Border Grid.Column="1" Background="{DynamicResource RaisedBrush}" />
+                                                        <Border Grid.Column="2" Background="{Binding Accent}" CornerRadius="0,4,4,0" />
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}"
+                                                               AutomationProperties.Name="{Binding Name, StringFormat={}HUD border theme: {0}}"
+                                                               FontSize="12" Margin="0,10,20,0" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    </StackPanel>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </Grid>
+
+            <Grid Grid.Row="2" Margin="29,0">
+                <TextBlock Text="LOCAL DATA OUT  ·  READ-ONLY NATIVE HUD  ·  NO INJECTION" VerticalAlignment="Center"
+                           FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource FaintBrush}" />
+                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.1" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           FontSize="10" Foreground="{DynamicResource FaintBrush}" />
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

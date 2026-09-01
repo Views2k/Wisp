@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RuntimeFrameworkVersion>8.0.30</RuntimeFrameworkVersion>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <AssemblyName>Wisp.Updater</AssemblyName>
+    <RootNamespace>Wisp.Updater</RootNamespace>
+    <Product>Wisp</Product>
+    <AssemblyTitle>Wisp Update Helper</AssemblyTitle>
+    <Description>Applies verified Wisp updates after the app exits.</Description>
+    <Version>1.0.1</Version>
+    <FileVersion>1.0.1.0</FileVersion>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Wisp.Update\Wisp.Update.csproj" />
+  </ItemGroup>
+</Project>

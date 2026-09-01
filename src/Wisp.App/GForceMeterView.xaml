@@ -1,0 +1,85 @@
+<UserControl x:Class="Wisp.App.GForceMeterView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             IsHitTestVisible="False">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="18" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="18" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="HeaderPanel">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsNativeLayout}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
+            <TextBlock Text="G-FORCE" FontFamily="Bahnschrift, Segoe UI"
+                       FontSize="10" FontWeight="SemiBold" Foreground="#A9B7C7"
+                       VerticalAlignment="Top" />
+            <TextBlock Text="{Binding GForceScaleText}" HorizontalAlignment="Right" VerticalAlignment="Top"
+                       FontFamily="Bahnschrift, Segoe UI" FontSize="9"
+                       Foreground="#607083" />
+        </Grid>
+
+        <Grid Grid.Row="1" Width="150" Height="84" ClipToBounds="False">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsNativeLayout}" Value="True">
+                            <Setter Property="Grid.Row" Value="0" />
+                            <Setter Property="Grid.RowSpan" Value="3" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
+            <Ellipse Width="76" Height="76" Stroke="#344557" StrokeThickness="1" />
+            <Ellipse Width="57" Height="57" Stroke="#2E3D4D" StrokeThickness="1" />
+            <Ellipse Width="38" Height="38" Stroke="#293747" StrokeThickness="1" />
+            <Ellipse Width="19" Height="19" Stroke="#23303D" StrokeThickness="1" />
+            <Rectangle Height="1" Fill="#566A80" Margin="6,0" />
+            <Rectangle Width="1" Fill="#566A80" Margin="0,6" />
+
+            <TextBlock Text="L" HorizontalAlignment="Left" VerticalAlignment="Center"
+                       FontFamily="Bahnschrift, Segoe UI" FontSize="8" Foreground="#75869A" />
+            <TextBlock Text="R" HorizontalAlignment="Right" VerticalAlignment="Center"
+                       FontFamily="Bahnschrift, Segoe UI" FontSize="8" Foreground="#75869A" />
+            <TextBlock Text="BRAKE" HorizontalAlignment="Center" VerticalAlignment="Top"
+                       FontFamily="Bahnschrift, Segoe UI" FontSize="7" Foreground="#75869A" />
+            <TextBlock Text="ACCEL" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                       FontFamily="Bahnschrift, Segoe UI" FontSize="7" Foreground="#75869A" />
+
+            <Ellipse Width="14" Height="14" Fill="{StaticResource AccentBrush}"
+                     HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Ellipse.RenderTransform>
+                    <TranslateTransform X="{Binding GForceOffsetX}" Y="{Binding GForceOffsetY}" />
+                </Ellipse.RenderTransform>
+                <Ellipse.Effect>
+                    <DropShadowEffect Color="#55E6C1" BlurRadius="12" ShadowDepth="0" Opacity="0.8" />
+                </Ellipse.Effect>
+            </Ellipse>
+        </Grid>
+
+        <Grid x:Name="ReadoutPanel" Grid.Row="2">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsNativeLayout}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
+            <TextBlock Text="{Binding LateralGText}" FontFamily="Bahnschrift, Segoe UI"
+                       FontSize="10" Foreground="#C4CFDB" VerticalAlignment="Bottom" />
+            <TextBlock Text="{Binding LongitudinalGText}" HorizontalAlignment="Right"
+                       VerticalAlignment="Bottom" FontFamily="Bahnschrift, Segoe UI"
+                       FontSize="10" Foreground="#C4CFDB" />
+        </Grid>
+    </Grid>
+</UserControl>
