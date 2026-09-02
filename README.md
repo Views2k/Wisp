@@ -67,18 +67,18 @@ See [Boost Gauge](docs/BOOST-GAUGE.md),
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/images/native-digital-hud.png" alt="Wisp Digital Native HUD with boost and tire-temperature rails during FH6 gameplay">
-      <br><sub>Digital Native HUD with attached boost and front/rear tire-temperature rails.</sub>
+      <img src="docs/images/themes.png" alt="Wisp Appearance page showing the Native Analogue HUD preview and overlay controls">
+      <br><sub>Appearance controls with the complete Native Analogue HUD preview.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/native-analogue-hud.png" alt="Wisp Analogue Native HUD with attached boost and tire-temperature dials during FH6 gameplay">
-      <br><sub>Analogue Native HUD with attached boost and dual-needle tire-temperature dials.</sub>
+      <img src="docs/images/native-digital-hud.png" alt="Wisp Digital Native HUD with boost and tire-temperature rails during FH6 gameplay">
+      <br><sub>Digital Native HUD with attached boost and front/rear tire-temperature rails.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/images/themes.png" alt="Wisp theme controls">
-      <br><sub>Accent, background, HUD border, and telemetry-gauge palettes are selected independently.</sub>
+      <img src="docs/images/native-analogue-hud.png" alt="Wisp Analogue Native HUD with attached boost and tire-temperature dials during FH6 gameplay">
+      <br><sub>Analogue Native HUD with attached boost and dual-needle tire-temperature dials.</sub>
     </td>
     <td width="50%">
       <img src="docs/images/diagnostics.png" alt="Wisp diagnostics with populated telemetry data">
