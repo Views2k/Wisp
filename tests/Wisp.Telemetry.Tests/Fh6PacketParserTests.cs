@@ -21,6 +21,8 @@ public sealed class Fh6PacketParserTests
         Assert.Equal(256, Fh6PacketLayout.GroundSpeed);
         Assert.Equal(260, Fh6PacketLayout.Power);
         Assert.Equal(264, Fh6PacketLayout.Torque);
+        Assert.Equal(268, Fh6PacketLayout.TireTemperature);
+        Assert.Equal(284, Fh6PacketLayout.Boost);
         Assert.Equal(315, Fh6PacketLayout.Accelerator);
         Assert.Equal(316, Fh6PacketLayout.Brake);
         Assert.Equal(319, Fh6PacketLayout.Gear);
@@ -45,6 +47,8 @@ public sealed class Fh6PacketParserTests
         Assert.False(state.IsElectric);
         Assert.Equal(425_000f, state.PowerWatts);
         Assert.Equal(612.5f, state.TorqueNm);
+        Assert.Equal(new WheelValues(218.5f, 221.5f, 203.5f, 206.5f), state.TireTemperatureFahrenheit);
+        Assert.Equal(0f, state.BoostPressurePsi);
         Assert.Equal(42.25f, state.GroundSpeedMetersPerSecond);
         Assert.Equal(-5.2f, state.LateralAccelerationMetersPerSecondSquared);
         Assert.Equal(0.4f, state.LongitudinalAccelerationMetersPerSecondSquared);
@@ -53,6 +57,37 @@ public sealed class Fh6PacketParserTests
         Assert.Equal(-24, state.Steering);
         Assert.Equal(receivedAt, state.ReceivedAtUtc);
         Assert.Null(state.ReceivedTimestamp);
+    }
+
+    [Fact]
+    public void ParsesBoostPressureFromTheDashChannel()
+    {
+        var packet = Fh6PacketFixture.Create();
+        Fh6PacketFixture.WriteSingle(packet, Fh6PacketLayout.Boost, 29.3437f);
+
+        var parsed = _parser.TryParse(packet, DateTimeOffset.UtcNow, out var state, out var error);
+
+        Assert.True(parsed);
+        Assert.Equal(PacketParseError.None, error);
+        Assert.NotNull(state);
+        Assert.Equal(29.3437f, state.BoostPressurePsi);
+    }
+
+    [Fact]
+    public void ParsesTireTemperaturesFromTheDashChannel()
+    {
+        var packet = Fh6PacketFixture.Create();
+        Fh6PacketFixture.WriteSingle(packet, Fh6PacketLayout.TireTemperature, 251.25f);
+        Fh6PacketFixture.WriteSingle(packet, Fh6PacketLayout.TireTemperature + 4, 252.75f);
+        Fh6PacketFixture.WriteSingle(packet, Fh6PacketLayout.TireTemperature + 8, 233.5f);
+        Fh6PacketFixture.WriteSingle(packet, Fh6PacketLayout.TireTemperature + 12, 234.5f);
+
+        var parsed = _parser.TryParse(packet, DateTimeOffset.UtcNow, out var state, out var error);
+
+        Assert.True(parsed);
+        Assert.Equal(PacketParseError.None, error);
+        Assert.NotNull(state);
+        Assert.Equal(new WheelValues(251.25f, 252.75f, 233.5f, 234.5f), state.TireTemperatureFahrenheit);
     }
 
     [Theory]
@@ -147,6 +182,8 @@ public sealed class Fh6PacketParserTests
     [Theory]
     [InlineData(Fh6PacketLayout.Power)]
     [InlineData(Fh6PacketLayout.Torque)]
+    [InlineData(Fh6PacketLayout.TireTemperature)]
+    [InlineData(Fh6PacketLayout.Boost)]
     public void RejectsNonFinitePowertrainTelemetry(int offset)
     {
         var packet = Fh6PacketFixture.Create();

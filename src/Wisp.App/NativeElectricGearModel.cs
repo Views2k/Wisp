@@ -6,11 +6,12 @@ internal static class NativeElectricGearModel
 {
     public static string? CurrentToken(
         NativeElectricGearState state,
-        NativeGaugeMode mode)
+        NativeGaugeMode mode,
+        TransmissionGear telemetryGear = TransmissionGear.Unknown)
     {
         if (!state.Available)
         {
-            return null;
+            return TelemetryToken(telemetryGear, mode);
         }
 
         return mode == NativeGaugeMode.Digital
@@ -66,4 +67,20 @@ internal static class NativeElectricGearModel
         11 => "N",
         _ => null
     };
+
+    private static string? TelemetryToken(TransmissionGear gear, NativeGaugeMode mode) =>
+        mode == NativeGaugeMode.Digital
+            ? gear switch
+            {
+                TransmissionGear.Reverse => "R",
+                TransmissionGear.Neutral => "N",
+                >= TransmissionGear.First and <= TransmissionGear.Tenth => "Drive",
+                _ => null
+            }
+            : gear switch
+            {
+                TransmissionGear.Reverse => "Reverse",
+                >= TransmissionGear.First and <= TransmissionGear.Tenth => "Drive",
+                _ => null
+            };
 }

@@ -41,6 +41,16 @@ public sealed class HudPreviewSampleTests
         Assert.Equal(7_000d, preview.ExactRedline.Rpm);
         Assert.Equal(8_000d, preview.TachometerMaximumRpm);
         Assert.Equal("Illustrative preview only", preview.ExactRedline.Source);
+        Assert.True(viewModel.PreviewBoostDisplay.IsAvailable);
+        Assert.Equal(24, viewModel.PreviewBoostDisplay.PressurePsi);
+        Assert.Equal(32, viewModel.PreviewBoostDisplay.LearnedPeakPsi);
+        Assert.Equal(0.75, viewModel.PreviewBoostDisplay.Fraction);
+        Assert.Equal(70, viewModel.PreviewBoostDisplay.ScaleMaximumPsi);
+        Assert.True(viewModel.PreviewTireTemperatureDisplay.IsAvailable);
+        Assert.Equal(286, viewModel.PreviewTireTemperatureDisplay.FrontFahrenheit);
+        Assert.Equal(272, viewModel.PreviewTireTemperatureDisplay.RearFahrenheit);
+        Assert.Equal((286d - 50) / 300, viewModel.PreviewTireTemperatureDisplay.FrontFraction);
+        Assert.Equal((272d - 50) / 300, viewModel.PreviewTireTemperatureDisplay.RearFraction);
         Assert.Equal(0, preview.CarOrdinal);
         Assert.Equal(0u, preview.GameTimestampMilliseconds);
         Assert.False(preview.NativeAssists.Available);

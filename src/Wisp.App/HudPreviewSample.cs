@@ -7,6 +7,20 @@ internal static class HudPreviewSample
     public const string Caption = "Sample preview · illustrative values, not live FH6 data";
     private const double SpeedMetersPerSecond = 30;
 
+    public static BoostDisplay Boost { get; } = new(
+        IsAvailable: true,
+        PressurePsi: 24,
+        LearnedPeakPsi: 32,
+        Fraction: 0.75,
+        ScaleMaximumPsi: 70);
+
+    public static TireTemperatureDisplay TireTemperature { get; } = new(
+        IsAvailable: true,
+        FrontFahrenheit: 286,
+        RearFahrenheit: 272,
+        FrontFraction: (286d - 50) / 300,
+        RearFraction: (272d - 50) / 300);
+
     // This illustrative frame belongs only to the settings preview, never the live overlay.
     private static readonly NativeGaugeFrame Frame = new(
         true,

@@ -9,6 +9,49 @@ namespace Wisp.App.Tests;
 
 public sealed class NativeGaugeLifecycleTests
 {
+    [Fact]
+    public void TransientNativeReadFailureKeepsTheVerifiedTachometerMaterialForTheSameCar()
+    {
+        var verified = Frame(314, 7_200, 0);
+        var transient = verified with
+        {
+            EngineRpm = 1_200,
+            ExactRedline = ExactRedlineResult.Unavailable(ExactRedlineStatus.TelemetryMismatch),
+            TachometerMaximumRpm = 0,
+            NativeGaugeSourceInvalidated = false
+        };
+
+        var stable = transient.PreserveStableTachometerState(verified);
+
+        Assert.Equal(verified.ExactRedline, stable.ExactRedline);
+        Assert.Equal(verified.TachometerMaximumRpm, stable.TachometerMaximumRpm);
+        Assert.Equal(1_200, stable.EngineRpm);
+    }
+
+    [Fact]
+    public void DefinitiveInvalidationOrCarChangeClearsThePreviousTachometerMaterial()
+    {
+        var verified = Frame(314, 7_200, 0);
+        var unavailable = verified with
+        {
+            ExactRedline = ExactRedlineResult.Unavailable(),
+            TachometerMaximumRpm = 0,
+            NativeGaugeSourceInvalidated = true
+        };
+        var nextCar = unavailable with
+        {
+            CarOrdinal = 3766,
+            NativeGaugeSourceInvalidated = false
+        };
+
+        Assert.False(NativeGaugeGeometry.HasExactTachometerState(
+            unavailable.PreserveStableTachometerState(verified).ExactRedline,
+            unavailable.PreserveStableTachometerState(verified).TachometerMaximumRpm));
+        Assert.False(NativeGaugeGeometry.HasExactTachometerState(
+            nextCar.PreserveStableTachometerState(verified).ExactRedline,
+            nextCar.PreserveStableTachometerState(verified).TachometerMaximumRpm));
+    }
+
     [Theory]
     [InlineData(10, 900d)]
     [InlineData(20, 900d)]

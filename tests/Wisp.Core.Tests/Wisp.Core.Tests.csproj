@@ -16,5 +16,6 @@
     <Compile Include="..\..\src\Wisp.App\AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="..\..\src\Wisp.App\AppColorThemes.cs" Link="AppColorThemes.cs" />
     <Compile Include="..\..\src\Wisp.App\AppBackgroundThemes.cs" Link="AppBackgroundThemes.cs" />
+    <Compile Include="..\..\src\Wisp.App\BoostGaugeThemes.cs" Link="BoostGaugeThemes.cs" />
   </ItemGroup>
 </Project>

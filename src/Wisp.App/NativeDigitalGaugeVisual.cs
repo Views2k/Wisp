@@ -16,6 +16,14 @@ public sealed class NativeDigitalGaugeVisual : FrameworkElement
     public void UpdateFrame(NativeGaugeFrame frame)
     {
         var parameters = GaugeParametersFor(frame);
+        UpdateGaugeParameters(parameters.X, parameters.Y);
+    }
+
+    internal void UpdateGaugeParameters(double currentFraction, double redlineFraction)
+    {
+        var parameters = new Point(
+            Math.Clamp(currentFraction, 0, 1),
+            Math.Clamp(redlineFraction, 0, 1));
         if (_effect.GaugeParameters != parameters)
         {
             _effect.GaugeParameters = parameters;

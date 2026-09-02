@@ -1,7 +1,7 @@
 ![Wisp header](docs/images/wisp-header.png)
 
 <p align="center">
-  <strong>A wheel-indicated speed and G-force panel/companion for Forza Horizon 6.</strong><br><br>
+  <strong>A wheel-indicated speed, boost, tire-temperature, and G-force companion for Forza Horizon 6.</strong><br><br>
   <a href="https://github.com/Views2k/Wisp/releases/latest"><strong>Download</strong></a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
@@ -19,14 +19,44 @@ FH6 Data Out supplies the local telemetry stream. Wisp learns the effective
 rolling radius of the current tires, applies the correct driven-wheel model for
 FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
 
+## New in 1.0.5
+
+Wisp 1.0.5 expands both Native HUD layouts without replacing their existing
+speedometer, tachometer, or material assets.
+
+- **Boost pressure:** a 0 to 70 PSI Analogue dial or a slim Digital rail, with
+  fifteen palettes, optional reactive numbers, attached and detached placement,
+  and a stock-material Digital mode.
+- **Tire temperature:** exact front and rear axle averages in one Digital rail
+  or one dual-needle Analogue dial, with Fahrenheit and Celsius readouts.
+- **Complete Native stack:** boost, tire temperature, and G-force can attach to
+  the speedometer as one aligned layout. Each added gauge can also be moved and
+  scaled independently.
+- **HUD refinements:** the electric gear indicator is restored, the Appearance
+  page is grouped into focused sections, the G-force trail lasts longer, and the
+  Appearance preview shows the complete attached arrangement.
+
+See [Boost Gauge](docs/BOOST-GAUGE.md),
+[Tire Temperature](docs/TIRE-TEMPERATURE.md), and the
+[1.0.5 release notes](Wisp-1.0.5-release-notes.md) for details.
+
 ## Features
 
 - Wheel-indicated speed with separate front and rear calibration for staggered
   AWD setups.
 - Digital and Analogue Native HUD layouts for combustion and electric cars.
+- A live boost gauge for confirmed turbocharged and supercharged cars. Digital
+  mode adds a rail below the tachometer, while Analogue mode adds a 0 to 70 PSI
+  dial with 5 PSI ticks.
+- Absolute PSI readouts, a learned per-car color scale, optional colored PSI
+  numbers, attached or detached Analogue placement, fifteen color palettes,
+  and an independent Digital option that uses the stock tachometer material.
+- Front and rear tire-temperature gauges for both Native layouts. Digital mode
+  uses two markers in one neutral rail with no colored fill, while Analogue mode
+  uses two solid-color needles in one dial. Values support Fahrenheit and Celsius.
 - Live RPM, gear, driver assists, electric power, regeneration, and redline
   state when the installed FH6 build supports those sources.
-- Standalone or integrated G-force display.
+- Standalone or Native-attached G-force display with a longer motion trail.
 - A vehicle dashboard for speed, RPM, drivetrain, power, torque, controls, and
   connection status.
 - Game-aware overlay visibility for driving, menus, loading screens, cutscenes,
@@ -42,22 +72,22 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/images/electric-hud.png" alt="Electric Native HUD settings">
-      <br><sub>Electric Native HUD preview with deterministic sample values.</sub>
+      <img src="docs/images/native-digital-hud.png" alt="Wisp Digital Native HUD with boost and tire-temperature rails during FH6 gameplay">
+      <br><sub>Digital Native HUD with attached boost and front/rear tire-temperature rails.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/themes.png" alt="Wisp theme controls">
-      <br><sub>Accent, background, and HUD border palettes are selected independently.</sub>
+      <img src="docs/images/native-analogue-hud.png" alt="Wisp Analogue Native HUD with attached boost and tire-temperature dials during FH6 gameplay">
+      <br><sub>Analogue Native HUD with attached boost and dual-needle tire-temperature dials.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/images/diagnostics.png" alt="Wisp diagnostics with populated telemetry data">
-      <br><sub>Diagnostics populated with deterministic telemetry and Native HUD capability data.</sub>
+      <img src="docs/images/themes.png" alt="Wisp theme controls">
+      <br><sub>Accent, background, HUD border, and telemetry-gauge palettes are selected independently.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/setup.png" alt="Wisp setup wizard">
-      <br><sub>The required setup checks Data Out, display settings, and HUD preferences.</sub>
+      <img src="docs/images/diagnostics.png" alt="Wisp diagnostics with populated telemetry data">
+      <br><sub>Diagnostics populated with deterministic telemetry and Native HUD capability data.</sub>
     </td>
   </tr>
 </table>
@@ -187,6 +217,8 @@ To build the self-contained installer:
 
 ## Documentation
 
+- [Boost Gauge](docs/BOOST-GAUGE.md)
+- [Tire Temperature](docs/TIRE-TEMPERATURE.md)
 - [How Wisp Was Built](docs/HOW-WISP-WAS-BUILT.md)
 - [Wheel-Speed Model](docs/WHEEL-SPEED-MODEL.md)
 - [Compatibility and Update Safety](docs/COMPATIBILITY.md)

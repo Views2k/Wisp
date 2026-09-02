@@ -182,7 +182,7 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void ExtrasOffersThreeIndependentAccessiblePalettePickers()
+    public void ExtrasOffersFourIndependentAccessiblePalettePickers()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var extras = document.Descendants(Presentation + "TabItem")
@@ -192,7 +192,7 @@ public sealed class XamlContractTests
         var pickerPanels = layout.Elements(Presentation + "StackPanel").ToArray();
 
         Assert.Equal("Center", layout.Attribute("HorizontalAlignment")?.Value);
-        Assert.Equal(3, pickerPanels.Length);
+        Assert.Equal(4, pickerPanels.Length);
         Assert.All(pickerPanels, panel =>
         {
             Assert.Equal("440", panel.Attribute("Width")?.Value);
@@ -205,10 +205,13 @@ public sealed class XamlContractTests
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "BackgroundThemePicker");
         var hudBorder = extras.Descendants(Presentation + "ListBox")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "HudBorderThemePicker");
+        var boost = extras.Descendants(Presentation + "ListBox")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "BoostThemePicker");
 
         Assert.Same(pickerPanels[0], accent.Parent);
         Assert.Same(pickerPanels[1], background.Parent);
         Assert.Same(pickerPanels[2], hudBorder.Parent);
+        Assert.Same(pickerPanels[3], boost.Parent);
 
         AssertThemePickerContract(
             accent,
@@ -234,9 +237,18 @@ public sealed class XamlContractTests
             "{x:Type local:AppColorTheme}",
             "HUD border theme: {0}",
             ["Name", "Accent"]);
+        AssertThemePickerContract(
+            boost,
+            "{x:Static local:BoostGaugeThemes.All}",
+            "BoostThemePicker_SelectionChanged",
+            "Boost and tire gauge color palette",
+            "{x:Type local:BoostGaugeTheme}",
+            "Boost and tire gauge theme: {0}",
+            ["Name", "Low", "Mid", "High"]);
 
         Assert.Equal(15, AppColorThemes.All.Count);
         Assert.Equal(15, AppBackgroundThemes.All.Count);
+        Assert.Equal(16, BoostGaugeThemes.All.Count);
         var activeBackground = extras.Descendants(Presentation + "TextBlock")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "ActiveBackgroundThemeName");
         Assert.Equal(AppBackgroundThemes.DefaultName, activeBackground.Attribute("Text")?.Value);
@@ -249,7 +261,7 @@ public sealed class XamlContractTests
         var footer = document.Descendants(Presentation + "TextBlock")
             .Single(element => element.Attribute("Text")?.Value?.StartsWith(
                 "WHEEL-INDICATED SPEED PANEL", StringComparison.Ordinal) == true);
-        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.4", footer.Attribute("Text")?.Value);
+        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.5", footer.Attribute("Text")?.Value);
     }
 
     [Fact]
@@ -513,7 +525,7 @@ public sealed class XamlContractTests
         var source = File.ReadAllText(Path.Combine(AppSourceDirectory(), "GForceTrailView.cs"));
 
         Assert.Contains("private readonly Point[] _samples = new Point[Capacity];", source, StringComparison.Ordinal);
-        Assert.Contains("internal const int Capacity = 8;", source, StringComparison.Ordinal);
+        Assert.Contains("internal const int Capacity = 38;", source, StringComparison.Ordinal);
         Assert.Contains(
             "private readonly Pen?[] _segmentPens = new Pen?[GForceTrailHistory.Capacity - 1];",
             source,
@@ -552,6 +564,44 @@ public sealed class XamlContractTests
         Assert.All(gauges, gauge => Assert.Equal("{Binding NativePreviewFrame}", gauge.Attribute("Frame")?.Value));
         Assert.Contains(document.Descendants(Presentation + "TextBlock"), element =>
             element.Attribute("Text")?.Value == "{Binding PreviewCaption}");
+    }
+
+    [Fact]
+    public void NativePreviewIncludesConfiguredBoostAndTireTemperatureGauges()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var digital = document.Descendants(Local + "DigitalBoostRailView")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeDigitalBoostPreview");
+        var analogue = document.Descendants(Local + "AnalogBoostGaugeView")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeAnalogBoostPreview");
+        var digitalTire = document.Descendants(Local + "DigitalTireTemperatureGaugeView")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeDigitalTireTemperaturePreview");
+        var analogueTire = document.Descendants(Local + "AnalogTireTemperatureGaugeView")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeAnalogTireTemperaturePreview");
+
+        Assert.Equal("{Binding PreviewBoostDisplay}", digital.Attribute("Display")?.Value);
+        Assert.Equal("{Binding DigitalBoostGaugeColorNumber}", digital.Attribute("ColorNumber")?.Value);
+        Assert.Equal("{Binding DigitalBoostGaugeStockColors}", digital.Attribute("UseStockColors")?.Value);
+        Assert.Equal("{Binding PreviewBoostDisplay}", analogue.Attribute("Display")?.Value);
+        Assert.Equal("{Binding BoostGaugeColorNumber}", analogue.Attribute("ColorNumber")?.Value);
+        Assert.Contains("{Binding BoostGaugeEnabled}", digital.ToString(), StringComparison.Ordinal);
+        Assert.Contains("{Binding BoostGaugeEnabled}", analogue.ToString(), StringComparison.Ordinal);
+        Assert.Contains("{Binding BoostGaugeAttached}", analogue.ToString(), StringComparison.Ordinal);
+        Assert.Equal("{Binding PreviewTireTemperatureDisplay}", digitalTire.Attribute("Display")?.Value);
+        Assert.Equal("{Binding PreviewTireTemperatureDisplay}", analogueTire.Attribute("Display")?.Value);
+        Assert.Equal("{Binding SelectedTireTemperatureUnit}", digitalTire.Attribute("TemperatureUnit")?.Value);
+        Assert.Equal("{Binding SelectedTireTemperatureUnit}", analogueTire.Attribute("TemperatureUnit")?.Value);
+        Assert.Equal("{Binding TireTemperatureReactiveColors}", digitalTire.Attribute("ReactiveColors")?.Value);
+        Assert.Equal("{Binding TireTemperatureReactiveColors}", analogueTire.Attribute("ReactiveColors")?.Value);
+        Assert.Contains("{Binding TireTemperatureGaugeEnabled}", digitalTire.ToString(), StringComparison.Ordinal);
+        Assert.Contains("{Binding TireTemperatureGaugeEnabled}", analogueTire.ToString(), StringComparison.Ordinal);
+
+        var digitalMeter = digital.Parent!.Elements(Local + "NativeGForceMeterView").Single();
+        Assert.Contains("176,0,0,0", digitalMeter.ToString(), StringComparison.Ordinal);
+        Assert.Contains("{Binding GForceAttached}", digitalMeter.ToString(), StringComparison.Ordinal);
+        var analogueMeter = analogue.Parent!.Elements(Local + "NativeGForceMeterView").Single();
+        Assert.Contains("195,0,0,0", analogueMeter.ToString(), StringComparison.Ordinal);
+        Assert.Contains("{Binding GForceAttached}", analogueMeter.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1058,7 +1108,7 @@ public sealed class XamlContractTests
         Assert.Contains("OverlayPlacementGeometry.ClampInside", gForceSource, StringComparison.Ordinal);
         Assert.Contains("EnsureHandle", gForceSource, StringComparison.Ordinal);
         Assert.Contains("GForceOverlay.ResetPositionBelow", controllerSource, StringComparison.Ordinal);
-        Assert.Contains("GForceOverlay.ResetPositionAbove", controllerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("GForceOverlay.ResetPositionAbove", controllerSource, StringComparison.Ordinal);
     }
 
     [Fact]

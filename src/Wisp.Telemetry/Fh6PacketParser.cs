@@ -18,6 +18,7 @@ public sealed class Fh6PacketParser
     private const int MaximumPlausibleCylinderCount = 32;
     private const float MaximumPlausibleAbsolutePowerWatts = 100_000_000;
     private const float MaximumPlausibleAbsoluteTorqueNm = 10_000_000;
+    private const float MaximumPlausibleAbsoluteBoostPsi = 200;
 
     public bool TryParse(
         ReadOnlySpan<byte> packet,
@@ -58,12 +59,15 @@ public sealed class Fh6PacketParser
         var groundSpeed = ReadSingle(packet, Fh6PacketLayout.GroundSpeed);
         var powerWatts = ReadSingle(packet, Fh6PacketLayout.Power);
         var torqueNm = ReadSingle(packet, Fh6PacketLayout.Torque);
+        var tireTemperatureFahrenheit = ReadWheels(packet, Fh6PacketLayout.TireTemperature);
+        var boostPressurePsi = ReadSingle(packet, Fh6PacketLayout.Boost);
         var numCylinders = ReadInt32(packet, Fh6PacketLayout.NumCylinders);
 
         if (!wheelRotation.AreFinite() || !slipRatio.AreFinite() || !slipAngle.AreFinite() ||
             !suspension.AreFinite() || !float.IsFinite(maximumRpm) || !float.IsFinite(currentRpm) ||
             !float.IsFinite(lateralAcceleration) || !float.IsFinite(longitudinalAcceleration) ||
-            !float.IsFinite(groundSpeed) || !float.IsFinite(powerWatts) || !float.IsFinite(torqueNm))
+            !float.IsFinite(groundSpeed) || !float.IsFinite(powerWatts) || !float.IsFinite(torqueNm) ||
+            !tireTemperatureFahrenheit.AreFinite() || !float.IsFinite(boostPressurePsi))
         {
             error = PacketParseError.NonFiniteValue;
             return false;
@@ -73,7 +77,8 @@ public sealed class Fh6PacketParser
             currentRpm is < 0 or > 40_000 || wheelRotation.MaximumAbsolute() > 10_000 ||
             numCylinders is < 0 or > MaximumPlausibleCylinderCount ||
             MathF.Abs(powerWatts) > MaximumPlausibleAbsolutePowerWatts ||
-            MathF.Abs(torqueNm) > MaximumPlausibleAbsoluteTorqueNm)
+            MathF.Abs(torqueNm) > MaximumPlausibleAbsoluteTorqueNm ||
+            MathF.Abs(boostPressurePsi) > MaximumPlausibleAbsoluteBoostPsi)
         {
             error = PacketParseError.ImplausibleValue;
             return false;
@@ -90,6 +95,8 @@ public sealed class Fh6PacketParser
             NumCylinders = numCylinders,
             PowerWatts = powerWatts,
             TorqueNm = torqueNm,
+            TireTemperatureFahrenheit = tireTemperatureFahrenheit,
+            BoostPressurePsi = boostPressurePsi,
             GroundSpeedMetersPerSecond = groundSpeed,
             WheelRotationRadiansPerSecond = wheelRotation,
             TireSlipRatio = slipRatio,
