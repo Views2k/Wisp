@@ -450,12 +450,18 @@ public sealed class XamlContractTests
             .Single(setter => setter.Attribute("Property")?.Value == "BorderBrush");
         Assert.Equal(themedBrush, themedBorder.Attribute("Value")?.Value);
 
-        var editBorder = gForce.Descendants(Presentation + "Border")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "EditBorder");
-        Assert.Contains(
-            editBorder.Descendants(Presentation + "Setter"),
-            setter => setter.Attribute("Property")?.Value == "BorderBrush" &&
-                      setter.Attribute("Value")?.Value == "{StaticResource AccentBrush}");
+        foreach (var document in new[] { overlay, gForce })
+        {
+            var editBorder = document.Descendants(Presentation + "Border")
+                .Single(element => element.Attribute(Xaml + "Name")?.Value == "EditBorder");
+            var editBorderBrush = editBorder
+                .Element(Presentation + "Border.Style")!
+                .Element(Presentation + "Style")!
+                .Elements(Presentation + "Setter")
+                .Single(setter => setter.Attribute("Property")?.Value == "BorderBrush");
+
+            Assert.Equal("Transparent", editBorderBrush.Attribute("Value")?.Value);
+        }
     }
 
     [Fact]
