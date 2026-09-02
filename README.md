@@ -59,13 +59,8 @@ See [Boost Gauge](docs/BOOST-GAUGE.md),
 - Standalone or Native-attached G-force display with a longer motion trail.
 - A vehicle dashboard for speed, RPM, drivetrain, power, torque, controls, and
   connection status.
-- Game-aware overlay visibility for driving, menus, loading screens, cutscenes,
-  and alt-tab.
 - Fifteen palettes that can be selected independently for the application
   accent, dark background, and HUD border.
-- No account, analytics, or driving-telemetry upload. External Internet access
-  occurs only when the user selects **Check for updates**; compatibility-contract
-  networking is disabled in the current build.
 
 ## Gallery
 
