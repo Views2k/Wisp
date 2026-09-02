@@ -93,7 +93,7 @@
                 <Border x:Name="EditBorder" Margin="4" CornerRadius="12" BorderThickness="1">
                     <Border.Style>
                         <Style TargetType="Border">
-                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter Property="BorderBrush" Value="Transparent" />
                             <Setter Property="Opacity" Value="1" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsNativeLayout}" Value="True">
