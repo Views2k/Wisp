@@ -175,6 +175,7 @@ jobs:
         run: ./installer/Build-Installer.ps1 -InnoCompiler (Resolve-Path .\work\innosetup\ISCC.exe).Path
 
       - name: Test installer lifecycle
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $project = [xml](Get-Content -LiteralPath .\src\Wisp.App\Wisp.App.csproj -Raw)
