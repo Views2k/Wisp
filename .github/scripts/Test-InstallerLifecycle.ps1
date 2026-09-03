@@ -73,16 +73,27 @@ function Invoke-CheckedProcess {
     param(
         [string]$Path,
         [string[]]$Arguments,
-        [string]$Label
+        [string]$Label,
+        [int]$TimeoutSeconds = 180
     )
 
-    $process = Start-Process `
-        -FilePath $Path `
-        -ArgumentList $Arguments `
-        -Wait `
-        -PassThru
-    if ($process.ExitCode -ne 0) {
-        throw "$Label failed with exit code $($process.ExitCode)."
+    Write-Output "$Label started."
+    $process = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
+    try {
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            $process.Kill($true)
+            if (-not $process.WaitForExit(10000)) {
+                Write-Warning "$Label did not terminate after it was stopped."
+            }
+            throw "$Label exceeded its $TimeoutSeconds-second timeout."
+        }
+        if ($process.ExitCode -ne 0) {
+            throw "$Label failed with exit code $($process.ExitCode)."
+        }
+        Write-Output "$Label completed."
+    }
+    finally {
+        $process.Dispose()
     }
 }
 
