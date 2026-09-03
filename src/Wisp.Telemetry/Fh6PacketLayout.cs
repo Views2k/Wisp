@@ -24,6 +24,8 @@ public static class Fh6PacketLayout
     public const int GroundSpeed = 256;
     public const int Power = 260;
     public const int Torque = 264;
+    public const int TireTemperature = 268;
+    public const int Boost = 284;
     public const int Accelerator = 315;
     public const int Brake = 316;
     public const int Gear = 319;

@@ -34,6 +34,29 @@ public readonly record struct NativeGaugeFrame(
 {
     public NativeAssistSnapshot NativeAssists => Assists ?? NativeAssistSnapshot.Unavailable();
 
+    public NativeGaugeFrame PreserveStableTachometerState(NativeGaugeFrame previous)
+    {
+        if (NativeGaugeGeometry.HasExactTachometerState(ExactRedline, TachometerMaximumRpm) ||
+            NativeGaugeSourceInvalidated || CarOrdinal <= 0 || previous.CarOrdinal != CarOrdinal ||
+            !NativeGaugeGeometry.HasExactTachometerState(
+                previous.ExactRedline,
+                previous.TachometerMaximumRpm))
+        {
+            return this;
+        }
+
+        // RPM changes much faster than the independent process-memory sample.
+        // A torn comparison during a shift can reject one refresh even though
+        // the car and its static tachometer scale have not changed. Keep the
+        // last verified scale for that same car until the source is explicitly
+        // invalidated, rather than blanking the native material for one frame.
+        return this with
+        {
+            ExactRedline = previous.ExactRedline,
+            TachometerMaximumRpm = previous.TachometerMaximumRpm
+        };
+    }
+
     public static NativeGaugeFrame Empty(SpeedUnit unit) =>
         new(
             false,

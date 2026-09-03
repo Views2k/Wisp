@@ -5,7 +5,10 @@ namespace Wisp.App;
 
 internal sealed class GForceTrailHistory
 {
-    internal const int Capacity = 8;
+    // Native HUD state is published at 60 Hz. Thirty additional samples keep
+    // the existing trail visible for another half second without adding a
+    // second animation or polling loop.
+    internal const int Capacity = 38;
     internal const double MinimumMovementPixels = 0.75;
     private const double MinimumMovementSquared = MinimumMovementPixels * MinimumMovementPixels;
 

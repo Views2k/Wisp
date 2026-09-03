@@ -1,0 +1,24 @@
+<Window x:Class="Wisp.App.BoostGaugeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Wisp.App"
+        Title="Wisp Boost" Width="148" Height="148"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
+        Background="Transparent" Topmost="False" ShowInTaskbar="False" ShowActivated="False">
+    <Window.Resources>
+        <SolidColorBrush x:Key="BoostLowBrush" Color="#48D9F1" />
+        <SolidColorBrush x:Key="BoostMidBrush" Color="#397FF7" />
+        <SolidColorBrush x:Key="BoostHighBrush" Color="#A45CFF" />
+    </Window.Resources>
+    <Viewbox x:Name="RootViewbox" Stretch="Uniform" Opacity="0">
+        <Grid Width="148" Height="148" Background="Transparent">
+            <local:AnalogBoostGaugeView Width="140" Height="140" Margin="4"
+                                        Display="{Binding BoostDisplay}"
+                                        ColorNumber="{Binding BoostGaugeColorNumber}"
+                                        IsElectricMaterial="{Binding NativeGaugeFrame.IsElectric}"
+                                        LowBrush="{DynamicResource BoostLowBrush}"
+                                        MidBrush="{DynamicResource BoostMidBrush}"
+                                        HighBrush="{DynamicResource BoostHighBrush}" />
+        </Grid>
+    </Viewbox>
+</Window>

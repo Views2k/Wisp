@@ -210,6 +210,18 @@ public sealed class NativeRenderLifetimeTests
         Layout(control);
         Assert.Same(NativeAssetCache.Get(family, family == NativeAssetFamily.Electric
             ? "HUD_EV_Gear_Drive.png" : "HUD_Dial_Digital_Gear_Drive.png"), gear.Source);
+
+        control.Visibility = Visibility.Collapsed;
+        control.SetValue(frameProperty, first with
+        {
+            Gear = TransmissionGear.Reverse,
+            ElectricGearState = NativeElectricGearState.Unavailable
+        });
+        control.Visibility = Visibility.Visible;
+        Layout(control);
+        Assert.Equal(Visibility.Visible, gear.Visibility);
+        Assert.Same(NativeAssetCache.Get(family, family == NativeAssetFamily.Electric
+            ? "HUD_EV_Gear_Reverse.png" : "HUD_Dial_Digital_Gear_R.png"), gear.Source);
     }
 
     private static void AssertElectricDialUnitCache()

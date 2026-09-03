@@ -23,6 +23,7 @@ internal static class Fh6PacketFixture
     private const int GroundSpeed = 256;
     private const int Power = 260;
     private const int Torque = 264;
+    private const int TireTemperature = 268;
     private const int Accelerator = 315;
     private const int Brake = 316;
     private const int Gear = 319;
@@ -47,6 +48,7 @@ internal static class Fh6PacketFixture
         WriteSingle(packet, GroundSpeed, 42.25f);
         WriteSingle(packet, Power, 425_000f);
         WriteSingle(packet, Torque, 612.5f);
+        WriteWheels(packet, TireTemperature, 218.5f, 221.5f, 203.5f, 206.5f);
         packet[Accelerator] = 211;
         packet[Brake] = 7;
         packet[Gear] = 5;

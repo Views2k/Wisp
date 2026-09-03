@@ -213,7 +213,10 @@ public partial class NativeElectricAnalogSpeedometer : UserControl
     private void UpdateGear(NativeGaugeFrame frame)
     {
         var state = frame.ElectricGearState;
-        var currentToken = NativeElectricGearModel.CurrentToken(state, NativeGaugeMode.Analogue);
+        var currentToken = NativeElectricGearModel.CurrentToken(
+            state,
+            NativeGaugeMode.Analogue,
+            frame.Gear);
         GearImage.Visibility = currentToken is null ? Visibility.Collapsed : Visibility.Visible;
 
         var gaugeAsset = NativeElectricGearModel.GaugeAsset(state, digital: false);

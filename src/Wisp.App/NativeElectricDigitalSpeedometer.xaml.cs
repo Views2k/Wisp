@@ -77,7 +77,10 @@ public partial class NativeElectricDigitalSpeedometer : UserControl
                 : "HUD_Dial_Unit_Digital_KPH.png");
 
         var gearState = frame.ElectricGearState;
-        var gear = NativeElectricGearModel.CurrentToken(gearState, NativeGaugeMode.Digital);
+        var gear = NativeElectricGearModel.CurrentToken(
+            gearState,
+            NativeGaugeMode.Digital,
+            frame.Gear);
         GearImage.Visibility = gear is null ? Visibility.Collapsed : Visibility.Visible;
         if (gear is not null)
         {

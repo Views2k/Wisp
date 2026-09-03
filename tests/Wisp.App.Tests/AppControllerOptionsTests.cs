@@ -21,6 +21,7 @@ public sealed class AppControllerOptionsTests
             {
                 LayoutMode = HudLayoutMode.Combined,
                 GForceEnabled = true,
+                GForceAttached = true,
                 StartWithWindows = false
             };
             CompleteSetupFixture(settings);
@@ -43,6 +44,10 @@ public sealed class AppControllerOptionsTests
             Assert.True(controller.IsStandaloneGForceWindowEnabled);
 
             controller.ViewModel.LayoutSelectionIndex = (int)HudLayoutMode.Native;
+            controller.ApplyViewOptions();
+            Assert.False(controller.IsStandaloneGForceWindowEnabled);
+
+            controller.ViewModel.GForceAttached = false;
             controller.ApplyViewOptions();
             Assert.True(controller.IsStandaloneGForceWindowEnabled);
         }
@@ -86,8 +91,18 @@ public sealed class AppControllerOptionsTests
                 controller.ViewModel.OverlayOpacity = 0.68;
                 controller.ViewModel.Smoothing = 0.42;
                 controller.ViewModel.GForceEnabled = false;
+                controller.ViewModel.GForceAttached = false;
                 controller.ViewModel.GForceWidthScale = 1.35;
                 controller.ViewModel.GForceHeightScale = 0.85;
+                controller.ViewModel.BoostGaugeScale = 1.4;
+                controller.ViewModel.BoostGaugeColorNumber = true;
+                controller.ViewModel.DigitalBoostGaugeColorNumber = true;
+                controller.ViewModel.DigitalBoostGaugeStockColors = true;
+                controller.ViewModel.TireTemperatureGaugeEnabled = false;
+                controller.ViewModel.TireTemperatureGaugeAttached = false;
+                controller.ViewModel.TireTemperatureReactiveColors = false;
+                controller.ViewModel.UseCelsiusTireTemperature = true;
+                controller.ViewModel.TireTemperatureGaugeScale = 1.25;
                 controller.ViewModel.GameAwareVisibility = false;
                 controller.ViewModel.AutoMinimizeOnTelemetry = false;
                 controller.ViewModel.StartWithWindows = false;
@@ -108,8 +123,18 @@ public sealed class AppControllerOptionsTests
                 Assert.Equal(0.68, settings.OverlayOpacity);
                 Assert.Equal(0.42, settings.Smoothing);
                 Assert.False(settings.GForceEnabled);
+                Assert.False(settings.GForceAttached);
                 Assert.Equal(1.35, settings.GForceWidthScale);
                 Assert.Equal(0.85, settings.GForceHeightScale);
+                Assert.Equal(1.4, settings.BoostGaugeScale);
+                Assert.True(settings.BoostGaugeColorNumber);
+                Assert.True(settings.DigitalBoostGaugeColorNumber);
+                Assert.True(settings.DigitalBoostGaugeStockColors);
+                Assert.False(settings.TireTemperatureGaugeEnabled);
+                Assert.False(settings.TireTemperatureGaugeAttached);
+                Assert.False(settings.TireTemperatureReactiveColors);
+                Assert.Equal(TireTemperatureUnit.Celsius, settings.TireTemperatureUnit);
+                Assert.Equal(1.25, settings.TireTemperatureGaugeScale);
                 Assert.False(settings.GameAwareVisibility);
                 Assert.False(settings.AutoMinimizeOnTelemetry);
                 Assert.False(settings.StartWithWindows);

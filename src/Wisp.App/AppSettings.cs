@@ -26,9 +26,15 @@ public enum GearDisplayMode
     Automatic = 1
 }
 
+public enum TireTemperatureUnit
+{
+    Fahrenheit = 0,
+    Celsius = 1
+}
+
 public sealed class AppSettings
 {
-    private const int CurrentSettingsRevision = 7;
+    private const int CurrentSettingsRevision = 9;
 
     public int SettingsRevision { get; set; }
     public int UdpPort { get; set; } = 5500;
@@ -41,6 +47,18 @@ public sealed class AppSettings
     public double Smoothing { get; set; }
     public bool OverlayLocked { get; set; } = true;
     public bool GForceEnabled { get; set; } = true;
+    public bool GForceAttached { get; set; } = true;
+    public bool BoostGaugeEnabled { get; set; } = true;
+    public bool BoostGaugeAttached { get; set; } = true;
+    public bool BoostGaugeColorNumber { get; set; }
+    public bool DigitalBoostGaugeColorNumber { get; set; }
+    public bool DigitalBoostGaugeStockColors { get; set; }
+    public double BoostGaugeScale { get; set; } = 1.0;
+    public bool TireTemperatureGaugeEnabled { get; set; } = true;
+    public bool TireTemperatureGaugeAttached { get; set; } = true;
+    public bool TireTemperatureReactiveColors { get; set; } = true;
+    public TireTemperatureUnit TireTemperatureUnit { get; set; } = TireTemperatureUnit.Fahrenheit;
+    public double TireTemperatureGaugeScale { get; set; } = 1.0;
     public double GForceWidthScale { get; set; } = 1.0;
     public double GForceHeightScale { get; set; } = 1.0;
     public HudLayoutMode LayoutMode { get; set; } = HudLayoutMode.Minimal;
@@ -55,6 +73,7 @@ public sealed class AppSettings
     public string ColorTheme { get; set; } = AppColorThemes.DefaultName;
     public string BackgroundTheme { get; set; } = AppBackgroundThemes.DefaultName;
     public string HudBorderTheme { get; set; } = AppColorThemes.DefaultName;
+    public string BoostGaugeTheme { get; set; } = BoostGaugeThemes.DefaultName;
     public bool SidebarCollapsed { get; set; }
     public bool GameAwareVisibility { get; set; } = true;
     public bool AutoMinimizeOnTelemetry { get; set; } = true;
@@ -70,8 +89,12 @@ public sealed class AppSettings
 
     public Dictionary<string, OverlayPlacement> Placements { get; set; } = new();
     public Dictionary<string, OverlayPlacement> GForcePlacements { get; set; } = new();
+    public Dictionary<string, OverlayPlacement> BoostGaugePlacements { get; set; } = new();
+    public Dictionary<string, OverlayPlacement> TireTemperatureGaugePlacements { get; set; } = new();
     public string? LastOverlayPlacementKey { get; set; }
     public string? LastGForcePlacementKey { get; set; }
+    public string? LastBoostGaugePlacementKey { get; set; }
+    public string? LastTireTemperatureGaugePlacementKey { get; set; }
     public List<CalibrationSnapshot> Calibrations { get; set; } = new();
 
     [JsonPropertyName("OverlayScale")]
@@ -84,6 +107,8 @@ public sealed class AppSettings
     {
         Placements ??= new Dictionary<string, OverlayPlacement>();
         GForcePlacements ??= new Dictionary<string, OverlayPlacement>();
+        BoostGaugePlacements ??= new Dictionary<string, OverlayPlacement>();
+        TireTemperatureGaugePlacements ??= new Dictionary<string, OverlayPlacement>();
 
         if (LegacyOverlayScale is { } overlayScale)
         {
@@ -99,7 +124,9 @@ public sealed class AppSettings
             LegacyGForceScale = null;
         }
 
-        foreach (var placement in Placements.Values.Concat(GForcePlacements.Values).Where(value => value is not null))
+        foreach (var placement in Placements.Values.Concat(GForcePlacements.Values).Concat(BoostGaugePlacements.Values)
+                     .Concat(TireTemperatureGaugePlacements.Values)
+                     .Where(value => value is not null))
         {
             placement.MigrateLegacySizing();
         }
@@ -155,6 +182,7 @@ public sealed class AppSettings
         ColorTheme = AppColorThemes.NormalizeName(ColorTheme);
         BackgroundTheme = AppBackgroundThemes.NormalizeName(BackgroundTheme);
         HudBorderTheme = AppColorThemes.NormalizeName(HudBorderTheme);
+        BoostGaugeTheme = BoostGaugeThemes.NormalizeName(BoostGaugeTheme);
 
         if (UdpPort is < 1024 or > 65535 or >= 5200 and <= 5300)
         {
@@ -195,6 +223,8 @@ public sealed class AppSettings
         OverlayHeightScale = NormalizeScale(OverlayHeightScale);
         GForceWidthScale = NormalizeScale(GForceWidthScale);
         GForceHeightScale = NormalizeScale(GForceHeightScale);
+        BoostGaugeScale = NormalizeScale(BoostGaugeScale);
+        TireTemperatureGaugeScale = NormalizeScale(TireTemperatureGaugeScale);
         OverlayOpacity = double.IsFinite(OverlayOpacity)
             ? Math.Clamp(OverlayOpacity, 0.35, 1.0)
             : 1.0;
@@ -203,7 +233,13 @@ public sealed class AppSettings
             : 0;
         Placements ??= new Dictionary<string, OverlayPlacement>();
         GForcePlacements ??= new Dictionary<string, OverlayPlacement>();
+        BoostGaugePlacements ??= new Dictionary<string, OverlayPlacement>();
+        TireTemperatureGaugePlacements ??= new Dictionary<string, OverlayPlacement>();
         Calibrations ??= new List<CalibrationSnapshot>();
+        if (!Enum.IsDefined(TireTemperatureUnit))
+        {
+            TireTemperatureUnit = TireTemperatureUnit.Fahrenheit;
+        }
         // Older releases set this flag on the first packet. Only an explicit,
         // versioned wizard completion can now satisfy the startup gate.
         HasCompletedSetup = !RequiresSetup;
@@ -221,6 +257,8 @@ public sealed class AppSettings
             .ToList();
         NormalizePlacements(Placements);
         NormalizePlacements(GForcePlacements);
+        NormalizePlacements(BoostGaugePlacements);
+        NormalizePlacements(TireTemperatureGaugePlacements);
 
         if (LastOverlayPlacementKey is not null && !Placements.ContainsKey(LastOverlayPlacementKey))
         {
@@ -230,6 +268,17 @@ public sealed class AppSettings
         if (LastGForcePlacementKey is not null && !GForcePlacements.ContainsKey(LastGForcePlacementKey))
         {
             LastGForcePlacementKey = null;
+        }
+
+        if (LastBoostGaugePlacementKey is not null && !BoostGaugePlacements.ContainsKey(LastBoostGaugePlacementKey))
+        {
+            LastBoostGaugePlacementKey = null;
+        }
+
+        if (LastTireTemperatureGaugePlacementKey is not null &&
+            !TireTemperatureGaugePlacements.ContainsKey(LastTireTemperatureGaugePlacementKey))
+        {
+            LastTireTemperatureGaugePlacementKey = null;
         }
     }
 
@@ -404,6 +453,7 @@ public sealed class SettingsService
         settings.ColorTheme = AppColorThemes.NormalizeName(settings.ColorTheme);
         settings.BackgroundTheme = AppBackgroundThemes.NormalizeName(settings.BackgroundTheme);
         settings.HudBorderTheme = AppColorThemes.NormalizeName(settings.HudBorderTheme);
+        settings.BoostGaugeTheme = BoostGaugeThemes.NormalizeName(settings.BoostGaugeTheme);
         var directory = Path.GetDirectoryName(_settingsPath)!;
         Directory.CreateDirectory(directory);
         var bytes = JsonSerializer.SerializeToUtf8Bytes(settings, JsonOptions);

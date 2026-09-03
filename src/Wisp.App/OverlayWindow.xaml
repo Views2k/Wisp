@@ -8,6 +8,9 @@
         ShowActivated="False">
     <Window.Resources>
         <SolidColorBrush x:Key="HudBorderBrush" Color="#6663D8D4" />
+        <SolidColorBrush x:Key="BoostLowBrush" Color="#48D9F1" />
+        <SolidColorBrush x:Key="BoostMidBrush" Color="#397FF7" />
+        <SolidColorBrush x:Key="BoostHighBrush" Color="#A45CFF" />
         <Style x:Key="SpeedReadoutStyle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="#F5F8FC" />
             <Style.Triggers>
@@ -18,7 +21,7 @@
         </Style>
     </Window.Resources>
     <Viewbox x:Name="RootViewbox" Stretch="Fill" Opacity="0">
-        <Grid x:Name="RootPanel" Width="390" Height="166" Background="Transparent">
+        <Grid x:Name="RootPanel" Width="426" Height="310" Background="Transparent">
             <Grid x:Name="MinimalPanel" Width="160" Height="120"
                   HorizontalAlignment="Left" VerticalAlignment="Top">
                 <Viewbox Margin="9" Stretch="Uniform">
@@ -70,25 +73,71 @@
             </Grid>
 
             <Grid x:Name="NativeDigitalPanel" Width="320" Height="160" Visibility="Collapsed"
-                  HorizontalAlignment="Left" VerticalAlignment="Top">
-                <local:NativeDigitalSpeedometer />
+                  HorizontalAlignment="Left" VerticalAlignment="Top" ClipToBounds="False">
+                <local:NativeDigitalSpeedometer Width="320" Height="160"
+                                                HorizontalAlignment="Left" VerticalAlignment="Top" />
             </Grid>
 
             <Grid x:Name="NativeAnalogPanel" Width="293" Height="293.5" Visibility="Collapsed"
-                  HorizontalAlignment="Left" VerticalAlignment="Top">
-                <local:NativeAnalogSpeedometer />
+                  HorizontalAlignment="Left" VerticalAlignment="Top" ClipToBounds="False">
+                <local:NativeAnalogSpeedometer Width="293" Height="293.5"
+                                               HorizontalAlignment="Left" VerticalAlignment="Top" />
             </Grid>
 
             <Grid x:Name="NativeElectricDigitalPanel" Width="320" Height="160" Visibility="Collapsed"
-                  HorizontalAlignment="Left" VerticalAlignment="Top">
-                <local:NativeElectricDigitalSpeedometer />
+                  HorizontalAlignment="Left" VerticalAlignment="Top" ClipToBounds="False">
+                <local:NativeElectricDigitalSpeedometer Width="320" Height="160"
+                                                        HorizontalAlignment="Left" VerticalAlignment="Top" />
             </Grid>
 
             <Grid x:Name="NativeElectricAnalogPanel" Width="345" Height="345" Visibility="Collapsed"
-                  HorizontalAlignment="Left" VerticalAlignment="Top">
-                <local:NativeElectricAnalogSpeedometer />
+                  HorizontalAlignment="Left" VerticalAlignment="Top" ClipToBounds="False">
+                <local:NativeElectricAnalogSpeedometer Width="345" Height="345"
+                                                       HorizontalAlignment="Left" VerticalAlignment="Top" />
             </Grid>
 
+            <!-- Attached boost controls are root siblings. Their expanded HUD
+                 bounds contain them without stretching or clipping the native
+                 speedometer controls. -->
+            <local:DigitalBoostRailView x:Name="AttachedDigitalBoost" Width="302" Height="88"
+                                        Margin="11,132,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                        Display="{Binding BoostDisplay}"
+                                        ColorNumber="{Binding DigitalBoostGaugeColorNumber}"
+                                        UseStockColors="{Binding DigitalBoostGaugeStockColors}"
+                                        LowBrush="{DynamicResource BoostLowBrush}"
+                                        MidBrush="{DynamicResource BoostMidBrush}"
+                                        HighBrush="{DynamicResource BoostHighBrush}" />
+            <local:AnalogBoostGaugeView x:Name="AttachedAnalogBoost" Width="136" Height="136"
+                                        Margin="276,4,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                        Display="{Binding BoostDisplay}"
+                                        ColorNumber="{Binding BoostGaugeColorNumber}"
+                                        LowBrush="{DynamicResource BoostLowBrush}"
+                                        MidBrush="{DynamicResource BoostMidBrush}"
+                                        HighBrush="{DynamicResource BoostHighBrush}" />
+            <local:DigitalTireTemperatureGaugeView x:Name="AttachedDigitalTireTemperature"
+                                                   Width="302" Height="84" Margin="11,210,0,0"
+                                                   HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                   Display="{Binding TireTemperatureDisplay}"
+                                                   TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
+                                                   ReactiveColors="{Binding TireTemperatureReactiveColors}"
+                                                   IsAttached="True"
+                                                   LowBrush="{DynamicResource BoostLowBrush}"
+                                                   MidBrush="{DynamicResource BoostMidBrush}"
+                                                   HighBrush="{DynamicResource BoostHighBrush}" />
+            <local:AnalogTireTemperatureGaugeView x:Name="AttachedAnalogTireTemperature"
+                                                  Width="116" Height="116" Margin="286,142,0,0"
+                                                  HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                  Display="{Binding TireTemperatureDisplay}"
+                                                  TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
+                                                  ReactiveColors="{Binding TireTemperatureReactiveColors}"
+                                                  IsAttached="True"
+                                                  IsElectricMaterial="{Binding NativeGaugeFrame.IsElectric}"
+                                                  LowBrush="{DynamicResource BoostLowBrush}"
+                                                   MidBrush="{DynamicResource BoostMidBrush}"
+                                                   HighBrush="{DynamicResource BoostHighBrush}" />
+            <local:NativeGForceMeterView x:Name="AttachedNativeGForce" Width="144" Height="100"
+                                         HorizontalAlignment="Left" VerticalAlignment="Top"
+                                         Visibility="Collapsed" />
             <Grid x:Name="EditChrome" Visibility="Collapsed" IsHitTestVisible="False">
                 <Border x:Name="EditBorder" Margin="4" CornerRadius="12" BorderThickness="1">
                     <Border.Style>

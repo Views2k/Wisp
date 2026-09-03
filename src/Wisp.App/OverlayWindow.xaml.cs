@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -20,15 +21,20 @@ public partial class OverlayWindow : Window
     // 320px template. Keep that authored overflow inside the transparent HWND.
     private const double NativeDigitalWidth = 327.5;
     private const double NativeDigitalHeight = 160;
+    private const double NativeDigitalBoostHeight = 220;
+    private const double NativeDigitalTireHeight = 220;
+    private const double NativeDigitalBoostTireHeight = 258;
     // The native 288x288 template authors a +5 right / -5.5 bottom external
     // margin. Keep that overflow inside the transparent HWND instead of
     // clipping the final redline segment and 9/10 labels.
     private const double NativeAnalogWidth = 293;
     private const double NativeAnalogHeight = 293.5;
+    private const double NativeAnalogBoostWidth = 416;
     private const double NativeElectricDigitalWidth = 327.5;
     private const double NativeElectricDigitalHeight = 160;
     private const double NativeElectricAnalogWidth = 345;
     private const double NativeElectricAnalogHeight = 345;
+    private const double AttachedGForceTopPadding = 72;
 
     private readonly AppController _controller;
     private readonly NonActivatingWindowDrag _windowDrag;
@@ -38,6 +44,9 @@ public partial class OverlayWindow : Window
     private HudLayoutMode _layoutMode;
     private NativeGaugeMode _nativeGaugeMode;
     private bool _isElectricPowertrain;
+    private bool _attachedBoostVisible;
+    private bool _attachedTireTemperatureVisible;
+    private bool _attachedGForceVisible;
     private int _visibilityRevision;
 
     public OverlayWindow(AppController controller)
@@ -45,8 +54,11 @@ public partial class OverlayWindow : Window
         InitializeComponent();
         _controller = controller;
         HudBorderThemeResources.Apply(Resources, controller.Settings.HudBorderTheme);
+        BoostGaugeThemeResources.Apply(Resources, controller.Settings.BoostGaugeTheme);
         _windowDrag = new NonActivatingWindowDrag(this, controller.SaveOverlayPlacement);
         DataContext = controller.ViewModel;
+        controller.ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        Closed += (_, _) => controller.ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         ApplyLayout(
             controller.Settings.LayoutMode,
             controller.Settings.NativeGaugeMode,
@@ -57,6 +69,54 @@ public partial class OverlayWindow : Window
 
     public void ApplyHudBorderTheme(string? themeName) =>
         HudBorderThemeResources.Apply(Resources, themeName);
+
+    public void ApplyBoostGaugeTheme(string? themeName) =>
+        BoostGaugeThemeResources.Apply(Resources, themeName);
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(DiagnosticsViewModel.BoostDisplay) or
+            nameof(DiagnosticsViewModel.BoostGaugeEnabled) or
+            nameof(DiagnosticsViewModel.BoostGaugeAttached) or
+            nameof(DiagnosticsViewModel.TireTemperatureDisplay) or
+            nameof(DiagnosticsViewModel.TireTemperatureGaugeEnabled) or
+            nameof(DiagnosticsViewModel.TireTemperatureGaugeAttached) or
+            nameof(DiagnosticsViewModel.GForceEnabled) or
+            nameof(DiagnosticsViewModel.GForceAttached))
+        {
+            var boostAvailable = !_isElectricPowertrain &&
+                                 _controller.ViewModel.BoostGaugeEnabled &&
+                                 _controller.ViewModel.BoostDisplay.IsAvailable;
+            var shouldShow = _layoutMode == HudLayoutMode.Native && boostAvailable &&
+                             (_nativeGaugeMode == NativeGaugeMode.Digital ||
+                              _controller.ViewModel.BoostGaugeAttached);
+            var shouldShowTireTemperature = _layoutMode == HudLayoutMode.Native &&
+                                             _controller.ViewModel.TireTemperatureGaugeEnabled &&
+                                             _controller.ViewModel.TireTemperatureGaugeAttached &&
+                                             _controller.ViewModel.TireTemperatureDisplay.IsAvailable;
+            var shouldShowGForce = _layoutMode == HudLayoutMode.Native &&
+                                   _controller.ViewModel.GForceEnabled &&
+                                   _controller.ViewModel.GForceAttached;
+            if (shouldShow == _attachedBoostVisible &&
+                shouldShowTireTemperature == _attachedTireTemperatureVisible &&
+                shouldShowGForce == _attachedGForceVisible)
+            {
+                return;
+            }
+            var left = Left;
+            var top = Top;
+            if (shouldShowGForce != _attachedGForceVisible)
+            {
+                var scaleY = _controller.Settings.OverlayHeightScale;
+                top += (shouldShowGForce ? -1 : 1) * AttachedGForceTopPadding * scaleY;
+            }
+            ApplyLayout(_layoutMode, _nativeGaugeMode,
+                _controller.Settings.OverlayWidthScale,
+                _controller.Settings.OverlayHeightScale,
+                _controller.Settings.OverlayOpacity);
+            RestorePosition(left, top);
+        }
+    }
 
     public void SetEditMode(bool editMode)
     {
@@ -201,20 +261,82 @@ public partial class OverlayWindow : Window
             ? Visibility.Visible
             : Visibility.Collapsed;
 
+        var boostAvailable = !_isElectricPowertrain &&
+                             _controller.ViewModel.BoostGaugeEnabled &&
+                             _controller.ViewModel.BoostDisplay.IsAvailable;
+        var digitalBoostVisible = layoutMode == HudLayoutMode.Native &&
+                                  boostAvailable && nativeGaugeMode == NativeGaugeMode.Digital;
+        var analogBoostVisible = layoutMode == HudLayoutMode.Native &&
+                                 boostAvailable && nativeGaugeMode == NativeGaugeMode.Analogue &&
+                                 _controller.ViewModel.BoostGaugeAttached;
+        var tireTemperatureAvailable = _controller.ViewModel.TireTemperatureGaugeEnabled &&
+                                       _controller.ViewModel.TireTemperatureGaugeAttached &&
+                                       _controller.ViewModel.TireTemperatureDisplay.IsAvailable;
+        var digitalTireTemperatureVisible = layoutMode == HudLayoutMode.Native &&
+                                            tireTemperatureAvailable &&
+                                            nativeGaugeMode == NativeGaugeMode.Digital;
+        var analogTireTemperatureVisible = layoutMode == HudLayoutMode.Native &&
+                                           tireTemperatureAvailable &&
+                                           nativeGaugeMode == NativeGaugeMode.Analogue;
+        var attachedGForceVisible = layoutMode == HudLayoutMode.Native &&
+                                    _controller.ViewModel.GForceEnabled &&
+                                    _controller.ViewModel.GForceAttached;
+        var nativeTop = attachedGForceVisible ? AttachedGForceTopPadding : 0;
+        AttachedDigitalBoost.Visibility = digitalBoostVisible ? Visibility.Visible : Visibility.Collapsed;
+        AttachedAnalogBoost.Visibility = analogBoostVisible ? Visibility.Visible : Visibility.Collapsed;
+        AttachedDigitalTireTemperature.Visibility = digitalTireTemperatureVisible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        AttachedAnalogTireTemperature.Visibility = analogTireTemperatureVisible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        NativeDigitalPanel.Margin = new Thickness(0, nativeTop, 0, 0);
+        NativeAnalogPanel.Margin = new Thickness(0, nativeTop, 0, 0);
+        NativeElectricDigitalPanel.Margin = new Thickness(0, nativeTop, 0, 0);
+        NativeElectricAnalogPanel.Margin = new Thickness(0, nativeTop, 0, 0);
+        AttachedDigitalBoost.Margin = new Thickness(11, 132 + nativeTop, 0, 0);
+        AttachedAnalogBoost.Margin = new Thickness(276, 4 + nativeTop, 0, 0);
+        AttachedDigitalTireTemperature.Margin = new Thickness(
+            11,
+            (digitalBoostVisible ? 170 : 132) + nativeTop,
+            0,
+            0);
+        AttachedAnalogTireTemperature.Margin = new Thickness(
+            286,
+            (analogBoostVisible ? 142 : 4) + nativeTop,
+            0,
+            0);
+        AttachedNativeGForce.Visibility = attachedGForceVisible ? Visibility.Visible : Visibility.Collapsed;
+        AttachedNativeGForce.Margin = new Thickness(
+            nativeGaugeMode == NativeGaugeMode.Analogue ? 195 : 176,
+            0,
+            0,
+            0);
+        _attachedBoostVisible = digitalBoostVisible || analogBoostVisible;
+        _attachedTireTemperatureVisible = digitalTireTemperatureVisible || analogTireTemperatureVisible;
+        _attachedGForceVisible = attachedGForceVisible;
+
         var (baseWidth, baseHeight) = layoutMode switch
         {
             HudLayoutMode.Combined => (CombinedWidth, CombinedHeight),
             HudLayoutMode.SeparateBoxes => (BoxedWidth, BoxedHeight),
             HudLayoutMode.Native when _isElectricPowertrain && nativeGaugeMode == NativeGaugeMode.Analogue =>
-                (NativeElectricAnalogWidth, NativeElectricAnalogHeight),
+                (analogTireTemperatureVisible ? NativeAnalogBoostWidth : NativeElectricAnalogWidth,
+                    NativeElectricAnalogHeight),
             HudLayoutMode.Native when _isElectricPowertrain =>
-                (NativeElectricDigitalWidth, NativeElectricDigitalHeight),
+                (NativeElectricDigitalWidth,
+                    digitalTireTemperatureVisible ? NativeDigitalTireHeight : NativeElectricDigitalHeight),
             HudLayoutMode.Native when nativeGaugeMode == NativeGaugeMode.Analogue =>
-                (NativeAnalogWidth, NativeAnalogHeight),
-            HudLayoutMode.Native => (NativeDigitalWidth, NativeDigitalHeight),
+                (analogBoostVisible || analogTireTemperatureVisible ? NativeAnalogBoostWidth : NativeAnalogWidth,
+                    NativeAnalogHeight),
+            HudLayoutMode.Native => (NativeDigitalWidth,
+                digitalTireTemperatureVisible
+                    ? digitalBoostVisible ? NativeDigitalBoostTireHeight : NativeDigitalTireHeight
+                    : digitalBoostVisible ? NativeDigitalBoostHeight : NativeDigitalHeight),
             _ => (MinimalWidth, MinimalHeight)
         };
         RootPanel.Width = baseWidth;
+        baseHeight += nativeTop;
         RootPanel.Height = baseHeight;
         Width = baseWidth * widthScale;
         Height = baseHeight * heightScale;
@@ -242,12 +364,21 @@ public partial class OverlayWindow : Window
         Top = position.Y;
     }
 
-    private Rect NativePlacementAnchorBounds() =>
-        OverlayPlacementGeometry.NativeContentAnchorBounds(
+    private Rect NativePlacementAnchorBounds()
+    {
+        var scaleY = Height / RootPanel.Height;
+        var anchor = OverlayPlacementGeometry.NativeContentAnchorBounds(
             _nativeGaugeMode,
             _isElectricPowertrain,
             Width / RootPanel.Width,
-            Height / RootPanel.Height);
+            scaleY);
+        if (_attachedGForceVisible)
+        {
+            anchor.Offset(0, AttachedGForceTopPadding * scaleY);
+        }
+
+        return anchor;
+    }
 
     public void RestorePosition(double left, double top)
     {

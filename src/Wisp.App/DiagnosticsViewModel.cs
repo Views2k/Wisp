@@ -11,6 +11,8 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
 {
     private const double WattsPerHorsepower = 745.69987158227022;
     private readonly GForceDisplayModel _gForceDisplayModel = new();
+    private readonly BoostDisplayModel _boostDisplayModel = new();
+    private readonly TireTemperatureDisplayModel _tireTemperatureDisplayModel = new();
     private string _statusText = "Waiting for FH6";
     private string _statusDetail = "No valid 324-byte packets received";
     private string _hudSpeed = "—";
@@ -55,6 +57,20 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private double _overlayOpacity;
     private double _smoothing;
     private bool _gForceEnabled;
+    private bool _gForceAttached;
+    private bool _boostGaugeEnabled;
+    private bool _boostGaugeAttached;
+    private bool _boostGaugeColorNumber;
+    private bool _digitalBoostGaugeColorNumber;
+    private bool _digitalBoostGaugeStockColors;
+    private double _boostGaugeScale;
+    private BoostDisplay _boostDisplay = BoostDisplay.Unavailable;
+    private bool _tireTemperatureGaugeEnabled;
+    private bool _tireTemperatureGaugeAttached;
+    private bool _tireTemperatureReactiveColors;
+    private bool _useCelsiusTireTemperature;
+    private double _tireTemperatureGaugeScale;
+    private TireTemperatureDisplay _tireTemperatureDisplay = TireTemperatureDisplay.Unavailable;
     private double _gForceWidthScale;
     private double _gForceHeightScale;
     private int _layoutSelectionIndex;
@@ -88,6 +104,18 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         _overlayOpacity = settings.OverlayOpacity;
         _smoothing = settings.Smoothing;
         _gForceEnabled = settings.GForceEnabled;
+        _gForceAttached = settings.GForceAttached;
+        _boostGaugeEnabled = settings.BoostGaugeEnabled;
+        _boostGaugeAttached = settings.BoostGaugeAttached;
+        _boostGaugeColorNumber = settings.BoostGaugeColorNumber;
+        _digitalBoostGaugeColorNumber = settings.DigitalBoostGaugeColorNumber;
+        _digitalBoostGaugeStockColors = settings.DigitalBoostGaugeStockColors;
+        _boostGaugeScale = settings.BoostGaugeScale;
+        _tireTemperatureGaugeEnabled = settings.TireTemperatureGaugeEnabled;
+        _tireTemperatureGaugeAttached = settings.TireTemperatureGaugeAttached;
+        _tireTemperatureReactiveColors = settings.TireTemperatureReactiveColors;
+        _useCelsiusTireTemperature = settings.TireTemperatureUnit == TireTemperatureUnit.Celsius;
+        _tireTemperatureGaugeScale = settings.TireTemperatureGaugeScale;
         _gForceWidthScale = settings.GForceWidthScale;
         _gForceHeightScale = settings.GForceHeightScale;
         _layoutSelectionIndex = (int)settings.LayoutMode;
@@ -222,6 +250,12 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public string PreviewCaption => IsPreviewLive
         ? "Live preview · current FH6 data"
         : HudPreviewSample.Caption;
+    public BoostDisplay PreviewBoostDisplay => BoostDisplay.IsAvailable
+        ? BoostDisplay
+        : HudPreviewSample.Boost;
+    public TireTemperatureDisplay PreviewTireTemperatureDisplay => TireTemperatureDisplay.IsAvailable
+        ? TireTemperatureDisplay
+        : HudPreviewSample.TireTemperature;
 
     private void NotifyDashboardFrame()
     {
@@ -280,6 +314,53 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public double OverlayOpacity { get => _overlayOpacity; set => Set(ref _overlayOpacity, value); }
     public double Smoothing { get => _smoothing; set => Set(ref _smoothing, value); }
     public bool GForceEnabled { get => _gForceEnabled; set => Set(ref _gForceEnabled, value); }
+    public bool GForceAttached { get => _gForceAttached; set => Set(ref _gForceAttached, value); }
+    public bool BoostGaugeEnabled { get => _boostGaugeEnabled; set => Set(ref _boostGaugeEnabled, value); }
+    public bool BoostGaugeAttached { get => _boostGaugeAttached; set => Set(ref _boostGaugeAttached, value); }
+    public bool BoostGaugeColorNumber { get => _boostGaugeColorNumber; set => Set(ref _boostGaugeColorNumber, value); }
+    public bool DigitalBoostGaugeColorNumber { get => _digitalBoostGaugeColorNumber; set => Set(ref _digitalBoostGaugeColorNumber, value); }
+    public bool DigitalBoostGaugeStockColors { get => _digitalBoostGaugeStockColors; set => Set(ref _digitalBoostGaugeStockColors, value); }
+    public double BoostGaugeScale { get => _boostGaugeScale; set => Set(ref _boostGaugeScale, value); }
+    public BoostDisplay BoostDisplay
+    {
+        get => _boostDisplay;
+        private set
+        {
+            if (Set(ref _boostDisplay, value))
+            {
+                OnPropertyChanged(nameof(PreviewBoostDisplay));
+            }
+        }
+    }
+    public bool TireTemperatureGaugeEnabled { get => _tireTemperatureGaugeEnabled; set => Set(ref _tireTemperatureGaugeEnabled, value); }
+    public bool TireTemperatureGaugeAttached { get => _tireTemperatureGaugeAttached; set => Set(ref _tireTemperatureGaugeAttached, value); }
+    public bool TireTemperatureReactiveColors { get => _tireTemperatureReactiveColors; set => Set(ref _tireTemperatureReactiveColors, value); }
+    public bool UseCelsiusTireTemperature
+    {
+        get => _useCelsiusTireTemperature;
+        set
+        {
+            if (Set(ref _useCelsiusTireTemperature, value))
+            {
+                OnPropertyChanged(nameof(SelectedTireTemperatureUnit));
+            }
+        }
+    }
+    public TireTemperatureUnit SelectedTireTemperatureUnit => UseCelsiusTireTemperature
+        ? TireTemperatureUnit.Celsius
+        : TireTemperatureUnit.Fahrenheit;
+    public double TireTemperatureGaugeScale { get => _tireTemperatureGaugeScale; set => Set(ref _tireTemperatureGaugeScale, value); }
+    public TireTemperatureDisplay TireTemperatureDisplay
+    {
+        get => _tireTemperatureDisplay;
+        private set
+        {
+            if (Set(ref _tireTemperatureDisplay, value))
+            {
+                OnPropertyChanged(nameof(PreviewTireTemperatureDisplay));
+            }
+        }
+    }
     public double GForceWidthScale { get => _gForceWidthScale; set => Set(ref _gForceWidthScale, value); }
     public double GForceHeightScale { get => _gForceHeightScale; set => Set(ref _gForceHeightScale, value); }
     public int LayoutSelectionIndex
@@ -411,7 +492,14 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         HudSpeed = speed.IsAvailable
             ? displayedSpeed.ToString(CultureInfo.InvariantCulture)
             : "—";
-        NativeGaugeFrame = new NativeGaugeFrame(
+        BoostDisplay = _boostDisplayModel.Calculate(
+            state.CarOrdinal,
+            state.IsElectric,
+            state.BoostPressurePsi);
+        TireTemperatureDisplay = _tireTemperatureDisplayModel.Calculate(
+            state.CarOrdinal,
+            state.TireTemperatureFahrenheit);
+        var nextNativeGaugeFrame = new NativeGaugeFrame(
             speed.IsAvailable,
             displayedSpeed,
             state.EngineRpm,
@@ -443,6 +531,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             nativeHud.ElectricGearState,
             nativeHud.DisplayedSpeedState,
             speedSource);
+        NativeGaugeFrame = nextNativeGaugeFrame.PreserveStableTachometerState(NativeGaugeFrame);
         HasLiveTelemetry = true;
         GForceDisplay? gForce = null;
         if (updateGForce)
@@ -550,7 +639,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             return false;
         }
 
-        NativeGaugeFrame = frame with
+        var nextNativeGaugeFrame = frame with
         {
             TachometerMaximumRpm = nativeHud.TachometerMaximumRpm,
             ExactRedline = nativeHud.ExactRedline,
@@ -566,6 +655,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             ElectricGearState = nativeHud.ElectricGearState,
             DisplayedSpeedState = nativeHud.DisplayedSpeedState
         };
+        NativeGaugeFrame = nextNativeGaugeFrame.PreserveStableTachometerState(frame);
         return true;
     }
 
@@ -617,6 +707,9 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         GForceOffsetY = 0;
         GForceTrailPosition = default;
         _gForceDisplayModel.Reset();
+        _boostDisplayModel.Reset();
+        BoostDisplay = BoostDisplay.Unavailable;
+        TireTemperatureDisplay = TireTemperatureDisplay.Unavailable;
         LateralGText = "0.00 g";
         LongitudinalGText = "0.00 g";
         GForceScaleText = "1.0 G";

@@ -135,10 +135,26 @@ public sealed class AppController : IAsyncDisposable
     public SetupTelemetryTest SetupTelemetry { get; }
     public OverlayWindow? Overlay { get; set; }
     public GForceWindow? GForceOverlay { get; set; }
+    public BoostGaugeWindow? BoostGaugeOverlay { get; set; }
+    public TireTemperatureGaugeWindow? TireTemperatureGaugeOverlay { get; set; }
     public MainWindow? ControlPanel { get; set; }
     public event EventHandler? StartupOptionsChanged;
+    public bool IsAttachedGForceMeterEnabled =>
+        Settings.GForceEnabled && Settings.GForceAttached &&
+        Settings.LayoutMode == HudLayoutMode.Native;
     public bool IsStandaloneGForceWindowEnabled =>
-        Settings.GForceEnabled && Settings.LayoutMode != HudLayoutMode.Combined;
+        Settings.GForceEnabled && Settings.LayoutMode != HudLayoutMode.Combined &&
+        !IsAttachedGForceMeterEnabled;
+    public bool IsDetachedBoostGaugeEnabled =>
+        Settings.BoostGaugeEnabled && !Settings.BoostGaugeAttached &&
+        Settings.LayoutMode == HudLayoutMode.Native &&
+        Settings.NativeGaugeMode == NativeGaugeMode.Analogue &&
+        !ViewModel.NativeGaugeFrame.IsElectric &&
+        ViewModel.BoostDisplay.IsAvailable;
+    public bool IsDetachedTireTemperatureGaugeEnabled =>
+        Settings.TireTemperatureGaugeEnabled && !Settings.TireTemperatureGaugeAttached &&
+        Settings.LayoutMode == HudLayoutMode.Native &&
+        ViewModel.TireTemperatureDisplay.IsAvailable;
 
     public async Task StartAsync()
     {
@@ -214,6 +230,8 @@ public sealed class AppController : IAsyncDisposable
         ResetControllerSession();
         WindowZOrder.DetachFromGame(Overlay);
         WindowZOrder.DetachFromGame(GForceOverlay);
+        WindowZOrder.DetachFromGame(BoostGaugeOverlay);
+        WindowZOrder.DetachFromGame(TireTemperatureGaugeOverlay);
         if (!Settings.RequiresSetup)
         {
             Settings.Calibrations = _calibration.ExportSnapshots().ToList();
@@ -505,6 +523,21 @@ public sealed class AppController : IAsyncDisposable
             Settings.OverlayOpacity = Math.Clamp(ViewModel.OverlayOpacity, 0.35, 1.0);
             Settings.Smoothing = Math.Clamp(ViewModel.Smoothing, 0, 1);
             Settings.GForceEnabled = ViewModel.GForceEnabled;
+            Settings.GForceAttached = ViewModel.GForceAttached;
+            Settings.BoostGaugeEnabled = ViewModel.BoostGaugeEnabled;
+            Settings.BoostGaugeAttached = ViewModel.BoostGaugeAttached;
+            Settings.BoostGaugeColorNumber = ViewModel.BoostGaugeColorNumber;
+            Settings.DigitalBoostGaugeColorNumber = ViewModel.DigitalBoostGaugeColorNumber;
+            Settings.DigitalBoostGaugeStockColors = ViewModel.DigitalBoostGaugeStockColors;
+            Settings.BoostGaugeScale = Math.Clamp(ViewModel.BoostGaugeScale, 0.5, 2.0);
+            Settings.TireTemperatureGaugeEnabled = ViewModel.TireTemperatureGaugeEnabled;
+            Settings.TireTemperatureGaugeAttached = ViewModel.TireTemperatureGaugeAttached;
+            Settings.TireTemperatureReactiveColors = ViewModel.TireTemperatureReactiveColors;
+            Settings.TireTemperatureUnit = ViewModel.SelectedTireTemperatureUnit;
+            Settings.TireTemperatureGaugeScale = Math.Clamp(
+                ViewModel.TireTemperatureGaugeScale,
+                0.5,
+                2.0);
             Settings.GForceWidthScale = Math.Clamp(ViewModel.GForceWidthScale, 0.5, 2.0);
             Settings.GForceHeightScale = Math.Clamp(ViewModel.GForceHeightScale, 0.5, 2.0);
             Settings.LayoutMode = layoutMode;
@@ -552,12 +585,27 @@ public sealed class AppController : IAsyncDisposable
                 Settings.GForceWidthScale,
                 Settings.GForceHeightScale,
                 Settings.OverlayOpacity);
+            BoostGaugeOverlay?.SetEnabled(IsDetachedBoostGaugeEnabled);
+            BoostGaugeOverlay?.ApplyAppearance(Settings.BoostGaugeScale, Settings.OverlayOpacity);
+            TireTemperatureGaugeOverlay?.ApplyGaugeMode(Settings.NativeGaugeMode);
+            TireTemperatureGaugeOverlay?.SetEnabled(IsDetachedTireTemperatureGaugeEnabled);
+            TireTemperatureGaugeOverlay?.ApplyAppearance(
+                Settings.TireTemperatureGaugeScale,
+                Settings.OverlayOpacity);
             if (layoutChanged)
             {
                 RestoreOverlayPlacement();
                 if (Settings.LayoutMode is HudLayoutMode.SeparateBoxes or HudLayoutMode.Native)
                 {
                     RestoreGForcePlacement();
+                }
+                if (IsDetachedBoostGaugeEnabled)
+                {
+                    RestoreBoostGaugePlacement();
+                }
+                if (IsDetachedTireTemperatureGaugeEnabled)
+                {
+                    RestoreTireTemperatureGaugePlacement();
                 }
             }
 
@@ -610,6 +658,21 @@ public sealed class AppController : IAsyncDisposable
         ScheduleSettingsSave();
     }
 
+    public void SetBoostGaugeTheme(string? themeName)
+    {
+        var normalized = BoostGaugeThemes.NormalizeName(themeName);
+        if (Settings.BoostGaugeTheme == normalized)
+        {
+            return;
+        }
+
+        Settings.BoostGaugeTheme = normalized;
+        Overlay?.ApplyBoostGaugeTheme(normalized);
+        BoostGaugeOverlay?.ApplyBoostGaugeTheme(normalized);
+        TireTemperatureGaugeOverlay?.ApplyBoostGaugeTheme(normalized);
+        ScheduleSettingsSave();
+    }
+
     public void SetSidebarCollapsed(bool collapsed)
     {
         if (Settings.SidebarCollapsed == collapsed)
@@ -631,6 +694,8 @@ public sealed class AppController : IAsyncDisposable
         Settings.OverlayLocked = locked;
         Overlay?.SetEditMode(!locked);
         GForceOverlay?.SetEditMode(!locked);
+        BoostGaugeOverlay?.SetEditMode(!locked);
+        TireTemperatureGaugeOverlay?.SetEditMode(!locked);
         UpdateOverlayVisibility(DateTimeOffset.UtcNow, force: true);
         ScheduleSettingsSave();
     }
@@ -667,6 +732,40 @@ public sealed class AppController : IAsyncDisposable
             GForceOverlay.Top,
             Settings.GForceWidthScale,
             Settings.GForceHeightScale);
+        ScheduleSettingsSave();
+    }
+
+    public void SaveBoostGaugePlacement()
+    {
+        if (BoostGaugeOverlay is null)
+        {
+            return;
+        }
+
+        var key = BoostGaugeOverlay.GetDisplayKey();
+        Settings.LastBoostGaugePlacementKey = key;
+        Settings.BoostGaugePlacements[key] = new OverlayPlacement(
+            BoostGaugeOverlay.Left,
+            BoostGaugeOverlay.Top,
+            Settings.BoostGaugeScale,
+            Settings.BoostGaugeScale);
+        ScheduleSettingsSave();
+    }
+
+    public void SaveTireTemperatureGaugePlacement()
+    {
+        if (TireTemperatureGaugeOverlay is null)
+        {
+            return;
+        }
+
+        var key = TireTemperatureGaugeOverlay.GetDisplayKey();
+        Settings.LastTireTemperatureGaugePlacementKey = key;
+        Settings.TireTemperatureGaugePlacements[key] = new OverlayPlacement(
+            TireTemperatureGaugeOverlay.Left,
+            TireTemperatureGaugeOverlay.Top,
+            Settings.TireTemperatureGaugeScale,
+            Settings.TireTemperatureGaugeScale);
         ScheduleSettingsSave();
     }
 
@@ -754,6 +853,63 @@ public sealed class AppController : IAsyncDisposable
         }
     }
 
+    public void RestoreBoostGaugePlacement()
+    {
+        if (BoostGaugeOverlay is null)
+        {
+            return;
+        }
+
+        var key = BoostGaugeOverlay.GetDisplayKey();
+        if (Settings.BoostGaugePlacements.TryGetValue(key, out var placement))
+        {
+            Settings.LastBoostGaugePlacementKey = key;
+            Settings.BoostGaugeScale = Math.Clamp(placement.WidthScale, 0.5, 2.0);
+            ViewModel.BoostGaugeScale = Settings.BoostGaugeScale;
+            BoostGaugeOverlay.ApplyAppearance(Settings.BoostGaugeScale, Settings.OverlayOpacity);
+            BoostGaugeOverlay.RestorePosition(placement.Left, placement.Top);
+            return;
+        }
+
+        if (Overlay is not null)
+        {
+            BoostGaugeOverlay.ResetPosition(
+                new Rect(Overlay.Left, Overlay.Top, Overlay.Width, Overlay.Height),
+                Overlay.CurrentMonitorPlacementArea());
+            SaveBoostGaugePlacement();
+        }
+    }
+
+    public void RestoreTireTemperatureGaugePlacement()
+    {
+        if (TireTemperatureGaugeOverlay is null)
+        {
+            return;
+        }
+
+        TireTemperatureGaugeOverlay.ApplyGaugeMode(Settings.NativeGaugeMode);
+        var key = TireTemperatureGaugeOverlay.GetDisplayKey();
+        if (Settings.TireTemperatureGaugePlacements.TryGetValue(key, out var placement))
+        {
+            Settings.LastTireTemperatureGaugePlacementKey = key;
+            Settings.TireTemperatureGaugeScale = Math.Clamp(placement.WidthScale, 0.5, 2.0);
+            ViewModel.TireTemperatureGaugeScale = Settings.TireTemperatureGaugeScale;
+            TireTemperatureGaugeOverlay.ApplyAppearance(
+                Settings.TireTemperatureGaugeScale,
+                Settings.OverlayOpacity);
+            TireTemperatureGaugeOverlay.RestorePosition(placement.Left, placement.Top);
+            return;
+        }
+
+        if (Overlay is not null)
+        {
+            TireTemperatureGaugeOverlay.ResetPosition(
+                new Rect(Overlay.Left, Overlay.Top, Overlay.Width, Overlay.Height),
+                Overlay.CurrentMonitorPlacementArea());
+            SaveTireTemperatureGaugePlacement();
+        }
+    }
+
     public void ResetOverlayPosition()
     {
         if (Overlay is not null && Settings.LayoutMode == HudLayoutMode.Native)
@@ -771,6 +927,14 @@ public sealed class AppController : IAsyncDisposable
         SaveOverlayPlacement();
         ResetGForcePosition();
         SaveGForcePlacement();
+        if (IsDetachedBoostGaugeEnabled)
+        {
+            RestoreBoostGaugePlacement();
+        }
+        if (IsDetachedTireTemperatureGaugeEnabled)
+        {
+            RestoreTireTemperatureGaugePlacement();
+        }
     }
 
     private void ResetGForcePosition()
@@ -793,7 +957,7 @@ public sealed class AppController : IAsyncDisposable
 
         if (Settings.LayoutMode == HudLayoutMode.Native && Overlay is not null)
         {
-            GForceOverlay.ResetPositionAbove(new Rect(
+            GForceOverlay.ResetPositionBelow(new Rect(
                 Overlay.Left,
                 Overlay.Top,
                 Overlay.Width,
@@ -883,6 +1047,27 @@ public sealed class AppController : IAsyncDisposable
             gForcePlacement.WidthScale = Settings.GForceWidthScale;
             gForcePlacement.HeightScale = Settings.GForceHeightScale;
         }
+
+        if (BoostGaugeOverlay is not null && Settings.LastBoostGaugePlacementKey is { } boostKey &&
+            Settings.BoostGaugePlacements.TryGetValue(boostKey, out var boostPlacement))
+        {
+            boostPlacement.Left = BoostGaugeOverlay.Left;
+            boostPlacement.Top = BoostGaugeOverlay.Top;
+            boostPlacement.WidthScale = Settings.BoostGaugeScale;
+            boostPlacement.HeightScale = Settings.BoostGaugeScale;
+        }
+
+        if (TireTemperatureGaugeOverlay is not null &&
+            Settings.LastTireTemperatureGaugePlacementKey is { } tireTemperatureKey &&
+            Settings.TireTemperatureGaugePlacements.TryGetValue(
+                tireTemperatureKey,
+                out var tireTemperaturePlacement))
+        {
+            tireTemperaturePlacement.Left = TireTemperatureGaugeOverlay.Left;
+            tireTemperaturePlacement.Top = TireTemperatureGaugeOverlay.Top;
+            tireTemperaturePlacement.WidthScale = Settings.TireTemperatureGaugeScale;
+            tireTemperaturePlacement.HeightScale = Settings.TireTemperatureGaugeScale;
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -908,6 +1093,11 @@ public sealed class AppController : IAsyncDisposable
 
         Overlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         GForceOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+        BoostGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+        TireTemperatureGaugeOverlay?.SetTelemetryVisible(
+            false,
+            Settings.OverlayOpacity,
+            hideImmediately: true);
         ViewModel.ClearHudVisuals();
         if (_wasDrivingConnected)
         {
@@ -1214,9 +1404,12 @@ public sealed class AppController : IAsyncDisposable
 
         var gForceVisible = overlayVisible &&
                             (Settings.LayoutMode == HudLayoutMode.Combined ||
-                             IsStandaloneGForceWindowEnabled);
+                             IsStandaloneGForceWindowEnabled ||
+                             IsAttachedGForceMeterEnabled);
         var displayState = current with { Gear = _transmissionDisplayFilter.Observe(current) };
         var nativeHud = _nativeHudProcessService.SnapshotFor(current.CarOrdinal);
+        var detachedBoostWasEnabled = IsDetachedBoostGaugeEnabled;
+        var detachedTireTemperatureWasEnabled = IsDetachedTireTemperatureGaugeEnabled;
         ViewModel.Update(
             displayState,
             indicated,
@@ -1229,6 +1422,22 @@ public sealed class AppController : IAsyncDisposable
             refreshDiagnostics,
             gForceVisible,
             Settings.SpeedSource);
+        var detachedBoostEnabled = IsDetachedBoostGaugeEnabled;
+        var detachedTireTemperatureEnabled = IsDetachedTireTemperatureGaugeEnabled;
+        if (detachedBoostEnabled != detachedBoostWasEnabled ||
+            detachedTireTemperatureEnabled != detachedTireTemperatureWasEnabled)
+        {
+            if (detachedBoostEnabled)
+            {
+                RestoreBoostGaugePlacement();
+            }
+            if (detachedTireTemperatureEnabled)
+            {
+                RestoreTireTemperatureGaugePlacement();
+            }
+
+            UpdateOverlayVisibility(now, force: true);
+        }
         RememberNativeHudPublication(nativeHud);
 
         if (Settings.TractionCueEnabled &&
@@ -1377,6 +1586,11 @@ public sealed class AppController : IAsyncDisposable
             SetCompositionRenderingEnabled(false);
             Overlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
             GForceOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+            BoostGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+            TireTemperatureGaugeOverlay?.SetTelemetryVisible(
+                false,
+                Settings.OverlayOpacity,
+                hideImmediately: true);
             return false;
         }
 
@@ -1394,11 +1608,19 @@ public sealed class AppController : IAsyncDisposable
             ? _forzaFocusService.GetState(now)
             : default;
         var standaloneGForceEnabled = IsStandaloneGForceWindowEnabled;
+        var detachedBoostEnabled = IsDetachedBoostGaugeEnabled;
+        var detachedTireTemperatureEnabled = IsDetachedTireTemperatureGaugeEnabled;
+        BoostGaugeOverlay?.SetEnabled(detachedBoostEnabled);
+        TireTemperatureGaugeOverlay?.SetEnabled(detachedTireTemperatureEnabled);
         var overlayForeground =
             !Settings.OverlayLocked &&
             ((Overlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
              standaloneGForceEnabled &&
-             (GForceOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false));
+             (GForceOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
+             detachedBoostEnabled &&
+             (BoostGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
+             detachedTireTemperatureEnabled &&
+             (TireTemperatureGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false));
         if (_lastConfirmedForzaWindow != IntPtr.Zero &&
             !WindowZOrder.IsWindowAvailable(_lastConfirmedForzaWindow))
         {
@@ -1436,6 +1658,14 @@ public sealed class AppController : IAsyncDisposable
             overlayVisible && standaloneGForceEnabled,
             Settings.OverlayOpacity,
             hideImmediately || !standaloneGForceEnabled);
+        BoostGaugeOverlay?.SetTelemetryVisible(
+            overlayVisible && detachedBoostEnabled,
+            Settings.OverlayOpacity,
+            hideImmediately || !detachedBoostEnabled);
+        TireTemperatureGaugeOverlay?.SetTelemetryVisible(
+            overlayVisible && detachedTireTemperatureEnabled,
+            Settings.OverlayOpacity,
+            hideImmediately || !detachedTireTemperatureEnabled);
 
         var forzaWindowChanged = focus.IsForzaForeground &&
                                  focus.ForegroundWindow != IntPtr.Zero &&
@@ -1453,6 +1683,14 @@ public sealed class AppController : IAsyncDisposable
                                        standaloneGForceEnabled &&
                                        !WindowZOrder.IsAttachedToGame(
                                            GForceOverlay,
+                                           confirmedForzaWindow) ||
+                                       detachedBoostEnabled &&
+                                       !WindowZOrder.IsAttachedToGame(
+                                           BoostGaugeOverlay,
+                                           confirmedForzaWindow) ||
+                                       detachedTireTemperatureEnabled &&
+                                       !WindowZOrder.IsAttachedToGame(
+                                           TireTemperatureGaugeOverlay,
                                            confirmedForzaWindow));
         if (overlayVisible && confirmedForzaWindow != IntPtr.Zero &&
             (!wasOverlayVisible || forzaWindowChanged || fullscreenChanged ||
@@ -1469,6 +1707,20 @@ public sealed class AppController : IAsyncDisposable
                     confirmedForzaWindow,
                     raise: focus.IsForzaForeground);
             }
+            if (detachedBoostEnabled)
+            {
+                _ = WindowZOrder.AttachAboveGame(
+                    BoostGaugeOverlay,
+                    confirmedForzaWindow,
+                    raise: focus.IsForzaForeground);
+            }
+            if (detachedTireTemperatureEnabled)
+            {
+                _ = WindowZOrder.AttachAboveGame(
+                    TireTemperatureGaugeOverlay,
+                    confirmedForzaWindow,
+                    raise: focus.IsForzaForeground);
+            }
             _nextFullscreenZOrderAtUtc = focus.IsFullscreen
                 ? now + TimeSpan.FromSeconds(1)
                 : DateTimeOffset.MaxValue;
@@ -1478,11 +1730,21 @@ public sealed class AppController : IAsyncDisposable
             _nextFullscreenZOrderAtUtc = DateTimeOffset.MinValue;
             WindowZOrder.DetachFromGame(Overlay);
             WindowZOrder.DetachFromGame(GForceOverlay);
+            WindowZOrder.DetachFromGame(BoostGaugeOverlay);
+            WindowZOrder.DetachFromGame(TireTemperatureGaugeOverlay);
         }
 
         if (!standaloneGForceEnabled)
         {
             WindowZOrder.DetachFromGame(GForceOverlay);
+        }
+        if (!detachedBoostEnabled)
+        {
+            WindowZOrder.DetachFromGame(BoostGaugeOverlay);
+        }
+        if (!detachedTireTemperatureEnabled)
+        {
+            WindowZOrder.DetachFromGame(TireTemperatureGaugeOverlay);
         }
 
         _lastForzaFullscreen = focus.IsFullscreen;
@@ -1579,6 +1841,11 @@ public sealed class AppController : IAsyncDisposable
         SetCompositionRenderingEnabled(false);
         Overlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         GForceOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+        BoostGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+        TireTemperatureGaugeOverlay?.SetTelemetryVisible(
+            false,
+            Settings.OverlayOpacity,
+            hideImmediately: true);
         ViewModel.ClearHudVisuals();
     }
 

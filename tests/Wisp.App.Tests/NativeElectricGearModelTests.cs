@@ -72,12 +72,40 @@ public sealed class NativeElectricGearModelTests
     }
 
     [Fact]
-    public void UnavailableStateDoesNotGuessFromTelemetry()
+    public void UnavailableNativeStateUsesTelemetryForTheCurrentDirection()
     {
         var state = NativeElectricGearState.Unavailable;
 
-        Assert.Null(NativeElectricGearModel.CurrentToken(state, NativeGaugeMode.Analogue));
-        Assert.Null(NativeElectricGearModel.CurrentToken(state, NativeGaugeMode.Digital));
+        Assert.Equal(
+            "Drive",
+            NativeElectricGearModel.CurrentToken(
+                state,
+                NativeGaugeMode.Analogue,
+                TransmissionGear.First));
+        Assert.Equal(
+            "Drive",
+            NativeElectricGearModel.CurrentToken(
+                state,
+                NativeGaugeMode.Digital,
+                TransmissionGear.First));
+        Assert.Equal(
+            "Reverse",
+            NativeElectricGearModel.CurrentToken(
+                state,
+                NativeGaugeMode.Analogue,
+                TransmissionGear.Reverse));
+        Assert.Equal(
+            "R",
+            NativeElectricGearModel.CurrentToken(
+                state,
+                NativeGaugeMode.Digital,
+                TransmissionGear.Reverse));
+        Assert.Equal(
+            "N",
+            NativeElectricGearModel.CurrentToken(
+                state,
+                NativeGaugeMode.Digital,
+                TransmissionGear.Neutral));
         Assert.Null(NativeElectricGearModel.AdjacentToken(state, next: true));
         Assert.False(NativeElectricGearModel.IsMultiGear(state));
     }

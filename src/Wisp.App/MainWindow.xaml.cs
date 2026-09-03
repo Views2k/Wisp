@@ -32,14 +32,18 @@ public partial class MainWindow : Window
         var accentTheme = AppColorThemes.Resolve(controller.Settings.ColorTheme);
         var backgroundTheme = AppBackgroundThemes.Resolve(controller.Settings.BackgroundTheme);
         var hudBorderTheme = AppColorThemes.Resolve(controller.Settings.HudBorderTheme);
+        var boostTheme = BoostGaugeThemes.Resolve(controller.Settings.BoostGaugeTheme);
         AppThemeResources.Apply(Resources, accentTheme, backgroundTheme);
         HudBorderThemeResources.Apply(Resources, hudBorderTheme);
+        BoostGaugeThemeResources.Apply(Resources, boostTheme.Name);
         ThemePicker.SelectedValue = accentTheme.Name;
         BackgroundThemePicker.SelectedValue = backgroundTheme.Name;
         HudBorderThemePicker.SelectedValue = hudBorderTheme.Name;
+        BoostThemePicker.SelectedValue = boostTheme.Name;
         ActiveThemeName.Text = accentTheme.Name;
         ActiveBackgroundThemeName.Text = backgroundTheme.Name;
         ActiveHudBorderThemeName.Text = hudBorderTheme.Name;
+        ActiveBoostThemeName.Text = boostTheme.Name;
         SetSidebarOpen(!controller.Settings.SidebarCollapsed, animate: false);
         DataContext = controller.ViewModel;
         MphRadio.IsChecked = controller.Settings.SpeedUnit == SpeedUnit.MilesPerHour;
@@ -107,6 +111,18 @@ public partial class MainWindow : Window
         HudBorderThemeResources.Apply(Resources, hudBorderTheme);
         ActiveHudBorderThemeName.Text = hudBorderTheme.Name;
         _controller.SetHudBorderTheme(hudBorderTheme.Name);
+    }
+
+    private void BoostThemePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loaded || BoostThemePicker.SelectedItem is not BoostGaugeTheme boostTheme)
+        {
+            return;
+        }
+
+        ActiveBoostThemeName.Text = boostTheme.Name;
+        BoostGaugeThemeResources.Apply(Resources, boostTheme.Name);
+        _controller.SetBoostGaugeTheme(boostTheme.Name);
     }
 
     private void SidebarToggle_Click(object sender, RoutedEventArgs e)

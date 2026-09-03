@@ -15,6 +15,7 @@ public sealed class AppSettingsTests
         Assert.Equal("Aqua", settings.ColorTheme);
         Assert.Equal("Aqua", settings.HudBorderTheme);
         Assert.False(settings.SidebarCollapsed);
+        Assert.True(settings.GForceAttached);
     }
 
     [Fact]
@@ -189,6 +190,19 @@ public sealed class AppSettingsTests
             OverlayOpacity = 0.62,
             OverlayLocked = false,
             GForceEnabled = false,
+            GForceAttached = false,
+            BoostGaugeEnabled = true,
+            BoostGaugeAttached = false,
+            BoostGaugeColorNumber = true,
+            DigitalBoostGaugeColorNumber = true,
+            DigitalBoostGaugeStockColors = true,
+            BoostGaugeScale = 1.3,
+            BoostGaugeTheme = "Stock",
+            TireTemperatureGaugeEnabled = true,
+            TireTemperatureGaugeAttached = false,
+            TireTemperatureReactiveColors = false,
+            TireTemperatureUnit = TireTemperatureUnit.Celsius,
+            TireTemperatureGaugeScale = 1.15,
             GForceWidthScale = 0.8,
             GForceHeightScale = 1.1,
             Smoothing = 0.27,
@@ -214,6 +228,35 @@ public sealed class AppSettingsTests
     }
 
     [Fact]
+    public void EveryBoostGaugeStyleRoundTrips()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "Wisp.Tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(directory, "settings.json");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var service = new SettingsService(path);
+            foreach (var theme in BoostGaugeThemes.All)
+            {
+                var settings = CreateCurrentUiSettings();
+                settings.BoostGaugeTheme = theme.Name;
+
+                service.Save(settings);
+                var loaded = service.Load();
+
+                Assert.Equal(theme.Name, loaded.BoostGaugeTheme);
+                Assert.True(loaded.BoostGaugeColorNumber);
+                Assert.True(loaded.DigitalBoostGaugeColorNumber);
+                Assert.True(loaded.DigitalBoostGaugeStockColors);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public void ExistingSettingsMigrateToLiteralDrivenWheelAggregation()
     {
         var settings = new AppSettings
@@ -225,7 +268,7 @@ public sealed class AppSettingsTests
         settings.MigrateSettings();
 
         Assert.Equal(WheelAggregationMode.RawDrivenWheels, settings.AggregationMode);
-        Assert.Equal(7, settings.SettingsRevision);
+        Assert.Equal(9, settings.SettingsRevision);
     }
 
     [Fact]
@@ -240,7 +283,7 @@ public sealed class AppSettingsTests
         settings.MigrateSettings();
 
         Assert.Equal(WheelAggregationMode.RawDrivenWheels, settings.AggregationMode);
-        Assert.Equal(7, settings.SettingsRevision);
+        Assert.Equal(9, settings.SettingsRevision);
     }
 
     [Fact]
@@ -255,7 +298,7 @@ public sealed class AppSettingsTests
         settings.MigrateSettings();
 
         Assert.Equal(0, settings.Smoothing);
-        Assert.Equal(7, settings.SettingsRevision);
+        Assert.Equal(9, settings.SettingsRevision);
     }
 
     [Fact]
@@ -273,7 +316,9 @@ public sealed class AppSettingsTests
             OverlayWidthScale = double.NaN,
             OverlayHeightScale = 8,
             OverlayOpacity = -1,
-            Smoothing = double.PositiveInfinity
+            Smoothing = double.PositiveInfinity,
+            TireTemperatureUnit = (TireTemperatureUnit)99,
+            TireTemperatureGaugeScale = double.PositiveInfinity
         };
 
         settings.MigrateSettings();
@@ -289,6 +334,8 @@ public sealed class AppSettingsTests
         Assert.Equal(2, settings.OverlayHeightScale);
         Assert.Equal(0.35, settings.OverlayOpacity);
         Assert.Equal(0, settings.Smoothing);
+        Assert.Equal(TireTemperatureUnit.Fahrenheit, settings.TireTemperatureUnit);
+        Assert.Equal(1, settings.TireTemperatureGaugeScale);
     }
 
     [Fact]
@@ -346,7 +393,7 @@ public sealed class AppSettingsTests
         };
         upgraded.MigrateSettings();
 
-        Assert.Equal(7, upgraded.SettingsRevision);
+        Assert.Equal(9, upgraded.SettingsRevision);
         Assert.Equal(1.0, upgraded.OverlayOpacity);
 
         var current = new AppSettings
@@ -374,7 +421,7 @@ public sealed class AppSettingsTests
 
             Assert.Equal(5500, settings.UdpPort);
             Assert.Equal(WheelAggregationMode.RawDrivenWheels, settings.AggregationMode);
-            Assert.Equal(7, settings.SettingsRevision);
+            Assert.Equal(9, settings.SettingsRevision);
         }
         finally
         {
@@ -397,7 +444,7 @@ public sealed class AppSettingsTests
 
         settings.MigrateSettings();
 
-        Assert.Equal(7, settings.SettingsRevision);
+        Assert.Equal(9, settings.SettingsRevision);
         Assert.Equal(0, settings.Smoothing);
         Assert.Empty(settings.Calibrations);
     }
@@ -514,7 +561,7 @@ public sealed class AppSettingsTests
 
             var settings = new SettingsService(path).Load();
 
-            Assert.Equal(7, settings.SettingsRevision);
+            Assert.Equal(9, settings.SettingsRevision);
             Assert.Empty(settings.Calibrations);
         }
         finally
@@ -549,7 +596,7 @@ public sealed class AppSettingsTests
             service.Save(settings);
             var saved = File.ReadAllText(path);
 
-            Assert.Equal(7, settings.SettingsRevision);
+            Assert.Equal(9, settings.SettingsRevision);
             Assert.Equal(5601, settings.UdpPort);
             Assert.DoesNotContain("ExactNativeRedlineEnabled", saved, StringComparison.Ordinal);
             Assert.DoesNotContain("FctExternalServiceConsent", saved, StringComparison.Ordinal);

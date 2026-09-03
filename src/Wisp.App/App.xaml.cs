@@ -129,6 +129,23 @@ public partial class App : Application
         gForceOverlay.SetEnabled(_controller.IsStandaloneGForceWindowEnabled);
         gForceOverlay.SetEditMode(!settings.OverlayLocked);
 
+        var boostGaugeOverlay = new BoostGaugeWindow(_controller);
+        _controller.BoostGaugeOverlay = boostGaugeOverlay;
+        boostGaugeOverlay.ApplyAppearance(settings.BoostGaugeScale, settings.OverlayOpacity);
+        boostGaugeOverlay.SetEnabled(_controller.IsDetachedBoostGaugeEnabled);
+        _controller.RestoreBoostGaugePlacement();
+        boostGaugeOverlay.SetEditMode(!settings.OverlayLocked);
+
+        var tireTemperatureGaugeOverlay = new TireTemperatureGaugeWindow(_controller);
+        _controller.TireTemperatureGaugeOverlay = tireTemperatureGaugeOverlay;
+        tireTemperatureGaugeOverlay.ApplyGaugeMode(settings.NativeGaugeMode);
+        tireTemperatureGaugeOverlay.ApplyAppearance(
+            settings.TireTemperatureGaugeScale,
+            settings.OverlayOpacity);
+        tireTemperatureGaugeOverlay.SetEnabled(_controller.IsDetachedTireTemperatureGaugeEnabled);
+        _controller.RestoreTireTemperatureGaugePlacement();
+        tireTemperatureGaugeOverlay.SetEditMode(!settings.OverlayLocked);
+
         var mainWindow = new MainWindow(_controller);
         _controller.ControlPanel = mainWindow;
         MainWindow = mainWindow;

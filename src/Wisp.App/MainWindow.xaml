@@ -490,19 +490,10 @@
                                                                                 </Style.Triggers>
                                                                             </Style>
                                                                         </StackPanel.Style>
-                                                                        <local:NativeGForceMeterView HorizontalAlignment="Center" Margin="0,0,0,12">
-                                                                            <local:NativeGForceMeterView.Style>
-                                                                                <Style TargetType="local:NativeGForceMeterView">
-                                                                                    <Style.Triggers>
-                                                                                        <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
-                                                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                                                        </DataTrigger>
-                                                                                    </Style.Triggers>
-                                                                                </Style>
-                                                                            </local:NativeGForceMeterView.Style>
-                                                                        </local:NativeGForceMeterView>
-                                                                        <Grid>
-                                                                            <local:NativeDigitalSpeedometer Frame="{Binding NativePreviewFrame}">
+                                                                        <Grid Width="327.5" Height="404" ClipToBounds="False">
+                                                                            <local:NativeDigitalSpeedometer Width="320" Height="160" Margin="0,72,0,0"
+                                                                                                            HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                                                            Frame="{Binding NativePreviewFrame}">
                                                                                 <local:NativeDigitalSpeedometer.Style>
                                                                                     <Style TargetType="local:NativeDigitalSpeedometer">
                                                                                         <Style.Triggers>
@@ -513,7 +504,9 @@
                                                                                     </Style>
                                                                                 </local:NativeDigitalSpeedometer.Style>
                                                                             </local:NativeDigitalSpeedometer>
-                                                                            <local:NativeElectricDigitalSpeedometer Frame="{Binding NativePreviewFrame}">
+                                                                            <local:NativeElectricDigitalSpeedometer Width="320" Height="160" Margin="0,72,0,0"
+                                                                                                                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                                                                    Frame="{Binding NativePreviewFrame}">
                                                                                 <local:NativeElectricDigitalSpeedometer.Style>
                                                                                     <Style TargetType="local:NativeElectricDigitalSpeedometer">
                                                                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -525,6 +518,74 @@
                                                                                     </Style>
                                                                                 </local:NativeElectricDigitalSpeedometer.Style>
                                                                             </local:NativeElectricDigitalSpeedometer>
+                                                                            <local:DigitalBoostRailView x:Name="NativeDigitalBoostPreview"
+                                                                                                        Width="302" Height="88" Margin="11,204,0,0"
+                                                                                                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                                                        Display="{Binding PreviewBoostDisplay}"
+                                                                                                        ColorNumber="{Binding DigitalBoostGaugeColorNumber}"
+                                                                                                        UseStockColors="{Binding DigitalBoostGaugeStockColors}"
+                                                                                                        LowBrush="{DynamicResource BoostLowBrush}"
+                                                                                                        MidBrush="{DynamicResource BoostMidBrush}"
+                                                                                                        HighBrush="{DynamicResource BoostHighBrush}">
+                                                                                <local:DigitalBoostRailView.Style>
+                                                                                    <Style TargetType="local:DigitalBoostRailView">
+                                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                                        <Style.Triggers>
+                                                                                            <MultiDataTrigger>
+                                                                                                <MultiDataTrigger.Conditions>
+                                                                                                    <Condition Binding="{Binding BoostGaugeEnabled}" Value="True" />
+                                                                                                    <Condition Binding="{Binding NativePreviewFrame.IsElectric}" Value="False" />
+                                                                                                </MultiDataTrigger.Conditions>
+                                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                                            </MultiDataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:DigitalBoostRailView.Style>
+                                                                            </local:DigitalBoostRailView>
+                                                                            <local:DigitalTireTemperatureGaugeView x:Name="NativeDigitalTireTemperaturePreview"
+                                                                                                                   Width="302" Height="84"
+                                                                                                                   HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                                                                   Display="{Binding PreviewTireTemperatureDisplay}"
+                                                                                                                   TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
+                                                                                                                   ReactiveColors="{Binding TireTemperatureReactiveColors}"
+                                                                                                                   IsAttached="{Binding TireTemperatureGaugeAttached}"
+                                                                                                                   LowBrush="{DynamicResource BoostLowBrush}"
+                                                                                                                   MidBrush="{DynamicResource BoostMidBrush}"
+                                                                                                                   HighBrush="{DynamicResource BoostHighBrush}">
+                                                                                <local:DigitalTireTemperatureGaugeView.Style>
+                                                                                    <Style TargetType="local:DigitalTireTemperatureGaugeView">
+                                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                                        <Setter Property="Margin" Value="11,242,0,0" />
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding TireTemperatureGaugeEnabled}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                                            </DataTrigger>
+                                                                                            <DataTrigger Binding="{Binding BoostGaugeEnabled}" Value="False">
+                                                                                                <Setter Property="Margin" Value="11,204,0,0" />
+                                                                                            </DataTrigger>
+                                                                                            <DataTrigger Binding="{Binding NativePreviewFrame.IsElectric}" Value="True">
+                                                                                                <Setter Property="Margin" Value="11,204,0,0" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:DigitalTireTemperatureGaugeView.Style>
+                                                                            </local:DigitalTireTemperatureGaugeView>
+                                                                            <local:NativeGForceMeterView Width="144" Height="100"
+                                                                                                         HorizontalAlignment="Left" VerticalAlignment="Top">
+                                                                                <local:NativeGForceMeterView.Style>
+                                                                                    <Style TargetType="local:NativeGForceMeterView">
+                                                                                        <Setter Property="Margin" Value="176,0,0,0" />
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
+                                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                                            </DataTrigger>
+                                                                                            <DataTrigger Binding="{Binding GForceAttached}" Value="False">
+                                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:NativeGForceMeterView.Style>
+                                                                            </local:NativeGForceMeterView>
                                                                         </Grid>
                                                                     </StackPanel>
                                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -538,19 +599,10 @@
                                                                                 </Style.Triggers>
                                                                             </Style>
                                                                         </StackPanel.Style>
-                                                                        <local:NativeGForceMeterView HorizontalAlignment="Center" Margin="0,0,0,12">
-                                                                            <local:NativeGForceMeterView.Style>
-                                                                                <Style TargetType="local:NativeGForceMeterView">
-                                                                                    <Style.Triggers>
-                                                                                        <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
-                                                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                                                        </DataTrigger>
-                                                                                    </Style.Triggers>
-                                                                                </Style>
-                                                                            </local:NativeGForceMeterView.Style>
-                                                                        </local:NativeGForceMeterView>
-                                                                        <Grid>
-                                                                            <local:NativeAnalogSpeedometer Frame="{Binding NativePreviewFrame}">
+                                                                        <Grid Width="439" Height="404" ClipToBounds="False">
+                                                                            <local:NativeAnalogSpeedometer Width="293" Height="293.5" Margin="0,72,0,0"
+                                                                                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                                                           Frame="{Binding NativePreviewFrame}">
                                                                                 <local:NativeAnalogSpeedometer.Style>
                                                                                     <Style TargetType="local:NativeAnalogSpeedometer">
                                                                                         <Style.Triggers>
@@ -561,7 +613,9 @@
                                                                                     </Style>
                                                                                 </local:NativeAnalogSpeedometer.Style>
                                                                             </local:NativeAnalogSpeedometer>
-                                                                            <local:NativeElectricAnalogSpeedometer Frame="{Binding NativePreviewFrame}">
+                                                                            <local:NativeElectricAnalogSpeedometer Width="345" Height="345" Margin="0,72,0,0"
+                                                                                                                   HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                                                                   Frame="{Binding NativePreviewFrame}">
                                                                                 <local:NativeElectricAnalogSpeedometer.Style>
                                                                                     <Style TargetType="local:NativeElectricAnalogSpeedometer">
                                                                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -573,6 +627,84 @@
                                                                                     </Style>
                                                                                 </local:NativeElectricAnalogSpeedometer.Style>
                                                                             </local:NativeElectricAnalogSpeedometer>
+                                                                            <local:AnalogBoostGaugeView x:Name="NativeAnalogBoostPreview"
+                                                                                                        Width="136" Height="136"
+                                                                                                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                                                        Display="{Binding PreviewBoostDisplay}"
+                                                                                                        ColorNumber="{Binding BoostGaugeColorNumber}"
+                                                                                                        LowBrush="{DynamicResource BoostLowBrush}"
+                                                                                                        MidBrush="{DynamicResource BoostMidBrush}"
+                                                                                                        HighBrush="{DynamicResource BoostHighBrush}">
+                                                                                <local:AnalogBoostGaugeView.Style>
+                                                                                    <Style TargetType="local:AnalogBoostGaugeView">
+                                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                                        <Setter Property="Margin" Value="298,90,0,0" />
+                                                                                        <Style.Triggers>
+                                                                                            <MultiDataTrigger>
+                                                                                                <MultiDataTrigger.Conditions>
+                                                                                                    <Condition Binding="{Binding BoostGaugeEnabled}" Value="True" />
+                                                                                                    <Condition Binding="{Binding NativePreviewFrame.IsElectric}" Value="False" />
+                                                                                                </MultiDataTrigger.Conditions>
+                                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                                            </MultiDataTrigger>
+                                                                                            <DataTrigger Binding="{Binding BoostGaugeAttached}" Value="True">
+                                                                                                <Setter Property="Margin" Value="276,76,0,0" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:AnalogBoostGaugeView.Style>
+                                                                            </local:AnalogBoostGaugeView>
+                                                                            <local:AnalogTireTemperatureGaugeView x:Name="NativeAnalogTireTemperaturePreview"
+                                                                                                                  Width="116" Height="116"
+                                                                                                                  HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                                                                  Display="{Binding PreviewTireTemperatureDisplay}"
+                                                                                                                  TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
+                                                                                                                  ReactiveColors="{Binding TireTemperatureReactiveColors}"
+                                                                                                                  IsAttached="{Binding TireTemperatureGaugeAttached}"
+                                                                                                                  IsElectricMaterial="{Binding NativePreviewFrame.IsElectric}"
+                                                                                                                  LowBrush="{DynamicResource BoostLowBrush}"
+                                                                                                                  MidBrush="{DynamicResource BoostMidBrush}"
+                                                                                                                  HighBrush="{DynamicResource BoostHighBrush}">
+                                                                                <local:AnalogTireTemperatureGaugeView.Style>
+                                                                                    <Style TargetType="local:AnalogTireTemperatureGaugeView">
+                                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                                        <Setter Property="Margin" Value="298,236,0,0" />
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding TireTemperatureGaugeEnabled}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                                            </DataTrigger>
+                                                                                            <DataTrigger Binding="{Binding TireTemperatureGaugeAttached}" Value="True">
+                                                                                                <Setter Property="Margin" Value="286,76,0,0" />
+                                                                                            </DataTrigger>
+                                                                                            <MultiDataTrigger>
+                                                                                                <MultiDataTrigger.Conditions>
+                                                                                                    <Condition Binding="{Binding TireTemperatureGaugeAttached}" Value="True" />
+                                                                                                    <Condition Binding="{Binding BoostGaugeEnabled}" Value="True" />
+                                                                                                    <Condition Binding="{Binding BoostGaugeAttached}" Value="True" />
+                                                                                                    <Condition Binding="{Binding NativePreviewFrame.IsElectric}" Value="False" />
+                                                                                                </MultiDataTrigger.Conditions>
+                                                                                                <Setter Property="Margin" Value="286,214,0,0" />
+                                                                                            </MultiDataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:AnalogTireTemperatureGaugeView.Style>
+                                                                            </local:AnalogTireTemperatureGaugeView>
+                                                                            <local:NativeGForceMeterView Width="144" Height="100"
+                                                                                                         HorizontalAlignment="Left" VerticalAlignment="Top">
+                                                                                <local:NativeGForceMeterView.Style>
+                                                                                    <Style TargetType="local:NativeGForceMeterView">
+                                                                                        <Setter Property="Margin" Value="195,0,0,0" />
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
+                                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                                            </DataTrigger>
+                                                                                            <DataTrigger Binding="{Binding GForceAttached}" Value="False">
+                                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:NativeGForceMeterView.Style>
+                                                                            </local:NativeGForceMeterView>
                                                                         </Grid>
                                                                     </StackPanel>
                                                                 </Grid>
@@ -593,20 +725,101 @@
                                                     </Style.Triggers>
                                                 </Style>
                                             </Border.Style>
-                                            <Grid>
-                                                <StackPanel>
-                                                    <TextBlock Text="SEPARATE G-METER" Style="{StaticResource EyebrowTextStyle}" />
-                                                    <TextBlock Text="Show the standalone meter" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" />
-                                                    <TextBlock Text="Adds a separate movable meter. Combined mode keeps its built-in meter."
-                                                               FontSize="11" Foreground="{DynamicResource FaintBrush}" Margin="0,5,60,0"
-                                                               TextWrapping="Wrap" LineHeight="16" />
-                                                </StackPanel>
-                                                <CheckBox HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                          IsChecked="{Binding GForceEnabled}"
-                                                          AutomationProperties.Name="Show standalone G-meter"
+                                            <StackPanel>
+                                                <Grid>
+                                                    <StackPanel>
+                                                        <TextBlock Text="G-FORCE METER" Style="{StaticResource EyebrowTextStyle}" />
+                                                        <TextBlock Text="Show the G-force meter" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" />
+                                                        <TextBlock Text="Native mode can attach it to the speedometer. Other layouts keep a separate movable meter."
+                                                                   FontSize="11" Foreground="{DynamicResource FaintBrush}" Margin="0,5,60,0"
+                                                                   TextWrapping="Wrap" LineHeight="16" />
+                                                    </StackPanel>
+                                                    <CheckBox HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                              IsChecked="{Binding GForceEnabled}"
+                                                              AutomationProperties.Name="Show standalone G-meter"
+                                                              Style="{StaticResource ToggleSwitchStyle}"
+                                                              Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                </Grid>
+                                                <CheckBox Content="Attach G-force meter to Native HUD"
+                                                          IsChecked="{Binding GForceAttached}"
+                                                          AutomationProperties.Name="Attach G-force meter to Native HUD"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="BOOST GAUGE" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Native forced-induction telemetry" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" />
+                                                <TextBlock Text="Uses FH6's live PSI channel and appears only when boost activity confirms a turbocharged or supercharged car."
+                                                           FontSize="11" Foreground="{DynamicResource FaintBrush}" Margin="0,5,0,14"
+                                                           TextWrapping="Wrap" LineHeight="16" />
+                                                <CheckBox Content="Show boost gauge"
+                                                          IsChecked="{Binding BoostGaugeEnabled}"
+                                                          AutomationProperties.Name="Show boost gauge"
                                                           Style="{StaticResource ToggleSwitchStyle}"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" />
-                                            </Grid>
+                                                <CheckBox Content="Attach analogue boost gauge"
+                                                          IsChecked="{Binding BoostGaugeAttached}"
+                                                          AutomationProperties.Name="Attach analogue boost gauge"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="The digital rail stays fixed. Turn this off to move the analogue gauge separately."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" Margin="54,4,0,0" />
+                                                <CheckBox Content="Color analogue PSI by load"
+                                                          IsChecked="{Binding BoostGaugeColorNumber}"
+                                                          AutomationProperties.Name="Color the analogue boost PSI number by load"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <CheckBox Content="Color digital PSI by load"
+                                                          IsChecked="{Binding DigitalBoostGaugeColorNumber}"
+                                                          AutomationProperties.Name="Color the digital boost PSI number by load"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <CheckBox Content="Use stock tachometer colors on digital boost"
+                                                          IsChecked="{Binding DigitalBoostGaugeStockColors}"
+                                                          AutomationProperties.Name="Use the stock tachometer material on the digital boost rail"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="TIRE TEMPERATURE" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Front and rear axle heat" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" />
+                                                <TextBlock Text="Averages FH6's two front and two rear tire temperature channels without adding another telemetry loop."
+                                                           FontSize="11" Foreground="{DynamicResource FaintBrush}" Margin="0,5,0,14"
+                                                           TextWrapping="Wrap" LineHeight="16" />
+                                                <CheckBox Content="Show tire temperature gauge"
+                                                          IsChecked="{Binding TireTemperatureGaugeEnabled}"
+                                                          AutomationProperties.Name="Show tire temperature gauge"
+                                                          Style="{StaticResource ToggleSwitchStyle}"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <CheckBox Content="Attach tire temperature gauge"
+                                                          IsChecked="{Binding TireTemperatureGaugeAttached}"
+                                                          AutomationProperties.Name="Attach tire temperature gauge"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="Attached mode places it below boost. With no boost gauge, it closes the gap below the speedometer."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" Margin="54,4,0,0" />
+                                                <CheckBox Content="Display tire temperatures in Celsius"
+                                                          IsChecked="{Binding UseCelsiusTireTemperature}"
+                                                          AutomationProperties.Name="Display tire temperatures in Celsius"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <CheckBox Content="Color tire markers and needles"
+                                                          IsChecked="{Binding TireTemperatureReactiveColors}"
+                                                          AutomationProperties.Name="Color the front and rear tire markers and needles"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="Uses two neighboring colors from the selected Boost + Tire palette. The rail stays neutral."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" Margin="54,4,0,0" />
+                                            </StackPanel>
                                         </Border>
 
                                         <Border x:Name="CombinedGForceNotice" Margin="0,14,0,0">
@@ -809,6 +1022,13 @@
                                                                 <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="1">
                                                                     <Setter Property="Visibility" Value="Collapsed" />
                                                                 </DataTrigger>
+                                                                <MultiDataTrigger>
+                                                                    <MultiDataTrigger.Conditions>
+                                                                        <Condition Binding="{Binding LayoutSelectionIndex}" Value="3" />
+                                                                        <Condition Binding="{Binding GForceAttached}" Value="True" />
+                                                                    </MultiDataTrigger.Conditions>
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </MultiDataTrigger>
                                                             </Style.Triggers>
                                                         </Style>
                                                     </StackPanel.Style>
@@ -843,6 +1063,65 @@
                                                                     TickFrequency="0.05" ValueChanged="Option_Changed" />
                                                         </StackPanel>
                                                     </Grid>
+                                                </StackPanel>
+
+                                                <StackPanel Margin="0,15,0,0">
+                                                    <StackPanel.Style>
+                                                        <Style TargetType="StackPanel">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <MultiDataTrigger>
+                                                                    <MultiDataTrigger.Conditions>
+                                                                        <Condition Binding="{Binding LayoutSelectionIndex}" Value="3" />
+                                                                        <Condition Binding="{Binding TireTemperatureGaugeAttached}" Value="False" />
+                                                                    </MultiDataTrigger.Conditions>
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </MultiDataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </StackPanel.Style>
+                                                    <Grid Margin="0,0,0,5">
+                                                        <TextBlock Text="Detached tire temperature gauge size" Foreground="{DynamicResource MutedBrush}" />
+                                                        <TextBlock Text="50–200%" HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" FontSize="11" />
+                                                    </Grid>
+                                                    <Grid Margin="0,0,0,3">
+                                                        <TextBlock Text="SIZE" Style="{StaticResource EyebrowTextStyle}" />
+                                                        <TextBlock Text="{Binding TireTemperatureGaugeScale, StringFormat={}{0:P0}}"
+                                                                   HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" />
+                                                    </Grid>
+                                                    <Slider Minimum="0.5" Maximum="2" Value="{Binding TireTemperatureGaugeScale}"
+                                                            AutomationProperties.Name="Detached tire temperature gauge size"
+                                                            TickFrequency="0.05" ValueChanged="Option_Changed" />
+                                                </StackPanel>
+
+                                                <StackPanel Margin="0,15,0,0">
+                                                    <StackPanel.Style>
+                                                        <Style TargetType="StackPanel">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <MultiDataTrigger>
+                                                                    <MultiDataTrigger.Conditions>
+                                                                        <Condition Binding="{Binding LayoutSelectionIndex}" Value="3" />
+                                                                        <Condition Binding="{Binding NativeGaugeSelectionIndex}" Value="1" />
+                                                                        <Condition Binding="{Binding BoostGaugeAttached}" Value="False" />
+                                                                    </MultiDataTrigger.Conditions>
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </MultiDataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </StackPanel.Style>
+                                                    <Grid Margin="0,0,0,5">
+                                                        <TextBlock Text="Detached boost gauge size" Foreground="{DynamicResource MutedBrush}" />
+                                                        <TextBlock Text="50–200%" HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" FontSize="11" />
+                                                    </Grid>
+                                                    <Grid Margin="0,0,0,3">
+                                                        <TextBlock Text="SIZE" Style="{StaticResource EyebrowTextStyle}" />
+                                                        <TextBlock Text="{Binding BoostGaugeScale, StringFormat={}{0:P0}}"
+                                                                   HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" />
+                                                    </Grid>
+                                                    <Slider Minimum="0.5" Maximum="2" Value="{Binding BoostGaugeScale}"
+                                                            AutomationProperties.Name="Detached boost gauge size"
+                                                            TickFrequency="0.05" ValueChanged="Option_Changed" />
                                                 </StackPanel>
 
                                                 <StackPanel Margin="0,15,0,0">
@@ -1318,6 +1597,52 @@
                                         </ListBox.ItemTemplate>
                                     </ListBox>
                                     </StackPanel>
+                                    <StackPanel Width="440" Margin="10,0,10,24">
+                                    <Grid>
+                                        <StackPanel>
+                                            <TextBlock Text="BOOST + TIRE GAUGES" Style="{StaticResource EyebrowTextStyle}" />
+                                            <TextBlock Text="Shared boost and temperature palette" Foreground="{DynamicResource MutedBrush}"
+                                                       TextWrapping="Wrap" Margin="0,4,130,0" />
+                                        </StackPanel>
+                                        <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="10,5">
+                                            <TextBlock x:Name="ActiveBoostThemeName" Text="Aqua"
+                                                       Foreground="{DynamicResource TextBrush}" FontSize="12"
+                                                       AutomationProperties.Name="Active boost and tire gauge theme" />
+                                        </Border>
+                                    </Grid>
+                                    <ListBox x:Name="BoostThemePicker" Margin="-4,14,-4,0" Padding="0"
+                                             Background="Transparent" BorderThickness="0"
+                                             ItemsSource="{x:Static local:BoostGaugeThemes.All}" SelectedValuePath="Name"
+                                             ItemContainerStyle="{StaticResource ThemeChoiceStyle}"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                             SelectionChanged="BoostThemePicker_SelectionChanged"
+                                             AutomationProperties.Name="Boost and tire gauge color palette">
+                                        <ListBox.ItemsPanel>
+                                            <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type local:BoostGaugeTheme}">
+                                                <StackPanel>
+                                                    <Grid Height="30">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Background="{Binding Low}" CornerRadius="4,0,0,4" />
+                                                        <Border Grid.Column="1" Background="{Binding Mid}" />
+                                                        <Border Grid.Column="2" Background="{Binding High}" CornerRadius="0,4,4,0" />
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}"
+                                                               AutomationProperties.Name="{Binding Name, StringFormat={}Boost and tire gauge theme: {0}}"
+                                                               FontSize="12" Margin="0,10,20,0" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    </StackPanel>
                                     </WrapPanel>
                                 </StackPanel>
                             </ScrollViewer>
@@ -1329,7 +1654,7 @@
             <Grid Grid.Row="2" Margin="29,0">
                 <TextBlock Text="LOCAL DATA OUT  ·  READ-ONLY NATIVE HUD  ·  NO INJECTION" VerticalAlignment="Center"
                            FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource FaintBrush}" />
-                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.4" HorizontalAlignment="Right" VerticalAlignment="Center"
+                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.5" HorizontalAlignment="Right" VerticalAlignment="Center"
                            FontSize="10" Foreground="{DynamicResource FaintBrush}" />
             </Grid>
         </Grid>

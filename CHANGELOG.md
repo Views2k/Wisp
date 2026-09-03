@@ -2,6 +2,54 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.5 - 2026-09-02
+
+### Added
+
+- Added a boost gauge for confirmed turbocharged and supercharged cars. Native
+  Digital uses a slim rail below the tachometer, and Native Analogue uses a
+  0 to 70 PSI dial with 5 PSI ticks and a centered two-digit readout.
+- Added independent PSI-number color controls, attached or detached Analogue
+  placement, Analogue size control, fifteen boost palettes, and a stock
+  no-color style.
+- Added an independent Digital boost stock-material option that reuses the
+  native tachometer's neutral fill and marker shader without changing the
+  shared Analogue and tire palette.
+- Added the boost gauge to the Appearance HUD preview so its layout, palette,
+  readout color, and attachment state can be reviewed without running FH6.
+- Added a tire-temperature gauge to both Native layouts. Digital uses one rail
+  with separate front and rear markers. Analogue uses a compact dual-needle
+  dial with exact front and rear readings.
+- Added Fahrenheit and Celsius tire-temperature display, palette-aware solid
+  distinct front/rear needle and marker colors, attachment, and size controls.
+- Added a Native HUD attachment option for the G-force meter and included the
+  fully attached arrangement in the HUD preview.
+
+### Changed
+
+- Grouped the longer Appearance page into focused sections.
+- Restored forward and reverse gear state on electric Native HUD layouts.
+- Extended the existing G-force motion trail by half a second.
+
+### Fixed
+
+- Made confirmed boost displays appear with the speedometer instead of waiting
+  for sustained positive pressure.
+- Kept boost gauges hidden for naturally aspirated and electric cars.
+- Prevented attached Digital and Analogue boost displays from clipping their
+  overlay windows or covering the stock tachometer.
+- Corrected Digital rail spacing, connector alignment, native-style marker
+  glow, contained color fill, label alignment, and PSI placement.
+- Matched the Analogue PSI number to the needle's current color position.
+- Clamped tire-temperature readouts and marker positions to the authored
+  50 F to 350 F gauge range.
+- Corrected the tire gauge size, label alignment, needle length, needle glow,
+  and Digital one-rail composition.
+- Removed the small Analogue tire-needle endpoint artifacts and held saturated
+  tire markers at the 350 F endpoint without coloring or filling the rail.
+- Prevented a transient Native tachometer source mismatch during a fast shift
+  or rapid RPM bounce from blanking the stable tachometer texture.
+
 ## 1.0.4 - 2026-09-01
 
 ### Changed

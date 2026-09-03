@@ -47,6 +47,8 @@ public sealed record VehicleState
     public int NumCylinders { get; init; } = -1;
     public float PowerWatts { get; init; }
     public float TorqueNm { get; init; }
+    public float BoostPressurePsi { get; init; }
+    public WheelValues TireTemperatureFahrenheit { get; init; }
     public bool IsElectric => NumCylinders == 0;
     public required float GroundSpeedMetersPerSecond { get; init; }
     public required WheelValues WheelRotationRadiansPerSecond { get; init; }

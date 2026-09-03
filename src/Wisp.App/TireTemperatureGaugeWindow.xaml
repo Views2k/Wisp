@@ -1,0 +1,35 @@
+<Window x:Class="Wisp.App.TireTemperatureGaugeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Wisp.App"
+        Title="Wisp Tire Temperature" Width="310" Height="92"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
+        Background="Transparent" Topmost="False" ShowInTaskbar="False" ShowActivated="False">
+    <Window.Resources>
+        <SolidColorBrush x:Key="BoostLowBrush" Color="#48D9F1" />
+        <SolidColorBrush x:Key="BoostMidBrush" Color="#397FF7" />
+        <SolidColorBrush x:Key="BoostHighBrush" Color="#A45CFF" />
+    </Window.Resources>
+    <Viewbox x:Name="RootViewbox" Stretch="Uniform" Opacity="0">
+        <Grid x:Name="RootPanel" Width="310" Height="92" Background="Transparent">
+            <local:DigitalTireTemperatureGaugeView x:Name="DigitalGauge"
+                                                   Width="302" Height="84" Margin="4"
+                                                   Display="{Binding TireTemperatureDisplay}"
+                                                   TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
+                                                   ReactiveColors="{Binding TireTemperatureReactiveColors}"
+                                                   LowBrush="{DynamicResource BoostLowBrush}"
+                                                   MidBrush="{DynamicResource BoostMidBrush}"
+                                                   HighBrush="{DynamicResource BoostHighBrush}" />
+            <local:AnalogTireTemperatureGaugeView x:Name="AnalogGauge"
+                                                  Width="118" Height="118" Margin="4"
+                                                  Visibility="Collapsed"
+                                                  Display="{Binding TireTemperatureDisplay}"
+                                                  TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
+                                                  ReactiveColors="{Binding TireTemperatureReactiveColors}"
+                                                  IsElectricMaterial="{Binding NativeGaugeFrame.IsElectric}"
+                                                  LowBrush="{DynamicResource BoostLowBrush}"
+                                                  MidBrush="{DynamicResource BoostMidBrush}"
+                                                  HighBrush="{DynamicResource BoostHighBrush}" />
+        </Grid>
+    </Viewbox>
+</Window>
