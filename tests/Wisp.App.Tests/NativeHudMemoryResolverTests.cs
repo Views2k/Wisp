@@ -185,7 +185,7 @@ public sealed class NativeHudMemoryResolverTests
     }
 
     [Fact]
-    public void NonUniqueLocalPlayerFailsClosed()
+    public void UnrelatedLocalPlayerSourceDoesNotInvalidateMatchingTelemetrySource()
     {
         var memory = ValidMemory();
         const ulong source2 = 0x0000000310000000;
@@ -194,6 +194,28 @@ public sealed class NativeHudMemoryResolverTests
         memory.SetUInt64(Module + NativeHudBuildContract.SourceVectorRva + 16, SourceList + 16);
         memory.SetUInt64(SourceList + 8, source2);
         ConfigureSource(memory, source2, provider2, 999);
+        ConfigureProvider(memory, provider2, absOn: true, tcrOn: true, stmOn: true, lcOn: true);
+
+        var result = new NativeHudMemoryResolver().Resolve(
+            memory, Module, 314, 4_000, 8_000, 1, forceSourceAudit: true);
+
+        Assert.True(result.Available);
+        Assert.Equal(NativeAssistProviderStatus.Ready, result.Status);
+        Assert.Equal(314, result.CarOrdinal);
+        Assert.Equal(6_500, result.ExactRedline.Rpm, 2);
+        Assert.Equal(8_000, result.TachometerMaximumRpm, 2);
+    }
+
+    [Fact]
+    public void MultipleTelemetryMatchingLocalPlayerSourcesStillFailClosed()
+    {
+        var memory = ValidMemory();
+        const ulong source2 = 0x0000000310000000;
+        const ulong provider2 = 0x0000000420000000;
+        memory.SetUInt64(Module + NativeHudBuildContract.SourceVectorRva + 8, SourceList + 16);
+        memory.SetUInt64(Module + NativeHudBuildContract.SourceVectorRva + 16, SourceList + 16);
+        memory.SetUInt64(SourceList + 8, source2);
+        ConfigureSource(memory, source2, provider2, 314);
         ConfigureProvider(memory, provider2, absOn: true, tcrOn: true, stmOn: true, lcOn: true);
 
         var result = new NativeHudMemoryResolver().Resolve(
