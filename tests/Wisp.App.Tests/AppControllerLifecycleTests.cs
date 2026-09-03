@@ -10,10 +10,10 @@ public sealed class AppControllerLifecycleTests
 {
     [Theory]
     [InlineData(HudLayoutMode.Native, 0, 0)]
-    [InlineData(HudLayoutMode.Native, 1, 0)]
+    [InlineData(HudLayoutMode.Native, 1, 1)]
     [InlineData(HudLayoutMode.Minimal, 0.35, 0.35)]
     [InlineData(HudLayoutMode.Combined, 2, 1)]
-    public void NativeSpeedAlwaysUsesTheLiveUnsmoothenedWheelValue(
+    public void SpeedSmoothingIsAppliedAndClampedForEveryLayout(
         HudLayoutMode layoutMode,
         double configuredSmoothing,
         double expected)
