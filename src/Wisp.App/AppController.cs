@@ -1502,9 +1502,7 @@ public sealed class AppController : IAsyncDisposable
     internal static double ResolveSpeedSmoothing(
         HudLayoutMode layoutMode,
         double configuredSmoothing) =>
-        layoutMode == HudLayoutMode.Native
-            ? 0
-            : Math.Clamp(configuredSmoothing, 0, 1);
+        Math.Clamp(configuredSmoothing, 0, 1);
 
     internal static (NativeGameplayVisibility Visibility, bool Fresh) EvaluateNativeGameplayVisibility(
         NativeHudSnapshot snapshot,

@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.6 - 2026-09-02
+
+### Fixed
+
+- Fixed the speed-smoothing control being ignored by Native HUD layouts.
+
 ## 1.0.5 - 2026-09-02
 
 ### Added
