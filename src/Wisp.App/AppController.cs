@@ -1124,11 +1124,10 @@ public sealed class AppController : IAsyncDisposable
 
     private void OnPacketAvailable(object? sender, EventArgs eventArgs)
     {
-        // A visible HUD consumes the newest packet on CompositionTarget.Rendering.
-        // Packet callbacks only wake the dispatcher to make initial race-on
-        // activation immediate; menus and hidden foreground states use the timer.
+        // Keep live telemetry independent from WPF's presentation cadence. Some
+        // systems throttle CompositionTarget.Rendering while Wisp is in the
+        // background, but packet delivery must still advance the HUD promptly.
         if (_disposed || _runtimeSuspended || Settings.RequiresSetup || _dispatcher.HasShutdownStarted ||
-            Volatile.Read(ref _wasDrivingConnected) ||
             _receiver.Latest is not { IsRaceOn: true } ||
             Interlocked.Exchange(ref _activationDispatchPending, 1) != 0)
         {
@@ -1137,7 +1136,7 @@ public sealed class AppController : IAsyncDisposable
 
         try
         {
-            _dispatcher.BeginInvoke(DispatcherPriority.Background, ProcessPendingActivation);
+            _dispatcher.BeginInvoke(DispatcherPriority.Render, ProcessPendingActivation);
         }
         catch (InvalidOperationException)
         {
@@ -1193,12 +1192,6 @@ public sealed class AppController : IAsyncDisposable
             }
         }
 
-        if (!hasNewPacket)
-        {
-            return;
-        }
-
-        ProcessUiUpdate(processLatestPacket: true);
     }
 
     private void OnUiTimer(object? sender, EventArgs eventArgs)
@@ -1210,7 +1203,7 @@ public sealed class AppController : IAsyncDisposable
                 _ = CheckNativeCompatibilityUpdatesAsync();
             }
 
-            ProcessUiUpdate(processLatestPacket: !_compositionRenderingAttached);
+            ProcessUiUpdate(processLatestPacket: true);
         }
     }
 

@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.7 - 2026-09-03
+
+### Fixed
+
+- Decoupled live HUD telemetry delivery from WPF presentation callbacks so background compositor throttling cannot stall Wisp's HUD state.
+- Refreshed gallery image identities so browsers do not reuse stale 1.0.5 screenshots.
+
 ## 1.0.6 - 2026-09-02
 
 ### Fixed
