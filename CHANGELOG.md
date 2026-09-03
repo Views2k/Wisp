@@ -7,6 +7,7 @@ Notable changes to Wisp are recorded here.
 ### Fixed
 
 - Decoupled live HUD telemetry delivery from WPF presentation callbacks so background compositor throttling cannot stall Wisp's HUD state.
+- Smoothed and rate-limited the dashboard horsepower readout so rapidly changing power telemetry remains readable without altering raw power data.
 - Refreshed gallery image identities so browsers do not reuse stale 1.0.5 screenshots.
 
 ## 1.0.6 - 2026-09-02

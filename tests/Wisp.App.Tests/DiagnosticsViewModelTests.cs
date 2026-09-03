@@ -76,9 +76,9 @@ public sealed class DiagnosticsViewModelTests
     }
 
     [Theory]
-    [InlineData(84_500, 310.25, "+113.3 HP", "+310 Nm")]
-    [InlineData(-84_500, -310.25, "-113.3 HP", "-310 Nm")]
-    [InlineData(0, 0, "0.0 HP", "0 Nm")]
+    [InlineData(84_500, 310.25, "+113 HP", "+310 Nm")]
+    [InlineData(-84_500, -310.25, "-113 HP", "-310 Nm")]
+    [InlineData(0, 0, "0 HP", "0 Nm")]
     public void DashboardPowerAndTorqueRemainSignedAndUseDisplayUnits(
         double powerWatts,
         double torqueNm,
