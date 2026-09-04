@@ -24,6 +24,7 @@ Notable changes to Wisp are recorded here.
 
 - Preserved detached boost and tire-temperature positions across restarts and updates, including secondary-display placements.
 - Preserved the correct placement when a HUD profile changes layouts or switches between Native Digital and Native Analogue.
+- Included the selected torque unit when saving and applying HUD profiles.
 - Prevented expired native tachometer samples from interrupting the smooth RPM fallback during a reader stall.
 - Kept color-wheel selection independent from slider adjustments and made every point in the wheel selectable.
 - Kept very dark background colors visible and editable while maintaining readable surfaces.
@@ -31,6 +32,7 @@ Notable changes to Wisp are recorded here.
 - Prevented simultaneous debug-log actions from waiting indefinitely.
 - Prevented a failed telemetry-listener start from leaving UI callbacks running.
 - Removed the duplicate profile-save action and simplified the profile confirmation dialog.
+- Styled the local debug logging control consistently with the rest of Wisp.
 
 ## 1.0.8 - 2026-09-03
 

@@ -7,6 +7,65 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
+## New in 1.0.10
+
+**Save your HUD setups, choose your own colors, and track more of each drive.**
+Version 1.0.10 brings the following additions and fixes since 1.0.8.
+
+### New features
+
+- **Named HUD profiles.** Save a Drift, Racing, Minimal, or Screenshot setup
+  from Appearance, then apply, update, rename, or delete it from Profiles.
+  Profiles include the layout, gauges, units, sizing, opacity, orientation,
+  and complete color combination. Tire calibration, saved screen positions,
+  telemetry, startup, update, debug, and hotkey settings stay separate.
+- **A rebuilt color editor in Extras.** Select an element on the left and edit
+  it on the right. Choose any point on the color wheel, adjust saturation,
+  brightness and opacity, or enter an exact ARGB color. Targets include the app
+  accent, backgrounds and surfaces, HUD border, and all three gauge-gradient
+  colors. The **traction hook cue now has its own color control**.
+- **Live torque and session peaks.** Torque joins horsepower on the Wheel Speed
+  Ready card with matching smoothing and typography. Choose Nm or lb-ft. Top
+  speed, peak power, and peak torque sit below their live readings; reset them
+  together or let them reset when you change cars.
+- **Update notifications and release details.** An optional startup check runs
+  no more than once every 24 hours. A Dashboard banner announces an available
+  update, and its GitHub release summary appears before you confirm the
+  download. Downloads and installation are never automatic.
+- **A customizable overlay hotkey.** Assign a global shortcut to show or hide
+  the HUD without opening Wisp.
+- **Local debug logging.** Enable it in Diagnostics to record bounded telemetry
+  and application-health samples once per second, then export an issue-ready
+  ZIP. Logging stops after 24 hours and files are retained for no more than
+  seven days. You choose whether to share the export.
+- **Release notes inside Wisp.** A dedicated sidebar page covers the documented
+  public releases. Extras also includes a direct link to star Wisp on GitHub.
+
+### Bug fixes and refinements
+
+- Detached boost and tire-temperature gauges retain their saved positions
+  across restarts and updates, including placements on secondary displays.
+- Applying a profile restores the correct saved placement when changing
+  layouts or switching between Native Digital and Native Analogue. The selected
+  torque unit is also saved and applied.
+- Expired native tachometer samples no longer repeatedly interrupt smooth
+  RPM fallback motion when the native reader stalls.
+- The traction hook cue works across Native HUD styles, and stale slip evidence
+  is cleared after stopping.
+- Color-wheel clicks and drags work throughout the wheel. Slider adjustments
+  no longer move the selected wheel position, and very dark background colors
+  remain visible and editable without sacrificing readable surfaces.
+- Color customization uses a themed element list and a larger editor instead
+  of the unstyled dropdown. The local debug logging control is styled to match.
+- The duplicate profile-save button is removed, and the save confirmation
+  dialog no longer has an outer border.
+- Simultaneous debug-log actions no longer wait indefinitely, and a failed
+  telemetry-listener start no longer leaves UI callbacks running.
+
+[Download 1.0.10](https://github.com/Views2k/Wisp/releases/tag/v1.0.10) ·
+[Full release notes](Wisp-1.0.10-release-notes.md) ·
+[What's new on the website](https://wispoverlay.com/releases/1.0.10/)
+
 ![Wisp dashboard](docs/images/dashboard.png)
 
 <p align="center"><sub>Dashboard shown with deterministic sample telemetry.</sub></p>
@@ -18,29 +77,6 @@ drifting, lockup, and loss of grip.
 FH6 Data Out supplies the local telemetry stream. Wisp learns the effective
 rolling radius of the current tires, applies the correct driven-wheel model for
 FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
-
-## New in 1.0.10
-
-Wisp 1.0.10 is a quality-of-life release focused on clearer live information,
-easier customization, safer update discovery, and useful diagnostics.
-
-- **More live information:** torque, top speed, peak power, and peak torque now
-  appear on the Dashboard. Torque supports Nm and lb-ft.
-- **Easier update discovery:** Wisp can check once every 24 hours and show an
-  update banner. The matching GitHub release summary appears before the user
-  confirms a download; installation is never automatic.
-- **Complete visual profiles:** one continuous color editor controls the app,
-  surfaces, HUD border, gauge gradient, and traction hook cue. Named profiles
-  save the full visual combination while keeping calibration and placement
-  separate.
-- **Practical support tools:** an optional global HUD visibility shortcut,
-  bounded local debug logging with issue-ready ZIP export, and in-app release
-  notes make everyday use and troubleshooting easier.
-- **HUD reliability:** detached gauge and profile placement restoration is more
-  reliable, stale tachometer samples no longer interrupt smooth fallback motion,
-  and the traction cue no longer carries stale slip evidence across a stop.
-
-See the [1.0.10 release notes](Wisp-1.0.10-release-notes.md) for the full list.
 
 ## Features
 
