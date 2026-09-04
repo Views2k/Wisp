@@ -93,6 +93,7 @@ public sealed class AppSettings
     public string? CustomBoostLowColor { get; set; }
     public string? CustomBoostMidColor { get; set; }
     public string? CustomBoostHighColor { get; set; }
+    public string? CustomTractionCueColor { get; set; }
     public List<HudPreset> HudPresets { get; set; } = new();
     public bool SidebarCollapsed { get; set; }
     public bool GameAwareVisibility { get; set; } = true;
@@ -213,6 +214,7 @@ public sealed class AppSettings
         CustomBoostLowColor = ColorCustomization.NormalizeGauge(CustomBoostLowColor);
         CustomBoostMidColor = ColorCustomization.NormalizeGauge(CustomBoostMidColor);
         CustomBoostHighColor = ColorCustomization.NormalizeGauge(CustomBoostHighColor);
+        CustomTractionCueColor = ColorCustomization.NormalizeTractionCue(CustomTractionCueColor);
 
         if (UdpPort is < 1024 or > 65535 or >= 5200 and <= 5300)
         {
@@ -522,6 +524,7 @@ public sealed class SettingsService
         settings.CustomBoostLowColor = ColorCustomization.NormalizeGauge(settings.CustomBoostLowColor);
         settings.CustomBoostMidColor = ColorCustomization.NormalizeGauge(settings.CustomBoostMidColor);
         settings.CustomBoostHighColor = ColorCustomization.NormalizeGauge(settings.CustomBoostHighColor);
+        settings.CustomTractionCueColor = ColorCustomization.NormalizeTractionCue(settings.CustomTractionCueColor);
         settings.HudPresets ??= new List<HudPreset>();
         HudPreset.NormalizeList(settings.HudPresets);
         var directory = Path.GetDirectoryName(_settingsPath)!;

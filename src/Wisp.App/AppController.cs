@@ -952,6 +952,7 @@ public sealed class AppController : IAsyncDisposable
         }
 
         Settings.ColorTheme = normalized;
+        Overlay?.ApplyTractionCueCustomization(ColorCustomization.ResolveTractionCue(Settings));
         ScheduleSettingsSave();
     }
 
@@ -1065,6 +1066,7 @@ public sealed class AppController : IAsyncDisposable
         }
 
         Settings.CustomAccentColor = normalized;
+        Overlay?.ApplyTractionCueCustomization(ColorCustomization.ResolveTractionCue(Settings));
         ScheduleSettingsSave();
     }
 
@@ -1124,6 +1126,19 @@ public sealed class AppController : IAsyncDisposable
             normalizedLow,
             normalizedMid,
             normalizedHigh);
+        ScheduleSettingsSave();
+    }
+
+    public void SetCustomTractionCueColor(string? value)
+    {
+        var normalized = ColorCustomization.NormalizeTractionCue(value);
+        if (Settings.CustomTractionCueColor == normalized)
+        {
+            return;
+        }
+
+        Settings.CustomTractionCueColor = normalized;
+        Overlay?.ApplyTractionCueCustomization(ColorCustomization.ResolveTractionCue(Settings));
         ScheduleSettingsSave();
     }
 
@@ -1243,6 +1258,7 @@ public sealed class AppController : IAsyncDisposable
             Settings.CustomBoostLowColor,
             Settings.CustomBoostMidColor,
             Settings.CustomBoostHighColor);
+        Overlay?.ApplyTractionCueCustomization(ColorCustomization.ResolveTractionCue(Settings));
         ScheduleSettingsSave();
         error = string.Empty;
         return true;

@@ -9,6 +9,7 @@ public static class ColorCustomization
     public const double BackgroundMinimumOpacity = 0.82;
     public const double HudBorderMinimumOpacity = 0.0;
     public const double GaugeMinimumOpacity = 0.25;
+    public const double TractionCueMinimumOpacity = 0.35;
     public const double BackgroundMaximumBrightness = 0.34;
 
     public static string? NormalizeAccent(string? value) =>
@@ -40,6 +41,9 @@ public static class ColorCustomization
 
     public static string? NormalizeGauge(string? value) =>
         Normalize(value, GaugeMinimumOpacity);
+
+    public static string? NormalizeTractionCue(string? value) =>
+        Normalize(value, TractionCueMinimumOpacity);
 
     public static Color ResolveAccent(AppSettings settings)
     {
@@ -84,6 +88,14 @@ public static class ColorCustomization
             ResolveHex(settings.CustomBoostLowColor, legacy.Low),
             ResolveHex(settings.CustomBoostMidColor, legacy.Mid),
             ResolveHex(settings.CustomBoostHighColor, legacy.High));
+    }
+
+    public static Color ResolveTractionCue(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        return settings.CustomTractionCueColor is { } custom && TryParse(custom, out var color)
+            ? color
+            : ResolveAccent(settings);
     }
 
     public static AppBackgroundTheme CreateBackgroundTheme(Color window)

@@ -186,29 +186,32 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void ExtrasOffersOneColorWheelWithSixSelectableTargets()
+    public void ExtrasOffersOneLargeColorEditorWithSevenSelectableTargets()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var extras = document.Descendants(Presentation + "TabItem")
             .Single(element => element.Attribute("Header")?.Value == "Extras");
-        var layout = extras.Descendants(Presentation + "StackPanel")
+        var layout = extras.Descendants(Presentation + "Grid")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "ColorEditorLayout");
         var editors = layout.Elements(Local + "ColorWheelEditor").ToArray();
-        var selector = layout.Elements(Presentation + "ComboBox").Single();
-        var targets = selector.Elements(Presentation + "ComboBoxItem")
+        var selector = layout.Descendants(Presentation + "ListBox").Single(element =>
+            element.Attribute(Xaml + "Name")?.Value == "ColorTargetSelector");
+        var targets = selector.Elements(Presentation + "ListBoxItem")
             .Select(element => element.Attribute("Content")?.Value)
             .ToArray();
 
-        Assert.Equal("Center", layout.Attribute("HorizontalAlignment")?.Value);
+        Assert.Equal("Stretch", layout.Attribute("HorizontalAlignment")?.Value);
         var editor = Assert.Single(editors);
-        Assert.Equal("520", editor.Attribute("Width")?.Value);
+        Assert.Null(editor.Attribute("Width"));
+        Assert.Equal("Stretch", editor.Attribute("HorizontalAlignment")?.Value);
         Assert.Equal("ColorEditor_SelectedColorChanged", editor.Attribute("SelectedColorChanged")?.Value);
         Assert.Equal("ColorTargetSelector_SelectionChanged", selector.Attribute("SelectionChanged")?.Value);
         Assert.Equal(new[]
         {
             "App accent", "Background and surfaces", "HUD border",
-            "Gauge start", "Gauge middle", "Gauge end"
+            "Gauge start", "Gauge middle", "Gauge end", "Traction hook cue"
         }, targets);
+        Assert.Empty(layout.Descendants(Presentation + "ComboBox"));
         Assert.DoesNotContain(extras.Descendants(Presentation + "ListBox"), element =>
             (element.Attribute("AutomationProperties.Name")?.Value ?? string.Empty).Contains("palette", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(document.Descendants(Presentation + "Button"), element =>
@@ -310,6 +313,7 @@ public sealed class XamlContractTests
         Assert.Contains("controller.Settings.CustomBackgroundColor", constructor, StringComparison.Ordinal);
         Assert.Contains("controller.Settings.CustomHudBorderColor", constructor, StringComparison.Ordinal);
         Assert.Contains("controller.Settings.CustomBoostLowColor", constructor, StringComparison.Ordinal);
+        Assert.Contains("ColorCustomization.ResolveTractionCue(controller.Settings)", constructor, StringComparison.Ordinal);
 
         Assert.Contains("MinimumOpacity = 0.82", targetLoader, StringComparison.Ordinal);
         Assert.Contains("MaximumBrightness = 0.34", targetLoader, StringComparison.Ordinal);
@@ -317,6 +321,7 @@ public sealed class XamlContractTests
         Assert.Contains("_controller.SetCustomBackgroundColor(value)", colorHandler, StringComparison.Ordinal);
         Assert.Contains("_controller.SetCustomHudBorderColor(value)", colorHandler, StringComparison.Ordinal);
         Assert.Contains("ApplyGaugeColors(", colorHandler, StringComparison.Ordinal);
+        Assert.Contains("_controller.SetCustomTractionCueColor(value)", colorHandler, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -325,6 +330,9 @@ public sealed class XamlContractTests
         var app = LoadXaml(Path.Combine(AppSourceDirectory(), "App.xaml"));
         var style = app.Descendants(Presentation + "Style")
             .Single(element => element.Attribute(Xaml + "Key")?.Value == "NativeTractionCueDigitStyle");
+        Assert.Single(style.Elements(Presentation + "Setter"), setter =>
+            setter.Attribute("Property")?.Value == "Fill" &&
+            setter.Attribute("Value")?.Value == "{DynamicResource TractionCueBrush}");
         Assert.Single(style.Descendants(Presentation + "DataTrigger"), trigger =>
             trigger.Attribute("Binding")?.Value.Contains("IsTractionCueActive", StringComparison.Ordinal) == true &&
             trigger.Attribute("Value")?.Value == "True");

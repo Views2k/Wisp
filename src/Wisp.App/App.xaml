@@ -12,6 +12,7 @@
         <SolidColorBrush x:Key="MutedBrush" Color="#91A0B3" />
         <SolidColorBrush x:Key="FaintBrush" Color="#8191A5" />
         <SolidColorBrush x:Key="AccentBrush" Color="#55E6C1" />
+        <SolidColorBrush x:Key="TractionCueBrush" Color="#55E6C1" />
         <SolidColorBrush x:Key="AccentBlueBrush" Color="#67A9FF" />
         <SolidColorBrush x:Key="WarningBrush" Color="#FFBE67" />
         <SolidColorBrush x:Key="SidebarBrush" Color="#0E131B" />
@@ -22,7 +23,7 @@
         <SolidColorBrush x:Key="ScrollThumbBrush" Color="#46566A" />
 
         <Style x:Key="NativeTractionCueDigitStyle" TargetType="Rectangle">
-            <Setter Property="Fill" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Fill" Value="{DynamicResource TractionCueBrush}" />
             <Setter Property="IsHitTestVisible" Value="False" />
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>

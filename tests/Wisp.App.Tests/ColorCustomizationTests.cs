@@ -60,7 +60,9 @@ public sealed class ColorCustomizationTests
         Assert.Null(settings.CustomBackgroundColor);
         Assert.Null(settings.CustomHudBorderColor);
         Assert.Null(settings.CustomBoostLowColor);
+        Assert.Null(settings.CustomTractionCueColor);
         Assert.Equal(Parse(AppColorThemes.Resolve("Plum").Accent), ColorCustomization.ResolveAccent(settings));
+        Assert.Equal(ColorCustomization.ResolveAccent(settings), ColorCustomization.ResolveTractionCue(settings));
         Assert.Same(AppBackgroundThemes.Resolve("Navy"), ColorCustomization.ResolveBackground(settings));
         Assert.Equal(BoostGaugeThemes.Resolve("Red"), ColorCustomization.ResolveGauge(settings));
     }
@@ -72,6 +74,7 @@ public sealed class ColorCustomizationTests
         Assert.StartsWith("#D1", ColorCustomization.NormalizeBackground("#10FFFFFF"), StringComparison.Ordinal);
         Assert.Equal("#00112233", ColorCustomization.NormalizeHudBorder("#00112233"));
         Assert.Equal("#40112233", ColorCustomization.NormalizeGauge("#00112233"));
+        Assert.Equal("#59112233", ColorCustomization.NormalizeTractionCue("#00112233"));
         Assert.Null(ColorCustomization.NormalizeAccent("not a color"));
 
         ColorCustomization.TryParse(ColorCustomization.NormalizeBackground("#FFFFFFFF"), out var background);
@@ -121,12 +124,14 @@ public sealed class ColorCustomizationTests
         AppThemeResources.Apply(resources, legacyAccent, legacyBackground, "#80FF0000", "#D10A1018");
         HudBorderThemeResources.Apply(resources, "Aqua", "#66112233");
         BoostGaugeThemeResources.Apply(resources, "Red", "#40FF0000", null, "#800000FF");
+        TractionCueThemeResources.Apply(resources, Color.FromArgb(0x80, 0x12, 0x34, 0x56));
 
         Assert.Equal(Color.FromArgb(0x80, 0xFF, 0, 0), Brush(resources, "AccentBrush").Color);
         Assert.Equal(Color.FromArgb(0x66, 0x11, 0x22, 0x33), Brush(resources, "HudBorderBrush").Color);
         Assert.Equal(Color.FromArgb(0x40, 0xFF, 0, 0), Brush(resources, "BoostLowBrush").Color);
         Assert.Equal(Parse(BoostGaugeThemes.Resolve("Red").Mid), Brush(resources, "BoostMidBrush").Color);
         Assert.Equal(Color.FromArgb(0x80, 0, 0, 0xFF), Brush(resources, "BoostHighBrush").Color);
+        Assert.Equal(Color.FromArgb(0x80, 0x12, 0x34, 0x56), Brush(resources, "TractionCueBrush").Color);
         Assert.Equal("#63D8D4", legacyAccent.Accent);
         Assert.Equal("#090C11", legacyBackground.Window);
     }

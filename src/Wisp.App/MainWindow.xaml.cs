@@ -57,6 +57,7 @@ public partial class MainWindow : Window
             controller.Settings.CustomBoostLowColor,
             controller.Settings.CustomBoostMidColor,
             controller.Settings.CustomBoostHighColor);
+        TractionCueThemeResources.Apply(Resources, ColorCustomization.ResolveTractionCue(controller.Settings));
         ColorTargetSelector.SelectedIndex = 0;
         LoadSelectedColorTarget();
         SetSidebarOpen(!controller.Settings.SidebarCollapsed, animate: false);
@@ -146,6 +147,13 @@ public partial class MainWindow : Window
                     _ => gauge.High
                 }, out color);
                 break;
+            case 6:
+                ColorEditor.Title = "Traction hook cue";
+                ColorEditor.Description = "Speed digit flash shown when the traction hook catches wheelspin";
+                ColorEditor.MinimumOpacity = ColorCustomization.TractionCueMinimumOpacity;
+                ColorEditor.MaximumBrightness = 1;
+                color = ColorCustomization.ResolveTractionCue(settings);
+                break;
             default:
                 ColorEditor.Title = "App accent";
                 ColorEditor.Description = "Highlights, selections, buttons, and status color";
@@ -186,9 +194,15 @@ public partial class MainWindow : Window
                     ColorTargetSelector.SelectedIndex == 4 ? value : gauge.Mid,
                     ColorTargetSelector.SelectedIndex == 5 ? value : gauge.High);
                 break;
+            case 6:
+                value = ColorCustomization.NormalizeTractionCue(value);
+                _controller.SetCustomTractionCueColor(value);
+                ApplyTractionCueColor();
+                break;
             default:
                 ApplyAppColorResources(value, _controller.Settings.CustomBackgroundColor);
                 _controller.SetCustomAccentColor(value);
+                ApplyTractionCueColor();
                 break;
         }
     }
@@ -206,6 +220,9 @@ public partial class MainWindow : Window
         BoostGaugeThemeResources.Apply(Resources, _controller.Settings.BoostGaugeTheme, low, mid, high);
         _controller.SetCustomGaugeColors(low, mid, high);
     }
+
+    private void ApplyTractionCueColor() =>
+        TractionCueThemeResources.Apply(Resources, ColorCustomization.ResolveTractionCue(_controller.Settings));
 
     private void SetEditorColor(ColorWheelEditor editor, Color color)
     {
@@ -249,6 +266,7 @@ public partial class MainWindow : Window
                 settings.CustomBoostLowColor,
                 settings.CustomBoostMidColor,
                 settings.CustomBoostHighColor);
+            ApplyTractionCueColor();
         }
         finally
         {

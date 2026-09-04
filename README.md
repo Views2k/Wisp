@@ -30,8 +30,9 @@ easier customization, safer update discovery, and useful diagnostics.
   update banner. The matching GitHub release summary appears before the user
   confirms a download; installation is never automatic.
 - **Complete visual profiles:** one continuous color editor controls the app,
-  surfaces, HUD border, and gauge gradient. Named profiles save the full visual
-  combination while keeping calibration and placement separate.
+  surfaces, HUD border, gauge gradient, and traction hook cue. Named profiles
+  save the full visual combination while keeping calibration and placement
+  separate.
 - **Practical support tools:** an optional global HUD visibility shortcut,
   bounded local debug logging with issue-ready ZIP export, and in-app release
   notes make everyday use and troubleshooting easier.
@@ -61,7 +62,7 @@ See the [1.0.10 release notes](Wisp-1.0.10-release-notes.md) for the full list.
 - A vehicle dashboard for speed, RPM, drivetrain, power, torque, controls, and
   connection status.
 - One continuous color editor for the application accent, background surfaces,
-  HUD border, and shared gauge gradient, plus named visual profiles.
+  HUD border, shared gauge gradient, and traction hook cue, plus named visual profiles.
 - Optional once-daily update discovery, a customizable HUD visibility shortcut,
   and bounded local debug logging with ZIP export for issue reports.
 

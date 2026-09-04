@@ -112,7 +112,8 @@ internal static class CalmShellReview
 
     private sealed class Session
     {
-        private static readonly string[] PageNames = ["Dashboard", "Appearance", "Diagnostics", "Setup", "Extras"];
+        private static readonly string[] PageNames =
+            ["Dashboard", "Appearance", "Diagnostics", "Profiles", "Setup", "Extras", "Release Notes"];
         private readonly string _output, _settingsPath, _initialHudSettings;
         private readonly SettingsService _settingsService;
         private readonly Application _application;

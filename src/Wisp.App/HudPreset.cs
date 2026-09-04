@@ -47,6 +47,7 @@ public sealed class HudPreset
     public string? CustomBoostLowColor { get; set; }
     public string? CustomBoostMidColor { get; set; }
     public string? CustomBoostHighColor { get; set; }
+    public string? CustomTractionCueColor { get; set; }
 
     [JsonIgnore]
     public string Summary => LayoutMode switch
@@ -107,7 +108,8 @@ public sealed class HudPreset
             CustomHudBorderColor = settings.CustomHudBorderColor,
             CustomBoostLowColor = settings.CustomBoostLowColor,
             CustomBoostMidColor = settings.CustomBoostMidColor,
-            CustomBoostHighColor = settings.CustomBoostHighColor
+            CustomBoostHighColor = settings.CustomBoostHighColor,
+            CustomTractionCueColor = settings.CustomTractionCueColor
         };
     }
 
@@ -152,6 +154,7 @@ public sealed class HudPreset
         settings.CustomBoostLowColor = CustomBoostLowColor;
         settings.CustomBoostMidColor = CustomBoostMidColor;
         settings.CustomBoostHighColor = CustomBoostHighColor;
+        settings.CustomTractionCueColor = CustomTractionCueColor;
     }
 
     public bool Normalize()
@@ -190,6 +193,7 @@ public sealed class HudPreset
         CustomBoostLowColor = ColorCustomization.NormalizeGauge(CustomBoostLowColor);
         CustomBoostMidColor = ColorCustomization.NormalizeGauge(CustomBoostMidColor);
         CustomBoostHighColor = ColorCustomization.NormalizeGauge(CustomBoostHighColor);
+        CustomTractionCueColor = ColorCustomization.NormalizeTractionCue(CustomTractionCueColor);
         return true;
     }
 

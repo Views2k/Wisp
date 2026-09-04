@@ -49,7 +49,8 @@ public sealed class HudPresetTests
             CustomHudBorderColor = "#66556677",
             CustomBoostLowColor = "#FF112233",
             CustomBoostMidColor = "#FF445566",
-            CustomBoostHighColor = "#FF778899"
+            CustomBoostHighColor = "#FF778899",
+            CustomTractionCueColor = "#FFAABBCC"
         };
         var calibration = new CalibrationSnapshot(42, 0.34, 120);
         var placement = new OverlayPlacement(125, 240, 1.1, 0.9);
@@ -108,6 +109,7 @@ public sealed class HudPresetTests
         Assert.Equal(source.CustomBoostLowColor, target.CustomBoostLowColor);
         Assert.Equal(source.CustomBoostMidColor, target.CustomBoostMidColor);
         Assert.Equal(source.CustomBoostHighColor, target.CustomBoostHighColor);
+        Assert.Equal(source.CustomTractionCueColor, target.CustomTractionCueColor);
 
         Assert.Equal(5601, target.UdpPort);
         Assert.Equal(SpeedSourceMode.Fh6VehicleSpeed, target.SpeedSource);
@@ -146,7 +148,7 @@ public sealed class HudPresetTests
             "TireTemperatureReactiveColors", "TireTemperatureUnit", "TireTemperatureGaugeScale",
             "TractionCueEnabled", "ColorTheme", "BackgroundTheme", "HudBorderTheme", "BoostGaugeTheme",
             "CustomAccentColor", "CustomBackgroundColor", "CustomHudBorderColor",
-            "CustomBoostLowColor", "CustomBoostMidColor", "CustomBoostHighColor"
+            "CustomBoostLowColor", "CustomBoostMidColor", "CustomBoostHighColor", "CustomTractionCueColor"
         ];
 
         var writable = typeof(HudPreset).GetProperties()

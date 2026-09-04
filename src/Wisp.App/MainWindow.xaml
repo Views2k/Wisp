@@ -1695,22 +1695,76 @@
                                         </Grid>
                                     </Border>
 
-                                    <StackPanel x:Name="ColorEditorLayout" Width="520" Margin="0,20,0,0"
-                                                HorizontalAlignment="Center">
-                                        <TextBlock Text="COLOR TARGET" Style="{StaticResource EyebrowTextStyle}" />
-                                        <ComboBox x:Name="ColorTargetSelector" Margin="0,7,0,12" Padding="10,8"
-                                                  SelectionChanged="ColorTargetSelector_SelectionChanged"
-                                                  AutomationProperties.Name="Color customization target">
-                                            <ComboBoxItem Content="App accent" />
-                                            <ComboBoxItem Content="Background and surfaces" />
-                                            <ComboBoxItem Content="HUD border" />
-                                            <ComboBoxItem Content="Gauge start" />
-                                            <ComboBoxItem Content="Gauge middle" />
-                                            <ComboBoxItem Content="Gauge end" />
-                                        </ComboBox>
-                                        <local:ColorWheelEditor x:Name="ColorEditor" Width="520"
+                                    <Grid x:Name="ColorEditorLayout" Margin="0,20,0,0" MinHeight="350"
+                                          HorizontalAlignment="Stretch">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="240" />
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="16">
+                                            <DockPanel LastChildFill="True">
+                                                <StackPanel DockPanel.Dock="Top" Margin="2,0,2,13">
+                                                    <TextBlock Text="COLOR ELEMENTS" Style="{StaticResource EyebrowTextStyle}" />
+                                                    <TextBlock Text="Select one element to edit"
+                                                               Foreground="{DynamicResource MutedBrush}" FontSize="12"
+                                                               Margin="0,4,0,0" />
+                                                </StackPanel>
+                                                <ListBox x:Name="ColorTargetSelector" Background="Transparent"
+                                                         BorderThickness="0" Padding="0" SelectionMode="Single"
+                                                         SelectionChanged="ColorTargetSelector_SelectionChanged"
+                                                         AutomationProperties.Name="Color customization target">
+                                                    <ListBox.ItemContainerStyle>
+                                                        <Style TargetType="ListBoxItem">
+                                                            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                            <Setter Property="Padding" Value="12,10" />
+                                                            <Setter Property="Margin" Value="0,0,0,5" />
+                                                            <Setter Property="Cursor" Value="Hand" />
+                                                            <Setter Property="Template">
+                                                                <Setter.Value>
+                                                                    <ControlTemplate TargetType="ListBoxItem">
+                                                                        <Border x:Name="TargetBorder"
+                                                                                Background="Transparent"
+                                                                                BorderBrush="Transparent"
+                                                                                BorderThickness="1"
+                                                                                CornerRadius="8"
+                                                                                Padding="{TemplateBinding Padding}">
+                                                                            <ContentPresenter VerticalAlignment="Center" />
+                                                                        </Border>
+                                                                        <ControlTemplate.Triggers>
+                                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                                <Setter TargetName="TargetBorder" Property="Background" Value="{DynamicResource HoverBrush}" />
+                                                                            </Trigger>
+                                                                            <Trigger Property="IsSelected" Value="True">
+                                                                                <Setter TargetName="TargetBorder" Property="Background" Value="{DynamicResource RaisedBrush}" />
+                                                                                <Setter TargetName="TargetBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                                            </Trigger>
+                                                                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                                                                <Setter TargetName="TargetBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                                            </Trigger>
+                                                                        </ControlTemplate.Triggers>
+                                                                    </ControlTemplate>
+                                                                </Setter.Value>
+                                                            </Setter>
+                                                        </Style>
+                                                    </ListBox.ItemContainerStyle>
+                                                    <ListBoxItem Content="App accent" />
+                                                    <ListBoxItem Content="Background and surfaces" />
+                                                    <ListBoxItem Content="HUD border" />
+                                                    <ListBoxItem Content="Gauge start" />
+                                                    <ListBoxItem Content="Gauge middle" />
+                                                    <ListBoxItem Content="Gauge end" />
+                                                    <ListBoxItem Content="Traction hook cue" />
+                                                </ListBox>
+                                            </DockPanel>
+                                        </Border>
+
+                                        <local:ColorWheelEditor x:Name="ColorEditor" Grid.Column="2"
+                                                                HorizontalAlignment="Stretch" MinHeight="350"
                                                                 SelectedColorChanged="ColorEditor_SelectedColorChanged" />
-                                    </StackPanel>
+                                    </Grid>
 
                                     <Border Style="{StaticResource CardStyle}" Margin="0,20,0,0" Padding="20,16">
                                         <Grid>

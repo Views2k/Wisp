@@ -11,14 +11,14 @@ Notable changes to Wisp are recorded here.
 - Added an update-available Dashboard banner and an optional startup check limited to once every 24 hours. Downloads and installation still require confirmation.
 - Added a customizable global shortcut for showing or hiding the overlay.
 - Added bounded local debug logging with 24-hour automatic expiry and a ZIP export intended for GitHub issue reports.
-- Added one continuous color editor for the app accent, background surfaces, HUD border, and three gauge-gradient colors.
+- Added one continuous color editor for the app accent, background surfaces, HUD border, three gauge-gradient colors, and traction hook cue.
 - Added named HUD profiles for complete visual combinations without changing tire calibration, placement, telemetry, startup, update, or debug settings.
 - Added in-app release notes and a direct GitHub star shortcut.
 
 ### Changed
 
 - Update confirmation now shows the short summary supplied by the matching GitHub release before a download begins.
-- Consolidated the previous color choices into one target selector with saturation, brightness, opacity, direct wheel selection, and exact color input.
+- Consolidated the previous color choices into a themed element list and large focused editor with saturation, brightness, opacity, direct wheel selection, and exact color input.
 
 ### Fixed
 

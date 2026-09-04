@@ -63,6 +63,7 @@ public partial class OverlayWindow : Window
             controller.Settings.CustomBoostLowColor,
             controller.Settings.CustomBoostMidColor,
             controller.Settings.CustomBoostHighColor);
+        TractionCueThemeResources.Apply(Resources, ColorCustomization.ResolveTractionCue(controller.Settings));
         _windowDrag = new NonActivatingWindowDrag(this, controller.SaveOverlayPlacement);
         DataContext = controller.ViewModel;
         controller.ViewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -90,6 +91,9 @@ public partial class OverlayWindow : Window
         string? mid,
         string? high) =>
         BoostGaugeThemeResources.Apply(Resources, themeName, low, mid, high);
+
+    public void ApplyTractionCueCustomization(Color color) =>
+        TractionCueThemeResources.Apply(Resources, color);
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
