@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.11 - 2026-09-04
+
+### Maintenance
+
+- Mapped the temporary build-author alias to Views2k for repository tools that support author aliases.
+- Updated the application and installer version to 1.0.11. Application behavior is unchanged from 1.0.10.
+
 ## 1.0.10 - 2026-09-04
 
 ### Added

@@ -220,7 +220,7 @@ public sealed class XamlContractTests
         var footer = document.Descendants(Presentation + "TextBlock")
             .Single(element => element.Attribute("Text")?.Value?.StartsWith(
                 "WHEEL-INDICATED SPEED PANEL", StringComparison.Ordinal) == true);
-        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.10", footer.Attribute("Text")?.Value);
+        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.11", footer.Attribute("Text")?.Value);
     }
 
     [Fact]
