@@ -15,11 +15,22 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.0.11",
+            "September 4, 2026",
+            "MAINTENANCE",
+            "Corrects the repository's build-author alias. Application behavior is unchanged from 1.0.10.",
+            true,
+            [
+                Group("Maintenance",
+                    "Maps the temporary build-author identity to Views2k in repository tools that support author aliases.",
+                    "Updates the application and installer version to 1.0.11. All 1.0.10 features, settings, and telemetry behavior are retained.")
+            ]),
+        new(
             "1.0.10",
             "September 4, 2026",
             "FEATURE UPDATE",
             "A quality-of-life update focused on clearer live information, easier customization, safer updates, and practical diagnostics.",
-            true,
+            false,
             [
                 Group("Added",
                     "Live torque now appears on the Wheel Speed Ready card with the same restrained smoothing and typography as horsepower. Torque can be shown in Nm or lb-ft.",

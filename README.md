@@ -9,6 +9,10 @@
 
 ## New in 1.0.10
 
+Current download: [1.0.11](https://github.com/Views2k/Wisp/releases/tag/v1.0.11),
+a maintenance release correcting a repository author alias. It retains the
+features and behavior described below.
+
 **Save your HUD setups, choose your own colors, and track more of each drive.**
 Version 1.0.10 brings the following additions and fixes since 1.0.8.
 
