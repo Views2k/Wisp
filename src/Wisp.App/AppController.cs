@@ -31,6 +31,7 @@ public sealed class AppController : IAsyncDisposable
     private readonly TransmissionDisplayFilter _transmissionDisplayFilter = new();
     private readonly DisplayFrameRateCounter _displayFrameRateCounter = new();
     private readonly DebugLogService _debugLog = new();
+    private readonly DebugHealthMonitor _debugHealthMonitor;
     private readonly ForzaFocusService _forzaFocusService = new();
     private readonly IStartupRegistrationService _startupRegistrationService;
     private readonly NativeHudProcessService _nativeHudProcessService = new();
@@ -153,6 +154,19 @@ public sealed class AppController : IAsyncDisposable
 
         ViewModel = new DiagnosticsViewModel(settings);
         _dispatcher = Dispatcher.CurrentDispatcher;
+        _debugHealthMonitor = new DebugHealthMonitor(
+            _receiver,
+            _nativeHudProcessService,
+            _debugLog,
+            () => Interlocked.Read(ref _debugProcessedPackets),
+            callback =>
+            {
+                if (!_dispatcher.HasShutdownStarted)
+                {
+                    _ = _dispatcher.BeginInvoke(DispatcherPriority.Background, callback);
+                }
+            },
+            OnDebugHealthLoggingExpired);
         _uiTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher)
         {
             Interval = IdleTimerInterval
@@ -167,6 +181,10 @@ public sealed class AppController : IAsyncDisposable
             _settingsSaveTimer.Stop();
             SaveSettings();
         };
+        if (_debugLog.IsEnabled && settings.DebugLoggingExpiresAtUtc is { } expiresAtUtc)
+        {
+            _debugHealthMonitor.Start(expiresAtUtc);
+        }
         UpdateCompatibilityDiagnostics();
     }
 
@@ -238,10 +256,12 @@ public sealed class AppController : IAsyncDisposable
             Settings.DebugLoggingEnabled = true;
             Settings.DebugLoggingExpiresAtUtc = expiresAtUtc;
             ResetDebugSampleBaselines(nowUtc);
+            _debugHealthMonitor.Start(expiresAtUtc);
             UpdateDebugLoggingStatus();
         }
         else
         {
+            await _debugHealthMonitor.StopAsync().ConfigureAwait(true);
             await _debugLog.DisableAsync().ConfigureAwait(true);
             Settings.DebugLoggingEnabled = false;
             Settings.DebugLoggingExpiresAtUtc = null;
@@ -1746,6 +1766,7 @@ public sealed class AppController : IAsyncDisposable
         }
         try
         {
+            await _debugHealthMonitor.DisposeAsync().ConfigureAwait(false);
             await _debugLog.DisposeAsync().ConfigureAwait(false);
         }
         catch
@@ -1813,6 +1834,7 @@ public sealed class AppController : IAsyncDisposable
         {
             _lastCompositionRenderingTime = currentRendering.RenderingTime;
             _renderRate = _displayFrameRateCounter.Observe(currentRendering.RenderingTime);
+            _debugHealthMonitor.RecordCompositionFrame(Stopwatch.GetTimestamp(), _renderRate);
         }
 
         var latest = _receiver.Latest;
@@ -1875,10 +1897,12 @@ public sealed class AppController : IAsyncDisposable
     {
         if (Settings.RequiresSetup)
         {
+            PublishDebugHealthContext();
             return;
         }
         if (_runtimeSuspended)
         {
+            PublishDebugHealthContext();
             return;
         }
 
@@ -1896,7 +1920,7 @@ public sealed class AppController : IAsyncDisposable
         if (hasNewPacket)
         {
             _lastProcessedState = latest;
-            _debugProcessedPackets++;
+            Interlocked.Increment(ref _debugProcessedPackets);
         }
 
         var refreshDiagnostics = now >= _nextDiagnosticsAtUtc;
@@ -2479,11 +2503,13 @@ public sealed class AppController : IAsyncDisposable
                 false,
                 Settings.OverlayOpacity,
                 hideImmediately: true);
+            PublishDebugHealthContext();
             return false;
         }
 
         if (!force && now < _nextVisibilityCheckAtUtc)
         {
+            PublishDebugHealthContext();
             return _overlayVisibleRequested;
         }
 
@@ -2640,7 +2666,33 @@ public sealed class AppController : IAsyncDisposable
 
         _lastForzaFullscreen = focus.IsFullscreen;
         SetCompositionRenderingEnabled(overlayVisible);
+        PublishDebugHealthContext();
         return overlayVisible;
+    }
+
+    private void PublishDebugHealthContext()
+    {
+        var latest = _receiver.Latest;
+        _debugHealthMonitor.PublishUiContext(new DebugHealthUiContext(
+            Stopwatch.GetTimestamp(),
+            _overlayVisibleRequested,
+            _nativeHudTelemetryActive && Settings.LayoutMode == HudLayoutMode.Native,
+            latest?.IsRaceOn ?? false,
+            latest?.CarOrdinal ?? 0,
+            latest?.GameTimestampMilliseconds ?? 0));
+    }
+
+    private void OnDebugHealthLoggingExpired()
+    {
+        if (_disposed || _debugLog.IsEnabled || !Settings.DebugLoggingEnabled)
+        {
+            return;
+        }
+
+        Settings.DebugLoggingEnabled = false;
+        Settings.DebugLoggingExpiresAtUtc = null;
+        ViewModel.UpdateDebugLogging(false, "Off — 24-hour logging period expired");
+        SaveSettings();
     }
 
     internal static bool ApplyManualOverlaySuppression(bool normalVisibility, bool manuallyHidden) =>

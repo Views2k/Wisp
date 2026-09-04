@@ -27,6 +27,8 @@ public sealed class NativeHudProcessService : IAsyncDisposable
     private long _snapshotCompatibilityGeneration = -1;
     private long _sessionEpoch;
     private long _generation;
+    private long _diagnosticReadAttempts;
+    private long _diagnosticReadFailures;
     private bool _fullResolvePending;
     private bool _disposed;
     private Task? _disposeTask;
@@ -59,6 +61,9 @@ public sealed class NativeHudProcessService : IAsyncDisposable
     }
 
     public string CompatibilityStatus => _memoryFactory.CompatibilityStatus;
+
+    internal long DiagnosticReadAttempts => Interlocked.Read(ref _diagnosticReadAttempts);
+    internal long DiagnosticReadFailures => Interlocked.Read(ref _diagnosticReadFailures);
 
     public NativeHudSnapshot SnapshotFor(int carOrdinal)
     {
@@ -254,6 +259,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             }
 
             var memory = _memory;
+            Interlocked.Increment(ref _diagnosticReadAttempts);
             var generation = (ulong)Interlocked.Increment(ref _generation);
             var nowTimestamp = Stopwatch.GetTimestamp();
             var performFullResolve = fullResolveRequested ||
@@ -320,6 +326,12 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             if (!TryPublish(epoch, compatibilityGeneration, result))
             {
                 continue;
+            }
+
+            if (result.Status is NativeAssistProviderStatus.ReadFailure or
+                NativeAssistProviderStatus.InvalidSourceVector or NativeAssistProviderStatus.InvalidProvider)
+            {
+                Interlocked.Increment(ref _diagnosticReadFailures);
             }
 
             if (!result.HasAvailableCapabilities &&

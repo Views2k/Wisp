@@ -15,11 +15,26 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.0.12",
+            "September 4, 2026",
+            "RELIABILITY",
+            "More useful local diagnostic reports and improved Native HUD recovery after race settings.",
+            true,
+            [
+                Group("Diagnostics",
+                    "Collects telemetry reception, UI processing, native-data freshness, composition callbacks, focus transitions, and Wisp CPU and memory usage on a background sampler.",
+                    "Exported reports show sustained findings with timestamps, supporting measurements, the likely affected component, remaining uncertainty, and a useful next step.",
+                    "Logging stays local, opt-in, time-limited, and size-limited. Game FPS and GPU presentation latency are not measured; the report does not claim an exact driver diagnosis."),
+                Group("Fixed",
+                    "Allows Native HUD data to recover when a race provider clears its secondary local-provider flag. Recovery still requires a validated provider and a unique live car, RPM, and maximum-RPM match.",
+                    "Removed the outer outline from the update confirmation dialog.")
+            ]),
+        new(
             "1.0.11",
             "September 4, 2026",
             "MAINTENANCE",
             "Corrects the repository's build-author alias. Application behavior is unchanged from 1.0.10.",
-            true,
+            false,
             [
                 Group("Maintenance",
                     "Maps the temporary build-author identity to Views2k in repository tools that support author aliases.",

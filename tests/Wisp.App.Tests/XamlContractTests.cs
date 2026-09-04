@@ -220,7 +220,7 @@ public sealed class XamlContractTests
         var footer = document.Descendants(Presentation + "TextBlock")
             .Single(element => element.Attribute("Text")?.Value?.StartsWith(
                 "WHEEL-INDICATED SPEED PANEL", StringComparison.Ordinal) == true);
-        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.11", footer.Attribute("Text")?.Value);
+        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.12", footer.Attribute("Text")?.Value);
     }
 
     [Fact]
@@ -1270,6 +1270,9 @@ public sealed class XamlContractTests
     public void UpdateConfirmationShowsReleaseDetailsAsPlainWrappedText()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var confirmation = document.Descendants(Presentation + "Grid")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ApplicationUpdateConfirmation");
+        Assert.Equal("0", confirmation.Elements(Presentation + "Border").Single().Attribute("BorderThickness")?.Value);
         var details = document.Descendants(Presentation + "Border")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "ApplicationUpdateConfirmationDetails");
         var summary = details.Descendants(Presentation + "TextBlock")

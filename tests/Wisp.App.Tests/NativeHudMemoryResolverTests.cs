@@ -226,6 +226,35 @@ public sealed class NativeHudMemoryResolverTests
     }
 
     [Fact]
+    public void RaceMenuReturnRecoversWhenSecondaryProviderFlagClears()
+    {
+        var memory = ValidMemory();
+        var resolver = new NativeHudMemoryResolver();
+        Assert.True(resolver.Resolve(memory, Module, 314, 4_000, 8_000, 1).Available);
+
+        resolver.Reset(); // The menu ends native demand; returning must resolve again.
+        memory.SetByte(Provider + NativeHudBuildContract.BuiltIn.Fields.LocalPlayerProviderFlag, 0);
+        const ulong source2 = 0x0000000310000000;
+        const ulong provider2 = 0x0000000420000000;
+        memory.SetUInt64(Module + NativeHudBuildContract.SourceVectorRva + 8, SourceList + 16);
+        memory.SetUInt64(Module + NativeHudBuildContract.SourceVectorRva + 16, SourceList + 16);
+        memory.SetUInt64(SourceList + 8, source2);
+        ConfigureSource(memory, source2, provider2, 999);
+        ConfigureProvider(memory, provider2, absOn: true, tcrOn: true, stmOn: true, lcOn: true);
+        memory.SetByte(provider2 + NativeHudBuildContract.BuiltIn.Fields.LocalPlayerProviderFlag, 0);
+
+        var recovered = resolver.Resolve(memory, Module, 314, 4_000, 8_000, 2, forceSourceAudit: true);
+        Assert.True(recovered.Available);
+        Assert.True(recovered.ExactRedline.IsExact);
+        Assert.Equal(8_000, recovered.TachometerMaximumRpm, 2);
+
+        ConfigureSource(memory, source2, provider2, 314);
+        var ambiguous = resolver.Resolve(memory, Module, 314, 4_000, 8_000, 3, forceSourceAudit: true);
+        Assert.False(ambiguous.Available);
+        Assert.Equal(NativeAssistProviderStatus.PlayerNotUnique, ambiguous.Status);
+    }
+
+    [Fact]
     public void ZeroLocalPlayerAndTelemetryMismatchFailClosed()
     {
         var noPlayer = ValidMemory();

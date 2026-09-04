@@ -7,11 +7,19 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
-## New in 1.0.10
+## New in 1.0.12
 
-Current download: [1.0.11](https://github.com/Views2k/Wisp/releases/tag/v1.0.11),
-a maintenance release correcting a repository author alias. It retains the
-features and behavior described below.
+[Download 1.0.12](https://github.com/Views2k/Wisp/releases/tag/v1.0.12) ·
+[Release notes](Wisp-1.0.12-release-notes.md)
+
+Local debug reports now separate telemetry, UI, native-data, and composition
+problems with timestamped evidence and practical next steps. Background collection
+continues during UI stalls and stays local, opt-in, and bounded. This release also
+improves native race-provider recovery after settings transitions and removes the
+update-confirmation outline. Reports state their limits; they do not measure game
+FPS or guarantee a Windows/GPU root cause.
+
+## The 1.0.10 quality-of-life update
 
 **Save your HUD setups, choose your own colors, and track more of each drive.**
 Version 1.0.10 brings the following additions and fixes since 1.0.8.
