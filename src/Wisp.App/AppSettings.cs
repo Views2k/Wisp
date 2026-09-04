@@ -32,6 +32,12 @@ public enum TireTemperatureUnit
     Celsius = 1
 }
 
+public enum BoostPressureUnit
+{
+    Psi = 0,
+    Bar = 1
+}
+
 public sealed class AppSettings
 {
     private const int CurrentSettingsRevision = 9;
@@ -53,6 +59,7 @@ public sealed class AppSettings
     public bool BoostGaugeColorNumber { get; set; }
     public bool DigitalBoostGaugeColorNumber { get; set; }
     public bool DigitalBoostGaugeStockColors { get; set; }
+    public BoostPressureUnit BoostPressureUnit { get; set; } = BoostPressureUnit.Psi;
     public double BoostGaugeScale { get; set; } = 1.0;
     public bool TireTemperatureGaugeEnabled { get; set; } = true;
     public bool TireTemperatureGaugeAttached { get; set; } = true;
@@ -239,6 +246,10 @@ public sealed class AppSettings
         if (!Enum.IsDefined(TireTemperatureUnit))
         {
             TireTemperatureUnit = TireTemperatureUnit.Fahrenheit;
+        }
+        if (!Enum.IsDefined(BoostPressureUnit))
+        {
+            BoostPressureUnit = BoostPressureUnit.Psi;
         }
         // Older releases set this flag on the first packet. Only an explicit,
         // versioned wizard completion can now satisfy the startup gate.

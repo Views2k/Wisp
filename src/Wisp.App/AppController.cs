@@ -529,6 +529,7 @@ public sealed class AppController : IAsyncDisposable
             Settings.BoostGaugeColorNumber = ViewModel.BoostGaugeColorNumber;
             Settings.DigitalBoostGaugeColorNumber = ViewModel.DigitalBoostGaugeColorNumber;
             Settings.DigitalBoostGaugeStockColors = ViewModel.DigitalBoostGaugeStockColors;
+            Settings.BoostPressureUnit = ViewModel.SelectedBoostPressureUnit;
             Settings.BoostGaugeScale = Math.Clamp(ViewModel.BoostGaugeScale, 0.5, 2.0);
             Settings.TireTemperatureGaugeEnabled = ViewModel.TireTemperatureGaugeEnabled;
             Settings.TireTemperatureGaugeAttached = ViewModel.TireTemperatureGaugeAttached;

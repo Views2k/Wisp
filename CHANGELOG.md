@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.8 - 2026-09-03
+
+### Added
+
+- Added a PSI or bar setting for boost pressure. The selected unit applies to Digital and Analogue gauges, attached and detached layouts, and the Appearance preview.
+
 ## 1.0.7 - 2026-09-03
 
 ### Fixed

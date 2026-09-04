@@ -261,7 +261,7 @@ public sealed class XamlContractTests
         var footer = document.Descendants(Presentation + "TextBlock")
             .Single(element => element.Attribute("Text")?.Value?.StartsWith(
                 "WHEEL-INDICATED SPEED PANEL", StringComparison.Ordinal) == true);
-        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.7", footer.Attribute("Text")?.Value);
+        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.8", footer.Attribute("Text")?.Value);
     }
 
     [Fact]
@@ -580,9 +580,11 @@ public sealed class XamlContractTests
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeAnalogTireTemperaturePreview");
 
         Assert.Equal("{Binding PreviewBoostDisplay}", digital.Attribute("Display")?.Value);
+        Assert.Equal("{Binding SelectedBoostPressureUnit}", digital.Attribute("PressureUnit")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeColorNumber}", digital.Attribute("ColorNumber")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeStockColors}", digital.Attribute("UseStockColors")?.Value);
         Assert.Equal("{Binding PreviewBoostDisplay}", analogue.Attribute("Display")?.Value);
+        Assert.Equal("{Binding SelectedBoostPressureUnit}", analogue.Attribute("PressureUnit")?.Value);
         Assert.Equal("{Binding BoostGaugeColorNumber}", analogue.Attribute("ColorNumber")?.Value);
         Assert.Contains("{Binding BoostGaugeEnabled}", digital.ToString(), StringComparison.Ordinal);
         Assert.Contains("{Binding BoostGaugeEnabled}", analogue.ToString(), StringComparison.Ordinal);

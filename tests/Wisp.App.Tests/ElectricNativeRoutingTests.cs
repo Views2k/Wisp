@@ -36,6 +36,7 @@ public sealed class ElectricNativeRoutingTests
         Assert.Equal("11,132,0,0", rail.Attribute("Margin")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeColorNumber}", rail.Attribute("ColorNumber")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeStockColors}", rail.Attribute("UseStockColors")?.Value);
+        Assert.Equal("{Binding SelectedBoostPressureUnit}", rail.Attribute("PressureUnit")?.Value);
         Assert.Equal("Left", rail.Attribute("HorizontalAlignment")?.Value);
         Assert.Same(root, rail.Parent);
     }
@@ -52,6 +53,7 @@ public sealed class ElectricNativeRoutingTests
         Assert.Equal("Left", gauge.Attribute("HorizontalAlignment")?.Value);
         Assert.Equal("Top", gauge.Attribute("VerticalAlignment")?.Value);
         Assert.Equal("{Binding BoostGaugeColorNumber}", gauge.Attribute("ColorNumber")?.Value);
+        Assert.Equal("{Binding SelectedBoostPressureUnit}", gauge.Attribute("PressureUnit")?.Value);
         Assert.Same(root, gauge.Parent);
 
         Assert.DoesNotContain(
@@ -95,10 +97,10 @@ public sealed class ElectricNativeRoutingTests
         Assert.Equal(2, toggles.Length);
         Assert.Contains(toggles, element =>
             element.Attribute("AutomationProperties.Name")?.Value ==
-            "Color the analogue boost PSI number by load");
+            "Color the analogue boost number by load");
         Assert.Contains(toggles, element =>
             element.Attribute("AutomationProperties.Name")?.Value ==
-            "Color the digital boost PSI number by load");
+            "Color the digital boost number by load");
     }
 
     [Fact]
@@ -112,6 +114,17 @@ public sealed class ElectricNativeRoutingTests
         Assert.Equal(
             "Use the stock tachometer material on the digital boost rail",
             toggle.Attribute("AutomationProperties.Name")?.Value);
+    }
+
+    [Fact]
+    public void AppearanceOffersBarBoostPressureToggle()
+    {
+        var document = XDocument.Load(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var toggle = document.Descendants(Presentation + "CheckBox")
+            .Single(element => element.Attribute("IsChecked")?.Value ==
+                               "{Binding UseBarBoostPressure}");
+
+        Assert.Equal("Display boost pressure in bar", toggle.Attribute("Content")?.Value);
     }
 
     [Fact]

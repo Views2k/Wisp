@@ -196,6 +196,7 @@ public sealed class AppSettingsTests
             BoostGaugeColorNumber = true,
             DigitalBoostGaugeColorNumber = true,
             DigitalBoostGaugeStockColors = true,
+            BoostPressureUnit = BoostPressureUnit.Bar,
             BoostGaugeScale = 1.3,
             BoostGaugeTheme = "Stock",
             TireTemperatureGaugeEnabled = true,
@@ -248,6 +249,7 @@ public sealed class AppSettingsTests
                 Assert.True(loaded.BoostGaugeColorNumber);
                 Assert.True(loaded.DigitalBoostGaugeColorNumber);
                 Assert.True(loaded.DigitalBoostGaugeStockColors);
+                Assert.Equal(BoostPressureUnit.Bar, loaded.BoostPressureUnit);
             }
         }
         finally
@@ -318,6 +320,7 @@ public sealed class AppSettingsTests
             OverlayOpacity = -1,
             Smoothing = double.PositiveInfinity,
             TireTemperatureUnit = (TireTemperatureUnit)99,
+            BoostPressureUnit = (BoostPressureUnit)99,
             TireTemperatureGaugeScale = double.PositiveInfinity
         };
 
@@ -335,6 +338,7 @@ public sealed class AppSettingsTests
         Assert.Equal(0.35, settings.OverlayOpacity);
         Assert.Equal(0, settings.Smoothing);
         Assert.Equal(TireTemperatureUnit.Fahrenheit, settings.TireTemperatureUnit);
+        Assert.Equal(BoostPressureUnit.Psi, settings.BoostPressureUnit);
         Assert.Equal(1, settings.TireTemperatureGaugeScale);
     }
 
