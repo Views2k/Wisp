@@ -9,7 +9,7 @@ namespace Wisp.App;
 
 public sealed class DiagnosticsViewModel : INotifyPropertyChanged
 {
-    private const double WattsPerHorsepower = 745.69987158227022;
+    private readonly DashboardPowerDisplayModel _dashboardPowerDisplayModel = new();
     private readonly GForceDisplayModel _gForceDisplayModel = new();
     private readonly BoostDisplayModel _boostDisplayModel = new();
     private readonly TireTemperatureDisplayModel _tireTemperatureDisplayModel = new();
@@ -89,6 +89,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _tractionCueEnabled;
     private bool _isTractionCueActive;
     private bool _canRelearnCurrentTires;
+    private string _dashboardPower = "—";
     private string _applicationUpdateStatus = "Updates are checked only when requested.";
     private string _applicationUpdateAction = "Check for updates";
     private bool _canCheckApplicationUpdate = true;
@@ -194,9 +195,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             };
         }
     }
-    public string DashboardPower => HasLiveTelemetry
-        ? $"{NativeGaugeFrame.PowerWatts / WattsPerHorsepower:+0.0;-0.0;0.0} HP"
-        : "—";
+    public string DashboardPower => HasLiveTelemetry ? _dashboardPower : "—";
     public string DashboardTorque => HasLiveTelemetry
         ? $"{NativeGaugeFrame.TorqueNm:+0;-0;0} Nm"
         : "—";
@@ -226,10 +225,17 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         {
             if (Set(ref _hasLiveTelemetry, value))
             {
+                if (!value)
+                {
+                    _dashboardPowerDisplayModel.Reset();
+                    _dashboardPower = "—";
+                }
+
                 OnPropertyChanged(nameof(IsPreviewLive));
                 OnPropertyChanged(nameof(NativePreviewFrame));
                 OnPropertyChanged(nameof(PreviewSpeed));
                 OnPropertyChanged(nameof(PreviewCaption));
+                OnPropertyChanged(nameof(DashboardPower));
                 NotifyDashboardFrame();
             }
         }
@@ -257,12 +263,29 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         ? TireTemperatureDisplay
         : HudPreviewSample.TireTemperature;
 
+    private void UpdateDashboardPower(VehicleState state)
+    {
+        var next = _dashboardPowerDisplayModel.Observe(
+            state.CarOrdinal,
+            state.GameTimestampMilliseconds,
+            state.PowerWatts);
+        if (string.Equals(_dashboardPower, next, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _dashboardPower = next;
+        if (HasLiveTelemetry)
+        {
+            OnPropertyChanged(nameof(DashboardPower));
+        }
+    }
+
     private void NotifyDashboardFrame()
     {
         OnPropertyChanged(nameof(DashboardSpeed));
         OnPropertyChanged(nameof(DashboardSpeedUnit));
         OnPropertyChanged(nameof(DashboardGear));
-        OnPropertyChanged(nameof(DashboardPower));
         OnPropertyChanged(nameof(DashboardTorque));
         OnPropertyChanged(nameof(DashboardVehicleType));
     }
@@ -499,6 +522,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         TireTemperatureDisplay = _tireTemperatureDisplayModel.Calculate(
             state.CarOrdinal,
             state.TireTemperatureFahrenheit);
+        UpdateDashboardPower(state);
         var nextNativeGaugeFrame = new NativeGaugeFrame(
             speed.IsAvailable,
             displayedSpeed,

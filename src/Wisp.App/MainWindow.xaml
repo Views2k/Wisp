@@ -1654,7 +1654,7 @@
             <Grid Grid.Row="2" Margin="29,0">
                 <TextBlock Text="LOCAL DATA OUT  ·  READ-ONLY NATIVE HUD  ·  NO INJECTION" VerticalAlignment="Center"
                            FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource FaintBrush}" />
-                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.6" HorizontalAlignment="Right" VerticalAlignment="Center"
+                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.7" HorizontalAlignment="Right" VerticalAlignment="Center"
                            FontSize="10" Foreground="{DynamicResource FaintBrush}" />
             </Grid>
         </Grid>

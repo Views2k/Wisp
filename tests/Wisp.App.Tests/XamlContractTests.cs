@@ -261,7 +261,7 @@ public sealed class XamlContractTests
         var footer = document.Descendants(Presentation + "TextBlock")
             .Single(element => element.Attribute("Text")?.Value?.StartsWith(
                 "WHEEL-INDICATED SPEED PANEL", StringComparison.Ordinal) == true);
-        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.6", footer.Attribute("Text")?.Value);
+        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.7", footer.Attribute("Text")?.Value);
     }
 
     [Fact]
@@ -772,21 +772,29 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void VisibleHudPublishesNativeGaugeOnlyWhenTheUdpObjectIsUnchanged()
+    public void VisibleHudConsumesTelemetryIndependentlyFromWpfPresentation()
     {
         var source = File.ReadAllText(Path.Combine(AppSourceDirectory(), "AppController.cs"));
 
         Assert.Contains("CompositionTarget.Rendering += OnCompositionRendering", source, StringComparison.Ordinal);
         Assert.Contains("_displayFrameRateCounter.Observe(currentRendering.RenderingTime)", source, StringComparison.Ordinal);
-        Assert.Contains("var latest = _receiver.Latest;", source, StringComparison.Ordinal);
-        Assert.Contains("var hasNewPacket = !ReferenceEquals(latest, _lastProcessedState);", source, StringComparison.Ordinal);
-        Assert.Contains("ProcessUiUpdate(processLatestPacket: !_compositionRenderingAttached)", source, StringComparison.Ordinal);
-        var nativeRequest = source.IndexOf("_nativeHudProcessService.RequestNativeGaugeSample();", StringComparison.Ordinal);
-        var unchangedPacketBranch = source.IndexOf("if (!hasNewPacket)", nativeRequest, StringComparison.Ordinal);
-        var nativePublish = source.IndexOf("PublishNativeHudSnapshot(latest);", StringComparison.Ordinal);
-        var unchangedPacketExit = source.IndexOf("if (!hasNewPacket)", unchangedPacketBranch + 1, StringComparison.Ordinal);
-        Assert.True(nativeRequest >= 0 && nativeRequest < unchangedPacketBranch);
-        Assert.True(unchangedPacketBranch < nativePublish && nativePublish < unchangedPacketExit);
+        Assert.Contains("_dispatcher.BeginInvoke(DispatcherPriority.Render, ProcessPendingActivation)", source,
+            StringComparison.Ordinal);
+        Assert.Contains("ProcessUiUpdate(processLatestPacket: true)", source, StringComparison.Ordinal);
+
+        var packetStart = source.IndexOf("private void OnPacketAvailable", StringComparison.Ordinal);
+        var packetEnd = source.IndexOf("private void ProcessPendingActivation", packetStart, StringComparison.Ordinal);
+        Assert.True(packetStart >= 0 && packetEnd > packetStart);
+        var packetHandler = source[packetStart..packetEnd];
+        Assert.DoesNotContain("_wasDrivingConnected", packetHandler, StringComparison.Ordinal);
+        var renderStart = source.IndexOf("private void OnCompositionRendering", StringComparison.Ordinal);
+        var renderEnd = source.IndexOf("private void OnUiTimer", renderStart, StringComparison.Ordinal);
+        Assert.True(renderStart >= 0 && renderEnd > renderStart);
+        var renderHandler = source[renderStart..renderEnd];
+        Assert.DoesNotContain("ProcessUiUpdate", renderHandler, StringComparison.Ordinal);
+        Assert.Contains("_nativeHudProcessService.RequestNativeGaugeSample();", renderHandler,
+            StringComparison.Ordinal);
+        Assert.Contains("PublishNativeHudSnapshot(latest);", renderHandler, StringComparison.Ordinal);
     }
 
     [Fact]

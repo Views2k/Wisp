@@ -102,13 +102,48 @@ public sealed class NativeHudMemoryResolver
             return Unavailable(NativeAssistProviderStatus.InvalidSourceVector, generation, carOrdinal);
         }
 
-        var matches = new List<(ulong Source, ulong Provider)>();
+        var localPlayerCandidates = new List<(ulong Source, ulong Provider)>();
         foreach (var source in sources)
         {
             if (TryGetLocalPlayerProvider(memory, moduleBase, source, out var provider))
             {
-                matches.Add((source, provider));
+                localPlayerCandidates.Add((source, provider));
             }
+        }
+
+        if (localPlayerCandidates.Count == 0)
+        {
+            return Unavailable(NativeAssistProviderStatus.PlayerNotUnique, generation, carOrdinal);
+        }
+
+        // FH6 can briefly retain more than one local-player HUD source across
+        // menu/race transitions. Disambiguate those sources using the live Data
+        // Out vehicle identity before deciding that the player is ambiguous.
+        var matches = new List<(ulong Source, ulong Provider)>();
+        var failureStatus = NativeAssistProviderStatus.TelemetryMismatch;
+        foreach (var candidate in localPlayerCandidates)
+        {
+            if (TryMatchTelemetryIdentity(
+                    memory,
+                    candidate.Source,
+                    candidate.Provider,
+                    carOrdinal,
+                    currentEngineRpm,
+                    maximumEngineRpm,
+                    out var candidateFailure))
+            {
+                matches.Add(candidate);
+            }
+            else if (candidateFailure == NativeAssistProviderStatus.ReadFailure ||
+                     failureStatus == NativeAssistProviderStatus.TelemetryMismatch)
+            {
+                failureStatus = candidateFailure;
+            }
+        }
+
+        if (matches.Count == 0)
+        {
+            return Unavailable(failureStatus, generation, carOrdinal);
         }
 
         if (matches.Count != 1)
@@ -313,6 +348,45 @@ public sealed class NativeHudMemoryResolver
                memory.TryReadByte(provider + LocalPlayerFlagOffset, out var localPlayer) &&
                memory.TryReadByte(provider + LocalPlayerProviderFlagOffset, out var localProvider) &&
                localPlayer == 1 && localProvider == 1;
+    }
+
+    private bool TryMatchTelemetryIdentity(
+        IReadOnlyProcessMemory memory,
+        ulong source,
+        ulong provider,
+        int carOrdinal,
+        float currentEngineRpm,
+        float maximumEngineRpm,
+        out NativeAssistProviderStatus failureStatus)
+    {
+        failureStatus = NativeAssistProviderStatus.ReadFailure;
+        if (!memory.TryReadUInt32(source + SourceCarOrdinalOffset, out var sourceCarOrdinal) ||
+            !memory.TryReadSingle(provider + ProviderRpmOffset, out var angularVelocity) ||
+            !memory.TryReadSingle(
+                provider + ProviderTachometerMaximumAngularVelocityOffset,
+                out var tachometerMaximumAngularVelocity))
+        {
+            return false;
+        }
+
+        failureStatus = NativeAssistProviderStatus.TelemetryMismatch;
+        if (sourceCarOrdinal != (uint)carOrdinal ||
+            !ProviderRpmMatches(angularVelocity, currentEngineRpm, maximumEngineRpm))
+        {
+            return false;
+        }
+
+        if (!TryValidateMaximum(
+                tachometerMaximumAngularVelocity,
+                maximumEngineRpm,
+                out _,
+                out failureStatus))
+        {
+            return false;
+        }
+
+        failureStatus = NativeAssistProviderStatus.Ready;
+        return true;
     }
 
     private NativeHudSnapshot ResolveValidatedProvider(

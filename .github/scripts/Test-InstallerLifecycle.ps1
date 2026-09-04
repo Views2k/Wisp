@@ -81,6 +81,7 @@ function Invoke-CheckedProcess {
     $process = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
     try {
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            Write-Warning "$Label exceeded its $TimeoutSeconds-second timeout; terminating its process tree."
             $process.Kill($true)
             if (-not $process.WaitForExit(10000)) {
                 Write-Warning "$Label did not terminate after it was stopped."
@@ -141,6 +142,7 @@ function Assert-RegisteredInstallation {
 function Assert-FirstRunSetupLaunch {
     param([string]$ApplicationPath)
 
+    Write-Output 'First-run Wisp Setup launch started.'
     $process = Start-Process -FilePath $ApplicationPath -PassThru
     try {
         $deadline = [DateTime]::UtcNow.AddSeconds(30)
@@ -162,15 +164,18 @@ function Assert-FirstRunSetupLaunch {
             throw 'The installed application did not show Wisp Setup before the deadline.'
         }
 
+        Write-Output 'First-run Wisp Setup window detected.'
         if (-not $process.CloseMainWindow()) {
             throw 'The Wisp Setup window did not accept a bounded close request.'
         }
+        Write-Output 'First-run Wisp Setup close requested.'
         if (-not $process.WaitForExit(10000)) {
             throw 'The installed application did not exit after its setup window closed.'
         }
         if ($process.ExitCode -ne 0) {
             throw "The installed application returned exit code $($process.ExitCode) after closing Wisp Setup."
         }
+        Write-Output 'First-run Wisp Setup launch completed.'
     }
     finally {
         if (-not $process.HasExited) {
@@ -276,8 +281,10 @@ try {
 }
 finally {
     if ($ownsCanaryState) {
+        Write-Output 'Installer lifecycle cleanup started.'
         Remove-CanaryPath $uninstallKey 'uninstall registration'
         Remove-CanaryPath $canaryRoot 'installation directory'
         Remove-CanaryPath $stateDirectory 'local-state directory'
+        Write-Output 'Installer lifecycle cleanup completed.'
     }
 }
