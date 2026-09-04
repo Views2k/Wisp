@@ -63,6 +63,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _boostGaugeColorNumber;
     private bool _digitalBoostGaugeColorNumber;
     private bool _digitalBoostGaugeStockColors;
+    private bool _useBarBoostPressure;
     private double _boostGaugeScale;
     private BoostDisplay _boostDisplay = BoostDisplay.Unavailable;
     private bool _tireTemperatureGaugeEnabled;
@@ -111,6 +112,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         _boostGaugeColorNumber = settings.BoostGaugeColorNumber;
         _digitalBoostGaugeColorNumber = settings.DigitalBoostGaugeColorNumber;
         _digitalBoostGaugeStockColors = settings.DigitalBoostGaugeStockColors;
+        _useBarBoostPressure = settings.BoostPressureUnit == BoostPressureUnit.Bar;
         _boostGaugeScale = settings.BoostGaugeScale;
         _tireTemperatureGaugeEnabled = settings.TireTemperatureGaugeEnabled;
         _tireTemperatureGaugeAttached = settings.TireTemperatureGaugeAttached;
@@ -343,6 +345,20 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public bool BoostGaugeColorNumber { get => _boostGaugeColorNumber; set => Set(ref _boostGaugeColorNumber, value); }
     public bool DigitalBoostGaugeColorNumber { get => _digitalBoostGaugeColorNumber; set => Set(ref _digitalBoostGaugeColorNumber, value); }
     public bool DigitalBoostGaugeStockColors { get => _digitalBoostGaugeStockColors; set => Set(ref _digitalBoostGaugeStockColors, value); }
+    public bool UseBarBoostPressure
+    {
+        get => _useBarBoostPressure;
+        set
+        {
+            if (Set(ref _useBarBoostPressure, value))
+            {
+                OnPropertyChanged(nameof(SelectedBoostPressureUnit));
+            }
+        }
+    }
+    public BoostPressureUnit SelectedBoostPressureUnit => UseBarBoostPressure
+        ? BoostPressureUnit.Bar
+        : BoostPressureUnit.Psi;
     public double BoostGaugeScale { get => _boostGaugeScale; set => Set(ref _boostGaugeScale, value); }
     public BoostDisplay BoostDisplay
     {

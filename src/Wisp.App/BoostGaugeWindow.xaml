@@ -14,6 +14,7 @@
         <Grid Width="148" Height="148" Background="Transparent">
             <local:AnalogBoostGaugeView Width="140" Height="140" Margin="4"
                                         Display="{Binding BoostDisplay}"
+                                        PressureUnit="{Binding SelectedBoostPressureUnit}"
                                         ColorNumber="{Binding BoostGaugeColorNumber}"
                                         IsElectricMaterial="{Binding NativeGaugeFrame.IsElectric}"
                                         LowBrush="{DynamicResource BoostLowBrush}"

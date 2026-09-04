@@ -21,6 +21,10 @@ public abstract class BoostVisualBase : Grid
         nameof(ColorNumber), typeof(bool), typeof(BoostVisualBase),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    public static readonly DependencyProperty PressureUnitProperty = DependencyProperty.Register(
+        nameof(PressureUnit), typeof(BoostPressureUnit), typeof(BoostVisualBase),
+        new FrameworkPropertyMetadata(BoostPressureUnit.Psi, FrameworkPropertyMetadataOptions.AffectsRender));
+
     public static readonly DependencyProperty LowBrushProperty = DependencyProperty.Register(
         nameof(LowBrush), typeof(Brush), typeof(BoostVisualBase),
         new FrameworkPropertyMetadata(Brushes.DeepSkyBlue, FrameworkPropertyMetadataOptions.AffectsRender));
@@ -34,10 +38,15 @@ public abstract class BoostVisualBase : Grid
         new FrameworkPropertyMetadata(Brushes.MediumPurple, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public BoostDisplay Display { get => (BoostDisplay)GetValue(DisplayProperty); set => SetValue(DisplayProperty, value); }
+    public BoostPressureUnit PressureUnit { get => (BoostPressureUnit)GetValue(PressureUnitProperty); set => SetValue(PressureUnitProperty, value); }
     public bool ColorNumber { get => (bool)GetValue(ColorNumberProperty); set => SetValue(ColorNumberProperty, value); }
     public Brush LowBrush { get => (Brush)GetValue(LowBrushProperty); set => SetValue(LowBrushProperty, value); }
     public Brush MidBrush { get => (Brush)GetValue(MidBrushProperty); set => SetValue(MidBrushProperty, value); }
     public Brush HighBrush { get => (Brush)GetValue(HighBrushProperty); set => SetValue(HighBrushProperty, value); }
+
+    protected double DisplayPressure => BoostPressureUnits.FromPsi(Display.PressurePsi, PressureUnit);
+
+    protected string PressureSymbol => BoostPressureUnits.Symbol(PressureUnit);
 
     protected Brush NumberBrush()
     {
@@ -247,7 +256,8 @@ public sealed class DigitalBoostRailView : BoostVisualBase
             connectorStart,
             connectorEnd);
 
-        var value = Text($"{Display.PressurePsi:0} PSI", 16, UseStockColors ? Brushes.WhiteSmoke : NumberBrush(),
+        var pressureText = $"{BoostPressureUnits.FormatValue(Display.PressurePsi, PressureUnit)} {PressureSymbol}";
+        var value = Text(pressureText, 16, UseStockColors ? Brushes.WhiteSmoke : NumberBrush(),
             FontWeights.SemiBold, FontStyles.Italic);
         const double upperRailVisualBottom = 31;
         var valueTop = upperRailVisualBottom + ((top - upperRailVisualBottom - value.Height) / 2);
@@ -337,24 +347,26 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
         var trackPen = new Pen(new SolidColorBrush(Color.FromArgb(145, 142, 147, 156)), 2.2);
         DrawArc(dc, center, radius, StartAngle, SweepAngle, trackPen);
 
-        var gaugeFraction = Math.Clamp(Display.PressurePsi / MaximumPsi, 0, 1);
+        var maximum = BoostPressureUnits.AnalogMaximum(PressureUnit);
+        var gaugeFraction = Math.Clamp(DisplayPressure / maximum, 0, 1);
         if (gaugeFraction > 0)
         {
-            DrawActiveArc(dc, center, radius, gaugeFraction);
+            var maximumPsi = BoostPressureUnits.AnalogMaximumPsi(PressureUnit);
+            DrawActiveArc(dc, center, radius, gaugeFraction, maximumPsi);
         }
 
-        const double minimumPsi = 0;
-        const double majorInterval = 10;
-        const double minorInterval = 5;
-        var majorCount = (int)(MaximumPsi / majorInterval);
+        const double minimum = 0;
+        var majorInterval = PressureUnit == BoostPressureUnit.Bar ? 1 : 10;
+        var minorInterval = majorInterval / 2;
+        var majorCount = (int)(maximum / majorInterval);
         for (var index = 0; index <= majorCount; index++)
         {
-            var psi = minimumPsi + index * majorInterval;
-            var angle = StartAngle + SweepAngle * (psi / MaximumPsi);
-            DrawTick(dc, center, radius, angle, 7, 1.4, psi.ToString("0", CultureInfo.InvariantCulture));
+            var pressure = minimum + index * majorInterval;
+            var angle = StartAngle + SweepAngle * (pressure / maximum);
+            DrawTick(dc, center, radius, angle, 7, 1.4, pressure.ToString("0", CultureInfo.InvariantCulture));
             if (index < majorCount)
             {
-                DrawTick(dc, center, radius, angle + SweepAngle * (minorInterval / MaximumPsi), 3.5, 0.8, null);
+                DrawTick(dc, center, radius, angle + SweepAngle * (minorInterval / maximum), 3.5, 0.8, null);
             }
         }
 
@@ -363,7 +375,7 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
 
         DrawNativeGearRing(dc, center);
         DrawNativeBoostDigits(dc, center);
-        var unit = Text("PSI", 9, new SolidColorBrush(Color.FromArgb(190, 185, 193, 207)), FontWeights.SemiBold);
+        var unit = Text(PressureSymbol, 9, new SolidColorBrush(Color.FromArgb(190, 185, 193, 207)), FontWeights.SemiBold);
         dc.DrawText(unit, new Point(center.X - unit.Width / 2, center.Y + 30));
 
         var title = Text("BOOST", 10.5, new SolidColorBrush(Color.FromArgb(205, 210, 215, 225)),
@@ -371,7 +383,12 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
         dc.DrawText(title, new Point(center.X + 27, center.Y + 40));
     }
 
-    private void DrawActiveArc(DrawingContext dc, Point center, double radius, double gaugeFraction)
+    private void DrawActiveArc(
+        DrawingContext dc,
+        Point center,
+        double radius,
+        double gaugeFraction,
+        double maximumPsi)
     {
         var segmentCount = Math.Max(1, (int)Math.Ceiling(SweepAngle * gaugeFraction / 3));
         var learnedScale = Math.Max(Display.LearnedPeakPsi, 5);
@@ -381,7 +398,7 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
             var endFraction = gaugeFraction * (index + 1) / segmentCount;
             var start = StartAngle + (SweepAngle * startFraction);
             var sweep = (SweepAngle * (endFraction - startFraction)) + 0.35;
-            var pressure = MaximumPsi * endFraction;
+            var pressure = maximumPsi * endFraction;
             var colorFraction = Math.Clamp(pressure / learnedScale, 0, 1);
             var arc = ArcGeometry(center, radius, start, sweep);
             dc.DrawGeometry(null, new Pen(new SolidColorBrush(PaletteColor(colorFraction, 58)), 8), arc);
@@ -403,18 +420,30 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
 
     private void DrawNativeBoostDigits(DrawingContext dc, Point center)
     {
-        var pressure = Math.Clamp(
-            (int)Math.Round(Display.PressurePsi, MidpointRounding.AwayFromZero),
-            0,
-            (int)MaximumPsi);
-        var digits = pressure.ToString("00", CultureInfo.InvariantCulture);
+        var digits = PressureUnit == BoostPressureUnit.Bar
+            ? Math.Clamp(DisplayPressure, 0, 5).ToString("0.0", CultureInfo.InvariantCulture)
+            : Math.Clamp(
+                    (int)Math.Round(DisplayPressure, MidpointRounding.AwayFromZero),
+                    0,
+                    (int)MaximumPsi)
+                .ToString("00", CultureInfo.InvariantCulture);
         var tint = NumberColor();
         const double height = 28;
         const double width = 18;
+        const double dotWidth = 4;
         const double gap = -1;
-        var left = center.X - ((width * digits.Length) + (gap * (digits.Length - 1))) / 2;
+        var totalWidth = digits.Sum(character => character == '.' ? dotWidth : width) +
+                         gap * (digits.Length - 1);
+        var left = center.X - totalWidth / 2;
         foreach (var digit in digits)
         {
+            if (digit == '.')
+            {
+                dc.DrawEllipse(new SolidColorBrush(tint), null,
+                    new Point(left + dotWidth / 2, center.Y + height / 2 - 2), 1.35, 1.35);
+                left += dotWidth + gap;
+                continue;
+            }
             var image = NativeAssetCache.GetTinted(
                 NativeGaugeMode.Analogue,
                 $"HUD_Dial_Speed_Analogue_{digit}.png",

@@ -522,6 +522,7 @@
                                                                                                         Width="302" Height="88" Margin="11,204,0,0"
                                                                                                         HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                         Display="{Binding PreviewBoostDisplay}"
+                                                                                                        PressureUnit="{Binding SelectedBoostPressureUnit}"
                                                                                                         ColorNumber="{Binding DigitalBoostGaugeColorNumber}"
                                                                                                         UseStockColors="{Binding DigitalBoostGaugeStockColors}"
                                                                                                         LowBrush="{DynamicResource BoostLowBrush}"
@@ -631,6 +632,7 @@
                                                                                                         Width="136" Height="136"
                                                                                                         HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                         Display="{Binding PreviewBoostDisplay}"
+                                                                                                        PressureUnit="{Binding SelectedBoostPressureUnit}"
                                                                                                         ColorNumber="{Binding BoostGaugeColorNumber}"
                                                                                                         LowBrush="{DynamicResource BoostLowBrush}"
                                                                                                         MidBrush="{DynamicResource BoostMidBrush}"
@@ -768,19 +770,24 @@
                                                 <TextBlock Text="The digital rail stays fixed. Turn this off to move the analogue gauge separately."
                                                            TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
                                                            FontSize="11" Margin="54,4,0,0" />
-                                                <CheckBox Content="Color analogue PSI by load"
+                                                <CheckBox Content="Color analogue boost number by load"
                                                           IsChecked="{Binding BoostGaugeColorNumber}"
-                                                          AutomationProperties.Name="Color the analogue boost PSI number by load"
+                                                          AutomationProperties.Name="Color the analogue boost number by load"
                                                           Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" />
-                                                <CheckBox Content="Color digital PSI by load"
+                                                <CheckBox Content="Color digital boost number by load"
                                                           IsChecked="{Binding DigitalBoostGaugeColorNumber}"
-                                                          AutomationProperties.Name="Color the digital boost PSI number by load"
+                                                          AutomationProperties.Name="Color the digital boost number by load"
                                                           Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" />
                                                 <CheckBox Content="Use stock tachometer colors on digital boost"
                                                           IsChecked="{Binding DigitalBoostGaugeStockColors}"
                                                           AutomationProperties.Name="Use the stock tachometer material on the digital boost rail"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <CheckBox Content="Display boost pressure in bar"
+                                                          IsChecked="{Binding UseBarBoostPressure}"
+                                                          AutomationProperties.Name="Display boost pressure in bar"
                                                           Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" />
                                             </StackPanel>

@@ -580,9 +580,11 @@ public sealed class XamlContractTests
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeAnalogTireTemperaturePreview");
 
         Assert.Equal("{Binding PreviewBoostDisplay}", digital.Attribute("Display")?.Value);
+        Assert.Equal("{Binding SelectedBoostPressureUnit}", digital.Attribute("PressureUnit")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeColorNumber}", digital.Attribute("ColorNumber")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeStockColors}", digital.Attribute("UseStockColors")?.Value);
         Assert.Equal("{Binding PreviewBoostDisplay}", analogue.Attribute("Display")?.Value);
+        Assert.Equal("{Binding SelectedBoostPressureUnit}", analogue.Attribute("PressureUnit")?.Value);
         Assert.Equal("{Binding BoostGaugeColorNumber}", analogue.Attribute("ColorNumber")?.Value);
         Assert.Contains("{Binding BoostGaugeEnabled}", digital.ToString(), StringComparison.Ordinal);
         Assert.Contains("{Binding BoostGaugeEnabled}", analogue.ToString(), StringComparison.Ordinal);
