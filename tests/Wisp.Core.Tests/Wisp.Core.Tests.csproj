@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
@@ -14,8 +15,13 @@
     </PackageReference>
     <ProjectReference Include="..\..\src\Wisp.Core\Wisp.Core.csproj" />
     <Compile Include="..\..\src\Wisp.App\AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="..\..\src\Wisp.App\HudPreset.cs" Link="HudPreset.cs" />
     <Compile Include="..\..\src\Wisp.App\AppColorThemes.cs" Link="AppColorThemes.cs" />
     <Compile Include="..\..\src\Wisp.App\AppBackgroundThemes.cs" Link="AppBackgroundThemes.cs" />
     <Compile Include="..\..\src\Wisp.App\BoostGaugeThemes.cs" Link="BoostGaugeThemes.cs" />
+    <Compile Include="..\..\src\Wisp.App\ColorCustomization.cs" Link="ColorCustomization.cs" />
+    <Compile Include="..\..\src\Wisp.App\HudBorderThemeResources.cs" Link="HudBorderThemeResources.cs" />
+    <Compile Include="..\..\src\Wisp.App\OverlayHotkey.cs" Link="OverlayHotkey.cs" />
+    <Compile Include="..\..\src\Wisp.App\TorqueUnit.cs" Link="TorqueUnit.cs" />
   </ItemGroup>
 </Project>

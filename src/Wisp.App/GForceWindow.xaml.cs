@@ -28,7 +28,10 @@ public partial class GForceWindow : Window
     {
         InitializeComponent();
         _controller = controller;
-        HudBorderThemeResources.Apply(Resources, controller.Settings.HudBorderTheme);
+        HudBorderThemeResources.Apply(
+            Resources,
+            controller.Settings.HudBorderTheme,
+            controller.Settings.CustomHudBorderColor);
         _windowDrag = new NonActivatingWindowDrag(this, controller.SaveGForcePlacement);
         DataContext = controller.ViewModel;
         ApplyAppearance(
@@ -39,6 +42,9 @@ public partial class GForceWindow : Window
 
     public void ApplyHudBorderTheme(string? themeName) =>
         HudBorderThemeResources.Apply(Resources, themeName);
+
+    public void ApplyHudBorderCustomization(string? themeName, string? customColor) =>
+        HudBorderThemeResources.Apply(Resources, themeName, customColor);
 
     public void SetEnabled(bool enabled)
     {

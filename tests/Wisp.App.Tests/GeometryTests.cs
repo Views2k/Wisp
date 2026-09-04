@@ -507,6 +507,72 @@ public sealed class GeometryTests
     }
 
     [Fact]
+    public void LastPhysicalDisplayPlacementWinsBeforeWindowHandleExists()
+    {
+        const string savedKey = @"\\.\DISPLAY2-2560x1440-TireTempV1-Analogue";
+        const string preHandleKey = "Primary-1920x1080-TireTempV1-Analogue";
+        var savedPlacement = new OverlayPlacement(2710, 880, 1.15, 1.15);
+        var placements = new Dictionary<string, OverlayPlacement>
+        {
+            [savedKey] = savedPlacement
+        };
+
+        var placement = OverlayPlacementResolver.FindPreferredPlacement(
+            placements,
+            savedKey,
+            preHandleKey,
+            "-TireTempV1-",
+            out var resolvedKey);
+
+        Assert.Same(savedPlacement, placement);
+        Assert.Equal(savedKey, resolvedKey);
+    }
+
+    [Fact]
+    public void LastBoostPlacementWinsOverSyntheticPreHandleDisplayKey()
+    {
+        const string savedKey = @"\\.\DISPLAY2-2560x1440-BoostV1";
+        var savedPlacement = new OverlayPlacement(2700, 700, 1.37, 1.37);
+        var placements = new Dictionary<string, OverlayPlacement>
+        {
+            [savedKey] = savedPlacement
+        };
+
+        var placement = OverlayPlacementResolver.FindPreferredPlacement(
+            placements,
+            savedKey,
+            "Primary-1920x1080-BoostV1",
+            "-BoostV1",
+            out var resolvedKey);
+
+        Assert.Same(savedPlacement, placement);
+        Assert.Equal(savedKey, resolvedKey);
+        Assert.Single(placements);
+    }
+
+    [Fact]
+    public void PreferredPlacementKeepsDisplayButSelectsCurrentGaugeVariant()
+    {
+        const string lastKey = @"\\.\DISPLAY2-2560x1440-TireTempV1-Digital";
+        const string analogueKey = @"\\.\DISPLAY2-2560x1440-TireTempV1-Analogue";
+        var analoguePlacement = new OverlayPlacement(2680, 820, 1.05, 1.05);
+        var placements = new Dictionary<string, OverlayPlacement>
+        {
+            [analogueKey] = analoguePlacement
+        };
+
+        var placement = OverlayPlacementResolver.FindPreferredPlacement(
+            placements,
+            lastKey,
+            "Primary-1920x1080-TireTempV1-Analogue",
+            "-TireTempV1-",
+            out var resolvedKey);
+
+        Assert.Same(analoguePlacement, placement);
+        Assert.Equal(analogueKey, resolvedKey);
+    }
+
+    [Fact]
     public void AnotherDisplaysGForcePlacementDoesNotSuppressAdjacentFallback()
     {
         const string speedKey = "DISPLAY-A-2560x1440-SpeedV4-SeparateBoxes";

@@ -130,6 +130,82 @@ public sealed class NativeNeedlePlaybackTests
     }
 
     [Fact]
+    public void ExpiredExactPairCannotBeResurrectedByAFreshTelemetryFrame()
+    {
+        var playback = new NativeNeedlePlayback();
+        playback.Observe(314, 1_000, 120, -0.2, Timestamp(0), Timestamp(0), false, out _);
+        var expiredAt = 1 + NativeNeedlePlayback.NativeSampleFreshnessMilliseconds;
+        Assert.False(playback.Sample(Timestamp(expiredAt), out _));
+
+        Assert.False(playback.Observe(
+            314,
+            1_100,
+            120,
+            -0.2,
+            Timestamp(expiredAt + 5),
+            Timestamp(0),
+            false,
+            out _));
+        Assert.Null(playback.AcceptedCarOrdinal);
+
+        Assert.True(playback.Observe(
+            314,
+            1_110,
+            140,
+            -0.1,
+            Timestamp(expiredAt + 10),
+            Timestamp(expiredAt + 10),
+            false,
+            out var recovered));
+        Assert.Equal(new NativeNeedleRenderState(140, -0.1), recovered);
+    }
+
+    [Fact]
+    public void AlreadyExpiredFirstNativePairIsRejected()
+    {
+        var playback = new NativeNeedlePlayback();
+        var now = NativeNeedlePlayback.NativeSampleFreshnessMilliseconds + 1;
+
+        Assert.False(playback.Observe(
+            314,
+            1_000,
+            120,
+            -0.2,
+            Timestamp(now),
+            Timestamp(0),
+            false,
+            out _));
+        Assert.Null(playback.AcceptedCarOrdinal);
+    }
+
+    [Fact]
+    public void ExpiredRepeatIsRejectedBeforeTheCompositorSamplesIt()
+    {
+        var playback = new NativeNeedlePlayback();
+        Assert.True(playback.Observe(
+            314,
+            1_000,
+            120,
+            -0.2,
+            Timestamp(0),
+            Timestamp(0),
+            false,
+            out _));
+        var expiredAt = NativeNeedlePlayback.NativeSampleFreshnessMilliseconds + 1;
+
+        Assert.False(playback.Observe(
+            314,
+            1_100,
+            120,
+            -0.2,
+            Timestamp(expiredAt),
+            Timestamp(0),
+            false,
+            out _));
+        Assert.Null(playback.AcceptedCarOrdinal);
+    }
+
+    [Fact]
     public void CompositorSamplingDoesNotAllocatePerFrame()
     {
         var playback = new NativeNeedlePlayback();

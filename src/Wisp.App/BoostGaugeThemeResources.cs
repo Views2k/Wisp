@@ -9,10 +9,39 @@ public static class BoostGaugeThemeResources
     {
         ArgumentNullException.ThrowIfNull(resources);
         var theme = BoostGaugeThemes.Resolve(themeName);
+        Apply(resources, theme);
+    }
+
+    public static void Apply(
+        ResourceDictionary resources,
+        string? themeName,
+        string? customLow,
+        string? customMid,
+        string? customHigh)
+    {
+        ArgumentNullException.ThrowIfNull(resources);
+        var legacy = BoostGaugeThemes.Resolve(themeName);
+        var theme = new BoostGaugeTheme(
+            "Custom",
+            Resolve(customLow, legacy.Low),
+            Resolve(customMid, legacy.Mid),
+            Resolve(customHigh, legacy.High));
+        Apply(resources, theme);
+    }
+
+    public static void Apply(ResourceDictionary resources, BoostGaugeTheme theme)
+    {
+        ArgumentNullException.ThrowIfNull(resources);
+        ArgumentNullException.ThrowIfNull(theme);
         resources["BoostLowBrush"] = FrozenBrush(theme.Low);
         resources["BoostMidBrush"] = FrozenBrush(theme.Mid);
         resources["BoostHighBrush"] = FrozenBrush(theme.High);
     }
+
+    private static string Resolve(string? custom, string fallback) =>
+        ColorCustomization.TryParse(custom, out var color)
+            ? ColorCustomization.ToHex(color)
+            : fallback;
 
     private static SolidColorBrush FrozenBrush(string value)
     {

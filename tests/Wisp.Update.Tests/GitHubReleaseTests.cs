@@ -52,6 +52,47 @@ public sealed class GitHubReleaseTests
         Assert.Equal(123, release.Size);
         Assert.Equal(new string('a', 64), release.Sha256);
         Assert.Equal(ReleaseUriPolicy.InitialDownloadUri(release.Version), release.DownloadUri);
+        Assert.Equal("A focused Wisp update.", release.ReleaseSummary);
+    }
+
+    [Fact]
+    public async Task ReleaseBodyBecomesBoundedPlainTextWithoutLinkTargetsOrMarkup()
+    {
+        var json = ReleaseTestData.CreateJson(mutateRelease: release => release["body"] =
+            "## What's new\n- **Smoother gauges**\n- Read [the notes](https://example.invalid/untrusted)" +
+            "<script>ignored()</script>\u202e\nSee https://example.invalid/also-untrusted\n" + new string('x', 800));
+        using var handler = new ScriptedHttpHandler((_, _, _) =>
+            Task.FromResult(ScriptedHttpHandler.JsonResponse(json)));
+        using var http = new HttpClient(handler);
+        using var client = new WispUpdateClient(http);
+
+        var release = await client.GetLatestReleaseAsync(TestContext.Current.CancellationToken);
+
+        Assert.StartsWith(
+            "What's new" + Environment.NewLine + "Smoother gauges" + Environment.NewLine + "Read the notes",
+            release.ReleaseSummary);
+        Assert.DoesNotContain("https://", release.ReleaseSummary, StringComparison.Ordinal);
+        Assert.DoesNotContain("<script>", release.ReleaseSummary, StringComparison.Ordinal);
+        Assert.DoesNotContain("**", release.ReleaseSummary, StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202e', release.ReleaseSummary);
+        Assert.True(release.ReleaseSummary.Length <= 480);
+    }
+
+    [Fact]
+    public async Task MissingReleaseBodyProducesNoSummaryWithoutChangingReleaseValidation()
+    {
+        var json = ReleaseTestData.CreateJson(mutateRelease: release => release.Remove("body"));
+        using var handler = new ScriptedHttpHandler((_, _, _) =>
+            Task.FromResult(ScriptedHttpHandler.JsonResponse(json)));
+        using var http = new HttpClient(handler);
+        using var client = new WispUpdateClient(http);
+
+        var release = await client.GetLatestReleaseAsync(TestContext.Current.CancellationToken);
+
+        Assert.Empty(release.ReleaseSummary);
+        Assert.Equal(ReleaseTestData.FixtureVersion, release.Version);
+        Assert.Equal(123, release.Size);
+        Assert.Equal(new string('a', 64), release.Sha256);
     }
 
     [Theory]

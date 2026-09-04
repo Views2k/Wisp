@@ -2,6 +2,7 @@ using System.IO;
 using System.Security;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Windows.Input;
 using Wisp.Core;
 
 namespace Wisp.App;
@@ -45,6 +46,7 @@ public sealed class AppSettings
     public int SettingsRevision { get; set; }
     public int UdpPort { get; set; } = 5500;
     public SpeedUnit SpeedUnit { get; set; } = SpeedUnit.MilesPerHour;
+    public TorqueUnit TorqueUnit { get; set; } = global::Wisp.App.TorqueUnit.NewtonMeters;
     public SpeedSourceMode SpeedSource { get; set; } = SpeedSourceMode.WheelIndicated;
     public WheelAggregationMode AggregationMode { get; set; } = WheelAggregationMode.RawDrivenWheels;
     public double OverlayWidthScale { get; set; } = 1.0;
@@ -77,12 +79,27 @@ public sealed class AppSettings
     public bool StartWithForza { get; set; }
     public bool StartMinimizedWithForza { get; set; }
     public bool AnimatedBackground { get; set; } = true;
+    public bool AutomaticApplicationUpdateChecks { get; set; } = true;
+    public DateTimeOffset? LastApplicationUpdateCheckUtc { get; set; }
+    public bool DebugLoggingEnabled { get; set; }
+    public DateTimeOffset? DebugLoggingExpiresAtUtc { get; set; }
     public string ColorTheme { get; set; } = AppColorThemes.DefaultName;
     public string BackgroundTheme { get; set; } = AppBackgroundThemes.DefaultName;
     public string HudBorderTheme { get; set; } = AppColorThemes.DefaultName;
     public string BoostGaugeTheme { get; set; } = BoostGaugeThemes.DefaultName;
+    public string? CustomAccentColor { get; set; }
+    public string? CustomBackgroundColor { get; set; }
+    public string? CustomHudBorderColor { get; set; }
+    public string? CustomBoostLowColor { get; set; }
+    public string? CustomBoostMidColor { get; set; }
+    public string? CustomBoostHighColor { get; set; }
+    public List<HudPreset> HudPresets { get; set; } = new();
     public bool SidebarCollapsed { get; set; }
     public bool GameAwareVisibility { get; set; } = true;
+    public bool OverlayHotkeyEnabled { get; set; }
+    public OverlayHotkeyModifiers OverlayHotkeyModifiers { get; set; } =
+        OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+    public Key OverlayHotkeyKey { get; set; } = Key.H;
     public bool AutoMinimizeOnTelemetry { get; set; } = true;
     public bool TractionCueEnabled { get; set; } = true;
     public bool HasCompletedSetup { get; set; }
@@ -190,6 +207,12 @@ public sealed class AppSettings
         BackgroundTheme = AppBackgroundThemes.NormalizeName(BackgroundTheme);
         HudBorderTheme = AppColorThemes.NormalizeName(HudBorderTheme);
         BoostGaugeTheme = BoostGaugeThemes.NormalizeName(BoostGaugeTheme);
+        CustomAccentColor = ColorCustomization.NormalizeAccent(CustomAccentColor);
+        CustomBackgroundColor = ColorCustomization.NormalizeBackground(CustomBackgroundColor);
+        CustomHudBorderColor = ColorCustomization.NormalizeHudBorder(CustomHudBorderColor);
+        CustomBoostLowColor = ColorCustomization.NormalizeGauge(CustomBoostLowColor);
+        CustomBoostMidColor = ColorCustomization.NormalizeGauge(CustomBoostMidColor);
+        CustomBoostHighColor = ColorCustomization.NormalizeGauge(CustomBoostHighColor);
 
         if (UdpPort is < 1024 or > 65535 or >= 5200 and <= 5300)
         {
@@ -199,6 +222,11 @@ public sealed class AppSettings
         if (!Enum.IsDefined(SpeedUnit))
         {
             SpeedUnit = SpeedUnit.MilesPerHour;
+        }
+
+        if (!Enum.IsDefined(TorqueUnit))
+        {
+            TorqueUnit = global::Wisp.App.TorqueUnit.NewtonMeters;
         }
 
         if (!Enum.IsDefined(SpeedSource))
@@ -226,6 +254,27 @@ public sealed class AppSettings
             GearDisplayMode = GearDisplayMode.Manual;
         }
 
+        if (!OverlayHotkeyChord.TryCreate(
+                OverlayHotkeyModifiers,
+                OverlayHotkeyKey,
+                out _,
+                out _))
+        {
+            OverlayHotkeyEnabled = false;
+            OverlayHotkeyModifiers = OverlayHotkeyChord.Default.Modifiers;
+            OverlayHotkeyKey = OverlayHotkeyChord.Default.Key;
+        }
+
+        var debugLoggingNowUtc = DateTimeOffset.UtcNow;
+        if (!DebugLoggingEnabled ||
+            DebugLoggingExpiresAtUtc is not { } debugLoggingExpiry ||
+            debugLoggingExpiry <= debugLoggingNowUtc ||
+            debugLoggingExpiry > debugLoggingNowUtc + TimeSpan.FromHours(24))
+        {
+            DebugLoggingEnabled = false;
+            DebugLoggingExpiresAtUtc = null;
+        }
+
         OverlayWidthScale = NormalizeScale(OverlayWidthScale);
         OverlayHeightScale = NormalizeScale(OverlayHeightScale);
         GForceWidthScale = NormalizeScale(GForceWidthScale);
@@ -243,6 +292,8 @@ public sealed class AppSettings
         BoostGaugePlacements ??= new Dictionary<string, OverlayPlacement>();
         TireTemperatureGaugePlacements ??= new Dictionary<string, OverlayPlacement>();
         Calibrations ??= new List<CalibrationSnapshot>();
+        HudPresets ??= new List<HudPreset>();
+        HudPreset.NormalizeList(HudPresets);
         if (!Enum.IsDefined(TireTemperatureUnit))
         {
             TireTemperatureUnit = TireTemperatureUnit.Fahrenheit;
@@ -465,6 +516,14 @@ public sealed class SettingsService
         settings.BackgroundTheme = AppBackgroundThemes.NormalizeName(settings.BackgroundTheme);
         settings.HudBorderTheme = AppColorThemes.NormalizeName(settings.HudBorderTheme);
         settings.BoostGaugeTheme = BoostGaugeThemes.NormalizeName(settings.BoostGaugeTheme);
+        settings.CustomAccentColor = ColorCustomization.NormalizeAccent(settings.CustomAccentColor);
+        settings.CustomBackgroundColor = ColorCustomization.NormalizeBackground(settings.CustomBackgroundColor);
+        settings.CustomHudBorderColor = ColorCustomization.NormalizeHudBorder(settings.CustomHudBorderColor);
+        settings.CustomBoostLowColor = ColorCustomization.NormalizeGauge(settings.CustomBoostLowColor);
+        settings.CustomBoostMidColor = ColorCustomization.NormalizeGauge(settings.CustomBoostMidColor);
+        settings.CustomBoostHighColor = ColorCustomization.NormalizeGauge(settings.CustomBoostHighColor);
+        settings.HudPresets ??= new List<HudPreset>();
+        HudPreset.NormalizeList(settings.HudPresets);
         var directory = Path.GetDirectoryName(_settingsPath)!;
         Directory.CreateDirectory(directory);
         var bytes = JsonSerializer.SerializeToUtf8Bytes(settings, JsonOptions);

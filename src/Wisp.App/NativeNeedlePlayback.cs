@@ -61,6 +61,22 @@ internal sealed class NativeNeedlePlayback
         }
 
         var receivedAt = receivedTimestamp ?? nowTimestamp;
+        // Native gauge fields can remain on otherwise fresh telemetry frames
+        // while the process-memory worker is delayed. Once that exact pair has
+        // expired, do not repeatedly resurrect it as a new playback source.
+        // A newer native observation can still switch playback back normally.
+        if (receivedAt > nowTimestamp || nowTimestamp - receivedAt > NativeSampleFreshnessTicks)
+        {
+            if (_hasNativeState && IsFresh(nowTimestamp))
+            {
+                return Sample(nowTimestamp, out state);
+            }
+
+            Reset();
+            state = default;
+            return false;
+        }
+
         var acceptedObservation = receivedAt <= nowTimestamp &&
                                   (!_hasNativeState || receivedAt > _lastExactObservationTimestamp ||
                                    nowTimestamp < _lastExactObservationTimestamp);

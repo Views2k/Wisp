@@ -20,6 +20,9 @@ public sealed class DiagnosticsViewModelTests
         Assert.Equal("—", viewModel.DashboardVehicleType);
         Assert.Equal("—", viewModel.DashboardPower);
         Assert.Equal("—", viewModel.DashboardTorque);
+        Assert.Equal("—", viewModel.DashboardPeakPower);
+        Assert.Equal("—", viewModel.DashboardPeakTorque);
+        Assert.Equal("—", viewModel.DashboardTopSpeed);
     }
 
     [Theory]
@@ -97,6 +100,76 @@ public sealed class DiagnosticsViewModelTests
 
         Assert.Equal(expectedPower, viewModel.DashboardPower);
         Assert.Equal(expectedTorque, viewModel.DashboardTorque);
+    }
+
+    [Fact]
+    public void TorqueUnitReformatsCurrentAndPeakValuesImmediately()
+    {
+        var viewModel = UpdateDashboard(
+            DrivingState() with
+            {
+                PowerWatts = (float)(113 * 745.69987158227022),
+                TorqueNm = 310.25f
+            },
+            SpeedUnit.MilesPerHour,
+            GearDisplayMode.Manual,
+            30);
+
+        Assert.Equal("+310 Nm", viewModel.DashboardTorque);
+        Assert.Equal("310 Nm", viewModel.DashboardPeakTorque);
+
+        viewModel.TorqueUnitSelectionIndex = 1;
+
+        Assert.Equal("+229 lb-ft", viewModel.DashboardTorque);
+        Assert.Equal("229 lb-ft", viewModel.DashboardPeakTorque);
+        Assert.Equal(TorqueUnit.PoundFeet, viewModel.SelectedTorqueUnit);
+    }
+
+    [Fact]
+    public void BriefTelemetryLossKeepsSessionPeaksUntilManualReset()
+    {
+        var viewModel = UpdateDashboard(
+            DrivingState() with
+            {
+                PowerWatts = (float)(500 * 745.69987158227022),
+                TorqueNm = 600
+            },
+            SpeedUnit.MilesPerHour,
+            GearDisplayMode.Manual,
+            30);
+
+        viewModel.UpdateWaiting(
+            default,
+            TelemetryConnectionState.Lost,
+            TimeSpan.FromSeconds(1),
+            60);
+
+        Assert.Equal("—", viewModel.DashboardPower);
+        Assert.Equal("500 HP", viewModel.DashboardPeakPower);
+        Assert.Equal("600 Nm", viewModel.DashboardPeakTorque);
+        Assert.Equal("30 MPH", viewModel.DashboardTopSpeed);
+
+        viewModel.ResetDashboardPeaks();
+
+        Assert.Equal("—", viewModel.DashboardPeakPower);
+        Assert.Equal("—", viewModel.DashboardPeakTorque);
+        Assert.Equal("—", viewModel.DashboardTopSpeed);
+    }
+
+    [Fact]
+    public void DashboardTopSpeedReformatsImmediatelyForTheSelectedSpeedUnit()
+    {
+        var viewModel = UpdateDashboard(
+            DrivingState(),
+            SpeedUnit.MilesPerHour,
+            GearDisplayMode.Manual,
+            67.108088761632);
+
+        Assert.Equal("67 MPH", viewModel.DashboardTopSpeed);
+
+        viewModel.UnitSelectionIndex = 1;
+
+        Assert.Equal("108 KM/H", viewModel.DashboardTopSpeed);
     }
 
     [Theory]
@@ -669,6 +742,9 @@ public sealed class DiagnosticsViewModelTests
         GearDisplayMode gearDisplayMode,
         double displayedSpeed)
     {
+        var multiplier = unit == SpeedUnit.MilesPerHour
+            ? SpeedModel.MetersPerSecondToMilesPerHour
+            : SpeedModel.MetersPerSecondToKilometersPerHour;
         var viewModel = new DiagnosticsViewModel(new AppSettings
         {
             SpeedUnit = unit,
@@ -676,7 +752,12 @@ public sealed class DiagnosticsViewModelTests
         });
         viewModel.Update(
             state,
-            new IndicatedSpeed(0, displayedSpeed, true, false, "Rear (RL + RR)"),
+            new IndicatedSpeed(
+                displayedSpeed / multiplier,
+                displayedSpeed,
+                true,
+                false,
+                "Rear (RL + RR)"),
             new CalibrationResult(null, 0.3, 0.2, 0, true, string.Empty, false),
             default(ReceiverStatistics),
             TimeSpan.Zero,

@@ -21,6 +21,17 @@
         <SolidColorBrush x:Key="ToggleTrackBrush" Color="#334052" />
         <SolidColorBrush x:Key="ScrollThumbBrush" Color="#46566A" />
 
+        <Style x:Key="NativeTractionCueDigitStyle" TargetType="Rectangle">
+            <Setter Property="Fill" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsTractionCueActive}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <Style TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />

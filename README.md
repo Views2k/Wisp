@@ -19,26 +19,27 @@ FH6 Data Out supplies the local telemetry stream. Wisp learns the effective
 rolling radius of the current tires, applies the correct driven-wheel model for
 FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
 
-## New in 1.0.5
+## New in 1.0.10
 
-Wisp 1.0.5 expands both Native HUD layouts without replacing their existing
-speedometer, tachometer, or material assets.
+Wisp 1.0.10 is a quality-of-life release focused on clearer live information,
+easier customization, safer update discovery, and useful diagnostics.
 
-- **Boost pressure:** a 0 to 70 PSI Analogue dial or a slim Digital rail, with
-  fifteen palettes, optional reactive numbers, attached and detached placement,
-  and a stock-material Digital mode.
-- **Tire temperature:** exact front and rear axle averages in one Digital rail
-  or one dual-needle Analogue dial, with Fahrenheit and Celsius readouts.
-- **Complete Native stack:** boost, tire temperature, and G-force can attach to
-  the speedometer as one aligned layout. Each added gauge can also be moved and
-  scaled independently.
-- **HUD refinements:** the electric gear indicator is restored, the Appearance
-  page is grouped into focused sections, the G-force trail lasts longer, and the
-  Appearance preview shows the complete attached arrangement.
+- **More live information:** torque, top speed, peak power, and peak torque now
+  appear on the Dashboard. Torque supports Nm and lb-ft.
+- **Easier update discovery:** Wisp can check once every 24 hours and show an
+  update banner. The matching GitHub release summary appears before the user
+  confirms a download; installation is never automatic.
+- **Complete visual profiles:** one continuous color editor controls the app,
+  surfaces, HUD border, and gauge gradient. Named profiles save the full visual
+  combination while keeping calibration and placement separate.
+- **Practical support tools:** an optional global HUD visibility shortcut,
+  bounded local debug logging with issue-ready ZIP export, and in-app release
+  notes make everyday use and troubleshooting easier.
+- **HUD reliability:** detached gauge and profile placement restoration is more
+  reliable, stale tachometer samples no longer interrupt smooth fallback motion,
+  and the traction cue no longer carries stale slip evidence across a stop.
 
-See [Boost Gauge](docs/BOOST-GAUGE.md),
-[Tire Temperature](docs/TIRE-TEMPERATURE.md), and the
-[1.0.5 release notes](Wisp-1.0.5-release-notes.md) for details.
+See the [1.0.10 release notes](Wisp-1.0.10-release-notes.md) for the full list.
 
 ## Features
 
@@ -49,8 +50,8 @@ See [Boost Gauge](docs/BOOST-GAUGE.md),
   mode adds a rail below the tachometer, while Analogue mode adds a 0 to 70 PSI
   dial with 5 PSI ticks.
 - Absolute PSI readouts, a learned per-car color scale, optional colored PSI
-  numbers, attached or detached Analogue placement, fifteen color palettes,
-  and an independent Digital option that uses the stock tachometer material.
+  numbers, attached or detached Analogue placement, a custom three-point gauge
+  gradient, and an independent Digital option that uses the stock tachometer material.
 - Front and rear tire-temperature gauges for both Native layouts. Digital mode
   uses two markers in one neutral rail with no colored fill, while Analogue mode
   uses two solid-color needles in one dial. Values support Fahrenheit and Celsius.
@@ -59,8 +60,10 @@ See [Boost Gauge](docs/BOOST-GAUGE.md),
 - Standalone or Native-attached G-force display with a longer motion trail.
 - A vehicle dashboard for speed, RPM, drivetrain, power, torque, controls, and
   connection status.
-- Fifteen palettes that can be selected independently for the application
-  accent, dark background, and HUD border.
+- One continuous color editor for the application accent, background surfaces,
+  HUD border, and shared gauge gradient, plus named visual profiles.
+- Optional once-daily update discovery, a customizable HUD visibility shortcut,
+  and bounded local debug logging with ZIP export for issue reports.
 
 ## Gallery
 

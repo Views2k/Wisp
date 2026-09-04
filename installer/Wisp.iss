@@ -1,5 +1,5 @@
 #define MyAppName "Wisp"
-#define MyAppVersion "1.0.8"
+#define MyAppVersion "1.0.10"
 #define MyAppPublisher "Wisp"
 #define MyAppExeName "Wisp.exe"
 

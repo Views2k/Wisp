@@ -5,11 +5,14 @@ using System.Security;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Wisp.App.DebugLogging;
 using Wisp.Core;
 using Wisp.Telemetry;
 using Wisp.Update;
 
 namespace Wisp.App;
+
+public sealed record ApplicationUpdateDetails(string Version, string ReleaseSummary);
 
 public sealed class AppController : IAsyncDisposable
 {
@@ -27,6 +30,7 @@ public sealed class AppController : IAsyncDisposable
     private readonly TractionHookDetector _tractionHookDetector = new();
     private readonly TransmissionDisplayFilter _transmissionDisplayFilter = new();
     private readonly DisplayFrameRateCounter _displayFrameRateCounter = new();
+    private readonly DebugLogService _debugLog = new();
     private readonly ForzaFocusService _forzaFocusService = new();
     private readonly IStartupRegistrationService _startupRegistrationService;
     private readonly NativeHudProcessService _nativeHudProcessService = new();
@@ -47,9 +51,20 @@ public sealed class AppController : IAsyncDisposable
     private DateTimeOffset _nextDiagnosticsAtUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _nextVisibilityCheckAtUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _nextFullscreenZOrderAtUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _nextDebugSampleAtUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _debugRateAtUtc = DateTimeOffset.UtcNow;
+    private DateTimeOffset _debugCpuRateAtUtc = DateTimeOffset.UtcNow;
     private DateTimeOffset? _raceOffObservedAtUtc;
     private TimeSpan _lastCompositionRenderingTime = TimeSpan.MinValue;
     private int _activationDispatchPending;
+    private long _debugProcessedPackets;
+    private long _debugPreviousProcessedPackets;
+    private TimeSpan? _debugPreviousCpuTime;
+    private uint? _debugPreviousGameTimestamp;
+    private int _debugDerivedCarOrdinal;
+    private IndicatedSpeed _debugIndicatedSpeed;
+    private CalibrationResult _debugCalibration;
+    private bool _hasDebugDerivedTelemetry;
     private double _renderRate;
     private bool _receiverNotificationsAttached;
     private bool _compositionRenderingAttached;
@@ -64,8 +79,11 @@ public sealed class AppController : IAsyncDisposable
     private bool _runtimeSuspended;
     private bool _startupRegistrationInitialized;
     private bool _startupRegistrationSucceeded;
+    private bool _manualOverlayHidden;
+    private Func<bool, OverlayHotkeyChord, OverlayHotkeyRegistrationResult>? _overlayHotkeyRegistration;
     private bool _compatibilityImportRunning;
     private int _applicationUpdateOperation;
+    private UpdateRelease? _availableApplicationRelease;
     private VerifiedInstaller? _pendingInstaller;
     private string? _compatibilityImportStatus;
     private DateTimeOffset _tractionCueUntilUtc = DateTimeOffset.MinValue;
@@ -73,6 +91,8 @@ public sealed class AppController : IAsyncDisposable
     private string? _activeOverlayPlacementKey;
     private NativeHudPublicationKey _lastNativeHudPublication;
     private bool _hasNativeHudPublication;
+    private bool _debugListenerErrorActive;
+    private TelemetryConnectionState? _lastDebugTelemetryState;
 
     public AppController(AppSettings settings, SettingsService settingsService)
         : this(
@@ -111,6 +131,26 @@ public sealed class AppController : IAsyncDisposable
                         out var radii);
                     return radii;
                 });
+        var debugLoggingNowUtc = DateTimeOffset.UtcNow;
+        if (settings.DebugLoggingEnabled && settings.DebugLoggingExpiresAtUtc is { } debugLoggingExpiry &&
+            debugLoggingExpiry > debugLoggingNowUtc)
+        {
+            if (!_debugLog.TryEnable(debugLoggingExpiry))
+            {
+                settings.DebugLoggingEnabled = false;
+                settings.DebugLoggingExpiresAtUtc = null;
+            }
+            else
+            {
+                ResetDebugSampleBaselines(debugLoggingNowUtc);
+            }
+        }
+        else
+        {
+            settings.DebugLoggingEnabled = false;
+            settings.DebugLoggingExpiresAtUtc = null;
+        }
+
         ViewModel = new DiagnosticsViewModel(settings);
         _dispatcher = Dispatcher.CurrentDispatcher;
         _uiTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher)
@@ -156,6 +196,101 @@ public sealed class AppController : IAsyncDisposable
         Settings.LayoutMode == HudLayoutMode.Native &&
         ViewModel.TireTemperatureDisplay.IsAvailable;
 
+    internal void SetOverlayHotkeyRegistration(
+        Func<bool, OverlayHotkeyChord, OverlayHotkeyRegistrationResult> registration)
+    {
+        _overlayHotkeyRegistration = registration ?? throw new ArgumentNullException(nameof(registration));
+        UpdateOverlayHotkeyStatus(Settings.OverlayHotkeyEnabled ? "Ready" : "Off");
+    }
+
+    internal void ToggleManualOverlayHidden()
+    {
+        if (_disposed || _runtimeSuspended || !Settings.OverlayHotkeyEnabled)
+        {
+            return;
+        }
+
+        _manualOverlayHidden = !_manualOverlayHidden;
+        UpdateOverlayHotkeyStatus(_manualOverlayHidden ? "On · HUD hidden" : "On");
+        UpdateOverlayVisibility(DateTimeOffset.UtcNow, force: true);
+    }
+
+    public async Task SetDebugLoggingEnabledAsync(bool enabled)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (enabled)
+        {
+            var nowUtc = DateTimeOffset.UtcNow;
+            var expiresAtUtc = nowUtc + DebugLogService.EnableDuration;
+            if (!_debugLog.TryEnable(expiresAtUtc))
+            {
+                Settings.DebugLoggingEnabled = false;
+                Settings.DebugLoggingExpiresAtUtc = null;
+                ViewModel.UpdateDebugLogging(false, "Off — local storage is unavailable");
+                SaveSettings();
+                return;
+            }
+
+            Settings.DebugLoggingEnabled = true;
+            Settings.DebugLoggingExpiresAtUtc = expiresAtUtc;
+            ResetDebugSampleBaselines(nowUtc);
+            UpdateDebugLoggingStatus();
+        }
+        else
+        {
+            await _debugLog.DisableAsync().ConfigureAwait(true);
+            Settings.DebugLoggingEnabled = false;
+            Settings.DebugLoggingExpiresAtUtc = null;
+            ViewModel.UpdateDebugLogging(false, "Off — no debug files are created");
+        }
+
+        SaveSettings();
+    }
+
+    public async Task<bool> ExportDebugLogsAsync(string destinationPath)
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        var exported = await _debugLog.ExportAsync(
+            destinationPath,
+            CurrentApplicationVersion().ToString(3)).ConfigureAwait(true);
+        if (!exported)
+        {
+            ViewModel.UpdateDebugLogging(Settings.DebugLoggingEnabled, "Export failed — local logs were unchanged");
+        }
+        return exported;
+    }
+
+    public async Task<bool> DeleteDebugLogsAsync()
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        var deleted = await _debugLog.DeleteLocalLogsAsync().ConfigureAwait(true);
+        if (deleted)
+        {
+            ViewModel.UpdateDebugLogging(
+                Settings.DebugLoggingEnabled,
+                Settings.DebugLoggingEnabled
+                    ? "Local logs deleted — logging remains on"
+                    : "Off — local logs deleted");
+        }
+        else
+        {
+            ViewModel.UpdateDebugLogging(Settings.DebugLoggingEnabled, "Delete failed — some local logs may remain");
+        }
+        return deleted;
+    }
+
     public async Task StartAsync()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -166,6 +301,9 @@ public sealed class AppController : IAsyncDisposable
 
         InitializeStartupRegistration();
         _runtimeSuspended = false;
+        _manualOverlayHidden = false;
+
+        await RestartListenerAsync(Settings.UdpPort);
 
         if (!_receiverNotificationsAttached)
         {
@@ -174,7 +312,7 @@ public sealed class AppController : IAsyncDisposable
         }
 
         _uiTimer.Start();
-        await RestartListenerAsync(Settings.UdpPort);
+        ApplyOverlayHotkeyRegistration();
     }
 
     internal bool InitializeStartupRegistration()
@@ -220,6 +358,11 @@ public sealed class AppController : IAsyncDisposable
         // Closing to the opt-in companion releases UDP and native demand.
         // Queued packet/compositor callbacks cannot restart a suspended session.
         _runtimeSuspended = true;
+        _manualOverlayHidden = false;
+        _ = _overlayHotkeyRegistration?.Invoke(
+            false,
+            new OverlayHotkeyChord(Settings.OverlayHotkeyModifiers, Settings.OverlayHotkeyKey));
+        UpdateOverlayHotkeyStatus(Settings.OverlayHotkeyEnabled ? "Paused" : "Off");
         _uiTimer.Stop();
         _settingsSaveTimer.Stop();
         if (_receiverNotificationsAttached)
@@ -251,6 +394,7 @@ public sealed class AppController : IAsyncDisposable
             Settings, preferences, SetupTelemetry.SuccessfulEvidence, _saveCompletedSetup, DateTimeOffset.UtcNow);
         ViewModel.UdpPort = Settings.UdpPort;
         ViewModel.UnitSelectionIndex = (int)Settings.SpeedUnit;
+        ViewModel.TorqueUnitSelectionIndex = Settings.TorqueUnit == TorqueUnit.PoundFeet ? 1 : 0;
         ViewModel.SpeedSourceSelectionIndex = (int)Settings.SpeedSource;
         ViewModel.LayoutSelectionIndex = (int)Settings.LayoutMode;
         ViewModel.NativeGaugeSelectionIndex = (int)Settings.NativeGaugeMode;
@@ -275,7 +419,144 @@ public sealed class AppController : IAsyncDisposable
         }
     }
 
-    public async Task<VerifiedInstaller?> CheckForApplicationUpdateAsync()
+    public void BeginStartupApplicationUpdateCheck()
+    {
+        if (_disposed || Settings.RequiresSetup ||
+            !ApplicationUpdateCheckPolicy.IsDue(
+                Settings.AutomaticApplicationUpdateChecks,
+                Settings.LastApplicationUpdateCheckUtc,
+                DateTimeOffset.UtcNow))
+        {
+            return;
+        }
+
+        _ = CheckApplicationUpdateAvailabilityAsync(automatic: true);
+    }
+
+    public async Task<ApplicationUpdateDetails?> GetAvailableApplicationUpdateDetailsAsync()
+    {
+        if (_pendingInstaller is { } pending && File.Exists(pending.StagedPath))
+        {
+            return new ApplicationUpdateDetails(pending.Version.ToString(), string.Empty);
+        }
+
+        if (_availableApplicationRelease is { } available)
+        {
+            return ApplicationUpdateDetailsFrom(available);
+        }
+
+        var release = await CheckApplicationUpdateAvailabilityAsync(automatic: false);
+        return release is null ? null : ApplicationUpdateDetailsFrom(release);
+    }
+
+    private static ApplicationUpdateDetails ApplicationUpdateDetailsFrom(UpdateRelease release) =>
+        new(release.Version.ToString(), release.ReleaseSummary);
+
+    private async Task<UpdateRelease?> CheckApplicationUpdateAvailabilityAsync(bool automatic)
+    {
+        if (_disposed || Interlocked.Exchange(ref _applicationUpdateOperation, 1) != 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            Settings.LastApplicationUpdateCheckUtc = DateTimeOffset.UtcNow;
+            SaveSettings();
+            ViewModel.UpdateApplicationUpdateStatus(
+                "Checking the latest Wisp release…",
+                "Checking…",
+                canCheck: false);
+
+            var installedVersion = CurrentApplicationVersion();
+            var release = await _applicationUpdates.CheckForUpdateAsync(
+                installedVersion,
+                _applicationUpdateLifetime.Token);
+            if (release is null)
+            {
+                _availableApplicationRelease = null;
+                ViewModel.UpdateApplicationUpdateStatus(
+                    Settings.AutomaticApplicationUpdateChecks
+                        ? $"Wisp {installedVersion.Major}.{installedVersion.Minor}.{installedVersion.Build} is current. Automatic checks run once daily."
+                        : $"Wisp {installedVersion.Major}.{installedVersion.Minor}.{installedVersion.Build} is current.",
+                    "Check again",
+                    canCheck: true);
+                return null;
+            }
+
+            _availableApplicationRelease = release;
+            ViewModel.UpdateApplicationUpdateStatus(
+                $"Wisp {release.Version} is available. The installer will download only after you confirm.",
+                "Update",
+                canCheck: true,
+                isUpdateAvailable: true);
+            return release;
+        }
+        catch (OperationCanceledException) when (_applicationUpdateLifetime.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            if (automatic)
+            {
+                RestoreAutomaticApplicationUpdateStatus();
+            }
+            else
+            {
+                ViewModel.UpdateApplicationUpdateStatus(
+                    "The update check timed out.",
+                    "Try again",
+                    canCheck: true);
+            }
+            return null;
+        }
+        catch (HttpRequestException)
+        {
+            if (automatic)
+            {
+                RestoreAutomaticApplicationUpdateStatus();
+            }
+            else
+            {
+                ViewModel.UpdateApplicationUpdateStatus(
+                    "The release service could not be reached. Check the connection and try again.",
+                    "Try again",
+                    canCheck: true);
+            }
+            return null;
+        }
+        catch (UpdateSecurityException)
+        {
+            if (automatic)
+            {
+                ViewModel.UpdateApplicationUpdateStatus(
+                    "The latest release could not be verified. No update was downloaded.",
+                    "Check again",
+                    canCheck: true);
+            }
+            else
+            {
+                ViewModel.UpdateApplicationUpdateStatus(
+                    "The latest release could not be verified.",
+                    "Check again",
+                    canCheck: true);
+            }
+            return null;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _applicationUpdateOperation, 0);
+        }
+    }
+
+    private void RestoreAutomaticApplicationUpdateStatus() =>
+        ViewModel.UpdateApplicationUpdateStatus(
+            "Automatic update checks are enabled. Wisp will try again after the daily interval.",
+            "Check now",
+            canCheck: true);
+
+    public async Task<VerifiedInstaller?> PrepareApplicationUpdateAsync()
     {
         if (_disposed || Interlocked.Exchange(ref _applicationUpdateOperation, 1) != 0)
         {
@@ -293,27 +574,14 @@ public sealed class AppController : IAsyncDisposable
 
             if (_pendingInstaller is { } pending && File.Exists(pending.StagedPath))
             {
-                ViewModel.UpdateApplicationUpdateStatus(
-                    $"Wisp {pending.Version} is downloaded and ready to install.",
-                    "Install update",
-                    canCheck: true);
                 return pending;
             }
 
             _pendingInstaller = null;
-            ViewModel.UpdateApplicationUpdateStatus(
-                "Checking the latest Wisp release…",
-                "Checking…",
-                canCheck: false);
-
-            var installedVersion = CurrentApplicationVersion();
-            var release = await _applicationUpdates.CheckForUpdateAsync(
-                installedVersion,
-                _applicationUpdateLifetime.Token);
-            if (release is null)
+            if (_availableApplicationRelease is not { } release)
             {
                 ViewModel.UpdateApplicationUpdateStatus(
-                    $"Wisp {installedVersion.Major}.{installedVersion.Minor}.{installedVersion.Build} is current.",
+                    "Check for an update before downloading.",
                     "Check again",
                     canCheck: true);
                 return null;
@@ -332,10 +600,12 @@ public sealed class AppController : IAsyncDisposable
                 createdAttemptDirectory,
                 progress,
                 _applicationUpdateLifetime.Token);
+            _availableApplicationRelease = null;
             ViewModel.UpdateApplicationUpdateStatus(
                 $"Wisp {_pendingInstaller.Version} is verified and ready to install.",
                 "Install update",
-                canCheck: true);
+                canCheck: true,
+                isUpdateAvailable: true);
             return _pendingInstaller;
         }
         catch (OperationCanceledException) when (_applicationUpdateLifetime.IsCancellationRequested)
@@ -345,25 +615,28 @@ public sealed class AppController : IAsyncDisposable
         catch (OperationCanceledException)
         {
             ViewModel.UpdateApplicationUpdateStatus(
-                "The update check timed out. No files were installed.",
+                "The update download timed out. No files were installed.",
                 "Try again",
-                canCheck: true);
+                canCheck: true,
+                isUpdateAvailable: _availableApplicationRelease is not null);
             return null;
         }
         catch (HttpRequestException)
         {
             ViewModel.UpdateApplicationUpdateStatus(
-                "The release service could not be reached. Check the connection and try again.",
+                "The installer could not be downloaded. Check the connection and try again.",
                 "Try again",
-                canCheck: true);
+                canCheck: true,
+                isUpdateAvailable: _availableApplicationRelease is not null);
             return null;
         }
         catch (UpdateSecurityException)
         {
             ViewModel.UpdateApplicationUpdateStatus(
-                "The latest release could not be verified. No update was installed.",
-                "Check again",
-                canCheck: true);
+                "The installer could not be verified. No update was installed.",
+                "Try again",
+                canCheck: true,
+                isUpdateAvailable: _availableApplicationRelease is not null);
             return null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -371,7 +644,8 @@ public sealed class AppController : IAsyncDisposable
             ViewModel.UpdateApplicationUpdateStatus(
                 "Wisp could not prepare the update on this PC. No update was installed.",
                 "Try again",
-                canCheck: true);
+                canCheck: true,
+                isUpdateAvailable: _availableApplicationRelease is not null);
             return null;
         }
         finally
@@ -390,7 +664,8 @@ public sealed class AppController : IAsyncDisposable
         ViewModel.UpdateApplicationUpdateStatus(
             $"Wisp {installer.Version} is downloaded and ready to install.",
             "Install update",
-            canCheck: true);
+            canCheck: true,
+            isUpdateAvailable: true);
     }
 
     public void MarkApplicationUpdateStarting(VerifiedInstaller installer)
@@ -482,7 +757,11 @@ public sealed class AppController : IAsyncDisposable
         ScheduleSettingsSave();
     }
 
-    public void ApplyViewOptions()
+    public void ApplyViewOptions() => ApplyViewOptions(Settings.LayoutMode, Settings.NativeGaugeMode);
+
+    private void ApplyViewOptions(
+        HudLayoutMode previousLayoutMode,
+        NativeGaugeMode previousNativeGaugeMode)
     {
         if (Settings.RequiresSetup || _applyingViewOptions)
         {
@@ -495,6 +774,10 @@ public sealed class AppController : IAsyncDisposable
             var previousStartWithWindows = Settings.StartWithWindows;
             var previousStartWithForza = Settings.StartWithForza;
             var previousStartMinimizedWithForza = Settings.StartMinimizedWithForza;
+            var previousOverlayHotkeyEnabled = Settings.OverlayHotkeyEnabled;
+            var previousOverlayHotkeyModifiers = Settings.OverlayHotkeyModifiers;
+            var previousOverlayHotkeyKey = Settings.OverlayHotkeyKey;
+            var previousAutomaticApplicationUpdateChecks = Settings.AutomaticApplicationUpdateChecks;
             var previousSpeedSource = Settings.SpeedSource;
             var layoutMode = (HudLayoutMode)Math.Clamp(
                 ViewModel.LayoutSelectionIndex,
@@ -504,11 +787,12 @@ public sealed class AppController : IAsyncDisposable
                 ViewModel.NativeGaugeSelectionIndex,
                 (int)NativeGaugeMode.Digital,
                 (int)NativeGaugeMode.Analogue);
-            var layoutChanged = Settings.LayoutMode != layoutMode ||
-                                Settings.NativeGaugeMode != nativeGaugeMode;
+            var layoutChanged = previousLayoutMode != layoutMode ||
+                                previousNativeGaugeMode != nativeGaugeMode;
             Settings.SpeedUnit = ViewModel.UnitSelectionIndex == 0
                 ? SpeedUnit.MilesPerHour
                 : SpeedUnit.KilometersPerHour;
+            Settings.TorqueUnit = ViewModel.SelectedTorqueUnit;
             Settings.SpeedSource = (SpeedSourceMode)Math.Clamp(
                 ViewModel.SpeedSourceSelectionIndex,
                 (int)SpeedSourceMode.WheelIndicated,
@@ -550,12 +834,46 @@ public sealed class AppController : IAsyncDisposable
             Settings.InvertLateralG = ViewModel.InvertLateralG;
             Settings.InvertLongitudinalG = ViewModel.InvertLongitudinalG;
             Settings.GameAwareVisibility = ViewModel.GameAwareVisibility;
+            Settings.OverlayHotkeyEnabled = ViewModel.OverlayHotkeyEnabled;
+            Settings.OverlayHotkeyModifiers = ViewModel.OverlayHotkeyModifiers;
+            Settings.OverlayHotkeyKey = ViewModel.OverlayHotkeyKey;
             Settings.AutoMinimizeOnTelemetry = ViewModel.AutoMinimizeOnTelemetry;
             Settings.StartWithWindows = ViewModel.StartWithWindows;
             Settings.StartWithForza = ViewModel.StartWithForza;
             Settings.StartMinimizedWithForza = ViewModel.StartMinimizedWithForza;
             Settings.AnimatedBackground = ViewModel.AnimatedBackground;
+            Settings.AutomaticApplicationUpdateChecks = ViewModel.AutomaticApplicationUpdateChecks;
             Settings.TractionCueEnabled = ViewModel.TractionCueEnabled;
+
+            var hotkeyChanged =
+                previousOverlayHotkeyEnabled != Settings.OverlayHotkeyEnabled ||
+                previousOverlayHotkeyModifiers != Settings.OverlayHotkeyModifiers ||
+                previousOverlayHotkeyKey != Settings.OverlayHotkeyKey;
+            if (hotkeyChanged && !TryApplyOverlayHotkeyChange(
+                    previousOverlayHotkeyEnabled,
+                    previousOverlayHotkeyModifiers,
+                    previousOverlayHotkeyKey))
+            {
+                Settings.OverlayHotkeyEnabled = previousOverlayHotkeyEnabled;
+                Settings.OverlayHotkeyModifiers = previousOverlayHotkeyModifiers;
+                Settings.OverlayHotkeyKey = previousOverlayHotkeyKey;
+                ViewModel.OverlayHotkeyEnabled = previousOverlayHotkeyEnabled;
+                ViewModel.OverlayHotkeyModifiers = previousOverlayHotkeyModifiers;
+                ViewModel.OverlayHotkeyKey = previousOverlayHotkeyKey;
+            }
+
+            if (previousAutomaticApplicationUpdateChecks != Settings.AutomaticApplicationUpdateChecks)
+            {
+                if (_availableApplicationRelease is null && _pendingInstaller is null)
+                {
+                    ViewModel.UpdateApplicationUpdateStatus(
+                        Settings.AutomaticApplicationUpdateChecks
+                            ? "Automatic update checks are enabled. Wisp checks at most once daily."
+                            : "Automatic update checks are off. You can still check manually.",
+                        "Check now",
+                        canCheck: true);
+                }
+            }
             if ((previousStartWithWindows != Settings.StartWithWindows ||
                  previousStartWithForza != Settings.StartWithForza) &&
                 !TrySetStartupRegistration(Settings.StartWithWindows, Settings.StartWithForza))
@@ -614,6 +932,10 @@ public sealed class AppController : IAsyncDisposable
 
             UpdateOverlayVisibility(DateTimeOffset.UtcNow, force: true);
             ScheduleSettingsSave();
+            if (!previousAutomaticApplicationUpdateChecks && Settings.AutomaticApplicationUpdateChecks)
+            {
+                BeginStartupApplicationUpdateCheck();
+            }
         }
         finally
         {
@@ -631,6 +953,66 @@ public sealed class AppController : IAsyncDisposable
 
         Settings.ColorTheme = normalized;
         ScheduleSettingsSave();
+    }
+
+    private bool TryApplyOverlayHotkeyChange(
+        bool previousEnabled,
+        OverlayHotkeyModifiers previousModifiers,
+        System.Windows.Input.Key previousKey)
+    {
+        if (!OverlayHotkeyChord.TryCreate(
+                Settings.OverlayHotkeyModifiers,
+                Settings.OverlayHotkeyKey,
+                out var requested,
+                out var validationError))
+        {
+            ViewModel.ReportControlError(validationError);
+            UpdateOverlayHotkeyStatus(previousEnabled ? "On" : "Off",
+                new OverlayHotkeyChord(previousModifiers, previousKey));
+            return false;
+        }
+
+        var result = _overlayHotkeyRegistration?.Invoke(Settings.OverlayHotkeyEnabled, requested)
+                     ?? new OverlayHotkeyRegistrationResult(false, "the shortcut service is unavailable");
+        if (!result.Succeeded)
+        {
+            var previous = new OverlayHotkeyChord(previousModifiers, previousKey);
+            var disposition = previousEnabled
+                ? $"kept {previous}"
+                : "the shortcut stayed off";
+            ViewModel.ReportControlError(
+                $"Could not use {requested}; {disposition} because {result.Error}.");
+            UpdateOverlayHotkeyStatus(previousEnabled ? "On" : "Off", previous);
+            return false;
+        }
+
+        if (!Settings.OverlayHotkeyEnabled)
+        {
+            _manualOverlayHidden = false;
+            UpdateOverlayVisibility(DateTimeOffset.UtcNow, force: true);
+        }
+        UpdateOverlayHotkeyStatus(Settings.OverlayHotkeyEnabled ? "On" : "Off", requested);
+        return true;
+    }
+
+    private void ApplyOverlayHotkeyRegistration()
+    {
+        var chord = new OverlayHotkeyChord(Settings.OverlayHotkeyModifiers, Settings.OverlayHotkeyKey);
+        var result = _overlayHotkeyRegistration?.Invoke(Settings.OverlayHotkeyEnabled, chord)
+                     ?? new OverlayHotkeyRegistrationResult(false, "the shortcut service is unavailable");
+        if (!result.Succeeded)
+        {
+            UpdateOverlayHotkeyStatus("Unavailable", chord);
+            ViewModel.ReportControlError($"Could not register {chord} because {result.Error}.");
+            return;
+        }
+        UpdateOverlayHotkeyStatus(Settings.OverlayHotkeyEnabled ? "On" : "Off", chord);
+    }
+
+    private void UpdateOverlayHotkeyStatus(string state, OverlayHotkeyChord? chord = null)
+    {
+        chord ??= new OverlayHotkeyChord(Settings.OverlayHotkeyModifiers, Settings.OverlayHotkeyKey);
+        ViewModel.UpdateOverlayHotkeyStatus($"{state} — {chord}");
     }
 
     public void SetBackgroundTheme(string? themeName)
@@ -672,6 +1054,229 @@ public sealed class AppController : IAsyncDisposable
         BoostGaugeOverlay?.ApplyBoostGaugeTheme(normalized);
         TireTemperatureGaugeOverlay?.ApplyBoostGaugeTheme(normalized);
         ScheduleSettingsSave();
+    }
+
+    public void SetCustomAccentColor(string? value)
+    {
+        var normalized = ColorCustomization.NormalizeAccent(value);
+        if (Settings.CustomAccentColor == normalized)
+        {
+            return;
+        }
+
+        Settings.CustomAccentColor = normalized;
+        ScheduleSettingsSave();
+    }
+
+    public void SetCustomBackgroundColor(string? value)
+    {
+        var normalized = ColorCustomization.NormalizeBackground(value);
+        if (Settings.CustomBackgroundColor == normalized)
+        {
+            return;
+        }
+
+        Settings.CustomBackgroundColor = normalized;
+        ScheduleSettingsSave();
+    }
+
+    public void SetCustomHudBorderColor(string? value)
+    {
+        var normalized = ColorCustomization.NormalizeHudBorder(value);
+        if (Settings.CustomHudBorderColor == normalized)
+        {
+            return;
+        }
+
+        Settings.CustomHudBorderColor = normalized;
+        Overlay?.ApplyHudBorderCustomization(Settings.HudBorderTheme, normalized);
+        GForceOverlay?.ApplyHudBorderCustomization(Settings.HudBorderTheme, normalized);
+        ScheduleSettingsSave();
+    }
+
+    public void SetCustomGaugeColors(string? low, string? mid, string? high)
+    {
+        var normalizedLow = ColorCustomization.NormalizeGauge(low);
+        var normalizedMid = ColorCustomization.NormalizeGauge(mid);
+        var normalizedHigh = ColorCustomization.NormalizeGauge(high);
+        if (Settings.CustomBoostLowColor == normalizedLow &&
+            Settings.CustomBoostMidColor == normalizedMid &&
+            Settings.CustomBoostHighColor == normalizedHigh)
+        {
+            return;
+        }
+
+        Settings.CustomBoostLowColor = normalizedLow;
+        Settings.CustomBoostMidColor = normalizedMid;
+        Settings.CustomBoostHighColor = normalizedHigh;
+        Overlay?.ApplyBoostGaugeCustomization(
+            Settings.BoostGaugeTheme,
+            normalizedLow,
+            normalizedMid,
+            normalizedHigh);
+        BoostGaugeOverlay?.ApplyBoostGaugeCustomization(
+            Settings.BoostGaugeTheme,
+            normalizedLow,
+            normalizedMid,
+            normalizedHigh);
+        TireTemperatureGaugeOverlay?.ApplyBoostGaugeCustomization(
+            Settings.BoostGaugeTheme,
+            normalizedLow,
+            normalizedMid,
+            normalizedHigh);
+        ScheduleSettingsSave();
+    }
+
+    public bool TryCreateHudPreset(string? name, out HudPreset? preset, out string error)
+    {
+        preset = null;
+        if (!HudPreset.TryNormalizeName(name, out var normalizedName, out error))
+        {
+            return false;
+        }
+        if (Settings.HudPresets.Count >= HudPreset.MaximumCount)
+        {
+            error = $"You can save up to {HudPreset.MaximumCount} HUD profiles.";
+            return false;
+        }
+        if (Settings.HudPresets.Any(candidate =>
+                string.Equals(candidate.Name, normalizedName, StringComparison.OrdinalIgnoreCase)))
+        {
+            error = $"A profile named {normalizedName} already exists.";
+            return false;
+        }
+
+        preset = HudPreset.Capture(Settings, normalizedName);
+        Settings.HudPresets.Add(preset);
+        ScheduleSettingsSave();
+        error = string.Empty;
+        return true;
+    }
+
+    public bool TryUpdateHudPreset(Guid id, out HudPreset? preset, out string error)
+    {
+        var index = Settings.HudPresets.FindIndex(candidate => candidate.Id == id);
+        if (index < 0)
+        {
+            preset = null;
+            error = "Select a saved profile first.";
+            return false;
+        }
+
+        var existing = Settings.HudPresets[index];
+        preset = HudPreset.Capture(Settings, existing.Name, existing.Id);
+        Settings.HudPresets[index] = preset;
+        ScheduleSettingsSave();
+        error = string.Empty;
+        return true;
+    }
+
+    public bool TryRenameHudPreset(Guid id, string? name, out string error)
+    {
+        if (!HudPreset.TryNormalizeName(name, out var normalizedName, out error))
+        {
+            return false;
+        }
+        var preset = Settings.HudPresets.FirstOrDefault(candidate => candidate.Id == id);
+        if (preset is null)
+        {
+            error = "Select a saved profile first.";
+            return false;
+        }
+        if (Settings.HudPresets.Any(candidate => candidate.Id != id &&
+                string.Equals(candidate.Name, normalizedName, StringComparison.OrdinalIgnoreCase)))
+        {
+            error = $"A profile named {normalizedName} already exists.";
+            return false;
+        }
+
+        preset.Name = normalizedName;
+        ScheduleSettingsSave();
+        error = string.Empty;
+        return true;
+    }
+
+    public bool DeleteHudPreset(Guid id)
+    {
+        var removed = Settings.HudPresets.RemoveAll(candidate => candidate.Id == id) > 0;
+        if (removed)
+        {
+            ScheduleSettingsSave();
+        }
+        return removed;
+    }
+
+    public bool TryApplyHudPreset(Guid id, out string error)
+    {
+        if (Settings.RequiresSetup)
+        {
+            error = "Finish setup before applying a HUD profile.";
+            return false;
+        }
+        var preset = Settings.HudPresets.FirstOrDefault(candidate => candidate.Id == id);
+        if (preset is null)
+        {
+            error = "Select a saved profile first.";
+            return false;
+        }
+
+        var previousLayoutMode = Settings.LayoutMode;
+        var previousNativeGaugeMode = Settings.NativeGaugeMode;
+        preset.ApplyTo(Settings);
+        SyncHudPresetToViewModel();
+        ControlPanel?.ApplyHudPresetToControls();
+        ApplyViewOptions(previousLayoutMode, previousNativeGaugeMode);
+        Overlay?.ApplyHudBorderCustomization(Settings.HudBorderTheme, Settings.CustomHudBorderColor);
+        GForceOverlay?.ApplyHudBorderCustomization(Settings.HudBorderTheme, Settings.CustomHudBorderColor);
+        Overlay?.ApplyBoostGaugeCustomization(
+            Settings.BoostGaugeTheme,
+            Settings.CustomBoostLowColor,
+            Settings.CustomBoostMidColor,
+            Settings.CustomBoostHighColor);
+        BoostGaugeOverlay?.ApplyBoostGaugeCustomization(
+            Settings.BoostGaugeTheme,
+            Settings.CustomBoostLowColor,
+            Settings.CustomBoostMidColor,
+            Settings.CustomBoostHighColor);
+        TireTemperatureGaugeOverlay?.ApplyBoostGaugeCustomization(
+            Settings.BoostGaugeTheme,
+            Settings.CustomBoostLowColor,
+            Settings.CustomBoostMidColor,
+            Settings.CustomBoostHighColor);
+        ScheduleSettingsSave();
+        error = string.Empty;
+        return true;
+    }
+
+    private void SyncHudPresetToViewModel()
+    {
+        ViewModel.UnitSelectionIndex = Settings.SpeedUnit == SpeedUnit.MilesPerHour ? 0 : 1;
+        ViewModel.TorqueUnitSelectionIndex = Settings.TorqueUnit == TorqueUnit.PoundFeet ? 1 : 0;
+        ViewModel.LayoutSelectionIndex = (int)Settings.LayoutMode;
+        ViewModel.NativeGaugeSelectionIndex = (int)Settings.NativeGaugeMode;
+        ViewModel.GearDisplaySelectionIndex = (int)Settings.GearDisplayMode;
+        ViewModel.OverlayWidthScale = Settings.OverlayWidthScale;
+        ViewModel.OverlayHeightScale = Settings.OverlayHeightScale;
+        ViewModel.OverlayOpacity = Settings.OverlayOpacity;
+        ViewModel.GForceEnabled = Settings.GForceEnabled;
+        ViewModel.GForceAttached = Settings.GForceAttached;
+        ViewModel.GForceWidthScale = Settings.GForceWidthScale;
+        ViewModel.GForceHeightScale = Settings.GForceHeightScale;
+        ViewModel.InvertLateralG = Settings.InvertLateralG;
+        ViewModel.InvertLongitudinalG = Settings.InvertLongitudinalG;
+        ViewModel.BoostGaugeEnabled = Settings.BoostGaugeEnabled;
+        ViewModel.BoostGaugeAttached = Settings.BoostGaugeAttached;
+        ViewModel.BoostGaugeColorNumber = Settings.BoostGaugeColorNumber;
+        ViewModel.DigitalBoostGaugeColorNumber = Settings.DigitalBoostGaugeColorNumber;
+        ViewModel.DigitalBoostGaugeStockColors = Settings.DigitalBoostGaugeStockColors;
+        ViewModel.UseBarBoostPressure = Settings.BoostPressureUnit == BoostPressureUnit.Bar;
+        ViewModel.BoostGaugeScale = Settings.BoostGaugeScale;
+        ViewModel.TireTemperatureGaugeEnabled = Settings.TireTemperatureGaugeEnabled;
+        ViewModel.TireTemperatureGaugeAttached = Settings.TireTemperatureGaugeAttached;
+        ViewModel.TireTemperatureReactiveColors = Settings.TireTemperatureReactiveColors;
+        ViewModel.UseCelsiusTireTemperature = Settings.TireTemperatureUnit == TireTemperatureUnit.Celsius;
+        ViewModel.TireTemperatureGaugeScale = Settings.TireTemperatureGaugeScale;
+        ViewModel.TractionCueEnabled = Settings.TractionCueEnabled;
     }
 
     public void SetSidebarCollapsed(bool collapsed)
@@ -861,8 +1466,13 @@ public sealed class AppController : IAsyncDisposable
             return;
         }
 
-        var key = BoostGaugeOverlay.GetDisplayKey();
-        if (Settings.BoostGaugePlacements.TryGetValue(key, out var placement))
+        var placement = OverlayPlacementResolver.FindPreferredPlacement(
+            Settings.BoostGaugePlacements,
+            Settings.LastBoostGaugePlacementKey,
+            BoostGaugeOverlay.GetDisplayKey(),
+            "-BoostV1",
+            out var key);
+        if (placement is not null)
         {
             Settings.LastBoostGaugePlacementKey = key;
             Settings.BoostGaugeScale = Math.Clamp(placement.WidthScale, 0.5, 2.0);
@@ -877,7 +1487,6 @@ public sealed class AppController : IAsyncDisposable
             BoostGaugeOverlay.ResetPosition(
                 new Rect(Overlay.Left, Overlay.Top, Overlay.Width, Overlay.Height),
                 Overlay.CurrentMonitorPlacementArea());
-            SaveBoostGaugePlacement();
         }
     }
 
@@ -889,8 +1498,13 @@ public sealed class AppController : IAsyncDisposable
         }
 
         TireTemperatureGaugeOverlay.ApplyGaugeMode(Settings.NativeGaugeMode);
-        var key = TireTemperatureGaugeOverlay.GetDisplayKey();
-        if (Settings.TireTemperatureGaugePlacements.TryGetValue(key, out var placement))
+        var placement = OverlayPlacementResolver.FindPreferredPlacement(
+            Settings.TireTemperatureGaugePlacements,
+            Settings.LastTireTemperatureGaugePlacementKey,
+            TireTemperatureGaugeOverlay.GetDisplayKey(),
+            "-TireTempV1-",
+            out var key);
+        if (placement is not null)
         {
             Settings.LastTireTemperatureGaugePlacementKey = key;
             Settings.TireTemperatureGaugeScale = Math.Clamp(placement.WidthScale, 0.5, 2.0);
@@ -907,7 +1521,6 @@ public sealed class AppController : IAsyncDisposable
             TireTemperatureGaugeOverlay.ResetPosition(
                 new Rect(Overlay.Left, Overlay.Top, Overlay.Width, Overlay.Height),
                 Overlay.CurrentMonitorPlacementArea());
-            SaveTireTemperatureGaugePlacement();
         }
     }
 
@@ -1085,6 +1698,10 @@ public sealed class AppController : IAsyncDisposable
         _applicationUpdates.Dispose();
         _uiTimer.Stop();
         SetCompositionRenderingEnabled(false);
+        _manualOverlayHidden = false;
+        _ = _overlayHotkeyRegistration?.Invoke(
+            false,
+            new OverlayHotkeyChord(Settings.OverlayHotkeyModifiers, Settings.OverlayHotkeyKey));
         _settingsSaveTimer.Stop();
         if (_receiverNotificationsAttached)
         {
@@ -1110,6 +1727,14 @@ public sealed class AppController : IAsyncDisposable
         {
             Settings.Calibrations = _calibration.ExportSnapshots().ToList();
             SaveSettings();
+        }
+        try
+        {
+            await _debugLog.DisposeAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // Optional local logging must never prevent clean application shutdown.
         }
         await _nativeHudProcessService.DisposeAsync().ConfigureAwait(false);
         await _receiver.DisposeAsync().ConfigureAwait(false);
@@ -1255,6 +1880,7 @@ public sealed class AppController : IAsyncDisposable
         if (hasNewPacket)
         {
             _lastProcessedState = latest;
+            _debugProcessedPackets++;
         }
 
         var refreshDiagnostics = now >= _nextDiagnosticsAtUtc;
@@ -1266,6 +1892,7 @@ public sealed class AppController : IAsyncDisposable
 
         var connectionState = _freshness.GetState(now);
         var age = _freshness.GetAge(now);
+        CaptureDebugSample(now, latest, connectionState, age);
         var hasFreshTelemetry = latest is not null &&
                                 connectionState == TelemetryConnectionState.Connected &&
                                 age is not null;
@@ -1402,6 +2029,10 @@ public sealed class AppController : IAsyncDisposable
                              IsAttachedGForceMeterEnabled);
         var displayState = current with { Gear = _transmissionDisplayFilter.Observe(current) };
         var nativeHud = _nativeHudProcessService.SnapshotFor(current.CarOrdinal);
+        _debugDerivedCarOrdinal = current.CarOrdinal;
+        _debugIndicatedSpeed = indicated;
+        _debugCalibration = calibration;
+        _hasDebugDerivedTelemetry = true;
         var detachedBoostWasEnabled = IsDetachedBoostGaugeEnabled;
         var detachedTireTemperatureWasEnabled = IsDetachedTireTemperatureGaugeEnabled;
         ViewModel.Update(
@@ -1470,6 +2101,255 @@ public sealed class AppController : IAsyncDisposable
         }
 
         _lastRenderAtUtc = now;
+    }
+
+    private void ResetDebugSampleBaselines(DateTimeOffset nowUtc)
+    {
+        _debugPreviousProcessedPackets = _debugProcessedPackets;
+        _debugRateAtUtc = nowUtc;
+        _nextDebugSampleAtUtc = nowUtc;
+        _debugPreviousCpuTime = null;
+        _debugCpuRateAtUtc = nowUtc;
+        _debugPreviousGameTimestamp = null;
+    }
+
+    private void CaptureDebugSample(
+        DateTimeOffset nowUtc,
+        VehicleState? latest,
+        TelemetryConnectionState connectionState,
+        TimeSpan? packetAge)
+    {
+        if (nowUtc < _nextDebugSampleAtUtc)
+        {
+            return;
+        }
+        _nextDebugSampleAtUtc = nowUtc + TimeSpan.FromSeconds(1);
+
+        if (_debugLog.ExpireIfNeeded(nowUtc))
+        {
+            Settings.DebugLoggingEnabled = false;
+            Settings.DebugLoggingExpiresAtUtc = null;
+            ViewModel.UpdateDebugLogging(false, "Off — 24-hour logging period expired");
+            SaveSettings();
+            return;
+        }
+        if (!_debugLog.IsEnabled)
+        {
+            return;
+        }
+
+        try
+        {
+            var elapsedSeconds = Math.Max((nowUtc - _debugRateAtUtc).TotalSeconds, 0.001);
+            var processedPackets = _debugProcessedPackets;
+            var processedHz = (processedPackets - _debugPreviousProcessedPackets) / elapsedSeconds;
+            _debugPreviousProcessedPackets = processedPackets;
+            _debugRateAtUtc = nowUtc;
+            var state = connectionState switch
+            {
+                TelemetryConnectionState.Connected => DebugTelemetryState.Connected,
+                TelemetryConnectionState.Lost => DebugTelemetryState.Lost,
+                _ => DebugTelemetryState.Waiting
+            };
+            var listenerErrorActive = _cachedStatistics.ListenerError is not null;
+            var nativeHud = latest is null
+                ? NativeHudSnapshot.Unavailable()
+                : _nativeHudProcessService.SnapshotFor(latest.CarOrdinal);
+            var nativeVisibility = EvaluateNativeGameplayVisibility(nativeHud, Stopwatch.GetTimestamp());
+            var hasDerived = latest is not null &&
+                             _hasDebugDerivedTelemetry &&
+                             _debugDerivedCarOrdinal == latest.CarOrdinal;
+            var calibration = hasDerived ? _debugCalibration : default;
+            var trustedRadii = hasDerived ? calibration.TrustedRadii : null;
+            var provisionalRadii = hasDerived ? calibration.ProvisionalRadii : null;
+            var gameTimestamp = latest?.GameTimestampMilliseconds;
+            bool? gameTimestampAdvanced = latest is not null && _debugPreviousGameTimestamp is { } previousTimestamp
+                ? latest.GameTimestampMilliseconds != previousTimestamp
+                : null;
+            bool? gameTimestampStalled = gameTimestampAdvanced is { } advanced ? !advanced : null;
+            if (latest is not null)
+            {
+                _debugPreviousGameTimestamp = latest.GameTimestampMilliseconds;
+            }
+
+            _debugLog.TryLogSample(new DebugTelemetrySample(
+                TimestampUtc: nowUtc,
+                TelemetryState: state,
+                ListenerState: listenerErrorActive ? DebugListenerState.Error : DebugListenerState.Ready,
+                RaceOn: latest?.IsRaceOn ?? false,
+                GameTimestampMilliseconds: gameTimestamp,
+                GameTimestampAdvanced: gameTimestampAdvanced,
+                GameTimestampStalled: gameTimestampStalled,
+                TelemetryProcessedHz: processedHz,
+                WispCompositionHz: Finite(_renderRate) ?? 0,
+                WispCpuPercent: ObserveDebugCpuPercent(nowUtc),
+                WispWorkingSetBytes: Environment.WorkingSet,
+                ManagedHeapBytes: GC.GetTotalMemory(forceFullCollection: false),
+                Gen0Collections: GC.CollectionCount(0),
+                Gen1Collections: GC.CollectionCount(1),
+                Gen2Collections: GC.CollectionCount(2),
+                PacketAgeMilliseconds: Finite(packetAge?.TotalMilliseconds),
+                AcceptedPackets: _cachedStatistics.AcceptedPackets,
+                RejectedPackets: _cachedStatistics.RejectedPackets,
+                CarOrdinal: latest?.CarOrdinal,
+                Drivetrain: latest?.Drivetrain.ToString(),
+                GroundSpeedMetersPerSecond: Finite(latest?.GroundSpeedMetersPerSecond),
+                IndicatedSpeedAvailable: hasDerived && _debugIndicatedSpeed.IsAvailable,
+                IndicatedSpeedMetersPerSecond: hasDerived ? Finite(_debugIndicatedSpeed.MetersPerSecond) : null,
+                IndicatedSpeedDisplayValue: hasDerived ? Finite(_debugIndicatedSpeed.DisplayValue) : null,
+                SpeedUnit: Settings.SpeedUnit.ToString(),
+                SpeedSource: Settings.SpeedSource.ToString(),
+                WheelRotationRadiansPerSecond: DebugWheels(latest?.WheelRotationRadiansPerSecond),
+                TireSlipRatio: DebugWheels(latest?.TireSlipRatio),
+                TrustedFrontRadiusMeters: Finite(trustedRadii?.FrontMeters),
+                TrustedRearRadiusMeters: Finite(trustedRadii?.RearMeters),
+                ProvisionalFrontRadiusMeters: Finite(provisionalRadii?.FrontMeters),
+                ProvisionalRearRadiusMeters: Finite(provisionalRadii?.RearMeters),
+                CalibrationConfidence: hasDerived ? Finite(calibration.Confidence) : null,
+                CalibrationAcceptedSamples: hasDerived ? calibration.AcceptedSamples : null,
+                CalibrationTrusted: hasDerived && calibration.IsTrusted,
+                CalibrationState: hasDerived ? DebugCalibrationState(calibration) : null,
+                EngineRpm: Finite(latest?.EngineRpm),
+                EngineMaximumRpm: Finite(latest?.EngineMaximumRpm),
+                Gear: latest?.Gear.ToString(),
+                PowerWatts: Finite(latest?.PowerWatts),
+                TorqueNm: Finite(latest?.TorqueNm),
+                BoostPressurePsi: Finite(latest?.BoostPressurePsi),
+                TireTemperatureFahrenheit: DebugWheels(latest?.TireTemperatureFahrenheit),
+                LateralAccelerationMetersPerSecondSquared:
+                    Finite(latest?.LateralAccelerationMetersPerSecondSquared),
+                LongitudinalAccelerationMetersPerSecondSquared:
+                    Finite(latest?.LongitudinalAccelerationMetersPerSecondSquared),
+                Steering: latest?.Steering,
+                Accelerator: latest?.Accelerator,
+                Brake: latest?.Brake,
+                NativeProviderStatus: nativeHud.Status.ToString(),
+                ExactRedlineStatus: nativeHud.ExactRedline.Status.ToString(),
+                NativeCapabilitiesAvailable: nativeHud.HasAvailableCapabilities,
+                GameplayHudVisibility: nativeVisibility.Visibility.ToString(),
+                GameplayHudVisibilityFresh: nativeVisibility.Fresh,
+                OverlayLayout: Settings.LayoutMode.ToString(),
+                OverlayRequestedVisible: _overlayVisibleRequested,
+                OverlayManuallyHidden: _manualOverlayHidden,
+                OverlayLocked: Settings.OverlayLocked));
+
+            if (_lastDebugTelemetryState != connectionState)
+            {
+                _lastDebugTelemetryState = connectionState;
+                var eventCode = connectionState switch
+                {
+                    TelemetryConnectionState.Connected => DebugEventCode.TelemetryConnected,
+                    TelemetryConnectionState.Lost => DebugEventCode.TelemetryLost,
+                    _ => DebugEventCode.TelemetryWaiting
+                };
+                _debugLog.TryLogEvent(new DebugEvent(
+                    nowUtc,
+                    eventCode,
+                    DebugEventCategory.TelemetryState));
+            }
+            if (listenerErrorActive != _debugListenerErrorActive)
+            {
+                _debugListenerErrorActive = listenerErrorActive;
+                _debugLog.TryLogEvent(new DebugEvent(
+                    nowUtc,
+                    listenerErrorActive
+                        ? DebugEventCode.TelemetryListenerUnavailable
+                        : DebugEventCode.TelemetryListenerRecovered,
+                    DebugEventCategory.LocalListener));
+            }
+
+            UpdateDebugLoggingStatus();
+        }
+        catch
+        {
+            // Optional diagnostics must never interrupt telemetry or presentation.
+        }
+    }
+
+    private double? ObserveDebugCpuPercent(DateTimeOffset nowUtc)
+    {
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            var cpuTime = process.TotalProcessorTime;
+            var result = _debugPreviousCpuTime is { } previousCpuTime
+                ? (cpuTime - previousCpuTime).TotalSeconds /
+                  Math.Max((nowUtc - _debugCpuRateAtUtc).TotalSeconds * Environment.ProcessorCount, 0.001) * 100
+                : (double?)null;
+            _debugPreviousCpuTime = cpuTime;
+            _debugCpuRateAtUtc = nowUtc;
+            return result is { } value && double.IsFinite(value)
+                ? Math.Clamp(value, 0, 100)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static DebugWheelValues DebugWheels(WheelValues? wheels) => wheels is { } value
+        ? new DebugWheelValues(
+            Finite(value.FrontLeft),
+            Finite(value.FrontRight),
+            Finite(value.RearLeft),
+            Finite(value.RearRight))
+        : default;
+
+    private static double? Finite(double? value) => value is { } finite && double.IsFinite(finite) ? finite : null;
+
+    private static string DebugCalibrationState(CalibrationResult calibration)
+    {
+        if (calibration.IsTrusted)
+        {
+            return "trusted";
+        }
+        if (calibration.SampleAccepted)
+        {
+            return "sample_accepted";
+        }
+
+        return calibration.RejectionReason switch
+        {
+            "Not driving" => "not_driving",
+            "Stale telemetry" => "stale_telemetry",
+            "Ground speed outside calibration range" => "ground_speed_out_of_range",
+            "Non-finite wheel telemetry" => "invalid_wheel_values",
+            "Wheel speed too low" => "wheel_speed_too_low",
+            "Tire slip ratio" => "tire_slip",
+            "Steering input" => "steering_input",
+            "Cornering acceleration" => "cornering_acceleration",
+            "Longitudinal acceleration" => "longitudinal_acceleration",
+            "Longitudinal deceleration" => "longitudinal_deceleration",
+            "Braking input" => "braking_input",
+            "Driven axle unloaded" => "driven_axle_unloaded",
+            "Wheel speeds disagree" => "wheel_speeds_disagree",
+            "Implausible radius" => "implausible_radius",
+            "Candidate radius outlier" => "candidate_radius_outlier",
+            "Stable tire consensus pending" => "stable_consensus_pending",
+            "Trusted replacement consensus pending" => "replacement_consensus_pending",
+            "Trusted replacement sample not ultra-clean" => "replacement_sample_rejected",
+            "Trusted replacement window exhausted" => "replacement_window_exhausted",
+            _ => "not_available"
+        };
+    }
+
+    private void UpdateDebugLoggingStatus()
+    {
+        if (!Settings.DebugLoggingEnabled || Settings.DebugLoggingExpiresAtUtc is not { } expiresAtUtc)
+        {
+            ViewModel.UpdateDebugLogging(false, "Off — no debug files are created");
+            return;
+        }
+
+        var remaining = expiresAtUtc - DateTimeOffset.UtcNow;
+        var hours = Math.Max(0, (int)Math.Ceiling(remaining.TotalHours));
+        var dropped = _debugLog.DroppedRecords;
+        ViewModel.UpdateDebugLogging(
+            true,
+            dropped > 0
+                ? $"On — expires in {hours} h · {dropped} samples skipped · local only"
+                : $"On — expires in {hours} h · local only");
     }
 
     private static bool RadiiDiffer(RollingRadii first, RollingRadii second, double tolerance) =>
@@ -1639,6 +2519,9 @@ public sealed class AppController : IAsyncDisposable
             overlayForeground,
             nativeVisibility.Visibility,
             nativeVisibility.Fresh);
+        // This session-only preference can suppress a policy-approved HUD. It
+        // deliberately cannot force the policy past game/menu/native safety.
+        overlayVisible = ApplyManualOverlaySuppression(overlayVisible, _manualOverlayHidden);
         // Once guarded native gameplay visibility hides (or the owning game window
         // is gone), remove Wisp in the same update. A fade-out can otherwise
         // leave the replacement gauge visible over the first loading frame.
@@ -1744,6 +2627,9 @@ public sealed class AppController : IAsyncDisposable
         return overlayVisible;
     }
 
+    internal static bool ApplyManualOverlaySuppression(bool normalVisibility, bool manuallyHidden) =>
+        normalVisibility && !manuallyHidden;
+
     private void SetCompositionRenderingEnabled(bool enabled)
     {
         enabled &= !Settings.RequiresSetup && !_runtimeSuspended;
@@ -1809,6 +2695,8 @@ public sealed class AppController : IAsyncDisposable
         _freshness = new TelemetryFreshness(TelemetryTimeout);
         _lastFreshnessState = null;
         _lastProcessedState = null;
+        _hasDebugDerivedTelemetry = false;
+        _debugPreviousGameTimestamp = null;
         _lastRenderAtUtc = DateTimeOffset.UtcNow;
         _nextStatisticsAtUtc = DateTimeOffset.MinValue;
         _nextDiagnosticsAtUtc = DateTimeOffset.MinValue;

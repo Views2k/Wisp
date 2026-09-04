@@ -77,7 +77,8 @@ internal static class GitHubReleaseParser
         }
 
         ReleaseUriPolicy.RequireInitialDownloadUri(downloadUri, version);
-        return new UpdateRelease(version, expectedName, asset.Size.Value, sha256, downloadUri);
+        var releaseSummary = ReleaseSummaryFormatter.Format(release.Body);
+        return new UpdateRelease(version, expectedName, asset.Size.Value, sha256, downloadUri, releaseSummary);
     }
 
     internal static bool TryNormalizeSha256(string? digest, out string sha256)
@@ -116,6 +117,9 @@ internal static class GitHubReleaseParser
 
         [JsonPropertyName("immutable")]
         public bool? Immutable { get; init; }
+
+        [JsonPropertyName("body")]
+        public string? Body { get; init; }
 
         [JsonPropertyName("assets")]
         public List<GitHubAsset?>? Assets { get; init; }

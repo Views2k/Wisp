@@ -30,6 +30,22 @@ public sealed class OverlayInputContractTests
     }
 
     [Theory]
+    [InlineData("BoostGaugeWindow.xaml.cs")]
+    [InlineData("TireTemperatureGaugeWindow.xaml.cs")]
+    public void DetachedGaugeRestoreEstablishesMonitorBeforeClamping(string fileName)
+    {
+        var source = File.ReadAllText(Path.Combine(AppSourceDirectory(), fileName));
+        var restoreStart = source.IndexOf("public void RestorePosition", StringComparison.Ordinal);
+        var restoreEnd = source.IndexOf("public bool OwnsWindowHandle", restoreStart, StringComparison.Ordinal);
+        var restore = source[restoreStart..restoreEnd];
+
+        Assert.Contains("EnsureHandle()", restore, StringComparison.Ordinal);
+        Assert.True(
+            restore.IndexOf("Left = left;", StringComparison.Ordinal) <
+            restore.IndexOf("CurrentMonitorWorkArea()", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("OverlayWindow.xaml")]
     [InlineData("GForceWindow.xaml")]
     public void OverlayWindowsAreNotGlobalTopmost(string fileName)

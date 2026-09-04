@@ -12,31 +12,46 @@ public static class AppThemeResources
         ResourceDictionary resources,
         AppColorTheme accentTheme,
         AppBackgroundTheme backgroundTheme)
+        => Apply(resources, accentTheme, backgroundTheme, null, null);
+
+    public static void Apply(
+        ResourceDictionary resources,
+        AppColorTheme accentTheme,
+        AppBackgroundTheme backgroundTheme,
+        string? customAccentColor,
+        string? customBackgroundColor)
     {
         ArgumentNullException.ThrowIfNull(resources);
         ArgumentNullException.ThrowIfNull(accentTheme);
         ArgumentNullException.ThrowIfNull(backgroundTheme);
 
+        var accentColor = ColorCustomization.TryParse(customAccentColor, out var customAccent)
+            ? customAccent
+            : Parse(accentTheme.Accent);
+        var resolvedBackground = ColorCustomization.TryParse(customBackgroundColor, out var customBackground)
+            ? ColorCustomization.CreateBackgroundTheme(customBackground)
+            : backgroundTheme;
+
         // Resolve every color before touching the dictionary so a malformed
         // custom theme cannot leave a partially-applied window palette.
         var colors = new[]
         {
-            ("WindowBrush", Parse(backgroundTheme.Window)),
-            ("PanelBrush", Parse(backgroundTheme.Panel)),
-            ("SidebarBrush", Parse(backgroundTheme.Panel)),
-            ("CardBrush", Parse(backgroundTheme.Card)),
-            ("RaisedBrush", Parse(backgroundTheme.Raised)),
-            ("StrokeBrush", Parse(backgroundTheme.Stroke)),
+            ("WindowBrush", Parse(resolvedBackground.Window)),
+            ("PanelBrush", Parse(resolvedBackground.Panel)),
+            ("SidebarBrush", Parse(resolvedBackground.Panel)),
+            ("CardBrush", Parse(resolvedBackground.Card)),
+            ("RaisedBrush", Parse(resolvedBackground.Raised)),
+            ("StrokeBrush", Parse(resolvedBackground.Stroke)),
             ("TextBrush", Parse("#F5F8FC")),
             ("MutedBrush", Parse("#91A0B3")),
             ("FaintBrush", Parse("#8191A5")),
-            ("AccentBrush", Parse(accentTheme.Accent)),
-            ("AccentBlueBrush", Parse(accentTheme.Accent)),
-            ("InputBrush", Parse(backgroundTheme.Input)),
-            ("HoverBrush", Parse(backgroundTheme.Hover)),
-            ("SliderTrackBrush", Parse(backgroundTheme.SliderTrack)),
-            ("ToggleTrackBrush", Parse(backgroundTheme.ToggleTrack)),
-            ("ScrollThumbBrush", Parse(backgroundTheme.ScrollThumb))
+            ("AccentBrush", accentColor),
+            ("AccentBlueBrush", accentColor),
+            ("InputBrush", Parse(resolvedBackground.Input)),
+            ("HoverBrush", Parse(resolvedBackground.Hover)),
+            ("SliderTrackBrush", Parse(resolvedBackground.SliderTrack)),
+            ("ToggleTrackBrush", Parse(resolvedBackground.ToggleTrack)),
+            ("ScrollThumbBrush", Parse(resolvedBackground.ScrollThumb))
         };
 
         foreach (var (key, color) in colors)
