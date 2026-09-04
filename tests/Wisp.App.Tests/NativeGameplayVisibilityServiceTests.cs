@@ -156,18 +156,30 @@ public sealed class NativeGameplayVisibilityServiceTests
     [Fact]
     public async Task FailedVisibilityReadClearsThePreviousKnownState()
     {
+        using var failedRead = new ReadGate();
         var resolver = new ScriptedResolver(
             new ReadStep(NativeGameplayVisibility.Visible),
-            new ReadStep(NativeGameplayVisibility.Unknown));
+            new ReadStep(NativeGameplayVisibility.Unknown, failedRead));
         await using var service = new NativeHudProcessService(new FakeFactory(new NoGaugeMemory()), _ => resolver);
+        try
+        {
+            service.UpdateTelemetry(State(CarA), nativeLayoutActive: true);
+            await failedRead.WaitUntilEnteredAsync();
+            var visible = service.SnapshotFor(CarA);
+            Assert.Equal(NativeGameplayVisibility.Visible, visible.GameplayVisibility);
+            Assert.True(visible.VisibilityObservedTimestamp > 0);
 
-        service.UpdateTelemetry(State(CarA), nativeLayoutActive: true);
-        var visible = await WaitForSnapshotAsync(service, CarA, value => value.GameplayVisibility == NativeGameplayVisibility.Visible);
-        service.UpdateTelemetry(State(CarA, 2), nativeLayoutActive: true);
-        var unknown = await WaitForSnapshotAsync(service, CarA, value => value.Generation > visible.Generation);
+            service.UpdateTelemetry(State(CarA, 2), nativeLayoutActive: true);
+            failedRead.Release();
+            var unknown = await WaitForSnapshotAsync(service, CarA, value => value.Generation > visible.Generation);
 
-        AssertUnknown(unknown);
-        Assert.False(unknown.HasAvailableCapabilities);
+            AssertUnknown(unknown);
+            Assert.False(unknown.HasAvailableCapabilities);
+        }
+        finally
+        {
+            failedRead.Release();
+        }
     }
 
     [Theory]
