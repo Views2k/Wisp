@@ -181,6 +181,20 @@ public sealed class SetupStartupTests
     }
 
     [Fact]
+    public void FailedListenerStartDoesNotAttachRuntimeCallbacks()
+    {
+        var source = Source("AppController.cs");
+        var start = source.IndexOf("public async Task StartAsync()", StringComparison.Ordinal);
+        var end = source.IndexOf("internal bool InitializeStartupRegistration()", start, StringComparison.Ordinal);
+        var startup = source[start..end];
+
+        var listener = startup.IndexOf("await RestartListenerAsync(Settings.UdpPort);", StringComparison.Ordinal);
+        Assert.True(listener >= 0);
+        Assert.True(listener < startup.IndexOf("_receiver.PacketAvailable += OnPacketAvailable;", StringComparison.Ordinal));
+        Assert.True(listener < startup.IndexOf("_uiTimer.Start();", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SecondInstanceRestoresActiveWizardInsteadOfBypassingIt()
     {
         var source = Source("App.xaml.cs");

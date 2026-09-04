@@ -15,7 +15,7 @@ public sealed class CalmSidebarTests
 {
     private static readonly XNamespace Presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
     private static readonly XNamespace Xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
-    private static readonly string[] PageNames = ["Dashboard", "Appearance", "Diagnostics", "Setup", "Extras"];
+    private static readonly string[] PageNames = ["Dashboard", "Appearance", "Diagnostics", "Profiles", "Setup", "Extras", "Release Notes"];
 
     [Fact]
     public void EverySidebarPageUsesTheSameUnbrokenRowSpacing()

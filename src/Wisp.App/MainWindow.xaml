@@ -134,8 +134,10 @@
                             <ListBoxItem AutomationProperties.Name="Dashboard"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,1 H7 V7 H1 Z M11,1 H17 V7 H11 Z M1,11 H7 V17 H1 Z M11,11 H17 V17 H11 Z" /><TextBlock Text="Dashboard" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Appearance"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,3 H7 M11,3 H17 M1,9 H11 M15,9 H17 M1,15 H4 M8,15 H17 M7,1 V5 H11 V1 Z M11,7 V11 H15 V7 Z M4,13 V17 H8 V13 Z" /><TextBlock Text="Appearance" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Diagnostics"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M0,9 H4 L7,2 L11,16 L14,9 H18" /><TextBlock Text="Diagnostics" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                            <ListBoxItem AutomationProperties.Name="Profiles"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M3,2 H15 V6 H3 Z M3,8 H15 V12 H3 Z M3,14 H15 V18 H3 Z" /><TextBlock Text="Profiles" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Setup"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M9,1 L11,4 L14,4 L14,7 L17,9 L14,11 L14,14 L11,14 L9,17 L7,14 L4,14 L4,11 L1,9 L4,7 L4,4 L7,4 Z M12,9 A3,3 0 1 1 6,9 A3,3 0 1 1 12,9" /><TextBlock Text="Setup" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Extras"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M9,1 A8,8 0 1 0 17,9 C17,6 13,6 12,8 C11,11 8,10 9,7 C10,4 12,2 9,1 Z M5,5 L5,5.2 M4,10 L4,10.2 M8,14 L8,14.2" /><TextBlock Text="Extras" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                            <ListBoxItem AutomationProperties.Name="Release Notes"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M3,1 H12 L17,6 V19 H3 Z M12,1 V6 H17 M6,10 H14 M6,13 H14 M6,16 H11" /><TextBlock Text="Release Notes" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                         </ListBox>
                         <StackPanel Grid.Row="2" VerticalAlignment="Bottom" Margin="22,18,10,20">
                             <TextBlock Text="Made for" FontSize="11" Foreground="{DynamicResource FaintBrush}" />
@@ -157,6 +159,44 @@
                                          HorizontalAlignment="Stretch" VerticalAlignment="Top">
                                 <StackPanel Margin="0,0,0,22"
                                             Width="{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}">
+                                    <Border x:Name="DashboardUpdateBanner" Margin="0,0,0,14">
+                                        <Border.Style>
+                                            <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsApplicationUpdateAvailable}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="38" Height="38" CornerRadius="19"
+                                                    Background="{DynamicResource RaisedBrush}" VerticalAlignment="Center">
+                                                <TextBlock Text="↓" FontSize="20" FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource AccentBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Margin="14,0,20,0" VerticalAlignment="Center">
+                                                <TextBlock Text="Wisp update available" FontSize="15" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding ApplicationUpdateStatus}"
+                                                           Foreground="{DynamicResource MutedBrush}" Margin="0,3,0,0"
+                                                           TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                                            </StackPanel>
+                                            <Button Grid.Column="2" Content="{Binding ApplicationUpdateAction}"
+                                                    IsEnabled="{Binding CanCheckApplicationUpdate}"
+                                                    Style="{StaticResource PrimaryButtonStyle}"
+                                                    Click="CheckApplicationUpdate_Click"
+                                                    VerticalAlignment="Center"
+                                                    AutomationProperties.Name="Review available Wisp update" />
+                                        </Grid>
+                                    </Border>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="1.45*" />
@@ -165,7 +205,13 @@
                                         </Grid.ColumnDefinitions>
                                         <Border Style="{StaticResource CardStyle}">
                                             <StackPanel>
-                                                <TextBlock Text="LIVE DRIVE" Style="{StaticResource EyebrowTextStyle}" />
+                                                <Grid>
+                                                    <TextBlock Text="LIVE DRIVE" Style="{StaticResource EyebrowTextStyle}" />
+                                                    <Button Content="Reset peaks" HorizontalAlignment="Right"
+                                                            Padding="9,4" FontSize="10"
+                                                            Click="ResetDashboardPeaks_Click"
+                                                            AutomationProperties.Name="Reset top speed, peak power, and peak torque" />
+                                                </Grid>
                                                 <TextBlock Text="{Binding StatusText}" FontSize="24" FontWeight="SemiBold"
                                                            AutomationProperties.LiveSetting="Polite" Margin="0,4,0,0" />
                                                 <TextBlock Text="{Binding StatusDetail}" Foreground="{DynamicResource MutedBrush}"
@@ -173,6 +219,7 @@
                                                 <Grid Margin="0,22,0,0">
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="1.35*" />
+                                                        <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="*" />
@@ -184,6 +231,8 @@
                                                             <TextBlock Text="{Binding DashboardSpeedUnit}" FontSize="10" FontWeight="SemiBold"
                                                                        Foreground="{DynamicResource MutedBrush}" Margin="5,15,0,0" />
                                                         </StackPanel>
+                                                        <TextBlock Text="{Binding DashboardTopSpeed, StringFormat=TOP {0}}"
+                                                                   Foreground="{DynamicResource FaintBrush}" FontSize="9" Margin="0,3,0,0" />
                                                     </StackPanel>
                                                     <StackPanel Grid.Column="1">
                                                         <TextBlock Text="GEAR" Style="{StaticResource DashboardMetricLabelStyle}" />
@@ -196,6 +245,14 @@
                                                     <StackPanel Grid.Column="3">
                                                         <TextBlock Text="POWER" Style="{StaticResource DashboardMetricLabelStyle}" />
                                                         <TextBlock Text="{Binding DashboardPower}" Style="{StaticResource DashboardMetricValueStyle}" />
+                                                        <TextBlock Text="{Binding DashboardPeakPower, StringFormat=PEAK {0}}"
+                                                                   Foreground="{DynamicResource FaintBrush}" FontSize="9" Margin="0,3,0,0" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="4">
+                                                        <TextBlock Text="TORQUE" Style="{StaticResource DashboardMetricLabelStyle}" />
+                                                        <TextBlock Text="{Binding DashboardTorque}" Style="{StaticResource DashboardMetricValueStyle}" />
+                                                        <TextBlock Text="{Binding DashboardPeakTorque, StringFormat=PEAK {0}}"
+                                                                   Foreground="{DynamicResource FaintBrush}" FontSize="9" Margin="0,3,0,0" />
                                                     </StackPanel>
                                                 </Grid>
                                             </StackPanel>
@@ -206,7 +263,7 @@
                                                 <TextBlock Text="Vehicle profile" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,12" />
                                                 <Grid>
                                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="1.25*" /></Grid.ColumnDefinitions>
-                                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
                                                     <TextBlock Text="Car ID" Style="{StaticResource DashboardDataLabelStyle}" />
                                                     <TextBlock Grid.Column="1" Text="{Binding CarOrdinal}" Style="{StaticResource DashboardDataValueStyle}" />
                                                     <TextBlock Grid.Row="1" Text="Powertrain" Style="{StaticResource DashboardDataLabelStyle}" />
@@ -217,8 +274,6 @@
                                                     <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedWheels}" Style="{StaticResource DashboardDataValueStyle}" />
                                                     <TextBlock Grid.Row="4" Text="Tire profile" Style="{StaticResource DashboardDataLabelStyle}" />
                                                     <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Confidence}" Style="{StaticResource DashboardDataValueStyle}" />
-                                                    <TextBlock Grid.Row="5" Text="Torque" Style="{StaticResource DashboardDataLabelStyle}" />
-                                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DashboardTorque}" Style="{StaticResource DashboardDataValueStyle}" />
                                                 </Grid>
                                             </StackPanel>
                                         </Border>
@@ -862,6 +917,28 @@
                                                            TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
                                                            FontSize="11" LineHeight="16" Margin="54,5,0,0" />
 
+                                                <CheckBox Content="Enable visibility shortcut"
+                                                          IsChecked="{Binding OverlayHotkeyEnabled}"
+                                                          AutomationProperties.Name="Enable HUD visibility shortcut"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,18,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <StackPanel Orientation="Horizontal" Margin="54,7,0,0">
+                                                    <Button x:Name="OverlayHotkeyCaptureButton"
+                                                            Content="{Binding OverlayHotkeyText, Mode=OneWay}"
+                                                            AutomationProperties.Name="Change HUD visibility shortcut"
+                                                            Click="OverlayHotkeyCapture_Click"
+                                                            PreviewKeyDown="OverlayHotkeyCapture_PreviewKeyDown"
+                                                            LostKeyboardFocus="OverlayHotkeyCapture_LostKeyboardFocus"
+                                                            MinWidth="150" />
+                                                    <TextBlock Text="{Binding OverlayHotkeyStatus, Mode=OneWay}"
+                                                               Foreground="{DynamicResource FaintBrush}"
+                                                               FontSize="11" VerticalAlignment="Center"
+                                                               TextWrapping="Wrap" Margin="12,0,0,0" />
+                                                </StackPanel>
+                                                <TextBlock Text="Click the shortcut, then press a modifier plus another key. It only hides the HUD for this Wisp session."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" LineHeight="16" Margin="54,5,0,0" />
+
                                                 <CheckBox Content="Minimize when driving starts"
                                                           IsChecked="{Binding AutoMinimizeOnTelemetry}"
                                                           Style="{StaticResource ToggleSwitchStyle}" Margin="0,18,0,0"
@@ -987,6 +1064,16 @@
                                                                      Style="{StaticResource SegmentRadioStyle}" Checked="Unit_Checked" />
                                                         <RadioButton x:Name="KphRadio" GroupName="Units" Content="KM/H"
                                                                      Style="{StaticResource SegmentRadioStyle}" Checked="Unit_Checked" />
+                                                    </UniformGrid>
+                                                </Border>
+
+                                                <TextBlock Text="Torque units" Foreground="{DynamicResource MutedBrush}" Margin="0,14,0,0" />
+                                                <Border Margin="0,7,0,0" Background="{DynamicResource InputBrush}" CornerRadius="9" Padding="3">
+                                                    <UniformGrid Columns="2">
+                                                        <RadioButton x:Name="NewtonMetersRadio" GroupName="TorqueUnits" Content="Nm"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="TorqueUnit_Checked" />
+                                                        <RadioButton x:Name="PoundFeetRadio" GroupName="TorqueUnits" Content="lb-ft"
+                                                                     Style="{StaticResource SegmentRadioStyle}" Checked="TorqueUnit_Checked" />
                                                     </UniformGrid>
                                                 </Border>
 
@@ -1192,6 +1279,11 @@
                                                 </StackPanel>
                                             </StackPanel>
                                         </Border>
+                                        <Button Content="Save combination to Profiles"
+                                                HorizontalAlignment="Right" Margin="0,14,0,0"
+                                                Style="{StaticResource PrimaryButtonStyle}"
+                                                Click="SaveHudProfile_Click"
+                                                AutomationProperties.Name="Save current HUD combination to Profiles" />
                                     </StackPanel>
                                 </Grid>
                                 </Viewbox>
@@ -1313,10 +1405,35 @@
                                                             ToolTip="Available when a signed update publisher is configured. Bundled support works offline."
                                                             ToolTipService.ShowOnDisabled="True" />
                                                     <Button x:Name="CompatibilityImportButton" Content="Import signed pack" IsEnabled="{Binding CanImportNativeCompatibility}"
-                                                            Click="ImportCompatibility_Click" FontSize="11"
+                                                            Click="ImportCompatibility_Click" FontSize="11" Margin="0,0,8,0"
                                                             ToolTip="Available when a trusted publisher key is configured."
                                                             ToolTipService.ShowOnDisabled="True" />
+                                                    <CheckBox x:Name="DebugLoggingToggle" Content="Debug logging"
+                                                              IsChecked="{Binding DebugLoggingEnabled, Mode=OneWay}"
+                                                              Click="DebugLoggingToggle_Click" VerticalAlignment="Center" FontSize="11"
+                                                              Style="{StaticResource ToggleSwitchStyle}"
+                                                              AutomationProperties.Name="Enable local debug logging"
+                                                              AutomationProperties.HelpText="Opt in for up to 24 hours. No files are created while this is off."
+                                                              ToolTip="Opt in for up to 24 hours. No files are created while this is off." />
                                                 </WrapPanel>
+                                                <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0"
+                                                        Margin="0,10,0,0" Padding="0,10,0,0">
+                                                    <StackPanel>
+                                                        <TextBlock x:Name="DebugLoggingStatusText" Text="{Binding DebugLoggingStatus}"
+                                                                   Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold"
+                                                                   TextWrapping="Wrap" FontSize="11"
+                                                                   AutomationProperties.LiveSetting="Polite" />
+                                                        <TextBlock Text="Records one local health sample per second for up to 24 hours. Local files are kept for no more than 7 days. No raw packets or memory contents, personal data, addresses, system inventory, or game FPS."
+                                                                   Foreground="{DynamicResource FaintBrush}" TextWrapping="Wrap"
+                                                                   FontSize="10" LineHeight="15" Margin="0,4,0,0" />
+                                                        <WrapPanel Margin="0,10,0,0">
+                                                            <Button x:Name="DebugLogExportButton" Content="Export debug ZIP"
+                                                                    Click="ExportDebugLogs_Click" FontSize="11" Margin="0,0,8,0" />
+                                                            <Button x:Name="DebugLogDeleteButton" Content="Delete local logs"
+                                                                    Click="DeleteDebugLogs_Click" FontSize="11" />
+                                                        </WrapPanel>
+                                                    </StackPanel>
+                                                </Border>
                                             </StackPanel>
                                             <StackPanel Grid.Column="2">
                                                 <TextBlock Text="CURRENT CAR" Style="{StaticResource EyebrowTextStyle}" />
@@ -1324,7 +1441,7 @@
                                                 <Grid>
                                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="1.45*" /></Grid.ColumnDefinitions>
                                                     <Grid.RowDefinitions>
-                                                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
                                                     </Grid.RowDefinitions>
                                                     <TextBlock Text="Exact redline" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
                                                     <TextBlock Grid.Column="1" Text="{Binding ExactNativeRedline}" HorizontalAlignment="Right"
@@ -1342,10 +1459,98 @@
                                                                TextWrapping="Wrap" TextAlignment="Right" FontSize="10"
                                                                FontFamily="Cascadia Mono, Consolas" Margin="0,6"
                                                                ToolTip="Guarded gameplay HUD state. Stale means the last observation is older than 250 ms." />
+                                                    <TextBlock Grid.Row="4" Text="Visibility shortcut" Foreground="{DynamicResource MutedBrush}" Margin="0,6" />
+                                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding OverlayHotkeyStatus, Mode=OneWay}" HorizontalAlignment="Right"
+                                                               TextWrapping="Wrap" TextAlignment="Right" FontSize="10"
+                                                               FontFamily="Cascadia Mono, Consolas" Margin="0,6" />
                                                 </Grid>
                                             </StackPanel>
                                         </Grid>
                                     </Border>
+                                </StackPanel>
+                                </Viewbox>
+                                </Decorator>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem x:Name="ProfilesTab" Header="Profiles">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <Decorator>
+                                <Viewbox x:Name="ProfilesScaleView" Stretch="Uniform" StretchDirection="DownOnly"
+                                         HorizontalAlignment="Stretch" VerticalAlignment="Top">
+                                <StackPanel Margin="0,0,0,22"
+                                            Width="{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}">
+                                    <Border Style="{StaticResource CardStyle}">
+                                        <StackPanel>
+                                                <TextBlock Text="HUD PROFILES" Style="{StaticResource EyebrowTextStyle}" />
+                                                <TextBlock Text="Saved combinations" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,0" />
+                                                <TextBlock Text="Switch the HUD layout, gauges, units, sizing, opacity, and complete color palette together. Profiles never change tire calibration, overlay positions, telemetry, startup, updates, or debug settings."
+                                                           Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" LineHeight="19" Margin="0,7,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <TextBlock x:Name="HudProfileStatusText" Margin="2,13,2,0"
+                                               Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                               AutomationProperties.LiveSetting="Polite" />
+
+                                    <Border x:Name="HudProfileEmptyState" Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                        <StackPanel HorizontalAlignment="Center" Margin="20,26" MaxWidth="520">
+                                            <TextBlock Text="No profiles saved yet" FontSize="18" FontWeight="SemiBold"
+                                                       HorizontalAlignment="Center" />
+                                            <TextBlock Text="Set up the HUD in Appearance, choose the complete palette in Extras, then save the combination here."
+                                                       Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                                       TextAlignment="Center" LineHeight="19" Margin="0,7,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <ListBox x:Name="HudProfileList" Margin="0,14,0,0"
+                                             Background="Transparent" BorderThickness="0" Padding="0"
+                                             AutomationProperties.Name="Saved HUD profiles">
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="Margin" Value="0,0,0,12" />
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="BorderThickness" Value="0" />
+                                                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="ListBoxItem">
+                                                            <ContentPresenter />
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type local:HudPreset}">
+                                                <Border Style="{StaticResource CardStyle}" Padding="20,17">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel VerticalAlignment="Center" Margin="0,0,22,0">
+                                                            <TextBlock Text="{Binding Name}" FontSize="17" FontWeight="SemiBold" />
+                                                            <TextBlock Text="{Binding Summary}" Foreground="{DynamicResource MutedBrush}"
+                                                                       Margin="0,4,0,0" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <Button Content="Apply" Style="{StaticResource PrimaryButtonStyle}"
+                                                                    Click="ApplyHudProfile_Click" />
+                                                            <Button Content="Update" Margin="8,0,0,0"
+                                                                    Click="UpdateHudProfile_Click" />
+                                                            <Button Content="Rename" Margin="8,0,0,0"
+                                                                    Click="RenameHudProfile_Click" />
+                                                            <Button Content="Delete" Margin="8,0,0,0"
+                                                                    Click="DeleteHudProfile_Click" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
                                 </StackPanel>
                                 </Viewbox>
                                 </Decorator>
@@ -1417,7 +1622,16 @@
                         <TabItem x:Name="ExtrasTab" Header="Extras">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Margin="0,0,0,22">
-                                    <Border Style="{StaticResource CardStyle}">
+                                    <Border>
+                                        <Border.Style>
+                                            <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsApplicationUpdateAvailable}" Value="True">
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -1432,8 +1646,28 @@
                                                 <TextBlock Text="Immutable GitHub release assets are checked for an exact version, size, and SHA-256 match before installation."
                                                            Foreground="{DynamicResource FaintBrush}" FontSize="11" LineHeight="16"
                                                            TextWrapping="Wrap" Margin="0,8,0,0" />
+                                                <CheckBox Content="Automatically check once daily"
+                                                          IsChecked="{Binding AutomaticApplicationUpdateChecks}"
+                                                          Style="{StaticResource ToggleSwitchStyle}"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed"
+                                                          Margin="0,16,0,0"
+                                                          AutomationProperties.Name="Automatically check for Wisp updates once daily" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                <Border Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="9,4"
+                                                        HorizontalAlignment="Right" Margin="0,0,0,8">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsApplicationUpdateAvailable}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock Text="UPDATE AVAILABLE" Style="{StaticResource EyebrowTextStyle}" FontSize="9" />
+                                                </Border>
                                                 <TextBlock Text="{Binding InstalledApplicationVersion, StringFormat={}Version {0}}"
                                                            HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}"
                                                            FontSize="11" Margin="0,0,0,9" />
@@ -1455,213 +1689,346 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
                                                 <TextBlock Text="Make it yours" Style="{StaticResource SectionTitleStyle}" />
-                                                <TextBlock Text="Choose the app colors and boxed HUD outline independently. Native remains unchanged."
+                                                <TextBlock Text="Tune every color with live hue, saturation, brightness, opacity, and precise ARGB input. Layout and telemetry stay unchanged."
                                                            Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,0" />
                                             </StackPanel>
                                         </Grid>
                                     </Border>
 
-                                    <WrapPanel x:Name="ThemePickerLayout" Margin="-10,20,-10,-24"
-                                               HorizontalAlignment="Center">
-                                    <StackPanel Width="440" Margin="10,0,10,24">
-                                    <Grid>
-                                        <StackPanel>
-                                            <TextBlock Text="ACCENT COLOR" Style="{StaticResource EyebrowTextStyle}" />
-                                            <TextBlock Text="Highlights, selections, and status color" Foreground="{DynamicResource MutedBrush}"
-                                                       TextWrapping="Wrap" Margin="0,4,130,0" />
-                                        </StackPanel>
-                                        <Border HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="10,5">
-                                            <TextBlock x:Name="ActiveThemeName" Text="Aqua" Foreground="{DynamicResource AccentBrush}"
-                                                       FontSize="12" AutomationProperties.Name="Active accent theme" />
-                                        </Border>
-                                    </Grid>
-                                    <ListBox x:Name="ThemePicker" Margin="-4,14,-4,0" Padding="0"
-                                             Background="Transparent" BorderThickness="0"
-                                             ItemsSource="{x:Static local:AppColorThemes.All}" SelectedValuePath="Name"
-                                             ItemContainerStyle="{StaticResource ThemeChoiceStyle}"
-                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                             SelectionChanged="ThemePicker_SelectionChanged" AutomationProperties.Name="App color palette">
-                                        <ListBox.ItemsPanel>
-                                            <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
-                                        </ListBox.ItemsPanel>
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate DataType="{x:Type local:AppColorTheme}">
-                                                <StackPanel>
-                                                    <Grid Height="30">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="1.2*" />
-                                                            <ColumnDefinition Width="1.2*" />
-                                                            <ColumnDefinition Width="*" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <Border Background="{DynamicResource WindowBrush}" CornerRadius="4,0,0,4" />
-                                                        <Border Grid.Column="1" Background="{DynamicResource RaisedBrush}" />
-                                                        <Border Grid.Column="2" Background="{Binding Accent}" CornerRadius="0,4,4,0" />
-                                                    </Grid>
-                                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}"
-                                                               AutomationProperties.Name="{Binding Name, StringFormat={}Accent theme: {0}}"
-                                                               FontSize="12" Margin="0,10,20,0" />
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
+                                    <Grid x:Name="ColorEditorLayout" Margin="0,20,0,0" MinHeight="350"
+                                          HorizontalAlignment="Stretch">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="240" />
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
 
-                                    </StackPanel>
-                                    <StackPanel Width="440" Margin="10,0,10,24">
-                                    <Grid>
-                                        <StackPanel>
-                                            <TextBlock Text="BACKGROUND" Style="{StaticResource EyebrowTextStyle}" />
-                                            <TextBlock Text="Window, panel, and control surfaces" Foreground="{DynamicResource MutedBrush}"
-                                                       TextWrapping="Wrap" Margin="0,4,130,0" />
-                                        </StackPanel>
-                                        <Border HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="10,5">
-                                            <TextBlock x:Name="ActiveBackgroundThemeName" Text="Neutral"
-                                                       Foreground="{DynamicResource AccentBrush}" FontSize="12"
-                                                       AutomationProperties.Name="Active background theme" />
-                                        </Border>
-                                    </Grid>
-                                    <ListBox x:Name="BackgroundThemePicker" Margin="-4,14,-4,0" Padding="0"
-                                             Background="Transparent" BorderThickness="0"
-                                             ItemsSource="{x:Static local:AppBackgroundThemes.All}" SelectedValuePath="Name"
-                                             ItemContainerStyle="{StaticResource ThemeChoiceStyle}"
-                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                             SelectionChanged="BackgroundThemePicker_SelectionChanged"
-                                             AutomationProperties.Name="App background palette">
-                                        <ListBox.ItemsPanel>
-                                            <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
-                                        </ListBox.ItemsPanel>
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate DataType="{x:Type local:AppBackgroundTheme}">
-                                                <StackPanel>
-                                                    <Border Height="30" BorderBrush="{Binding Stroke}" BorderThickness="1" CornerRadius="4">
-                                                        <Grid>
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="*" />
-                                                                <ColumnDefinition Width="*" />
-                                                                <ColumnDefinition Width="*" />
-                                                                <ColumnDefinition Width="*" />
-                                                            </Grid.ColumnDefinitions>
-                                                            <Border Background="{Binding Window}" CornerRadius="3,0,0,3" />
-                                                            <Border Grid.Column="1" Background="{Binding Panel}" />
-                                                            <Border Grid.Column="2" Background="{Binding Card}" />
-                                                            <Border Grid.Column="3" Background="{Binding Raised}" CornerRadius="0,3,3,0" />
-                                                        </Grid>
-                                                    </Border>
-                                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}"
-                                                               AutomationProperties.Name="{Binding Name, StringFormat={}Background theme: {0}}"
-                                                               FontSize="12" Margin="0,10,20,0" />
+                                        <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="16">
+                                            <DockPanel LastChildFill="True">
+                                                <StackPanel DockPanel.Dock="Top" Margin="2,0,2,13">
+                                                    <TextBlock Text="COLOR ELEMENTS" Style="{StaticResource EyebrowTextStyle}" />
+                                                    <TextBlock Text="Select one element to edit"
+                                                               Foreground="{DynamicResource MutedBrush}" FontSize="12"
+                                                               Margin="0,4,0,0" />
                                                 </StackPanel>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                    </StackPanel>
-                                    <StackPanel Width="440" Margin="10,0,10,24">
-                                    <Grid>
-                                        <StackPanel>
-                                            <TextBlock Text="HUD BORDER" Style="{StaticResource EyebrowTextStyle}" />
-                                            <TextBlock Text="Panel outline in Combined and Two boxes" Foreground="{DynamicResource MutedBrush}"
-                                                       TextWrapping="Wrap" Margin="0,4,130,0" />
-                                        </StackPanel>
-                                        <Border HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="10,5">
-                                            <TextBlock x:Name="ActiveHudBorderThemeName" Text="Aqua"
-                                                       Foreground="{DynamicResource TextBrush}" FontSize="12"
-                                                       AutomationProperties.Name="Active HUD border theme" />
+                                                <ListBox x:Name="ColorTargetSelector" Background="Transparent"
+                                                         BorderThickness="0" Padding="0" SelectionMode="Single"
+                                                         SelectionChanged="ColorTargetSelector_SelectionChanged"
+                                                         AutomationProperties.Name="Color customization target">
+                                                    <ListBox.ItemContainerStyle>
+                                                        <Style TargetType="ListBoxItem">
+                                                            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                            <Setter Property="Padding" Value="12,10" />
+                                                            <Setter Property="Margin" Value="0,0,0,5" />
+                                                            <Setter Property="Cursor" Value="Hand" />
+                                                            <Setter Property="Template">
+                                                                <Setter.Value>
+                                                                    <ControlTemplate TargetType="ListBoxItem">
+                                                                        <Border x:Name="TargetBorder"
+                                                                                Background="Transparent"
+                                                                                BorderBrush="Transparent"
+                                                                                BorderThickness="1"
+                                                                                CornerRadius="8"
+                                                                                Padding="{TemplateBinding Padding}">
+                                                                            <ContentPresenter VerticalAlignment="Center" />
+                                                                        </Border>
+                                                                        <ControlTemplate.Triggers>
+                                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                                <Setter TargetName="TargetBorder" Property="Background" Value="{DynamicResource HoverBrush}" />
+                                                                            </Trigger>
+                                                                            <Trigger Property="IsSelected" Value="True">
+                                                                                <Setter TargetName="TargetBorder" Property="Background" Value="{DynamicResource RaisedBrush}" />
+                                                                                <Setter TargetName="TargetBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                                            </Trigger>
+                                                                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                                                                <Setter TargetName="TargetBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                                            </Trigger>
+                                                                        </ControlTemplate.Triggers>
+                                                                    </ControlTemplate>
+                                                                </Setter.Value>
+                                                            </Setter>
+                                                        </Style>
+                                                    </ListBox.ItemContainerStyle>
+                                                    <ListBoxItem Content="App accent" />
+                                                    <ListBoxItem Content="Background and surfaces" />
+                                                    <ListBoxItem Content="HUD border" />
+                                                    <ListBoxItem Content="Gauge start" />
+                                                    <ListBoxItem Content="Gauge middle" />
+                                                    <ListBoxItem Content="Gauge end" />
+                                                    <ListBoxItem Content="Traction hook cue" />
+                                                </ListBox>
+                                            </DockPanel>
                                         </Border>
+
+                                        <local:ColorWheelEditor x:Name="ColorEditor" Grid.Column="2"
+                                                                HorizontalAlignment="Stretch" MinHeight="350"
+                                                                SelectedColorChanged="ColorEditor_SelectedColorChanged" />
                                     </Grid>
-                                    <ListBox x:Name="HudBorderThemePicker" Margin="-4,14,-4,0" Padding="0"
-                                             Background="Transparent" BorderThickness="0"
-                                             ItemsSource="{x:Static local:AppColorThemes.All}" SelectedValuePath="Name"
-                                             ItemContainerStyle="{StaticResource ThemeChoiceStyle}"
-                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                             SelectionChanged="HudBorderThemePicker_SelectionChanged"
-                                             AutomationProperties.Name="HUD border color palette">
-                                        <ListBox.ItemsPanel>
-                                            <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
-                                        </ListBox.ItemsPanel>
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate DataType="{x:Type local:AppColorTheme}">
-                                                <StackPanel>
-                                                    <Grid Height="30">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="1.2*" />
-                                                            <ColumnDefinition Width="1.2*" />
-                                                            <ColumnDefinition Width="*" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <Border Background="{DynamicResource WindowBrush}" CornerRadius="4,0,0,4" />
-                                                        <Border Grid.Column="1" Background="{DynamicResource RaisedBrush}" />
-                                                        <Border Grid.Column="2" Background="{Binding Accent}" CornerRadius="0,4,4,0" />
-                                                    </Grid>
-                                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}"
-                                                               AutomationProperties.Name="{Binding Name, StringFormat={}HUD border theme: {0}}"
-                                                               FontSize="12" Margin="0,10,20,0" />
+
+                                    <Border Style="{StaticResource CardStyle}" Margin="0,20,0,0" Padding="20,16">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="Like Wisp?" FontSize="15" FontWeight="SemiBold" />
+                                                <TextBlock Text="Leave a star on GitHub to help more FH6 drivers find it."
+                                                           Foreground="{DynamicResource MutedBrush}" Margin="0,3,18,0"
+                                                           TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Click="StarWispOnGitHub_Click"
+                                                    VerticalAlignment="Center"
+                                                    AutomationProperties.Name="Open Wisp on GitHub to leave a star">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                                        <Setter Property="Background" Value="{DynamicResource RaisedBrush}" />
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}" />
+                                                        <Setter Property="BorderThickness" Value="1" />
+                                                        <Setter Property="Padding" Value="18,10" />
+                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                        <Setter Property="Template">
+                                                            <Setter.Value>
+                                                                <ControlTemplate TargetType="Button">
+                                                                    <Border x:Name="GitHubButtonBorder"
+                                                                            Background="{TemplateBinding Background}"
+                                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                                            CornerRadius="22" Padding="{TemplateBinding Padding}">
+                                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                                    </Border>
+                                                                    <ControlTemplate.Triggers>
+                                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                                            <Setter TargetName="GitHubButtonBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                                            <Setter TargetName="GitHubButtonBorder" Property="Background" Value="{DynamicResource HoverBrush}" />
+                                                                        </Trigger>
+                                                                        <Trigger Property="IsPressed" Value="True">
+                                                                            <Setter TargetName="GitHubButtonBorder" Property="Opacity" Value="0.78" />
+                                                                        </Trigger>
+                                                                        <Trigger Property="IsKeyboardFocused" Value="True">
+                                                                            <Setter TargetName="GitHubButtonBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                                            <Setter TargetName="GitHubButtonBorder" Property="BorderThickness" Value="2" />
+                                                                        </Trigger>
+                                                                    </ControlTemplate.Triggers>
+                                                                </ControlTemplate>
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                    </Style>
+                                                </Button.Style>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Width="17" Height="17" Margin="0,0,9,0" Stretch="Uniform"
+                                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                                                          Data="M12,.7 A11.5,11.5 0 0 0 8.36,23.11 C8.94,23.22 9.15,22.86 9.15,22.55 V20.31 C5.97,21 5.3,18.96 5.3,18.96 C4.78,17.63 4.03,17.28 4.03,17.28 C2.99,16.57 4.11,16.58 4.11,16.58 C5.26,16.66 5.86,17.76 5.86,17.76 C6.88,19.5 8.53,19 9.18,18.71 C9.28,17.97 9.58,17.47 9.91,17.19 C7.37,16.9 4.7,15.92 4.7,11.51 C4.7,10.26 5.15,9.23 5.88,8.42 C5.76,8.13 5.37,6.96 5.99,5.38 C5.99,5.38 6.95,5.07 9.15,6.56 A10.9,10.9 0 0 1 14.9,6.56 C17.1,5.07 18.06,5.38 18.06,5.38 C18.68,6.96 18.29,8.13 18.17,8.42 C18.9,9.23 19.35,10.26 19.35,11.51 C19.35,15.93 16.68,16.89 14.13,17.18 C14.54,17.54 14.91,18.25 14.91,19.34 V22.54 C14.91,22.85 15.12,23.22 15.71,23.1 A11.5,11.5 0 0 0 12,.7 Z" />
+                                                    <TextBlock Text="Star Wisp on GitHub" VerticalAlignment="Center" />
                                                 </StackPanel>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                    </StackPanel>
-                                    <StackPanel Width="440" Margin="10,0,10,24">
-                                    <Grid>
-                                        <StackPanel>
-                                            <TextBlock Text="BOOST + TIRE GAUGES" Style="{StaticResource EyebrowTextStyle}" />
-                                            <TextBlock Text="Shared boost and temperature palette" Foreground="{DynamicResource MutedBrush}"
-                                                       TextWrapping="Wrap" Margin="0,4,130,0" />
-                                        </StackPanel>
-                                        <Border HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="10,5">
-                                            <TextBlock x:Name="ActiveBoostThemeName" Text="Aqua"
-                                                       Foreground="{DynamicResource TextBrush}" FontSize="12"
-                                                       AutomationProperties.Name="Active boost and tire gauge theme" />
-                                        </Border>
-                                    </Grid>
-                                    <ListBox x:Name="BoostThemePicker" Margin="-4,14,-4,0" Padding="0"
-                                             Background="Transparent" BorderThickness="0"
-                                             ItemsSource="{x:Static local:BoostGaugeThemes.All}" SelectedValuePath="Name"
-                                             ItemContainerStyle="{StaticResource ThemeChoiceStyle}"
-                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                             SelectionChanged="BoostThemePicker_SelectionChanged"
-                                             AutomationProperties.Name="Boost and tire gauge color palette">
-                                        <ListBox.ItemsPanel>
-                                            <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
-                                        </ListBox.ItemsPanel>
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate DataType="{x:Type local:BoostGaugeTheme}">
-                                                <StackPanel>
-                                                    <Grid Height="30">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="*" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <Border Background="{Binding Low}" CornerRadius="4,0,0,4" />
-                                                        <Border Grid.Column="1" Background="{Binding Mid}" />
-                                                        <Border Grid.Column="2" Background="{Binding High}" CornerRadius="0,4,4,0" />
-                                                    </Grid>
-                                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}"
-                                                               AutomationProperties.Name="{Binding Name, StringFormat={}Boost and tire gauge theme: {0}}"
-                                                               FontSize="12" Margin="0,10,20,0" />
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                    </StackPanel>
-                                    </WrapPanel>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
                                 </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem x:Name="ReleaseNotesTab" Header="Release Notes">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <Decorator>
+                                <Viewbox x:Name="ReleaseNotesScaleView" Stretch="Uniform" StretchDirection="DownOnly"
+                                         HorizontalAlignment="Stretch" VerticalAlignment="Top">
+                                <StackPanel Margin="0,0,0,22"
+                                            Width="{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}">
+                                    <Border Style="{StaticResource CardStyle}">
+                                        <StackPanel>
+                                            <TextBlock Text="VERSION HISTORY" Style="{StaticResource EyebrowTextStyle}" />
+                                            <TextBlock Text="What changed in Wisp" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,0" />
+                                            <TextBlock Text="Feature updates, hotfixes, and important refinements from every documented public release. The current 1.0.10 entry summarizes this release."
+                                                       Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                                       LineHeight="19" Margin="0,7,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <ItemsControl ItemsSource="{x:Static local:ReleaseNotesCatalog.Entries}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type local:ReleaseNoteEntry}">
+                                                <Border Margin="0,14,0,0" Padding="22,20">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                                    <Setter Property="BorderThickness" Value="1.5" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="138" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Margin="0,0,22,0">
+                                                            <Border Background="{DynamicResource RaisedBrush}" CornerRadius="6"
+                                                                    Padding="8,4" HorizontalAlignment="Left">
+                                                                <TextBlock Text="{Binding Label}" FontSize="9" FontWeight="Bold"
+                                                                           Foreground="{DynamicResource AccentBrush}" />
+                                                            </Border>
+                                                            <TextBlock Text="{Binding Version, StringFormat=Version {0}}"
+                                                                       FontSize="20" FontWeight="SemiBold" Margin="0,12,0,0" />
+                                                            <TextBlock Text="{Binding Date}" Foreground="{DynamicResource FaintBrush}"
+                                                                       FontSize="10" TextWrapping="Wrap" Margin="0,5,0,0" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1">
+                                                            <TextBlock Text="{Binding Summary}" FontSize="15" FontWeight="SemiBold"
+                                                                       TextWrapping="Wrap" LineHeight="21" />
+                                                            <ItemsControl ItemsSource="{Binding Groups}" Margin="0,7,0,0">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate DataType="{x:Type local:ReleaseNoteGroup}">
+                                                                        <StackPanel Margin="0,10,0,0">
+                                                                            <TextBlock Text="{Binding Heading}" Style="{StaticResource EyebrowTextStyle}" />
+                                                                            <ItemsControl ItemsSource="{Binding Items}" Margin="0,4,0,0">
+                                                                                <ItemsControl.ItemTemplate>
+                                                                                    <DataTemplate>
+                                                                                        <Grid Margin="0,3,0,0">
+                                                                                            <Grid.ColumnDefinitions>
+                                                                                                <ColumnDefinition Width="15" />
+                                                                                                <ColumnDefinition Width="*" />
+                                                                                            </Grid.ColumnDefinitions>
+                                                                                            <Ellipse Width="4" Height="4" Margin="1,7,0,0"
+                                                                                                     HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                                                     Fill="{DynamicResource AccentBrush}" />
+                                                                                            <TextBlock Grid.Column="1" Text="{Binding}"
+                                                                                                       Foreground="{DynamicResource MutedBrush}"
+                                                                                                       TextWrapping="Wrap" LineHeight="18" FontSize="11" />
+                                                                                        </Grid>
+                                                                                    </DataTemplate>
+                                                                                </ItemsControl.ItemTemplate>
+                                                                            </ItemsControl>
+                                                                        </StackPanel>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                                </Viewbox>
+                                </Decorator>
                             </ScrollViewer>
                         </TabItem>
                     </TabControl>
                 </Grid>
             </Grid>
 
+            <Grid x:Name="HudProfileDialog" Grid.RowSpan="3" Panel.ZIndex="110"
+                  Background="#E6090C11" Visibility="Collapsed" Focusable="True"
+                  KeyboardNavigation.TabNavigation="Cycle"
+                  KeyDown="HudProfileDialog_KeyDown"
+                  AutomationProperties.Name="HUD profile confirmation">
+                <Border Width="480" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Style="{StaticResource CardStyle}" BorderThickness="0" Padding="30">
+                    <StackPanel>
+                        <Border Width="46" Height="46" CornerRadius="12"
+                                HorizontalAlignment="Left" Background="{DynamicResource RaisedBrush}"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1">
+                            <Grid Margin="12">
+                                <Rectangle Height="4" VerticalAlignment="Top" RadiusX="2" RadiusY="2"
+                                           Fill="{DynamicResource AccentBrush}" />
+                                <Rectangle Height="4" VerticalAlignment="Center" RadiusX="2" RadiusY="2"
+                                           Fill="{DynamicResource AccentBrush}" />
+                                <Rectangle Height="4" VerticalAlignment="Bottom" RadiusX="2" RadiusY="2"
+                                           Fill="{DynamicResource AccentBrush}" />
+                            </Grid>
+                        </Border>
+                        <TextBlock x:Name="HudProfileDialogTitle" FontSize="24" FontWeight="SemiBold"
+                                   Margin="0,20,0,0" />
+                        <TextBlock x:Name="HudProfileDialogDescription"
+                                   Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   LineHeight="20" Margin="0,9,0,0" />
+                        <StackPanel x:Name="HudProfileNamePanel" Margin="0,20,0,0">
+                            <TextBlock Text="PROFILE NAME" Style="{StaticResource EyebrowTextStyle}" />
+                            <TextBox x:Name="HudProfileNameInput" MaxLength="40" Margin="0,7,0,0"
+                                     Padding="12,9" KeyDown="HudProfileNameInput_KeyDown"
+                                     AutomationProperties.Name="HUD profile name" />
+                        </StackPanel>
+                        <TextBlock x:Name="HudProfileDialogError" Visibility="Collapsed"
+                                   Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap"
+                                   Margin="0,10,0,0" AutomationProperties.LiveSetting="Assertive" />
+                        <TextBlock Text="Calibration, positions, telemetry, startup, update, and debug settings are never included."
+                                   Foreground="{DynamicResource FaintBrush}" FontSize="11"
+                                   TextWrapping="Wrap" Margin="0,15,0,0" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,26,0,0">
+                            <Button Content="Cancel" MinWidth="104" Margin="0,0,10,0"
+                                    Click="CancelHudProfileDialog_Click" />
+                            <Button x:Name="ConfirmHudProfileButton" MinWidth="150"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    AutomationProperties.Name="Confirm profile action"
+                                    Click="ConfirmHudProfileDialog_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid x:Name="ApplicationUpdateConfirmation" Grid.RowSpan="3" Panel.ZIndex="100"
+                  Background="#E6090C11" Visibility="Collapsed" Focusable="True"
+                  KeyboardNavigation.TabNavigation="Cycle"
+                  KeyDown="ApplicationUpdateConfirmation_KeyDown"
+                  AutomationProperties.Name="Confirm Wisp update">
+                <Border Width="480" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Style="{StaticResource CardStyle}" BorderBrush="{DynamicResource AccentBrush}"
+                        BorderThickness="1.5" Padding="30">
+                    <StackPanel>
+                        <Border Width="46" Height="46" CornerRadius="23"
+                                HorizontalAlignment="Left" Background="{DynamicResource RaisedBrush}"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1">
+                            <TextBlock Text="↓" FontSize="24" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="Ready to update Wisp?" FontSize="24" FontWeight="SemiBold"
+                                   Margin="0,20,0,0" />
+                        <TextBlock x:Name="ApplicationUpdateConfirmationVersion" FontSize="14"
+                                   Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"
+                                   Margin="0,7,0,0" />
+                        <Border x:Name="ApplicationUpdateConfirmationDetails" Visibility="Collapsed"
+                                Background="{DynamicResource RaisedBrush}" CornerRadius="8"
+                                Padding="14,11" Margin="0,18,0,0">
+                            <StackPanel>
+                                <TextBlock Text="What's new" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource AccentBrush}" />
+                                <ScrollViewer MaxHeight="76" Margin="0,6,0,0"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <TextBlock x:Name="ApplicationUpdateConfirmationSummary"
+                                               Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap"
+                                               LineHeight="19"
+                                               AutomationProperties.Name="Release summary" />
+                                </ScrollViewer>
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="Wisp will download the immutable installer, verify its version, size, and SHA-256, then restart to finish installation."
+                                   Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   LineHeight="20" Margin="0,18,0,0" />
+                        <TextBlock Text="Nothing downloads until you confirm."
+                                   Foreground="{DynamicResource FaintBrush}" FontSize="11"
+                                   Margin="0,9,0,0" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,26,0,0">
+                            <Button Content="Cancel" MinWidth="104" Margin="0,0,10,0"
+                                    Click="CancelApplicationUpdate_Click" />
+                            <Button x:Name="ConfirmApplicationUpdateButton" Content="Confirm update"
+                                    MinWidth="150" Style="{StaticResource PrimaryButtonStyle}"
+                                    Click="ConfirmApplicationUpdate_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
             <Grid Grid.Row="2" Margin="29,0">
                 <TextBlock Text="LOCAL DATA OUT  ·  READ-ONLY NATIVE HUD  ·  NO INJECTION" VerticalAlignment="Center"
                            FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource FaintBrush}" />
-                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.8" HorizontalAlignment="Right" VerticalAlignment="Center"
+                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.10" HorizontalAlignment="Right" VerticalAlignment="Center"
                            FontSize="10" Foreground="{DynamicResource FaintBrush}" />
             </Grid>
         </Grid>

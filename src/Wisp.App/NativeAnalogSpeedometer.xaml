@@ -70,12 +70,24 @@
                         HorizontalAlignment="Right" Margin="0,0,12,1">
                 <Grid Width="60" Height="93" Margin="-4,0,0,0">
                     <Image x:Name="HundredsImage" Width="60" Height="93" Stretch="Fill" />
+                    <Rectangle Style="{StaticResource NativeTractionCueDigitStyle}"
+                               Opacity="{Binding Opacity, ElementName=HundredsImage}">
+                        <Rectangle.OpacityMask><ImageBrush ImageSource="{Binding Source, ElementName=HundredsImage}" /></Rectangle.OpacityMask>
+                    </Rectangle>
                 </Grid>
                 <Grid Width="60" Height="93" Margin="-4,0,0,0">
                     <Image x:Name="TensImage" Width="60" Height="93" Stretch="Fill" />
+                    <Rectangle Style="{StaticResource NativeTractionCueDigitStyle}"
+                               Opacity="{Binding Opacity, ElementName=TensImage}">
+                        <Rectangle.OpacityMask><ImageBrush ImageSource="{Binding Source, ElementName=TensImage}" /></Rectangle.OpacityMask>
+                    </Rectangle>
                 </Grid>
                 <Grid Width="60" Height="93" Margin="-4,0,0,0">
                     <Image x:Name="OnesImage" Width="60" Height="93" Stretch="Fill" />
+                    <Rectangle Style="{StaticResource NativeTractionCueDigitStyle}"
+                               Opacity="{Binding Opacity, ElementName=OnesImage}">
+                        <Rectangle.OpacityMask><ImageBrush ImageSource="{Binding Source, ElementName=OnesImage}" /></Rectangle.OpacityMask>
+                    </Rectangle>
                 </Grid>
             </StackPanel>
         </Grid>

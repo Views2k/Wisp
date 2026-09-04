@@ -33,6 +33,7 @@ internal static class ReleaseTestData
             ["draft"] = false,
             ["prerelease"] = false,
             ["immutable"] = true,
+            ["body"] = "A focused Wisp update.",
             ["assets"] = new JsonArray(asset),
             ["ignored_by_the_updater"] = "GitHub responses contain additional fields"
         };

@@ -53,8 +53,17 @@ public partial class OverlayWindow : Window
     {
         InitializeComponent();
         _controller = controller;
-        HudBorderThemeResources.Apply(Resources, controller.Settings.HudBorderTheme);
-        BoostGaugeThemeResources.Apply(Resources, controller.Settings.BoostGaugeTheme);
+        HudBorderThemeResources.Apply(
+            Resources,
+            controller.Settings.HudBorderTheme,
+            controller.Settings.CustomHudBorderColor);
+        BoostGaugeThemeResources.Apply(
+            Resources,
+            controller.Settings.BoostGaugeTheme,
+            controller.Settings.CustomBoostLowColor,
+            controller.Settings.CustomBoostMidColor,
+            controller.Settings.CustomBoostHighColor);
+        TractionCueThemeResources.Apply(Resources, ColorCustomization.ResolveTractionCue(controller.Settings));
         _windowDrag = new NonActivatingWindowDrag(this, controller.SaveOverlayPlacement);
         DataContext = controller.ViewModel;
         controller.ViewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -70,8 +79,21 @@ public partial class OverlayWindow : Window
     public void ApplyHudBorderTheme(string? themeName) =>
         HudBorderThemeResources.Apply(Resources, themeName);
 
+    public void ApplyHudBorderCustomization(string? themeName, string? customColor) =>
+        HudBorderThemeResources.Apply(Resources, themeName, customColor);
+
     public void ApplyBoostGaugeTheme(string? themeName) =>
         BoostGaugeThemeResources.Apply(Resources, themeName);
+
+    public void ApplyBoostGaugeCustomization(
+        string? themeName,
+        string? low,
+        string? mid,
+        string? high) =>
+        BoostGaugeThemeResources.Apply(Resources, themeName, low, mid, high);
+
+    public void ApplyTractionCueCustomization(Color color) =>
+        TractionCueThemeResources.Apply(Resources, color);
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

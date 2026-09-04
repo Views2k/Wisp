@@ -69,4 +69,26 @@ public sealed class TractionHookDetectorTests
         Assert.False(detector.Observe(spinning, null));
         Assert.False(detector.Observe(spinning, 0.3));
     }
+
+    [Fact]
+    public void StopClearsPriorSlipEvidence()
+    {
+        var detector = new TractionHookDetector();
+        var spinning = TestVehicleState.Create(
+            groundSpeed: 30,
+            wheelSpeed: new WheelValues(180, 180, 180, 180),
+            slipRatio: new WheelValues(0.7f, 0.7f, 0.7f, 0.7f));
+        var stopped = TestVehicleState.Create(
+            groundSpeed: 0,
+            wheelSpeed: new WheelValues(0, 0, 0, 0));
+        var cleanDriving = TestVehicleState.Create(
+            groundSpeed: 30,
+            wheelSpeed: new WheelValues(100, 100, 100, 100));
+
+        Assert.False(detector.Observe(spinning, 0.3));
+        Assert.False(detector.Observe(stopped, 0.3));
+        Assert.False(detector.Observe(cleanDriving, 0.3));
+        Assert.False(detector.Observe(cleanDriving, 0.3));
+        Assert.False(detector.Observe(cleanDriving, 0.3));
+    }
 }

@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using Wisp.App;
 using Wisp.Core;
@@ -311,6 +312,7 @@ public sealed class AppSettingsTests
             SettingsRevision = 2,
             UdpPort = 5250,
             SpeedUnit = (SpeedUnit)99,
+            TorqueUnit = (TorqueUnit)99,
             AggregationMode = (WheelAggregationMode)99,
             LayoutMode = (HudLayoutMode)99,
             NativeGaugeMode = (NativeGaugeMode)99,
@@ -328,6 +330,7 @@ public sealed class AppSettingsTests
 
         Assert.Equal(5500, settings.UdpPort);
         Assert.Equal(SpeedUnit.MilesPerHour, settings.SpeedUnit);
+        Assert.Equal(TorqueUnit.NewtonMeters, settings.TorqueUnit);
         Assert.Equal(SpeedSourceMode.WheelIndicated, settings.SpeedSource);
         Assert.Equal(WheelAggregationMode.RawDrivenWheels, settings.AggregationMode);
         Assert.Equal(HudLayoutMode.Minimal, settings.LayoutMode);

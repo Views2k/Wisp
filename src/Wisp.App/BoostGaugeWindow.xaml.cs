@@ -18,11 +18,19 @@ public partial class BoostGaugeWindow : Window
     {
         InitializeComponent();
         DataContext = controller.ViewModel;
-        BoostGaugeThemeResources.Apply(Resources, controller.Settings.BoostGaugeTheme);
+        BoostGaugeThemeResources.Apply(
+            Resources,
+            controller.Settings.BoostGaugeTheme,
+            controller.Settings.CustomBoostLowColor,
+            controller.Settings.CustomBoostMidColor,
+            controller.Settings.CustomBoostHighColor);
         _windowDrag = new NonActivatingWindowDrag(this, controller.SaveBoostGaugePlacement);
     }
 
     public void ApplyBoostGaugeTheme(string? name) => BoostGaugeThemeResources.Apply(Resources, name);
+
+    public void ApplyBoostGaugeCustomization(string? name, string? low, string? mid, string? high) =>
+        BoostGaugeThemeResources.Apply(Resources, name, low, mid, high);
 
     public void ApplyAppearance(double scale, double opacity)
     {
@@ -72,7 +80,18 @@ public partial class BoostGaugeWindow : Window
 
     public void RestorePosition(double left, double top)
     {
-        var position = OverlayPlacementGeometry.ClampInside(CurrentMonitorWorkArea(), new Size(Width, Height), new Point(left, top));
+        if (!double.IsFinite(left) || !double.IsFinite(top))
+        {
+            return;
+        }
+
+        _ = new WindowInteropHelper(this).EnsureHandle();
+        Left = left;
+        Top = top;
+        var position = OverlayPlacementGeometry.ClampInside(
+            CurrentMonitorWorkArea(),
+            new Size(Width, Height),
+            new Point(left, top));
         Left = position.X;
         Top = position.Y;
     }

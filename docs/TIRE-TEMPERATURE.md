@@ -23,8 +23,8 @@ readout and scale labels.
 
 Digital mode uses one neutral rail with two thin marker lines. Front and Rear
 remain separate readings, but the rail is not filled and has no temperature
-redline. The markers use two neighboring solid colors from the selected boost
-palette when reactive colors are enabled.
+redline. The markers use two neighboring solid colors from the shared gauge
+gradient when reactive colors are enabled.
 
 When attached, the tire-temperature rail sits directly below the boost rail and
 uses the same connector, spacing, slanted ends, and Native HUD line treatment.
@@ -48,6 +48,6 @@ Open **Appearance > Tire temperature** to change:
 - reactive marker and needle colors;
 - gauge size.
 
-The tire-temperature gauge uses the palette selected for the boost gauge. This
-keeps the stacked Native layout coordinated without adding a second competing
-palette setting.
+The tire-temperature gauge uses the shared gradient configured for the boost
+gauge. This keeps the stacked Native layout coordinated without adding a second
+competing color setting.

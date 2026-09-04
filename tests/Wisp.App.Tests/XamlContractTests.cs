@@ -25,8 +25,12 @@ public sealed class XamlContractTests
         "Click",
         "Checked",
         "Unchecked",
+        "PreviewKeyDown",
+        "LostKeyboardFocus",
         "ValueChanged",
-        "SelectionChanged"
+        "SelectionChanged",
+        "SelectedColorChanged",
+        "ResetRequested"
     ];
 
     private static readonly HashSet<string> InteractiveElements =
@@ -182,140 +186,176 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void ExtrasOffersFourIndependentAccessiblePalettePickers()
+    public void ExtrasOffersOneLargeColorEditorWithSevenSelectableTargets()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var extras = document.Descendants(Presentation + "TabItem")
             .Single(element => element.Attribute("Header")?.Value == "Extras");
-        var layout = extras.Descendants(Presentation + "WrapPanel")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ThemePickerLayout");
-        var pickerPanels = layout.Elements(Presentation + "StackPanel").ToArray();
+        var layout = extras.Descendants(Presentation + "Grid")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ColorEditorLayout");
+        var editors = layout.Elements(Local + "ColorWheelEditor").ToArray();
+        var selector = layout.Descendants(Presentation + "ListBox").Single(element =>
+            element.Attribute(Xaml + "Name")?.Value == "ColorTargetSelector");
+        var targets = selector.Elements(Presentation + "ListBoxItem")
+            .Select(element => element.Attribute("Content")?.Value)
+            .ToArray();
 
-        Assert.Equal("Center", layout.Attribute("HorizontalAlignment")?.Value);
-        Assert.Equal(4, pickerPanels.Length);
-        Assert.All(pickerPanels, panel =>
+        Assert.Equal("Stretch", layout.Attribute("HorizontalAlignment")?.Value);
+        var editor = Assert.Single(editors);
+        Assert.Null(editor.Attribute("Width"));
+        Assert.Equal("Stretch", editor.Attribute("HorizontalAlignment")?.Value);
+        Assert.Equal("ColorEditor_SelectedColorChanged", editor.Attribute("SelectedColorChanged")?.Value);
+        Assert.Equal("ColorTargetSelector_SelectionChanged", selector.Attribute("SelectionChanged")?.Value);
+        Assert.Equal(new[]
         {
-            Assert.Equal("440", panel.Attribute("Width")?.Value);
-            Assert.Equal("10,0,10,24", panel.Attribute("Margin")?.Value);
-        });
-
-        var accent = extras.Descendants(Presentation + "ListBox")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ThemePicker");
-        var background = extras.Descendants(Presentation + "ListBox")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "BackgroundThemePicker");
-        var hudBorder = extras.Descendants(Presentation + "ListBox")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "HudBorderThemePicker");
-        var boost = extras.Descendants(Presentation + "ListBox")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "BoostThemePicker");
-
-        Assert.Same(pickerPanels[0], accent.Parent);
-        Assert.Same(pickerPanels[1], background.Parent);
-        Assert.Same(pickerPanels[2], hudBorder.Parent);
-        Assert.Same(pickerPanels[3], boost.Parent);
-
-        AssertThemePickerContract(
-            accent,
-            "{x:Static local:AppColorThemes.All}",
-            "ThemePicker_SelectionChanged",
-            "App color palette",
-            "{x:Type local:AppColorTheme}",
-            "Accent theme: {0}",
-            ["Name", "Accent"]);
-        AssertThemePickerContract(
-            background,
-            "{x:Static local:AppBackgroundThemes.All}",
-            "BackgroundThemePicker_SelectionChanged",
-            "App background palette",
-            "{x:Type local:AppBackgroundTheme}",
-            "Background theme: {0}",
-            ["Name", "Window", "Panel", "Card", "Raised", "Stroke"]);
-        AssertThemePickerContract(
-            hudBorder,
-            "{x:Static local:AppColorThemes.All}",
-            "HudBorderThemePicker_SelectionChanged",
-            "HUD border color palette",
-            "{x:Type local:AppColorTheme}",
-            "HUD border theme: {0}",
-            ["Name", "Accent"]);
-        AssertThemePickerContract(
-            boost,
-            "{x:Static local:BoostGaugeThemes.All}",
-            "BoostThemePicker_SelectionChanged",
-            "Boost and tire gauge color palette",
-            "{x:Type local:BoostGaugeTheme}",
-            "Boost and tire gauge theme: {0}",
-            ["Name", "Low", "Mid", "High"]);
-
-        Assert.Equal(15, AppColorThemes.All.Count);
-        Assert.Equal(15, AppBackgroundThemes.All.Count);
-        Assert.Equal(16, BoostGaugeThemes.All.Count);
-        var activeBackground = extras.Descendants(Presentation + "TextBlock")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ActiveBackgroundThemeName");
-        Assert.Equal(AppBackgroundThemes.DefaultName, activeBackground.Attribute("Text")?.Value);
-        Assert.Equal("Active background theme", activeBackground.Attribute("AutomationProperties.Name")?.Value);
-        var activeHudBorder = extras.Descendants(Presentation + "TextBlock")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ActiveHudBorderThemeName");
-        Assert.Equal(AppColorThemes.DefaultName, activeHudBorder.Attribute("Text")?.Value);
-        Assert.Equal("Active HUD border theme", activeHudBorder.Attribute("AutomationProperties.Name")?.Value);
+            "App accent", "Background and surfaces", "HUD border",
+            "Gauge start", "Gauge middle", "Gauge end", "Traction hook cue"
+        }, targets);
+        Assert.Empty(layout.Descendants(Presentation + "ComboBox"));
+        Assert.DoesNotContain(extras.Descendants(Presentation + "ListBox"), element =>
+            (element.Attribute("AutomationProperties.Name")?.Value ?? string.Empty).Contains("palette", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(document.Descendants(Presentation + "Button"), element =>
+            element.Attribute("Content")?.Value == "Use current theme");
 
         var footer = document.Descendants(Presentation + "TextBlock")
             .Single(element => element.Attribute("Text")?.Value?.StartsWith(
                 "WHEEL-INDICATED SPEED PANEL", StringComparison.Ordinal) == true);
-        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.8", footer.Attribute("Text")?.Value);
+        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.10", footer.Attribute("Text")?.Value);
     }
 
     [Fact]
-    public void MainWindowKeepsAllThreePaletteSelectionsIndependent()
+    public void ColorWheelRemainsReadableWhenSelectedBrightnessIsLow()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "ColorWheelEditor.xaml"));
+        var source = File.ReadAllText(Path.Combine(AppSourceDirectory(), "ColorWheelEditor.xaml.cs"));
+
+        Assert.DoesNotContain(document.Descendants(), element =>
+            element.Attribute(Xaml + "Name")?.Value == "WheelShade");
+        Assert.Single(document.Descendants(Presentation + "Slider"), element =>
+            element.Attribute(Xaml + "Name")?.Value == "BrightnessSlider");
+        Assert.Contains("ColorCustomization.FromHsv(_hue, _saturation, _brightness, _opacity)",
+            source, StringComparison.Ordinal);
+        Assert.DoesNotContain("1 - _brightness", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProfilesHaveOneDedicatedPageAndAStyledSaveConfirmation()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var appearance = document.Descendants(Presentation + "TabItem")
+            .Single(element => element.Attribute("Header")?.Value == "Appearance");
+        var profiles = document.Descendants(Presentation + "TabItem")
+            .Single(element => element.Attribute("Header")?.Value == "Profiles");
+        var extras = document.Descendants(Presentation + "TabItem")
+            .Single(element => element.Attribute("Header")?.Value == "Extras");
+        var saveButtons = document.Descendants(Presentation + "Button")
+            .Where(element => element.Attribute("Click")?.Value == "SaveHudProfile_Click")
+            .ToArray();
+
+        Assert.Single(saveButtons);
+        Assert.Contains(saveButtons, button => appearance.Descendants().Contains(button));
+        Assert.DoesNotContain(saveButtons, button => profiles.Descendants().Contains(button));
+        Assert.DoesNotContain(saveButtons, button => extras.Descendants().Contains(button));
+        Assert.Single(profiles.Descendants(Presentation + "ListBox"), element =>
+            element.Attribute(Xaml + "Name")?.Value == "HudProfileList");
+        foreach (var action in new[] { "Apply", "Update", "Rename", "Delete" })
+        {
+            Assert.Single(profiles.Descendants(Presentation + "Button"), element =>
+                element.Attribute("Content")?.Value == action);
+        }
+
+        var dialog = document.Descendants(Presentation + "Grid")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "HudProfileDialog");
+        Assert.Equal("Collapsed", dialog.Attribute("Visibility")?.Value);
+        Assert.Equal("Cycle", dialog.Attribute("KeyboardNavigation.TabNavigation")?.Value);
+        Assert.Equal("HudProfileDialog_KeyDown", dialog.Attribute("KeyDown")?.Value);
+        Assert.Equal("0", dialog.Elements(Presentation + "Border").Single().Attribute("BorderThickness")?.Value);
+        Assert.Single(dialog.Descendants(Presentation + "TextBox"), element =>
+            element.Attribute(Xaml + "Name")?.Value == "HudProfileNameInput" &&
+            element.Attribute("MaxLength")?.Value == HudPreset.MaximumNameLength.ToString());
+        Assert.Single(dialog.Descendants(Presentation + "Button"), element =>
+            element.Attribute("Click")?.Value == "ConfirmHudProfileDialog_Click");
+    }
+
+    [Fact]
+    public void ApplyingAProfileCarriesThePreviousLayoutIntoPlacementRestoration()
+    {
+        var source = File.ReadAllText(Path.Combine(AppSourceDirectory(), "AppController.cs"));
+        var apply = Regex.Match(
+            source,
+            @"public bool TryApplyHudPreset.*?(?=\r?\n    private void SyncHudPresetToViewModel)",
+            RegexOptions.Singleline).Value;
+
+        Assert.Matches(
+            @"previousLayoutMode = Settings\.LayoutMode;\s*var previousNativeGaugeMode = Settings\.NativeGaugeMode;\s*preset\.ApplyTo\(Settings\);",
+            apply);
+        Assert.Contains(
+            "ApplyViewOptions(previousLayoutMode, previousNativeGaugeMode)",
+            apply,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MainWindowKeepsAllColorCustomizationsIndependent()
     {
         var code = File.ReadAllText(Path.Combine(AppSourceDirectory(), "MainWindow.xaml.cs"));
         var constructor = Regex.Match(
             code,
             @"public MainWindow\(AppController controller\).*?(?=\r?\n    private void )",
             RegexOptions.Singleline).Value;
-        var accentHandler = Regex.Match(
-            code,
-            @"private void ThemePicker_SelectionChanged.*?(?=\r?\n    private void )",
-            RegexOptions.Singleline).Value;
-        var backgroundHandler = Regex.Match(
-            code,
-            @"private void BackgroundThemePicker_SelectionChanged.*?(?=\r?\n    private void )",
-            RegexOptions.Singleline).Value;
-        var hudBorderHandler = Regex.Match(
-            code,
-            @"private void HudBorderThemePicker_SelectionChanged.*?(?=\r?\n    private void )",
-            RegexOptions.Singleline).Value;
+        var targetLoader = Handler(code, "LoadSelectedColorTarget");
+        var colorHandler = Handler(code, "ColorEditor_SelectedColorChanged");
 
         Assert.Contains("AppColorThemes.Resolve(controller.Settings.ColorTheme)", constructor, StringComparison.Ordinal);
         Assert.Contains("AppBackgroundThemes.Resolve(controller.Settings.BackgroundTheme)", constructor, StringComparison.Ordinal);
         Assert.Contains("AppColorThemes.Resolve(controller.Settings.HudBorderTheme)", constructor, StringComparison.Ordinal);
-        Assert.Contains("AppThemeResources.Apply(Resources, accentTheme, backgroundTheme)", constructor, StringComparison.Ordinal);
-        Assert.Contains("HudBorderThemeResources.Apply(Resources, hudBorderTheme)", constructor, StringComparison.Ordinal);
-        Assert.Contains("ThemePicker.SelectedValue = accentTheme.Name", constructor, StringComparison.Ordinal);
-        Assert.Contains("BackgroundThemePicker.SelectedValue = backgroundTheme.Name", constructor, StringComparison.Ordinal);
-        Assert.Contains("HudBorderThemePicker.SelectedValue = hudBorderTheme.Name", constructor, StringComparison.Ordinal);
+        Assert.Contains("controller.Settings.CustomAccentColor", constructor, StringComparison.Ordinal);
+        Assert.Contains("controller.Settings.CustomBackgroundColor", constructor, StringComparison.Ordinal);
+        Assert.Contains("controller.Settings.CustomHudBorderColor", constructor, StringComparison.Ordinal);
+        Assert.Contains("controller.Settings.CustomBoostLowColor", constructor, StringComparison.Ordinal);
+        Assert.Contains("ColorCustomization.ResolveTractionCue(controller.Settings)", constructor, StringComparison.Ordinal);
 
-        Assert.Contains("AppThemeResources.Apply(Resources, accentTheme, backgroundTheme)", accentHandler, StringComparison.Ordinal);
-        Assert.Contains("_controller.SetColorTheme(accentTheme.Name)", accentHandler, StringComparison.Ordinal);
-        Assert.DoesNotContain("SetBackgroundTheme", accentHandler, StringComparison.Ordinal);
+        Assert.Contains("MinimumOpacity = 0.82", targetLoader, StringComparison.Ordinal);
+        Assert.Contains("MaximumBrightness = 0.34", targetLoader, StringComparison.Ordinal);
+        Assert.Contains("_controller.SetCustomAccentColor(value)", colorHandler, StringComparison.Ordinal);
+        Assert.Contains("_controller.SetCustomBackgroundColor(value)", colorHandler, StringComparison.Ordinal);
+        Assert.Contains("_controller.SetCustomHudBorderColor(value)", colorHandler, StringComparison.Ordinal);
+        Assert.Contains("ApplyGaugeColors(", colorHandler, StringComparison.Ordinal);
+        Assert.Contains("_controller.SetCustomTractionCueColor(value)", colorHandler, StringComparison.Ordinal);
+    }
 
-        var applyBackground = backgroundHandler.IndexOf(
-            "AppThemeResources.Apply(Resources, accentTheme, backgroundTheme)",
-            StringComparison.Ordinal);
-        var persistBackground = backgroundHandler.IndexOf(
-            "_controller.SetBackgroundTheme(backgroundTheme.Name)",
-            StringComparison.Ordinal);
-        Assert.True(applyBackground >= 0 && persistBackground > applyBackground);
-        Assert.DoesNotContain("SetColorTheme", backgroundHandler, StringComparison.Ordinal);
+    [Fact]
+    public void EveryNativeSpeedReadoutDisplaysTheTractionHookCue()
+    {
+        var app = LoadXaml(Path.Combine(AppSourceDirectory(), "App.xaml"));
+        var style = app.Descendants(Presentation + "Style")
+            .Single(element => element.Attribute(Xaml + "Key")?.Value == "NativeTractionCueDigitStyle");
+        Assert.Single(style.Elements(Presentation + "Setter"), setter =>
+            setter.Attribute("Property")?.Value == "Fill" &&
+            setter.Attribute("Value")?.Value == "{DynamicResource TractionCueBrush}");
+        Assert.Single(style.Descendants(Presentation + "DataTrigger"), trigger =>
+            trigger.Attribute("Binding")?.Value.Contains("IsTractionCueActive", StringComparison.Ordinal) == true &&
+            trigger.Attribute("Value")?.Value == "True");
 
-        var applyHudBorder = hudBorderHandler.IndexOf(
-            "HudBorderThemeResources.Apply(Resources, hudBorderTheme)",
-            StringComparison.Ordinal);
-        var persistHudBorder = hudBorderHandler.IndexOf(
-            "_controller.SetHudBorderTheme(hudBorderTheme.Name)",
-            StringComparison.Ordinal);
-        Assert.True(applyHudBorder >= 0 && persistHudBorder > applyHudBorder);
-        Assert.DoesNotContain("SetColorTheme", hudBorderHandler, StringComparison.Ordinal);
-        Assert.DoesNotContain("SetBackgroundTheme", hudBorderHandler, StringComparison.Ordinal);
+        foreach (var file in new[]
+                 {
+                     "NativeDigitalSpeedometer.xaml", "NativeAnalogSpeedometer.xaml",
+                     "NativeElectricDigitalSpeedometer.xaml", "NativeElectricAnalogSpeedometer.xaml"
+                 })
+        {
+            var document = LoadXaml(Path.Combine(AppSourceDirectory(), file));
+            var cueDigits = document.Descendants(Presentation + "Rectangle")
+                .Where(element => element.Attribute("Style")?.Value.Contains(
+                    "NativeTractionCueDigitStyle", StringComparison.Ordinal) == true)
+                .ToArray();
+            Assert.Equal(3, cueDigits.Length);
+            Assert.All(cueDigits, digit =>
+            {
+                Assert.Contains("Opacity", digit.Attribute("Opacity")?.Value, StringComparison.Ordinal);
+                Assert.Single(digit.Descendants(Presentation + "ImageBrush"), brush =>
+                    brush.Attribute("ImageSource")?.Value.Contains("Image", StringComparison.Ordinal) == true);
+            });
+        }
     }
 
     [Fact]
@@ -335,6 +375,31 @@ public sealed class XamlContractTests
             .SetMethod!.IsPublic);
         Assert.DoesNotContain(document.Descendants(Presentation + "TextBlock"),
             element => element.Attribute("Text")?.Value == "Native HUD state");
+    }
+
+    [Fact]
+    public void OverlayVisibilityShortcutHasAnOptInEditorAndDiagnosticStatus()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var enabled = Assert.Single(document.Descendants(Presentation + "CheckBox"), element =>
+            BindingPath(element.Attribute("IsChecked")?.Value) ==
+            nameof(DiagnosticsViewModel.OverlayHotkeyEnabled));
+        var editor = Assert.Single(document.Descendants(Presentation + "Button"), element =>
+            element.Attribute(Xaml + "Name")?.Value == "OverlayHotkeyCaptureButton");
+        var statuses = document.Descendants(Presentation + "TextBlock")
+            .Where(element => BindingPath(element.Attribute("Text")?.Value) ==
+                              nameof(DiagnosticsViewModel.OverlayHotkeyStatus))
+            .ToArray();
+
+        Assert.Equal("Option_Changed", enabled.Attribute("Checked")?.Value);
+        Assert.Equal(nameof(DiagnosticsViewModel.OverlayHotkeyText),
+            BindingPath(editor.Attribute("Content")?.Value));
+        Assert.Equal("OverlayHotkeyCapture_Click", editor.Attribute("Click")?.Value);
+        Assert.Contains(statuses, element => element.Parent!.Elements(Presentation + "TextBlock")
+            .Any(sibling => sibling.Attribute("Text")?.Value == "Visibility shortcut"));
+        Assert.Contains(statuses, element =>
+            element.Ancestors(Presentation + "StackPanel").Any(ancestor =>
+                ancestor.Descendants(Presentation + "CheckBox").Contains(enabled)));
     }
 
     [Fact]
@@ -800,6 +865,43 @@ public sealed class XamlContractTests
     }
 
     [Fact]
+    public void DebugLoggingIsExplicitLocalOptInBesideCompatibilityImport()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var importButton = document.Descendants(Presentation + "Button")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "CompatibilityImportButton");
+        var toggle = document.Descendants(Presentation + "CheckBox")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "DebugLoggingToggle");
+
+        Assert.Same(importButton.Parent, toggle.Parent);
+        Assert.Equal(nameof(DiagnosticsViewModel.DebugLoggingEnabled),
+            BindingPath(toggle.Attribute("IsChecked")?.Value));
+        Assert.Equal("DebugLoggingToggle_Click", toggle.Attribute("Click")?.Value);
+        Assert.Equal("{StaticResource ToggleSwitchStyle}", toggle.Attribute("Style")?.Value);
+        var status = document.Descendants(Presentation + "TextBlock")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "DebugLoggingStatusText");
+        Assert.Equal(nameof(DiagnosticsViewModel.DebugLoggingStatus), BindingPath(status.Attribute("Text")?.Value));
+        Assert.Equal("SemiBold", status.Attribute("FontWeight")?.Value);
+        var privacyHelp = document.Descendants(Presentation + "TextBlock").Single(element =>
+            element.Attribute("Text")?.Value?.Contains("No raw packets", StringComparison.Ordinal) == true);
+        Assert.Equal("{DynamicResource FaintBrush}", privacyHelp.Attribute("Foreground")?.Value);
+        Assert.Single(document.Descendants(Presentation + "Button"), element =>
+            element.Attribute("Click")?.Value == "ExportDebugLogs_Click");
+        Assert.Single(document.Descendants(Presentation + "Button"), element =>
+            element.Attribute("Click")?.Value == "DeleteDebugLogs_Click");
+
+        var controllerSource = File.ReadAllText(Path.Combine(AppSourceDirectory(), "AppController.cs"));
+        var loggerSource = File.ReadAllText(Path.Combine(AppSourceDirectory(), "DebugLogging", "DebugLogService.cs"));
+        Assert.Contains("CaptureDebugSample(now, latest, connectionState, age)", controllerSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("DispatcherTimer", loggerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("HttpClient", loggerSource, StringComparison.Ordinal);
+        Assert.Contains("BoundedChannelFullMode.Wait", loggerSource, StringComparison.Ordinal);
+        Assert.Contains("_records.Writer.TryWrite", loggerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("_records.Writer.WriteAsync", loggerSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NativeLayoutExposesBothGaugeModesAndIndependentAxisControls()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
@@ -893,7 +995,7 @@ public sealed class XamlContractTests
         var scrollViewers = tabs.Elements(Presentation + "TabItem")
             .Select(tab => Assert.Single(tab.Descendants(Presentation + "ScrollViewer")))
             .ToArray();
-        Assert.Equal(5, scrollViewers.Length);
+        Assert.Equal(7, scrollViewers.Length);
         Assert.All(
             scrollViewers,
             scrollViewer => Assert.Equal(
@@ -904,10 +1006,12 @@ public sealed class XamlContractTests
             .Where(element => element.Attribute(Xaml + "Name")?.Value is
                 "DashboardScaleView" or
                 "AppearanceScaleView" or
+                "ProfilesScaleView" or
                 "DiagnosticsScaleView" or
-                "SetupScaleView")
+                "SetupScaleView" or
+                "ReleaseNotesScaleView")
             .ToArray();
-        Assert.Equal(4, scaleViews.Length);
+        Assert.Equal(6, scaleViews.Length);
         foreach (var viewbox in scaleViews)
         {
             // Scroll offsets must move a lightweight parent, not recreate the
@@ -1162,6 +1266,26 @@ public sealed class XamlContractTests
         Assert.Empty(failures);
     }
 
+    [Fact]
+    public void UpdateConfirmationShowsReleaseDetailsAsPlainWrappedText()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var details = document.Descendants(Presentation + "Border")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ApplicationUpdateConfirmationDetails");
+        var summary = details.Descendants(Presentation + "TextBlock")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ApplicationUpdateConfirmationSummary");
+        var summaryViewport = details.Descendants(Presentation + "ScrollViewer").Single();
+
+        Assert.Equal("Collapsed", details.Attribute("Visibility")?.Value);
+        Assert.Equal("Wrap", summary.Attribute("TextWrapping")?.Value);
+        Assert.Equal("76", summaryViewport.Attribute("MaxHeight")?.Value);
+        Assert.Equal("Auto", summaryViewport.Attribute("VerticalScrollBarVisibility")?.Value);
+        Assert.Empty(summary.Descendants(Presentation + "Hyperlink"));
+
+        var code = File.ReadAllText(Path.Combine(AppSourceDirectory(), "MainWindow.xaml.cs"));
+        Assert.Contains("ApplicationUpdateConfirmationSummary.Text = details.ReleaseSummary;", code, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("OverlayWindow.xaml", "BoxedSpeedBorder")]
     [InlineData("OverlayWindow.xaml", "CombinedBorder")]
@@ -1255,6 +1379,11 @@ public sealed class XamlContractTests
         Assert.Subset(requiredBindings.ToHashSet(StringComparer.Ordinal), bindings);
     }
 
+    private static string Handler(string source, string name) => Regex.Match(
+        source,
+        $@"private void {Regex.Escape(name)}.*?(?=\r?\n    private void )",
+        RegexOptions.Singleline).Value;
+
     private static bool IsRoutedHandlerAttribute(XAttribute attribute)
     {
         var name = attribute.Name.LocalName;
@@ -1266,10 +1395,26 @@ public sealed class XamlContractTests
         if (binding.Contains("RelativeSource", StringComparison.Ordinal))
         {
             var ancestor = AncestorTypePattern.Match(binding);
-            return ancestor.Success
-                ? typeof(System.Windows.Controls.Control).Assembly.GetType(
-                    $"System.Windows.Controls.{ancestor.Groups["type"].Value}")
-                : null;
+            if (!ancestor.Success)
+            {
+                return null;
+            }
+
+            var ancestorName = ancestor.Groups["type"].Value;
+            if (ancestorName == "UserControl" && document?.Root is { } root)
+            {
+                var className = root.Attribute(Xaml + "Class")?.Value;
+                var ownerType = className is null
+                    ? null
+                    : typeof(DiagnosticsViewModel).Assembly.GetType(className);
+                if (ownerType is not null)
+                {
+                    return ownerType;
+                }
+            }
+
+            return typeof(System.Windows.Controls.Control).Assembly.GetType(
+                $"System.Windows.Controls.{ancestorName}");
         }
 
         var elementName = Regex.Match(binding, @"\bElementName\s*=\s*(?<name>[A-Za-z_][A-Za-z0-9_]*)");

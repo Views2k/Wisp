@@ -23,7 +23,8 @@ internal static class Program
 {
     private static readonly (string Name, int Width, int Height)[] Viewports =
         [("baseline", 980, 750), ("compact", 720, 440), ("wide", 1280, 900), ("fullscreen", 2560, 1440)];
-    private static readonly string[] TabNames = ["dashboard", "appearance", "diagnostics", "setup", "extras"];
+    private static readonly string[] TabNames =
+        ["dashboard", "appearance", "diagnostics", "profiles", "setup", "extras", "release-notes"];
     private static readonly (string Name, int Width, int Height)[] WizardViewports =
         [("baseline", 800, 730), ("compact", 540, 440), ("wide", 840, 760), ("launch", 900, 780)];
     private static readonly string[] WizardStepNames = ["welcome", "connection", "display", "appearance"];

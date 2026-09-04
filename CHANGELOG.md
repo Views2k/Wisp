@@ -2,6 +2,38 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.10 - 2026-09-04
+
+### Added
+
+- Added smoothed live torque to the Wheel Speed Ready card, with Nm and lb-ft units.
+- Added session top speed, peak power, and peak torque, with one reset action and automatic reset when the car changes.
+- Added an update-available Dashboard banner and an optional startup check limited to once every 24 hours. Downloads and installation still require confirmation.
+- Added a customizable global shortcut for showing or hiding the overlay.
+- Added bounded local debug logging with 24-hour automatic expiry and a ZIP export intended for GitHub issue reports.
+- Added one continuous color editor for the app accent, background surfaces, HUD border, three gauge-gradient colors, and traction hook cue.
+- Added named HUD profiles for complete visual combinations without changing tire calibration, placement, telemetry, startup, update, or debug settings.
+- Added in-app release notes and a direct GitHub star shortcut.
+
+### Changed
+
+- Update confirmation now shows the short summary supplied by the matching GitHub release before a download begins.
+- Consolidated the previous color choices into a themed element list and large focused editor with saturation, brightness, opacity, direct wheel selection, and exact color input.
+
+### Fixed
+
+- Preserved detached boost and tire-temperature positions across restarts and updates, including secondary-display placements.
+- Preserved the correct placement when a HUD profile changes layouts or switches between Native Digital and Native Analogue.
+- Included the selected torque unit when saving and applying HUD profiles.
+- Prevented expired native tachometer samples from interrupting the smooth RPM fallback during a reader stall.
+- Kept color-wheel selection independent from slider adjustments and made every point in the wheel selectable.
+- Kept very dark background colors visible and editable while maintaining readable surfaces.
+- Restored the traction-loss hook cue across Native HUD styles and cleared stale slip evidence after stopping.
+- Prevented simultaneous debug-log actions from waiting indefinitely.
+- Prevented a failed telemetry-listener start from leaving UI callbacks running.
+- Removed the duplicate profile-save action and simplified the profile confirmation dialog.
+- Styled the local debug logging control consistently with the rest of Wisp.
+
 ## 1.0.8 - 2026-09-03
 
 ### Added

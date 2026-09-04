@@ -23,12 +23,20 @@ public partial class TireTemperatureGaugeWindow : Window
     {
         InitializeComponent();
         DataContext = controller.ViewModel;
-        BoostGaugeThemeResources.Apply(Resources, controller.Settings.BoostGaugeTheme);
+        BoostGaugeThemeResources.Apply(
+            Resources,
+            controller.Settings.BoostGaugeTheme,
+            controller.Settings.CustomBoostLowColor,
+            controller.Settings.CustomBoostMidColor,
+            controller.Settings.CustomBoostHighColor);
         _windowDrag = new NonActivatingWindowDrag(this, controller.SaveTireTemperatureGaugePlacement);
         ApplyGaugeMode(controller.Settings.NativeGaugeMode);
     }
 
     public void ApplyBoostGaugeTheme(string? name) => BoostGaugeThemeResources.Apply(Resources, name);
+
+    public void ApplyBoostGaugeCustomization(string? name, string? low, string? mid, string? high) =>
+        BoostGaugeThemeResources.Apply(Resources, name, low, mid, high);
 
     public void ApplyGaugeMode(NativeGaugeMode mode)
     {
@@ -96,6 +104,14 @@ public partial class TireTemperatureGaugeWindow : Window
 
     public void RestorePosition(double left, double top)
     {
+        if (!double.IsFinite(left) || !double.IsFinite(top))
+        {
+            return;
+        }
+
+        _ = new WindowInteropHelper(this).EnsureHandle();
+        Left = left;
+        Top = top;
         var position = OverlayPlacementGeometry.ClampInside(
             CurrentMonitorWorkArea(),
             new Size(Width, Height),

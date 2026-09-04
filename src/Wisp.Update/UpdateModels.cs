@@ -9,13 +9,15 @@ public sealed class UpdateRelease
         string fileName,
         long size,
         string sha256,
-        Uri downloadUri)
+        Uri downloadUri,
+        string releaseSummary)
     {
         Version = version;
         FileName = fileName;
         Size = size;
         Sha256 = sha256;
         DownloadUri = downloadUri;
+        ReleaseSummary = releaseSummary;
     }
 
     public SemanticVersion Version { get; }
@@ -23,6 +25,7 @@ public sealed class UpdateRelease
     public long Size { get; }
     public string Sha256 { get; }
     public Uri DownloadUri { get; }
+    public string ReleaseSummary { get; }
 }
 
 public sealed class VerifiedInstaller

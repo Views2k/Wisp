@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Input;
 using Wisp.Core;
 using Wisp.Telemetry;
 
@@ -51,6 +52,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private int _udpPort;
     private string _udpPortText;
     private int _unitSelectionIndex;
+    private int _torqueUnitSelectionIndex;
     private int _speedSourceSelectionIndex;
     private double _overlayWidthScale;
     private double _overlayHeightScale;
@@ -82,24 +84,37 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private NativeGaugeFrame _nativeGaugeFrame;
     private bool _hasLiveTelemetry;
     private bool _gameAwareVisibility;
+    private bool _overlayHotkeyEnabled;
+    private OverlayHotkeyModifiers _overlayHotkeyModifiers;
+    private Key _overlayHotkeyKey;
+    private string _overlayHotkeyStatus = "Off";
     private bool _autoMinimizeOnTelemetry;
     private bool _startWithWindows;
     private bool _startWithForza;
     private bool _startMinimizedWithForza;
     private bool _animatedBackground;
+    private bool _automaticApplicationUpdateChecks;
+    private bool _debugLoggingEnabled;
+    private string _debugLoggingStatus = "Off — no debug files are created";
     private bool _tractionCueEnabled;
     private bool _isTractionCueActive;
     private bool _canRelearnCurrentTires;
     private string _dashboardPower = "—";
-    private string _applicationUpdateStatus = "Updates are checked only when requested.";
+    private string _dashboardTorque = "—";
+    private string _dashboardPeakPower = "—";
+    private string _dashboardPeakTorque = "—";
+    private string _dashboardTopSpeed = "—";
+    private string _applicationUpdateStatus = "Wisp checks for updates once daily. Downloads always require confirmation.";
     private string _applicationUpdateAction = "Check for updates";
     private bool _canCheckApplicationUpdate = true;
+    private bool _isApplicationUpdateAvailable;
 
     public DiagnosticsViewModel(AppSettings settings)
     {
         _udpPort = settings.UdpPort;
         _udpPortText = settings.UdpPort.ToString(CultureInfo.InvariantCulture);
         _unitSelectionIndex = settings.SpeedUnit == SpeedUnit.MilesPerHour ? 0 : 1;
+        _torqueUnitSelectionIndex = settings.TorqueUnit == TorqueUnit.NewtonMeters ? 0 : 1;
         _speedSourceSelectionIndex = (int)settings.SpeedSource;
         _overlayWidthScale = settings.OverlayWidthScale;
         _overlayHeightScale = settings.OverlayHeightScale;
@@ -128,11 +143,27 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         _invertLongitudinalG = settings.InvertLongitudinalG;
         _nativeGaugeFrame = NativeGaugeFrame.Empty(settings.SpeedUnit);
         _gameAwareVisibility = settings.GameAwareVisibility;
+        _overlayHotkeyEnabled = settings.OverlayHotkeyEnabled;
+        _overlayHotkeyModifiers = settings.OverlayHotkeyModifiers;
+        _overlayHotkeyKey = settings.OverlayHotkeyKey;
+        _overlayHotkeyStatus = settings.OverlayHotkeyEnabled
+            ? $"Ready — {OverlayHotkeyText}"
+            : $"Off — {OverlayHotkeyText}";
         _autoMinimizeOnTelemetry = settings.AutoMinimizeOnTelemetry;
         _startWithWindows = settings.StartWithWindows;
         _startWithForza = settings.StartWithForza;
         _startMinimizedWithForza = settings.StartMinimizedWithForza;
         _animatedBackground = settings.AnimatedBackground;
+        _automaticApplicationUpdateChecks = settings.AutomaticApplicationUpdateChecks;
+        _debugLoggingEnabled = settings.DebugLoggingEnabled;
+        if (_debugLoggingEnabled && settings.DebugLoggingExpiresAtUtc is { } expiresAtUtc)
+        {
+            _debugLoggingStatus = $"On — expires {expiresAtUtc.ToLocalTime():g} · local only";
+        }
+        if (!_automaticApplicationUpdateChecks)
+        {
+            _applicationUpdateStatus = "Automatic update checks are off. You can still check manually.";
+        }
         _tractionCueEnabled = settings.TractionCueEnabled;
     }
 
@@ -177,6 +208,8 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public string NativeCompatibilityUpdates { get => _nativeCompatibilityUpdates; private set => Set(ref _nativeCompatibilityUpdates, value); }
     public bool CanCheckNativeCompatibility { get => _canCheckNativeCompatibility; private set => Set(ref _canCheckNativeCompatibility, value); }
     public bool CanImportNativeCompatibility { get => _canImportNativeCompatibility; private set => Set(ref _canImportNativeCompatibility, value); }
+    public bool DebugLoggingEnabled { get => _debugLoggingEnabled; private set => Set(ref _debugLoggingEnabled, value); }
+    public string DebugLoggingStatus { get => _debugLoggingStatus; private set => Set(ref _debugLoggingStatus, value); }
     public string LateralGText { get => _lateralGText; private set => Set(ref _lateralGText, value); }
     public string LongitudinalGText { get => _longitudinalGText; private set => Set(ref _longitudinalGText, value); }
     public string GForceScaleText { get => _gForceScaleText; private set => Set(ref _gForceScaleText, value); }
@@ -198,9 +231,10 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         }
     }
     public string DashboardPower => HasLiveTelemetry ? _dashboardPower : "—";
-    public string DashboardTorque => HasLiveTelemetry
-        ? $"{NativeGaugeFrame.TorqueNm:+0;-0;0} Nm"
-        : "—";
+    public string DashboardTorque => HasLiveTelemetry ? _dashboardTorque : "—";
+    public string DashboardPeakPower => _dashboardPeakPower;
+    public string DashboardPeakTorque => _dashboardPeakTorque;
+    public string DashboardTopSpeed => _dashboardTopSpeed;
     public string DashboardVehicleType => HasLiveTelemetry
         ? NativeGaugeFrame.IsElectric ? "Electric" : "Combustion"
         : "—";
@@ -229,8 +263,15 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             {
                 if (!value)
                 {
-                    _dashboardPowerDisplayModel.Reset();
+                    _dashboardPowerDisplayModel.ResetCurrent();
                     _dashboardPower = "—";
+                    _dashboardTorque = "—";
+                    var retained = _dashboardPowerDisplayModel.Current(
+                        SelectedTorqueUnit,
+                        SelectedSpeedUnit);
+                    _dashboardPeakPower = retained.PeakPower;
+                    _dashboardPeakTorque = retained.PeakTorque;
+                    _dashboardTopSpeed = retained.TopSpeed;
                 }
 
                 OnPropertyChanged(nameof(IsPreviewLive));
@@ -238,6 +279,10 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(PreviewSpeed));
                 OnPropertyChanged(nameof(PreviewCaption));
                 OnPropertyChanged(nameof(DashboardPower));
+                OnPropertyChanged(nameof(DashboardTorque));
+                OnPropertyChanged(nameof(DashboardPeakPower));
+                OnPropertyChanged(nameof(DashboardPeakTorque));
+                OnPropertyChanged(nameof(DashboardTopSpeed));
                 NotifyDashboardFrame();
             }
         }
@@ -265,22 +310,68 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         ? TireTemperatureDisplay
         : HudPreviewSample.TireTemperature;
 
-    private void UpdateDashboardPower(VehicleState state)
+    private void UpdateDashboardPowertrain(
+        VehicleState state,
+        IndicatedSpeed speed,
+        SpeedUnit speedUnit)
     {
         var next = _dashboardPowerDisplayModel.Observe(
             state.CarOrdinal,
             state.GameTimestampMilliseconds,
-            state.PowerWatts);
-        if (string.Equals(_dashboardPower, next, StringComparison.Ordinal))
+            state.PowerWatts,
+            state.TorqueNm,
+            SelectedTorqueUnit,
+            speed.IsAvailable ? speed.MetersPerSecond : null,
+            speedUnit);
+        if (!string.Equals(_dashboardPower, next.Power, StringComparison.Ordinal))
         {
-            return;
+            _dashboardPower = next.Power;
+            if (HasLiveTelemetry)
+            {
+                OnPropertyChanged(nameof(DashboardPower));
+            }
         }
 
-        _dashboardPower = next;
-        if (HasLiveTelemetry)
+        if (!string.Equals(_dashboardTorque, next.Torque, StringComparison.Ordinal))
         {
-            OnPropertyChanged(nameof(DashboardPower));
+            _dashboardTorque = next.Torque;
+            if (HasLiveTelemetry)
+            {
+                OnPropertyChanged(nameof(DashboardTorque));
+            }
         }
+
+        if (!string.Equals(_dashboardPeakPower, next.PeakPower, StringComparison.Ordinal))
+        {
+            _dashboardPeakPower = next.PeakPower;
+            OnPropertyChanged(nameof(DashboardPeakPower));
+        }
+
+        if (!string.Equals(_dashboardPeakTorque, next.PeakTorque, StringComparison.Ordinal))
+        {
+            _dashboardPeakTorque = next.PeakTorque;
+            OnPropertyChanged(nameof(DashboardPeakTorque));
+        }
+
+        if (!string.Equals(_dashboardTopSpeed, next.TopSpeed, StringComparison.Ordinal))
+        {
+            _dashboardTopSpeed = next.TopSpeed;
+            OnPropertyChanged(nameof(DashboardTopSpeed));
+        }
+    }
+
+    public void ResetDashboardPeaks()
+    {
+        _dashboardPowerDisplayModel.ResetPeaks();
+        var current = _dashboardPowerDisplayModel.Current(
+            SelectedTorqueUnit,
+            SelectedSpeedUnit);
+        _dashboardPeakPower = current.PeakPower;
+        _dashboardPeakTorque = current.PeakTorque;
+        _dashboardTopSpeed = current.TopSpeed;
+        OnPropertyChanged(nameof(DashboardPeakPower));
+        OnPropertyChanged(nameof(DashboardPeakTorque));
+        OnPropertyChanged(nameof(DashboardTopSpeed));
     }
 
     private void NotifyDashboardFrame()
@@ -288,7 +379,6 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(DashboardSpeed));
         OnPropertyChanged(nameof(DashboardSpeedUnit));
         OnPropertyChanged(nameof(DashboardGear));
-        OnPropertyChanged(nameof(DashboardTorque));
         OnPropertyChanged(nameof(DashboardVehicleType));
     }
 
@@ -300,6 +390,12 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         CanImportNativeCompatibility = canImport;
     }
 
+    public void UpdateDebugLogging(bool enabled, string status)
+    {
+        DebugLoggingEnabled = enabled;
+        DebugLoggingStatus = status;
+    }
+
     public void UpdateNativeGameplayVisibility(NativeGameplayVisibility visibility, bool fresh)
     {
         GameplayHudVisibility = visibility switch
@@ -309,6 +405,8 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             _ => "Unavailable"
         };
     }
+
+    public void UpdateOverlayHotkeyStatus(string status) => OverlayHotkeyStatus = status;
 
     public int UdpPort
     {
@@ -328,11 +426,47 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         {
             if (Set(ref _unitSelectionIndex, value))
             {
+                var reformatted = _dashboardPowerDisplayModel.Current(
+                    SelectedTorqueUnit,
+                    SelectedSpeedUnit);
+                _dashboardTopSpeed = reformatted.TopSpeed;
                 OnPropertyChanged(nameof(NativePreviewFrame));
                 OnPropertyChanged(nameof(PreviewSpeed));
+                OnPropertyChanged(nameof(DashboardTopSpeed));
             }
         }
     }
+    public int TorqueUnitSelectionIndex
+    {
+        get => _torqueUnitSelectionIndex;
+        set
+        {
+            var normalized = value == 1 ? 1 : 0;
+            if (!Set(ref _torqueUnitSelectionIndex, normalized))
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(SelectedTorqueUnit));
+            var reformatted = _dashboardPowerDisplayModel.Current(
+                SelectedTorqueUnit,
+                SelectedSpeedUnit);
+            _dashboardPower = reformatted.Power;
+            _dashboardTorque = reformatted.Torque;
+            _dashboardPeakPower = reformatted.PeakPower;
+            _dashboardPeakTorque = reformatted.PeakTorque;
+            OnPropertyChanged(nameof(DashboardPower));
+            OnPropertyChanged(nameof(DashboardTorque));
+            OnPropertyChanged(nameof(DashboardPeakPower));
+            OnPropertyChanged(nameof(DashboardPeakTorque));
+        }
+    }
+    public TorqueUnit SelectedTorqueUnit => TorqueUnitSelectionIndex == 1
+        ? TorqueUnit.PoundFeet
+        : TorqueUnit.NewtonMeters;
+    private SpeedUnit SelectedSpeedUnit => UnitSelectionIndex == 0
+        ? SpeedUnit.MilesPerHour
+        : SpeedUnit.KilometersPerHour;
     public int SpeedSourceSelectionIndex { get => _speedSourceSelectionIndex; set => Set(ref _speedSourceSelectionIndex, value); }
     public double OverlayWidthScale { get => _overlayWidthScale; set => Set(ref _overlayWidthScale, value); }
     public double OverlayHeightScale { get => _overlayHeightScale; set => Set(ref _overlayHeightScale, value); }
@@ -435,6 +569,31 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public bool IsNativeLayout => LayoutSelectionIndex == (int)HudLayoutMode.Native;
 
     public bool GameAwareVisibility { get => _gameAwareVisibility; set => Set(ref _gameAwareVisibility, value); }
+    public bool OverlayHotkeyEnabled { get => _overlayHotkeyEnabled; set => Set(ref _overlayHotkeyEnabled, value); }
+    public OverlayHotkeyModifiers OverlayHotkeyModifiers
+    {
+        get => _overlayHotkeyModifiers;
+        set
+        {
+            if (Set(ref _overlayHotkeyModifiers, value))
+            {
+                OnPropertyChanged(nameof(OverlayHotkeyText));
+            }
+        }
+    }
+    public Key OverlayHotkeyKey
+    {
+        get => _overlayHotkeyKey;
+        set
+        {
+            if (Set(ref _overlayHotkeyKey, value))
+            {
+                OnPropertyChanged(nameof(OverlayHotkeyText));
+            }
+        }
+    }
+    public string OverlayHotkeyText => new OverlayHotkeyChord(OverlayHotkeyModifiers, OverlayHotkeyKey).ToString();
+    public string OverlayHotkeyStatus { get => _overlayHotkeyStatus; private set => Set(ref _overlayHotkeyStatus, value); }
     public bool AutoMinimizeOnTelemetry { get => _autoMinimizeOnTelemetry; set => Set(ref _autoMinimizeOnTelemetry, value); }
     public bool StartWithWindows { get => _startWithWindows; set => Set(ref _startWithWindows, value); }
     public bool StartWithForza
@@ -451,6 +610,11 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public bool CanSetWindowsStartup => !StartWithForza;
     public bool StartMinimizedWithForza { get => _startMinimizedWithForza; set => Set(ref _startMinimizedWithForza, value); }
     public bool AnimatedBackground { get => _animatedBackground; set => Set(ref _animatedBackground, value); }
+    public bool AutomaticApplicationUpdateChecks
+    {
+        get => _automaticApplicationUpdateChecks;
+        set => Set(ref _automaticApplicationUpdateChecks, value);
+    }
     public bool TractionCueEnabled { get => _tractionCueEnabled; set => Set(ref _tractionCueEnabled, value); }
     public bool IsTractionCueActive { get => _isTractionCueActive; set => Set(ref _isTractionCueActive, value); }
     public bool CanRelearnCurrentTires { get => _canRelearnCurrentTires; private set => Set(ref _canRelearnCurrentTires, value); }
@@ -478,11 +642,22 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         private set => Set(ref _canCheckApplicationUpdate, value);
     }
 
-    public void UpdateApplicationUpdateStatus(string status, string action, bool canCheck)
+    public bool IsApplicationUpdateAvailable
+    {
+        get => _isApplicationUpdateAvailable;
+        private set => Set(ref _isApplicationUpdateAvailable, value);
+    }
+
+    public void UpdateApplicationUpdateStatus(
+        string status,
+        string action,
+        bool canCheck,
+        bool isUpdateAvailable = false)
     {
         ApplicationUpdateStatus = status;
         ApplicationUpdateAction = action;
         CanCheckApplicationUpdate = canCheck;
+        IsApplicationUpdateAvailable = isUpdateAvailable;
     }
 
     public void Update(
@@ -538,7 +713,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         TireTemperatureDisplay = _tireTemperatureDisplayModel.Calculate(
             state.CarOrdinal,
             state.TireTemperatureFahrenheit);
-        UpdateDashboardPower(state);
+        UpdateDashboardPowertrain(state, speed, unit);
         var nextNativeGaugeFrame = new NativeGaugeFrame(
             speed.IsAvailable,
             displayedSpeed,

@@ -80,6 +80,7 @@ public sealed class AppControllerOptionsTests
             await using (var controller = new AppController(settings, new SettingsService(settingsPath)))
             {
                 controller.ViewModel.UnitSelectionIndex = 1;
+                controller.ViewModel.TorqueUnitSelectionIndex = 1;
                 controller.ViewModel.SpeedSourceSelectionIndex = (int)SpeedSourceMode.Fh6VehicleSpeed;
                 controller.ViewModel.LayoutSelectionIndex = (int)HudLayoutMode.SeparateBoxes;
                 controller.ViewModel.NativeGaugeSelectionIndex = (int)NativeGaugeMode.Analogue;
@@ -112,6 +113,7 @@ public sealed class AppControllerOptionsTests
                 controller.ApplyViewOptions();
 
                 Assert.Equal(SpeedUnit.KilometersPerHour, settings.SpeedUnit);
+                Assert.Equal(TorqueUnit.PoundFeet, settings.TorqueUnit);
                 Assert.Equal(SpeedSourceMode.Fh6VehicleSpeed, settings.SpeedSource);
                 Assert.Equal(HudLayoutMode.SeparateBoxes, settings.LayoutMode);
                 Assert.Equal(NativeGaugeMode.Analogue, settings.NativeGaugeMode);

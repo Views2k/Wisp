@@ -1,0 +1,111 @@
+<UserControl x:Class="Wisp.App.ColorWheelEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="430" d:DesignHeight="310"
+             Focusable="False">
+    <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource StrokeBrush}"
+            BorderThickness="1" CornerRadius="12" Padding="18">
+        <StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="{Binding Title, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
+                               FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding Description, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
+                               Foreground="{DynamicResource MutedBrush}" FontSize="12" TextWrapping="Wrap"
+                               Margin="0,4,12,0" />
+                </StackPanel>
+                <Border Grid.Column="1" Width="42" Height="42" CornerRadius="8"
+                        BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1"
+                        Background="{Binding SelectedBrush, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
+                        AutomationProperties.Name="Selected color preview" />
+            </Grid>
+
+            <Grid Margin="0,18,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="158" />
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Grid x:Name="WheelSurface" Width="152" Height="152" HorizontalAlignment="Left"
+                      MouseLeftButtonDown="WheelSurface_MouseLeftButtonDown"
+                      MouseMove="WheelSurface_MouseMove"
+                      MouseLeftButtonUp="WheelSurface_MouseLeftButtonUp"
+                      Cursor="Cross"
+                      AutomationProperties.Name="Hue and saturation color wheel">
+                    <Ellipse Stroke="{DynamicResource StrokeBrush}" StrokeThickness="1.5">
+                        <Ellipse.Fill>
+                            <ImageBrush x:Name="WheelBrush" Stretch="Fill" />
+                        </Ellipse.Fill>
+                    </Ellipse>
+                    <Canvas IsHitTestVisible="False">
+                        <Ellipse x:Name="WheelMarker" Width="14" Height="14" Fill="Transparent"
+                                 Stroke="White" StrokeThickness="2">
+                            <Ellipse.Effect>
+                                <DropShadowEffect Color="Black" BlurRadius="3" ShadowDepth="0" Opacity="0.9" />
+                            </Ellipse.Effect>
+                        </Ellipse>
+                    </Canvas>
+                </Grid>
+
+                <StackPanel Grid.Column="2">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="SATURATION" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock x:Name="SaturationValue" Grid.Column="1" Foreground="{DynamicResource MutedBrush}"
+                                   FontSize="11" />
+                    </Grid>
+                    <Slider x:Name="SaturationSlider" Minimum="0" Maximum="1" SmallChange="0.01"
+                            LargeChange="0.1" ValueChanged="ComponentSlider_ValueChanged"
+                            AutomationProperties.Name="Color saturation" />
+
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="BRIGHTNESS" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock x:Name="BrightnessValue" Grid.Column="1" Foreground="{DynamicResource MutedBrush}"
+                                   FontSize="11" />
+                    </Grid>
+                    <Slider x:Name="BrightnessSlider" Minimum="0.02"
+                            Maximum="{Binding MaximumBrightness, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
+                            SmallChange="0.01" LargeChange="0.1" ValueChanged="ComponentSlider_ValueChanged"
+                            AutomationProperties.Name="Color brightness" />
+
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="OPACITY" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock x:Name="OpacityValue" Grid.Column="1" Foreground="{DynamicResource MutedBrush}"
+                                   FontSize="11" />
+                    </Grid>
+                    <Slider x:Name="OpacitySlider"
+                            Minimum="{Binding MinimumOpacity, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
+                            Maximum="1" SmallChange="0.01" LargeChange="0.1"
+                            ValueChanged="ComponentSlider_ValueChanged"
+                            AutomationProperties.Name="Color opacity" />
+                </StackPanel>
+            </Grid>
+
+            <Grid Margin="0,16,0,0">
+                <TextBox x:Name="HexInput" MaxLength="9" Padding="10,7"
+                         FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                         LostKeyboardFocus="HexInput_LostKeyboardFocus"
+                         KeyDown="HexInput_KeyDown"
+                         AutomationProperties.Name="ARGB hex color" />
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>

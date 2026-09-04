@@ -22,6 +22,7 @@ public partial class App : Application
     private readonly ForzaStartupLatch _forzaStartupLatch = new();
     private DispatcherTimer? _forzaStartupTimer;
     private StartupTrayIcon? _startupTray;
+    private OverlayHotkeyService? _overlayHotkey;
     private bool _runtimeActive;
     private bool _applicationUpdateHandoffActive;
     private bool _exiting;
@@ -50,6 +51,9 @@ public partial class App : Application
         var settingsService = new SettingsService();
         var settings = settingsService.Load();
         _controller = new AppController(settings, settingsService);
+        _overlayHotkey = new OverlayHotkeyService();
+        _overlayHotkey.Pressed += (_, _) => _controller?.ToggleManualOverlayHidden();
+        _controller.SetOverlayHotkeyRegistration(_overlayHotkey.Apply);
         if (ApplicationUpdateLauncher.TryConsumeResult(out var updateResult))
         {
             _controller.ViewModel.UpdateApplicationUpdateStatus(
@@ -171,6 +175,8 @@ public partial class App : Application
         }
         finally
         {
+            _overlayHotkey?.Dispose();
+            _overlayHotkey = null;
             _activationCancellation?.Dispose();
             _activationEvent?.Dispose();
             _instanceMutex?.Dispose();
@@ -325,6 +331,7 @@ public partial class App : Application
                 await _controller.StartAsync();
                 _runtimeActive = true;
                 _startupTray?.SetWaiting(false);
+                _controller.BeginStartupApplicationUpdateCheck();
             }
             catch (Exception exception) when (exception is ArgumentOutOfRangeException or System.Net.Sockets.SocketException)
             {

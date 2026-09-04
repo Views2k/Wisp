@@ -1,7 +1,7 @@
 {
   "version": 2,
   "dependencies": {
-    "net8.0": {
+    "net8.0-windows7.0": {
       "Microsoft.NET.Test.Sdk": {
         "type": "Direct",
         "requested": "[18.9.0, )",
@@ -130,7 +130,7 @@
         "contentHash": "pUkYI1f99hY9giu/MRaEVN53RO7skXwR7FGtVvFJCK5ezdg5i0W+z1yj/91X5aKv07xGuSB5n1g/Zt2P4Ooq6g=="
       }
     },
-    "net8.0/win-x64": {
+    "net8.0-windows7.0/win-x64": {
       "Microsoft.Win32.Registry": {
         "type": "Transitive",
         "resolved": "5.0.0",

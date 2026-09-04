@@ -11,6 +11,17 @@ public static class HudBorderThemeResources
     public static void Apply(ResourceDictionary resources, string? themeName) =>
         Apply(resources, AppColorThemes.Resolve(themeName));
 
+    public static void Apply(ResourceDictionary resources, string? themeName, string? customColor)
+    {
+        if (ColorCustomization.TryParse(customColor, out var color))
+        {
+            Apply(resources, color);
+            return;
+        }
+
+        Apply(resources, themeName);
+    }
+
     public static void Apply(ResourceDictionary resources, AppColorTheme theme)
     {
         ArgumentNullException.ThrowIfNull(resources);
@@ -18,6 +29,12 @@ public static class HudBorderThemeResources
 
         var color = (Color)ColorConverter.ConvertFromString(theme.Accent);
         color.A = BorderAlpha;
+        Apply(resources, color);
+    }
+
+    public static void Apply(ResourceDictionary resources, Color color)
+    {
+        ArgumentNullException.ThrowIfNull(resources);
 
         var hasLocalValue = resources.Keys.Cast<object>()
             .Any(existingKey => Equals(existingKey, ResourceKey));

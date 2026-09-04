@@ -34,6 +34,7 @@ public sealed class TractionHookDetector
             groundSpeed < MinimumGroundSpeedMetersPerSecond)
         {
             _convergedSamples = 0;
+            _hasSlipEvidence = false;
             return false;
         }
 

@@ -21,9 +21,9 @@ Digital mode adds one slim rail beneath the existing tachometer rail. The rail
 uses the same slanted geometry and marker treatment as the Native HUD. A short
 connector keeps the two rails aligned when attachment is enabled.
 
-The rail can use a selected boost palette or the neutral stock tachometer
-material. The PSI readout has its own color toggle, so the number can remain
-white while the rail uses a palette.
+The rail can use the custom three-point gauge gradient or the neutral stock
+tachometer material. The PSI readout has its own color toggle, so the number
+can remain white while the rail uses the gradient.
 
 ## Analogue layout
 
@@ -37,15 +37,15 @@ gauge also has independent size and attached-placement controls.
 
 ## Color scaling
 
-The PSI number remains an absolute pressure reading. Only the palette position
+The PSI number remains an absolute pressure reading. Only the gradient position
 adapts to the current car. Wisp remembers the highest positive pressure observed
 for that car during the current run and uses it as the color-range ceiling, with
 a 5 PSI minimum. This lets a low-boost and high-boost car use the full selected
-palette without changing the displayed PSI value.
+gradient without changing the displayed PSI value.
 
-Fifteen palettes are available. The Stock choice keeps the gauge neutral. Tire
-temperature markers use adjacent colors from the same selected palette so the
-attached gauges remain visually consistent.
+The gradient start, middle, and end colors are independently adjustable. The
+Stock choice keeps the Digital gauge neutral. Tire-temperature markers use
+neighboring colors from the same gradient so attached gauges remain coordinated.
 
 ## Controls
 
@@ -54,7 +54,7 @@ Open **Appearance > Boost gauge** to change:
 - gauge visibility;
 - attached or detached placement;
 - Analogue gauge size;
-- palette;
+- shared gauge-gradient colors;
 - Analogue PSI-number color;
 - Digital PSI-number color;
 - Digital stock-material mode.

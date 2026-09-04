@@ -11,14 +11,22 @@ internal static class ScrollLayoutAssertions
 {
     internal static void Verify(MainWindow window, FrameworkElement surface, TabControl tabs)
     {
-        string[] names = ["DashboardScaleView", "AppearanceScaleView", "DiagnosticsScaleView", "SetupScaleView"];
+        (int TabIndex, string ViewName)[] pages =
+        [
+            (0, "DashboardScaleView"),
+            (1, "AppearanceScaleView"),
+            (2, "DiagnosticsScaleView"),
+            (3, "ProfilesScaleView"),
+            (4, "SetupScaleView"),
+            (6, "ReleaseNotesScaleView")
+        ];
         var scrollingCases = 0;
         var compactCases = 0;
         var fourKCases = 0;
-        for (var tab = 0; tab < names.Length; tab++)
+        foreach (var page in pages)
         {
-            tabs.SelectedIndex = tab;
-            var viewbox = Assert.IsType<Viewbox>(window.FindName(names[tab]));
+            tabs.SelectedIndex = page.TabIndex;
+            var viewbox = Assert.IsType<Viewbox>(window.FindName(page.ViewName));
             var wrapper = Assert.IsType<Decorator>(viewbox.Parent);
             var scroll = Assert.IsType<ScrollViewer>(wrapper.Parent);
 
@@ -78,8 +86,8 @@ internal static class ScrollLayoutAssertions
         }
 
         Assert.True(scrollingCases > 0, "The scroll regression never moved content.");
-        Assert.True(compactCases >= names.Length, "The responsive regression never downscaled every page.");
-        Assert.Equal(names.Length, fourKCases);
+        Assert.True(compactCases >= pages.Length, "The responsive regression never downscaled every page.");
+        Assert.Equal(pages.Length, fourKCases);
     }
 
     private static void Settle(FrameworkElement surface)
