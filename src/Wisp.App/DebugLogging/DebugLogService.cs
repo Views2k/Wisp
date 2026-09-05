@@ -134,6 +134,7 @@ internal sealed class DebugLogService : IAsyncDisposable
     private readonly SemaphoreSlim _pendingDrained = new(0);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _writerTask;
+    private readonly object _stateGate = new();
     private DateTimeOffset? _expiresAtUtc;
     private int _enabled;
     private long _droppedRecords;
@@ -176,7 +177,10 @@ internal sealed class DebugLogService : IAsyncDisposable
     }
 
     public bool IsEnabled => Volatile.Read(ref _enabled) != 0;
-    public DateTimeOffset? ExpiresAtUtc => _expiresAtUtc;
+    public DateTimeOffset? ExpiresAtUtc
+    {
+        get { lock (_stateGate) { return _expiresAtUtc; } }
+    }
     public long DroppedRecords => Interlocked.Read(ref _droppedRecords);
     public bool HasLocalLogs => SafeSegmentFiles().Length > 0;
 
@@ -194,129 +198,162 @@ internal sealed class DebugLogService : IAsyncDisposable
         {
             Directory.CreateDirectory(_rootDirectory);
             PruneSegments(_utcNow());
-            _expiresAtUtc = expiresAtUtc;
-            Volatile.Write(ref _enabled, 1);
-            TryQueue("event", new DebugEvent(
-                _utcNow(),
-                DebugEventCode.LoggingEnabled,
-                DebugEventCategory.Lifecycle));
+            lock (_stateGate)
+            {
+                if (Volatile.Read(ref _disposed) != 0 || expiresAtUtc <= _utcNow())
+                {
+                    return false;
+                }
+                _expiresAtUtc = expiresAtUtc;
+                Volatile.Write(ref _enabled, 1);
+                TryQueue("event", new DebugEvent(
+                    _utcNow(),
+                    DebugEventCode.LoggingEnabled,
+                    DebugEventCategory.Lifecycle));
+            }
             return true;
         }
         catch (Exception exception) when (IsLocalStorageFailure(exception))
         {
-            _expiresAtUtc = null;
-            Volatile.Write(ref _enabled, 0);
+            lock (_stateGate)
+            {
+                _expiresAtUtc = null;
+                Volatile.Write(ref _enabled, 0);
+            }
             return false;
         }
     }
 
     public bool ExpireIfNeeded(DateTimeOffset nowUtc)
     {
-        if (!IsEnabled || _expiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc)
+        lock (_stateGate)
         {
-            return false;
-        }
+            if (!IsEnabled || _expiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc)
+            {
+                return false;
+            }
 
-        TryQueue("event", new DebugEvent(
-            nowUtc,
-            DebugEventCode.LoggingExpired,
-            DebugEventCategory.Lifecycle));
-        _expiresAtUtc = null;
-        Volatile.Write(ref _enabled, 0);
-        return true;
+            TryQueue("event", new DebugEvent(
+                nowUtc,
+                DebugEventCode.LoggingExpired,
+                DebugEventCategory.Lifecycle));
+            _expiresAtUtc = null;
+            Volatile.Write(ref _enabled, 0);
+            return true;
+        }
     }
 
     public async Task DisableAsync()
     {
-        if (!IsEnabled)
+        lock (_stateGate)
         {
-            _expiresAtUtc = null;
-            return;
-        }
+            if (!IsEnabled)
+            {
+                _expiresAtUtc = null;
+                return;
+            }
 
-        TryQueue("event", new DebugEvent(
-            _utcNow(),
-            DebugEventCode.LoggingDisabled,
-            DebugEventCategory.Lifecycle));
-        _expiresAtUtc = null;
-        Volatile.Write(ref _enabled, 0);
+            TryQueue("event", new DebugEvent(
+                _utcNow(),
+                DebugEventCode.LoggingDisabled,
+                DebugEventCategory.Lifecycle));
+            _expiresAtUtc = null;
+            Volatile.Write(ref _enabled, 0);
+        }
         await FlushAsync().ConfigureAwait(false);
     }
 
     public void TryLogSample(DebugTelemetrySample sample)
     {
-        if (IsEnabled && !ExpireIfNeeded(sample.TimestampUtc))
+        lock (_stateGate)
         {
-            TryQueue("sample", new
+            if (IsEnabled && !ExpireIfNeeded(sample.TimestampUtc))
             {
-                sample.TimestampUtc,
-                sample.TelemetryState,
-                sample.RaceOn,
-                sample.TelemetryProcessedHz,
-                sample.WispCompositionHz,
-                game_fps = (double?)null,
-                game_fps_status = "not_available_in_fh6_data_out",
-                sample.WispCpuPercent,
-                sample.WispWorkingSetBytes,
-                sample.ManagedHeapBytes,
-                sample.Gen0Collections,
-                sample.Gen1Collections,
-                sample.Gen2Collections,
-                sample.PacketAgeMilliseconds,
-                sample.AcceptedPackets,
-                sample.RejectedPackets,
-                sample.ListenerState,
-                sample.GameTimestampMilliseconds,
-                sample.GameTimestampAdvanced,
-                sample.GameTimestampStalled,
-                sample.CarOrdinal,
-                sample.Drivetrain,
-                sample.GroundSpeedMetersPerSecond,
-                sample.IndicatedSpeedAvailable,
-                sample.IndicatedSpeedMetersPerSecond,
-                sample.IndicatedSpeedDisplayValue,
-                sample.SpeedUnit,
-                sample.SpeedSource,
-                sample.WheelRotationRadiansPerSecond,
-                sample.TireSlipRatio,
-                sample.TrustedFrontRadiusMeters,
-                sample.TrustedRearRadiusMeters,
-                sample.ProvisionalFrontRadiusMeters,
-                sample.ProvisionalRearRadiusMeters,
-                sample.CalibrationConfidence,
-                sample.CalibrationAcceptedSamples,
-                sample.CalibrationTrusted,
-                sample.CalibrationState,
-                sample.EngineRpm,
-                sample.EngineMaximumRpm,
-                sample.Gear,
-                sample.PowerWatts,
-                sample.TorqueNm,
-                sample.BoostPressurePsi,
-                sample.TireTemperatureFahrenheit,
-                sample.LateralAccelerationMetersPerSecondSquared,
-                sample.LongitudinalAccelerationMetersPerSecondSquared,
-                sample.Steering,
-                sample.Accelerator,
-                sample.Brake,
-                sample.NativeProviderStatus,
-                sample.ExactRedlineStatus,
-                sample.NativeCapabilitiesAvailable,
-                sample.GameplayHudVisibility,
-                sample.GameplayHudVisibilityFresh,
-                sample.OverlayLayout,
-                sample.OverlayRequestedVisible,
-                sample.OverlayManuallyHidden,
-                sample.OverlayLocked
-            });
+                TryQueue("sample", new
+                {
+                    sample.TimestampUtc,
+                    sample.TelemetryState,
+                    sample.RaceOn,
+                    sample.TelemetryProcessedHz,
+                    sample.WispCompositionHz,
+                    game_fps = (double?)null,
+                    game_fps_status = "not_available_in_fh6_data_out",
+                    sample.WispCpuPercent,
+                    sample.WispWorkingSetBytes,
+                    sample.ManagedHeapBytes,
+                    sample.Gen0Collections,
+                    sample.Gen1Collections,
+                    sample.Gen2Collections,
+                    sample.PacketAgeMilliseconds,
+                    sample.AcceptedPackets,
+                    sample.RejectedPackets,
+                    sample.ListenerState,
+                    sample.GameTimestampMilliseconds,
+                    sample.GameTimestampAdvanced,
+                    sample.GameTimestampStalled,
+                    sample.CarOrdinal,
+                    sample.Drivetrain,
+                    sample.GroundSpeedMetersPerSecond,
+                    sample.IndicatedSpeedAvailable,
+                    sample.IndicatedSpeedMetersPerSecond,
+                    sample.IndicatedSpeedDisplayValue,
+                    sample.SpeedUnit,
+                    sample.SpeedSource,
+                    sample.WheelRotationRadiansPerSecond,
+                    sample.TireSlipRatio,
+                    sample.TrustedFrontRadiusMeters,
+                    sample.TrustedRearRadiusMeters,
+                    sample.ProvisionalFrontRadiusMeters,
+                    sample.ProvisionalRearRadiusMeters,
+                    sample.CalibrationConfidence,
+                    sample.CalibrationAcceptedSamples,
+                    sample.CalibrationTrusted,
+                    sample.CalibrationState,
+                    sample.EngineRpm,
+                    sample.EngineMaximumRpm,
+                    sample.Gear,
+                    sample.PowerWatts,
+                    sample.TorqueNm,
+                    sample.BoostPressurePsi,
+                    sample.TireTemperatureFahrenheit,
+                    sample.LateralAccelerationMetersPerSecondSquared,
+                    sample.LongitudinalAccelerationMetersPerSecondSquared,
+                    sample.Steering,
+                    sample.Accelerator,
+                    sample.Brake,
+                    sample.NativeProviderStatus,
+                    sample.ExactRedlineStatus,
+                    sample.NativeCapabilitiesAvailable,
+                    sample.GameplayHudVisibility,
+                    sample.GameplayHudVisibilityFresh,
+                    sample.OverlayLayout,
+                    sample.OverlayRequestedVisible,
+                    sample.OverlayManuallyHidden,
+                    sample.OverlayLocked
+                });
+            }
         }
     }
 
     public void TryLogEvent(DebugEvent debugEvent)
     {
-        if (IsEnabled && !ExpireIfNeeded(debugEvent.TimestampUtc))
+        lock (_stateGate)
         {
-            TryQueue("event", debugEvent);
+            if (IsEnabled && !ExpireIfNeeded(debugEvent.TimestampUtc))
+            {
+                TryQueue("event", debugEvent);
+            }
+        }
+    }
+
+    public void TryLogHealthSample(DebugHealthSample sample)
+    {
+        lock (_stateGate)
+        {
+            if (IsEnabled && !ExpireIfNeeded(sample.TimestampUtc))
+            {
+                TryQueue("health", sample);
+            }
         }
     }
 
@@ -343,11 +380,16 @@ internal sealed class DebugLogService : IAsyncDisposable
                 {
                     var samples = new List<string>();
                     var events = new List<string>();
+                    var health = new List<DebugHealthSample>();
+                    var omittedRecords = 0L;
                     foreach (var segment in SafeSegmentFiles())
                     {
                         foreach (var line in File.ReadLines(segment))
                         {
-                            TryCollectExportLine(line, samples, events);
+                            if (!TryCollectExportLine(line, samples, events, health))
+                            {
+                                omittedRecords++;
+                            }
                         }
                     }
 
@@ -355,13 +397,16 @@ internal sealed class DebugLogService : IAsyncDisposable
                     {
                         WriteEntry(archive, "samples.ndjson", samples);
                         WriteEntry(archive, "events.ndjson", events);
+                        WriteEntry(archive, "health.ndjson", health.Select(sample => JsonSerializer.Serialize(sample, JsonOptions)));
                         var manifest = new
                         {
-                            schema_version = 1,
+                            schema_version = 2,
                             created_at_utc = _utcNow(),
                             wisp_version = applicationVersion,
                             samples = samples.Count,
                             events = events.Count,
+                            health_samples = health.Count,
+                            omitted_records = omittedRecords,
                             dropped_records = DroppedRecords,
                             game_fps = (double?)null,
                             game_fps_status = "not_available_in_fh6_data_out",
@@ -373,7 +418,9 @@ internal sealed class DebugLogService : IAsyncDisposable
                             "summary.txt",
                             $"Wisp local debug export\nSamples: {samples.Count}\nEvents: {events.Count}\n" +
                             "Game FPS: not available in FH6 Data Out\n" +
-                            "This export contains only Wisp telemetry health metrics selected by the debug logging whitelist.\n");
+                            $"Unreadable or unsupported records omitted: {omittedRecords}. Missing records limit diagnostic coverage.\n" +
+                            "This export contains only Wisp telemetry health metrics selected by the debug logging whitelist.\n\n" +
+                            DebugDiagnosticReport.Build(health, DroppedRecords));
                     }
 
                     File.Move(temporaryPath, destination, overwrite: true);
@@ -430,7 +477,11 @@ internal sealed class DebugLogService : IAsyncDisposable
             return;
         }
 
-        Volatile.Write(ref _enabled, 0);
+        lock (_stateGate)
+        {
+            _expiresAtUtc = null;
+            Volatile.Write(ref _enabled, 0);
+        }
         _records.Writer.TryComplete();
         try
         {
@@ -590,7 +641,7 @@ internal sealed class DebugLogService : IAsyncDisposable
         }
     }
 
-    private static void TryCollectExportLine(string line, List<string> samples, List<string> events)
+    private static bool TryCollectExportLine(string line, List<string> samples, List<string> events, List<DebugHealthSample> health)
     {
         try
         {
@@ -601,16 +652,28 @@ internal sealed class DebugLogService : IAsyncDisposable
             if (kind == "sample")
             {
                 samples.Add(payload);
+                return true;
             }
             else if (kind == "event")
             {
                 events.Add(payload);
+                return true;
+            }
+            else if (kind == "health")
+            {
+                var sample = JsonSerializer.Deserialize<DebugHealthSample>(payload, JsonOptions);
+                if (sample is not null)
+                {
+                    health.Add(sample);
+                    return true;
+                }
             }
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
         {
-            // A partial record is omitted from the user-created export.
+            // Partial records are counted without copying their contents into the export.
         }
+        return false;
     }
 
     private static void WriteEntry(ZipArchive archive, string name, IEnumerable<string> lines) =>

@@ -2,6 +2,18 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.0.12 - 2026-09-04
+
+### Improved
+
+- Local debug reports correlate telemetry reception and processing, dispatcher delay, native-data freshness, composition callbacks, focus transitions, and Wisp CPU/memory usage. Background collection continues when the UI stalls.
+- Diagnostic summaries include observation times, supporting measurements, the likely affected component, uncertainty, and a next step. Menus, hidden overlays, and ordinary disconnection are not treated as rendering faults. Collection remains local, opt-in, and bounded.
+
+### Fixed
+
+- Recover native race providers whose secondary local-provider flag is cleared, while retaining validated contracts and a unique live car/RPM match.
+- Remove the outer outline from the update confirmation dialog.
+
 ## 1.0.11 - 2026-09-04
 
 ### Maintenance

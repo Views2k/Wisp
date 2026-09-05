@@ -23,6 +23,9 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     private VehicleState? _latest;
     private long _acceptedPackets;
     private long _rejectedPackets;
+    private long _receivedDatagrams;
+    private long _drainedDatagrams;
+    private long _lastDatagramTimestamp;
     private long _previousAcceptedPackets;
     private DateTimeOffset _previousRateAtUtc = DateTimeOffset.UtcNow;
     private double _cachedPacketRate;
@@ -38,6 +41,10 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     public event EventHandler? PacketAvailable;
 
     public VehicleState? Latest => Volatile.Read(ref _latest);
+
+    public long ReceivedDatagrams => Interlocked.Read(ref _receivedDatagrams);
+    public long DrainedDatagrams => Interlocked.Read(ref _drainedDatagrams);
+    public long LastDatagramTimestamp => Interlocked.Read(ref _lastDatagramTimestamp);
 
     public bool IsRunning => Volatile.Read(ref _session)?.ReceiveTask is { IsCompleted: false };
 
@@ -261,6 +268,8 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                     remoteEndpoint,
                     cancellationToken).ConfigureAwait(false);
 
+                RecordDatagram(drained: false);
+
                 var receivedBytes = DrainToNewestDatagram(
                     socket,
                     buffer,
@@ -301,7 +310,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
         }
     }
 
-    private static int DrainToNewestDatagram(
+    private int DrainToNewestDatagram(
         Socket socket,
         byte[] buffer,
         int receivedBytes,
@@ -315,9 +324,20 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                 buffer.Length,
                 SocketFlags.None,
                 ref remoteEndpoint);
+            RecordDatagram(drained: true);
         }
 
         return receivedBytes;
+    }
+
+    private void RecordDatagram(bool drained)
+    {
+        Interlocked.Increment(ref _receivedDatagrams);
+        if (drained)
+        {
+            Interlocked.Increment(ref _drainedDatagrams);
+        }
+        Interlocked.Exchange(ref _lastDatagramTimestamp, Stopwatch.GetTimestamp());
     }
 
     private void NotifyPacketAvailable()
@@ -345,6 +365,9 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
         {
             Interlocked.Exchange(ref _acceptedPackets, 0);
             Interlocked.Exchange(ref _rejectedPackets, 0);
+            Interlocked.Exchange(ref _receivedDatagrams, 0);
+            Interlocked.Exchange(ref _drainedDatagrams, 0);
+            Interlocked.Exchange(ref _lastDatagramTimestamp, 0);
             Volatile.Write(ref _lastParseError, (int)PacketParseError.None);
             Volatile.Write(ref _listenerError, null);
             _previousAcceptedPackets = 0;

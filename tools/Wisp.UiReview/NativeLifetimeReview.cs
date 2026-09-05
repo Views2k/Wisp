@@ -56,7 +56,7 @@ internal static class NativeLifetimeReview
         var surface = new UniformGrid { Rows = 2, Columns = 2, IsHitTestVisible = false };
         foreach (var probe in controls)
         {
-            probe.Feed(0, false, SpeedUnit.MilesPerHour, firstHiddenFrame: false);
+            probe.Feed(0, false, SpeedUnit.MilesPerHour);
             surface.Children.Add(new Viewbox { Child = probe.Control, Margin = new Thickness(8) });
         }
         var host = new Window
@@ -148,14 +148,14 @@ internal static class NativeLifetimeReview
                                               probe.RenderingAttached is not false)) return;
                     Check(controls.All(probe => probe.LatestRetained && probe.ResumedVisualsMatch && probe.BlurIsReset),
                         "resume-latest-visuals-or-blur");
-                    Check(controls.Where(probe => probe.Electric).All(probe => probe.GearHistoryRetained(phase == 2)),
-                        "resume-ev-gear-history");
+                    Check(controls.Where(probe => probe.Electric).All(probe => probe.ResumedGearMatches),
+                        "resume-ev-latest-gear");
                     run.VerifiedResumes++;
                     awaitingResume = false;
                     ResetObservations();
                 }
                 var unit = phase is 1 or 2 ? SpeedUnit.KilometersPerHour : SpeedUnit.MilesPerHour;
-                foreach (var probe in controls) probe.Feed(++sequence, !active, unit, supplied == 0);
+                foreach (var probe in controls) probe.Feed(++sequence, !active, unit);
                 supplied++;
                 if (elapsed.Elapsed.TotalMilliseconds - phaseStarted < 600) return;
 
@@ -226,6 +226,7 @@ internal static class NativeLifetimeReview
         private readonly Image _ones;
         private readonly Image _unit;
         private readonly Image _gear;
+        private readonly ImageSource? _reverseGearSource;
         private readonly NativeAnalogNeedleVisual? _needle;
         private NativeGaugeFrame _latest;
         private ImageSource? _lastSource, _frozenSource, _frozenUnit, _frozenGear;
@@ -248,12 +249,14 @@ internal static class NativeLifetimeReview
             _unit = control.FindName("UnitImage") as Image ?? throw new InvalidOperationException("Missing native unit.");
             _gear = control.FindName("GearImage") as Image ?? throw new InvalidOperationException("Missing native gear.");
             _needle = control.FindName("NeedleMaterial") as NativeAnalogNeedleVisual;
+            Feed(0, true, SpeedUnit.MilesPerHour);
+            _reverseGearSource = _gear.Source;
         }
-        internal void Feed(int sequence, bool hidden, SpeedUnit unit, bool firstHiddenFrame)
+        internal void Feed(int sequence, bool hidden, SpeedUnit unit)
         {
             _latest = new NativeGaugeFrame(true, hidden ? 127 : 121 + sequence % 5,
                 2_000 + sequence, 9_000,
-                hidden && firstHiddenFrame ? TransmissionGear.Second : TransmissionGear.First, unit,
+                hidden ? TransmissionGear.Reverse : TransmissionGear.First, unit,
                 ExactRedlineResult.Exact(7_500 * 2 * Math.PI / 60), Assists,
                 IsElectric: Electric, CarOrdinal: 314, GameTimestampMilliseconds: (uint)sequence,
                 ReceivedTimestamp: Stopwatch.GetTimestamp());
@@ -275,8 +278,14 @@ internal static class NativeLifetimeReview
             _lastRendering = _compositor ? Read<TimeSpan>("_lastRenderingTime") : TimeSpan.MinValue;
         }
         internal void FreezeDisplayedState() => (_frozenSource, _frozenUnit, _frozenGear) = (_ones.Source, _unit.Source, _gear.Source);
-        internal bool GearHistoryRetained(bool firstResume) => Read<string>("_gearToken") == "1" &&
-            (!firstResume || !ReferenceEquals(_frozenGear, _gear.Source));
+        internal bool ResumedGearMatches
+        {
+            get
+            {
+                return _reverseGearSource is not null && _gear.Visibility == Visibility.Visible &&
+                       ReferenceEquals(_reverseGearSource, _gear.Source) && !ReferenceEquals(_frozenGear, _gear.Source);
+            }
+        }
         internal NativeLifetimeConsumer Snapshot() => new(Control.GetType().Name, Control.IsLoaded, Control.IsVisible,
             RenderingAttached, LatestRetained, FramePending, _frames, _digitChanges, _renderingAdvances, _needle?.BlurAmount);
         private T Read<T>(string field) => (T)(Control.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)

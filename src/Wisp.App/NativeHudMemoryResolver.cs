@@ -113,7 +113,21 @@ public sealed class NativeHudMemoryResolver
 
         if (localPlayerCandidates.Count == 0)
         {
-            return Unavailable(NativeAssistProviderStatus.PlayerNotUnique, generation, carOrdinal);
+            // Race providers can clear the secondary local-provider flag after
+            // menu navigation. Keep the verified contract and primary flag,
+            // then require a unique match to the live Data Out identity below.
+            foreach (var source in sources)
+            {
+                if (TryGetLocalPlayerProvider(memory, moduleBase, source, out var provider,
+                        allowUnmarkedProvider: true))
+                {
+                    localPlayerCandidates.Add((source, provider));
+                }
+            }
+            if (localPlayerCandidates.Count == 0)
+            {
+                return Unavailable(NativeAssistProviderStatus.PlayerNotUnique, generation, carOrdinal);
+            }
         }
 
         // FH6 can briefly retain more than one local-player HUD source across
@@ -338,7 +352,8 @@ public sealed class NativeHudMemoryResolver
         IReadOnlyProcessMemory memory,
         ulong moduleBase,
         ulong source,
-        out ulong provider)
+        out ulong provider,
+        bool allowUnmarkedProvider = false)
     {
         provider = 0;
         return IsPointer(source) && IsAddressRange(source, NativeHudCompatibilityPack.MaximumFieldBytes) &&
@@ -347,7 +362,7 @@ public sealed class NativeHudMemoryResolver
                HasExactProviderContract(memory, moduleBase, provider) &&
                memory.TryReadByte(provider + LocalPlayerFlagOffset, out var localPlayer) &&
                memory.TryReadByte(provider + LocalPlayerProviderFlagOffset, out var localProvider) &&
-               localPlayer == 1 && localProvider == 1;
+               localPlayer == 1 && (localProvider == 1 || allowUnmarkedProvider && localProvider == 0);
     }
 
     private bool TryMatchTelemetryIdentity(

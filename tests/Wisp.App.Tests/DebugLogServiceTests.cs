@@ -18,6 +18,7 @@ public sealed class DebugLogServiceTests
             await using (var service = new DebugLogService(logDirectory))
             {
                 service.TryLogSample(Sample(DateTimeOffset.UtcNow));
+                service.TryLogHealthSample(new DebugHealthSample { TimestampUtc = DateTimeOffset.UtcNow });
             }
 
             Assert.False(Directory.Exists(logDirectory));
@@ -48,7 +49,7 @@ public sealed class DebugLogServiceTests
 
             using var archive = ZipFile.OpenRead(exportPath);
             Assert.Equal(
-                ["events.ndjson", "manifest.json", "samples.ndjson", "summary.txt"],
+                ["events.ndjson", "health.ndjson", "manifest.json", "samples.ndjson", "summary.txt"],
                 archive.Entries.Select(entry => entry.FullName).OrderBy(name => name).ToArray());
             var samples = ReadEntry(archive, "samples.ndjson");
             Assert.Contains("\"telemetry_processed_hz\":60", samples, StringComparison.Ordinal);
@@ -212,6 +213,32 @@ public sealed class DebugLogServiceTests
 
             Assert.True(await service.DeleteLocalLogsAsync());
             Assert.Empty(Directory.GetFiles(logs, "segment-*.ndjson"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CorruptRecordsAreCountedWithoutIncludingTheirContentsInTheReport()
+    {
+        var root = TemporaryDirectory();
+        try
+        {
+            var logs = Path.Combine(root, "logs");
+            Directory.CreateDirectory(logs);
+            File.WriteAllText(Path.Combine(logs, "segment-partial.ndjson"), "not-json-private-sentinel\n");
+            await using var service = new DebugLogService(logs);
+            var export = Path.Combine(root, "debug.zip");
+            Assert.True(await service.ExportAsync(export, "1.0.12"));
+            using var archive = ZipFile.OpenRead(export);
+            using var manifest = JsonDocument.Parse(ReadEntry(archive, "manifest.json"));
+            Assert.Equal(1, manifest.RootElement.GetProperty("omitted_records").GetInt64());
+            var summary = ReadEntry(archive, "summary.txt");
+            Assert.Contains("Unreadable or unsupported records omitted: 1", summary);
+            Assert.DoesNotContain("private-sentinel", summary);
+            Assert.Empty(ReadEntry(archive, "health.ndjson"));
         }
         finally
         {

@@ -1841,7 +1841,7 @@
                                         <StackPanel>
                                             <TextBlock Text="VERSION HISTORY" Style="{StaticResource EyebrowTextStyle}" />
                                             <TextBlock Text="What changed in Wisp" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,0" />
-                                            <TextBlock Text="Feature updates, hotfixes, and important refinements from every documented public release. The current 1.0.11 entry summarizes this release."
+                                            <TextBlock Text="Feature updates, hotfixes, and important refinements from every documented public release. The current 1.0.12 entry summarizes this release."
                                                        Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                                        LineHeight="19" Margin="0,7,0,0" />
                                         </StackPanel>
@@ -1977,8 +1977,7 @@
                   KeyDown="ApplicationUpdateConfirmation_KeyDown"
                   AutomationProperties.Name="Confirm Wisp update">
                 <Border Width="480" HorizontalAlignment="Center" VerticalAlignment="Center"
-                        Style="{StaticResource CardStyle}" BorderBrush="{DynamicResource AccentBrush}"
-                        BorderThickness="1.5" Padding="30">
+                        Style="{StaticResource CardStyle}" BorderThickness="0" Padding="30">
                     <StackPanel>
                         <Border Width="46" Height="46" CornerRadius="23"
                                 HorizontalAlignment="Left" Background="{DynamicResource RaisedBrush}"
@@ -2028,7 +2027,7 @@
             <Grid Grid.Row="2" Margin="29,0">
                 <TextBlock Text="LOCAL DATA OUT  ·  READ-ONLY NATIVE HUD  ·  NO INJECTION" VerticalAlignment="Center"
                            FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource FaintBrush}" />
-                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.11" HorizontalAlignment="Right" VerticalAlignment="Center"
+                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.12" HorizontalAlignment="Right" VerticalAlignment="Center"
                            FontSize="10" Foreground="{DynamicResource FaintBrush}" />
             </Grid>
         </Grid>

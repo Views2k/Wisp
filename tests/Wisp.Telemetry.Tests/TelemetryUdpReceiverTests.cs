@@ -36,7 +36,12 @@ public sealed class TelemetryUdpReceiverTests
 
         Assert.NotNull(receiver.Latest);
         Assert.Equal(2468, receiver.Latest!.CarOrdinal);
+        Assert.Equal(1, receiver.ReceivedDatagrams);
+        Assert.Equal(0, receiver.DrainedDatagrams);
+        Assert.True(receiver.LastDatagramTimestamp > 0);
         await receiver.StopAsync();
+        Assert.Equal(0, receiver.ReceivedDatagrams);
+        Assert.Equal(0, receiver.LastDatagramTimestamp);
     }
 
     [Fact]
@@ -167,6 +172,31 @@ public sealed class TelemetryUdpReceiverTests
 
         await WaitForCarAsync(receiver, 4015);
         Assert.Equal(4015, receiver.Latest?.CarOrdinal);
+        Assert.Equal(16, receiver.ReceivedDatagrams);
+        var statistics = receiver.GetStatistics(DateTimeOffset.UtcNow);
+        Assert.Equal(receiver.ReceivedDatagrams,
+            receiver.DrainedDatagrams + statistics.AcceptedPackets + statistics.RejectedPackets);
+    }
+
+    [Fact]
+    public async Task MalformedTrafficIsCountedWithoutPretendingValidTelemetryIsFresh()
+    {
+        var port = GetAvailablePort();
+        await using var receiver = new TelemetryUdpReceiver();
+        await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+        using var sender = new UdpClient(AddressFamily.InterNetwork);
+        await sender.SendAsync(new byte[8], new IPEndPoint(IPAddress.Loopback, port),
+            TestContext.Current.CancellationToken);
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (receiver.GetStatistics(DateTimeOffset.UtcNow).RejectedPackets == 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(5, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(1, receiver.ReceivedDatagrams);
+        Assert.Equal(1, receiver.GetStatistics(DateTimeOffset.UtcNow).RejectedPackets);
+        Assert.True(receiver.LastDatagramTimestamp > 0);
+        Assert.Null(receiver.Latest);
     }
 
     [Fact]
