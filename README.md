@@ -16,8 +16,7 @@ Local debug reports now separate telemetry, UI, native-data, and composition
 problems with timestamped evidence and practical next steps. Background collection
 continues during UI stalls and stays local, opt-in, and bounded. This release also
 improves native race-provider recovery after settings transitions and removes the
-update-confirmation outline. Reports state their limits; they do not measure game
-FPS or guarantee a Windows/GPU root cause.
+update-confirmation outline.
 
 ## The 1.0.10 quality-of-life update
 
