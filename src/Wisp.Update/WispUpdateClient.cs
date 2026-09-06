@@ -188,11 +188,11 @@ public sealed class WispUpdateClient : IDisposable
         {
             if (redirects == 0)
             {
-                ReleaseUriPolicy.RequireInitialDownloadUri(current, release.Version);
+                ReleaseUriPolicy.RequireInitialDownloadUri(current, release.TagName, release.FileName);
             }
             else
             {
-                ReleaseUriPolicy.RequireRedirectTarget(current, release.Version);
+                ReleaseUriPolicy.RequireRedirectTarget(current, release.TagName, release.FileName);
             }
 
             if (!visited.Add(current.AbsoluteUri))
@@ -224,7 +224,7 @@ public sealed class WispUpdateClient : IDisposable
                 var location = response.Headers.Location ??
                     throw new UpdateSecurityException("The installer redirect omitted its Location header.");
                 current = location.IsAbsoluteUri ? location : new Uri(current, location);
-                ReleaseUriPolicy.RequireRedirectTarget(current, release.Version);
+                ReleaseUriPolicy.RequireRedirectTarget(current, release.TagName, release.FileName);
             }
             catch
             {
@@ -351,8 +351,7 @@ public sealed class WispUpdateClient : IDisposable
 
     private static void ValidateReleaseForDownload(UpdateRelease release)
     {
-        var expectedName = ReleaseUriPolicy.InstallerFileName(release.Version);
-        if (!string.Equals(release.FileName, expectedName, StringComparison.Ordinal) ||
+        if (!ReleaseIdentity.TryParseInstallerVersion(release.FileName, out var version) || version != release.Version ||
             release.Size is <= 0 or > MaximumInstallerSizeBytes ||
             !GitHubReleaseParser.TryNormalizeSha256($"sha256:{release.Sha256}", out var normalized) ||
             !string.Equals(normalized, release.Sha256, StringComparison.Ordinal))
@@ -360,7 +359,8 @@ public sealed class WispUpdateClient : IDisposable
             throw new UpdateSecurityException("The release metadata is not a canonical Wisp installer.");
         }
 
-        ReleaseUriPolicy.RequireInitialDownloadUri(release.DownloadUri, release.Version);
+        ReleaseIdentity.RequireMatchingTag(release.TagName, release.Version);
+        ReleaseUriPolicy.RequireInitialDownloadUri(release.DownloadUri, release.TagName, release.FileName);
     }
 
     private static void RequireIdentityEncoding(HttpResponseMessage response)

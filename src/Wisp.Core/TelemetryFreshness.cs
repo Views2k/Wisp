@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace Wisp.Core;
 
 public enum TelemetryConnectionState
@@ -10,30 +12,36 @@ public enum TelemetryConnectionState
 public sealed class TelemetryFreshness
 {
     private readonly TimeSpan _timeout;
-    private DateTimeOffset? _lastPacketAtUtc;
+    private long? _lastPacketTimestamp;
 
     public TelemetryFreshness(TimeSpan? timeout = null)
     {
         _timeout = timeout ?? TimeSpan.FromMilliseconds(750);
     }
 
-    public void RecordPacket(DateTimeOffset receivedAtUtc)
+    public void RecordPacket(long? receivedTimestamp)
     {
-        _lastPacketAtUtc = receivedAtUtc;
+        // Missing arrival evidence cannot establish or extend freshness.
+        if (receivedTimestamp is > 0)
+        {
+            _lastPacketTimestamp = receivedTimestamp;
+        }
     }
 
-    public TelemetryConnectionState GetState(DateTimeOffset nowUtc)
+    public TelemetryConnectionState GetState(long nowTimestamp)
     {
-        if (_lastPacketAtUtc is null)
+        if (_lastPacketTimestamp is null)
         {
             return TelemetryConnectionState.Waiting;
         }
 
-        return nowUtc - _lastPacketAtUtc.Value <= _timeout
+        return GetAge(nowTimestamp) is { } age && age <= _timeout
             ? TelemetryConnectionState.Connected
             : TelemetryConnectionState.Lost;
     }
 
-    public TimeSpan? GetAge(DateTimeOffset nowUtc) =>
-        _lastPacketAtUtc is null ? null : nowUtc - _lastPacketAtUtc.Value;
+    public TimeSpan? GetAge(long nowTimestamp) =>
+        _lastPacketTimestamp is not { } receivedTimestamp || nowTimestamp < receivedTimestamp
+            ? null
+            : Stopwatch.GetElapsedTime(receivedTimestamp, nowTimestamp);
 }

@@ -97,8 +97,10 @@ generic tire radius. A brief impossible wheel sample can retain the last valid
 same-car value instead of presenting a believable but fabricated replacement.
 
 The default smoothing value is zero. Optional smoothing is applied after the
-physical calculation and is deliberately bounded so it cannot move more than
-1.5 mph away from the current raw result.
+physical calculation using an exponential filter. The slider sets its time
+constant from zero (immediate) to 250 milliseconds. At maximum smoothing, a
+steady speed change reaches about 63% of its new value after 250 milliseconds
+and 95% after 750 milliseconds. Ground-speed mode is not filtered.
 
 ## Stored profiles
 

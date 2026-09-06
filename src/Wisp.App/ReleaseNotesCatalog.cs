@@ -15,11 +15,28 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.1",
+            "September 6, 2026",
+            "MAINTENANCE",
+            "Focused corrections to settings saves, calibration persistence, and connection timing.",
+            true,
+            [
+                Group("Fixed",
+                    "Profile changes are confirmed only after the settings write succeeds. Failed writes can be retried without creating duplicate profiles.",
+                    "Saved calibration changes now include drivetrain and calibration revision, even when tire radii are unchanged.",
+                    "Windows clock changes no longer affect telemetry expiry.",
+                    "Release details remain available when retrying a downloaded update.",
+                    "Setup uses the website's particle material and depth styling, with smoother faint gradients and a new particle distribution.",
+                    "Wheel-indicated speed smoothing now honors the selected amount during large wheel-speed changes, instead of staying within 1.5 mph of the raw reading.",
+                    "Release version labels no longer clip in the release history.",
+                    "Update checks support shortened release versions and stable release labels while retaining installer verification.")
+            ]),
+        new(
             "1.0.12",
             "September 4, 2026",
             "RELIABILITY",
             "More useful local diagnostic reports and improved Native HUD recovery after race settings.",
-            true,
+            false,
             [
                 Group("Diagnostics",
                     "Collects telemetry reception, UI processing, native-data freshness, composition callbacks, focus transitions, and Wisp CPU and memory usage on a background sampler.",

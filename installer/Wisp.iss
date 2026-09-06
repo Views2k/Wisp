@@ -1,5 +1,6 @@
 #define MyAppName "Wisp"
-#define MyAppVersion "1.0.12"
+#define MyAppVersion "1.1.0"
+#define MyAppDisplayVersion "1.1"
 #define MyAppPublisher "Wisp"
 #define MyAppExeName "Wisp.exe"
 
@@ -7,6 +8,7 @@
 AppId={{A8FC0D58-11E3-4B25-B78D-3B98E9855473}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppDisplayVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\Wisp
 DefaultGroupName={#MyAppName}

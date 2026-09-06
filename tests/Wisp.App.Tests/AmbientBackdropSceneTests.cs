@@ -39,93 +39,101 @@ public sealed class AmbientBackdropSceneTests
     [InlineData(1280, 800)]
     [InlineData(1920, 1080)]
     [InlineData(3840, 2160)]
-    public void FramesStayFiniteLayeredAndFormAGroupedRibbon(double width, double height)
+    public void FramesStayFiniteAndBoundedAcrossViewports(double width, double height)
     {
         var scene = new AmbientBackdropScene();
-        foreach (var seconds in new[] { 0d, 1d / AmbientBackdropClock.FramesPerSecond, 12.5, 80, 239.9, 100_000 })
+        foreach (var seconds in new[] { 0d, 1d / 30, 12.5, 80, 239.9, 100_000 })
         {
             scene.Update(width, height, seconds);
 
-            Assert.Equal(AmbientBackdropScene.ParticleCount, scene.Particles.Length);
-            var particles = scene.Particles.ToArray();
-            Assert.Equal(AmbientBackdropScene.FarParticleCount,
-                particles.Count(particle => particle.Layer == AmbientParticleLayer.Far));
-            Assert.Equal(AmbientBackdropScene.MiddleParticleCount,
-                particles.Count(particle => particle.Layer == AmbientParticleLayer.Middle));
-            Assert.Equal(AmbientBackdropScene.NearParticleCount,
-                particles.Count(particle => particle.Layer == AmbientParticleLayer.Near));
-            foreach (var particle in particles)
+            Assert.Equal(2048, scene.Particles.Length);
+            foreach (var particle in scene.Particles)
             {
-                AssertPoint(particle.Position, width, height);
-                Assert.InRange(particle.Shade, 0, AmbientBackdropScene.PaletteSize - 1);
-                AssertRadius(particle);
-                var along = particle.Position.X / width;
-                var verticalDistance = Math.Abs(
-                    particle.Position.Y / height - AmbientBackdropScene.RibbonCenter(along, seconds));
-                var envelope = particle.Layer switch
-                {
-                    AmbientParticleLayer.Far => 0.24,
-                    AmbientParticleLayer.Middle => 0.16,
-                    _ => 0.10
-                };
-                Assert.InRange(verticalDistance, 0, envelope);
+                Assert.InRange(particle.Position.X, -width, width * 2);
+                Assert.InRange(particle.Position.Y, -height, height * 2);
+                Assert.InRange(particle.Radius, 0.5, 21);
+                Assert.InRange(particle.Opacity, 0, 0.4);
+                Assert.InRange(particle.Softness, 0.18, 0.82);
+                Assert.InRange(particle.Red, 0.25, 0.54);
+                Assert.InRange(particle.Green, 0.40, 0.60);
+                Assert.InRange(particle.Blue, 0.39, 0.60);
             }
-            Assert.True(particles.Min(particle => particle.Position.X) < width * 0.08);
-            Assert.True(particles.Max(particle => particle.Position.X) > width * 0.92);
-            AssertGroupedOccupancy(particles, width, height);
         }
     }
 
     [Fact]
-    public void FirstFrameIsAlreadyAMatureRibbonWithoutWarmup()
+    public void FirstFrameHasMultiplePopulatedStreamsAndContinuousDepth()
     {
         var scene = new AmbientBackdropScene();
-        scene.Update(1280, 800, 0);
-
+        scene.Update(1280, 900, 0);
         var particles = scene.Particles.ToArray();
-        Assert.Equal(240, particles.Length);
-        AssertGroupedOccupancy(particles, 1280, 800);
-        var near = particles.Where(particle => particle.Layer == AmbientParticleLayer.Near).ToArray();
-        Assert.True(near.Count(particle =>
-            Math.Abs(particle.Position.Y / 800 -
-                AmbientBackdropScene.RibbonCenter(particle.Position.X / 1280, 0)) <= 0.08) >= 116);
+        var visible = particles.Where(particle =>
+            particle.Position.X >= 0 && particle.Position.X <= 1280 &&
+            particle.Position.Y >= 0 && particle.Position.Y <= 900 &&
+            particle.Opacity > 0.01).ToArray();
+        var occupiedRows = visible.Select(particle => (int)(particle.Position.Y / 150)).Distinct().Count();
+
+        Assert.InRange(visible.Length, 700, 2048);
+        Assert.True(occupiedRows >= 5);
+        Assert.True(visible.Count(particle => particle.Radius < 2.2) > 100);
+        Assert.True(particles.Count(particle => particle.Radius > 4) > 50);
+        Assert.True(particles.Count(particle => particle.Softness > 0.5) > 50);
+        Assert.True(particles.Select(particle => Math.Round(particle.Softness, 3)).Distinct().Count() > 100);
     }
 
     [Fact]
-    public void PointerInfluenceIsBoundedLocalAndDepthOrdered()
+    public void ProjectionUsesProductionPerspectiveAndDarkMaterial()
     {
-        const double width = 1280;
-        const double height = 800;
-        const double seconds = 40;
-        var pointer = new AmbientPoint(0.49, AmbientBackdropScene.RibbonCenter(0.49, seconds));
-        var scene = new AmbientBackdropScene();
-        scene.Update(width, height, seconds);
-        var neutral = scene.Particles.ToArray();
-        scene.Update(width, height, seconds, pointer, 1);
-        var influenced = scene.Particles.ToArray();
+        var particle = AmbientBackdropScene.Project(1, -1, -1.65, 0.5, 0, 1280, 900);
+        var pointSize = 1.15 + Math.Pow(0.56, 1.38) * 31;
 
-        var maximumByLayer = new Dictionary<AmbientParticleLayer, double>();
-        foreach (var layer in Enum.GetValues<AmbientParticleLayer>())
-            maximumByLayer[layer] = 0;
-        var localEnergy = 0d;
-        var remoteEnergy = 0d;
+        Assert.Equal((1 + 1.7320508 / 6.65) * 640, particle.Position.X, 10);
+        Assert.Equal((1 + 1.7320508 / 6.65) * 450, particle.Position.Y, 10);
+        Assert.Equal(pointSize / 2, particle.Radius, 10);
+        Assert.Equal(0.115 * 0.78 / Math.Sqrt(Math.Max(1, pointSize * 0.20)), particle.Opacity, 10);
+        Assert.Equal(0.82, particle.Softness, 10);
+        Assert.Equal(0.3776, particle.Red, 10);
+        Assert.Equal(0.488, particle.Green, 10);
+        Assert.Equal(0.4824, particle.Blue, 10);
+    }
+
+    [Fact]
+    public void LifeFadesAtBothBoundariesAndOutputHeightControlsPointSize()
+    {
+        var born = AmbientBackdropScene.Project(0, 0, 0, 1, 0.5, 1280, 900);
+        var mature = AmbientBackdropScene.Project(0, 0, 0, 0.5, 0.5, 1280, 900);
+        var expired = AmbientBackdropScene.Project(0, 0, 0, 0, 0.5, 1280, 900);
+        var larger = AmbientBackdropScene.Project(0, 0, 0, 0.5, 0.5, 2560, 1800);
+
+        Assert.Equal(0, born.Opacity);
+        Assert.Equal(0, expired.Opacity);
+        Assert.True(mature.Opacity > 0.25);
+        Assert.Equal(mature.Radius * 2, larger.Radius, 10);
+        Assert.True(larger.Opacity <= mature.Opacity);
+    }
+
+    [Fact]
+    public void PointerInfluenceIsBoundedAndLocal()
+    {
+        var pointer = new AmbientPoint(0.49, 0.5);
+        var scene = new AmbientBackdropScene();
+        scene.Update(1280, 800, 40);
+        var neutral = scene.Particles.ToArray();
+        scene.Update(1280, 800, 40, pointer, 1);
+        var changed = 0;
+
         for (var index = 0; index < neutral.Length; index++)
         {
-            var displacement = Distance(neutral[index].Position, influenced[index].Position);
-            maximumByLayer[neutral[index].Layer] = Math.Max(maximumByLayer[neutral[index].Layer], displacement);
-            Assert.InRange(displacement, 0, Math.Min(width, height) * 0.013);
-            var pointerDistance = Distance(neutral[index].Position,
-                new AmbientPoint(pointer.X * width, pointer.Y * height));
-            if (pointerDistance <= Math.Min(width, height) * 0.22)
-                localEnergy += displacement * displacement;
-            else
-                remoteEnergy += displacement * displacement;
+            var next = scene.Particles[index];
+            var displacement = Distance(neutral[index].Position, next.Position);
+            Assert.InRange(displacement, 0, 800 * 0.013);
+            Assert.Equal(neutral[index] with { Position = next.Position }, next);
+            if (Distance(neutral[index].Position, new AmbientPoint(pointer.X * 1280, pointer.Y * 800)) >= 800 * 0.22)
+                Assert.Equal(0, displacement);
+            if (displacement > 0)
+                changed++;
         }
-
-        Assert.True(maximumByLayer[AmbientParticleLayer.Near] > maximumByLayer[AmbientParticleLayer.Middle]);
-        Assert.True(maximumByLayer[AmbientParticleLayer.Middle] > maximumByLayer[AmbientParticleLayer.Far]);
-        Assert.True(localEnergy > 0);
-        Assert.Equal(0, remoteEnergy, 8);
+        Assert.True(changed > 20);
     }
 
     [Fact]
@@ -150,7 +158,6 @@ public sealed class AmbientBackdropSceneTests
     {
         var scene = new AmbientBackdropScene();
         scene.Update(1280, 800, 20);
-
         scene.Update(width, height, 20);
 
         Assert.True(scene.Particles.IsEmpty);
@@ -165,24 +172,9 @@ public sealed class AmbientBackdropSceneTests
         var scene = new AmbientBackdropScene();
         scene.Update(1280, 800, 0);
         var particles = scene.Particles.ToArray();
-
         scene.Update(1280, 800, seconds);
 
         Assert.Equal(particles, scene.Particles.ToArray());
-    }
-
-    [Fact]
-    public void FieldEvolvesWithoutAShortSynchronizedReset()
-    {
-        var scene = new AmbientBackdropScene();
-        scene.Update(1280, 800, 0);
-        var particles = scene.Particles.ToArray();
-
-        scene.Update(1280, 800, 80);
-
-        Assert.True(particles.Zip(scene.Particles.ToArray())
-            .Count(pair => pair.First.Position != pair.Second.Position) >= AmbientBackdropScene.ParticleCount - 2);
-        Assert.Equal(80, AmbientBackdropScene.NormalizeTime(80));
     }
 
     [Theory]
@@ -190,58 +182,40 @@ public sealed class AmbientBackdropSceneTests
     [InlineData(31.99)]
     [InlineData(79.99)]
     [InlineData(500)]
-    public void FrameMotionIsSlowContinuousAndCoherent(double seconds)
+    public void VisibleParticlesMoveContinuouslyWithoutSynchronizedResets(double seconds)
     {
         var scene = new AmbientBackdropScene();
         scene.Update(1280, 800, seconds);
         var particles = scene.Particles.ToArray();
-
         scene.Update(1280, 800, seconds + 1d / AmbientBackdropClock.FramesPerSecond);
+        var compared = 0;
 
-        var moving = 0;
         for (var index = 0; index < particles.Length; index++)
         {
             var next = scene.Particles[index];
-            var displacement = Distance(particles[index].Position, next.Position);
-            Assert.InRange(displacement, 0, 0.5);
-            if (displacement > 0.000001)
-                moving++;
-            Assert.Equal(particles[index].Radius, next.Radius);
-            Assert.Equal(particles[index].Layer, next.Layer);
+            if (particles[index].Opacity <= 0.01 || next.Opacity <= 0.01)
+                continue;
+            Assert.InRange(Distance(particles[index].Position, next.Position), 0, 4);
+            Assert.InRange(Math.Abs(particles[index].Opacity - next.Opacity), 0, 0.05);
+            compared++;
         }
-        Assert.True(moving >= AmbientBackdropScene.ParticleCount - 2);
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(31.99)]
-    [InlineData(79.99)]
-    public void OneSecondOfMotionIsVisibleWithoutBreakingTheRibbon(double seconds)
-    {
-        var scene = new AmbientBackdropScene();
-        scene.Update(1280, 800, seconds);
-        var particles = scene.Particles.ToArray();
-
-        scene.Update(1280, 800, seconds + 1);
-
-        var displacements = particles
-            .Zip(scene.Particles.ToArray())
-            .Select(pair => Distance(pair.First.Position, pair.Second.Position))
-            .ToArray();
-        Assert.True(displacements.Average() > 0.5);
-        Assert.True(displacements.Count(displacement => displacement > 0.25) >= 180);
-        Assert.All(displacements, displacement => Assert.InRange(displacement, 0, 14));
+        Assert.True(compared > 1800);
+        Assert.Equal(seconds, AmbientBackdropScene.NormalizeTime(seconds));
     }
 
     [Fact]
-    public void ResizeAndReturningToZeroRestoresTheStaticFrame()
+    public void ResizePreservesNormalizedProjectionAndReturningToZeroRestoresFrame()
     {
         var scene = new AmbientBackdropScene();
         scene.Update(1280, 800, 0);
         var particles = scene.Particles.ToArray();
-
+        scene.Update(640, 400, 0);
+        for (var index = 0; index < particles.Length; index++)
+        {
+            Assert.Equal(particles[index].Position.X / 2, scene.Particles[index].Position.X, 10);
+            Assert.Equal(particles[index].Position.Y / 2, scene.Particles[index].Position.Y, 10);
+        }
         scene.Update(480, 760, 60);
-        Assert.Equal(AmbientBackdropScene.ParticleCount, scene.Particles.Length);
         scene.Update(1280, 800, 0);
 
         Assert.Equal(particles, scene.Particles.ToArray());
@@ -252,63 +226,17 @@ public sealed class AmbientBackdropSceneTests
     {
         var scene = new AmbientBackdropScene();
         var pointer = new AmbientPoint(0.49, 0.5);
-        for (var index = 0; index < 200; index++)
-            scene.Update(1280, 800, index / 24d, pointer, index % 2);
-
+        for (var index = 0; index < 100; index++)
+            scene.Update(1280, 800, index / 30d, pointer, index % 2);
         var allocated = GC.GetAllocatedBytesForCurrentThread();
-        for (var index = 0; index < 1000; index++)
-            scene.Update(1280, 800, index / 24d, pointer, index % 2);
+        for (var index = 0; index < 200; index++)
+            scene.Update(1280, 800, index / 30d, pointer, index % 2);
         allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
 
         Assert.Equal(0L, allocated);
-        Assert.Equal(40, AmbientBackdropScene.FarParticleCount);
-        Assert.Equal(72, AmbientBackdropScene.MiddleParticleCount);
-        Assert.Equal(128, AmbientBackdropScene.NearParticleCount);
-        Assert.Equal(240, AmbientBackdropScene.ParticleCount);
-    }
-
-    private static void AssertGroupedOccupancy(
-        IReadOnlyCollection<AmbientParticle> particles,
-        double width,
-        double height)
-    {
-        var horizontalBins = new int[20];
-        var occupancy = new bool[10, 8];
-        foreach (var particle in particles)
-        {
-            var x = Math.Clamp((int)(particle.Position.X / width * horizontalBins.Length), 0, horizontalBins.Length - 1);
-            horizontalBins[x]++;
-            var gridX = Math.Clamp((int)(particle.Position.X / width * 10), 0, 9);
-            var gridY = Math.Clamp((int)(particle.Position.Y / height * 8), 0, 7);
-            occupancy[gridX, gridY] = true;
-        }
-
-        Assert.True(horizontalBins.Count(count => count >= 14) >= 4);
-        Assert.True(horizontalBins.Count(count => count <= 6) >= 3);
-        Assert.True(occupancy.Cast<bool>().Count(occupied => !occupied) >= 24);
-    }
-
-    private static void AssertRadius(AmbientParticle particle)
-    {
-        var limits = particle.Layer switch
-        {
-            AmbientParticleLayer.Far => (2.16, 14.18),
-            AmbientParticleLayer.Middle => (1.00, 5.68),
-            _ => (0.39, 2.98)
-        };
-        Assert.InRange(particle.Radius, limits.Item1, limits.Item2);
+        Assert.Equal(AmbientBackdropScene.ParticleCount, scene.Particles.Length);
     }
 
     private static double Distance(AmbientPoint a, AmbientPoint b) =>
         Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
-
-    private static void AssertPoint(AmbientPoint point, double width, double height)
-    {
-        Assert.True(double.IsFinite(point.X) && double.IsFinite(point.Y));
-        // Far-field centers may sit just outside the clipped viewport. Bound them by the
-        // physical ribbon width instead of clamping them into visible edge-aligned rows.
-        var padding = Math.Min(width, height) * 0.20;
-        Assert.InRange(point.X, -padding, width + padding);
-        Assert.InRange(point.Y, -padding, height + padding);
-    }
 }

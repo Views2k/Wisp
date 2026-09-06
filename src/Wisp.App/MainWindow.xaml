@@ -1841,7 +1841,7 @@
                                         <StackPanel>
                                             <TextBlock Text="VERSION HISTORY" Style="{StaticResource EyebrowTextStyle}" />
                                             <TextBlock Text="What changed in Wisp" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,0" />
-                                            <TextBlock Text="Feature updates, hotfixes, and important refinements from every documented public release. The current 1.0.12 entry summarizes this release."
+                                            <TextBlock Text="{x:Static local:ApplicationVersionInfo.ReleaseHistoryIntroduction}"
                                                        Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                                        LineHeight="19" Margin="0,7,0,0" />
                                         </StackPanel>
@@ -1863,17 +1863,17 @@
                                                     </Border.Style>
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="138" />
+                                                            <ColumnDefinition Width="Auto" MinWidth="160" MaxWidth="240" />
                                                             <ColumnDefinition Width="*" />
                                                         </Grid.ColumnDefinitions>
                                                         <StackPanel Margin="0,0,22,0">
                                                             <Border Background="{DynamicResource RaisedBrush}" CornerRadius="6"
                                                                     Padding="8,4" HorizontalAlignment="Left">
-                                                                <TextBlock Text="{Binding Label}" FontSize="9" FontWeight="Bold"
+                                                                <TextBlock Text="{Binding Label}" FontSize="9" FontWeight="Bold" TextWrapping="Wrap"
                                                                            Foreground="{DynamicResource AccentBrush}" />
                                                             </Border>
-                                                            <TextBlock Text="{Binding Version, StringFormat=Version {0}}"
-                                                                       FontSize="20" FontWeight="SemiBold" Margin="0,12,0,0" />
+                                                            <TextBlock x:Name="ReleaseVersionText" Text="{Binding Version, StringFormat=Version {0}}"
+                                                                       FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,12,0,0" />
                                                             <TextBlock Text="{Binding Date}" Foreground="{DynamicResource FaintBrush}"
                                                                        FontSize="10" TextWrapping="Wrap" Margin="0,5,0,0" />
                                                         </StackPanel>
@@ -2027,7 +2027,7 @@
             <Grid Grid.Row="2" Margin="29,0">
                 <TextBlock Text="LOCAL DATA OUT  ·  READ-ONLY NATIVE HUD  ·  NO INJECTION" VerticalAlignment="Center"
                            FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource FaintBrush}" />
-                <TextBlock Text="WHEEL-INDICATED SPEED PANEL 1.0.12" HorizontalAlignment="Right" VerticalAlignment="Center"
+                <TextBlock x:Name="ApplicationVersionFooter" Text="{x:Static local:ApplicationVersionInfo.FooterText}" HorizontalAlignment="Right" VerticalAlignment="Center"
                            FontSize="10" Foreground="{DynamicResource FaintBrush}" />
             </Grid>
         </Grid>

@@ -98,9 +98,15 @@ The application updater is separate from compatibility contracts. Availability
 checks run at startup, at most once every 24 hours. They are enabled by default
 and can be disabled in **Extras**. **Check for updates** also allows a manual
 check. The client uses GitHub's anonymous latest-release endpoint and requires a
-non-draft, non-prerelease, immutable release with a strict `vX.Y.Z` tag. Exactly
-one uploaded `Wisp-Setup-<version>.exe` asset must match the tag and provide its
-byte length and GitHub SHA-256 digest.
+non-draft, non-prerelease, immutable release. Exactly one uploaded
+`Wisp-Setup-<version>.exe` asset provides the numeric version, byte length, and
+GitHub SHA-256 digest. One-, two-, and three-part numeric versions normalize to
+`X.Y.Z`; numeric tags must agree with the installer. Stable release titles are
+display text, never version-ordering evidence.
+
+Use canonical tags such as `v1.1.0` and filenames such as `Wisp-Setup-1.1.0.exe`
+when publishing for clients older than Wisp 1.1. Those clients cannot discover
+short-tag releases, even if they skipped the release that added support.
 
 Wisp shows the release summary and asks for confirmation before downloading and
 installing the update. The initial download URL and every redirect must remain

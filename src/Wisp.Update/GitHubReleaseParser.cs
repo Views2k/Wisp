@@ -39,15 +39,8 @@ internal static class GitHubReleaseParser
             throw new UpdateSecurityException("The latest GitHub release is not immutable.");
         }
 
-        if (!SemanticVersion.TryParseTag(release.TagName, out var version))
-        {
-            throw new UpdateSecurityException("The latest GitHub release tag is not strict vX.Y.Z semantic versioning.");
-        }
-
-        var expectedName = ReleaseUriPolicy.InstallerFileName(version);
         var matchingAssets = release.Assets?
-            .Where(asset => asset is not null &&
-                            string.Equals(asset.Name, expectedName, StringComparison.Ordinal))
+            .Where(asset => asset is not null && ReleaseIdentity.IsInstallerAsset(asset.Name))
             .Take(2)
             .ToArray() ?? [];
         if (matchingAssets.Length != 1)
@@ -56,6 +49,13 @@ internal static class GitHubReleaseParser
         }
 
         var asset = matchingAssets[0]!;
+        if (!ReleaseIdentity.TryParseInstallerVersion(asset.Name, out var version))
+        {
+            throw new UpdateSecurityException("The Wisp installer asset must contain an unambiguous stable version.");
+        }
+
+        ReleaseIdentity.RequireMatchingTag(release.TagName, version);
+        ReleaseIdentity.RequireStableTitle(release.Name);
         if (!string.Equals(asset.State, "uploaded", StringComparison.Ordinal))
         {
             throw new UpdateSecurityException("The Wisp installer asset is not in the uploaded state.");
@@ -76,9 +76,9 @@ internal static class GitHubReleaseParser
             throw new UpdateSecurityException("The Wisp installer asset URL is invalid.");
         }
 
-        ReleaseUriPolicy.RequireInitialDownloadUri(downloadUri, version);
+        ReleaseUriPolicy.RequireInitialDownloadUri(downloadUri, release.TagName!, asset.Name!);
         var releaseSummary = ReleaseSummaryFormatter.Format(release.Body);
-        return new UpdateRelease(version, expectedName, asset.Size.Value, sha256, downloadUri, releaseSummary);
+        return new UpdateRelease(version, release.TagName!, asset.Name!, asset.Size.Value, sha256, downloadUri, releaseSummary);
     }
 
     internal static bool TryNormalizeSha256(string? digest, out string sha256)
@@ -108,6 +108,9 @@ internal static class GitHubReleaseParser
     {
         [JsonPropertyName("tag_name")]
         public string? TagName { get; init; }
+
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
 
         [JsonPropertyName("draft")]
         public bool? Draft { get; init; }

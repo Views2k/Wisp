@@ -13,23 +13,28 @@ internal static class ReleaseTestData
         long size = 123,
         string? sha256 = null,
         Action<JsonObject>? mutateRelease = null,
-        Action<JsonObject>? mutateAsset = null)
+        Action<JsonObject>? mutateAsset = null,
+        string? tagName = null,
+        string? fileName = null,
+        string? title = null)
     {
         var selectedVersion = version ?? FixtureVersion;
-        var fileName = ReleaseUriPolicy.InstallerFileName(selectedVersion);
+        var selectedFileName = fileName ?? ReleaseUriPolicy.InstallerFileName(selectedVersion);
+        var selectedTagName = tagName ?? selectedVersion.ToTagString();
         var asset = new JsonObject
         {
-            ["name"] = fileName,
+            ["name"] = selectedFileName,
             ["state"] = "uploaded",
             ["size"] = size,
             ["digest"] = $"sha256:{sha256 ?? new string('a', 64)}",
-            ["browser_download_url"] = ReleaseUriPolicy.InitialDownloadUri(selectedVersion).AbsoluteUri
+            ["browser_download_url"] = $"https://github.com/Views2k/Wisp/releases/download/{selectedTagName}/{selectedFileName}"
         };
         mutateAsset?.Invoke(asset);
 
         var release = new JsonObject
         {
-            ["tag_name"] = selectedVersion.ToTagString(),
+            ["tag_name"] = selectedTagName,
+            ["name"] = title,
             ["draft"] = false,
             ["prerelease"] = false,
             ["immutable"] = true,

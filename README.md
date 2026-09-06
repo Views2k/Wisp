@@ -7,6 +7,27 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
+## New in Wisp 1.1
+
+[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
+[1.1 release notes](docs/releases/Wisp-1.1.0-release-notes.md)
+
+- **More readable wheel speed while drifting.** Speed smoothing now follows the
+  selected amount during rapid wheel-speed changes. Zero smoothing remains immediate.
+- **Reliable saves.** Profile-save confirmation waits for a successful write and
+  offers a retry on failure. Calibration saves also track drivetrain and revision
+  changes without altering tire-learning rules.
+- **Connection and update fixes.** Windows clock changes no longer affect telemetry
+  freshness, and release details stay available when retrying a downloaded update.
+- **Setup and release-history polish.** Setup uses the website's particle material
+  and depth styling with smoother faint gradients. Version labels no longer clip.
+- **Flexible release labels.** New clients accept shortened versions while keeping
+  installer size, SHA-256, embedded-version, and downgrade checks intact. This
+  release retains the `v1.1.0` tag so older installations can discover it.
+
+Includes expired-log cleanup before debug export. Existing exported ZIPs are
+untouched. HUD layouts, saved colors, and tire calibration behavior are preserved.
+
 ## New in 1.0.12
 
 [Download 1.0.12](https://github.com/Views2k/Wisp/releases/tag/v1.0.12) ·
@@ -183,8 +204,8 @@ You can also select **Check for updates** there to check immediately. Automatic
 checks discover releases; they never download or install an update without your
 confirmation.
 
-An accepted release must be public, stable, and immutable. Its tag and
-versioned installer name must match, and GitHub must provide the installer's
+An accepted release must be public, stable, and immutable. Numeric tags must
+match the installer's normalized version, and GitHub must provide the installer's
 exact byte length and SHA-256 digest. Downloads are limited to the canonical
 GitHub release URL and GitHub's HTTPS release-asset hosts. Wisp shows the release
 summary and asks you to confirm the download, installation, and restart. After

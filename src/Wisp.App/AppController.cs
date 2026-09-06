@@ -39,7 +39,7 @@ public sealed class AppController : IAsyncDisposable
     private readonly CancellationTokenSource _compatibilityLifetime = new();
     private readonly WispUpdateClient _applicationUpdates = WispUpdateClient.CreateDefault();
     private readonly CancellationTokenSource _applicationUpdateLifetime = new();
-    private readonly Dictionary<int, RollingRadii> _savedCalibrationRadii;
+    private readonly Dictionary<int, CalibrationPersistenceIdentity> _capturedCalibrationProfiles;
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _uiTimer;
     private readonly DispatcherTimer _settingsSaveTimer;
@@ -86,6 +86,7 @@ public sealed class AppController : IAsyncDisposable
     private int _applicationUpdateOperation;
     private UpdateRelease? _availableApplicationRelease;
     private VerifiedInstaller? _pendingInstaller;
+    private ApplicationUpdateDetails? _pendingApplicationUpdateDetails;
     private string? _compatibilityImportStatus;
     private DateTimeOffset _tractionCueUntilUtc = DateTimeOffset.MinValue;
     private ReceiverStatistics _cachedStatistics;
@@ -116,22 +117,7 @@ public sealed class AppController : IAsyncDisposable
         _startupRegistrationService = startupRegistrationService;
         SetupTelemetry = new SetupTelemetryTest(new SetupTelemetrySource(_receiver));
         _calibration.ImportSnapshots(settings.Calibrations);
-        _savedCalibrationRadii = settings.Calibrations
-            .Where(snapshot =>
-                snapshot.Drivetrain is { } drivetrain &&
-                RollingRadiusEstimator.TrySnapshotRadii(snapshot, drivetrain, out _))
-            .GroupBy(snapshot => snapshot.CarOrdinal)
-            .ToDictionary(
-                group => group.Key,
-                group =>
-                {
-                    var snapshot = group.Last();
-                    _ = RollingRadiusEstimator.TrySnapshotRadii(
-                        snapshot,
-                        snapshot.Drivetrain!.Value,
-                        out var radii);
-                    return radii;
-                });
+        _capturedCalibrationProfiles = CalibrationPersistenceIdentity.Capture(_calibration);
         var debugLoggingNowUtc = DateTimeOffset.UtcNow;
         if (settings.DebugLoggingEnabled && settings.DebugLoggingExpiresAtUtc is { } debugLoggingExpiry &&
             debugLoggingExpiry > debugLoggingNowUtc)
@@ -457,7 +443,9 @@ public sealed class AppController : IAsyncDisposable
     {
         if (_pendingInstaller is { } pending && File.Exists(pending.StagedPath))
         {
-            return new ApplicationUpdateDetails(pending.Version.ToString(), string.Empty);
+            return _pendingApplicationUpdateDetails is { } details && details.Version == pending.Version.ToString()
+                ? details
+                : new ApplicationUpdateDetails(pending.Version.ToString(), string.Empty);
         }
 
         if (_availableApplicationRelease is { } available)
@@ -497,8 +485,8 @@ public sealed class AppController : IAsyncDisposable
                 _availableApplicationRelease = null;
                 ViewModel.UpdateApplicationUpdateStatus(
                     Settings.AutomaticApplicationUpdateChecks
-                        ? $"Wisp {installedVersion.Major}.{installedVersion.Minor}.{installedVersion.Build} is current. Automatic checks run once daily."
-                        : $"Wisp {installedVersion.Major}.{installedVersion.Minor}.{installedVersion.Build} is current.",
+                        ? $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is current. Automatic checks run once daily."
+                        : $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is current.",
                     "Check again",
                     canCheck: true);
                 return null;
@@ -506,7 +494,7 @@ public sealed class AppController : IAsyncDisposable
 
             _availableApplicationRelease = release;
             ViewModel.UpdateApplicationUpdateStatus(
-                $"Wisp {release.Version} is available. The installer will download only after you confirm.",
+                $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. The installer will download only after you confirm.",
                 "Update",
                 canCheck: true,
                 isUpdateAvailable: true);
@@ -598,6 +586,7 @@ public sealed class AppController : IAsyncDisposable
             }
 
             _pendingInstaller = null;
+            _pendingApplicationUpdateDetails = null;
             if (_availableApplicationRelease is not { } release)
             {
                 ViewModel.UpdateApplicationUpdateStatus(
@@ -611,7 +600,7 @@ public sealed class AppController : IAsyncDisposable
             var progress = new Progress<UpdateDownloadProgress>(value =>
             {
                 ViewModel.UpdateApplicationUpdateStatus(
-                    $"Downloading Wisp {release.Version} — {Math.Clamp(value.Percentage, 0, 100):0}%",
+                    $"Downloading Wisp {ApplicationVersionInfo.Format(release.Version)} — {Math.Clamp(value.Percentage, 0, 100):0}%",
                     "Downloading…",
                     canCheck: false);
             });
@@ -620,9 +609,10 @@ public sealed class AppController : IAsyncDisposable
                 createdAttemptDirectory,
                 progress,
                 _applicationUpdateLifetime.Token);
+            _pendingApplicationUpdateDetails = ApplicationUpdateDetailsFrom(release);
             _availableApplicationRelease = null;
             ViewModel.UpdateApplicationUpdateStatus(
-                $"Wisp {_pendingInstaller.Version} is verified and ready to install.",
+                $"Wisp {ApplicationVersionInfo.Format(_pendingInstaller.Version)} is verified and ready to install.",
                 "Install update",
                 canCheck: true,
                 isUpdateAvailable: true);
@@ -1639,7 +1629,7 @@ public sealed class AppController : IAsyncDisposable
         }
 
         _calibration.ResetProfile(carOrdinal);
-        _savedCalibrationRadii.Remove(carOrdinal);
+        _capturedCalibrationProfiles.Remove(carOrdinal);
         Settings.Calibrations = _calibration.ExportSnapshots().ToList();
         _speedModel.Reset();
         _tractionHookDetector.Reset();
@@ -1930,8 +1920,9 @@ public sealed class AppController : IAsyncDisposable
             _nextDiagnosticsAtUtc = now + TimeSpan.FromMilliseconds(250);
         }
 
-        var connectionState = _freshness.GetState(now);
-        var age = _freshness.GetAge(now);
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        var connectionState = _freshness.GetState(nowTimestamp);
+        var age = _freshness.GetAge(nowTimestamp);
         CaptureDebugSample(now, latest, connectionState, age);
         var hasFreshTelemetry = latest is not null &&
                                 connectionState == TelemetryConnectionState.Connected &&
@@ -2129,12 +2120,16 @@ public sealed class AppController : IAsyncDisposable
             // transitions, so persist every real transition. A coarse save
             // tolerance can otherwise discard a small but meaningful parity
             // correction and resurrect the old radius after restart.
-            var profileChanged = !_savedCalibrationRadii.TryGetValue(current.CarOrdinal, out var savedRadii) ||
-                                 RadiiDiffer(radii, savedRadii, 1e-9);
+            var identity = new CalibrationPersistenceIdentity(
+                current.Drivetrain,
+                RollingRadiusEstimator.CurrentCalibrationRevision,
+                radii);
+            var profileChanged = !_capturedCalibrationProfiles.TryGetValue(current.CarOrdinal, out var captured) ||
+                                 !captured.Matches(identity);
             if (profileChanged)
             {
                 Settings.Calibrations = _calibration.ExportSnapshots().ToList();
-                _savedCalibrationRadii[current.CarOrdinal] = radii;
+                _capturedCalibrationProfiles[current.CarOrdinal] = identity;
                 _settingsSaveTimer.Stop();
                 SaveSettings();
             }
@@ -2392,10 +2387,6 @@ public sealed class AppController : IAsyncDisposable
                 : $"On — expires in {hours} h · local only");
     }
 
-    private static bool RadiiDiffer(RollingRadii first, RollingRadii second, double tolerance) =>
-        Math.Abs(first.FrontMeters - second.FrontMeters) / first.FrontMeters > tolerance ||
-        Math.Abs(first.RearMeters - second.RearMeters) / first.RearMeters > tolerance;
-
     internal static bool ShouldPreserveHudVisuals(
         bool nativeHudTelemetryActive,
         TelemetryConnectionState connectionState,
@@ -2545,7 +2536,7 @@ public sealed class AppController : IAsyncDisposable
             ? focus.ForegroundWindow
             : _lastConfirmedForzaWindow;
         var forzaWindowKnown = WindowZOrder.IsWindowAvailable(confirmedForzaWindow);
-        var telemetryFresh = _freshness.GetState(now) == TelemetryConnectionState.Connected;
+        var telemetryFresh = _freshness.GetState(Stopwatch.GetTimestamp()) == TelemetryConnectionState.Connected;
         var nativeVisibility = EvaluateNativeGameplayVisibility(
             _nativeHudProcessService.SnapshotFor(_receiver.Latest?.CarOrdinal ?? 0),
             Stopwatch.GetTimestamp());
@@ -2742,7 +2733,7 @@ public sealed class AppController : IAsyncDisposable
         _lastFreshnessState = latest;
         if (ShouldRecordTelemetryActivity(previous, latest))
         {
-            _freshness.RecordPacket(latest.ReceivedAtUtc);
+            _freshness.RecordPacket(latest.ReceivedTimestamp);
         }
     }
 
@@ -2797,16 +2788,27 @@ public sealed class AppController : IAsyncDisposable
         ViewModel.ClearHudVisuals();
     }
 
-    private void SaveSettings()
+    internal bool TrySavePendingSettings()
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+        _settingsSaveTimer.Stop();
+        return SaveSettings();
+    }
+
+    private bool SaveSettings()
     {
         if (Settings.RequiresSetup)
         {
-            return;
+            return false;
         }
 
         try
         {
             _saveSettings(Settings);
+            return true;
         }
         catch (IOException)
         {
@@ -2820,6 +2822,7 @@ public sealed class AppController : IAsyncDisposable
         {
             // Local policy can temporarily block the settings directory.
         }
+        return false;
     }
 
     private void ScheduleSettingsSave()

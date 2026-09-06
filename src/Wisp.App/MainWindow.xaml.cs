@@ -30,6 +30,8 @@ public partial class MainWindow : Window
     private IInputElement? _focusBeforeHudProfileDialog;
     private Guid? _activeHudProfileId;
     private HudProfileDialogMode _hudProfileDialogMode;
+    private bool _hudProfileChangePending;
+    private string? _pendingHudProfileName;
     private bool _capturingOverlayHotkey;
     private bool _updatingColorEditors;
 
@@ -345,6 +347,9 @@ public partial class MainWindow : Window
     private void ShowHudProfileDialog(HudProfileDialogMode mode, HudPreset? profile = null)
     {
         _hudProfileDialogMode = mode;
+        _hudProfileChangePending = false;
+        _pendingHudProfileName = null;
+        HudProfileNameInput.IsEnabled = true;
         _activeHudProfileId = profile?.Id;
         _focusBeforeHudProfileDialog = Keyboard.FocusedElement;
         HudProfileDialogError.Text = string.Empty;
@@ -420,8 +425,8 @@ public partial class MainWindow : Window
     private void ConfirmHudProfileDialog_Click(object sender, RoutedEventArgs e)
     {
         HudPreset? savedProfile = null;
-        string error;
-        var succeeded = _hudProfileDialogMode switch
+        string error = string.Empty;
+        var succeeded = _hudProfileChangePending || (_hudProfileDialogMode switch
         {
             HudProfileDialogMode.Create => _controller.TryCreateHudPreset(
                 HudProfileNameInput.Text,
@@ -434,7 +439,7 @@ public partial class MainWindow : Window
             HudProfileDialogMode.Delete when _activeHudProfileId is { } id =>
                 DeleteHudProfile(id, out error),
             _ => FailHudProfileAction(out error)
-        };
+        });
 
         if (!succeeded)
         {
@@ -443,9 +448,25 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!_hudProfileChangePending)
+        {
+            _pendingHudProfileName = savedProfile?.Name ?? _controller.Settings.HudPresets
+                .FirstOrDefault(profile => profile.Id == _activeHudProfileId)?.Name;
+            _hudProfileChangePending = true;
+            HudProfileNameInput.IsEnabled = false;
+        }
+        if (!_controller.TrySavePendingSettings())
+        {
+            HudProfileDialogError.Text = "Wisp could not write these changes to disk. Retry to confirm they are saved before closing Wisp.";
+            HudProfileDialogError.Visibility = Visibility.Visible;
+            ConfirmHudProfileButton.Content = "Try again";
+            HudProfileStatusText.Text = "The last profile save attempt failed.";
+            RefreshHudProfileList();
+            return;
+        }
+
         var mode = _hudProfileDialogMode;
-        var profileName = savedProfile?.Name ?? _controller.Settings.HudPresets
-            .FirstOrDefault(profile => profile.Id == _activeHudProfileId)?.Name;
+        var profileName = _pendingHudProfileName;
         HideHudProfileDialog();
         RefreshHudProfileList();
         RootTabs.SelectedItem = ProfilesTab;
@@ -484,6 +505,9 @@ public partial class MainWindow : Window
         HudProfileDialogError.Text = string.Empty;
         HudProfileNameInput.Text = string.Empty;
         _activeHudProfileId = null;
+        _hudProfileChangePending = false;
+        _pendingHudProfileName = null;
+        HudProfileNameInput.IsEnabled = true;
         if (_focusBeforeHudProfileDialog is { } previousFocus)
         {
             Keyboard.Focus(previousFocus);
@@ -632,7 +656,7 @@ public partial class MainWindow : Window
     {
         _applicationUpdateVersion = details.Version;
         _focusBeforeApplicationUpdateConfirmation = Keyboard.FocusedElement;
-        ApplicationUpdateConfirmationVersion.Text = $"Wisp {details.Version}";
+        ApplicationUpdateConfirmationVersion.Text = $"Wisp {ApplicationVersionInfo.Format(Version.Parse(details.Version))}";
         ApplicationUpdateConfirmationSummary.Text = details.ReleaseSummary;
         ApplicationUpdateConfirmationDetails.Visibility = string.IsNullOrWhiteSpace(details.ReleaseSummary)
             ? Visibility.Collapsed

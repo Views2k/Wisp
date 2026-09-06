@@ -134,20 +134,15 @@ public sealed class AmbientBackdropLifecycleTests
         Assert.Null(control.Effect);
         Assert.Null(control.OpacityMask);
         Assert.Null(control.CacheMode);
-        Assert.Equal(2, VisualTreeHelper.GetChildrenCount(control));
+        Assert.Equal(1, VisualTreeHelper.GetChildrenCount(control));
         var background = Assert.IsType<DrawingVisual>(VisualTreeHelper.GetChild(control, 0));
         var backgroundDrawing = Assert.IsType<DrawingGroup>(background.Drawing);
-        Assert.Single(backgroundDrawing.Children);
+        var image = Assert.IsType<ImageDrawing>(Assert.Single(backgroundDrawing.Children));
+        Assert.IsType<System.Windows.Media.Imaging.WriteableBitmap>(image.ImageSource);
+        Assert.Equal(new Rect(0, 0, 1280, 800), image.Rect);
         Assert.Equal(1, background.Opacity);
         Assert.Null(background.OpacityMask);
-        var scene = Assert.IsType<DrawingVisual>(VisualTreeHelper.GetChild(control, 1));
-        var drawing = Assert.IsType<DrawingGroup>(scene.Drawing);
-        Assert.False(drawing.Bounds.IsEmpty);
-        Assert.InRange(drawing.Bounds.Left, 0, 1280 * 0.12);
-        Assert.InRange(drawing.Bounds.Right, 1280 * 0.88, 1280);
-        Assert.Equal(0.78, scene.Opacity, 3);
-        Assert.Null(scene.OpacityMask);
-        Assert.Equal(AmbientBackdropScene.ParticleCount, drawing.Children.Count);
+        Assert.Equal(1, control.Intensity);
     });
 
     [Fact]

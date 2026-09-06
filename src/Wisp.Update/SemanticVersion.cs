@@ -13,6 +13,10 @@ public readonly record struct SemanticVersion : IComparable<SemanticVersion>
         "\\Av(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\z",
         RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
+    private static readonly Regex ReleaseVersionPattern = new(
+        "\\A[vV]?(0|[1-9][0-9]*)(?:\\.(0|[1-9][0-9]*))?(?:\\.(0|[1-9][0-9]*))?\\z",
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+
     public SemanticVersion(int major, int minor, int patch)
     {
         ValidateComponent(major, nameof(major));
@@ -52,6 +56,9 @@ public readonly record struct SemanticVersion : IComparable<SemanticVersion>
 
     public static bool TryParseTag(string? value, out SemanticVersion version) =>
         TryParseMatch(value, TagPattern, out version);
+
+    public static bool TryParseReleaseVersion(string? value, out SemanticVersion version) =>
+        TryParseMatch(value, ReleaseVersionPattern, out version);
 
     public static SemanticVersion FromSystemVersion(Version version)
     {
@@ -99,8 +106,8 @@ public readonly record struct SemanticVersion : IComparable<SemanticVersion>
         var match = pattern.Match(value);
         if (!match.Success ||
             !TryParseComponent(match.Groups[1].Value, out var major) ||
-            !TryParseComponent(match.Groups[2].Value, out var minor) ||
-            !TryParseComponent(match.Groups[3].Value, out var patch))
+            !TryParseComponent(match.Groups[2].Success ? match.Groups[2].Value : "0", out var minor) ||
+            !TryParseComponent(match.Groups[3].Success ? match.Groups[3].Value : "0", out var patch))
         {
             return false;
         }

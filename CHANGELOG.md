@@ -2,16 +2,24 @@
 
 Notable changes to Wisp are recorded here.
 
-## Unreleased
+## 1.1.0 - 2026-09-06
+
+Wisp 1.1 maintenance release.
 
 ### Fixed
 
 - Remove expired local debug-log segments before export, including after logging has stopped. Existing exported ZIPs are not deleted.
+- Confirm profile saves only after successful persistence, retaining retry support on failure.
+- Include drivetrain and calibration revision when deciding whether calibration needs saving.
+- Use monotonic elapsed time for telemetry freshness and retain release details on update retries.
+- Honor speed smoothing during large wheel-speed changes, and prevent release-history version labels from clipping.
 
 ### Maintenance
 
 - Bring update, retention, boost, and developer documentation into line with the application; clarify older screenshots and link current downloads.
 - Organize detailed release notes and document shader regeneration.
+- Match setup's particle material and depth styling to the website without low-opacity gradient banding.
+- Accept shortened stable release versions while preserving numeric installer identity and verification.
 
 ## 1.0.12 - 2026-09-04
 
