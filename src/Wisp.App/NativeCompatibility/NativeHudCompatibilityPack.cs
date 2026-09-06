@@ -29,6 +29,11 @@ public sealed class NativeHudCompatibilityPack
         .Append("nativeGauge")
         .ToFrozenSet(StringComparer.Ordinal);
 
+    private static readonly FrozenSet<string> StorePackProperties = VersionThreePackProperties
+        .Except(new[] { "executableLength", "executableSha256" })
+        .Append("storeIdentity")
+        .ToFrozenSet(StringComparer.Ordinal);
+
     private static readonly FrozenSet<string> SlotProperties = new[]
     {
         "offset", "targetRva"
@@ -219,24 +224,31 @@ public sealed class NativeHudCompatibilityPack
             throw new FormatException("The game version must contain four numeric version parts.");
         }
 
-        ExecutableLength = ReadInt64(properties["executableLength"]);
-        if (ExecutableLength is < 4096 or > MaximumExecutableLength)
+        if (SchemaVersion != 4)
         {
-            throw new FormatException("The executable length is outside the supported bounds.");
-        }
+            ExecutableLength = ReadInt64(properties["executableLength"]);
+            if (ExecutableLength is < 4096 or > MaximumExecutableLength)
+            {
+                throw new FormatException("The executable length is outside the supported bounds.");
+            }
 
-        var hash = ReadString(properties["executableSha256"]);
-        if (hash.Length != 64 || !hash.All(char.IsAsciiHexDigit))
-        {
-            throw new FormatException("The executable SHA-256 must contain exactly 64 hexadecimal digits.");
-        }
+            var hash = ReadString(properties["executableSha256"]);
+            if (hash.Length != 64 || !hash.All(char.IsAsciiHexDigit))
+            {
+                throw new FormatException("The executable SHA-256 must contain exactly 64 hexadecimal digits.");
+            }
 
-        ExecutableSha256 = hash.ToUpperInvariant();
+            ExecutableSha256 = hash.ToUpperInvariant();
+        }
         ImageSize = ReadUInt32(properties["imageSize"]);
         if (ImageSize is < 4096 or > MaximumImageSize)
         {
             throw new FormatException("The image size is outside the supported bounds.");
         }
+
+        StoreIdentity = SchemaVersion == 4
+            ? NativeHudStoreBuildIdentity.Parse(properties["storeIdentity"], GameVersion, ImageSize)
+            : null;
 
         SourceVectorRva = ReadUInt64(properties["sourceVectorRva"]);
         ThresholdRva = ReadUInt64(properties["thresholdRva"]);
@@ -256,9 +268,13 @@ public sealed class NativeHudCompatibilityPack
         GameplayVisibility = SchemaVersion >= 2
             ? ReadGameplayVisibility(properties["gameplayVisibility"], ImageSize)
             : null;
-        NativeGauge = SchemaVersion == 3
+        NativeGauge = SchemaVersion >= 3 && properties["nativeGauge"].ValueKind != JsonValueKind.Null
             ? ReadNativeGauge(properties["nativeGauge"], ImageSize)
             : null;
+        if (SchemaVersion == 3 && NativeGauge is null)
+        {
+            throw new FormatException("The native gauge layout is required by schema three.");
+        }
     }
 
     public int SchemaVersion { get; }
@@ -267,7 +283,8 @@ public sealed class NativeHudCompatibilityPack
     public int Revision { get; }
     public string GameVersion { get; }
     public long ExecutableLength { get; }
-    public string ExecutableSha256 { get; }
+    public string ExecutableSha256 { get; } = string.Empty;
+    public NativeHudStoreBuildIdentity? StoreIdentity { get; }
     public uint ImageSize { get; }
     public ulong SourceVectorRva { get; }
     public ulong ThresholdRva { get; }
@@ -302,6 +319,7 @@ public sealed class NativeHudCompatibilityPack
     }
 
     public bool Matches(string? version, long length, string? sha256) =>
+        StoreIdentity is null &&
         string.Equals(version?.Trim(), GameVersion, StringComparison.Ordinal) &&
         length == ExecutableLength &&
         string.Equals(sha256?.Trim(), ExecutableSha256, StringComparison.OrdinalIgnoreCase);
@@ -318,6 +336,7 @@ public sealed class NativeHudCompatibilityPack
             1 => LegacyPackProperties,
             2 => VersionTwoPackProperties,
             3 => VersionThreePackProperties,
+            4 => StorePackProperties,
             _ => throw new FormatException("The compatibility pack schema or reader version is unsupported.")
         };
         return ReadObject(root, expectedProperties);

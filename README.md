@@ -7,9 +7,23 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
-## New in Wisp 1.1
+## New in Wisp 1.1.1
 
 [Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
+[1.1.1 release notes](docs/releases/Wisp-1.1.1-release-notes.md)
+
+- **Xbox app and Microsoft Store support.** Native HUD compatibility now includes
+  the Windows PC release of FH6, build `3.430.771.0`. Steam build `6.430.771.0`
+  remains supported through its existing compatibility path.
+- **The same local setup.** Enable FH6 Data Out and complete Wisp's setup wizard.
+  No administrator access, permission changes, or game modifications are needed.
+
+This is support for the PC game, not Xbox consoles or cloud gaming. Existing
+HUD layouts, colors, profiles, and tire calibration are preserved.
+
+## New in Wisp 1.1
+
+[Download 1.1](https://github.com/Views2k/Wisp/releases/tag/v1.1.0) ·
 [1.1 release notes](docs/releases/Wisp-1.1.0-release-notes.md)
 
 - **More readable wheel speed while drifting.** Speed smoothing now follows the
@@ -179,9 +193,11 @@ Wisp 1.1 with custom colors. The Release Notes capture shows the 1.1 preview ent
 - Borderless fullscreen, windowed, or another desktop-composited display mode.
   Exclusive fullscreen can cover ordinary Windows overlays.
 
-Native process-derived HUD state currently supports the recorded Steam FH6
-build `6.430.771.0` and its exact executable fingerprint. Data Out reception and
-dashboard calculations remain independent of that compatibility contract.
+Native process-derived HUD state supports Steam FH6 build `6.430.771.0` and
+Xbox app / Microsoft Store PC build `3.430.771.0`, each through its own reviewed
+build contract. Data Out reception and dashboard calculations remain independent
+of those contracts. Wisp runs on Windows alongside the game, not on Xbox consoles
+or a cloud-gaming session.
 
 The installer is self-contained and installs for the current user. It does not
 require administrator access or a separate .NET runtime.
@@ -260,18 +276,18 @@ needs different placement or scale.
 
 The Native provider opens the supported FH6 process with query/read
 access only. It does not inject code, hook rendering, call game functions, or
-write process memory. Changed or unknown executable fingerprints disable the
+write process memory. Changed or unknown game build identities disable the
 affected process-derived state rather than reusing data from another build.
 
 See [Compatibility and Update Safety](docs/COMPATIBILITY.md) for the supported
-build, validation boundary, and update behavior.
+builds, validation boundary, and update behavior.
 
 ## Privacy and limitations
 
 - Telemetry is accepted only from `127.0.0.1`.
 - Settings and tire profiles remain in the current user's local application data.
 - The installer is not code-signed.
-- A changed FH6 executable fingerprint requires a reviewed Wisp update.
+- A changed FH6 build identity requires a reviewed Wisp update.
 - FH6 exposes no tune identifier. Relearn the current tires after changing wheel
   or tire diameter.
 - Software-only WPF captures do not reproduce the live Native HUD shaders.

@@ -7,6 +7,7 @@ public static class NativeHudBuildContract
     // Embedded packs are trusted with the application. External packs must pass
     // the signed catalog before the process reader can select them.
     public static NativeHudCompatibilityPack BuiltIn { get; } = LoadBuiltIn();
+    internal static NativeHudCompatibilityPack StoreBuiltIn { get; } = LoadBuiltIn("Wisp.NativeCompatibility.Store.json");
 
     public static string SupportedVersion => BuiltIn.GameVersion;
     public static long SupportedExecutableLength => BuiltIn.ExecutableLength;
@@ -19,10 +20,10 @@ public static class NativeHudBuildContract
     public static bool Matches(string? version, long length, string? sha256) =>
         BuiltIn.Matches(version, length, sha256);
 
-    private static NativeHudCompatibilityPack LoadBuiltIn()
+    private static NativeHudCompatibilityPack LoadBuiltIn(string resource = "Wisp.NativeCompatibility.BuiltIn.json")
     {
         using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream(
-            "Wisp.NativeCompatibility.BuiltIn.json")
+            resource)
             ?? throw new InvalidDataException("The bundled Native compatibility pack is missing.");
         using var bytes = new MemoryStream();
         stream.CopyTo(bytes);
