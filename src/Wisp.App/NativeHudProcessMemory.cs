@@ -165,7 +165,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             var identity = CaptureIdentity(process);
             if (!TrySelectCompatibility(identity, out var pack, out var fingerprint, out status))
             {
-                return false;
+                return TryOpenStoreProcess(process, identity, out memory, ref status);
             }
 
             handle = NativeHudProcessMemory.OpenReadOnly(process.Id);
@@ -199,6 +199,56 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 : NativeAssistProviderStatus.ReadFailure;
             SetStatus("FH6 process or executable identity could not be verified");
             return false;
+        }
+        finally
+        {
+            handle?.Dispose();
+        }
+    }
+
+    private bool TryOpenStoreProcess(
+        Process process, NativeHudProcessIdentity identity, out NativeHudProcessMemory? memory,
+        ref NativeAssistProviderStatus status)
+    {
+        memory = null;
+        var pack = NativeHudBuildContract.StoreBuiltIn;
+        if (identity.ImageSize != pack.ImageSize || pack.StoreIdentity is not { } storeBuild)
+        {
+            return false;
+        }
+
+        SafeProcessHandle? handle = NativeHudProcessMemory.OpenReadOnly(identity.ProcessId);
+        try
+        {
+            if (handle.IsInvalid || !NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var package) ||
+                package.PackageFullName != storeBuild.PackageFullName)
+            {
+                return false;
+            }
+
+            var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack);
+            if (!storeBuild.MatchesImage(candidate, identity.ModuleBase))
+            {
+                status = NativeAssistProviderStatus.UnsupportedBuild;
+                SetStatus("The Xbox/Store FH6 image does not match the bundled reader guards");
+                return false;
+            }
+
+            process.Refresh();
+            if (CaptureIdentity(process) != identity || !NativeHudProcessMemory.HandleMatchesIdentity(handle, identity, allowStoreFileAlias: true) ||
+                !NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var currentPackage) ||
+                currentPackage != package || !storeBuild.MatchesImage(candidate, identity.ModuleBase))
+            {
+                status = NativeAssistProviderStatus.ReadFailure;
+                SetStatus("The Xbox/Store FH6 identity changed during attachment");
+                return false;
+            }
+
+            memory = candidate;
+            handle = null;
+            status = NativeAssistProviderStatus.Ready;
+            SetStatus($"Xbox/Store FH6 {pack.GameVersion}; Store origin and reader guards verified; pack {pack.Id} r{pack.Revision}");
+            return true;
         }
         finally
         {
@@ -310,7 +360,8 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
 
     internal static SafeProcessHandle OpenReadOnly(int processId) => OpenProcess(RequiredProcessAccess, false, processId);
 
-    internal static bool HandleMatchesIdentity(SafeProcessHandle handle, NativeHudProcessIdentity identity)
+    internal static bool HandleMatchesIdentity(
+        SafeProcessHandle handle, NativeHudProcessIdentity identity, bool allowStoreFileAlias = false)
     {
         if (!GetProcessTimes(handle, out var creation, out _, out _, out _) ||
             NativeHudFingerprintFileSystem.FileTimeTicks(creation) != identity.StartTimeUtcTicks)
@@ -320,8 +371,14 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
 
         var path = new StringBuilder(32768);
         uint length = (uint)path.Capacity;
-        return QueryFullProcessImageName(handle, 0, path, ref length) &&
-               NativeHudFingerprintCache.NormalizePath(path.ToString()) == identity.ExecutablePath;
+        if (!QueryFullProcessImageName(handle, 0, path, ref length))
+        {
+            return false;
+        }
+
+        var observedPath = NativeHudFingerprintCache.NormalizePath(path.ToString());
+        return observedPath == identity.ExecutablePath ||
+               (allowStoreFileAlias && NativeStorePackageIdentity.MatchesExecutableFileAlias(identity.ExecutablePath, observedPath));
     }
 
     private bool CanRead(ulong address, ulong length) =>

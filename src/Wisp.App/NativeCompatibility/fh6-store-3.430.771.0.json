@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 4,
+  "readerVersion": 4,
+  "id": "fh6-store-3.430.771.0-x64",
+  "revision": 1,
+  "gameVersion": "3.430.771.0",
+  "imageSize": 188211200,
+  "sourceVectorRva": 177017440,
+  "thresholdRva": 104556548,
+  "leadVtableRva": 108496768,
+  "expectedThresholdBits": 1036831949,
+  "fields": {
+    "sourceProvider": 30528,
+    "sourceCarOrdinal": 29708,
+    "providerRpm": 432,
+    "providerSimRedlineAngularVelocity": 584,
+    "providerTachometerMaximumAngularVelocity": 588,
+    "localPlayerFlag": 5220,
+    "localPlayerProviderFlag": 49968,
+    "stmState": 5168,
+    "absState": 5172,
+    "stmAvailable": 6068,
+    "tcrAvailable": 6069,
+    "absAvailable": 6070,
+    "lcAvailable": 6071,
+    "lcPrimary": 5356,
+    "lcMode": 8060,
+    "lcSecondary": 49696,
+    "tcrSecondary": 49696,
+    "tcrPrimary": 49700,
+    "tcrTertiary": 49704,
+    "tcrWheelValues": 49864,
+    "firstWheelPointer": 2976,
+    "secondWheelPointer": 2984,
+    "thirdWheelPointer": 2992,
+    "wheelId": 1440
+  },
+  "gameplayVisibility": {
+    "uiServiceRva": 176526888,
+    "uiServiceVtableRva": 107652968,
+    "dependencyVtableRva": 107571304,
+    "transitionManagerVtableRva": 107571192,
+    "hudPageVtableRva": 115813672,
+    "serviceDependencyOffset": 160,
+    "rootTransitionManagerOffset": 56,
+    "managerOwnerOffset": 192,
+    "managerCurrentPageOffset": 144,
+    "managerStateOffset": 104,
+    "pageTransitionManagerOffset": 656,
+    "pageUiVisibleOffset": 964
+  },
+  "nativeGauge": {
+    "registryGlobalRva": 176253464,
+    "registryKeyHash": 14601433220641418792,
+    "registryWrapperVtableRva": 106463440,
+    "registryContextVtableRva": 109517456,
+    "registryContextControlVtableRva": 106466584,
+    "registryContextOffset": 8,
+    "registryContextControlOffset": 16,
+    "registrySentinelOffset": 504,
+    "registryCountOffset": 512,
+    "registryBucketsOffset": 520,
+    "registryBucketsEndOffset": 528,
+    "registryBucketsCapacityOffset": 536,
+    "registryMaskOffset": 544,
+    "registryBucketCountOffset": 552,
+    "registryBucketStride": 16,
+    "registryBucketBoundaryOffset": 0,
+    "registryBucketNodeOffset": 8,
+    "registryNodeNextOffset": 8,
+    "registryNodeHashOffset": 16,
+    "registryNodeObjectOffset": 24,
+    "registryNodeControlOffset": 32,
+    "sharedControlObjectOffset": 16,
+    "hudVtableRva": 109554456,
+    "hudControlVtableRva": 105182248,
+    "hudSubobjectOffset": 48,
+    "hudSubobjectPointerOffset": 304,
+    "hudSubobjectVtableRva": 109554536,
+    "hudSubobjectSlotZeroTargetRva": 5092448,
+    "hudSubobjectSlotZeroPrologueHex": "488D4170C3",
+    "hudTypeVectorOffset": 112,
+    "hudTypeVectorMaximumCount": 64,
+    "hudTypeVectorBeginOffset": 0,
+    "hudTypeVectorEndOffset": 8,
+    "hudTypeVectorCapacityOffset": 16,
+    "hudTypeVectorEntryStride": 32,
+    "hudTypeTokenRva": 178658408,
+    "hudTypeTokenOffset": 0,
+    "hudTypeInstancesBeginOffset": 8,
+    "hudTypeInstancesEndOffset": 16,
+    "hudTypeInstancesCapacityOffset": 24,
+    "hudTypeInstanceCount": 1,
+    "hudTypeInstanceStride": 16,
+    "hudTypeInstanceObjectOffset": 0,
+    "hudTypeInstanceControlOffset": 8,
+    "outerControlVtableRva": 109536584,
+    "outerPrimaryVtableRva": 117399288,
+    "outerSecondaryVtableRva": 117399576,
+    "outerSecondaryOffset": 8,
+    "outerHudBackReferenceOffset": 16,
+    "outerHudControlBackReferenceOffset": 24,
+    "outerChildOffset": 56,
+    "outerSourceOffset": 64,
+    "outerPowerFillOffset": 112,
+    "outerRegenFillOffset": 136,
+    "childlessRegenPowerRatioBits": 1050253722,
+    "childVtableRva": 117981760,
+    "childModeOffset": 228,
+    "childAngleOffset": 244,
+    "childBlurOffset": 248,
+    "childSpeedDigitOneOffset": 252,
+    "childSpeedDigitTenOffset": 256,
+    "childSpeedDigitHundredOffset": 260,
+    "childSpeedLessOrEqualOneOffset": 264,
+    "childSpeedLessTenOffset": 265,
+    "childSpeedLessHundredOffset": 266,
+    "childHeadlightsOnOffset": 268,
+    "childGearOffset": 272,
+    "childGearPreviousOffset": 276,
+    "childGearNextOffset": 280,
+    "childRegenOffset": 304,
+    "childPowerOffset": 308,
+    "childGearGaugeStateOffset": 312,
+    "childUseDriveFor1Offset": 316,
+    "childRatioOffset": 320,
+    "childSpeedUnitObjectOffset": 360,
+    "childMaximumTachometerOffset": 368,
+    "childElectricMaximumSpeedOffset": 392,
+    "speedUnitEnumOffset": 4,
+    "speedUnitMphValue": 22,
+    "speedUnitKphValue": 23,
+    "providerPowerLimitFirstOffset": 9136,
+    "providerPowerLimitSecondOffset": 9148,
+    "providerPowerNumeratorOffset": 504,
+    "providerPowerDenominatorOffset": 2696,
+    "providerRegenTargetOffset": 5160,
+    "providerPowerDenominatorScaleBits": 1008981770,
+    "providerRegenScaleBits": 3214934016,
+    "providerRegenUpperBaseBits": 1048576000,
+    "providerElectricSpeedOffset": 5356,
+    "requiredProviderVtableSlots": [
+      {
+        "offset": 664,
+        "targetRva": 32156304
+      },
+      {
+        "offset": 856,
+        "targetRva": 32167200
+      },
+      {
+        "offset": 1464,
+        "targetRva": 32182192
+      },
+      {
+        "offset": 1824,
+        "targetRva": 32166704
+      },
+      {
+        "offset": 1944,
+        "targetRva": 32176416
+      },
+      {
+        "offset": 3624,
+        "targetRva": 32181952
+      }
+    ]
+  },
+  "requiredVtableSlots": [
+    {
+      "offset": 528,
+      "targetRva": 32167248
+    },
+    {
+      "offset": 680,
+      "targetRva": 32185968
+    },
+    {
+      "offset": 688,
+      "targetRva": 32182272
+    },
+    {
+      "offset": 696,
+      "targetRva": 32155376
+    },
+    {
+      "offset": 1664,
+      "targetRva": 32167232
+    },
+    {
+      "offset": 4184,
+      "targetRva": 32184448
+    },
+    {
+      "offset": 4192,
+      "targetRva": 32153456
+    },
+    {
+      "offset": 4200,
+      "targetRva": 32169312
+    },
+    {
+      "offset": 4216,
+      "targetRva": 32169456
+    }
+  ],
+  "storeIdentity": {
+    "packageFullName": "Microsoft.ForteBaseGame_3.430.771.0_x64__8wekyb3d8bbwe",
+    "timeDateStamp": 1787153332,
+    "codeGuards": [
+      {
+        "rva": 103163586,
+        "length": 38,
+        "sha256": "5DBD543FAD5FBD0926E709BFA7AC95D189852DF62079ADD3E05EF3ED83ABAED0"
+      },
+      {
+        "rva": 25831055,
+        "length": 49,
+        "sha256": "B24F11A3C73A74A852F59DF76BC1069C0AB748A422B0D1BFC54AE2B80F74C64D"
+      },
+      {
+        "rva": 32387834,
+        "length": 51,
+        "sha256": "9A73CCEF3EF7873E3CA975D4AE499F655EA01563EDD83B8295CF227DE424174A"
+      },
+      {
+        "rva": 7021413,
+        "length": 40,
+        "sha256": "9BE8817D37D7200095C9B83B5997A9478F1448E4E4148918889215A546997A68"
+      }
+    ]
+  }
+}

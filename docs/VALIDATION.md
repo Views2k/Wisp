@@ -50,12 +50,14 @@ the installer/checksum pair before promotion.
 - compositor lifetime, recorded tachometer traces, and bounded Native needle
   playback/reset behavior;
 - process-memory permission boundaries and identity guards;
+- Store package origin/path validation, same-file alias binding, and bounded
+  loaded-image identity checks, including mismatch and partial-read rejection;
 - compatibility contract, signature, cache, update, and failure behavior;
 - latest-release parsing, semantic-version ordering, bounded downloads,
   redirect policy, byte-length checks, and SHA-256 rejection paths;
 - staged update-request validation, exact parent-process binding, installer and
   installed-app identity checks, silent apply arguments, and restart ordering;
-- fingerprint-gated EV digits, fade flags, gears, power/regeneration, needle,
+- build-identity-gated EV digits, fade flags, gears, power/regeneration, needle,
   and invalid-field rejection;
 - menu/loading/cutscene visibility while telemetry remains active;
 - dashboard horsepower/torque formatting and unavailable-state behavior;

@@ -15,11 +15,26 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.1.1",
+            "September 6, 2026",
+            "COMPATIBILITY HOTFIX",
+            "Xbox app and Microsoft Store editions of Forza Horizon 6 on Windows are now supported.",
+            true,
+            [
+                Group("Compatibility",
+                    "Adds a separate Native HUD compatibility path for Xbox app and Microsoft Store FH6 build 3.430.771.0. Other Store builds remain unsupported.",
+                    "Checks the Store package and targeted code guards, including Windows executable-path aliases, without opening protected executable contents as a file.",
+                    "Restores Native HUD attachment, gameplay visibility, exact redline, driver-assist data, and stock needle data on the supported Store build."),
+                Group("Unchanged",
+                    "The existing Steam compatibility path is preserved.",
+                    "Wisp runs without administrator permissions and does not modify Forza or its game files.")
+            ]),
+        new(
             "1.1",
             "September 6, 2026",
             "MAINTENANCE",
             "Focused corrections to settings saves, calibration persistence, and connection timing.",
-            true,
+            false,
             [
                 Group("Fixed",
                     "Profile changes are confirmed only after the settings write succeeds. Failed writes can be retried without creating duplicate profiles.",

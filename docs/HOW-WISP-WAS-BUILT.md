@@ -96,11 +96,14 @@ digits, fade decisions, power/regeneration presentation, or electric needle
 state. Wisp reads that limited state through guarded Windows query/read process
 access only.
 
-Before a value is accepted, the provider validates the executable version,
-length, SHA-256, image bounds, compatibility contract, process generation,
-vtable guards, unique local-player source, car identity, current RPM, and
-maximum RPM. All reads are bounded. There is no process write, injection,
-remote thread, debugger, driver, or game-function call.
+Before a value is accepted, the provider validates the storefront-specific build
+identity, image bounds, compatibility contract, process generation, vtable guards,
+unique local-player source, car identity, current RPM, and maximum RPM. Steam
+uses the executable version, length, and SHA-256. The Xbox app / Microsoft Store
+path instead checks the exact Store package, installation path, PE identity,
+and hashes of bounded loaded-code regions; Windows file identity resolves the
+supported executable's path aliases. All reads are bounded. There is no process
+write, injection, remote thread, debugger, driver, or game-function call.
 
 Capabilities fail independently after the shared identity checks. A redline
 failure removes the redline without disabling UDP reception or dashboard speed.
@@ -108,7 +111,7 @@ An assist failure removes the affected state instead of leaving an icon from a
 previous car. Visible driving overlays separately require validated Native
 gameplay visibility and fail closed when that state is unavailable.
 
-The electric gauge uses a second, fingerprint-specific ownership chain from the
+The electric gauge uses a second, build-specific ownership chain from the
 HUD registry to the exact Native child and provider. Wisp takes one bounded
 child snapshot, validates its digits, booleans, ranges, vtables, and back
 references, then rechecks the chain before publishing it. The final digit state

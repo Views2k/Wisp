@@ -2,10 +2,15 @@
 
 ## Current support
 
-The current Wisp build contains a Native HUD compatibility contract for the Steam
-FH6 build `6.430.771.0` and its recorded executable fingerprint. Support is
-fingerprint-specific; Wisp does not assume that another storefront binary with
-the same version string is compatible.
+Wisp 1.1.1 includes separate Native HUD compatibility contracts for:
+
+- Steam FH6 build `6.430.771.0`, identified by its recorded executable fingerprint;
+- Xbox app / Microsoft Store Windows PC build `3.430.771.0`, identified by its
+  Store package and bounded loaded-image checks.
+
+Support is build-specific; Wisp does not reuse one storefront's contract for
+another binary with a similar version. Wisp runs alongside a local Windows
+installation, not on Xbox consoles or inside cloud gaming.
 
 Data Out speed and G-force use the local 324-byte UDP packet. Exact Native
 redline, assist, and electric-gauge state use a separate guarded read-only path
@@ -25,8 +30,8 @@ matched to the unique current local-player source, and redline and tach maximum
 come from that vehicle's live model.
 
 A new car or tune that uses the supported runtime schema does not need a new
-lookup row. A content update that also changes the executable fingerprint still
-requires a reviewed compatibility contract. Changed packet fields, powertrain
+lookup row. A content update that also changes the validated game build identity
+still requires a reviewed compatibility contract. Changed packet fields, powertrain
 semantics, or renderer behavior can require an application update rather than a
 data-only contract.
 
@@ -38,12 +43,20 @@ reading from the previous session.
 
 Before accepting Native state, Wisp validates:
 
-- executable version, byte length, SHA-256, and image size;
+- the storefront-specific build identity described below;
 - compatibility schema and bounded module-relative addresses;
 - process generation, executable path, and module identity;
 - vtable guards and field alignment;
 - a unique local-player source;
 - Data Out car identity, current RPM, and maximum RPM agreement.
+
+Steam retains its executable version, byte length, SHA-256, and image-size checks.
+The Store path checks the exact Windows package name and version, Store origin,
+installation path, PE machine type, timestamp, image size, and hashes of bounded
+read-only executable regions. When Windows reports different paths for the same
+Store executable, attribute-only file handles must confirm the same file identity
+and metadata. These checks do not claim a full-file hash of the protected Store
+executable and do not require elevated access or permission changes.
 
 The electric-gauge path adds a bounded registry traversal with exact wrapper,
 context, HUD, subobject, outer-control, child, and provider guards. Its child
@@ -81,8 +94,10 @@ The runtime includes strict validation for signed contracts, revision floors,
 an offline cache, and an HTTPS client. Automatic distribution is not configured
 in the current build: the production endpoint and publisher keys are empty, so the
 application makes no compatibility-update request and keeps import/check
-controls disabled. Recovery from a new or changed executable fingerprint
+controls disabled. Recovery from a new or changed game build identity
 therefore requires a reviewed Wisp release containing a compatible contract.
+Store contracts are supplied only by the application release and are not accepted
+through the signed-pack import path.
 
 Distribution can be enabled only with pinned release-owned keys and reviewed
 contracts. A failed download or signature check leaves the accepted catalog

@@ -2,6 +2,19 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.1.1 - 2026-09-06
+
+### Added
+
+- Native HUD support for the Xbox app and Microsoft Store Windows PC edition of FH6, build `3.430.771.0`. Steam build `6.430.771.0` retains its existing compatibility path.
+
+### Fixed
+
+- Validate the supported Store build using its Windows package identity and bounded loaded-image checks when the protected executable cannot be opened for a file hash.
+- Recognize the supported Store executable's Windows path aliases only after confirming both paths identify the same file. No administrator access, permission changes, or game modifications are required.
+
+HUD settings, profiles, tire calibration, and speed-smoothing behavior are unchanged from 1.1.
+
 ## 1.1.0 - 2026-09-06
 
 Wisp 1.1 maintenance release.

@@ -203,6 +203,10 @@ public static class NativeCompatibilityEnvelope
             }
 
             var pack = NativeHudCompatibilityPack.Parse(Encoding.UTF8.GetBytes(signed["pack"].GetRawText()));
+            if (pack.StoreIdentity is not null)
+            {
+                throw Invalid("Store compatibility is currently supplied only by the application release.");
+            }
             return new NativeVerifiedCompatibilityEnvelope(
                 pack, keyId, Convert.ToHexString(SHA256.HashData(payload)), issuedUtc, expiresUtc);
         }
