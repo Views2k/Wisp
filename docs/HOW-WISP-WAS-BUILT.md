@@ -118,10 +118,11 @@ state; no generated gear artwork is substituted.
 
 ## Rendering without unnecessary work
 
-The live HUD consumes at most one newest packet per WPF compositor frame. RPM
-samples pass through a small receive-time interpolation buffer so the telemetry
-needle can move continuously between real samples without predicting future
-RPM. When an exact Native needle pair is available, a separate bounded playback
+Packet arrivals schedule a UI update using the newest available telemetry,
+independently of WPF compositor callbacks. RPM samples pass through a small
+receive-time interpolation buffer so the telemetry needle can move continuously
+between real samples without predicting future RPM. When an exact Native needle
+pair is available, a separate bounded playback
 path follows its observed angle and blur samples on the same compositor clock.
 It resets instead of extrapolating across stale input, a car change, or a hidden
 render lifetime.
@@ -131,10 +132,6 @@ collapsed, minimized, or unloaded. Diagnostics refresh at a much lower cadence,
 and game-window visibility checks are bounded separately. Scrolling uses stable
 parent containers so moving through a page does not replace the page's scale
 transform on every offset change.
-
-This lifecycle approach is more important than a high-frequency timer: work is
-performed when a new packet or a visible compositor frame can change what the
-user sees.
 
 FH6 can continue sending plausible driving telemetry while a menu is open, so
 packet activity alone is not a visibility signal. Wisp combines telemetry
@@ -154,9 +151,10 @@ bypass the wizard for a new installation.
 The control center uses a compact sidebar, responsive page layouts, independent
 accent, dark-background, and HUD-border palettes, and a larger live HUD preview.
 The setup wizard and control center share a layered particle backdrop whose
-motion pauses when its window is inactive or minimized and follows Windows
-reduced-motion settings. The dashboard presents current speed, RPM, drivetrain,
-horsepower, torque, driver inputs, and Native capability status without adding
+motion continues while its window is visible, including when inactive. It pauses
+when hidden or minimized and follows Windows reduced-motion settings. The
+dashboard presents current speed, RPM, drivetrain, horsepower, torque, driver
+inputs, and Native capability status without adding
 work to the overlay render loop.
 
 ## Testing and release packaging
@@ -181,9 +179,12 @@ unique staging directory. It validates the installer, inner checksum, two-file
 ZIP, and outer checksum before promoting the four-file bundle with durable
 recovery state.
 
-Application updates are intentionally user-initiated. The client reads GitHub's
-anonymous latest-release endpoint and accepts only a stable immutable release
-with a strict tag, exact versioned installer name, uploaded state, byte length,
+Update availability checks run at startup, at most once every 24 hours. They are
+enabled by default and can be disabled in Extras; manual checks remain available.
+Wisp asks for confirmation before downloading and installing an update. The
+client reads GitHub's anonymous latest-release endpoint and accepts only a stable
+immutable release with a strict tag, exact versioned installer name, uploaded
+state, byte length,
 and SHA-256 digest. Download redirects are limited to GitHub's HTTPS
 release-asset hosts. The staged helper verifies the installer again, waits for
 the exact Wisp process, applies the current-user package silently, validates the

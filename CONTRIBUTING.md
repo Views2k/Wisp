@@ -41,13 +41,21 @@ They remain subject to the same review, validation, and owner-only merge rules.
 - Update `CHANGELOG.md` for user-visible changes.
 - Do not commit generated output, local settings, credentials, account data,
   machine-specific paths, game executables, save files, or private telemetry
-  captures.
+  captures. The checked-in shader bytecode is an exception: approved shader
+  changes must include matching source and bytecode as described in
+  [Shader maintenance](docs/SHADERS.md).
 
 ## Validation
 
 Wisp requires Windows, the .NET 8 SDK selected by `global.json`, and Python
 3.12 or later. CI pins Python 3.14.7. Inno Setup 6 is required only for
 installer packaging.
+
+Run the commands below from the repository checkout. Installer packaging also
+requires Git and a clean checkout with a resolvable source commit; GitHub source
+archives do not contain that Git history. See the
+[packaging requirements](docs/VALIDATION.md#ci-and-packaging) for private test
+builds with uncommitted changes.
 
 ```powershell
 dotnet restore Wisp.sln --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all

@@ -226,6 +226,11 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           installer="outputs/Wisp-Setup-${version}.exe"
           archive="outputs/Wisp-Setup-${version}.zip"
+          notes="docs/releases/Wisp-${version}-release-notes.md"
+          if [ ! -f "$notes" ]; then
+            notes="Wisp-${version}-release-notes.md"
+          fi
+          test -f "$notes"
           test -f "$installer"
           test -f "${installer}.sha256"
           test -f "$archive"
@@ -234,7 +239,7 @@ jobs:
             --draft \
             --verify-tag \
             --title "Wisp ${version}" \
-            --notes-file "Wisp-${version}-release-notes.md" \
+            --notes-file "$notes" \
             "$installer" \
             "$archive"
           gh release edit "$GITHUB_REF_NAME" --draft=false --latest

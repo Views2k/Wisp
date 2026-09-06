@@ -40,7 +40,11 @@ if ($projectVersion -cne $version -or $installerVersion -cne $version) {
     throw "Tag $Tag does not match the application and installer version $version."
 }
 
-$releaseNotesPath = Join-Path $repository "Wisp-$version-release-notes.md"
+$releaseNotesPath = Join-Path $repository "docs\releases\Wisp-$version-release-notes.md"
+if (-not (Test-Path -LiteralPath $releaseNotesPath -PathType Leaf)) {
+    # Older release tags keep their notes at the repository root.
+    $releaseNotesPath = Join-Path $repository "Wisp-$version-release-notes.md"
+}
 if (-not (Test-Path -LiteralPath $releaseNotesPath -PathType Leaf)) {
     throw "The release notes for $Tag are missing."
 }

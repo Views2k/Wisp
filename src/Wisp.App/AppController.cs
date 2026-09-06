@@ -283,7 +283,7 @@ public sealed class AppController : IAsyncDisposable
             CurrentApplicationVersion().ToString(3)).ConfigureAwait(true);
         if (!exported)
         {
-            ViewModel.UpdateDebugLogging(Settings.DebugLoggingEnabled, "Export failed — local logs were unchanged");
+            ViewModel.UpdateDebugLogging(Settings.DebugLoggingEnabled, "Export failed — try another destination");
         }
         return exported;
     }

@@ -372,6 +372,7 @@ internal sealed class DebugLogService : IAsyncDisposable
                     return false;
                 }
 
+                PruneSegments(_utcNow());
                 Directory.CreateDirectory(destinationDirectory);
                 var temporaryPath = Path.Combine(
                     destinationDirectory,
@@ -620,7 +621,7 @@ internal sealed class DebugLogService : IAsyncDisposable
         }
         catch (Exception exception) when (IsLocalStorageFailure(exception))
         {
-            // Retention is retried on the next safe local write or startup.
+            // Retention is retried on the next safe local write, startup, enable, or export.
         }
     }
 

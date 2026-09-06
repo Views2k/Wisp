@@ -1423,7 +1423,7 @@
                                                                    Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold"
                                                                    TextWrapping="Wrap" FontSize="11"
                                                                    AutomationProperties.LiveSetting="Polite" />
-                                                        <TextBlock Text="Records one local health sample per second for up to 24 hours. Local files are kept for no more than 7 days. No raw packets or memory contents, personal data, addresses, system inventory, or game FPS."
+                                                        <TextBlock Text="Records one local health sample per second for up to 24 hours. Cleanup of log segments older than 7 days runs on startup, during logging, and before export. Exported ZIPs stay until you delete them. No raw packets or memory contents, personal data, addresses, system inventory, or game FPS."
                                                                    Foreground="{DynamicResource FaintBrush}" TextWrapping="Wrap"
                                                                    FontSize="10" LineHeight="15" Margin="0,4,0,0" />
                                                         <WrapPanel Margin="0,10,0,0">
