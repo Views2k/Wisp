@@ -1,7 +1,8 @@
 ![Wisp header](docs/images/wisp-header.png)
 
 <p align="center">
-  <strong>A wheel-indicated speed, boost, tire-temperature, and G-force companion for Forza Horizon 6.</strong><br><br>
+  <strong>A wheel-indicated speed, boost, tire-temperature, and G-force companion for Forza Horizon 6.</strong><br>
+  Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
   <a href="https://github.com/Views2k/Wisp/releases/latest"><strong>Download</strong></a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
@@ -189,7 +190,8 @@ Wisp 1.1 with custom colors. The Release Notes capture shows the 1.1 preview ent
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit.
-- Forza Horizon 6 with Data Out enabled.
+- Forza Horizon 6 for Windows PC from Steam, the Xbox app, or Microsoft Store,
+  with Data Out enabled.
 - Borderless fullscreen, windowed, or another desktop-composited display mode.
   Exclusive fullscreen can cover ordinary Windows overlays.
 
