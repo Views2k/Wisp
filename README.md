@@ -99,9 +99,9 @@ Version 1.0.10 brings the following additions and fixes since 1.0.8.
 [1.0.10 release notes](docs/releases/Wisp-1.0.10-release-notes.md) ·
 [What's new on the website](https://wispoverlay.com/releases/1.0.10/)
 
-![Wisp dashboard](docs/images/dashboard.png)
+![Wisp 1.1 Dashboard showing live FH6 telemetry, torque, and session peaks](docs/images/dashboard-1.1.png)
 
-<p align="center"><sub>Earlier 1.0.5 Dashboard with sample telemetry. Current releases add live torque, session peaks, and update notifications.</sub></p>
+<p align="center"><sub>Wisp 1.1 Dashboard with live FH6 telemetry, torque, and session peaks.</sub></p>
 
 Wisp shows the speed implied by the driven wheels rather than only the car's
 ground speed. The difference becomes visible during wheelspin, burnouts,
@@ -137,15 +137,13 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
 
 ## Gallery
 
-The Appearance and Diagnostics captures below show the earlier 1.0.5 interface.
-Current releases also include Profiles, Release notes, the Extras color editor,
-and expanded Diagnostics controls.
+Wisp 1.1 with custom colors. The Release Notes capture shows the 1.1 preview entry.
 
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/images/themes.png" alt="Wisp 1.0.5 Appearance page showing the Native Analogue HUD preview and overlay controls">
-      <br><sub>Earlier Appearance controls with the complete Native Analogue HUD preview.</sub>
+      <img src="docs/images/appearance-1.1.png" alt="Wisp 1.1 Appearance page showing the live Native Analogue HUD preview and overlay controls">
+      <br><sub>Native Analogue HUD preview with attached boost and tire-temperature dials.</sub>
     </td>
     <td width="50%">
       <img src="docs/images/native-digital-hud.png" alt="Wisp Digital Native HUD with boost and tire-temperature rails during FH6 gameplay">
@@ -158,8 +156,18 @@ and expanded Diagnostics controls.
       <br><sub>Analogue Native HUD with attached boost and dual-needle tire-temperature dials.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/diagnostics.png" alt="Wisp 1.0.5 Diagnostics with populated sample telemetry data">
-      <br><sub>Earlier Diagnostics populated with sample telemetry and Native HUD capability data.</sub>
+      <img src="docs/images/diagnostics-1.1.png" alt="Wisp 1.1 Diagnostics showing live telemetry, tire calibration, Native HUD capabilities, and local debug controls">
+      <br><sub>Live telemetry, tire calibration, Native HUD capabilities, and local debug controls.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/profiles-1.1.png" alt="Wisp 1.1 Profiles page showing saved HUD layouts and color combinations">
+      <br><sub>Saved HUD profiles with their own layouts and colors.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/images/release-notes-1.1-preview.png" alt="Wisp Release Notes page showing the 1.1 maintenance preview and earlier versions">
+      <br><sub>Release notes (1.1 preview).</sub>
     </td>
   </tr>
 </table>
