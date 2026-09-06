@@ -10,7 +10,7 @@
 ## New in 1.0.12
 
 [Download 1.0.12](https://github.com/Views2k/Wisp/releases/tag/v1.0.12) ·
-[Release notes](Wisp-1.0.12-release-notes.md)
+[Release notes](docs/releases/Wisp-1.0.12-release-notes.md)
 
 Local debug reports now separate telemetry, UI, native-data, and composition
 problems with timestamped evidence and practical next steps. Background collection
@@ -47,8 +47,9 @@ Version 1.0.10 brings the following additions and fixes since 1.0.8.
   the HUD without opening Wisp.
 - **Local debug logging.** Enable it in Diagnostics to record bounded telemetry
   and application-health samples once per second, then export an issue-ready
-  ZIP. Logging stops after 24 hours and files are retained for no more than
-  seven days. You choose whether to share the export.
+  ZIP. Logging stops after 24 hours. Logs older than seven days are cleaned up
+  when Wisp starts, records logs, or exports them. Exported ZIPs remain yours
+  to keep or delete. You choose whether to share them.
 - **Release notes inside Wisp.** A dedicated sidebar page covers the documented
   public releases. Extras also includes a direct link to star Wisp on GitHub.
 
@@ -73,13 +74,13 @@ Version 1.0.10 brings the following additions and fixes since 1.0.8.
 - Simultaneous debug-log actions no longer wait indefinitely, and a failed
   telemetry-listener start no longer leaves UI callbacks running.
 
-[Download 1.0.10](https://github.com/Views2k/Wisp/releases/tag/v1.0.10) ·
-[Full release notes](Wisp-1.0.10-release-notes.md) ·
+[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
+[1.0.10 release notes](docs/releases/Wisp-1.0.10-release-notes.md) ·
 [What's new on the website](https://wispoverlay.com/releases/1.0.10/)
 
 ![Wisp dashboard](docs/images/dashboard.png)
 
-<p align="center"><sub>Dashboard shown with deterministic sample telemetry.</sub></p>
+<p align="center"><sub>Earlier 1.0.5 Dashboard with sample telemetry. Current releases add live torque, session peaks, and update notifications.</sub></p>
 
 Wisp shows the speed implied by the driven wheels rather than only the car's
 ground speed. The difference becomes visible during wheelspin, burnouts,
@@ -95,9 +96,9 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
   AWD setups.
 - Digital and Analogue Native HUD layouts for combustion and electric cars.
 - A live boost gauge for confirmed turbocharged and supercharged cars. Digital
-  mode adds a rail below the tachometer, while Analogue mode adds a 0 to 70 PSI
-  dial with 5 PSI ticks.
-- Absolute PSI readouts, a learned per-car color scale, optional colored PSI
+  mode adds a rail below the tachometer, while Analogue mode offers a 0 to 70 PSI
+  or 0 to 5 bar dial.
+- PSI or bar readouts, a learned per-car color scale, optional colored pressure
   numbers, attached or detached Analogue placement, a custom three-point gauge
   gradient, and an independent Digital option that uses the stock tachometer material.
 - Front and rear tire-temperature gauges for both Native layouts. Digital mode
@@ -115,11 +116,15 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
 
 ## Gallery
 
+The Appearance and Diagnostics captures below show the earlier 1.0.5 interface.
+Current releases also include Profiles, Release notes, the Extras color editor,
+and expanded Diagnostics controls.
+
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/images/themes.png" alt="Wisp Appearance page showing the Native Analogue HUD preview and overlay controls">
-      <br><sub>Appearance controls with the complete Native Analogue HUD preview.</sub>
+      <img src="docs/images/themes.png" alt="Wisp 1.0.5 Appearance page showing the Native Analogue HUD preview and overlay controls">
+      <br><sub>Earlier Appearance controls with the complete Native Analogue HUD preview.</sub>
     </td>
     <td width="50%">
       <img src="docs/images/native-digital-hud.png" alt="Wisp Digital Native HUD with boost and tire-temperature rails during FH6 gameplay">
@@ -132,8 +137,8 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
       <br><sub>Analogue Native HUD with attached boost and dual-needle tire-temperature dials.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/diagnostics.png" alt="Wisp diagnostics with populated telemetry data">
-      <br><sub>Diagnostics populated with deterministic telemetry and Native HUD capability data.</sub>
+      <img src="docs/images/diagnostics.png" alt="Wisp 1.0.5 Diagnostics with populated sample telemetry data">
+      <br><sub>Earlier Diagnostics populated with sample telemetry and Native HUD capability data.</sub>
     </td>
   </tr>
 </table>
@@ -172,15 +177,19 @@ installer is unsigned, so Windows may show an unfamiliar-publisher warning.
 
 ## Application updates
 
-Application updates are manual. Open **Extras** and select **Check for updates**
-when you want Wisp to query the latest GitHub Release. Wisp does not check in
-the background.
+Wisp checks for updates at startup by default, at most once every 24 hours.
+Turn off **Automatically check once daily** in **Extras** to disable those checks.
+You can also select **Check for updates** there to check immediately. Automatic
+checks discover releases; they never download or install an update without your
+confirmation.
 
 An accepted release must be public, stable, and immutable. Its tag and
 versioned installer name must match, and GitHub must provide the installer's
 exact byte length and SHA-256 digest. Downloads are limited to the canonical
-GitHub release URL and GitHub's HTTPS release-asset hosts. Wisp verifies the
-length and digest before asking whether to install and restart. The separate
+GitHub release URL and GitHub's HTTPS release-asset hosts. Wisp shows the release
+summary and asks you to confirm the download, installation, and restart. After
+confirmation, it downloads the installer and verifies its length and digest
+before starting installation. The separate
 update helper repeats those checks, waits for Wisp to exit, runs the current-user
 installer silently, validates the installed version, and then restarts Wisp.
 
@@ -240,9 +249,15 @@ build, validation boundary, and update behavior.
 
 ## Build from source
 
-The repository uses the .NET 8 SDK selected by `global.json`. Python 3.12 or
+Use a Git checkout and the .NET 8 SDK selected by `global.json`. Python 3.12 or
 later runs the offline compatibility-audit tests; CI pins Python 3.14.7. Inno
 Setup 6 is needed only to package an installer.
+
+Review the [contribution and permission requirements](CONTRIBUTING.md) before
+preparing changes. Installer packaging requires Git and a clean checkout;
+a downloaded source ZIP is not sufficient. See [Validation](docs/VALIDATION.md)
+for the packaging checks and [Shaders](docs/SHADERS.md) for rebuilding shader
+bytecode after HLSL changes.
 
 **[WINDOWS POWERSHELL]**
 
@@ -269,6 +284,7 @@ To build the self-contained installer:
 - [Wheel-Speed Model](docs/WHEEL-SPEED-MODEL.md)
 - [Compatibility and Update Safety](docs/COMPATIBILITY.md)
 - [Validation](docs/VALIDATION.md)
+- [Shader maintenance](docs/SHADERS.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
 

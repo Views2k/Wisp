@@ -2,6 +2,17 @@
 
 Notable changes to Wisp are recorded here.
 
+## Unreleased
+
+### Fixed
+
+- Remove expired local debug-log segments before export, including after logging has stopped. Existing exported ZIPs are not deleted.
+
+### Maintenance
+
+- Bring update, retention, boost, and developer documentation into line with the application; clarify older screenshots and link current downloads.
+- Organize detailed release notes and document shader regeneration.
+
 ## 1.0.12 - 2026-09-04
 
 ### Improved

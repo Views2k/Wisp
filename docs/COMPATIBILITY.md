@@ -15,9 +15,8 @@ overlays still require validated Native gameplay visibility so they cannot leak
 into menus or cutscenes; when visibility is unavailable, the overlays fail
 closed even if valid UDP data continues to arrive.
 
-No implementation can safely promise support for every undocumented game
-update. Wisp treats an unknown executable as incompatible instead of applying
-offsets from a different build.
+Wisp treats an unknown executable as incompatible instead of applying offsets
+from a different build.
 
 ## New cars, tunes, and content
 
@@ -95,17 +94,20 @@ replacement, local cache rollback by the same user, or system-clock tampering.
 
 ## Application updates
 
-The application updater is separate from compatibility contracts. It runs only
-when the user selects **Check for updates**; it does not poll in the background.
-The client uses GitHub's anonymous latest-release endpoint and requires a
+The application updater is separate from compatibility contracts. Availability
+checks run at startup, at most once every 24 hours. They are enabled by default
+and can be disabled in **Extras**. **Check for updates** also allows a manual
+check. The client uses GitHub's anonymous latest-release endpoint and requires a
 non-draft, non-prerelease, immutable release with a strict `vX.Y.Z` tag. Exactly
 one uploaded `Wisp-Setup-<version>.exe` asset must match the tag and provide its
 byte length and GitHub SHA-256 digest.
 
-The initial download URL and every redirect must remain on the allowlisted
-GitHub HTTPS release path. Wisp verifies the received length and digest before
-offering to install. A staged helper repeats the artifact and process checks,
-waits for Wisp to exit, runs the current-user Inno installer silently, validates
+Wisp shows the release summary and asks for confirmation before downloading and
+installing the update. The initial download URL and every redirect must remain
+on the allowlisted GitHub HTTPS release path. After confirmation, Wisp downloads
+the installer and verifies its length and digest. A staged helper repeats the
+artifact and process checks, waits for Wisp to exit, runs the current-user Inno
+installer silently, validates
 the installed executable and version, and restarts Wisp. A verified in-place
 update preserves completed setup; a fresh installation still requires the setup
 wizard.

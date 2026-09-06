@@ -184,6 +184,57 @@ public sealed class DebugLogServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(7, false)]
+    [InlineData(8, true)]
+    public async Task ExportPrunesExpiredSegmentsAfterLoggingStops(int idleDays, bool shouldPrune)
+    {
+        var root = TemporaryDirectory();
+        try
+        {
+            var now = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
+            var logs = Path.Combine(root, "logs");
+            await using var service = new DebugLogService(logs, () => now);
+            Assert.True(service.TryEnable(now + DebugLogService.EnableDuration));
+            service.TryLogSample(Sample(now));
+
+            now += DebugLogService.EnableDuration;
+            Assert.True(service.ExpireIfNeeded(now));
+            var savedExport = Path.Combine(logs, "saved-debug.zip");
+            Assert.True(await service.ExportAsync(savedExport, "1.0.12"));
+            var savedExportBytes = File.ReadAllBytes(savedExport);
+            File.SetLastWriteTimeUtc(savedExport, now.UtcDateTime);
+            var segments = Directory.GetFiles(logs, "segment-*.ndjson");
+            Assert.NotEmpty(segments);
+            foreach (var segment in segments)
+            {
+                File.SetLastWriteTimeUtc(segment, now.UtcDateTime);
+            }
+
+            now += TimeSpan.FromDays(idleDays);
+            Assert.False(service.IsEnabled);
+            Assert.All(segments, path => Assert.True(File.Exists(path)));
+            var export = Path.Combine(root, "after-idle.zip");
+            Assert.True(await service.ExportAsync(export, "1.0.12"));
+
+            Assert.All(segments, path => Assert.Equal(!shouldPrune, File.Exists(path)));
+            Assert.Equal(savedExportBytes, File.ReadAllBytes(savedExport));
+            using var archive = ZipFile.OpenRead(export);
+            using var manifest = JsonDocument.Parse(ReadEntry(archive, "manifest.json"));
+            Assert.Equal(shouldPrune ? 0 : 1, manifest.RootElement.GetProperty("samples").GetInt32());
+            if (shouldPrune)
+            {
+                Assert.Empty(ReadEntry(archive, "samples.ndjson"));
+                Assert.Empty(ReadEntry(archive, "events.ndjson"));
+                Assert.Empty(ReadEntry(archive, "health.ndjson"));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task RotationKeepsAtMostThreeBoundedSegmentsAndDeleteClearsThem()
     {

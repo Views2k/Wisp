@@ -759,7 +759,7 @@ public partial class MainWindow : Window
         {
             if (!await _controller.ExportDebugLogsAsync(dialog.FileName))
             {
-                MessageBox.Show(this, "Wisp could not create the debug ZIP. Local logs were unchanged.",
+                MessageBox.Show(this, "Wisp could not create the debug ZIP. Try another destination.",
                     "Export failed", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }

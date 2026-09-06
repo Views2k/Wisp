@@ -32,14 +32,18 @@ exposed.
 
 ## Application-update boundary
 
-Wisp checks for application updates only after the user selects **Check for
-updates**. The client makes an anonymous HTTPS request to the latest-release API
-and accepts only a non-draft, non-prerelease, immutable release with a strict
-version tag. The release must contain exactly one canonical versioned installer
-asset with an uploaded state, byte length, and GitHub SHA-256 digest.
+Wisp checks for application updates at startup, at most once every 24 hours.
+These checks are enabled by default and can be disabled in **Extras**. The
+**Check for updates** action also allows a manual check. The client makes an
+anonymous HTTPS request to the latest-release API and accepts only a non-draft,
+non-prerelease, immutable release with a strict version tag. The release must
+contain exactly one canonical versioned installer asset with an uploaded state,
+byte length, and GitHub SHA-256 digest.
 
-Redirects are handled explicitly and are limited to GitHub's HTTPS release-asset
-hosts. The downloaded bytes must match both the recorded length and digest. A
+Wisp shows the release summary and asks for confirmation before downloading and
+installing an update. After confirmation, redirects are handled explicitly and
+are limited to GitHub's HTTPS release-asset hosts. The downloaded bytes must
+match both the recorded length and digest. A
 separate staged helper independently validates the installer, waits for the
 exact Wisp process to exit, applies the current-user Inno Setup package, verifies
 the installed executable and version, and restarts Wisp. A response or download

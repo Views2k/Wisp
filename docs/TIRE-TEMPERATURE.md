@@ -48,6 +48,6 @@ Open **Appearance > Tire temperature** to change:
 - reactive marker and needle colors;
 - gauge size.
 
-The tire-temperature gauge uses the shared gradient configured for the boost
-gauge. This keeps the stacked Native layout coordinated without adding a second
+The tire-temperature and boost gauges share the gradient configured in **Extras**.
+This keeps the stacked Native layout coordinated without adding a second
 competing color setting.

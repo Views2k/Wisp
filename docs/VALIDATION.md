@@ -7,12 +7,11 @@ gate covers source formatting, dependency auditing, the complete .NET solution,
 the offline compatibility audit, Native asset identity, WPF layout checks, and
 installer staging.
 
-The repository does not treat an earlier run count as proof for a changed tree.
 A release artifact is acceptable only when the following commands pass against
 the exact source revision being packaged and the installer reports the version
 declared by `src/Wisp.App/Wisp.App.csproj`:
 
-```powershell
+```[WINDOWS POWERSHELL]
 dotnet restore Wisp.sln --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
 dotnet format Wisp.sln --verify-no-changes --no-restore --verbosity minimal
 dotnet test Wisp.sln --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false
@@ -22,8 +21,7 @@ python -m unittest discover -s tools/tests -p "test_*.py" -v
 
 Packaging must additionally verify the staged executable version, PE identity,
 update-helper identity, Native asset manifest, bundled .NET 8.0.30 notices, and
-the installer/checksum pair before promotion. This document intentionally does
-not claim that an artifact has been signed or published.
+the installer/checksum pair before promotion.
 
 ## Automated coverage
 
@@ -73,9 +71,9 @@ from the Wisp runtime.
 ## UI review
 
 The opt-in review tool constructs the real compiled WPF pages with isolated
-settings and deterministic sample state. The main matrix covers five pages at
-four viewport sizes, with supplementary Native and Combined fixtures. Separate
-bounded modes cover:
+settings and deterministic sample state. The main matrix covers seven pages at
+four viewport sizes, plus three supplementary Native and Combined Appearance
+captures: 31 PNGs in total. Separate bounded modes cover:
 
 - all four setup steps at multiple viewport and DPI combinations;
 - native-control render subscription and hidden-state behavior;
@@ -88,7 +86,7 @@ overflow, required control bounds, DPI behavior, and Native asset identity.
 Software `RenderTargetBitmap` does not execute WPF PS 3.0 effects, so those PNGs
 are layout evidence rather than proof of live shader output. Synthetic WPF
 hosts also do not establish live FH6 offsets, GPU frame time, or exact visual
-parity. Those boundaries are kept explicit in the report.
+parity.
 
 ## CI and packaging
 
@@ -127,11 +125,9 @@ GitHub's source ZIP and TAR.GZ are generated from the same release tag.
 For the in-application updater, the published release must use a strict `vX.Y.Z`
 tag, be neither a draft nor a prerelease, and be immutable. It must contain
 exactly one uploaded `Wisp-Setup-<version>.exe` asset whose GitHub metadata
-includes the byte length and SHA-256 digest. This anonymous update path is
-available only after the repository and release assets are public; before
-publication, failure must remain non-destructive. Publishing an immutable
-release is an external release operation, not part of the
-local packaging script.
+includes the byte length and SHA-256 digest. This anonymous update path requires
+a public repository and public release assets. The local packaging script does
+not publish GitHub releases.
 
 The installer job also runs the real Inno artifact through a lifecycle canary on
 the ephemeral `windows-latest` user profile. It installs into a unique
