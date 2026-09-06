@@ -339,7 +339,9 @@ public sealed class WpfStyleRuntimeTests
                 }
 
                 ScrollLayoutAssertions.Verify(mainWindow, surface, tabs);
+                ReleaseNotesLayoutAssertions.Verify(mainWindow, surface, tabs);
                 CalmSidebarTests.AssertOnCurrentDispatcher(mainWindow, surface);
+                MaintenancePersistenceTests.AssertProfileSaveRetryOnCurrentDispatcher();
 
                 tabs.SelectedIndex = 2;
                 surface.UpdateLayout();

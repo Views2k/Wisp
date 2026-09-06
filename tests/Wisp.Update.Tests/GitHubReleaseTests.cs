@@ -48,6 +48,7 @@ public sealed class GitHubReleaseTests
         var release = await client.GetLatestReleaseAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(ReleaseTestData.FixtureVersion, release.Version);
+        Assert.Equal("v9.8.7", release.TagName);
         Assert.Equal("Wisp-Setup-9.8.7.exe", release.FileName);
         Assert.Equal(123, release.Size);
         Assert.Equal(new string('a', 64), release.Sha256);
@@ -123,11 +124,132 @@ public sealed class GitHubReleaseTests
     [InlineData("v01.2.3")]
     [InlineData("v1.2.3-rc.1")]
     [InlineData("v1.2.3+build")]
-    public async Task NonCanonicalReleaseTagsAreRejected(string tag)
+    public async Task InvalidOrConflictingReleaseTagsAreRejected(string tag)
     {
         var json = ReleaseTestData.CreateJson(mutateRelease: release => release["tag_name"] = tag);
 
         await AssertRejectedAsync(json);
+    }
+
+    [Theory]
+    [InlineData("1", "Wisp-Setup-1.exe", "1.0.0")]
+    [InlineData("v1", "Wisp-Setup-v1.0.0.exe", "1.0.0")]
+    [InlineData("V1.1", "Wisp-Setup-1.1.exe", "1.1.0")]
+    [InlineData("1.1.0", "Wisp-Setup-V1.1.0.exe", "1.1.0")]
+    [InlineData("v1-stable", "Wisp-Setup-1.0.exe", "1.0.0")]
+    [InlineData("v1.1.0-Stable", "Wisp-Setup-1.1.exe", "1.1.0")]
+    [InlineData("Wisp1Stable", "Wisp-Setup-1.0.exe", "1.0.0")]
+    [InlineData("September-Stable", "Wisp-Setup-1.1.0.exe", "1.1.0")]
+    public async Task StableReleaseNamesUseAssetIdentityAndRetainExactDownloadNames(
+        string tag, string fileName, string expectedVersion)
+    {
+        var json = ReleaseTestData.CreateJson(tagName: tag, fileName: fileName, title: "Wisp 1 Stable");
+        using var handler = new ScriptedHttpHandler((_, _, _) =>
+            Task.FromResult(ScriptedHttpHandler.JsonResponse(json)));
+        using var http = new HttpClient(handler);
+        using var client = new WispUpdateClient(http);
+
+        var release = await client.GetLatestReleaseAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedVersion, release.Version.ToString());
+        Assert.Equal(tag, release.TagName);
+        Assert.Equal(fileName, release.FileName);
+        Assert.Equal($"https://github.com/Views2k/Wisp/releases/download/{tag}/{fileName}", release.DownloadUri.AbsoluteUri);
+    }
+
+    [Theory]
+    [InlineData("v2-stable")]
+    [InlineData("1.2")]
+    [InlineData("01")]
+    [InlineData("v1.01")]
+    [InlineData("1.1.0.0")]
+    [InlineData("v65536")]
+    [InlineData("v1.1-final")]
+    [InlineData("../stable")]
+    [InlineData("stable..release")]
+    [InlineData("stable.")]
+    [InlineData("release/stable")]
+    [InlineData("stable%2frelease")]
+    [InlineData("stable?redirect=1")]
+    [InlineData("stable#fragment")]
+    [InlineData("Wisp 1.1 Stable")]
+    [InlineData("preview")]
+    [InlineData("nightly-2026")]
+    [InlineData("release-beta1")]
+    [InlineData("v1.1-rc.1")]
+    public async Task ConflictingMalformedUnsafeAndPrereleaseTagsAreRejected(string tag)
+    {
+        await AssertRejectedAsync(ReleaseTestData.CreateJson(
+            tagName: tag, fileName: "Wisp-Setup-1.1.exe"));
+    }
+
+    [Theory]
+    [InlineData("Wisp 1.1 Beta")]
+    [InlineData("1.1.0-rc.1")]
+    [InlineData("v1 preview")]
+    public async Task ExplicitPrereleaseTitlesAreRejectedEvenWithStableFlags(string title)
+    {
+        await AssertRejectedAsync(ReleaseTestData.CreateJson(title: title));
+    }
+
+    [Fact]
+    public async Task DescriptiveTitleDoesNotOverrideAssetVersionOrBecomeAPrereleaseFlag()
+    {
+        var json = ReleaseTestData.CreateJson(title: "Wisp 1.1 fixes beta telemetry");
+        using var handler = new ScriptedHttpHandler((_, _, _) =>
+            Task.FromResult(ScriptedHttpHandler.JsonResponse(json)));
+        using var http = new HttpClient(handler);
+        using var client = new WispUpdateClient(http);
+
+        var release = await client.GetLatestReleaseAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(ReleaseTestData.FixtureVersion, release.Version);
+    }
+
+    [Theory]
+    [InlineData("Wisp-Setup-9.8.exe")]
+    [InlineData("Wisp-Setup-9.8.7-arm64.exe")]
+    [InlineData("wisp-setup-9.8.7.exe")]
+    public async Task ASecondVersionedOrMalformedInstallerMakesTheReleaseAmbiguous(string secondName)
+    {
+        var json = ReleaseTestData.CreateJson(mutateRelease: release =>
+        {
+            var assets = (JsonArray)release["assets"]!;
+            var second = assets[0]!.DeepClone();
+            second["name"] = secondName;
+            assets.Add(second);
+        });
+
+        await AssertRejectedAsync(json);
+    }
+
+    [Theory]
+    [InlineData("https://github.com/Views2k/Wisp/releases/download/v1.1.0/Wisp-Setup-1.1.exe")]
+    [InlineData("https://github.com/Views2k/Wisp/releases/download/stable/Wisp-Setup-1.1.0.exe")]
+    [InlineData("https://github.com/Views2k/Other/releases/download/stable/Wisp-Setup-1.1.exe")]
+    [InlineData("https://github.com/Views2k/Wisp/releases/download/stable/Wisp-Setup-1.1.exe?unexpected=1")]
+    public async Task FlexibleLabelsCannotChangeTheValidatedRepositoryTagOrFilename(string url)
+    {
+        await AssertRejectedAsync(ReleaseTestData.CreateJson(
+            tagName: "stable", fileName: "Wisp-Setup-1.1.exe",
+            mutateAsset: asset => asset["browser_download_url"] = url));
+    }
+
+    [Theory]
+    [InlineData("1.0.12.0", true)]
+    [InlineData("1.1.0.0", false)]
+    [InlineData("2.0.0.0", false)]
+    public async Task AssetDerivedVersionCannotOfferAnEqualVersionOrDowngrade(string current, bool available)
+    {
+        var json = ReleaseTestData.CreateJson(tagName: "stable", fileName: "Wisp-Setup-1.1.exe");
+        using var handler = new ScriptedHttpHandler((_, _, _) =>
+            Task.FromResult(ScriptedHttpHandler.JsonResponse(json)));
+        using var http = new HttpClient(handler);
+        using var client = new WispUpdateClient(http);
+
+        var result = await client.CheckForUpdateAsync(Version.Parse(current), TestContext.Current.CancellationToken);
+
+        Assert.Equal(available, result is not null);
     }
 
     [Theory]

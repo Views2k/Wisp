@@ -75,6 +75,66 @@ public sealed class InstallerDownloadTests
         Assert.Empty(Directory.EnumerateFileSystemEntries(directory.Path));
     }
 
+    [Theory]
+    [InlineData("release-stable")]
+    [InlineData("V9.8.7-Stable")]
+    public async Task LabelledReleaseKeepsExactAssetIdentityThroughDownloadVerification(string tag)
+    {
+        const string fileName = "Wisp-Setup-V9.8.7.exe";
+        var installer = File.ReadAllBytes(ReleaseTestData.FixtureExecutablePath());
+        var digest = ReleaseTestData.Sha256(installer);
+        var assetUri = new Uri($"https://github.com/Views2k/Wisp/releases/download/{tag}/{fileName}");
+        using var directory = new TemporaryDirectory();
+        using var handler = new ScriptedHttpHandler((request, sequence, _) =>
+        {
+            if (sequence == 1)
+            {
+                return Task.FromResult(ScriptedHttpHandler.JsonResponse(ReleaseTestData.CreateJson(
+                    size: installer.LongLength, sha256: digest, tagName: tag, fileName: fileName)));
+            }
+
+            if (sequence == 2)
+            {
+                Assert.Equal(assetUri, request.RequestUri);
+                return Task.FromResult(Redirect(DeliveryUri));
+            }
+
+            Assert.Equal(3, sequence);
+            Assert.Equal(DeliveryUri, request.RequestUri);
+            return Task.FromResult(Bytes(installer));
+        });
+        using var http = new HttpClient(handler);
+        using var client = new WispUpdateClient(http);
+        var release = await client.GetLatestReleaseAsync(TestContext.Current.CancellationToken);
+
+        var verified = await client.DownloadInstallerAsync(
+            release, directory.Path, cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(Path.Combine(directory.Path, fileName), verified.StagedPath);
+        Assert.Equal(ReleaseTestData.FixtureVersion, verified.Version);
+        Assert.Equal(digest, verified.Sha256);
+        Assert.Equal(installer, await File.ReadAllBytesAsync(verified.StagedPath, TestContext.Current.CancellationToken));
+        Assert.Equal(3, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task LabelledReleaseCannotRedirectToAReconstructedNumericReleaseUrl()
+    {
+        using var directory = new TemporaryDirectory();
+        using var handler = new ScriptedHttpHandler((_, sequence, _) => Task.FromResult(sequence == 1
+            ? ScriptedHttpHandler.JsonResponse(ReleaseTestData.CreateJson(tagName: "release-stable"))
+            : Redirect(ReleaseUriPolicy.InitialDownloadUri(ReleaseTestData.FixtureVersion))));
+        using var http = new HttpClient(handler);
+        using var client = new WispUpdateClient(http);
+        var release = await client.GetLatestReleaseAsync(TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<UpdateSecurityException>(() => client.DownloadInstallerAsync(
+            release, directory.Path, cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, handler.RequestCount);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(directory.Path));
+    }
+
     [Fact]
     public async Task MoreThanThreeRedirectsAreRejected()
     {

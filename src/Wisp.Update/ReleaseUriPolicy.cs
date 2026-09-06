@@ -13,16 +13,23 @@ internal static class ReleaseUriPolicy
 
     internal static string InstallerFileName(SemanticVersion version) => $"Wisp-Setup-{version}.exe";
 
-    internal static Uri InitialDownloadUri(SemanticVersion version)
+    internal static Uri InitialDownloadUri(SemanticVersion version) =>
+        InitialDownloadUri(version.ToTagString(), InstallerFileName(version));
+
+    internal static Uri InitialDownloadUri(string tagName, string fileName)
     {
-        var fileName = InstallerFileName(version);
-        return new Uri($"https://{GitHubHost}/Views2k/Wisp/releases/download/{version.ToTagString()}/{fileName}");
+        if (!ReleaseIdentity.IsSafeTag(tagName) || !ReleaseIdentity.TryParseInstallerVersion(fileName, out _))
+        {
+            throw new UpdateSecurityException("The release URL identity is invalid.");
+        }
+
+        return new Uri($"https://{GitHubHost}/Views2k/Wisp/releases/download/{tagName}/{fileName}");
     }
 
-    internal static void RequireInitialDownloadUri(Uri actual, SemanticVersion version)
+    internal static void RequireInitialDownloadUri(Uri actual, string tagName, string fileName)
     {
         ArgumentNullException.ThrowIfNull(actual);
-        var expected = InitialDownloadUri(version);
+        var expected = InitialDownloadUri(tagName, fileName);
         if (!IsCleanHttpsUri(actual) ||
             !string.Equals(actual.AbsoluteUri, expected.AbsoluteUri, StringComparison.Ordinal))
         {
@@ -30,7 +37,7 @@ internal static class ReleaseUriPolicy
         }
     }
 
-    internal static void RequireRedirectTarget(Uri target, SemanticVersion version)
+    internal static void RequireRedirectTarget(Uri target, string tagName, string fileName)
     {
         ArgumentNullException.ThrowIfNull(target);
         if (!IsCleanHttpsUri(target))
@@ -38,7 +45,7 @@ internal static class ReleaseUriPolicy
             throw new UpdateSecurityException("The installer redirect target is not a clean HTTPS URL.");
         }
 
-        var canonical = InitialDownloadUri(version);
+        var canonical = InitialDownloadUri(tagName, fileName);
         if (string.Equals(target.AbsoluteUri, canonical.AbsoluteUri, StringComparison.Ordinal))
         {
             return;

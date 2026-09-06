@@ -1,79 +1,67 @@
 namespace Wisp.App;
 
-internal enum AmbientParticleLayer : byte
-{
-    Far,
-    Middle,
-    Near
-}
-
 internal readonly record struct AmbientPoint(double X, double Y);
 internal readonly record struct AmbientParticle(
     AmbientPoint Position,
     double Radius,
-    int Shade,
-    AmbientParticleLayer Layer);
+    double Opacity,
+    double Softness,
+    double Red,
+    double Green,
+    double Blue);
 
 internal sealed class AmbientBackdropScene
 {
-    internal const int FarParticleCount = 40;
-    internal const int MiddleParticleCount = 72;
-    internal const int NearParticleCount = 128;
-    internal const int ParticleCount = FarParticleCount + MiddleParticleCount + NearParticleCount;
-    internal const int PaletteSize = 32;
-
-    private const double RibbonBaseY = 0.69;
-    private const double RibbonSlope = -0.30;
-    private const double PrimaryAmplitude = 0.085;
-    private const double PrimarySpatialFrequency = 0.83;
-    private const double PrimaryPhase = 0.08;
-    private const double PrimaryPeriodSeconds = 72;
-    private const double SecondaryAmplitude = 0.028;
-    private const double SecondarySpatialFrequency = 2.15;
-    private const double SecondaryPhase = 0.31;
-    private const double SecondaryPeriodSeconds = 53;
+    internal const int ParticleCount = 2048;
+    private const double BoundX = 4.35;
+    private const double BoundY = 4.05;
+    private const double BoundZ = 1.65;
+    private const double HorizontalExtent = BoundX * 0.93;
+    private const double VerticalExtent = BoundY * 0.86;
+    private const double DepthExtent = BoundZ * 0.84;
     private const double PointerRadius = 0.22;
+    private static readonly double[] StreamCenters = [-0.72, -0.48, -0.2, 0.08, 0.35, 0.6, 0.79];
 
-    private static readonly double[] GroupCenters = [0.08, 0.27, 0.49, 0.72, 0.93];
-    private static readonly double[] GroupHalfWidths = [0.085, 0.065, 0.085, 0.070, 0.080];
-
+    private readonly StreamSeed[] _streams = new StreamSeed[StreamCenters.Length];
     private readonly ParticleSeed[] _seeds = new ParticleSeed[ParticleCount];
     private readonly AmbientParticle[] _particles = new AmbientParticle[ParticleCount];
     private int _particleCount;
 
     internal AmbientBackdropScene(uint seed = 0x57495350)
     {
-        var state = seed;
+        var streamState = seed ^ 0xd1b54a35;
+        var commonPhase = Next(ref streamState) * Math.Tau;
+        for (var index = 0; index < _streams.Length; index++)
+        {
+            _streams[index] = new StreamSeed(
+                StreamCenters[index] + (Next(ref streamState) - 0.5) * 0.13,
+                0.1 + Next(ref streamState) * 0.13,
+                0.72 + Next(ref streamState) * 0.48,
+                commonPhase + Next(ref streamState) * 1.7 + index * 0.61,
+                0.085 + Next(ref streamState) * 0.055,
+                0.12 + Next(ref streamState) * 0.08,
+                0.61 + Next(ref streamState) * 0.52,
+                commonPhase * 0.73 + Next(ref streamState) * 2.1 + index * 0.47);
+        }
+
+        var shaderState = seed;
+        var shaderX = Next(ref shaderState) * 97;
+        var shaderY = Next(ref shaderState) * 97;
+        var particleState = seed ^ 0xa53c9e17;
         for (var index = 0; index < ParticleCount; index++)
         {
-            var layer = Layer(index);
-            var layerIndex = LayerIndex(index, layer);
-            var connector = (layerIndex + (int)layer * 2) % 7 == 0;
-            var group = (layerIndex * 3 + (int)layer * 2) % GroupCenters.Length;
-            var along = connector
-                ? 0.03 + Fraction((layerIndex + 0.5) * 0.61803398875 + Next(ref state) * 0.07) * 0.94
-                : GroupCenters[group] + Bell3(ref state) * GroupHalfWidths[group];
-            var across = Bell3(ref state) * RibbonHalfWidth(layer) * (connector ? 0.72 : 1.0);
-            var radius = layer switch
-            {
-                AmbientParticleLayer.Far => 3.0 + Next(ref state) * 7.5,
-                AmbientParticleLayer.Middle => 1.4 + Next(ref state) * 2.8,
-                _ => 0.55 + Next(ref state) * 1.65
-            };
-            var light = layer switch
-            {
-                AmbientParticleLayer.Far => 0.12 + Next(ref state) * 0.33,
-                AmbientParticleLayer.Middle => 0.25 + Next(ref state) * 0.45,
-                _ => 0.42 + Next(ref state) * 0.58
-            };
+            var progress = Math.Pow(Next(ref particleState), 1.78);
+            var streamIndex = (int)(Next(ref particleState) * _streams.Length);
+            var verticalNoise = Centered(ref particleState) * _streams[streamIndex].Spread;
+            var depthNoise = Centered(ref particleState) * 1.02;
+            var velocityVariation = Next(ref particleState);
+            var life = Math.Clamp(1 - progress * (0.93 + Next(ref particleState) * 0.2), 0.025, 0.995);
             _seeds[index] = new ParticleSeed(
-                Math.Clamp(along, 0.015, 0.985),
-                across,
-                radius,
-                light,
-                layer,
-                Next(ref state) * Math.Tau,
-                CreateMotion(ref state));
+                streamIndex, progress, verticalNoise, depthNoise, life,
+                Mix(0.012, 0.026, velocityVariation),
+                Hash21(index % 64 + shaderX, index / 64 + shaderY));
+            _ = Next(ref particleState);
+            _ = Next(ref particleState);
         }
     }
 
@@ -82,212 +70,130 @@ internal sealed class AmbientBackdropScene
     internal void Update(double width, double height, double seconds) =>
         Update(width, height, seconds, default, 0);
 
-    internal void Update(
-        double width,
-        double height,
-        double seconds,
-        AmbientPoint pointer,
-        double pointerActivity)
+    internal void Update(double width, double height, double seconds, AmbientPoint pointer, double pointerActivity)
     {
         _particleCount = 0;
         if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
-        {
             return;
-        }
 
         seconds = NormalizeTime(seconds);
-        var minimumDimension = Math.Min(width, height);
-        var scale = Math.Clamp(minimumDimension / 720, 0.72, 1.35);
-        pointerActivity = ValidPointer(pointer)
-            ? Math.Clamp(double.IsFinite(pointerActivity) ? pointerActivity : 0, 0, 1)
+        pointerActivity = ValidPointer(pointer) && double.IsFinite(pointerActivity)
+            ? Math.Clamp(pointerActivity, 0, 1)
             : 0;
 
         for (var index = 0; index < ParticleCount; index++)
         {
             var seed = _seeds[index];
-            var parallax = LayerCoupling(seed.Layer);
-            var alongNoise = Noise(
-                seconds / seed.Motion.XSeconds + seed.Motion.Offset,
-                seed.Motion.Key);
-            var alongOscillation = Math.Sin(
-                seconds / seed.Motion.WaveSeconds * Math.Tau + seed.Phase);
-            var along = Math.Clamp(
-                seed.Along + parallax * (alongNoise * 0.014 + alongOscillation * 0.006),
-                0.012,
-                0.988);
-            var center = RibbonCenter(along, seconds);
-            var derivative = RibbonDerivative(along, seconds);
-            var tangentX = width;
-            var tangentY = derivative * height;
-            var tangentLength = Math.Sqrt(tangentX * tangentX + tangentY * tangentY);
-            var normalX = -tangentY / tangentLength;
-            var normalY = tangentX / tangentLength;
-            var acrossNoise = Noise(
-                seconds / seed.Motion.YSeconds + seed.Motion.Offset,
-                seed.Motion.Key ^ 0x9E3779B9);
-            var acrossWave = Math.Sin(
-                seconds / (seed.Motion.WaveSeconds * 1.23) * Math.Tau + seed.Phase * 0.63);
-            var across = seed.Across + parallax * (acrossNoise * 0.012 + acrossWave * 0.0045);
-            var offset = across * minimumDimension;
-            var x = width * along + normalX * offset;
-            var y = height * center + normalY * offset;
-            ApplyPointer(ref x, ref y, width, height, pointer, pointerActivity, seed.Layer);
-            var shimmer = 0.88 + 0.12 * Noise(
-                seconds / 29 + seed.Motion.Offset,
-                seed.Motion.Key ^ 0x68E31DA4);
-            _particles[index] = new AmbientParticle(
-                new AmbientPoint(x, y),
-                seed.Radius * scale,
-                Shade(seed.Light * shimmer),
-                seed.Layer);
+            var stream = _streams[seed.StreamIndex];
+            var lifetimeProgress = 1 - seed.Life + seconds * seed.LifeRate;
+            var age = Fraction(lifetimeProgress);
+            var life = 1 - age;
+            // The website's mature stream distribution is present immediately.
+            // Analytic paths keep CPU work bounded; respawns occur only at the faded life boundary.
+            var progress = lifetimeProgress < 1
+                ? seed.Progress + seconds * seed.LifeRate
+                : age;
+            var streamAngle = progress * Math.Tau * stream.Frequency + stream.Phase;
+            var depthAngle = progress * Math.Tau * stream.DepthFrequency + stream.DepthPhase;
+            var x = -HorizontalExtent + progress * HorizontalExtent * 2;
+            var y = Math.Clamp(stream.Center + Math.Sin(streamAngle) * stream.Amplitude + seed.VerticalNoise,
+                -0.98, 0.98) * VerticalExtent;
+            var z = Math.Clamp(-0.02 + Math.Sin(depthAngle) * stream.DepthAmplitude + seed.DepthNoise,
+                -0.98, 0.98) * DepthExtent;
+            var particle = Project(x, y, z, life, seed.Variation, width, height);
+            var position = particle.Position;
+            ApplyPointer(ref position, width, height, pointer, pointerActivity, SmoothStep(-BoundZ, BoundZ, z));
+            _particles[index] = particle with { Position = position };
         }
         _particleCount = ParticleCount;
     }
 
-    internal static double RibbonCenter(double along, double seconds)
+    // Depth, perspective, point size, life envelope, and material match the production website shader.
+    internal static AmbientParticle Project(
+        double x, double y, double z, double life, double variation, double width, double height)
     {
-        along = Math.Clamp(double.IsFinite(along) ? along : 0.5, 0, 1);
-        seconds = NormalizeTime(seconds);
-        var primary = Math.Tau *
-            (along * PrimarySpatialFrequency + PrimaryPhase + seconds / PrimaryPeriodSeconds);
-        var secondary = Math.Tau *
-            (along * SecondarySpatialFrequency + SecondaryPhase - seconds / SecondaryPeriodSeconds);
-        return RibbonBaseY + RibbonSlope * along +
-            PrimaryAmplitude * Math.Sin(primary) +
-            SecondaryAmplitude * Math.Sin(secondary);
+        var viewDepth = Math.Max(1, 5 - z);
+        var depth = SmoothStep(-BoundZ, BoundZ, z);
+        var focusDistance = Math.Abs(depth - 0.56);
+        var pointSize = (Mix(1.15, 4.4, depth) + Math.Pow(focusDistance, 1.38) * 31) * height / 900;
+        var lifeEnvelope = SmoothStep(0, 0.016, 1 - life) * SmoothStep(0, 0.024, life);
+        var focusOpacity = Mix(0.115, 0.34, 1 - SmoothStep(0.08, 0.48, focusDistance));
+        var areaCompensation = 1 / Math.Sqrt(Math.Max(1, pointSize * 0.20));
+        var opacity = lifeEnvelope * focusOpacity * areaCompensation * Mix(0.78, 1.15, variation);
+        var softness = Mix(0.82, 0.18, 1 - SmoothStep(0.04, 0.46, focusDistance));
+        var colorFocus = 1 - focusDistance;
+        return new AmbientParticle(
+            new AmbientPoint((x * 1.7320508 / viewDepth + 1) * width / 2,
+                (1 - y * 1.7320508 / viewDepth) * height / 2),
+            Math.Clamp(pointSize, 1, 42) / 2,
+            opacity, softness,
+            Mix(0.25, 0.54, colorFocus),
+            Mix(0.40, 0.60, colorFocus),
+            Mix(0.39, 0.60, colorFocus));
     }
 
-    // Independent long-period paths avoid a short synchronized scene reset.
     internal static double NormalizeTime(double seconds) =>
         double.IsFinite(seconds) && seconds >= 0 ? seconds : 0;
 
-    private static double RibbonDerivative(double along, double seconds)
-    {
-        var primary = Math.Tau *
-            (along * PrimarySpatialFrequency + PrimaryPhase + seconds / PrimaryPeriodSeconds);
-        var secondary = Math.Tau *
-            (along * SecondarySpatialFrequency + SecondaryPhase - seconds / SecondaryPeriodSeconds);
-        return RibbonSlope +
-            PrimaryAmplitude * Math.Tau * PrimarySpatialFrequency * Math.Cos(primary) +
-            SecondaryAmplitude * Math.Tau * SecondarySpatialFrequency * Math.Cos(secondary);
-    }
-
     private static void ApplyPointer(
-        ref double x,
-        ref double y,
-        double width,
-        double height,
-        AmbientPoint pointer,
-        double activity,
-        AmbientParticleLayer layer)
+        ref AmbientPoint position, double width, double height,
+        AmbientPoint pointer, double activity, double depth)
     {
         if (activity <= 0)
             return;
         var minimumDimension = Math.Min(width, height);
-        var deltaX = x - pointer.X * width;
-        var deltaY = y - pointer.Y * height;
+        var deltaX = position.X - pointer.X * width;
+        var deltaY = position.Y - pointer.Y * height;
         var radius = minimumDimension * PointerRadius;
         var distanceSquared = deltaX * deltaX + deltaY * deltaY;
         if (distanceSquared <= 0.0001 || distanceSquared >= radius * radius)
             return;
         var distance = Math.Sqrt(distanceSquared);
-        var influence = 1 - distance / radius;
-        influence = influence * influence * (3 - 2 * influence) * activity * LayerCoupling(layer);
+        var influence = SmoothStep(0, 1, 1 - distance / radius) * activity * Mix(0.38, 1, depth);
         var directionX = deltaX / distance;
         var directionY = deltaY / distance;
-        var tangentX = -directionY;
-        var tangentY = directionX;
-        x += (directionX * 0.88 + tangentX * 0.12) * minimumDimension * 0.010 * influence;
-        y += (directionY * 0.88 + tangentY * 0.12) * minimumDimension * 0.007 * influence;
+        position = new AmbientPoint(
+            position.X + (directionX * 0.88 - directionY * 0.12) * minimumDimension * 0.010 * influence,
+            position.Y + (directionY * 0.88 + directionX * 0.12) * minimumDimension * 0.007 * influence);
     }
 
     private static bool ValidPointer(AmbientPoint pointer) =>
         double.IsFinite(pointer.X) && double.IsFinite(pointer.Y) &&
         pointer.X >= 0 && pointer.X <= 1 && pointer.Y >= 0 && pointer.Y <= 1;
 
-    private static double LayerCoupling(AmbientParticleLayer layer) => layer switch
+    private static double SmoothStep(double edge0, double edge1, double value)
     {
-        AmbientParticleLayer.Far => 0.35,
-        AmbientParticleLayer.Middle => 0.65,
-        _ => 1.0
-    };
-
-    private static double RibbonHalfWidth(AmbientParticleLayer layer) => layer switch
-    {
-        AmbientParticleLayer.Far => 0.18,
-        AmbientParticleLayer.Middle => 0.105,
-        _ => 0.055
-    };
-
-    private static AmbientParticleLayer Layer(int index) => index switch
-    {
-        < FarParticleCount => AmbientParticleLayer.Far,
-        < FarParticleCount + MiddleParticleCount => AmbientParticleLayer.Middle,
-        _ => AmbientParticleLayer.Near
-    };
-
-    private static int LayerIndex(int index, AmbientParticleLayer layer) => layer switch
-    {
-        AmbientParticleLayer.Far => index,
-        AmbientParticleLayer.Middle => index - FarParticleCount,
-        _ => index - FarParticleCount - MiddleParticleCount
-    };
-
-    private static MotionSeed CreateMotion(ref uint state) => new(
-        Hash(state),
-        18 + Next(ref state) * 26,
-        24 + Next(ref state) * 34,
-        28 + Next(ref state) * 42,
-        Next(ref state) * 80);
-
-    private static double Noise(double coordinate, uint key)
-    {
-        var cell = Math.Floor(coordinate);
-        var blend = coordinate - cell;
-        blend = blend * blend * blend * (blend * (blend * 6 - 15) + 10);
-        var a = NoiseSample(cell, key);
-        return a + (NoiseSample(cell + 1, key) - a) * blend;
+        var t = Math.Clamp((value - edge0) / (edge1 - edge0), 0, 1);
+        return t * t * (3 - 2 * t);
     }
 
-    private static double NoiseSample(double cell, uint key)
-    {
-        var bits = unchecked((ulong)BitConverter.DoubleToInt64Bits(cell));
-        return Hash(key ^ (uint)bits ^ (uint)(bits >> 32)) / (double)uint.MaxValue * 2 - 1;
-    }
-
-    private static uint Hash(uint value)
-    {
-        value = unchecked((value ^ (value >> 16)) * 0x7FEB352D);
-        value = unchecked((value ^ (value >> 15)) * 0x846CA68B);
-        return value ^ (value >> 16);
-    }
+    private static double Mix(double a, double b, double weight) => a + (b - a) * weight;
+    private static double Fraction(double value) => value - Math.Floor(value);
 
     private static double Next(ref uint state)
     {
-        state = unchecked(state * 1664525 + 1013904223);
-        return state / (double)uint.MaxValue;
+        state = unchecked(state + 0x6d2b79f5);
+        var value = unchecked((state ^ (state >> 15)) * (state | 1));
+        value ^= unchecked(value + ((value ^ (value >> 7)) * (value | 61)));
+        return (value ^ (value >> 14)) / 4294967296.0;
     }
 
-    private static double Bell3(ref uint state) =>
-        ((Next(ref state) + Next(ref state) + Next(ref state)) / 3 - 0.5) * 2;
+    private static double Centered(ref uint state) =>
+        Next(ref state) + Next(ref state) + Next(ref state) + Next(ref state) - 2;
 
-    private static double Fraction(double value) => value - Math.Floor(value);
-    private static int Shade(double light) =>
-        (int)Math.Round(Math.Clamp(light, 0, 1) * (PaletteSize - 1));
+    private static double Hash21(double x, double y)
+    {
+        x = Fraction(x * 123.34);
+        y = Fraction(y * 456.21);
+        var dot = x * (x + 45.32) + y * (y + 45.32);
+        return Fraction((x + dot) * (y + dot));
+    }
 
-    private readonly record struct MotionSeed(
-        uint Key,
-        double XSeconds,
-        double YSeconds,
-        double WaveSeconds,
-        double Offset);
+    private readonly record struct StreamSeed(
+        double Center, double Amplitude, double Frequency, double Phase, double Spread,
+        double DepthAmplitude, double DepthFrequency, double DepthPhase);
 
     private readonly record struct ParticleSeed(
-        double Along,
-        double Across,
-        double Radius,
-        double Light,
-        AmbientParticleLayer Layer,
-        double Phase,
-        MotionSeed Motion);
+        int StreamIndex, double Progress, double VerticalNoise, double DepthNoise,
+        double Life, double LifeRate, double Variation);
 }

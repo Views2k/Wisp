@@ -58,8 +58,6 @@ public sealed class SpeedModel
     public const double MetersPerSecondToMilesPerHour = 2.2369362920544;
     public const double MetersPerSecondToKilometersPerHour = 3.6;
     public const double MaximumIndicatedMetersPerSecond = 250.0;
-    public const double MaximumSmoothingDeviationMetersPerSecond =
-        1.5 / MetersPerSecondToMilesPerHour;
 
     private readonly IDrivenWheelSelector _selector;
     private double? _filteredMetersPerSecond;
@@ -133,10 +131,6 @@ public sealed class SpeedModel
                 ? 1.0
                 : 1.0 - Math.Exp(-Math.Clamp(elapsed.TotalSeconds, 0, 0.5) / timeConstantSeconds);
             _filteredMetersPerSecond += (raw - _filteredMetersPerSecond.Value) * alpha;
-            _filteredMetersPerSecond = Math.Clamp(
-                _filteredMetersPerSecond.Value,
-                Math.Max(0, raw - MaximumSmoothingDeviationMetersPerSecond),
-                raw + MaximumSmoothingDeviationMetersPerSecond);
         }
 
         _lastCarOrdinal = state.CarOrdinal;

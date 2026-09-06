@@ -6,6 +6,7 @@ public sealed class UpdateRelease
 {
     internal UpdateRelease(
         SemanticVersion version,
+        string tagName,
         string fileName,
         long size,
         string sha256,
@@ -13,6 +14,7 @@ public sealed class UpdateRelease
         string releaseSummary)
     {
         Version = version;
+        TagName = tagName;
         FileName = fileName;
         Size = size;
         Sha256 = sha256;
@@ -21,6 +23,7 @@ public sealed class UpdateRelease
     }
 
     public SemanticVersion Version { get; }
+    public string TagName { get; }
     public string FileName { get; }
     public long Size { get; }
     public string Sha256 { get; }

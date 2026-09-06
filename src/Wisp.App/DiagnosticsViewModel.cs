@@ -618,14 +618,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public bool TractionCueEnabled { get => _tractionCueEnabled; set => Set(ref _tractionCueEnabled, value); }
     public bool IsTractionCueActive { get => _isTractionCueActive; set => Set(ref _isTractionCueActive, value); }
     public bool CanRelearnCurrentTires { get => _canRelearnCurrentTires; private set => Set(ref _canRelearnCurrentTires, value); }
-    public string InstalledApplicationVersion
-    {
-        get
-        {
-            var version = typeof(DiagnosticsViewModel).Assembly.GetName().Version ?? new Version(1, 0, 0);
-            return $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
-        }
-    }
+    public string InstalledApplicationVersion => ApplicationVersionInfo.DisplayVersion;
     public string ApplicationUpdateStatus
     {
         get => _applicationUpdateStatus;

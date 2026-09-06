@@ -122,10 +122,14 @@ ZIP, and outer checksum retain verified recovery copies if any destination
 cannot be replaced.
 GitHub's source ZIP and TAR.GZ are generated from the same release tag.
 
-For the in-application updater, the published release must use a strict `vX.Y.Z`
-tag, be neither a draft nor a prerelease, and be immutable. It must contain
+For the in-application updater, the published release must be neither a draft
+nor a prerelease and must be immutable. It must contain
 exactly one uploaded `Wisp-Setup-<version>.exe` asset whose GitHub metadata
-includes the byte length and SHA-256 digest. This anonymous update path requires
+includes the byte length and SHA-256 digest. Numeric tags must match the
+normalized installer version; the exact tag and asset filename define the
+allowed initial download URL. Publication retains canonical `vX.Y.Z` tags and
+three-part filenames for older-client compatibility, independently of the
+display label (for example, Wisp 1.1). This anonymous update path requires
 a public repository and public release assets. The local packaging script does
 not publish GitHub releases.
 

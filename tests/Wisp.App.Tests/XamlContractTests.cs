@@ -218,9 +218,8 @@ public sealed class XamlContractTests
             element.Attribute("Content")?.Value == "Use current theme");
 
         var footer = document.Descendants(Presentation + "TextBlock")
-            .Single(element => element.Attribute("Text")?.Value?.StartsWith(
-                "WHEEL-INDICATED SPEED PANEL", StringComparison.Ordinal) == true);
-        Assert.Equal("WHEEL-INDICATED SPEED PANEL 1.0.12", footer.Attribute("Text")?.Value);
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ApplicationVersionFooter");
+        Assert.Equal("{x:Static local:ApplicationVersionInfo.FooterText}", footer.Attribute("Text")?.Value);
     }
 
     [Fact]

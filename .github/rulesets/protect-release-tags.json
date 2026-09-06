@@ -6,7 +6,8 @@
   "conditions": {
     "ref_name": {
       "include": [
-        "refs/tags/v*"
+        "refs/tags/v*",
+        "refs/tags/V*"
       ],
       "exclude": []
     }

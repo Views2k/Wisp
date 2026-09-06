@@ -8,10 +8,38 @@ param(
 $ErrorActionPreference = 'Stop'
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 
-if ($Tag -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
-    throw 'Release tags must use canonical vX.Y.Z syntax.'
+function ConvertTo-CanonicalReleaseVersion {
+    param([Parameter(Mandatory)][string]$Value)
+
+    if ($Value.Length -gt 128) {
+        throw 'The numeric release tag is too long.'
+    }
+    $match = [regex]::Match(
+        $Value,
+        '\A[vV]?(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?(?:\.(0|[1-9][0-9]*))?(?:-stable)?\z',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor
+        [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    if (-not $match.Success) {
+        throw 'Release tags must contain one to three numeric components, optionally prefixed with v and suffixed with -stable.'
+    }
+    $parts = @('0', '0', '0')
+    for ($index = 0; $index -lt 3; $index++) {
+        if ($match.Groups[$index + 1].Success) {
+            [System.UInt16]$part = 0
+            if (-not [System.UInt16]::TryParse(
+                    $match.Groups[$index + 1].Value,
+                    [System.Globalization.NumberStyles]::None,
+                    [System.Globalization.CultureInfo]::InvariantCulture,
+                    [ref]$part)) {
+                throw 'Release-version components must fit the Windows PE version resource range.'
+            }
+            $parts[$index] = $part.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+        }
+    }
+    return $parts -join '.'
 }
-$version = $Tag.Substring(1)
+
+$version = ConvertTo-CanonicalReleaseVersion $Tag
 
 function Read-RequiredMatch {
     param(
@@ -49,7 +77,14 @@ if (-not (Test-Path -LiteralPath $releaseNotesPath -PathType Leaf)) {
     throw "The release notes for $Tag are missing."
 }
 $releaseNotesHeading = [System.IO.File]::ReadLines($releaseNotesPath) | Select-Object -First 1
-if ($releaseNotesHeading -cne "# Wisp $version") {
+$displayVersion = if ($version.EndsWith('.0', [StringComparison]::Ordinal)) {
+    $version.Substring(0, $version.Length - 2)
+}
+else {
+    $version
+}
+if ($releaseNotesHeading -cne "# Wisp $version" -and
+    $releaseNotesHeading -cne "# Wisp $displayVersion") {
     throw "The release-notes heading does not match $Tag."
 }
 

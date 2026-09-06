@@ -36,9 +36,11 @@ Wisp checks for application updates at startup, at most once every 24 hours.
 These checks are enabled by default and can be disabled in **Extras**. The
 **Check for updates** action also allows a manual check. The client makes an
 anonymous HTTPS request to the latest-release API and accepts only a non-draft,
-non-prerelease, immutable release with a strict version tag. The release must
-contain exactly one canonical versioned installer asset with an uploaded state,
-byte length, and GitHub SHA-256 digest.
+non-prerelease, immutable release. Exactly one versioned installer supplies its
+numeric version, uploaded state, byte length, and GitHub SHA-256 digest.
+Short numeric versions are normalized; numeric release tags must agree with the
+installer. Other safe stable labels are not used to infer a version. The initial
+download URL must match the exact validated release tag and installer filename.
 
 Wisp shows the release summary and asks for confirmation before downloading and
 installing an update. After confirmation, redirects are handled explicitly and

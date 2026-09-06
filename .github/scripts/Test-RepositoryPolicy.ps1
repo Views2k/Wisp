@@ -57,8 +57,8 @@ Assert-Policy (
     $innoScript -match ('(?m)^\s*#define\s+MyAppVersion\s+"' + [regex]::Escape($applicationVersion) + '"\s*$')
 ) 'The Inno Setup version must match Wisp.App.csproj.'
 Assert-Policy (
-    $mainWindow -match ('Text="WHEEL-INDICATED SPEED PANEL ' + [regex]::Escape($applicationVersion) + '"')
-) 'The control-center footer version must match Wisp.App.csproj.'
+    $mainWindow -match 'Text="\{x:Static local:ApplicationVersionInfo\.FooterText\}"'
+) 'The control-center footer must use the assembly-derived application version.'
 
 foreach ($ruleset in $branchRuleset, $tagRuleset) {
     $bypassActors = @($ruleset.bypass_actors)
@@ -130,6 +130,7 @@ foreach ($currentWorkflowPath in $workflowPaths) {
 Assert-Policy ($tagRuleset.target -eq 'tag') 'Protect release tags must target tags.'
 Assert-Policy ($tagRuleset.enforcement -eq 'active') 'Protect release tags must be defined as active.'
 Assert-Policy ($tagRuleset.conditions.ref_name.include -contains 'refs/tags/v*') 'Protect release tags must target v* tags.'
+Assert-Policy ($tagRuleset.conditions.ref_name.include -contains 'refs/tags/V*') 'Protect release tags must also target V* tags.'
 
 $tagRuleTypes = @($tagRuleset.rules.type)
 foreach ($requiredRule in 'update', 'deletion', 'non_fast_forward') {

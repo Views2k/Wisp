@@ -262,41 +262,89 @@ public sealed class SpeedModelTests
     }
 
     [Theory]
-    [InlineData(100, 400)]
-    [InlineData(400, 100)]
-    public void MaximumSmoothingStaysWithinOnePointFiveMphOfLiveWheelSpeed(
-        float firstWheelSpeed,
-        float currentWheelSpeed)
+    [InlineData(0)]
+    [InlineData(1)]
+    public void RapidWheelSpeedSwingsAreAttenuatedOnlyWhenSmoothingIsEnabled(double smoothing)
     {
         const double radiusMeters = 0.3;
         var model = new SpeedModel();
+        var elapsed = TimeSpan.FromSeconds(1d / 60);
+        double? previousMph = null;
+        double maximumFrameChangeMph = 0;
+        var settled = new List<double>();
+
+        for (var frame = 0; frame < 120; frame++)
+        {
+            var rawMph = frame % 2 == 0 ? 100d : 200d;
+            var angularSpeed = (float)(rawMph /
+                SpeedModel.MetersPerSecondToMilesPerHour / radiusMeters);
+            var state = TestVehicleState.Create(
+                wheelSpeed: new WheelValues(angularSpeed, angularSpeed, angularSpeed, angularSpeed));
+            var speed = model.Calculate(
+                state, radiusMeters, SpeedUnit.MilesPerHour,
+                WheelAggregationMode.RawDrivenWheels, smoothing, elapsed);
+
+            Assert.True(speed.IsAvailable);
+            if (smoothing == 0)
+            {
+                Assert.Equal(rawMph, speed.DisplayValue, 4);
+            }
+            if (previousMph is { } previous)
+            {
+                maximumFrameChangeMph = Math.Max(
+                    maximumFrameChangeMph, Math.Abs(speed.DisplayValue - previous));
+            }
+            previousMph = speed.DisplayValue;
+            if (frame >= 90)
+            {
+                settled.Add(speed.DisplayValue);
+            }
+        }
+
+        if (smoothing == 1)
+        {
+            Assert.InRange(maximumFrameChangeMph, 0, 7);
+            Assert.InRange(settled.Min(), 148, 149);
+            Assert.InRange(settled.Max(), 151, 152);
+        }
+        else
+        {
+            Assert.InRange(maximumFrameChangeMph, 99.99, 100.01);
+        }
+    }
+
+    [Theory]
+    [InlineData(60, SpeedUnit.MilesPerHour)]
+    [InlineData(120, SpeedUnit.KilometersPerHour)]
+    public void MaximumSmoothingFollowsTheQuarterSecondExponentialResponse(
+        int framesPerSecond,
+        SpeedUnit unit)
+    {
+        const double radiusMeters = 0.3;
+        const double initialMetersPerSecond = 100 * radiusMeters;
+        const double targetMetersPerSecond = 400 * radiusMeters;
+        var model = new SpeedModel();
+        var elapsed = TimeSpan.FromSeconds(1d / framesPerSecond);
         model.Calculate(
-            TestVehicleState.Create(wheelSpeed: new WheelValues(
-                firstWheelSpeed,
-                firstWheelSpeed,
-                firstWheelSpeed,
-                firstWheelSpeed)),
-            radiusMeters,
-            SpeedUnit.MilesPerHour,
-            WheelAggregationMode.RawDrivenWheels,
-            smoothing: 1,
-            elapsed: TimeSpan.FromMilliseconds(16));
+            TestVehicleState.Create(wheelSpeed: new WheelValues(100, 100, 100, 100)),
+            radiusMeters, unit, WheelAggregationMode.RawDrivenWheels, 1, elapsed);
+        var changed = TestVehicleState.Create(wheelSpeed: new WheelValues(400, 400, 400, 400));
+        var multiplier = unit == SpeedUnit.MilesPerHour
+            ? SpeedModel.MetersPerSecondToMilesPerHour
+            : SpeedModel.MetersPerSecondToKilometersPerHour;
 
-        var current = model.Calculate(
-            TestVehicleState.Create(wheelSpeed: new WheelValues(
-                currentWheelSpeed,
-                currentWheelSpeed,
-                currentWheelSpeed,
-                currentWheelSpeed)),
-            radiusMeters,
-            SpeedUnit.MilesPerHour,
-            WheelAggregationMode.RawDrivenWheels,
-            smoothing: 1,
-            elapsed: TimeSpan.FromMilliseconds(16));
-        var rawMph = currentWheelSpeed * radiusMeters *
-                     SpeedModel.MetersPerSecondToMilesPerHour;
+        for (var frame = 1; frame <= framesPerSecond * 3 / 4; frame++)
+        {
+            var speed = model.Calculate(
+                changed, radiusMeters, unit, WheelAggregationMode.RawDrivenWheels, 1, elapsed);
+            var elapsedSeconds = elapsed.TotalSeconds * frame;
+            var expected = targetMetersPerSecond +
+                (initialMetersPerSecond - targetMetersPerSecond) * Math.Exp(-elapsedSeconds / 0.25);
 
-        Assert.InRange(Math.Abs(current.DisplayValue - rawMph), 0, 1.500001);
+            Assert.Equal(expected, speed.MetersPerSecond, 9);
+            Assert.Equal(expected * multiplier, speed.DisplayValue, 9);
+            Assert.InRange(speed.MetersPerSecond, initialMetersPerSecond, targetMetersPerSecond);
+        }
     }
 
     [Fact]
