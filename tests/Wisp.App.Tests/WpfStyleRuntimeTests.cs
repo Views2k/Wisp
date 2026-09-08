@@ -366,8 +366,8 @@ public sealed class WpfStyleRuntimeTests
                 }
                 Assert.Equal(controller.ViewModel.NativeCompatibilityUpdates,
                     Assert.IsType<TextBlock>(mainWindow.FindName("CompatibilityStatusText")).Text);
-                Assert.False(Assert.IsType<Button>(mainWindow.FindName("CompatibilityCheckButton")).IsEnabled);
-                Assert.False(Assert.IsType<Button>(mainWindow.FindName("CompatibilityImportButton")).IsEnabled);
+                Assert.True(Assert.IsType<Button>(mainWindow.FindName("CompatibilityCheckButton")).IsEnabled);
+                Assert.True(Assert.IsType<Button>(mainWindow.FindName("CompatibilityImportButton")).IsEnabled);
                 mainWindow.Close();
                 gForceWindow.Close();
                 controller.DisposeAsync().AsTask().GetAwaiter().GetResult();

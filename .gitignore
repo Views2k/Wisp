@@ -59,6 +59,7 @@ _ReSharper*/
 *.snk
 *.key
 *.pem
+*.dpapi
 
 # Logs, temporary files, and crash diagnostics
 *.log

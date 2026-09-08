@@ -211,8 +211,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         ref NativeAssistProviderStatus status)
     {
         memory = null;
-        var pack = NativeHudBuildContract.StoreBuiltIn;
-        if (identity.ImageSize != pack.ImageSize || pack.StoreIdentity is not { } storeBuild)
+        if (!NativeHudProcessMemory.IsValidModuleRange(identity.ModuleBase, identity.ImageSize))
         {
             return false;
         }
@@ -220,9 +219,17 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         SafeProcessHandle? handle = NativeHudProcessMemory.OpenReadOnly(identity.ProcessId);
         try
         {
-            if (handle.IsInvalid || !NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var package) ||
-                package.PackageFullName != storeBuild.PackageFullName)
+            if (handle.IsInvalid || !NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var package))
             {
+                return false;
+            }
+
+            var pack = _catalog.FindStore(package.PackageFullName, identity.ImageSize);
+            if (pack?.StoreIdentity is not { } storeBuild)
+            {
+                status = NativeAssistProviderStatus.UnsupportedBuild;
+                SetStatus(_catalog.GetStoreUnavailableReason(package.PackageFullName, identity.ImageSize)
+                    ?? "No trusted exact compatibility pack for this Xbox/Store FH6 build");
                 return false;
             }
 
@@ -230,14 +237,15 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             if (!storeBuild.MatchesImage(candidate, identity.ModuleBase))
             {
                 status = NativeAssistProviderStatus.UnsupportedBuild;
-                SetStatus("The Xbox/Store FH6 image does not match the bundled reader guards");
+                SetStatus("The Xbox/Store FH6 image does not match the verified compatibility pack reader guards");
                 return false;
             }
 
             process.Refresh();
             if (CaptureIdentity(process) != identity || !NativeHudProcessMemory.HandleMatchesIdentity(handle, identity, allowStoreFileAlias: true) ||
                 !NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var currentPackage) ||
-                currentPackage != package || !storeBuild.MatchesImage(candidate, identity.ModuleBase))
+                currentPackage != package || !storeBuild.MatchesImage(candidate, identity.ModuleBase) ||
+                !ReferenceEquals(pack, _catalog.FindStore(package.PackageFullName, identity.ImageSize)))
             {
                 status = NativeAssistProviderStatus.ReadFailure;
                 SetStatus("The Xbox/Store FH6 identity changed during attachment");

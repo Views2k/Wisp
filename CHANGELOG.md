@@ -2,6 +2,14 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.1.2 - 2026-09-07
+
+- Add the native compatibility map for Steam FH6 `6.440.853.0`, retaining the previous Steam and Store maps.
+- Enable signed compatibility-map updates with bounded multi-build bundles, atomic cache installation, offline reuse, and revision protection.
+- Select future reviewed Store maps by their actual Windows package identity while preserving origin, path, image, and reader guards.
+
+Future changes to the reader's supported native structures or semantics can still require an application update.
+
 ## 1.1.1 - 2026-09-06
 
 ### Added

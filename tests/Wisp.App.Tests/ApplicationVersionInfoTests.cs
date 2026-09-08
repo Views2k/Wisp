@@ -21,9 +21,9 @@ public sealed class ApplicationVersionInfoTests
     [Fact]
     public void CurrentVersionLabelsShareTheAssemblyVersion()
     {
-        Assert.Equal("1.1.1", ApplicationVersionInfo.DisplayVersion);
-        Assert.EndsWith(" 1.1.1", ApplicationVersionInfo.FooterText);
-        Assert.Contains("current 1.1.1 entry", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+        Assert.Equal("1.1.2", ApplicationVersionInfo.DisplayVersion);
+        Assert.EndsWith(" 1.1.2", ApplicationVersionInfo.FooterText);
+        Assert.Contains("current 1.1.2 entry", ApplicationVersionInfo.ReleaseHistoryIntroduction);
         Assert.Equal(ApplicationVersionInfo.DisplayVersion, ReleaseNotesCatalog.Entries[0].Version);
     }
 }

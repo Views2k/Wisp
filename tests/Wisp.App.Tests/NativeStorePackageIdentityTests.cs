@@ -6,6 +6,7 @@ namespace Wisp.App.Tests;
 
 public sealed class NativeStorePackageIdentityTests
 {
+    private const string KnownPackageFullName = "Microsoft.ForteBaseGame_3.430.771.0_x64__8wekyb3d8bbwe";
     private const string PackagePath = @"C:\Games\Forza\Content";
     private const string ExecutablePath = PackagePath + @"\ForzaHorizon6.exe";
 
@@ -13,7 +14,7 @@ public sealed class NativeStorePackageIdentityTests
     public void ExactStorePackageAndExecutableMatch()
     {
         Assert.True(Validate(ExecutablePath, out var identity));
-        Assert.Equal(NativeStorePackageIdentity.SupportedPackageFullName, identity.PackageFullName);
+        Assert.Equal(KnownPackageFullName, identity.PackageFullName);
         Assert.Equal(ExecutablePath.ToUpperInvariant(), identity.ExecutablePath);
     }
 
@@ -42,15 +43,34 @@ public sealed class NativeStorePackageIdentityTests
     }
 
     [Theory]
-    [InlineData("Microsoft.ForteBaseGame_3.430.772.0_x64__8wekyb3d8bbwe")]
-    [InlineData("Microsoft.ForteBaseGame_6.430.771.0_x64__8wekyb3d8bbwe")]
+    [InlineData("Microsoft.ForteBaseGame_3.430.772_x64__8wekyb3d8bbwe")]
+    [InlineData("Microsoft.ForteBaseGame_3.430.772.65536_x64__8wekyb3d8bbwe")]
+    [InlineData("Microsoft.ForteBaseGame_3.430.772.-1_x64__8wekyb3d8bbwe")]
+    [InlineData("Microsoft.ForteBaseGame_3.430.772.0.1_x64__8wekyb3d8bbwe")]
+    [InlineData("Microsoft.ForteBaseGame_3.430.772.0 _x64__8wekyb3d8bbwe")]
+    [InlineData("Microsoft.ForteBaseGame_3.430.772.0_x64__8wekyb3d8bbwe_extra")]
     [InlineData("Microsoft.ForteBaseGame_3.430.771.0_x86__8wekyb3d8bbwe")]
     [InlineData("Microsoft.ForteBaseGame_3.430.771.0_x64__otherpublisher")]
     [InlineData("Microsoft.OtherGame_3.430.771.0_x64__8wekyb3d8bbwe")]
     [InlineData("")]
     [InlineData(null)]
-    public void OtherPackageOrBuildIsRejected(string? name) => Assert.False(
+    public void OtherPackageOrMalformedVersionIsRejected(string? name) => Assert.False(
         NativeStorePackageIdentity.TryValidate(name, 3, PackagePath, PackagePath, ExecutablePath, out _));
+
+    [Theory]
+    [InlineData("Microsoft.ForteBaseGame_3.440.853.0_x64__8wekyb3d8bbwe")]
+    [InlineData("Microsoft.ForteBaseGame_6.430.771.0_x64__8wekyb3d8bbwe")]
+    public void NewPackageVersionStillRequiresItsOwnTrustedBuildContract(string fullName)
+    {
+        using var handle = new SafeProcessHandle(new IntPtr(42), ownsHandle: false);
+        var api = new FakePackageApi { FullName = fullName };
+        Assert.True(NativeStorePackageIdentity.TryRead(handle, ExecutablePath, api, out var identity));
+        Assert.Equal(fullName, identity.PackageFullName);
+
+        var catalog = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, null,
+            new Dictionary<string, byte[]>(), NativeHudBuildContract.AdditionalBuiltIns);
+        Assert.Null(catalog.FindStore(identity.PackageFullName, NativeHudBuildContract.StoreBuiltIn.ImageSize));
+    }
 
     [Theory]
     [InlineData(0)]
@@ -62,7 +82,7 @@ public sealed class NativeStorePackageIdentityTests
     [InlineData(-1)]
     [InlineData(int.MaxValue)]
     public void NonStoreOriginsAreRejected(int origin) => Assert.False(
-        NativeStorePackageIdentity.TryValidate(NativeStorePackageIdentity.SupportedPackageFullName,
+        NativeStorePackageIdentity.TryValidate(KnownPackageFullName,
             origin, PackagePath, PackagePath, ExecutablePath, out _));
 
     [Theory]
@@ -73,7 +93,7 @@ public sealed class NativeStorePackageIdentityTests
     [InlineData(@"C:\Games\Other\Content", PackagePath)]
     [InlineData(PackagePath, @"C:\Games\Other\Content")]
     public void UnavailableOrUnverifiedPackagePathsAreRejected(string? original, string? effective) => Assert.False(
-        NativeStorePackageIdentity.TryValidate(NativeStorePackageIdentity.SupportedPackageFullName,
+        NativeStorePackageIdentity.TryValidate(KnownPackageFullName,
             3, original, effective, ExecutablePath, out _));
 
     [Fact]
@@ -82,7 +102,7 @@ public sealed class NativeStorePackageIdentityTests
         using var handle = new SafeProcessHandle(new IntPtr(42), ownsHandle: false);
         var api = new FakePackageApi();
         Assert.True(NativeStorePackageIdentity.TryRead(handle, ExecutablePath, api, out var identity));
-        Assert.Equal(NativeStorePackageIdentity.SupportedPackageFullName, identity.PackageFullName);
+        Assert.Equal(KnownPackageFullName, identity.PackageFullName);
         Assert.Equal(new[] { 0, 0, 2, 2 }, api.PathTypes);
         Assert.Equal(2, api.NameCalls);
     }
@@ -125,7 +145,7 @@ public sealed class NativeStorePackageIdentityTests
     }
 
     private static bool Validate(string? path, out NativeStorePackageIdentity identity) =>
-        NativeStorePackageIdentity.TryValidate(NativeStorePackageIdentity.SupportedPackageFullName,
+        NativeStorePackageIdentity.TryValidate(KnownPackageFullName,
             3, PackagePath, PackagePath, path, out identity);
 
     [Fact]
@@ -258,6 +278,7 @@ public sealed class NativeStorePackageIdentityTests
 
     private sealed class FakePackageApi : NativeStorePackageIdentity.IPackageApi
     {
+        internal string FullName { get; init; } = KnownPackageFullName;
         internal string Fault { get; init; } = "";
         internal int NameCalls { get; private set; }
         internal List<int> PathTypes { get; } = [];
@@ -279,7 +300,7 @@ public sealed class NativeStorePackageIdentityTests
                 if (Fault == "name-growth") { length++; return 0; }
             }
 
-            var result = Copy(NativeStorePackageIdentity.SupportedPackageFullName, ref length, buffer);
+            var result = Copy(FullName, ref length, buffer);
             if (buffer is not null && Fault == "name-no-terminator") buffer[^1] = 'x';
             if (buffer is not null && Fault == "name-interior-null") buffer[3] = '\0';
             return result;
@@ -287,12 +308,14 @@ public sealed class NativeStorePackageIdentityTests
 
         public int GetOrigin(string fullName, out int origin)
         {
+            Assert.Equal(FullName, fullName);
             origin = 3;
             return Fault == "origin-error" ? 5 : 0;
         }
 
         public int GetPath(string fullName, int pathType, ref uint length, char[]? buffer)
         {
+            Assert.Equal(FullName, fullName);
             PathTypes.Add(pathType);
             if (Fault == "original-error" && pathType == 0 || Fault == "effective-error" && pathType == 2) return 15707;
             if (Fault == "path-large" && buffer is null) { length = uint.MaxValue; return 122; }

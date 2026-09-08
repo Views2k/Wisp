@@ -84,7 +84,7 @@ public sealed class NativeHudCompatibilityPackTests
     }
 
     [Fact]
-    public void BundledPackPreservesTheGeneratedCurrentReaderContract()
+    public void PreviousBundledPackPreservesItsGeneratedReaderContract()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Wisp.sln")))

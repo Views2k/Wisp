@@ -6,15 +6,18 @@ namespace Wisp.App;
 internal static class NativeCompatibilityRuntime
 {
     // Release-owned trust roots, never keys supplied by a downloaded pack or a user-writable cache.
-    // No publisher has been configured yet. The verified embedded map works without network access.
-    internal static Uri? PublisherEndpoint => null;
+    // Embedded maps remain available offline; only this publisher can authorize downloaded maps.
+    internal static Uri? PublisherEndpoint => new("https://wispoverlay.com/compatibility/latest.json");
     private static readonly FrozenDictionary<string, byte[]> PublisherKeys =
-        new Dictionary<string, byte[]>(StringComparer.Ordinal).ToFrozenDictionary();
+        new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["49D5F074A1A837F8E4A8EC5D4D3780443DDB5B045F11075DFC449327D7BAEB20"] = Convert.FromBase64String("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAErxpSYYP+zgnYr5Pe4LRvPZykE23Ql6Ga0EIFuWW16j8LwpjuaXg2UGGbaEqZGRbMJG2QNzV9iAAjLEHsMYxMiw==")
+        }.ToFrozenDictionary();
     private static readonly Lazy<NativeCompatibilityCatalog> DefaultCatalog = new(() => new(
         NativeHudBuildContract.BuiltIn,
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Wisp", "NativeCompatibility"),
-        PublisherKeys));
+        PublisherKeys, NativeHudBuildContract.AdditionalBuiltIns));
 
     public static NativeCompatibilityCatalog Catalog => DefaultCatalog.Value;
     public static NativeCompatibilityUpdateClient CreateUpdateClient() => new(PublisherEndpoint, Catalog);

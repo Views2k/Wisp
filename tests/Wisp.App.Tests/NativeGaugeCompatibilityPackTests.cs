@@ -8,7 +8,7 @@ namespace Wisp.App.Tests;
 
 public sealed class NativeGaugeCompatibilityPackTests
 {
-    private const uint ImageSize = 188_293_120;
+    private static uint ImageSize => NativeHudBuildContract.BuiltIn.ImageSize;
 
     private static readonly string[] DataRvaProperties =
     [
@@ -28,7 +28,8 @@ public sealed class NativeGaugeCompatibilityPackTests
 
         Assert.Equal(3, pack.SchemaVersion);
         Assert.Equal(3, pack.ReaderVersion);
-        Assert.Equal(5, pack.Revision);
+        Assert.Equal("6.440.853.0", pack.GameVersion);
+        Assert.Equal(1, pack.Revision);
         foreach (var property in typeof(NativeGaugeLayout).GetProperties()
                      .Where(property => property.PropertyType == typeof(ulong)))
         {
@@ -40,8 +41,8 @@ public sealed class NativeGaugeCompatibilityPackTests
 
         Assert.Equal("488D4170C3", layout.HudSubobjectSlotZeroPrologueHex);
         Assert.Equal(6, layout.RequiredProviderVtableSlots.Count);
-        Assert.Equal(0x01F12AD0UL, layout.RequiredProviderVtableSlots[0x0298]);
-        Assert.Equal(0x01F18F00UL, layout.RequiredProviderVtableSlots[0x0E28]);
+        Assert.Equal(0x031AA0E0UL, layout.RequiredProviderVtableSlots[0x0298]);
+        Assert.Equal(0x031B04D0UL, layout.RequiredProviderVtableSlots[0x0E28]);
         Assert.Equal(64UL, layout.HudTypeVectorMaximumCount);
         Assert.Equal(1UL, layout.HudTypeInstanceCount);
         Assert.Equal(0x10UL, layout.SharedControlObjectOffset);
@@ -379,13 +380,21 @@ public sealed class NativeGaugeCompatibilityPackTests
     [InlineData("offset", "672")]
     [InlineData("offset", "665")]
     [InlineData("targetRva", "0")]
-    [InlineData("targetRva", "188293120")]
     [InlineData("targetRva", "-1")]
     [InlineData("targetRva", "null")]
     public void InvalidNativeGaugeProviderGuardsAreRejected(string propertyName, string rawJson)
     {
         var document = BuiltInDocument();
         document["nativeGauge"]!["requiredProviderVtableSlots"]![0]![propertyName] = JsonNode.Parse(rawJson);
+
+        Assert.Throws<FormatException>(() => Parse(document));
+    }
+
+    [Fact]
+    public void NativeGaugeProviderTargetMustStayInsideTheImage()
+    {
+        var document = BuiltInDocument();
+        document["nativeGauge"]!["requiredProviderVtableSlots"]![0]!["targetRva"] = ImageSize;
 
         Assert.Throws<FormatException>(() => Parse(document));
     }

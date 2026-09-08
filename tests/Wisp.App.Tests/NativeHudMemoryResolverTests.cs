@@ -34,18 +34,35 @@ public sealed class NativeHudMemoryResolverTests
     }
 
     [Fact]
-    public void UpdatedBuildIsAcceptedAndPreviousAddressMapIsRejected()
+    public void UpdatedBuildRequiresItsOwnExactFingerprintAndAddressMap()
     {
         Assert.True(NativeHudBuildContract.Matches(
-            "6.430.771.0", 183_853_016,
-            "B62B5EC1933B2D11A6B80941AE0D2B38C4A5AAEFDD880E487453D178081D7B44"));
+            "6.440.853.0", 184_055_768,
+            "FEC4A63CDEAD26F6528564F0E33C3D7FD02CD887337ED6E1AEACA79EB2843FCD"));
         Assert.False(NativeHudBuildContract.Matches(
             "6.420.696.0", 183_790_552,
             "8B2F8B6AACE53B89DDCFE45CF3F8C199E9A1817B715C4C2C1B512B6BB7A1EEF0"));
-        Assert.Equal(0x0A8D9A60UL, NativeHudBuildContract.SourceVectorRva);
-        Assert.Equal(0x063C9984UL, NativeHudBuildContract.ThresholdRva);
-        Assert.Equal(0x0678A940UL, NativeHudBuildContract.LeadVtableRva);
+        Assert.Equal(0x0A8B0310UL, NativeHudBuildContract.SourceVectorRva);
+        Assert.Equal(0x063E2E8CUL, NativeHudBuildContract.ThresholdRva);
+        Assert.Equal(0x06C31680UL, NativeHudBuildContract.LeadVtableRva);
         Assert.Equal(9, NativeHudBuildContract.RequiredVtableSlots.Count);
+    }
+
+    [Fact]
+    public void ProductionCatalogRetainsPreviousSteamAndStoreContractsOffline()
+    {
+        var catalog = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, null,
+            new Dictionary<string, byte[]>(), NativeHudBuildContract.AdditionalBuiltIns);
+        var previous = NativeHudBuildContract.PreviousSteamBuiltIn;
+        var store = NativeHudBuildContract.StoreBuiltIn;
+
+        Assert.Equal("6.430.771.0", previous.GameVersion);
+        Assert.Same(previous, catalog.Find(previous.GameVersion, previous.ExecutableLength, previous.ExecutableSha256));
+        Assert.Same(store, catalog.FindStore(store.StoreIdentity!.PackageFullName, store.ImageSize));
+        Assert.Null(catalog.Find(previous.GameVersion, NativeHudBuildContract.SupportedExecutableLength,
+            NativeHudBuildContract.SupportedSha256));
+        Assert.Null(catalog.FindStore(store.StoreIdentity.PackageFullName, NativeHudBuildContract.BuiltIn.ImageSize));
+        Assert.False(catalog.HasTrustedPublishers);
     }
 
     [Fact]

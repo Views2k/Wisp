@@ -8,6 +8,16 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
+## New in Wisp 1.1.2
+
+Adds support for Steam FH6 `6.440.853.0` and signed compatibility-map updates for
+future reviewed builds. Existing Steam and Store maps remain available offline.
+Unknown native layouts still require review; changes beyond the reader's
+supported schema may need an application update.
+
+[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
+[1.1.2 release notes](docs/releases/Wisp-1.1.2-release-notes.md)
+
 ## New in Wisp 1.1.1
 
 [Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
