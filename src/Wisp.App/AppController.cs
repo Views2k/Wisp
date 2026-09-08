@@ -38,11 +38,13 @@ public sealed class AppController : IAsyncDisposable
     private readonly NativeCompatibilityUpdateClient _compatibilityUpdates = NativeCompatibilityRuntime.CreateUpdateClient();
     private readonly CancellationTokenSource _compatibilityLifetime = new();
     private readonly WispUpdateClient _applicationUpdates = WispUpdateClient.CreateDefault();
+    private readonly Func<Version, CancellationToken, Task<UpdateRelease?>> _checkForApplicationUpdate;
     private readonly CancellationTokenSource _applicationUpdateLifetime = new();
     private readonly Dictionary<int, CalibrationPersistenceIdentity> _capturedCalibrationProfiles;
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _uiTimer;
     private readonly DispatcherTimer _settingsSaveTimer;
+    private readonly DispatcherTimer _applicationUpdateTimer;
     private TelemetryFreshness _freshness = new(TelemetryTimeout);
     private VehicleState? _lastFreshnessState;
     private VehicleState? _lastProcessedState;
@@ -109,12 +111,14 @@ public sealed class AppController : IAsyncDisposable
         AppSettings settings,
         Action<AppSettings> saveSettings,
         IStartupRegistrationService startupRegistrationService,
-        Action<AppSettings>? saveCompletedSetup = null)
+        Action<AppSettings>? saveCompletedSetup = null,
+        Func<Version, CancellationToken, Task<UpdateRelease?>>? checkForApplicationUpdate = null)
     {
         Settings = settings;
         _saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
         _saveCompletedSetup = saveCompletedSetup ?? _saveSettings;
         _startupRegistrationService = startupRegistrationService;
+        _checkForApplicationUpdate = checkForApplicationUpdate ?? _applicationUpdates.CheckForUpdateAsync;
         SetupTelemetry = new SetupTelemetryTest(new SetupTelemetrySource(_receiver));
         _calibration.ImportSnapshots(settings.Calibrations);
         _capturedCalibrationProfiles = CalibrationPersistenceIdentity.Capture(_calibration);
@@ -167,6 +171,11 @@ public sealed class AppController : IAsyncDisposable
             _settingsSaveTimer.Stop();
             SaveSettings();
         };
+        _applicationUpdateTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        {
+            Interval = ApplicationUpdateCheckPolicy.MinimumInterval
+        };
+        _applicationUpdateTimer.Tick += OnApplicationUpdateTimer;
         if (_debugLog.IsEnabled && settings.DebugLoggingExpiresAtUtc is { } expiresAtUtc)
         {
             _debugHealthMonitor.Start(expiresAtUtc);
@@ -427,17 +436,22 @@ public sealed class AppController : IAsyncDisposable
 
     public void BeginStartupApplicationUpdateCheck()
     {
-        if (_disposed || Settings.RequiresSetup ||
-            !ApplicationUpdateCheckPolicy.IsDue(
-                Settings.AutomaticApplicationUpdateChecks,
-                Settings.LastApplicationUpdateCheckUtc,
-                DateTimeOffset.UtcNow))
+        if (_disposed || Settings.RequiresSetup || !Settings.AutomaticApplicationUpdateChecks)
         {
+            _applicationUpdateTimer.Stop();
             return;
         }
 
+        // Opening Wisp is an explicit check opportunity even when a previous
+        // process checked recently. The timer also survives companion suspension.
+        if (!_applicationUpdateTimer.IsEnabled)
+        {
+            _applicationUpdateTimer.Start();
+        }
         _ = CheckApplicationUpdateAvailabilityAsync(automatic: true);
     }
+
+    private void OnApplicationUpdateTimer(object? sender, EventArgs e) => BeginStartupApplicationUpdateCheck();
 
     public async Task<ApplicationUpdateDetails?> GetAvailableApplicationUpdateDetailsAsync()
     {
@@ -469,35 +483,45 @@ public sealed class AppController : IAsyncDisposable
 
         try
         {
+            _applicationUpdateTimer.Stop();
+            if (Settings.AutomaticApplicationUpdateChecks && !Settings.RequiresSetup)
+            {
+                _applicationUpdateTimer.Start();
+            }
             Settings.LastApplicationUpdateCheckUtc = DateTimeOffset.UtcNow;
             SaveSettings();
-            ViewModel.UpdateApplicationUpdateStatus(
-                "Checking the latest Wisp release…",
-                "Checking…",
-                canCheck: false);
+            if (!automatic || !TryShowPendingApplicationUpdate(canCheck: false))
+            {
+                ViewModel.UpdateApplicationUpdateStatus(
+                    automatic && _availableApplicationRelease is not null
+                        ? ViewModel.ApplicationUpdateStatus
+                        : "Checking the latest Wisp release…",
+                    "Checking…",
+                    canCheck: false,
+                    isUpdateAvailable: automatic && _availableApplicationRelease is not null);
+            }
 
             var installedVersion = CurrentApplicationVersion();
-            var release = await _applicationUpdates.CheckForUpdateAsync(
+            var release = await _checkForApplicationUpdate(
                 installedVersion,
                 _applicationUpdateLifetime.Token);
+            _availableApplicationRelease = release;
+            if (automatic && TryShowPendingApplicationUpdate())
+            {
+                return release;
+            }
             if (release is null)
             {
-                _availableApplicationRelease = null;
                 ViewModel.UpdateApplicationUpdateStatus(
                     Settings.AutomaticApplicationUpdateChecks
-                        ? $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is current. Automatic checks run once daily."
+                        ? $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is current. Automatic checks run on open and every 24 hours."
                         : $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is current.",
                     "Check again",
                     canCheck: true);
                 return null;
             }
 
-            _availableApplicationRelease = release;
-            ViewModel.UpdateApplicationUpdateStatus(
-                $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. The installer will download only after you confirm.",
-                "Update",
-                canCheck: true,
-                isUpdateAvailable: true);
+            ShowAvailableApplicationUpdate(release);
             return release;
         }
         catch (OperationCanceledException) when (_applicationUpdateLifetime.IsCancellationRequested)
@@ -536,7 +560,15 @@ public sealed class AppController : IAsyncDisposable
         }
         catch (UpdateSecurityException)
         {
-            if (automatic)
+            if (automatic && TryShowPendingApplicationUpdate())
+            {
+                return null;
+            }
+            if (automatic && _availableApplicationRelease is { } available)
+            {
+                ShowAvailableApplicationUpdate(available);
+            }
+            else if (automatic)
             {
                 ViewModel.UpdateApplicationUpdateStatus(
                     "The latest release could not be verified. No update was downloaded.",
@@ -558,11 +590,45 @@ public sealed class AppController : IAsyncDisposable
         }
     }
 
-    private void RestoreAutomaticApplicationUpdateStatus() =>
+    private void ShowAvailableApplicationUpdate(UpdateRelease release) =>
         ViewModel.UpdateApplicationUpdateStatus(
-            "Automatic update checks are enabled. Wisp will try again after the daily interval.",
+            $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. The installer will download only after you confirm.",
+            "Update",
+            canCheck: true,
+            isUpdateAvailable: true);
+
+    private bool TryShowPendingApplicationUpdate(bool canCheck = true)
+    {
+        if (_pendingInstaller is not { } pending || !File.Exists(pending.StagedPath))
+        {
+            return false;
+        }
+        ViewModel.UpdateApplicationUpdateStatus(
+            $"Wisp {ApplicationVersionInfo.Format(pending.Version)} is verified and ready to install.",
+            "Install update",
+            canCheck,
+            isUpdateAvailable: true);
+        return true;
+    }
+
+    private void RestoreAutomaticApplicationUpdateStatus()
+    {
+        if (TryShowPendingApplicationUpdate())
+        {
+            return;
+        }
+        if (_availableApplicationRelease is { } available)
+        {
+            ShowAvailableApplicationUpdate(available);
+            return;
+        }
+        ViewModel.UpdateApplicationUpdateStatus(
+            Settings.AutomaticApplicationUpdateChecks
+                ? "Automatic update checks are enabled. Wisp will try again when opened or after 24 hours."
+                : "Automatic update checks are off. You can still check manually.",
             "Check now",
             canCheck: true);
+    }
 
     public async Task<VerifiedInstaller?> PrepareApplicationUpdateAsync()
     {
@@ -823,6 +889,7 @@ public sealed class AppController : IAsyncDisposable
             Settings.BoostGaugeColorNumber = ViewModel.BoostGaugeColorNumber;
             Settings.DigitalBoostGaugeColorNumber = ViewModel.DigitalBoostGaugeColorNumber;
             Settings.DigitalBoostGaugeStockColors = ViewModel.DigitalBoostGaugeStockColors;
+            Settings.ShowBoostVacuum = ViewModel.ShowBoostVacuum;
             Settings.BoostPressureUnit = ViewModel.SelectedBoostPressureUnit;
             Settings.BoostGaugeScale = Math.Clamp(ViewModel.BoostGaugeScale, 0.5, 2.0);
             Settings.TireTemperatureGaugeEnabled = ViewModel.TireTemperatureGaugeEnabled;
@@ -874,11 +941,15 @@ public sealed class AppController : IAsyncDisposable
 
             if (previousAutomaticApplicationUpdateChecks != Settings.AutomaticApplicationUpdateChecks)
             {
+                if (!Settings.AutomaticApplicationUpdateChecks)
+                {
+                    _applicationUpdateTimer.Stop();
+                }
                 if (_availableApplicationRelease is null && _pendingInstaller is null)
                 {
                     ViewModel.UpdateApplicationUpdateStatus(
                         Settings.AutomaticApplicationUpdateChecks
-                            ? "Automatic update checks are enabled. Wisp checks at most once daily."
+                            ? "Automatic update checks are enabled. Wisp checks on open and every 24 hours."
                             : "Automatic update checks are off. You can still check manually.",
                         "Check now",
                         canCheck: true);
@@ -1295,6 +1366,7 @@ public sealed class AppController : IAsyncDisposable
         ViewModel.BoostGaugeColorNumber = Settings.BoostGaugeColorNumber;
         ViewModel.DigitalBoostGaugeColorNumber = Settings.DigitalBoostGaugeColorNumber;
         ViewModel.DigitalBoostGaugeStockColors = Settings.DigitalBoostGaugeStockColors;
+        ViewModel.ShowBoostVacuum = Settings.ShowBoostVacuum;
         ViewModel.UseBarBoostPressure = Settings.BoostPressureUnit == BoostPressureUnit.Bar;
         ViewModel.BoostGaugeScale = Settings.BoostGaugeScale;
         ViewModel.TireTemperatureGaugeEnabled = Settings.TireTemperatureGaugeEnabled;
@@ -1722,6 +1794,7 @@ public sealed class AppController : IAsyncDisposable
         _applicationUpdateLifetime.Cancel();
         _compatibilityUpdates.Dispose();
         _applicationUpdates.Dispose();
+        _applicationUpdateTimer.Stop();
         _uiTimer.Stop();
         SetCompositionRenderingEnabled(false);
         _manualOverlayHidden = false;

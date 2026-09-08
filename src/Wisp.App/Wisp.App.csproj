@@ -11,9 +11,9 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp</AssemblyTitle>
     <Description>Wheel-indicated speed and G-force display for Forza Horizon 6.</Description>
-    <Version>1.1.2</Version>
-    <FileVersion>1.1.2.0</FileVersion>
-    <AssemblyVersion>1.1.2.0</AssemblyVersion>
+    <Version>1.1.3</Version>
+    <FileVersion>1.1.3.0</FileVersion>
+    <AssemblyVersion>1.1.3.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Wisp.Core\Wisp.Core.csproj" />
@@ -25,7 +25,8 @@
     <Resource Include="Assets\Native\**\*.png" />
     <EmbeddedResource Include="NativeCompatibility\fh6-6.440.853.0.json" LogicalName="Wisp.NativeCompatibility.BuiltIn.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-6.430.771.0.json" LogicalName="Wisp.NativeCompatibility.PreviousSteam.json" />
-    <EmbeddedResource Include="NativeCompatibility\fh6-store-3.430.771.0.json" LogicalName="Wisp.NativeCompatibility.Store.json" />
+    <EmbeddedResource Include="NativeCompatibility\fh6-store-3.440.853.0.json" LogicalName="Wisp.NativeCompatibility.Store.json" />
+    <EmbeddedResource Include="NativeCompatibility\fh6-store-3.430.771.0.json" LogicalName="Wisp.NativeCompatibility.PreviousStore.json" />
     <Resource Include="Shaders\*.ps" />
     <None Include="Shaders\*.hlsl" />
     <Content Include="Assets\Native\ASSET-MANIFEST.csv" CopyToOutputDirectory="PreserveNewest" />

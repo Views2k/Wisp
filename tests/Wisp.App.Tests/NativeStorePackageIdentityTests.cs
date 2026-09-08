@@ -58,7 +58,7 @@ public sealed class NativeStorePackageIdentityTests
         NativeStorePackageIdentity.TryValidate(name, 3, PackagePath, PackagePath, ExecutablePath, out _));
 
     [Theory]
-    [InlineData("Microsoft.ForteBaseGame_3.440.853.0_x64__8wekyb3d8bbwe")]
+    [InlineData("Microsoft.ForteBaseGame_3.440.854.0_x64__8wekyb3d8bbwe")]
     [InlineData("Microsoft.ForteBaseGame_6.430.771.0_x64__8wekyb3d8bbwe")]
     public void NewPackageVersionStillRequiresItsOwnTrustedBuildContract(string fullName)
     {

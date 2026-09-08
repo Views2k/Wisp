@@ -29,6 +29,7 @@ public sealed class HudPreset
     public bool BoostGaugeColorNumber { get; set; }
     public bool DigitalBoostGaugeColorNumber { get; set; }
     public bool DigitalBoostGaugeStockColors { get; set; }
+    public bool ShowBoostVacuum { get; set; }
     public BoostPressureUnit BoostPressureUnit { get; set; } = Wisp.App.BoostPressureUnit.Psi;
     public double BoostGaugeScale { get; set; } = 1;
     public bool TireTemperatureGaugeEnabled { get; set; } = true;
@@ -91,6 +92,7 @@ public sealed class HudPreset
             BoostGaugeColorNumber = settings.BoostGaugeColorNumber,
             DigitalBoostGaugeColorNumber = settings.DigitalBoostGaugeColorNumber,
             DigitalBoostGaugeStockColors = settings.DigitalBoostGaugeStockColors,
+            ShowBoostVacuum = settings.ShowBoostVacuum,
             BoostPressureUnit = settings.BoostPressureUnit,
             BoostGaugeScale = settings.BoostGaugeScale,
             TireTemperatureGaugeEnabled = settings.TireTemperatureGaugeEnabled,
@@ -136,6 +138,7 @@ public sealed class HudPreset
         settings.BoostGaugeColorNumber = BoostGaugeColorNumber;
         settings.DigitalBoostGaugeColorNumber = DigitalBoostGaugeColorNumber;
         settings.DigitalBoostGaugeStockColors = DigitalBoostGaugeStockColors;
+        settings.ShowBoostVacuum = ShowBoostVacuum;
         settings.BoostPressureUnit = BoostPressureUnit;
         settings.BoostGaugeScale = BoostGaugeScale;
         settings.TireTemperatureGaugeEnabled = TireTemperatureGaugeEnabled;

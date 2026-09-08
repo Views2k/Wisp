@@ -816,6 +816,47 @@ public sealed class NativeCompatibilityCatalogTests
     }
 
     [Fact]
+    public void SignedUpdatedStoreMapRecoversPreviousCatalogInOneGenerationAndReloadsOffline()
+    {
+        using var fixture = new Fixture();
+        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.Store.json")!;
+        var storeJson = JsonNode.Parse(stream)!.AsObject();
+        var currentStore = NativeHudCompatibilityPack.Parse(Bytes(storeJson));
+        var previousStore = NativeHudBuildContract.PreviousStoreBuiltIn;
+        var oldBuiltIns = new[] { NativeHudBuildContract.PreviousSteamBuiltIn, previousStore };
+        var catalog = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn,
+            fixture.CacheDirectory, fixture.Keys, oldBuiltIns);
+        var envelope = fixture.Envelope(storeJson);
+
+        Assert.Null(Find(catalog, currentStore));
+        Assert.Same(previousStore, Find(catalog, previousStore));
+        Assert.Equal(0, catalog.Generation);
+
+        var result = catalog.Install(envelope, fixture.Now);
+
+        Assert.True(result.Success);
+        Assert.True(result.Changed);
+        Assert.Single(result.Packs);
+        Assert.Equal(1, catalog.Generation);
+        Assert.Same(result.Pack, Find(catalog, currentStore));
+        Assert.Same(previousStore, Find(catalog, previousStore));
+        Assert.Null(catalog.FindStore(currentStore.StoreIdentity!.PackageFullName, previousStore.ImageSize));
+        Assert.Null(catalog.FindStore(previousStore.StoreIdentity!.PackageFullName, currentStore.ImageSize));
+        Assert.Equal(NativeCompatibilityInstallCode.AlreadyInstalled, catalog.Install(envelope, fixture.Now).Code);
+        Assert.Equal(1, catalog.Generation);
+
+        var offline = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn,
+            fixture.CacheDirectory, fixture.Keys, oldBuiltIns);
+        Assert.False(offline.CacheLoadHadErrors);
+        Assert.Equal(currentStore.Revision, Find(offline, currentStore)!.Revision);
+        Assert.Equal(currentStore.NativeGauge!.HudTypeTokenRva, Find(offline, currentStore)!.NativeGauge!.HudTypeTokenRva);
+        Assert.Same(previousStore, Find(offline, previousStore));
+        Assert.Same(NativeHudBuildContract.BuiltIn, Find(offline, NativeHudBuildContract.BuiltIn));
+        Assert.Same(NativeHudBuildContract.PreviousSteamBuiltIn, Find(offline, NativeHudBuildContract.PreviousSteamBuiltIn));
+        Assert.Single(Directory.EnumerateFiles(fixture.CacheDirectory, "*.pack.json"));
+    }
+
+    [Fact]
     public void LegacyStoreEnvelopeRequiresPinnedSignatureAndUsesSeparateExactIdentity()
     {
         using var fixture = new Fixture();

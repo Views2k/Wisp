@@ -104,6 +104,7 @@ public partial class App : Application
         ConfigureStartupCompanion();
         if (launchMode == StartupLaunchMode.WaitForForza && _startupTray is { IsAvailable: true })
         {
+            _controller.BeginStartupApplicationUpdateCheck();
             await SuspendRuntimeAsync();
             return;
         }
@@ -321,6 +322,7 @@ public partial class App : Application
                     window.Activate();
                 }
             }
+            _controller.BeginStartupApplicationUpdateCheck();
             if (_runtimeActive)
             {
                 return;
@@ -331,7 +333,6 @@ public partial class App : Application
                 await _controller.StartAsync();
                 _runtimeActive = true;
                 _startupTray?.SetWaiting(false);
-                _controller.BeginStartupApplicationUpdateCheck();
             }
             catch (Exception exception) when (exception is ArgumentOutOfRangeException or System.Net.Sockets.SocketException)
             {

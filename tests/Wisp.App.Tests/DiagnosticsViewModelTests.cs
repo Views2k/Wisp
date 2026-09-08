@@ -6,6 +6,70 @@ namespace Wisp.App.Tests;
 
 public sealed class DiagnosticsViewModelTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BoostVacuumUsesSignedTelemetryWithOrWithoutNativeHudData(bool nativeAvailable)
+    {
+        var viewModel = new DiagnosticsViewModel(new AppSettings());
+        var native = nativeAvailable
+            ? NativeSnapshot(1, 140, 0, System.Diagnostics.Stopwatch.GetTimestamp())
+            : NativeHudSnapshot.Unavailable(carOrdinal: 1);
+        foreach (var pressure in new[] { 12f, -20f })
+        {
+            viewModel.Update(
+                DrivingState() with { NumCylinders = 4, BoostPressurePsi = pressure },
+                new IndicatedSpeed(0, 30, true, false, "Rear"),
+                new CalibrationResult(null, 0.3, 0.2, 0, true, string.Empty, false),
+                native, default, TimeSpan.Zero, SpeedUnit.MilesPerHour, 60,
+                refreshDiagnostics: false, updateGForce: false);
+        }
+
+        Assert.Equal(0, viewModel.BoostDisplay.PressurePsi);
+        viewModel.ShowBoostVacuum = true;
+        Assert.Equal(-20, viewModel.BoostDisplay.PressurePsi);
+        Assert.Equal(-20, viewModel.PreviewBoostDisplay.PressurePsi);
+        Assert.Equal(-20, viewModel.BoostDisplay.ScaleMinimumPsi);
+        viewModel.ShowBoostVacuum = false;
+        Assert.Equal(0, viewModel.BoostDisplay.PressurePsi);
+        Assert.Equal(0, viewModel.BoostDisplay.ScaleMinimumPsi);
+    }
+
+    [Fact]
+    public void NaturallyAspiratedGaugeStaysAvailableAtZeroWhenVacuumIsToggled()
+    {
+        var viewModel = new DiagnosticsViewModel(new AppSettings());
+        foreach (var pressure in new[] { -15f, 0f, -15f })
+        {
+            viewModel.Update(
+                DrivingState() with { NumCylinders = 8, BoostPressurePsi = pressure },
+                new IndicatedSpeed(0, 30, true, false, "Rear"),
+                new CalibrationResult(null, 0.3, 0.2, 0, true, string.Empty, false),
+                NativeHudSnapshot.Unavailable(carOrdinal: 1), default, TimeSpan.Zero, SpeedUnit.MilesPerHour, 60,
+                refreshDiagnostics: false, updateGForce: false);
+            foreach (var enabled in new[] { true, false })
+            {
+                viewModel.ShowBoostVacuum = enabled;
+                Assert.True(viewModel.BoostDisplay.IsAvailable);
+                Assert.Equal(0, viewModel.BoostDisplay.PressurePsi);
+                Assert.Equal(0, viewModel.PreviewBoostDisplay.PressurePsi);
+            }
+        }
+    }
+
+    [Fact]
+    public void VacuumOptionRestoresAndChangesThePreviewScaleWithoutInventingLiveData()
+    {
+        var viewModel = new DiagnosticsViewModel(new AppSettings { ShowBoostVacuum = true });
+        Assert.True(viewModel.ShowBoostVacuum);
+        Assert.False(viewModel.BoostDisplay.IsAvailable);
+        Assert.Equal(-20, viewModel.PreviewBoostDisplay.ScaleMinimumPsi);
+        Assert.Equal(HudPreviewSample.Boost.PressurePsi, viewModel.PreviewBoostDisplay.PressurePsi);
+        viewModel.ShowBoostVacuum = false;
+        Assert.Equal(0, viewModel.PreviewBoostDisplay.ScaleMinimumPsi);
+        Assert.False(viewModel.BoostDisplay.IsAvailable);
+    }
+
     [Fact]
     public void DashboardDefaultsAreExplicitWithoutLiveTelemetry()
     {

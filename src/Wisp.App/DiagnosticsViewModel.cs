@@ -65,6 +65,8 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _boostGaugeColorNumber;
     private bool _digitalBoostGaugeColorNumber;
     private bool _digitalBoostGaugeStockColors;
+    private bool _showBoostVacuum;
+    private double _lastBoostPressurePsi;
     private bool _useBarBoostPressure;
     private double _boostGaugeScale;
     private BoostDisplay _boostDisplay = BoostDisplay.Unavailable;
@@ -104,7 +106,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private string _dashboardPeakPower = "—";
     private string _dashboardPeakTorque = "—";
     private string _dashboardTopSpeed = "—";
-    private string _applicationUpdateStatus = "Wisp checks for updates once daily. Downloads always require confirmation.";
+    private string _applicationUpdateStatus = "Wisp checks for updates on open and every 24 hours. Downloads always require confirmation.";
     private string _applicationUpdateAction = "Check for updates";
     private bool _canCheckApplicationUpdate = true;
     private bool _isApplicationUpdateAvailable;
@@ -127,6 +129,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         _boostGaugeColorNumber = settings.BoostGaugeColorNumber;
         _digitalBoostGaugeColorNumber = settings.DigitalBoostGaugeColorNumber;
         _digitalBoostGaugeStockColors = settings.DigitalBoostGaugeStockColors;
+        _showBoostVacuum = settings.ShowBoostVacuum;
         _useBarBoostPressure = settings.BoostPressureUnit == BoostPressureUnit.Bar;
         _boostGaugeScale = settings.BoostGaugeScale;
         _tireTemperatureGaugeEnabled = settings.TireTemperatureGaugeEnabled;
@@ -305,7 +308,10 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         : HudPreviewSample.Caption;
     public BoostDisplay PreviewBoostDisplay => BoostDisplay.IsAvailable
         ? BoostDisplay
-        : HudPreviewSample.Boost;
+        : HudPreviewSample.Boost with
+        {
+            ScaleMinimumPsi = BoostPressureUnits.AnalogMinimum(BoostPressureUnit.Psi, ShowBoostVacuum)
+        };
     public TireTemperatureDisplay PreviewTireTemperatureDisplay => TireTemperatureDisplay.IsAvailable
         ? TireTemperatureDisplay
         : HudPreviewSample.TireTemperature;
@@ -479,6 +485,28 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public bool BoostGaugeColorNumber { get => _boostGaugeColorNumber; set => Set(ref _boostGaugeColorNumber, value); }
     public bool DigitalBoostGaugeColorNumber { get => _digitalBoostGaugeColorNumber; set => Set(ref _digitalBoostGaugeColorNumber, value); }
     public bool DigitalBoostGaugeStockColors { get => _digitalBoostGaugeStockColors; set => Set(ref _digitalBoostGaugeStockColors, value); }
+    public bool ShowBoostVacuum
+    {
+        get => _showBoostVacuum;
+        set
+        {
+            if (!Set(ref _showBoostVacuum, value)) return;
+            if (BoostDisplay.IsAvailable)
+            {
+                BoostDisplay = BoostDisplay with
+                {
+                    PressurePsi = _boostDisplayModel.HasDetectedBoost
+                        ? value ? _lastBoostPressurePsi : Math.Max(0, _lastBoostPressurePsi)
+                        : 0,
+                    ScaleMinimumPsi = BoostPressureUnits.AnalogMinimum(BoostPressureUnit.Psi, value)
+                };
+            }
+            else
+            {
+                OnPropertyChanged(nameof(PreviewBoostDisplay));
+            }
+        }
+    }
     public bool UseBarBoostPressure
     {
         get => _useBarBoostPressure;
@@ -699,10 +727,12 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         HudSpeed = speed.IsAvailable
             ? displayedSpeed.ToString(CultureInfo.InvariantCulture)
             : "—";
+        _lastBoostPressurePsi = state.BoostPressurePsi;
         BoostDisplay = _boostDisplayModel.Calculate(
             state.CarOrdinal,
             state.IsElectric,
-            state.BoostPressurePsi);
+            state.BoostPressurePsi,
+            ShowBoostVacuum);
         TireTemperatureDisplay = _tireTemperatureDisplayModel.Calculate(
             state.CarOrdinal,
             state.TireTemperatureFahrenheit);

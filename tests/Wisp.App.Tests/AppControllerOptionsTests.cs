@@ -99,6 +99,7 @@ public sealed class AppControllerOptionsTests
                 controller.ViewModel.BoostGaugeColorNumber = true;
                 controller.ViewModel.DigitalBoostGaugeColorNumber = true;
                 controller.ViewModel.DigitalBoostGaugeStockColors = true;
+                controller.ViewModel.ShowBoostVacuum = true;
                 controller.ViewModel.UseBarBoostPressure = true;
                 controller.ViewModel.TireTemperatureGaugeEnabled = false;
                 controller.ViewModel.TireTemperatureGaugeAttached = false;
@@ -133,6 +134,7 @@ public sealed class AppControllerOptionsTests
                 Assert.True(settings.BoostGaugeColorNumber);
                 Assert.True(settings.DigitalBoostGaugeColorNumber);
                 Assert.True(settings.DigitalBoostGaugeStockColors);
+                Assert.True(settings.ShowBoostVacuum);
                 Assert.Equal(BoostPressureUnit.Bar, settings.BoostPressureUnit);
                 Assert.False(settings.TireTemperatureGaugeEnabled);
                 Assert.False(settings.TireTemperatureGaugeAttached);

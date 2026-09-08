@@ -840,6 +840,14 @@
                                                           AutomationProperties.Name="Use the stock tachometer material on the digital boost rail"
                                                           Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <CheckBox Content="Show vacuum pressure"
+                                                          IsChecked="{Binding ShowBoostVacuum}"
+                                                          AutomationProperties.Name="Show vacuum pressure"
+                                                          Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
+                                                          Checked="Option_Changed" Unchecked="Option_Changed" />
+                                                <TextBlock Text="Show vacuum at idle and cruise after positive boost is detected."
+                                                           TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
+                                                           FontSize="11" Margin="54,4,0,0" />
                                                 <CheckBox Content="Display boost pressure in bar"
                                                           IsChecked="{Binding UseBarBoostPressure}"
                                                           AutomationProperties.Name="Display boost pressure in bar"
@@ -1646,12 +1654,12 @@
                                                 <TextBlock Text="Immutable GitHub release assets are checked for an exact version, size, and SHA-256 match before installation."
                                                            Foreground="{DynamicResource FaintBrush}" FontSize="11" LineHeight="16"
                                                            TextWrapping="Wrap" Margin="0,8,0,0" />
-                                                <CheckBox Content="Automatically check once daily"
+                                                <CheckBox Content="Automatically check on open and daily"
                                                           IsChecked="{Binding AutomaticApplicationUpdateChecks}"
                                                           Style="{StaticResource ToggleSwitchStyle}"
                                                           Checked="Option_Changed" Unchecked="Option_Changed"
                                                           Margin="0,16,0,0"
-                                                          AutomationProperties.Name="Automatically check for Wisp updates once daily" />
+                                                          AutomationProperties.Name="Automatically check for Wisp updates on open and every 24 hours" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
                                                 <Border Background="{DynamicResource RaisedBrush}" CornerRadius="6" Padding="9,4"

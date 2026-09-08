@@ -8,6 +8,29 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
+## New in Wisp 1.1.3
+
+Adds native HUD support for Xbox app / Microsoft Store FH6 `3.440.853.0` on
+Windows PC. Previous Store and Steam maps remain available offline. Signed map
+updates introduced in 1.1.2 continue to support future reviewed builds within the
+existing reader; changed native layouts may still require an application update.
+
+Enable **Show vacuum pressure** in Appearance > Boost to display negative pressure
+reported by FH6. Digital and Analogue gauges support PSI and bar, including
+attached and detached layouts. The option starts off and saves with your settings
+and HUD profiles. Leave the boost gauge enabled even when you do not know a
+tune's induction setup: naturally aspirated cars show a stationary zero gauge,
+and pressure starts working once positive boost is detected. Electric vehicles
+never show the boost gauge. Vacuum requires positive boost to have been detected
+for the current car/session.
+
+Automatic application-update checks now run whenever Wisp opens and every 24
+hours while it stays open, including while waiting in the tray. An available
+update banner remains visible if a later automatic check fails.
+
+[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
+[1.1.3 release notes](docs/releases/Wisp-1.1.3-release-notes.md)
+
 ## New in Wisp 1.1.2
 
 Adds support for Steam FH6 `6.440.853.0` and signed compatibility-map updates for
@@ -234,8 +257,9 @@ installer is unsigned, so Windows may show an unfamiliar-publisher warning.
 
 ## Application updates
 
-Wisp checks for updates at startup by default, at most once every 24 hours.
-Turn off **Automatically check once daily** in **Extras** to disable those checks.
+Wisp checks for updates whenever it opens and every 24 hours while it remains
+running, including while waiting in the tray.
+Turn off **Automatically check on open and daily** in **Extras** to disable those checks.
 You can also select **Check for updates** there to check immediately. Automatic
 checks discover releases; they never download or install an update without your
 confirmation.

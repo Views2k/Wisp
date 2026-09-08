@@ -61,6 +61,7 @@ public sealed class AppSettings
     public bool BoostGaugeColorNumber { get; set; }
     public bool DigitalBoostGaugeColorNumber { get; set; }
     public bool DigitalBoostGaugeStockColors { get; set; }
+    public bool ShowBoostVacuum { get; set; }
     public BoostPressureUnit BoostPressureUnit { get; set; } = BoostPressureUnit.Psi;
     public double BoostGaugeScale { get; set; } = 1.0;
     public bool TireTemperatureGaugeEnabled { get; set; } = true;

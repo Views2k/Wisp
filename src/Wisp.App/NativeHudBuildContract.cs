@@ -9,8 +9,9 @@ public static class NativeHudBuildContract
     public static NativeHudCompatibilityPack BuiltIn { get; } = LoadBuiltIn();
     internal static NativeHudCompatibilityPack PreviousSteamBuiltIn { get; } = LoadBuiltIn("Wisp.NativeCompatibility.PreviousSteam.json");
     internal static NativeHudCompatibilityPack StoreBuiltIn { get; } = LoadBuiltIn("Wisp.NativeCompatibility.Store.json");
+    internal static NativeHudCompatibilityPack PreviousStoreBuiltIn { get; } = LoadBuiltIn("Wisp.NativeCompatibility.PreviousStore.json");
     internal static IReadOnlyList<NativeHudCompatibilityPack> AdditionalBuiltIns { get; } =
-        Array.AsReadOnly(new[] { PreviousSteamBuiltIn, StoreBuiltIn });
+        Array.AsReadOnly(new[] { PreviousSteamBuiltIn, StoreBuiltIn, PreviousStoreBuiltIn });
 
     public static string SupportedVersion => BuiltIn.GameVersion;
     public static long SupportedExecutableLength => BuiltIn.ExecutableLength;
