@@ -5,7 +5,8 @@ public readonly record struct BoostDisplay(
     double PressurePsi,
     double LearnedPeakPsi,
     double Fraction,
-    double ScaleMaximumPsi)
+    double ScaleMaximumPsi,
+    double ScaleMinimumPsi = 0)
 {
     public static BoostDisplay Unavailable => new(false, 0, 0, 0, 70);
 }
@@ -18,7 +19,9 @@ public sealed class BoostDisplayModel
     private bool _forcedInduction;
     private double _peakPsi;
 
-    public BoostDisplay Calculate(int carOrdinal, bool isElectric, double pressurePsi)
+    internal bool HasDetectedBoost => _forcedInduction;
+
+    public BoostDisplay Calculate(int carOrdinal, bool isElectric, double pressurePsi, bool showVacuum = false)
     {
         if (carOrdinal != _carOrdinal)
         {
@@ -39,28 +42,29 @@ public sealed class BoostDisplayModel
             return BoostDisplay.Unavailable;
         }
 
-        // FH6 reports vacuum on forced-induction cars before they make positive
-        // boost. Accepting that first non-zero sample lets the gauge appear with
-        // the speedometer while a zero-only naturally aspirated car stays gated.
-        if (Math.Abs(pressurePsi) >= ActivityThresholdPsi)
+        // Vacuum alone does not identify forced induction. Require positive
+        // boost before retaining vacuum readings for this car/session.
+        if (pressurePsi >= ActivityThresholdPsi)
         {
             _forcedInduction = true;
         }
 
         if (!_forcedInduction)
         {
-            return BoostDisplay.Unavailable;
+            return new BoostDisplay(true, 0, 0, 0, GaugeMaximumPsi,
+                BoostPressureUnits.AnalogMinimum(BoostPressureUnit.Psi, showVacuum));
         }
 
-        var displayedPressure = Math.Max(0, pressurePsi);
-        _peakPsi = Math.Max(_peakPsi, displayedPressure);
+        var displayedPressure = showVacuum ? pressurePsi : Math.Max(0, pressurePsi);
+        _peakPsi = Math.Max(_peakPsi, Math.Max(0, pressurePsi));
         var denominator = Math.Max(_peakPsi, 5);
         return new BoostDisplay(
             true,
             displayedPressure,
             _peakPsi,
             Math.Clamp(displayedPressure / denominator, 0, 1),
-            GaugeMaximumPsi);
+            GaugeMaximumPsi,
+            BoostPressureUnits.AnalogMinimum(BoostPressureUnit.Psi, showVacuum));
     }
 
     public void Reset()

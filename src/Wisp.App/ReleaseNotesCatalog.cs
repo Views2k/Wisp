@@ -15,11 +15,31 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.1.3",
+            "September 8, 2026",
+            "COMPATIBILITY HOTFIX",
+            "Xbox app / Microsoft Store FH6 3.440.853.0 support, optional boost vacuum pressure, and reliable automatic update checks.",
+            true,
+            [
+                Group("Compatibility",
+                    "Adds a reviewed Native HUD map for Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC, retaining Store 3.430.771.0 and existing Steam maps.",
+                    "Retains signed compatibility-map updates introduced in 1.1.2, with exact identity checks, atomic installation, and offline reuse. Future reviewed maps within the supported reader can be delivered without reinstalling Wisp; changed native layouts may still require an application update."),
+                Group("Boost gauges",
+                    "Adds Show vacuum pressure in Appearance > Boost. It displays negative pressure reported by FH6 and is off by default.",
+                    "The existing boost-gauge toggle can show a stationary zero gauge on naturally aspirated cars, so you can leave it enabled without knowing a tune's induction setup. Electric vehicles never show the gauge.",
+                    "Requires positive boost before enabling pressure readings for a car. After detection, the vacuum option follows negative pressure at idle and cruise.",
+                    "Supports PSI and bar in attached and detached Digital and Analogue gauges and the Appearance preview. Enabled scales run from -20 to 70 PSI or -1 to 5 bar, with a zero marker on the Digital rail.",
+                    "Saves the option with settings and HUD profiles. Existing settings and profiles leave vacuum disabled."),
+                Group("Application updates",
+                    "Checks for updates whenever Wisp opens and every 24 hours while it remains running, including while waiting in the tray, when automatic checks are enabled.",
+                    "Keeps an available-update banner visible if a later automatic refresh fails. Downloads and installation still require confirmation.")
+            ]),
+        new(
             "1.1.2",
             "September 7, 2026",
             "COMPATIBILITY HOTFIX",
             "Support for Steam FH6 6.440.853.0 and signed compatibility updates for future reviewed builds.",
-            true,
+            false,
             [
                 Group("Compatibility",
                     "Adds a separate Native HUD map for Steam FH6 build 6.440.853.0, retaining Steam 6.430.771.0 and Xbox app / Microsoft Store 3.430.771.0 support.",

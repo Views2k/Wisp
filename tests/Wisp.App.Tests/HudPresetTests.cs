@@ -32,6 +32,7 @@ public sealed class HudPresetTests
             BoostGaugeColorNumber = true,
             DigitalBoostGaugeColorNumber = true,
             DigitalBoostGaugeStockColors = true,
+            ShowBoostVacuum = true,
             BoostPressureUnit = BoostPressureUnit.Bar,
             BoostGaugeScale = 1.25,
             TireTemperatureGaugeEnabled = true,
@@ -99,6 +100,7 @@ public sealed class HudPresetTests
         Assert.Equal(source.InvertLateralG, target.InvertLateralG);
         Assert.Equal(source.InvertLongitudinalG, target.InvertLongitudinalG);
         Assert.Equal(source.BoostGaugeAttached, target.BoostGaugeAttached);
+        Assert.True(target.ShowBoostVacuum);
         Assert.Equal(source.TireTemperatureUnit, target.TireTemperatureUnit);
         Assert.Equal(source.ColorTheme, target.ColorTheme);
         Assert.Equal(source.BackgroundTheme, target.BackgroundTheme);
@@ -143,7 +145,7 @@ public sealed class HudPresetTests
             "GForceEnabled", "GForceAttached", "GForceWidthScale", "GForceHeightScale",
             "InvertLateralG", "InvertLongitudinalG",
             "BoostGaugeEnabled", "BoostGaugeAttached", "BoostGaugeColorNumber",
-            "DigitalBoostGaugeColorNumber", "DigitalBoostGaugeStockColors", "BoostPressureUnit",
+            "DigitalBoostGaugeColorNumber", "DigitalBoostGaugeStockColors", "ShowBoostVacuum", "BoostPressureUnit",
             "BoostGaugeScale", "TireTemperatureGaugeEnabled", "TireTemperatureGaugeAttached",
             "TireTemperatureReactiveColors", "TireTemperatureUnit", "TireTemperatureGaugeScale",
             "TractionCueEnabled", "ColorTheme", "BackgroundTheme", "HudBorderTheme", "BoostGaugeTheme",

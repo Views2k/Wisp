@@ -46,6 +46,8 @@ public abstract class BoostVisualBase : Grid
 
     protected double DisplayPressure => BoostPressureUnits.FromPsi(Display.PressurePsi, PressureUnit);
 
+    protected bool ShowsVacuum => Display.ScaleMinimumPsi < 0;
+
     protected string PressureSymbol => BoostPressureUnits.Symbol(PressureUnit);
 
     protected Brush NumberBrush()
@@ -200,7 +202,9 @@ public sealed class DigitalBoostRailView : BoostVisualBase
         var trackBrush = new SolidColorBrush(Color.FromArgb(54, 236, 239, 244));
         var outline = new Pen(new SolidColorBrush(Color.FromArgb(168, 238, 241, 246)), 1.0);
 
-        var fraction = Math.Clamp(Display.Fraction, 0, 1);
+        var fraction = ShowsVacuum
+            ? BoostPressureUnits.GaugeFraction(Display.PressurePsi, PressureUnit, showVacuum: true)
+            : Math.Clamp(Display.Fraction, 0, 1);
         _stockGaugeMaterial.UpdateGaugeParameters(fraction, 1);
         _stockGaugeMaterial.Visibility = UseStockColors ? Visibility.Visible : Visibility.Collapsed;
 
@@ -241,6 +245,15 @@ public sealed class DigitalBoostRailView : BoostVisualBase
             }
 
             dc.DrawGeometry(null, outline, track);
+        }
+
+        if (ShowsVacuum)
+        {
+            var zero = leftTop + (rightTop - leftTop) *
+                BoostPressureUnits.GaugeFraction(0, PressureUnit, showVacuum: true);
+            var zeroPen = new Pen(Brushes.WhiteSmoke, 1);
+            dc.DrawLine(zeroPen, new Point(zero, top - 3), new Point(zero, top - 1));
+            dc.DrawLine(zeroPen, new Point(zero - endRake, bottom + 1), new Point(zero - endRake, bottom + 3));
         }
 
         // Float the connector symmetrically between the rails. Its -0.2 rake
@@ -290,7 +303,6 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
 {
     private const double StartAngle = 110;
     private const double SweepAngle = 260;
-    private const double MaximumPsi = 70;
     private readonly NativeAnalogNeedleVisual _needleMaterial;
     private readonly RotateTransform _needleRotation = new();
 
@@ -348,25 +360,26 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
         DrawArc(dc, center, radius, StartAngle, SweepAngle, trackPen);
 
         var maximum = BoostPressureUnits.AnalogMaximum(PressureUnit);
-        var gaugeFraction = Math.Clamp(DisplayPressure / maximum, 0, 1);
-        if (gaugeFraction > 0)
+        var minimum = BoostPressureUnits.AnalogMinimum(PressureUnit, ShowsVacuum);
+        var range = maximum - minimum;
+        var gaugeFraction = BoostPressureUnits.GaugeFraction(Display.PressurePsi, PressureUnit, ShowsVacuum);
+        var zeroFraction = BoostPressureUnits.GaugeFraction(0, PressureUnit, ShowsVacuum);
+        if (gaugeFraction != zeroFraction)
         {
-            var maximumPsi = BoostPressureUnits.AnalogMaximumPsi(PressureUnit);
-            DrawActiveArc(dc, center, radius, gaugeFraction, maximumPsi);
+            DrawActiveArc(dc, center, radius, gaugeFraction, zeroFraction, minimum, maximum);
         }
 
-        const double minimum = 0;
         var majorInterval = PressureUnit == BoostPressureUnit.Bar ? 1 : 10;
-        var minorInterval = majorInterval / 2;
-        var majorCount = (int)(maximum / majorInterval);
+        var minorInterval = majorInterval / 2d;
+        var majorCount = (int)(range / majorInterval);
         for (var index = 0; index <= majorCount; index++)
         {
             var pressure = minimum + index * majorInterval;
-            var angle = StartAngle + SweepAngle * (pressure / maximum);
+            var angle = StartAngle + SweepAngle * ((pressure - minimum) / range);
             DrawTick(dc, center, radius, angle, 7, 1.4, pressure.ToString("0", CultureInfo.InvariantCulture));
             if (index < majorCount)
             {
-                DrawTick(dc, center, radius, angle + SweepAngle * (minorInterval / maximum), 3.5, 0.8, null);
+                DrawTick(dc, center, radius, angle + SweepAngle * (minorInterval / range), 3.5, 0.8, null);
             }
         }
 
@@ -388,17 +401,22 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
         Point center,
         double radius,
         double gaugeFraction,
-        double maximumPsi)
+        double zeroFraction,
+        double minimum,
+        double maximum)
     {
-        var segmentCount = Math.Max(1, (int)Math.Ceiling(SweepAngle * gaugeFraction / 3));
+        var arcStart = Math.Min(gaugeFraction, zeroFraction);
+        var arcLength = Math.Abs(gaugeFraction - zeroFraction);
+        var segmentCount = Math.Max(1, (int)Math.Ceiling(SweepAngle * arcLength / 3));
         var learnedScale = Math.Max(Display.LearnedPeakPsi, 5);
         for (var index = 0; index < segmentCount; index++)
         {
-            var startFraction = gaugeFraction * index / segmentCount;
-            var endFraction = gaugeFraction * (index + 1) / segmentCount;
+            var startFraction = arcStart + arcLength * index / segmentCount;
+            var endFraction = arcStart + arcLength * (index + 1) / segmentCount;
             var start = StartAngle + (SweepAngle * startFraction);
             var sweep = (SweepAngle * (endFraction - startFraction)) + 0.35;
-            var pressure = maximumPsi * endFraction;
+            var pressure = minimum + (maximum - minimum) * endFraction;
+            if (PressureUnit == BoostPressureUnit.Bar) pressure *= BoostPressureUnits.PsiPerBar;
             var colorFraction = Math.Clamp(pressure / learnedScale, 0, 1);
             var arc = ArcGeometry(center, radius, start, sweep);
             dc.DrawGeometry(null, new Pen(new SolidColorBrush(PaletteColor(colorFraction, 58)), 8), arc);
@@ -420,20 +438,20 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
 
     private void DrawNativeBoostDigits(DrawingContext dc, Point center)
     {
-        var digits = PressureUnit == BoostPressureUnit.Bar
-            ? Math.Clamp(DisplayPressure, 0, 5).ToString("0.0", CultureInfo.InvariantCulture)
-            : Math.Clamp(
-                    (int)Math.Round(DisplayPressure, MidpointRounding.AwayFromZero),
-                    0,
-                    (int)MaximumPsi)
-                .ToString("00", CultureInfo.InvariantCulture);
+        var pressure = ShowsVacuum
+            ? Display.PressurePsi
+            : Math.Clamp(Display.PressurePsi, 0, BoostPressureUnits.AnalogMaximumPsi(PressureUnit));
+        var digits = BoostPressureUnits.FormatValue(pressure, PressureUnit, padPsi: true);
         var tint = NumberColor();
         const double height = 28;
         const double width = 18;
         const double dotWidth = 4;
+        const double minusWidth = 8;
         const double gap = -1;
-        var totalWidth = digits.Sum(character => character == '.' ? dotWidth : width) +
+        var totalWidth = digits.Sum(character => character == '.' ? dotWidth : character == '-' ? minusWidth : width) +
                          gap * (digits.Length - 1);
+        var scale = Math.Min(1, 44 / totalWidth);
+        if (scale < 1) dc.PushTransform(new ScaleTransform(scale, scale, center.X, center.Y));
         var left = center.X - totalWidth / 2;
         foreach (var digit in digits)
         {
@@ -444,6 +462,13 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
                 left += dotWidth + gap;
                 continue;
             }
+            if (digit == '-')
+            {
+                dc.DrawLine(new Pen(new SolidColorBrush(tint), 2),
+                    new Point(left + 1, center.Y), new Point(left + minusWidth - 1, center.Y));
+                left += minusWidth + gap;
+                continue;
+            }
             var image = NativeAssetCache.GetTinted(
                 NativeGaugeMode.Analogue,
                 $"HUD_Dial_Speed_Analogue_{digit}.png",
@@ -451,6 +476,7 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
             dc.DrawImage(image, new Rect(left, center.Y - height / 2, width, height));
             left += width + gap;
         }
+        if (scale < 1) dc.Pop();
     }
 
     private void DrawTick(DrawingContext dc, Point center, double radius, double angle,

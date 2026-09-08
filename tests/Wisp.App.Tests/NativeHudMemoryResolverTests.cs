@@ -49,19 +49,29 @@ public sealed class NativeHudMemoryResolverTests
     }
 
     [Fact]
-    public void ProductionCatalogRetainsPreviousSteamAndStoreContractsOffline()
+    public void ProductionCatalogSelectsCurrentAndPreviousStoreContractsByExactIdentityOffline()
     {
         var catalog = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, null,
             new Dictionary<string, byte[]>(), NativeHudBuildContract.AdditionalBuiltIns);
         var previous = NativeHudBuildContract.PreviousSteamBuiltIn;
         var store = NativeHudBuildContract.StoreBuiltIn;
+        var previousStore = NativeHudBuildContract.PreviousStoreBuiltIn;
 
         Assert.Equal("6.430.771.0", previous.GameVersion);
         Assert.Same(previous, catalog.Find(previous.GameVersion, previous.ExecutableLength, previous.ExecutableSha256));
+        Assert.Equal("3.440.853.0", store.GameVersion);
+        Assert.Equal(188_420_096U, store.ImageSize);
+        Assert.Equal("3.430.771.0", previousStore.GameVersion);
+        Assert.Equal(188_211_200U, previousStore.ImageSize);
         Assert.Same(store, catalog.FindStore(store.StoreIdentity!.PackageFullName, store.ImageSize));
+        Assert.Same(previousStore, catalog.FindStore(previousStore.StoreIdentity!.PackageFullName, previousStore.ImageSize));
         Assert.Null(catalog.Find(previous.GameVersion, NativeHudBuildContract.SupportedExecutableLength,
             NativeHudBuildContract.SupportedSha256));
         Assert.Null(catalog.FindStore(store.StoreIdentity.PackageFullName, NativeHudBuildContract.BuiltIn.ImageSize));
+        Assert.Null(catalog.FindStore(store.StoreIdentity.PackageFullName, previousStore.ImageSize));
+        Assert.Null(catalog.FindStore(previousStore.StoreIdentity.PackageFullName, store.ImageSize));
+        Assert.Null(catalog.FindStore("Microsoft.ForteBaseGame_3.440.854.0_x64__8wekyb3d8bbwe", store.ImageSize));
+        Assert.Null(catalog.Find(store.GameVersion, store.ImageSize, NativeHudBuildContract.SupportedSha256));
         Assert.False(catalog.HasTrustedPublishers);
     }
 

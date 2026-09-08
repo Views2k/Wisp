@@ -2,6 +2,18 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.1.3 - 2026-09-08
+
+- Add the reviewed native HUD map for Xbox app / Microsoft Store FH6 `3.440.853.0` on Windows PC, retaining Store `3.430.771.0` and the existing Steam maps.
+- Retain the signed compatibility-map update path from 1.1.2, including exact Store identity checks, atomic installation, and offline reuse for reviewed maps within the supported reader.
+- Add an optional **Show vacuum pressure** toggle in Appearance > Boost, using negative pressure reported by FH6.
+- Let the existing boost-gauge visibility toggle show a stationary zero gauge on naturally aspirated cars. Electric vehicles never show it. Require positive boost before enabling pressure readings, so vacuum alone does not identify forced induction; after detection, the option follows negative telemetry at idle and cruise.
+- Support vacuum in Digital and Analogue gauges, attached and detached layouts, and the Appearance preview in PSI or bar.
+- Extend the enabled gauge range to -20 through 70 PSI or -1 through 5 bar, with a zero marker on the Digital rail.
+- Keep the option off by default and save it with settings and HUD profiles. Existing settings and profiles leave vacuum disabled.
+- Check for application updates every time Wisp opens and every 24 hours while it remains running, when automatic checks are enabled. A recent check from a previous launch no longer suppresses the startup check.
+- Preserve an available-update banner if a later automatic refresh fails. Downloads and installation still require confirmation.
+
 ## 1.1.2 - 2026-09-07
 
 - Add the native compatibility map for Steam FH6 `6.440.853.0`, retaining the previous Steam and Store maps.

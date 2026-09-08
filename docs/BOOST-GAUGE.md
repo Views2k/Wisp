@@ -6,14 +6,18 @@ It does not estimate pressure from throttle, RPM, speed, or gear.
 
 ## Availability
 
-The gauge remains hidden until the current car produces a non-zero boost-channel
-sample. FH6 reports vacuum on supported forced-induction cars before positive
-boost, so Wisp can identify the car before the driver builds pressure. Electric
-cars and cars whose boost channel remains at zero do not show the gauge. The
-availability state resets when the car changes.
+The existing gauge visibility toggle controls the gauge on combustion cars.
+Naturally aspirated cars show a stationary zero gauge, so you can leave it
+enabled without knowing whether a tune has forced induction. Electric cars
+never show the boost gauge.
 
-Vacuum is used only for availability. The visible readout and gauge position
-start at zero and do not show a negative pressure value. Choose PSI or bar for
+Pressure readings begin once the current car produces at least 0.5 PSI of
+positive boost. Vacuum alone does not identify forced induction. Detection
+resets when the car changes or the HUD session resets.
+
+Enable **Show vacuum pressure** to display negative telemetry after positive
+boost is detected. The option is off by default and saves with settings and HUD
+profiles. With it off, negative readings clamp to zero. Choose PSI or bar for
 both layouts and the Appearance preview; FH6 telemetry remains in PSI internally.
 
 ## Digital layout
@@ -26,12 +30,16 @@ The rail can use the custom three-point gauge gradient or the neutral stock
 tachometer material. The pressure readout has its own color toggle, so the number
 can remain white while the rail uses the gradient.
 
+With vacuum enabled, the rail includes a zero marker between negative and
+positive pressure.
+
 ## Analogue layout
 
 Analogue mode uses a circular 0 to 70 PSI gauge with numbered 10 PSI intervals
 and intermediate 5 PSI ticks, or a 0 to 5 bar scale with numbered 1 bar intervals.
 The center readout shows whole PSI or bar to one decimal place. The needle and
 readout use the Native HUD's existing typography, materials, and motion style.
+With vacuum enabled, the scale extends to -20 PSI or -1 bar.
 
 The readout color can follow the needle position or remain white. The Analogue
 gauge also has independent size and attached-placement controls.
@@ -55,6 +63,7 @@ Open **Appearance > Boost gauge** to change:
 - gauge visibility;
 - attached or detached Analogue placement;
 - PSI or bar;
+- vacuum pressure after positive boost is detected;
 - Analogue pressure-number color;
 - Digital pressure-number color;
 - Digital stock-material mode.

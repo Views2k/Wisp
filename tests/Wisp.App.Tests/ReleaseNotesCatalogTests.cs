@@ -8,7 +8,7 @@ public sealed class ReleaseNotesCatalogTests
     public void CatalogCoversEveryDocumentedPostLaunchVersionInDescendingOrder()
     {
         Assert.Equal(
-            ["1.1.2", "1.1.1", "1.1", "1.0.12", "1.0.11", "1.0.10", "1.0.8", "1.0.7", "1.0.6", "1.0.5", "1.0.4", "1.0.3", "1.0.2", "1.0.1"],
+            ["1.1.3", "1.1.2", "1.1.1", "1.1", "1.0.12", "1.0.11", "1.0.10", "1.0.8", "1.0.7", "1.0.6", "1.0.5", "1.0.4", "1.0.3", "1.0.2", "1.0.1"],
             ReleaseNotesCatalog.Entries.Select(entry => entry.Version));
         Assert.True(ReleaseNotesCatalog.Entries[0].IsCurrent);
         Assert.All(ReleaseNotesCatalog.Entries.Skip(1), entry => Assert.False(entry.IsCurrent));
@@ -20,12 +20,30 @@ public sealed class ReleaseNotesCatalogTests
     }
 
     [Fact]
-    public void CurrentCompatibilityEntryIdentifiesTheUpdatedGameBuild()
+    public void CurrentHotfixDocumentsUpdatedStoreCompatibilityAndOptInVacuumDisplay()
     {
         var entry = ReleaseNotesCatalog.Entries[0];
-        Assert.Equal("1.1.2", entry.Version);
+        Assert.Equal("1.1.3", entry.Version);
         Assert.Equal("COMPATIBILITY HOTFIX", entry.Label);
         Assert.True(entry.IsCurrent);
+        Assert.Contains("3.440.853.0", entry.Summary, StringComparison.Ordinal);
+        var text = string.Join(' ', entry.Groups.SelectMany(group => group.Items));
+        Assert.Contains("Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC", text, StringComparison.Ordinal);
+        Assert.Contains("retaining Store 3.430.771.0", text, StringComparison.Ordinal);
+        Assert.Contains("signed compatibility-map updates introduced in 1.1.2", text, StringComparison.Ordinal);
+        Assert.Contains("Show vacuum pressure", text, StringComparison.Ordinal);
+        Assert.Contains("off by default", text, StringComparison.Ordinal);
+        Assert.Contains("negative pressure reported by FH6", text, StringComparison.Ordinal);
+        Assert.Contains("HUD profiles", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HistoricalCompatibilityEntryIdentifiesTheUpdatedGameBuild()
+    {
+        var entry = ReleaseNotesCatalog.Entries.Single(entry => entry.Version == "1.1.2");
+        Assert.Equal("1.1.2", entry.Version);
+        Assert.Equal("COMPATIBILITY HOTFIX", entry.Label);
+        Assert.False(entry.IsCurrent);
         Assert.Contains("6.440.853.0", entry.Summary, StringComparison.Ordinal);
         var text = string.Join(' ', entry.Groups.SelectMany(group => group.Items));
         Assert.Contains("6.440.853.0", text, StringComparison.Ordinal);

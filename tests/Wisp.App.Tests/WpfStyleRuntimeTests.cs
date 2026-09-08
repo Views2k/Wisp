@@ -64,6 +64,9 @@ public sealed class WpfStyleRuntimeTests
             {
                 var application = new ResourceOnlyApplication();
                 application.Resources = LoadApplicationResources();
+                BoostGaugeVisualsTests.AssertOnCurrentDispatcher();
+                BoostVacuumUiTests.AssertOnCurrentDispatcher();
+                ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher();
                 NativeGaugeLifecycleTests.AssertConsumersOnCurrentDispatcher();
                 NativeRenderLifetimeTests.AssertConsumersOnCurrentDispatcher(_output.WriteLine);
                 decodedGearBackplate = ColorAt(

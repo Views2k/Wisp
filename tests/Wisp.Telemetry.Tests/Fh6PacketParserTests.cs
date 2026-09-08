@@ -59,18 +59,21 @@ public sealed class Fh6PacketParserTests
         Assert.Null(state.ReceivedTimestamp);
     }
 
-    [Fact]
-    public void ParsesBoostPressureFromTheDashChannel()
+    [Theory]
+    [InlineData(29.3437f)]
+    [InlineData(-10.5f)]
+    [InlineData(-0.1f)]
+    public void ParsesBoostPressureFromTheDashChannel(float pressurePsi)
     {
         var packet = Fh6PacketFixture.Create();
-        Fh6PacketFixture.WriteSingle(packet, Fh6PacketLayout.Boost, 29.3437f);
+        Fh6PacketFixture.WriteSingle(packet, Fh6PacketLayout.Boost, pressurePsi);
 
         var parsed = _parser.TryParse(packet, DateTimeOffset.UtcNow, out var state, out var error);
 
         Assert.True(parsed);
         Assert.Equal(PacketParseError.None, error);
         Assert.NotNull(state);
-        Assert.Equal(29.3437f, state.BoostPressurePsi);
+        Assert.Equal(pressurePsi, state.BoostPressurePsi);
     }
 
     [Fact]

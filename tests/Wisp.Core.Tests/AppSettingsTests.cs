@@ -9,6 +9,13 @@ namespace Wisp.Core.Tests;
 public sealed class AppSettingsTests
 {
     [Fact]
+    public void VacuumPressureIsOptInForNewAndExistingSettings()
+    {
+        Assert.False(new AppSettings().ShowBoostVacuum);
+        Assert.False(JsonSerializer.Deserialize<AppSettings>("{}")!.ShowBoostVacuum);
+    }
+
+    [Fact]
     public void NewSettingsDefaultToAquaWithAnExpandedSidebar()
     {
         var settings = new AppSettings();
@@ -197,6 +204,7 @@ public sealed class AppSettingsTests
             BoostGaugeColorNumber = true,
             DigitalBoostGaugeColorNumber = true,
             DigitalBoostGaugeStockColors = true,
+            ShowBoostVacuum = true,
             BoostPressureUnit = BoostPressureUnit.Bar,
             BoostGaugeScale = 1.3,
             BoostGaugeTheme = "Stock",
@@ -250,6 +258,7 @@ public sealed class AppSettingsTests
                 Assert.True(loaded.BoostGaugeColorNumber);
                 Assert.True(loaded.DigitalBoostGaugeColorNumber);
                 Assert.True(loaded.DigitalBoostGaugeStockColors);
+                Assert.True(loaded.ShowBoostVacuum);
                 Assert.Equal(BoostPressureUnit.Bar, loaded.BoostPressureUnit);
             }
         }

@@ -4,6 +4,45 @@ namespace Wisp.App.Tests;
 
 public sealed class BoostDisplayModelTests
 {
+    [Theory]
+    [InlineData(-2.9465)]
+    [InlineData(-10)]
+    [InlineData(-20)]
+    [InlineData(-35)]
+    public void VacuumOptionPreservesTelemetryWithoutTreatingVacuumAsBoost(double pressure)
+    {
+        var model = new BoostDisplayModel();
+        model.Calculate(3411, false, 24);
+
+        var display = model.Calculate(3411, false, pressure, showVacuum: true);
+
+        Assert.True(display.IsAvailable);
+        Assert.Equal(pressure, display.PressurePsi);
+        Assert.Equal(24, display.LearnedPeakPsi);
+        Assert.Equal(0, display.Fraction);
+        Assert.Equal(-20, display.ScaleMinimumPsi);
+        Assert.Equal(70, display.ScaleMaximumPsi);
+        var disabled = model.Calculate(3411, false, pressure);
+        Assert.Equal(0, disabled.PressurePsi);
+        Assert.Equal(0, disabled.ScaleMinimumPsi);
+        Assert.Equal(24, disabled.LearnedPeakPsi);
+    }
+
+    [Fact]
+    public void VacuumOptionDoesNotInventPressureOrBypassVehicleAvailability()
+    {
+        var model = new BoostDisplayModel();
+        Assert.True(model.Calculate(3411, false, 0, showVacuum: true).IsAvailable);
+        Assert.Equal(0, model.Calculate(3411, false, -10, showVacuum: true).PressurePsi);
+        Assert.Equal(0, model.Calculate(3411, false, 0, showVacuum: true).PressurePsi);
+        Assert.False(model.Calculate(3411, true, -10, showVacuum: true).IsAvailable);
+        Assert.True(model.Calculate(3411, false, 0, showVacuum: true).IsAvailable);
+        Assert.True(model.Calculate(3411, false, 10, showVacuum: true).IsAvailable);
+        Assert.True(model.Calculate(1024, false, 0, showVacuum: true).IsAvailable);
+        Assert.False(model.Calculate(1024, false, double.NaN, showVacuum: true).IsAvailable);
+        Assert.False(model.Calculate(1024, false, double.NegativeInfinity, showVacuum: true).IsAvailable);
+    }
+
     [Fact]
     public void ProvidesFifteenColorPalettesAndOneNeutralStockStyle()
     {
@@ -16,15 +55,21 @@ public sealed class BoostDisplayModelTests
         Assert.Equal(stock.Mid, stock.High);
     }
 
-    [Fact]
-    public void ShowsTheGaugeOnTheFirstManifoldPressureSample()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NaturallyAspiratedVacuumAndThrottleCyclesKeepTheGaugeAvailableAtZero(bool showVacuum)
     {
         var model = new BoostDisplayModel();
 
-        var display = model.Calculate(3411, false, -11);
-
-        Assert.True(display.IsAvailable);
-        Assert.Equal(0, display.PressurePsi);
+        foreach (var pressure in new[] { -15d, -10, -4, 0, 0.1, -15, 0, -15 })
+        {
+            var display = model.Calculate(3411, false, pressure, showVacuum);
+            Assert.True(display.IsAvailable);
+            Assert.Equal(0, display.PressurePsi);
+            Assert.Equal(0, display.LearnedPeakPsi);
+            Assert.Equal(0, display.Fraction);
+        }
     }
 
     [Fact]
@@ -47,16 +92,24 @@ public sealed class BoostDisplayModelTests
     public void ZeroPressureDoesNotIdentifyForcedInduction()
     {
         var model = new BoostDisplayModel();
-        for (var i = 0; i < 20; i++) Assert.False(model.Calculate(22, false, 0).IsAvailable);
+        for (var i = 0; i < 20; i++)
+        {
+            var display = model.Calculate(22, false, 0);
+            Assert.True(display.IsAvailable);
+            Assert.Equal(0, display.PressurePsi);
+            Assert.False(model.HasDetectedBoost);
+        }
     }
 
-    [Fact]
-    public void ElectricVehiclesNeverExposeBoost()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ElectricVehiclesNeverExposeBoost(bool showVacuum)
     {
         var model = new BoostDisplayModel();
 
-        Assert.False(model.Calculate(23, true, 15).IsAvailable);
-        Assert.False(model.Calculate(23, true, -11).IsAvailable);
+        Assert.False(model.Calculate(23, true, 15, showVacuum).IsAvailable);
+        Assert.False(model.Calculate(23, true, -11, showVacuum).IsAvailable);
     }
 
     [Fact]
@@ -67,15 +120,28 @@ public sealed class BoostDisplayModelTests
 
         Assert.False(model.Calculate(23, true, 15).IsAvailable);
         Assert.False(model.Calculate(23, true, 0).IsAvailable);
-        Assert.False(model.Calculate(23, false, 0).IsAvailable);
+        var combustion = model.Calculate(23, false, -15, showVacuum: true);
+        Assert.True(combustion.IsAvailable);
+        Assert.Equal(0, combustion.PressurePsi);
     }
 
     [Fact]
-    public void VacuumMakesTheGaugeAvailableBeforePositiveBoost()
+    public void PositiveBoostEnablesSubsequentVacuumForTheSameCar()
     {
         var model = new BoostDisplayModel();
-        Assert.True(model.Calculate(23, false, -4).IsAvailable);
-        Assert.True(model.Calculate(23, false, 7).IsAvailable);
+        var beforeBoost = model.Calculate(23, false, -15, showVacuum: true);
+        Assert.True(beforeBoost.IsAvailable);
+        Assert.Equal(0, beforeBoost.PressurePsi);
+        Assert.True(model.Calculate(23, false, 7, showVacuum: true).IsAvailable);
+        var vacuum = model.Calculate(23, false, -15, showVacuum: true);
+        Assert.True(vacuum.IsAvailable);
+        Assert.Equal(-15, vacuum.PressurePsi);
+        Assert.Equal(7, vacuum.LearnedPeakPsi);
+
+        model.Reset();
+        var afterReset = model.Calculate(23, false, -15, showVacuum: true);
+        Assert.True(afterReset.IsAvailable);
+        Assert.Equal(0, afterReset.PressurePsi);
     }
 
     [Fact]
@@ -85,6 +151,12 @@ public sealed class BoostDisplayModelTests
         model.Calculate(3411, false, 24);
         Assert.True(model.Calculate(3411, false, 24).IsAvailable);
 
-        Assert.False(model.Calculate(1024, false, 0).IsAvailable);
+        foreach (var pressure in new[] { 0d, -15, 0 })
+        {
+            var display = model.Calculate(1024, false, pressure, showVacuum: true);
+            Assert.True(display.IsAvailable);
+            Assert.Equal(0, display.PressurePsi);
+            Assert.Equal(0, display.LearnedPeakPsi);
+        }
     }
 }
