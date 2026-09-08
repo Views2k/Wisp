@@ -82,8 +82,8 @@ public sealed class ReleaseContentTests
         Assert.Equal(0x0248UL, contract.Fields.ProviderSimRedlineAngularVelocity);
         Assert.Equal(0x024CUL, contract.Fields.ProviderTachometerMaximumAngularVelocity);
         Assert.Contains("TryValidateTachometerState", resolver, StringComparison.Ordinal);
-        Assert.Equal(0x01F15590UL, contract.RequiredVtableSlots[0x0210]);
-        Assert.Equal(0x01F15580UL, contract.RequiredVtableSlots[0x0680]);
+        Assert.Equal(0x031ACB80UL, contract.RequiredVtableSlots[0x0210]);
+        Assert.Equal(0x031ACB70UL, contract.RequiredVtableSlots[0x0680]);
         Assert.Contains("NativeAssistAssetSelector.FileName", digital, StringComparison.Ordinal);
         Assert.Contains("NativeAssistAssetSelector.FileName", analogue, StringComparison.Ordinal);
         Assert.Contains("\"On_glow\"", assistSelector, StringComparison.Ordinal);

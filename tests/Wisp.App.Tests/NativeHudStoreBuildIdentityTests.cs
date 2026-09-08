@@ -9,6 +9,7 @@ namespace Wisp.App.Tests;
 public sealed class NativeHudStoreBuildIdentityTests
 {
     private const string StoreVersion = "3.430.771.0";
+    private const string KnownPackageFullName = "Microsoft.ForteBaseGame_3.430.771.0_x64__8wekyb3d8bbwe";
     private const uint ImageSize = 0x5000;
     private const uint Timestamp = 1787153332;
     private const int Pe = 0x80;
@@ -22,7 +23,7 @@ public sealed class NativeHudStoreBuildIdentityTests
         var identity = ParseIdentity(IdentityDocument(memory));
 
         Assert.True(identity.MatchesImage(memory, Module));
-        Assert.Equal(NativeStorePackageIdentity.SupportedPackageFullName, identity.PackageFullName);
+        Assert.Equal(KnownPackageFullName, identity.PackageFullName);
         Assert.Equal(Timestamp, identity.TimeDateStamp);
         Assert.Equal(ImageSize, identity.ImageSize);
         Assert.Equal(new[] { (Module, 4096), (Module + 0x1100, 32), (Module + 0x1200, 64) }, memory.Reads);
@@ -269,7 +270,7 @@ public sealed class NativeHudStoreBuildIdentityTests
     }
 
     [Fact]
-    public void EvenTrustedSignedEnvelopeCannotSupplyAStorePack()
+    public void StoreEnvelopeRequiresAPinnedPublisherAndPreservesItsImageGuards()
     {
         var now = new DateTimeOffset(2026, 9, 6, 12, 0, 0, TimeSpan.Zero);
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -292,10 +293,18 @@ public sealed class NativeHudStoreBuildIdentityTests
             ["payload"] = Convert.ToBase64String(payload),
             ["signature"] = Convert.ToBase64String(signature)
         });
+        var verified = NativeCompatibilityEnvelope.Verify(envelope, new Dictionary<string, byte[]> { [keyId] = publicKey }, now);
+        Assert.Single(verified.Packs);
+        Assert.NotNull(verified.Pack.StoreIdentity);
+        Assert.Equal(KnownPackageFullName, verified.Pack.StoreIdentity.PackageFullName);
+        var memory = new Memory();
+        BinaryPrimitives.WriteUInt32LittleEndian(memory.Bytes.AsSpan(Pe + 80), verified.Pack.ImageSize);
+        Assert.True(verified.Pack.StoreIdentity.MatchesImage(memory, Module));
+        memory.Bytes[0x1100] ^= 1;
+        Assert.False(verified.Pack.StoreIdentity.MatchesImage(memory, Module));
         var exception = Assert.Throws<NativeCompatibilityEnvelopeException>(() => NativeCompatibilityEnvelope.Verify(
-            envelope, new Dictionary<string, byte[]> { [keyId] = publicKey }, now));
-        Assert.Equal(NativeCompatibilityInstallCode.InvalidEnvelope, exception.Code);
-        Assert.Contains("application release", exception.Message, StringComparison.Ordinal);
+            envelope, new Dictionary<string, byte[]>(), now));
+        Assert.Equal(NativeCompatibilityInstallCode.UntrustedPublisher, exception.Code);
     }
 
     private static JsonObject StorePackDocument()
@@ -324,7 +333,7 @@ public sealed class NativeHudStoreBuildIdentityTests
 
     private static JsonObject IdentityDocument(Memory memory) => new()
     {
-        ["packageFullName"] = NativeStorePackageIdentity.SupportedPackageFullName,
+        ["packageFullName"] = KnownPackageFullName,
         ["timeDateStamp"] = Timestamp,
         ["codeGuards"] = new JsonArray(Guard(memory, 0x1100, 32), Guard(memory, 0x1200, 64))
     };

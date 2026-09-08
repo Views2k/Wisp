@@ -15,11 +15,23 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.1.2",
+            "September 7, 2026",
+            "COMPATIBILITY HOTFIX",
+            "Support for Steam FH6 6.440.853.0 and signed compatibility updates for future reviewed builds.",
+            true,
+            [
+                Group("Compatibility",
+                    "Adds a separate Native HUD map for Steam FH6 build 6.440.853.0, retaining Steam 6.430.771.0 and Xbox app / Microsoft Store 3.430.771.0 support.",
+                    "Enables background checks and manual import of signed compatibility maps. Verified maps can be delivered without reinstalling Wisp and remain available offline.",
+                    "Retains exact build identity, read-only access, and menu visibility checks. Native layouts that change beyond the supported reader still require an application update.")
+            ]),
+        new(
             "1.1.1",
             "September 6, 2026",
             "COMPATIBILITY HOTFIX",
             "Xbox app and Microsoft Store editions of Forza Horizon 6 on Windows are now supported.",
-            true,
+            false,
             [
                 Group("Compatibility",
                     "Adds a separate Native HUD compatibility path for Xbox app and Microsoft Store FH6 build 3.430.771.0. Other Store builds remain unsupported.",

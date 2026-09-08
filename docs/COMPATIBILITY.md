@@ -2,8 +2,9 @@
 
 ## Current support
 
-Wisp 1.1.1 includes separate Native HUD compatibility contracts for:
+Wisp 1.1.2 includes separate Native HUD compatibility contracts for:
 
+- Steam FH6 build `6.440.853.0`, identified by its recorded executable fingerprint;
 - Steam FH6 build `6.430.771.0`, identified by its recorded executable fingerprint;
 - Xbox app / Microsoft Store Windows PC build `3.430.771.0`, identified by its
   Store package and bounded loaded-image checks.
@@ -90,18 +91,31 @@ A contract contains data only: executable identity, bounded module-relative
 addresses, field offsets, widths, guards, and thresholds. It cannot contain
 executable code, commands, URLs, or trust keys.
 
-The runtime includes strict validation for signed contracts, revision floors,
-an offline cache, and an HTTPS client. Automatic distribution is not configured
-in the current build: the production endpoint and publisher keys are empty, so the
-application makes no compatibility-update request and keeps import/check
-controls disabled. Recovery from a new or changed game build identity
-therefore requires a reviewed Wisp release containing a compatible contract.
-Store contracts are supplied only by the application release and are not accepted
-through the signed-pack import path.
+Wisp 1.1.2 configures a release-owned ECDSA P-256 public key and the fixed HTTPS
+endpoint `https://wispoverlay.com/compatibility/latest.json`. Checks run in the
+background at startup and once per day while Wisp stays open; Diagnostics also
+offers a manual check and signed-file import. Requests have bounded sizes and
+timeouts, no redirects, and no telemetry upload. A failed download or signature
+check leaves the accepted catalog unchanged. Bundled maps work without a
+network connection or an available publisher endpoint.
 
-Distribution can be enabled only with pinned release-owned keys and reviewed
-contracts. A failed download or signature check leaves the accepted catalog
-unchanged. No vehicle data is uploaded.
+The signed payload can contain one legacy contract (format 1) or up to eight
+contracts (format 2). A bundle can cover separate Steam and Store builds. Every
+entry must pass the same schema and identity rules, and every Store attachment
+still requires Windows package provenance and loaded-image guards. Wisp never
+uses a Steam contract for a Store executable.
+
+Bundle installation validates every entry before committing one acceptance
+ledger. Revision floors prevent replacement with an older accepted map. A
+failed write cannot publish a partially installed bundle. Previously accepted
+maps are reverified from the local cache at startup and remain usable offline,
+including after the download envelope's original expiry. Older embedded maps
+remain available for installations that have not updated Forza.
+
+This channel permits reviewed address-map updates without reinstalling Wisp.
+It cannot automatically approve an unknown native layout. A game update that
+changes field semantics, ownership rules, or the supported reader schema still
+requires code review and may require a new application release.
 
 This small pinned-key protocol is not a complete software-update framework. It
 does not claim protection from a hostile local administrator, application
@@ -151,6 +165,34 @@ Static analysis cannot prove live local-player identity, car/RPM agreement,
 gameplay visibility, protected getter semantics, electric digit/unit behavior,
 or assist transitions. A changed contract therefore needs controlled runtime
 validation before it can be accepted.
+
+### Publishing a reviewed map
+
+`tools/Sign-CompatibilityBundle.ps1` signs reviewed JSON contracts locally with
+the release owner's Windows-user-protected key. The private key stays outside
+the repository, installer, and website. Its DPAPI protection depends on the
+owning Windows profile; copying that file to a different machine is not a
+portable key backup. Never replace the established key during a routine map
+update. Changing the pinned key requires a reviewed application release.
+
+After static and live validation, sign one bundle containing the builds being
+maintained. Increment the revision of every included previously signed map
+when creating a different payload, even if its address data is unchanged:
+timestamps and the other bundle members are part of the signed payload too.
+Do not reuse a revision from a different payload. A client with a newer embedded
+map keeps that map when processing a bundle; cached revision floors still apply.
+
+```[WINDOWS POWERSHELL]
+./tools/Sign-CompatibilityBundle.ps1 -KeyFile $protectedPublisherKeyPath -Pack $reviewedPackPaths -Output ./outputs/compatibility/latest.json -Reviewed
+```
+
+Before publication, verify that exact file through Wisp's pinned-key catalog in
+an isolated cache, test a corrupted copy is rejected, and repeat acceptance from
+the cache with networking unavailable. Publish only the resulting signed JSON
+at the configured endpoint after approval. Serve JSON without a redirect or
+content encoding, with a short cache lifetime, and retain the exact published
+bytes for auditing. Publishing an HTML error page or an unsigned pack never
+changes the accepted catalog.
 
 ## Failure behavior
 

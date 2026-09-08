@@ -91,7 +91,8 @@ public sealed class NativeCompatibilityCatalogTests
 
         Assert.Equal(NativeCompatibilityInstallCode.UntrustedPublisher, result.Code);
         Assert.Equal(0, catalog.Generation);
-        Assert.Null(NativeCompatibilityRuntime.PublisherEndpoint);
+        Assert.Equal(new Uri("https://wispoverlay.com/compatibility/latest.json"), NativeCompatibilityRuntime.PublisherEndpoint);
+        Assert.True(NativeCompatibilityRuntime.Catalog.HasTrustedPublishers);
     }
 
     [Fact]
@@ -481,15 +482,16 @@ public sealed class NativeCompatibilityCatalogTests
     public void ImportedPackMustSupersedeBuiltInRevisionForTheSameFingerprint()
     {
         using var fixture = new Fixture();
-        var catalog = fixture.Catalog();
+        var builtIn = NativeHudCompatibilityPack.Parse(Bytes(fixture.Pack(3, sameAsBuiltIn: true)));
+        var catalog = new NativeCompatibilityCatalog(builtIn, null, fixture.Keys);
 
         Assert.Equal(NativeCompatibilityInstallCode.RevisionConflict,
             catalog.Install(fixture.Envelope(fixture.Pack(
-                NativeHudBuildContract.BuiltIn.Revision, sameAsBuiltIn: true)), fixture.Now).Code);
+                builtIn.Revision, sameAsBuiltIn: true)), fixture.Now).Code);
         Assert.Equal(NativeCompatibilityInstallCode.RollbackRejected,
             catalog.Install(fixture.Envelope(fixture.Pack(
-                NativeHudBuildContract.BuiltIn.Revision - 1, sameAsBuiltIn: true)), fixture.Now).Code);
-        Assert.Same(NativeHudBuildContract.BuiltIn, Find(catalog, NativeHudBuildContract.BuiltIn));
+                builtIn.Revision - 1, sameAsBuiltIn: true)), fixture.Now).Code);
+        Assert.Same(builtIn, Find(catalog, builtIn));
         Assert.Equal(0, catalog.Generation);
     }
 
@@ -786,8 +788,311 @@ public sealed class NativeCompatibilityCatalogTests
         Assert.Same(NativeHudBuildContract.BuiltIn, Find(catalog, NativeHudBuildContract.BuiltIn));
     }
 
+    [Fact]
+    public void BundleInstallsBothStoresInOneGenerationAndReloadsOffline()
+    {
+        using var fixture = new Fixture();
+        var bytes = fixture.Bundle(fixture.Pack(), fixture.StorePack());
+        var verified = NativeCompatibilityEnvelope.Verify(bytes, fixture.Keys, fixture.Now);
+        Assert.Equal(2, verified.Packs.Count);
+        Assert.Same(verified.Packs[0], verified.Pack);
+        Assert.Throws<NotSupportedException>(() => ((IList<NativeHudCompatibilityPack>)verified.Packs).Clear());
+        var catalog = fixture.Catalog(persistent: true);
+
+        var result = catalog.Install(bytes, fixture.Now);
+
+        Assert.True(result.Success);
+        Assert.Equal(2, result.Packs.Count);
+        Assert.Same(result.Packs[0], result.Pack);
+        Assert.Equal(1, catalog.Generation);
+        Assert.All(result.Packs, pack => Assert.Same(pack, Find(catalog, pack)));
+        Assert.Equal(NativeCompatibilityInstallCode.AlreadyInstalled, catalog.Install(bytes, fixture.Now).Code);
+        Assert.Equal(1, catalog.Generation);
+        var reloaded = fixture.Catalog(persistent: true);
+        Assert.False(reloaded.CacheLoadHadErrors);
+        Assert.All(result.Packs, pack => Assert.Equal(pack.Revision, Find(reloaded, pack)!.Revision));
+        Assert.Single(Directory.EnumerateFiles(fixture.CacheDirectory, "*.pack.json"));
+        Assert.Equal(2, JsonNode.Parse(File.ReadAllBytes(fixture.LedgerPath))!["format"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void LegacyStoreEnvelopeRequiresPinnedSignatureAndUsesSeparateExactIdentity()
+    {
+        using var fixture = new Fixture();
+        var store = NativeHudCompatibilityPack.Parse(Bytes(fixture.StorePack()));
+        var bytes = fixture.Envelope(fixture.StorePack());
+        var catalog = fixture.Catalog(persistent: true);
+        Assert.True(catalog.Install(bytes, fixture.Now).Success);
+        Assert.NotNull(Find(fixture.Catalog(persistent: true), store));
+        Assert.Null(catalog.Find(store.GameVersion, 0, string.Empty));
+        Assert.Null(catalog.FindStore(store.StoreIdentity!.PackageFullName, store.ImageSize + 1));
+        Assert.Null(catalog.FindStore(store.StoreIdentity.PackageFullName.ToLowerInvariant(), store.ImageSize));
+        Assert.Null(catalog.FindStore(" " + store.StoreIdentity.PackageFullName, store.ImageSize));
+        Assert.Null(catalog.FindStore(null, 0));
+        var untrusted = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, null, new Dictionary<string, byte[]>());
+        Assert.Equal(NativeCompatibilityInstallCode.UntrustedPublisher, untrusted.Install(bytes, fixture.Now).Code);
+        Assert.Null(Find(untrusted, store));
+    }
+
+    [Theory]
+    [InlineData("empty")]
+    [InlineData("too-many")]
+    [InlineData("duplicate")]
+    [InlineData("duplicate-revision")]
+    [InlineData("malformed-member")]
+    [InlineData("unknown-field")]
+    [InlineData("single-pack-field")]
+    public void InvalidBundleCannotInstallEvenItsValidFirstMember(string mutation)
+    {
+        using var fixture = new Fixture();
+        var payload = fixture.BundlePayload(fixture.Pack(), fixture.StorePack());
+        var members = payload["packs"]!.AsArray();
+        switch (mutation)
+        {
+            case "empty": members.Clear(); break;
+            case "too-many":
+                while (members.Count <= NativeCompatibilityEnvelope.MaximumPacks) members.Add(fixture.Pack());
+                break;
+            case "duplicate": members.Add(members[0]!.DeepClone()); break;
+            case "duplicate-revision": members.Add(fixture.Pack(9)); break;
+            case "malformed-member": members[1]!["imageSize"] = 0; break;
+            case "unknown-field": payload["extra"] = true; break;
+            case "single-pack-field": payload["pack"] = fixture.Pack(); break;
+        }
+        var catalog = fixture.Catalog(persistent: true);
+        var result = catalog.Install(fixture.SignRaw(Bytes(payload)), fixture.Now);
+        Assert.Equal(NativeCompatibilityInstallCode.InvalidEnvelope, result.Code);
+        Assert.Equal(0, catalog.Generation);
+        Assert.Null(Find(catalog, fixture.ParsePack()));
+        Assert.False(File.Exists(fixture.LedgerPath));
+        Assert.Empty(Directory.EnumerateFiles(fixture.CacheDirectory, "*.pack.json"));
+    }
+
+    [Fact]
+    public void ChangingOnlySecondBundleMemberWithoutResigningRejectsEverything()
+    {
+        using var fixture = new Fixture();
+        var outer = JsonNode.Parse(fixture.Bundle(fixture.Pack(), fixture.StorePack()))!.AsObject();
+        var payload = JsonNode.Parse(Convert.FromBase64String(outer["payload"]!.GetValue<string>()))!;
+        payload["packs"]![1]!["revision"] = 99;
+        outer["payload"] = Convert.ToBase64String(Bytes(payload));
+        var catalog = fixture.Catalog();
+        Assert.Equal(NativeCompatibilityInstallCode.InvalidSignature, catalog.Install(Bytes(outer), fixture.Now).Code);
+        Assert.Null(Find(catalog, fixture.ParsePack()));
+        Assert.Equal(0, catalog.Generation);
+    }
+
+    [Theory]
+    [InlineData(1, NativeCompatibilityInstallCode.RollbackRejected)]
+    [InlineData(2, NativeCompatibilityInstallCode.RevisionConflict)]
+    public void OneBundleMemberBelowItsFloorRejectsTheWholeTransaction(int storeRevision, NativeCompatibilityInstallCode expected)
+    {
+        using var fixture = new Fixture();
+        var catalog = fixture.Catalog(persistent: true);
+        Assert.True(catalog.Install(fixture.Bundle(fixture.Pack(2), fixture.StorePack(2)), fixture.Now).Success);
+        var ledger = File.ReadAllBytes(fixture.LedgerPath);
+        var result = catalog.Install(fixture.Bundle(fixture.Pack(3), fixture.StorePack(storeRevision)), fixture.Now);
+        Assert.Equal(expected, result.Code);
+        Assert.Equal(1, catalog.Generation);
+        Assert.Equal(ledger, File.ReadAllBytes(fixture.LedgerPath));
+        Assert.Equal(2, Find(catalog, fixture.ParsePack())!.Revision);
+        Assert.Single(Directory.EnumerateFiles(fixture.CacheDirectory, "*.pack.json"));
+    }
+
+    [Fact]
+    public void FailedBundleLedgerReplacementKeepsBothPriorMembersAndReceipts()
+    {
+        using var fixture = new Fixture();
+        var catalog = fixture.Catalog(persistent: true);
+        Assert.True(catalog.Install(fixture.Bundle(fixture.Pack(2), fixture.StorePack(2)), fixture.Now).Success);
+        var ledger = File.ReadAllBytes(fixture.LedgerPath);
+        using (var held = new FileStream(fixture.LedgerPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            var result = catalog.Install(fixture.Bundle(fixture.Pack(3), fixture.StorePack(3)), fixture.Now);
+            Assert.Equal(NativeCompatibilityInstallCode.CacheWriteFailed, result.Code);
+        }
+        Assert.Equal(ledger, File.ReadAllBytes(fixture.LedgerPath));
+        Assert.Equal(1, catalog.Generation);
+        foreach (var current in new[] { catalog, fixture.Catalog(persistent: true) })
+        {
+            Assert.Equal(2, Find(current, fixture.ParsePack())!.Revision);
+            Assert.Equal(2, Find(current, NativeHudCompatibilityPack.Parse(Bytes(fixture.StorePack())))!.Revision);
+        }
+    }
+
+    [Fact]
+    public void MixedLedgerUpgradeRetainsLegacyReceiptAndExpiredBundleRemainsUsableOffline()
+    {
+        using var fixture = new Fixture();
+        var accepted = fixture.Now.AddDays(-3);
+        var catalog = fixture.Catalog(persistent: true);
+        Assert.True(catalog.Install(fixture.Envelope(issued: accepted.AddHours(-1), expires: accepted.AddHours(1)), accepted).Success);
+        Assert.Equal(1, JsonNode.Parse(File.ReadAllBytes(fixture.LedgerPath))!["format"]!.GetValue<int>());
+        var payload = fixture.BundlePayload(fixture.StorePack());
+        payload["issuedUtc"] = Utc(accepted.AddHours(-1));
+        payload["expiresUtc"] = Utc(accepted.AddHours(1));
+        var bytes = fixture.SignRaw(Bytes(payload));
+        Assert.True(catalog.Install(bytes, accepted).Success);
+        var reloaded = fixture.Catalog(persistent: true);
+        Assert.False(reloaded.CacheLoadHadErrors);
+        Assert.NotNull(Find(reloaded, fixture.ParsePack()));
+        Assert.NotNull(Find(reloaded, NativeHudCompatibilityPack.Parse(Bytes(fixture.StorePack()))));
+        Assert.Equal(NativeCompatibilityInstallCode.Expired, reloaded.Install(bytes, fixture.Now).Code);
+    }
+
+    [Theory]
+    [InlineData("package")]
+    [InlineData("version")]
+    [InlineData("size")]
+    [InlineData("kind")]
+    [InlineData("steam-fields")]
+    [InlineData("missing-kind")]
+    [InlineData("duplicate")]
+    public void StoreReceiptIdentityIsStrictAndMustMatchResignedContent(string mutation)
+    {
+        using var fixture = new Fixture();
+        var store = NativeHudCompatibilityPack.Parse(Bytes(fixture.StorePack()));
+        Assert.True(fixture.Catalog(persistent: true).Install(fixture.Envelope(fixture.StorePack()), fixture.Now).Success);
+        var ledger = JsonNode.Parse(File.ReadAllBytes(fixture.LedgerPath))!.AsObject();
+        var entry = ledger["entries"]![0]!.AsObject();
+        switch (mutation)
+        {
+            case "package": entry["packageFullName"] = "Untrusted.ForteBaseGame_3.430.772.0_x64__8wekyb3d8bbwe"; break;
+            case "version": entry["gameVersion"] = "3.430.773.0"; entry["packageFullName"] = "Microsoft.ForteBaseGame_3.430.773.0_x64__8wekyb3d8bbwe"; break;
+            case "size": entry["imageSize"] = store.ImageSize + 4096; break;
+            case "kind": entry["kind"] = "steam"; break;
+            case "steam-fields": entry["executableSha256"] = new string('0', 64); break;
+            case "missing-kind": entry.Remove("kind"); break;
+            case "duplicate": ledger["entries"]!.AsArray().Add(entry.DeepClone()); break;
+        }
+        File.WriteAllBytes(fixture.LedgerPath, Bytes(ledger));
+        var reloaded = fixture.Catalog(persistent: true);
+        Assert.True(reloaded.CacheLoadHadErrors);
+        Assert.Null(Find(reloaded, store));
+        Assert.Null(reloaded.FindStore(entry["packageFullName"]!.GetValue<string>(), entry["imageSize"]!.GetValue<uint>()));
+        Assert.Same(NativeHudBuildContract.BuiltIn, Find(reloaded, NativeHudBuildContract.BuiltIn));
+    }
+
+    [Fact]
+    public void CorruptOrRevokedBundleBlocksBothHigherRevisionsIncludingStoreBuiltIn()
+    {
+        using var fixture = new Fixture();
+        var store = NativeHudCompatibilityPack.Parse(Bytes(fixture.StorePack(1)));
+        var bytes = fixture.Bundle(fixture.Pack(fixture.NextRevision, sameAsBuiltIn: true), fixture.StorePack(2));
+        var catalog = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, fixture.CacheDirectory, fixture.Keys, [store]);
+        Assert.True(catalog.Install(bytes, fixture.Now).Success);
+        var revoked = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, fixture.CacheDirectory, new Dictionary<string, byte[]>(), [store]);
+        Assert.Null(Find(revoked, store));
+        Assert.Null(Find(revoked, NativeHudBuildContract.BuiltIn));
+        File.WriteAllText(fixture.EnvelopePath(bytes), "{}");
+        var corrupt = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, fixture.CacheDirectory, fixture.Keys, [store]);
+        Assert.Null(Find(corrupt, store));
+        Assert.NotNull(corrupt.GetStoreUnavailableReason(store.StoreIdentity!.PackageFullName, store.ImageSize));
+        Assert.Null(Find(corrupt, NativeHudBuildContract.BuiltIn));
+        Assert.Equal(2, corrupt.Diagnostics.Count);
+    }
+
+    [Fact]
+    public void AdditionalBuiltInsAreCopiedBoundedExactAndHaveIndependentRevisionFloors()
+    {
+        using var fixture = new Fixture();
+        var olderSteam = fixture.ParsePack();
+        var store = NativeHudCompatibilityPack.Parse(Bytes(fixture.StorePack(2)));
+        var source = new List<NativeHudCompatibilityPack> { olderSteam, store };
+        var catalog = new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, null, fixture.Keys, source);
+        source.Clear();
+        Assert.Same(NativeHudBuildContract.BuiltIn, Find(catalog, NativeHudBuildContract.BuiltIn));
+        Assert.Same(olderSteam, Find(catalog, olderSteam));
+        Assert.Same(store, Find(catalog, store));
+        Assert.Null(catalog.Find(store.GameVersion, 0, string.Empty));
+        Assert.Null(catalog.FindStore(olderSteam.GameVersion, olderSteam.ImageSize));
+        Assert.Equal(NativeCompatibilityInstallCode.RevisionConflict, catalog.Install(fixture.Envelope(fixture.StorePack(2)), fixture.Now).Code);
+        Assert.Equal(NativeCompatibilityInstallCode.RollbackRejected, catalog.Install(fixture.Envelope(fixture.Pack(1)), fixture.Now).Code);
+        Assert.Throws<ArgumentException>(() => new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, null, fixture.Keys, [olderSteam, olderSteam]));
+        Assert.Throws<ArgumentException>(() => new NativeCompatibilityCatalog(NativeHudBuildContract.BuiltIn, null, fixture.Keys, [NativeHudBuildContract.BuiltIn]));
+    }
+
+    [Fact]
+    public void BundleKeepsNewerEmbeddedMemberWhileInstallingAnotherBuild()
+    {
+        using var fixture = new Fixture();
+        var newer = NativeHudCompatibilityPack.Parse(Bytes(fixture.Pack(5)));
+        var catalog = new NativeCompatibilityCatalog(newer, fixture.CacheDirectory, fixture.Keys);
+        var result = catalog.Install(fixture.Bundle(fixture.Pack(2), fixture.StorePack()), fixture.Now);
+        Assert.True(result.Success);
+        Assert.True(result.Changed);
+        Assert.Same(newer, result.Pack);
+        Assert.Same(newer, result.Packs[0]);
+        Assert.Same(newer, Find(catalog, newer));
+        Assert.NotNull(Find(catalog, result.Packs[1]));
+        Assert.Single(JsonNode.Parse(File.ReadAllBytes(fixture.LedgerPath))!["entries"]!.AsArray());
+        Assert.Equal(NativeCompatibilityInstallCode.RollbackRejected, catalog.Install(fixture.Envelope(fixture.Pack(2)), fixture.Now).Code);
+    }
+
+    [Fact]
+    public void BundleEntirelyCoveredByEmbeddedMapsIsNoOpWithoutReceipts()
+    {
+        using var fixture = new Fixture();
+        var newer = NativeHudCompatibilityPack.Parse(Bytes(fixture.Pack(5)));
+        var store = NativeHudCompatibilityPack.Parse(Bytes(fixture.StorePack(2)));
+        var catalog = new NativeCompatibilityCatalog(newer, fixture.CacheDirectory, fixture.Keys, [store]);
+        var result = catalog.Install(fixture.Bundle(fixture.Pack(2), fixture.StorePack(2)), fixture.Now);
+        Assert.Equal(NativeCompatibilityInstallCode.AlreadyInstalled, result.Code);
+        Assert.False(result.Changed);
+        Assert.Equal(0, catalog.Generation);
+        Assert.Same(newer, result.Packs[0]);
+        Assert.Same(store, result.Packs[1]);
+        Assert.False(File.Exists(fixture.LedgerPath));
+        Assert.Empty(Directory.EnumerateFiles(fixture.CacheDirectory, "*.pack.json"));
+    }
+
+    [Fact]
+    public void NewerEmbeddedMapCannotLetBundleBypassAcceptedRevisionFloor()
+    {
+        using var fixture = new Fixture();
+        Assert.True(fixture.Catalog(persistent: true).Install(fixture.Envelope(fixture.Pack(3)), fixture.Now).Success);
+        var newer = NativeHudCompatibilityPack.Parse(Bytes(fixture.Pack(5)));
+        var catalog = new NativeCompatibilityCatalog(newer, fixture.CacheDirectory, fixture.Keys);
+        var ledger = File.ReadAllBytes(fixture.LedgerPath);
+        Assert.Equal(NativeCompatibilityInstallCode.RollbackRejected,
+            catalog.Install(fixture.Bundle(fixture.StorePack(), fixture.Pack(2)), fixture.Now).Code);
+        Assert.Equal(ledger, File.ReadAllBytes(fixture.LedgerPath));
+        Assert.Null(Find(catalog, NativeHudCompatibilityPack.Parse(Bytes(fixture.StorePack()))));
+        Assert.Same(newer, Find(catalog, newer));
+    }
+
+    [Fact]
+    public void EightMemberBundleIsAcceptedButCapacityFailureNeverPartiallyInstalls()
+    {
+        using var fixture = new Fixture();
+        var catalog = fixture.Catalog();
+        for (var offset = 0; offset < NativeCompatibilityCatalog.MaximumCachedPacks - 8; offset += 8)
+        {
+            var members = Enumerable.Range(offset, 8).Select(index =>
+            {
+                var pack = fixture.Pack(1);
+                pack["executableSha256"] = index.ToString("X64", CultureInfo.InvariantCulture);
+                return pack;
+            }).ToArray();
+            Assert.True(catalog.Install(fixture.Bundle(members), fixture.Now).Success);
+        }
+        for (var index = 120; index < 127; index++)
+        {
+            var pack = fixture.Pack(1);
+            pack["executableSha256"] = index.ToString("X64", CultureInfo.InvariantCulture);
+            Assert.True(catalog.Install(fixture.Envelope(pack), fixture.Now).Success);
+        }
+        var generation = catalog.Generation;
+        Assert.Equal(NativeCompatibilityInstallCode.CatalogFull,
+            catalog.Install(fixture.Bundle(fixture.Pack(), fixture.StorePack()), fixture.Now).Code);
+        Assert.Equal(generation, catalog.Generation);
+        Assert.Null(Find(catalog, fixture.ParsePack()));
+        Assert.Null(Find(catalog, NativeHudCompatibilityPack.Parse(Bytes(fixture.StorePack()))));
+    }
+
     private static NativeHudCompatibilityPack? Find(NativeCompatibilityCatalog catalog, NativeHudCompatibilityPack pack) =>
-        catalog.Find(pack.GameVersion, pack.ExecutableLength, pack.ExecutableSha256);
+        pack.StoreIdentity is null ? catalog.Find(pack.GameVersion, pack.ExecutableLength, pack.ExecutableSha256)
+            : catalog.FindStore(pack.StoreIdentity.PackageFullName, pack.ImageSize);
 
     private static byte[] Bytes(JsonNode value) => JsonSerializer.SerializeToUtf8Bytes(value);
     private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
@@ -835,6 +1140,27 @@ public sealed class NativeCompatibilityCatalogTests
         }
 
         public NativeHudCompatibilityPack ParsePack() => NativeHudCompatibilityPack.Parse(Bytes(Pack()));
+
+        public JsonObject StorePack(int revision = 2)
+        {
+            using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.Store.json")!;
+            var pack = JsonNode.Parse(stream)!.AsObject();
+            pack["gameVersion"] = "3.430.772.0";
+            pack["revision"] = revision;
+            pack["storeIdentity"]!["packageFullName"] = "Microsoft.ForteBaseGame_3.430.772.0_x64__8wekyb3d8bbwe";
+            return pack;
+        }
+
+        public JsonObject BundlePayload(params JsonObject[] packs) => new()
+        {
+            ["format"] = 2,
+            ["purpose"] = "wisp-native-hud-compatibility",
+            ["issuedUtc"] = Utc(Now.AddMinutes(-1)),
+            ["expiresUtc"] = Utc(Now.AddDays(1)),
+            ["packs"] = new JsonArray(packs.Select(pack => pack.DeepClone()).ToArray())
+        };
+
+        public byte[] Bundle(params JsonObject[] packs) => SignRaw(Bytes(BundlePayload(packs)));
 
         public JsonObject Payload(JsonObject? pack = null, DateTimeOffset? issued = null, DateTimeOffset? expires = null) => new()
         {

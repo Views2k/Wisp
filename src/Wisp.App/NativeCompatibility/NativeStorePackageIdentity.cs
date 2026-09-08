@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
@@ -7,7 +8,8 @@ namespace Wisp.App;
 // Package provenance is separate from the Store pack's bounded image guards, not a file hash.
 internal readonly record struct NativeStorePackageIdentity(string PackageFullName, string ExecutablePath)
 {
-    internal const string SupportedPackageFullName = "Microsoft.ForteBaseGame_3.430.771.0_x64__8wekyb3d8bbwe";
+    private const string PackagePrefix = "Microsoft.ForteBaseGame_";
+    private const string PackageSuffix = "_x64__8wekyb3d8bbwe";
     internal const int StoreOrigin = 3;
     private const int InsufficientBuffer = 122;
     private const uint MaximumPackageNameCharacters = 512;
@@ -30,7 +32,7 @@ internal readonly record struct NativeStorePackageIdentity(string PackageFullNam
             // No-package and unavailable API results are ordinary nonmatches; Steam still uses its file fingerprint.
             if (!TryReadString((ref uint length, char[]? buffer) => api.GetFullName(handle, ref length, buffer),
                     MaximumPackageNameCharacters, out var name) ||
-                !string.Equals(name, SupportedPackageFullName, StringComparison.Ordinal) ||
+                !IsGamePackageFamily(name) ||
                 api.GetOrigin(name, out var origin) != 0 || origin != StoreOrigin ||
                 !TryReadString((ref uint length, char[]? buffer) => api.GetPath(name, 0, ref length, buffer),
                     MaximumPathCharacters, out var originalPath) ||
@@ -54,7 +56,7 @@ internal readonly record struct NativeStorePackageIdentity(string PackageFullNam
         string? executablePath, out NativeStorePackageIdentity identity)
     {
         identity = default;
-        if (!string.Equals(packageFullName, SupportedPackageFullName, StringComparison.Ordinal) ||
+        if (!IsGamePackageFamily(packageFullName) ||
             origin != StoreOrigin || string.IsNullOrWhiteSpace(originalPackagePath) ||
             string.IsNullOrWhiteSpace(effectivePackagePath) || string.IsNullOrWhiteSpace(executablePath))
         {
@@ -66,20 +68,35 @@ internal readonly record struct NativeStorePackageIdentity(string PackageFullNam
             var original = NativeHudFingerprintCache.NormalizePath(originalPackagePath);
             var effective = NativeHudFingerprintCache.NormalizePath(effectivePackagePath);
             var executable = NativeHudFingerprintCache.NormalizePath(executablePath);
-            // This reviewed build uses the same original/effective directory; do not accept an unverified projection.
+            // A versioned pack does not authorize an unverified installation projection.
             if (original != effective ||
                 executable != NativeHudFingerprintCache.NormalizePath(Path.Combine(effective, "ForzaHorizon6.exe")))
             {
                 return false;
             }
 
-            identity = new NativeStorePackageIdentity(SupportedPackageFullName, executable);
+            identity = new NativeStorePackageIdentity(packageFullName!, executable);
             return true;
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or NotSupportedException)
         {
             return false;
         }
+    }
+
+    // Package-family provenance is only the first gate; the factory still requires an exact trusted build map.
+    private static bool IsGamePackageFamily(string? name)
+    {
+        if (name is null || name.Length < PackagePrefix.Length + PackageSuffix.Length + 7 ||
+            name.Length > PackagePrefix.Length + PackageSuffix.Length + 23 ||
+            !name.StartsWith(PackagePrefix, StringComparison.Ordinal) || !name.EndsWith(PackageSuffix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var parts = name[PackagePrefix.Length..^PackageSuffix.Length].Split('.');
+        return parts.Length == 4 && parts.All(part => part.Length is >= 1 and <= 5 &&
+            part.All(char.IsAsciiDigit) && ushort.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out _));
     }
 
     internal static bool MatchesExecutableFileAlias(string expectedPath, string observedPath) =>

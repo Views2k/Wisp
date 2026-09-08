@@ -28,7 +28,11 @@ public sealed record NativeCompatibilityInstallResult(
     bool Changed,
     NativeCompatibilityInstallCode Code,
     string Message,
-    NativeHudCompatibilityPack? Pack = null);
+    NativeHudCompatibilityPack? Pack = null)
+{
+    public IReadOnlyList<NativeHudCompatibilityPack> Packs { get; init; } =
+        Pack is null ? Array.Empty<NativeHudCompatibilityPack>() : Array.AsReadOnly(new[] { Pack });
+}
 
 public sealed class NativeCompatibilityEnvelopeException : FormatException
 {
@@ -41,20 +45,24 @@ public sealed class NativeCompatibilityEnvelopeException : FormatException
 public sealed class NativeVerifiedCompatibilityEnvelope
 {
     internal NativeVerifiedCompatibilityEnvelope(
-        NativeHudCompatibilityPack pack,
+        int payloadFormat,
+        IReadOnlyList<NativeHudCompatibilityPack> packs,
         string keyId,
         string payloadSha256,
         DateTimeOffset issuedUtc,
         DateTimeOffset expiresUtc)
     {
-        Pack = pack;
+        PayloadFormat = payloadFormat;
+        Packs = Array.AsReadOnly(packs.ToArray());
         KeyId = keyId;
         PayloadSha256 = payloadSha256;
         IssuedUtc = issuedUtc;
         ExpiresUtc = expiresUtc;
     }
 
-    public NativeHudCompatibilityPack Pack { get; }
+    public NativeHudCompatibilityPack Pack => Packs[0];
+    public int PayloadFormat { get; }
+    public IReadOnlyList<NativeHudCompatibilityPack> Packs { get; }
     public string KeyId { get; }
     public string PayloadSha256 { get; }
     public DateTimeOffset IssuedUtc { get; }
@@ -118,7 +126,7 @@ public static class NativeCompatibilitySignature
 
 /// <summary>
 /// A small pinned-key signed-pack protocol, not TUF. Envelope and payload property names are case sensitive.
-/// Payload: format=1, purpose="wisp-native-hud-compatibility", issuedUtc, expiresUtc, pack.
+/// Payload: format=1 with pack, or format=2 with packs; both share purpose, issuedUtc and expiresUtc.
 /// Envelope: format=1, keyId=SHA256(SPKI), payload=canonical base64, signature=canonical base64.
 /// UTC timestamps require a literal Z and zero to seven fractional-second digits. No executable content is accepted.
 /// </summary>
@@ -127,6 +135,7 @@ public static class NativeCompatibilityEnvelope
     public const int MaximumEnvelopeBytes = 128 * 1024;
     public const int MaximumPayloadBytes = 96 * 1024;
     public const int MaximumTrustedKeys = 16;
+    public const int MaximumPacks = 8;
     public static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(5);
 
     public static NativeVerifiedCompatibilityEnvelope Verify(
@@ -173,10 +182,18 @@ public static class NativeCompatibilityEnvelope
             }
 
             using var payloadDocument = NativeCompatibilityJson.Parse(payload, MaximumPayloadBytes);
+            var payloadRoot = payloadDocument.RootElement;
+            var format = payloadRoot.ValueKind == JsonValueKind.Object && payloadRoot.TryGetProperty("format", out var formatElement)
+                ? NativeCompatibilityJson.ReadInt32(formatElement)
+                : 0;
+            if (format is not (1 or 2))
+            {
+                throw Invalid("The signed payload format is unsupported.");
+            }
+
             var signed = NativeCompatibilityJson.ReadObject(
-                payloadDocument.RootElement, "format", "purpose", "issuedUtc", "expiresUtc", "pack");
-            if (NativeCompatibilityJson.ReadInt32(signed["format"]) != 1 ||
-                NativeCompatibilityJson.ReadString(signed["purpose"]) != "wisp-native-hud-compatibility")
+                payloadRoot, "format", "purpose", "issuedUtc", "expiresUtc", format == 1 ? "pack" : "packs");
+            if (NativeCompatibilityJson.ReadString(signed["purpose"]) != "wisp-native-hud-compatibility")
             {
                 throw Invalid("The signed payload format or purpose is unsupported.");
             }
@@ -202,13 +219,32 @@ public static class NativeCompatibilityEnvelope
                     "Expired compatibility packs cannot be newly installed.");
             }
 
-            var pack = NativeHudCompatibilityPack.Parse(Encoding.UTF8.GetBytes(signed["pack"].GetRawText()));
-            if (pack.StoreIdentity is not null)
+            var packs = new List<NativeHudCompatibilityPack>();
+            if (format == 1)
             {
-                throw Invalid("Store compatibility is currently supplied only by the application release.");
+                packs.Add(NativeHudCompatibilityPack.Parse(Encoding.UTF8.GetBytes(signed["pack"].GetRawText())));
             }
+            else
+            {
+                var elements = signed["packs"];
+                if (elements.ValueKind != JsonValueKind.Array || elements.GetArrayLength() is < 1 or > MaximumPacks)
+                {
+                    throw Invalid("The signed bundle must contain between one and eight compatibility packs.");
+                }
+
+                foreach (var element in elements.EnumerateArray())
+                {
+                    packs.Add(NativeHudCompatibilityPack.Parse(Encoding.UTF8.GetBytes(element.GetRawText())));
+                }
+            }
+
+            if (packs.Select(NativeCompatibilityCatalog.Fingerprint).Distinct(StringComparer.Ordinal).Count() != packs.Count)
+            {
+                throw Invalid("The signed bundle has duplicate game fingerprints.");
+            }
+
             return new NativeVerifiedCompatibilityEnvelope(
-                pack, keyId, Convert.ToHexString(SHA256.HashData(payload)), issuedUtc, expiresUtc);
+                format, packs, keyId, Convert.ToHexString(SHA256.HashData(payload)), issuedUtc, expiresUtc);
         }
         catch (NativeCompatibilityEnvelopeException)
         {
@@ -285,7 +321,7 @@ public sealed class NativeCompatibilityCatalog
     private const string LedgerFileName = "accepted.json";
 
     private readonly object _gate = new();
-    private readonly NativeHudCompatibilityPack _builtIn;
+    private readonly FrozenDictionary<string, NativeHudCompatibilityPack> _builtIns;
     private readonly string? _cacheDirectory;
     private readonly FrozenDictionary<string, byte[]> _trustedPublicKeys;
     private CatalogSnapshot _snapshot;
@@ -295,11 +331,24 @@ public sealed class NativeCompatibilityCatalog
     public NativeCompatibilityCatalog(
         NativeHudCompatibilityPack builtIn,
         string? cacheDirectory,
-        IReadOnlyDictionary<string, byte[]> trustedPublicKeys)
+        IReadOnlyDictionary<string, byte[]> trustedPublicKeys,
+        IEnumerable<NativeHudCompatibilityPack>? additionalBuiltIns = null)
     {
         ArgumentNullException.ThrowIfNull(builtIn);
         ArgumentNullException.ThrowIfNull(trustedPublicKeys);
-        _builtIn = builtIn;
+        var builtIns = new Dictionary<string, NativeHudCompatibilityPack>(StringComparer.Ordinal)
+        {
+            [Fingerprint(builtIn)] = builtIn
+        };
+        foreach (var pack in additionalBuiltIns ?? [])
+        {
+            if (pack is null || builtIns.Count >= MaximumCachedPacks || !builtIns.TryAdd(Fingerprint(pack), pack))
+            {
+                throw new ArgumentException("Bundled compatibility packs must be bounded and have unique game fingerprints.", nameof(additionalBuiltIns));
+            }
+        }
+
+        _builtIns = builtIns.ToFrozenDictionary(StringComparer.Ordinal);
         _cacheDirectory = cacheDirectory is null ? null : Path.GetFullPath(cacheDirectory);
         _trustedPublicKeys = CopyTrustedKeys(trustedPublicKeys);
         _snapshot = LoadCache(DateTimeOffset.UtcNow);
@@ -312,28 +361,42 @@ public sealed class NativeCompatibilityCatalog
     public bool CacheLoadHadErrors => Volatile.Read(ref _snapshot).HasErrors;
     public IReadOnlyList<string> Diagnostics => Volatile.Read(ref _snapshot).Diagnostics;
 
-    public NativeHudCompatibilityPack? Find(string? version, long length, string? sha256)
+    public NativeHudCompatibilityPack? Find(string? version, long length, string? sha256) =>
+        FindFingerprint(Fingerprint(version, length, sha256));
+
+    // Selection is not Store provenance validation; the process-memory factory must still check the OS package and image guards.
+    public NativeHudCompatibilityPack? FindStore(string? packageFullName, uint imageSize) =>
+        FindFingerprint(StoreFingerprint(packageFullName, imageSize));
+
+    private NativeHudCompatibilityPack? FindFingerprint(string fingerprint)
     {
         var snapshot = Volatile.Read(ref _snapshot);
-        var fingerprint = Fingerprint(version, length, sha256);
         if (IsBlocked(snapshot, fingerprint))
         {
             return null;
         }
 
+        _builtIns.TryGetValue(fingerprint, out var builtIn);
         if (snapshot.Packs.TryGetValue(fingerprint, out var pack) &&
-            (!_builtIn.Matches(version, length, sha256) || pack.Revision > _builtIn.Revision))
+            (builtIn is null || pack.Revision > builtIn.Revision))
         {
             return pack;
         }
 
-        return _builtIn.Matches(version, length, sha256) ? _builtIn : null;
+        return builtIn;
     }
 
     public string? GetUnavailableReason(string? version, long length, string? sha256)
     {
         var snapshot = Volatile.Read(ref _snapshot);
         var fingerprint = Fingerprint(version, length, sha256);
+        return IsBlocked(snapshot, fingerprint) ? snapshot.Issues[fingerprint] : null;
+    }
+
+    public string? GetStoreUnavailableReason(string? packageFullName, uint imageSize)
+    {
+        var snapshot = Volatile.Read(ref _snapshot);
+        var fingerprint = StoreFingerprint(packageFullName, imageSize);
         return IsBlocked(snapshot, fingerprint) ? snapshot.Issues[fingerprint] : null;
     }
 
@@ -404,58 +467,89 @@ public sealed class NativeCompatibilityCatalog
     private NativeCompatibilityInstallResult InstallVerified(
         byte[] envelope, NativeVerifiedCompatibilityEnvelope verified, DateTimeOffset acceptedUtc)
     {
-        var pack = verified.Pack;
-        var fingerprint = Fingerprint(pack.GameVersion, pack.ExecutableLength, pack.ExecutableSha256);
         var current = _snapshot;
-        if (_builtIn.Matches(pack.GameVersion, pack.ExecutableLength, pack.ExecutableSha256) &&
-            pack.Revision <= _builtIn.Revision)
+        var replacements = new List<NativeHudCompatibilityPack>();
+        var newFingerprints = 0;
+        // Preflight the whole bundle before creating files or changing the accepted snapshot.
+        foreach (var pack in verified.Packs)
         {
-            return Failure(
-                pack.Revision < _builtIn.Revision
-                    ? NativeCompatibilityInstallCode.RollbackRejected
-                    : NativeCompatibilityInstallCode.RevisionConflict,
-                "A signed pack must have a newer revision than the trusted built-in pack for the same game fingerprint.");
-        }
-
-        if (current.Records.TryGetValue(fingerprint, out var previous))
-        {
-            if (pack.Revision < previous.Revision)
+            var fingerprint = Fingerprint(pack);
+            if (verified.PayloadFormat == 1 && _builtIns.TryGetValue(fingerprint, out var legacyBuiltIn) && pack.Revision <= legacyBuiltIn.Revision)
             {
-                return Failure(NativeCompatibilityInstallCode.RollbackRejected,
-                    "A lower compatibility revision cannot replace a previously accepted revision.");
+                return Failure(
+                    pack.Revision < legacyBuiltIn.Revision
+                        ? NativeCompatibilityInstallCode.RollbackRejected
+                        : NativeCompatibilityInstallCode.RevisionConflict,
+                    "A signed pack must have a newer revision than the trusted built-in pack for the same game fingerprint.");
             }
 
-            if (pack.Revision == previous.Revision)
+            if (current.Records.TryGetValue(fingerprint, out var previous))
             {
-                if (verified.PayloadSha256 != previous.PayloadSha256)
+                if (pack.Revision < previous.Revision)
                 {
-                    return Failure(NativeCompatibilityInstallCode.RevisionConflict,
-                        "The same compatibility revision cannot carry a different signed payload.");
+                    return Failure(NativeCompatibilityInstallCode.RollbackRejected,
+                        "A lower compatibility revision cannot replace a previously accepted revision.");
                 }
 
-                if (current.Packs.TryGetValue(fingerprint, out var installed) && previous.KeyId == verified.KeyId)
+                if (pack.Revision == previous.Revision)
                 {
-                    Volatile.Write(ref _status, "The signed compatibility pack is already installed.");
-                    return new NativeCompatibilityInstallResult(
-                        true, false, NativeCompatibilityInstallCode.AlreadyInstalled, Status, installed);
+                    if (verified.PayloadSha256 != previous.PayloadSha256)
+                    {
+                        return Failure(NativeCompatibilityInstallCode.RevisionConflict,
+                            "The same compatibility revision cannot carry a different signed payload.");
+                    }
+
+                    if (current.Packs.ContainsKey(fingerprint) && previous.KeyId == verified.KeyId)
+                    {
+                        continue;
+                    }
                 }
             }
+
+            if (_builtIns.TryGetValue(fingerprint, out var builtIn) && pack.Revision <= builtIn.Revision)
+            {
+                // A common bundle may include an older map already superseded by this application release.
+                // Never install it, and never let it bypass the cached rollback/conflict checks above.
+                continue;
+            }
+
+            if (!current.Records.ContainsKey(fingerprint))
+            {
+                newFingerprints++;
+            }
+
+            replacements.Add(pack);
         }
-        else if (current.Records.Count >= MaximumCachedPacks)
+
+        if (current.Records.Count + newFingerprints > MaximumCachedPacks)
         {
             return Failure(NativeCompatibilityInstallCode.CatalogFull,
                 "The compatibility cache has reached its supported pack limit.");
         }
 
-        var record = new CacheRecord(
-            pack.GameVersion, pack.ExecutableLength, pack.ExecutableSha256, pack.Revision,
-            Convert.ToHexString(SHA256.HashData(envelope)), verified.PayloadSha256, verified.KeyId, acceptedUtc);
+        if (replacements.Count == 0)
+        {
+            Volatile.Write(ref _status, "The signed compatibility packs are already installed.");
+            var installed = Array.AsReadOnly(verified.Packs.Select(pack => FindFingerprint(Fingerprint(pack))!).ToArray());
+            return new NativeCompatibilityInstallResult(
+                true, false, NativeCompatibilityInstallCode.AlreadyInstalled, Status, installed[0])
+            { Packs = installed };
+        }
+
+        var envelopeSha256 = Convert.ToHexString(SHA256.HashData(envelope));
         var records = current.Records.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         var packs = current.Packs.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         var issues = current.Issues.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-        records[fingerprint] = record;
-        packs[fingerprint] = pack;
-        issues.Remove(fingerprint);
+        foreach (var pack in replacements)
+        {
+            var fingerprint = Fingerprint(pack);
+            records[fingerprint] = new CacheRecord(
+                pack.GameVersion, pack.ExecutableLength, pack.ExecutableSha256, pack.Revision,
+                envelopeSha256, verified.PayloadSha256, verified.KeyId, acceptedUtc,
+                pack.StoreIdentity?.PackageFullName, pack.StoreIdentity is null ? 0 : pack.ImageSize);
+            packs[fingerprint] = pack;
+            issues.Remove(fingerprint);
+        }
 
         if (_cacheDirectory is not null)
         {
@@ -463,22 +557,26 @@ public sealed class NativeCompatibilityCatalog
             {
                 // Commit the complete content-addressed envelope first, then atomically switch the sole ledger pointer.
                 // An interrupted write may leave an orphan, never a partial replacement or a selected older revision.
-                WriteAtomically(EnvelopePath(record), envelope);
+                WriteAtomically(EnvelopePath(envelopeSha256), envelope);
                 WriteAtomically(Path.Combine(_cacheDirectory, LedgerFileName), EncodeLedger(records));
             }
             catch (Exception exception) when (IsStorageException(exception))
             {
                 return Failure(NativeCompatibilityInstallCode.CacheWriteFailed,
-                    "The signed pack could not be committed to the cache; the accepted catalog is unchanged.");
+                    "The signed packs could not be committed to the cache; the accepted catalog is unchanged.");
             }
         }
 
         Publish(new CatalogSnapshot(records, packs, issues), incrementGeneration: true);
         var message = _cacheDirectory is null
-            ? "The signed compatibility pack is installed for this session; no persistent cache is configured."
-            : "The signed compatibility pack is verified and installed in the offline cache.";
+            ? "The signed compatibility packs are installed for this session; no persistent cache is configured."
+            : "The signed compatibility packs are verified and installed in the offline cache.";
         Volatile.Write(ref _status, message);
-        return new NativeCompatibilityInstallResult(true, true, NativeCompatibilityInstallCode.Installed, message, pack);
+        var selected = Array.AsReadOnly(verified.Packs.Select(pack => FindFingerprint(Fingerprint(pack))!).ToArray());
+        return new NativeCompatibilityInstallResult(true, true, NativeCompatibilityInstallCode.Installed, message, selected[0])
+        {
+            Packs = selected
+        };
     }
 
     private CatalogSnapshot LoadCache(DateTimeOffset now)
@@ -512,22 +610,23 @@ public sealed class NativeCompatibilityCatalog
             var record = pair.Value;
             try
             {
-                var bytes = ReadBounded(EnvelopePath(record), NativeCompatibilityEnvelope.MaximumEnvelopeBytes);
+                var bytes = ReadBounded(EnvelopePath(record.EnvelopeSha256), NativeCompatibilityEnvelope.MaximumEnvelopeBytes);
                 if (Convert.ToHexString(SHA256.HashData(bytes)) != record.EnvelopeSha256)
                 {
                     throw new FormatException("The cached envelope digest does not match its acceptance receipt.");
                 }
 
                 var verified = NativeCompatibilityEnvelope.Verify(bytes, _trustedPublicKeys, record.AcceptedUtc);
+                var pack = verified.Packs.SingleOrDefault(candidate => Fingerprint(candidate) == pair.Key);
                 if (verified.IssuedUtc - now > NativeCompatibilityEnvelope.ClockSkew ||
-                    verified.Pack.Revision != record.Revision || verified.KeyId != record.KeyId ||
+                    pack is null || pack.Revision != record.Revision || verified.KeyId != record.KeyId ||
                     verified.PayloadSha256 != record.PayloadSha256 ||
-                    !verified.Pack.Matches(record.GameVersion, record.ExecutableLength, record.ExecutableSha256))
+                    pack.GameVersion != record.GameVersion)
                 {
                     throw new FormatException("The cached envelope does not match its acceptance receipt.");
                 }
 
-                packs.Add(pair.Key, verified.Pack);
+                packs.Add(pair.Key, pack);
             }
             catch (NativeCompatibilityEnvelopeException exception) when (
                 exception.Code == NativeCompatibilityInstallCode.UntrustedPublisher)
@@ -549,7 +648,8 @@ public sealed class NativeCompatibilityCatalog
     {
         using var document = NativeCompatibilityJson.Parse(bytes, MaximumLedgerBytes);
         var root = NativeCompatibilityJson.ReadObject(document.RootElement, "format", "entries");
-        if (NativeCompatibilityJson.ReadInt32(root["format"]) != 1 ||
+        var format = NativeCompatibilityJson.ReadInt32(root["format"]);
+        if (format is not (1 or 2) ||
             root["entries"].ValueKind != JsonValueKind.Array || root["entries"].GetArrayLength() > MaximumCachedPacks)
         {
             throw new FormatException("The cache ledger format or size is unsupported.");
@@ -558,8 +658,21 @@ public sealed class NativeCompatibilityCatalog
         var records = new Dictionary<string, CacheRecord>(StringComparer.Ordinal);
         foreach (var element in root["entries"].EnumerateArray())
         {
-            var entry = NativeCompatibilityJson.ReadObject(element, "gameVersion", "executableLength", "executableSha256",
-                "revision", "envelopeSha256", "payloadSha256", "keyId", "acceptedUtc");
+            var kind = format == 1 ? "steam" : element.ValueKind == JsonValueKind.Object && element.TryGetProperty("kind", out var kindElement)
+                ? NativeCompatibilityJson.ReadString(kindElement)
+                : string.Empty;
+            if (kind is not ("steam" or "store"))
+            {
+                throw new FormatException("The cached game identity kind is unsupported.");
+            }
+
+            var names = new List<string> { "gameVersion", "revision", "envelopeSha256", "payloadSha256", "keyId", "acceptedUtc" };
+            if (format == 2)
+            {
+                names.Add("kind");
+            }
+            names.AddRange(kind == "steam" ? ["executableLength", "executableSha256"] : new[] { "packageFullName", "imageSize" });
+            var entry = NativeCompatibilityJson.ReadObject(element, names.ToArray());
             var version = NativeCompatibilityJson.ReadString(entry["gameVersion"]);
             var versionParts = version.Split('.');
             if (version.Length is < 7 or > 23 || versionParts.Length != 4 || versionParts.Any(part =>
@@ -569,11 +682,30 @@ public sealed class NativeCompatibilityCatalog
                 throw new FormatException("The cached game fingerprint is invalid.");
             }
 
-            var lengthElement = entry["executableLength"];
-            if (lengthElement.ValueKind != JsonValueKind.Number || !lengthElement.TryGetInt64(out var length) ||
-                length is < 4096 or > 2L * 1024 * 1024 * 1024)
+            long length = 0;
+            var executableSha256 = string.Empty;
+            string? packageFullName = null;
+            uint imageSize = 0;
+            if (kind == "steam")
             {
-                throw new FormatException("The cached game fingerprint is invalid.");
+                var lengthElement = entry["executableLength"];
+                if (lengthElement.ValueKind != JsonValueKind.Number || !lengthElement.TryGetInt64(out length) ||
+                    length is < 4096 or > 2L * 1024 * 1024 * 1024)
+                {
+                    throw new FormatException("The cached game fingerprint is invalid.");
+                }
+                executableSha256 = NativeCompatibilityJson.ReadHash(entry["executableSha256"]);
+            }
+            else
+            {
+                packageFullName = NativeCompatibilityJson.ReadString(entry["packageFullName"]);
+                var imageSizeElement = entry["imageSize"];
+                if (packageFullName != $"Microsoft.ForteBaseGame_{version}_x64__8wekyb3d8bbwe" ||
+                    imageSizeElement.ValueKind != JsonValueKind.Number || !imageSizeElement.TryGetUInt32(out imageSize) ||
+                    imageSize is < 4096 or > 1024 * 1024 * 1024)
+                {
+                    throw new FormatException("The cached Store fingerprint is invalid.");
+                }
             }
 
             var revision = NativeCompatibilityJson.ReadInt32(entry["revision"]);
@@ -583,11 +715,12 @@ public sealed class NativeCompatibilityCatalog
                 throw new FormatException("The cached acceptance record is invalid.");
             }
 
-            var record = new CacheRecord(version, length, NativeCompatibilityJson.ReadHash(entry["executableSha256"]),
+            var record = new CacheRecord(version, length, executableSha256,
                 revision, NativeCompatibilityJson.ReadHash(entry["envelopeSha256"]),
                 NativeCompatibilityJson.ReadHash(entry["payloadSha256"]), NativeCompatibilityJson.ReadHash(entry["keyId"]),
-                acceptedUtc);
-            if (!records.TryAdd(Fingerprint(record.GameVersion, record.ExecutableLength, record.ExecutableSha256), record))
+                acceptedUtc, packageFullName, imageSize);
+            var fingerprint = packageFullName is null ? Fingerprint(version, length, executableSha256) : StoreFingerprint(packageFullName, imageSize);
+            if (!records.TryAdd(fingerprint, record))
             {
                 throw new FormatException("The cache ledger has duplicate game fingerprints.");
             }
@@ -598,21 +731,43 @@ public sealed class NativeCompatibilityCatalog
 
     private static byte[] EncodeLedger(IReadOnlyDictionary<string, CacheRecord> records)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(new
+        var format = records.Values.Any(record => record.StorePackageFullName is not null) ? 2 : 1;
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
         {
-            format = 1,
-            entries = records.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new
+            writer.WriteStartObject();
+            writer.WriteNumber("format", format);
+            writer.WriteStartArray("entries");
+            foreach (var pair in records.OrderBy(pair => pair.Key, StringComparer.Ordinal))
             {
-                gameVersion = pair.Value.GameVersion,
-                executableLength = pair.Value.ExecutableLength,
-                executableSha256 = pair.Value.ExecutableSha256,
-                revision = pair.Value.Revision,
-                envelopeSha256 = pair.Value.EnvelopeSha256,
-                payloadSha256 = pair.Value.PayloadSha256,
-                keyId = pair.Value.KeyId,
-                acceptedUtc = pair.Value.AcceptedUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)
-            })
-        });
+                var record = pair.Value;
+                writer.WriteStartObject();
+                if (format == 2)
+                {
+                    writer.WriteString("kind", record.StorePackageFullName is null ? "steam" : "store");
+                }
+                writer.WriteString("gameVersion", record.GameVersion);
+                if (record.StorePackageFullName is null)
+                {
+                    writer.WriteNumber("executableLength", record.ExecutableLength);
+                    writer.WriteString("executableSha256", record.ExecutableSha256);
+                }
+                else
+                {
+                    writer.WriteString("packageFullName", record.StorePackageFullName);
+                    writer.WriteNumber("imageSize", record.StoreImageSize);
+                }
+                writer.WriteNumber("revision", record.Revision);
+                writer.WriteString("envelopeSha256", record.EnvelopeSha256);
+                writer.WriteString("payloadSha256", record.PayloadSha256);
+                writer.WriteString("keyId", record.KeyId);
+                writer.WriteString("acceptedUtc", record.AcceptedUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        var bytes = stream.ToArray();
         if (bytes.Length > MaximumLedgerBytes)
         {
             throw new IOException("The compatibility acceptance ledger exceeds its size limit.");
@@ -623,8 +778,7 @@ public sealed class NativeCompatibilityCatalog
 
     private bool IsBlocked(CatalogSnapshot snapshot, string fingerprint) =>
         snapshot.Issues.ContainsKey(fingerprint) && snapshot.Records.TryGetValue(fingerprint, out var record) &&
-        (!_builtIn.Matches(record.GameVersion, record.ExecutableLength, record.ExecutableSha256) ||
-         record.Revision > _builtIn.Revision);
+        (!_builtIns.TryGetValue(fingerprint, out var builtIn) || record.Revision > builtIn.Revision);
 
     private static FrozenDictionary<string, byte[]> CopyTrustedKeys(IReadOnlyDictionary<string, byte[]> keys)
     {
@@ -688,13 +842,21 @@ public sealed class NativeCompatibilityCatalog
                 ? "The built-in pack and verified offline compatibility cache are ready."
                 : "The trusted built-in compatibility pack is ready; no signed packs are installed.");
 
-    private string EnvelopePath(CacheRecord record) =>
-        Path.Combine(_cacheDirectory!, record.EnvelopeSha256 + ".pack.json");
+    private string EnvelopePath(string envelopeSha256) =>
+        Path.Combine(_cacheDirectory!, envelopeSha256 + ".pack.json");
+
+    internal static string Fingerprint(NativeHudCompatibilityPack pack) => pack.StoreIdentity is null
+        ? Fingerprint(pack.GameVersion, pack.ExecutableLength, pack.ExecutableSha256)
+        : StoreFingerprint(pack.StoreIdentity.PackageFullName, pack.ImageSize);
 
     private static string Fingerprint(string? version, long length, string? sha256) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            (version?.Trim() ?? string.Empty) + "\n" + length.ToString(CultureInfo.InvariantCulture) + "\n" +
+            "steam\n" + (version?.Trim() ?? string.Empty) + "\n" + length.ToString(CultureInfo.InvariantCulture) + "\n" +
             (sha256?.Trim().ToUpperInvariant() ?? string.Empty))));
+
+    private static string StoreFingerprint(string? packageFullName, uint imageSize) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            "store\n" + (packageFullName ?? string.Empty) + "\n" + imageSize.ToString(CultureInfo.InvariantCulture))));
 
     private static byte[] ReadBounded(string path, int maximumBytes)
     {
@@ -754,7 +916,9 @@ public sealed class NativeCompatibilityCatalog
         string EnvelopeSha256,
         string PayloadSha256,
         string KeyId,
-        DateTimeOffset AcceptedUtc);
+        DateTimeOffset AcceptedUtc,
+        string? StorePackageFullName,
+        uint StoreImageSize);
 
     private sealed class CatalogSnapshot
     {
