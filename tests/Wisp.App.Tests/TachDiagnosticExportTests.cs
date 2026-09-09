@@ -259,12 +259,13 @@ public sealed class TachDiagnosticExportTests
             }
             File.WriteAllText(path, "not-json-private-sentinel");
             Assert.Null(TachDiagnosticReport.ReadPackagedBuild(path));
-            var privateText = text.Replace("\"build_kind\":\"release\"",
-                $"\"build_kind\":\"private\",\"private_build_id\":\"{ApplicationVersionInfo.DiagnosticBuildId}\"", StringComparison.Ordinal);
-            File.WriteAllText(path, privateText);
-            Assert.NotNull(TachDiagnosticReport.ReadPackagedBuild(path));
-            File.WriteAllText(path, privateText.Replace(ApplicationVersionInfo.DiagnosticBuildId!, "wrong-preview", StringComparison.Ordinal));
-            Assert.Null(TachDiagnosticReport.ReadPackagedBuild(path));
+            foreach (var privateIdentity in new[] { "", ",\"private_build_id\":\"unpublished-preview\"" })
+            {
+                var privateText = text.Replace("\"build_kind\":\"release\"",
+                    "\"build_kind\":\"private\"" + privateIdentity, StringComparison.Ordinal);
+                File.WriteAllText(path, privateText);
+                Assert.Null(TachDiagnosticReport.ReadPackagedBuild(path));
+            }
         }
         finally { Directory.Delete(root, recursive: true); }
     }
