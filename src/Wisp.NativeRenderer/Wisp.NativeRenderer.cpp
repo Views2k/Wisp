@@ -172,7 +172,7 @@ namespace
         {
             CHECK_HR(CheckThread());
             if (visible) return HRESULT_FROM_WIN32(ERROR_INVALID_STATE);
-            if (!hasDrawn) return S_OK;
+            if (!hasDrawn) return S_FALSE;
             ComPtr<IDXGIDevice> dxgiDevice;
             ComPtr<IDXGIAdapter> adapter;
             ComPtr<IDXGIFactory2> factory;

@@ -6,6 +6,7 @@ Notable changes to Wisp are recorded here.
 
 - Move the live combustion Analogue HUD to a dedicated Direct3D11 and DirectComposition renderer to address tachometer stutter while Forza is focused.
 - Keep the original gauge artwork, native needle angle and blur, and existing playback timing. Digital and electric HUDs and Appearance previews continue using WPF.
+- Keep the Analogue tach rendering through HUD resizes, fixing a stalled, misplaced or clipped speedometer after toggling the attached G-force meter.
 - Correct RPM fallback motion blur to use FH6's combustion needle shutter calculation when native needle data is unavailable.
 - Include telemetry, native needle source, and render-submission timing in local debug exports, grouped by logging period to help investigate remaining smoothness reports.
 
