@@ -744,7 +744,8 @@ public sealed class InstallerPackagingContractTests
             $stage = Join-Path $output '.staging\synthetic'
             [System.IO.Directory]::CreateDirectory($stage) | Out-Null
             $artifactVersion = '99.0.0'
-            if ($scenario.StartsWith('private-bundle-', [StringComparison]::Ordinal)) {
+            $privateArtifact = $scenario.StartsWith('private-bundle-', [StringComparison]::Ordinal)
+            if ($privateArtifact) {
                 $artifactVersion = '1.1.3-diagnostics.4'
                 $scenario = $scenario.Substring('private-bundle-'.Length)
                 switch ($scenario) {
@@ -974,7 +975,7 @@ public sealed class InstallerPackagingContractTests
             catch { $failure = $_ }
             finally { if ($null -ne $locked) { $locked.Dispose() } }
 
-            $expectSuccess = $scenario -in @('replace', 'new')
+            $expectSuccess = $scenario -in @('replace', 'new') -and -not $privateArtifact
             if ($expectSuccess -and $null -ne $failure) {
                 throw ('Unexpected installer promotion failure: ' + $failure.Exception.GetBaseException().Message.Replace($root, '<test-root>') + ' | ' + $failure.ScriptStackTrace)
             }
@@ -991,9 +992,18 @@ public sealed class InstallerPackagingContractTests
                 if ($hadInstaller) {
                     Require ([System.IO.File]::ReadAllText($setup) -ceq $oldContents) 'Previous installer bytes changed.'
                 }
-                Require ([System.IO.File]::ReadAllText($checksum) -ceq $oldChecksum) 'Previous checksum bytes changed.'
-                Require ([System.IO.File]::ReadAllText($archive) -ceq $oldArchive) 'Previous archive bytes changed.'
-                Require ([System.IO.File]::ReadAllText($archiveChecksum) -ceq $oldArchiveChecksum) 'Previous archive checksum bytes changed.'
+                Require ((Test-Path -LiteralPath $checksum -PathType Leaf) -eq $hadChecksum) 'Previous checksum existence changed.'
+                Require ((Test-Path -LiteralPath $archive -PathType Leaf) -eq $hadArchive) 'Previous archive existence changed.'
+                Require ((Test-Path -LiteralPath $archiveChecksum -PathType Leaf) -eq $hadArchiveChecksum) 'Previous archive checksum existence changed.'
+                if ($hadChecksum) {
+                    Require ([System.IO.File]::ReadAllText($checksum) -ceq $oldChecksum) 'Previous checksum bytes changed.'
+                }
+                if ($hadArchive) {
+                    Require ([System.IO.File]::ReadAllText($archive) -ceq $oldArchive) 'Previous archive bytes changed.'
+                }
+                if ($hadArchiveChecksum) {
+                    Require ([System.IO.File]::ReadAllText($archiveChecksum) -ceq $oldArchiveChecksum) 'Previous archive checksum bytes changed.'
+                }
                 if ($scenario.StartsWith('checksum-locked', [StringComparison]::Ordinal)) {
                     Require (-not (Test-Path -LiteralPath $stagedSetup -PathType Leaf)) 'The checksum failure did not occur after installer promotion.'
                     Require ($failure.Exception.Message.Contains('previous release state was restored')) 'Paired promotion did not complete rollback.'
@@ -1011,7 +1021,7 @@ public sealed class InstallerPackagingContractTests
                     Require (-not (Test-Path -LiteralPath $transactionMarker)) `
                         'Post-promotion recovery left its transaction marker behind.'
                 }
-                elseif ($scenario.StartsWith('reject-', [StringComparison]::Ordinal)) {
+                elseif ($privateArtifact) {
                     Require ($failure.Exception.Message.Contains('artifact set is inconsistent')) `
                         'An unsupported private filename failed for an unrelated reason.'
                     Require ((Test-Path -LiteralPath $stagedSetup -PathType Leaf) -and
