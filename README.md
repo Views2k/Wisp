@@ -8,6 +8,12 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
+## Watch Wisp in action
+
+[![Watch the Wisp demonstration in Forza Horizon 6](docs/images/wisp-demo-thumbnail.jpg)](https://www.youtube.com/watch?v=GgWPN0Bb69E)
+
+Wisp's custom HUD and live telemetry in Forza Horizon 6.
+
 ## New in Wisp 1.1.4
 
 Addresses choppy Analogue tachometer motion while Forza is focused. The live
