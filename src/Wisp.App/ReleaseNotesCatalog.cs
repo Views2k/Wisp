@@ -15,11 +15,28 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.2",
+            "September 9, 2026",
+            "RECORD & COMPARE RUNS",
+            "Record a drive, review what happened, and compare it with another run inside Wisp.",
+            true,
+            [
+                Group("Record a run",
+                    "Start and stop from Dashboard or Runs, with an optional keyboard shortcut while driving.",
+                    "Choose a countdown or timed stop, and mark moments to find them again after the run.",
+                    "Save recordings locally with a name, tune label and notes. Existing HUD profiles and settings stay in place."),
+                Group("Review and compare",
+                    "Open Show graphs for all eight views. Read concise findings alongside speed, inputs, engine and tire charts, or select a section of the run.",
+                    "Compare two recordings over time or through the same speed range. Distinct run colors and line styles, starting conditions, and missing data keep the comparison clear.",
+                    "Switch to power and torque against RPM, a G-force plot, or tire-temperature changes. Filter RPM plots by gear and throttle.",
+                    "Export a report image, raw telemetry CSV, or a Wisp recording for another person to open and compare.")
+            ]),
+        new(
             "1.1.4",
             "September 8, 2026",
             "TACHOMETER HOTFIX",
             "Addresses choppy Analogue tachometer motion while Forza is focused, with corrected motion blur when native needle data is unavailable.",
-            true,
+            false,
             [
                 Group("Analogue tachometer",
                     "Moves the live combustion Analogue HUD to Direct3D11 and DirectComposition on a dedicated render thread, keeping the original gauge artwork, native needle angle and blur, and existing playback timing.",

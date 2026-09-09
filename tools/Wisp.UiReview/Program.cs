@@ -24,7 +24,7 @@ internal static class Program
     private static readonly (string Name, int Width, int Height)[] Viewports =
         [("baseline", 980, 750), ("compact", 720, 440), ("wide", 1280, 900), ("fullscreen", 2560, 1440)];
     private static readonly string[] TabNames =
-        ["dashboard", "appearance", "diagnostics", "profiles", "setup", "extras", "release-notes"];
+        ["dashboard", "runs", "appearance", "diagnostics", "profiles", "setup", "extras", "release-notes"];
     private static readonly (string Name, int Width, int Height)[] WizardViewports =
         [("baseline", 800, 730), ("compact", 540, 440), ("wide", 840, 760), ("launch", 900, 780)];
     private static readonly string[] WizardStepNames = ["welcome", "connection", "display", "appearance"];
@@ -34,6 +34,11 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--runs-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return RunsReview.Run(output, () => LoadApplicationResources(output, out _));
+            }
             if (args.Length == 3 && args[0] == "--calm-shell-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);
@@ -221,7 +226,7 @@ internal static class Program
 
             if (options.Present)
             {
-                tabs.SelectedIndex = 1;
+                tabs.SelectedIndex = 2;
                 PresentSurface(window, surface, fixture, report, bindings);
                 return;
             }
@@ -229,7 +234,7 @@ internal static class Program
             foreach (var viewport in appearanceOnly ? Viewports.Take(1) : Viewports)
                 for (var index = 0; index < tabs.Items.Count; index++)
                 {
-                    if (appearanceOnly && index != 1)
+                    if (appearanceOnly && index != 2)
                     {
                         continue;
                     }

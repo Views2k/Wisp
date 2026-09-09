@@ -64,6 +64,8 @@ public partial class MainWindow : Window
         LoadSelectedColorTarget();
         SetSidebarOpen(!controller.Settings.SidebarCollapsed, animate: false);
         DataContext = controller.ViewModel;
+        RunsSurface.DataContext = controller.Runs;
+        DashboardRunPanel.DataContext = controller.Runs;
         MphRadio.IsChecked = controller.Settings.SpeedUnit == SpeedUnit.MilesPerHour;
         KphRadio.IsChecked = controller.Settings.SpeedUnit == SpeedUnit.KilometersPerHour;
         NewtonMetersRadio.IsChecked = controller.Settings.TorqueUnit == TorqueUnit.NewtonMeters;
@@ -1018,6 +1020,8 @@ public partial class MainWindow : Window
     {
         _controller.ResetOverlayPosition();
     }
+
+    private void OpenRuns_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedItem = RunsTab;
 
     private void RelearnTires_Click(object sender, RoutedEventArgs e)
     {

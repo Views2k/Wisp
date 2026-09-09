@@ -102,6 +102,17 @@ public sealed class AppSettings
     public OverlayHotkeyModifiers OverlayHotkeyModifiers { get; set; } =
         OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
     public Key OverlayHotkeyKey { get; set; } = Key.H;
+    public Wisp.Core.Runs.RunPurpose RunPurpose { get; set; }
+    public bool RecordingShortcutEnabled { get; set; }
+    public OverlayHotkeyModifiers RecordingShortcutModifiers { get; set; } =
+        OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+    public Key RecordingShortcutKey { get; set; } = Key.R;
+    public int RecordingCountdownSeconds { get; set; }
+    public int RecordingStopAfterSeconds { get; set; }
+    public bool MarkerShortcutEnabled { get; set; }
+    public OverlayHotkeyModifiers MarkerShortcutModifiers { get; set; } =
+        OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+    public Key MarkerShortcutKey { get; set; } = Key.M;
     public bool AutoMinimizeOnTelemetry { get; set; } = true;
     public bool TractionCueEnabled { get; set; } = true;
     public bool HasCompletedSetup { get; set; }
@@ -266,6 +277,25 @@ public sealed class AppSettings
             OverlayHotkeyEnabled = false;
             OverlayHotkeyModifiers = OverlayHotkeyChord.Default.Modifiers;
             OverlayHotkeyKey = OverlayHotkeyChord.Default.Key;
+        }
+
+        if (!Enum.IsDefined(RunPurpose))
+        {
+            RunPurpose = Wisp.Core.Runs.RunPurpose.General;
+        }
+        if (!OverlayHotkeyChord.TryCreate(RecordingShortcutModifiers, RecordingShortcutKey, out _, out _))
+        {
+            RecordingShortcutEnabled = false;
+            RecordingShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+            RecordingShortcutKey = Key.R;
+        }
+        if (RecordingCountdownSeconds is not (0 or 3 or 5 or 10)) RecordingCountdownSeconds = 0;
+        if (RecordingStopAfterSeconds is not (0 or 30 or 60 or 120 or 300 or 600)) RecordingStopAfterSeconds = 0;
+        if (!OverlayHotkeyChord.TryCreate(MarkerShortcutModifiers, MarkerShortcutKey, out _, out _))
+        {
+            MarkerShortcutEnabled = false;
+            MarkerShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+            MarkerShortcutKey = Key.M;
         }
 
         var debugLoggingNowUtc = DateTimeOffset.UtcNow;
@@ -462,6 +492,8 @@ public sealed class SettingsService
 
     private readonly string _settingsPath;
     private readonly string _setupRequiredMarkerPath;
+
+    internal string DataDirectory => Path.GetDirectoryName(_settingsPath)!;
 
     public SettingsService(string? settingsPath = null)
     {

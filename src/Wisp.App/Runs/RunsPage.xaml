@@ -1,0 +1,400 @@
+<UserControl x:Class="Wisp.App.Runs.RunsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Wisp.App.Runs">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="RunVisibility" />
+        <local:RunChartHeightConverter x:Key="RunChartHeight" />
+        <Style TargetType="CheckBox" BasedOn="{StaticResource ToggleSwitchStyle}" />
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding" Value="9,7" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBoxItem">
+                <Border x:Name="ItemBorder" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}" CornerRadius="5">
+                    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
+                    <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ItemBorder" Property="Opacity" Value="0.45" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource InputBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}" />
+            <Setter Property="Padding" Value="9,6" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="IsTextSearchEnabled" Value="True" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+                <Grid x:Name="ComboRoot">
+                    <Border x:Name="ComboBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="7">
+                        <Grid Margin="{TemplateBinding Padding}">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="20" /></Grid.ColumnDefinitions>
+                            <ContentPresenter Margin="0,0,6,0" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" VerticalAlignment="Center" IsHitTestVisible="False" />
+                            <Path Grid.Column="1" Data="M0,0 L4,4 L8,0" Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.4" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <ToggleButton Focusable="False" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" ClickMode="Press">
+                        <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent" /></ControlTemplate></ToggleButton.Template>
+                    </ToggleButton>
+                    <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False">
+                        <Border MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}" Background="{DynamicResource PanelBrush}"
+                                BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="7" Padding="3">
+                            <ScrollViewer CanContentScroll="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                            </ScrollViewer>
+                        </Border>
+                    </Popup>
+                </Grid>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource MutedBrush}" /></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ComboRoot" Property="Opacity" Value="0.45" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="RunHint" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineHeight" Value="18" />
+        </Style>
+        <Style x:Key="RunCard" TargetType="Border" BasedOn="{StaticResource CardStyle}">
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+        </Style>
+        <Style x:Key="RunGraphTab" TargetType="ListBoxItem">
+            <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+                <Border x:Name="TabBorder" Background="{DynamicResource InputBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter />
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsSelected" Value="True">
+                        <Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                        <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource RaisedBrush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                    </Trigger>
+                    <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="TabBorder" Property="Opacity" Value="0.45" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+    </UserControl.Resources>
+    <Grid>
+    <ScrollViewer Visibility="{Binding IsSummaryVisible, Converter={StaticResource RunVisibility}}" x:Name="RunsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="0,0,4,22">
+            <Border Style="{StaticResource RunCard}">
+                <StackPanel>
+                    <TextBlock Text="Record a run" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="Record up to 10 minutes, then explore and compare your runs. Recording continues when you return to Forza."
+                               Style="{StaticResource RunHint}" Margin="0,6,0,12" />
+                    <WrapPanel>
+                        <Button x:Name="RunRecordButton" Content="{Binding RecordButtonText}" Command="{Binding ToggleRecordingCommand}"
+                                Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,12,6" AutomationProperties.Name="Start or stop recording a run" />
+                        <Button Content="Mark moment" Command="{Binding MarkMomentCommand}" Margin="0,0,12,6"
+                                Visibility="{Binding IsRecording, Converter={StaticResource RunVisibility}}" />
+                        <TextBlock Text="{Binding RecordingStatus}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,6"
+                                   AutomationProperties.LiveSetting="Polite" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding MarkerStatus}" Style="{StaticResource RunHint}" FontSize="11" AutomationProperties.LiveSetting="Polite"
+                               Visibility="{Binding IsRecording, Converter={StaticResource RunVisibility}}" />
+                    <Expander x:Name="RecordingOptionsExpander" Header="Recording options and shortcuts" Margin="0,6,0,0">
+                        <StackPanel Margin="0,8,0,0">
+                        <WrapPanel IsEnabled="{Binding CanEditRecordingOptions}">
+                            <StackPanel Margin="0,0,12,10">
+                                <TextBlock Text="Start countdown" Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,4" />
+                                <ComboBox ItemsSource="{Binding CountdownOptions}" DisplayMemberPath="Label" SelectedValuePath="Seconds"
+                                          SelectedValue="{Binding CountdownSeconds, Mode=TwoWay}" MinWidth="130" AutomationProperties.Name="Recording countdown" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,10">
+                                <TextBlock Text="Stop after" Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,4" />
+                                <ComboBox ItemsSource="{Binding StopAfterOptions}" DisplayMemberPath="Label" SelectedValuePath="Seconds"
+                                          SelectedValue="{Binding StopAfterSeconds, Mode=TwoWay}" MinWidth="195" AutomationProperties.Name="Automatic recording duration" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,10">
+                                <TextBlock Text="Analysis focus" Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,4" />
+                                <ComboBox ItemsSource="{Binding Purposes}" SelectedItem="{Binding Purpose, Mode=TwoWay}" MinWidth="130" AutomationProperties.Name="Recording analysis purpose" />
+                            </StackPanel>
+                        </WrapPanel>
+                        <TextBlock Text="A countdown waits before recording. Mark moments during the run to find them afterward; each run can hold 128 markers."
+                                   Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,12" />
+                        <TextBlock Text="Record / stop / cancel countdown" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <WrapPanel>
+                            <CheckBox Content="Enable" IsChecked="{Binding HotkeyEnabled, Mode=OneWay}" Click="ShortcutEnabled_Click" AutomationProperties.Name="Enable recording keyboard shortcut"
+                                      Style="{StaticResource ToggleSwitchStyle}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <Button x:Name="ShortcutCaptureButton" Content="{Binding HotkeyText}" Click="CaptureShortcut_Click"
+                                    PreviewKeyDown="CaptureShortcut_KeyDown" Padding="12,6" Margin="0,0,12,0"
+                                    AutomationProperties.Name="Change recording keyboard shortcut" />
+                            <TextBlock Text="{Binding HotkeyStatus}" Style="{StaticResource RunHint}" VerticalAlignment="Center" />
+                        </WrapPanel>
+                        <TextBlock Text="Mark a moment while recording" FontWeight="SemiBold" Margin="0,14,0,6" />
+                        <WrapPanel>
+                            <CheckBox Content="Enable" IsChecked="{Binding MarkerHotkeyEnabled, Mode=OneWay}" Click="MarkerShortcutEnabled_Click" AutomationProperties.Name="Enable marker keyboard shortcut"
+                                      Style="{StaticResource ToggleSwitchStyle}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <Button x:Name="MarkerShortcutCaptureButton" Content="{Binding MarkerHotkeyText}" Click="CaptureMarkerShortcut_Click"
+                                    PreviewKeyDown="CaptureShortcut_KeyDown" Padding="12,6" Margin="0,0,12,0" AutomationProperties.Name="Change marker keyboard shortcut" />
+                            <TextBlock Text="{Binding MarkerHotkeyStatus}" Style="{StaticResource RunHint}" VerticalAlignment="Center" />
+                        </WrapPanel>
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </Border>
+            <TextBlock Text="{Binding Status}" Style="{StaticResource RunHint}" Margin="2,0,2,8" AutomationProperties.LiveSetting="Polite" />
+            <Border BorderBrush="{DynamicResource WarningBrush}" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,12"
+                    Visibility="{Binding HasError, Converter={StaticResource RunVisibility}}">
+                <TextBlock Text="{Binding Error}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+            </Border>
+            <Border Style="{StaticResource RunCard}">
+                <StackPanel>
+                    <DockPanel LastChildFill="True">
+                        <Button DockPanel.Dock="Right" Content="Import run" Click="Import_Click" IsEnabled="{Binding CanManageLibrary}" Padding="10,6" Margin="8,0,0,0" />
+                        <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshLibraryCommand}" Padding="10,6" Margin="8,0,0,0" />
+                        <TextBlock Text="Saved runs" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Text="{Binding LibraryHelp}" Style="{StaticResource RunHint}" FontSize="11" Margin="0,8,0,0" />
+                    <TextBlock Text="Nothing recorded yet. A saved run will appear here after you stop recording."
+                               Style="{StaticResource RunHint}" Margin="0,10,0,0" Visibility="{Binding IsLibraryEmpty, Converter={StaticResource RunVisibility}}" />
+                    <ComboBox x:Name="SavedRunSelector" ItemsSource="{Binding Library}" SelectedItem="{Binding SelectedRun, Mode=TwoWay}"
+                              TextSearch.TextPath="Name"
+                              IsEnabled="{Binding CanManageLibrary}"
+                              Margin="0,10,0,0" MinHeight="46" MaxDropDownHeight="340" HorizontalContentAlignment="Stretch"
+                              AutomationProperties.Name="Choose a saved run">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type local:SavedRunItem}">
+                                <StackPanel Margin="2,3">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Detail}" FontSize="10" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Tune}" FontSize="10" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Content="Undo removal" Click="UndoDelete_Click" HorizontalAlignment="Left" Margin="0,8,0,0" Padding="10,6"
+                            IsEnabled="{Binding CanManageLibrary}"
+                            Visibility="{Binding CanUndoDelete, Converter={StaticResource RunVisibility}}" />
+                </StackPanel>
+            </Border>
+            <StackPanel x:Name="RunReportSurface" Visibility="{Binding HasRun, Converter={StaticResource RunVisibility}}">
+                <Border Style="{StaticResource RunCard}">
+                    <StackPanel>
+                        <TextBlock x:Name="RunHeading" Text="{Binding RunALabel}" Foreground="{x:Static local:RunComparisonColors.RunA}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding RunBLabel}" Foreground="{x:Static local:RunComparisonColors.RunB}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,5,0,0" Visibility="{Binding HasComparison, Converter={StaticResource RunVisibility}}" />
+                        <TextBlock Text="{Binding RunDescription}" Style="{StaticResource RunHint}" FontSize="11" Margin="0,4,0,10" />
+                        <Expander Header="Name, tune and notes">
+                            <StackPanel Margin="0,10,0,0" IsEnabled="{Binding CanManageRun}">
+                                <TextBlock Text="Run name" Style="{StaticResource RunHint}" />
+                                <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" MaxLength="80" Margin="0,4,0,10" AutomationProperties.Name="Run name" />
+                                <TextBlock Text="Tune label" Style="{StaticResource RunHint}" />
+                                <TextBox Text="{Binding Tune, UpdateSourceTrigger=PropertyChanged}" MaxLength="120" Margin="0,4,0,4" AutomationProperties.Name="Tune label" />
+                                <TextBlock Text="Your own label. Forza does not provide a tune identifier." Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,10" />
+                                <TextBlock Text="Notes" Style="{StaticResource RunHint}" />
+                                <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" MaxLength="2000" AcceptsReturn="True" TextWrapping="Wrap"
+                                         VerticalScrollBarVisibility="Auto" Height="84" Margin="0,4,0,10" AutomationProperties.Name="Run notes" />
+                                <Button Content="Save details" Command="{Binding SaveDetailsCommand}" HorizontalAlignment="Left" Style="{StaticResource PrimaryButtonStyle}" />
+                                <TextBlock Text="{Binding CarIdentifier}" Style="{StaticResource RunHint}" FontSize="10" Margin="0,10,0,0" />
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button Content="Export run" Click="Export_Click" IsEnabled="{Binding CanManageRun}" Padding="10,6" />
+                                    <Button Content="Remove run" Click="Delete_Click" IsEnabled="{Binding CanManageRun}" Margin="8,0,0,0" Padding="10,6" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Expander>
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button x:Name="ShowGraphsButton" Content="Show graphs" Click="ViewGraphs_Click" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,16,6" />
+                            <TextBlock Text="Analysis" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox ItemsSource="{Binding Purposes}" SelectedItem="{Binding Purpose, Mode=TwoWay}" MinWidth="130" IsEnabled="{Binding CanEditRecordingOptions}" AutomationProperties.Name="Run analysis purpose" />
+                        </WrapPanel>
+                        <Expander x:Name="CompareExpander" Header="Compare with another run" Margin="0,14,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Choose another drive or start with the previous saved run." Style="{StaticResource RunHint}" Margin="0,4,0,10" />
+                                <ComboBox ItemsSource="{Binding Library}" SelectedItem="{Binding ComparisonChoice, Mode=TwoWay}" DisplayMemberPath="Name"
+                                          IsEnabled="{Binding CanManageLibrary}"
+                                          MinHeight="32" AutomationProperties.Name="Choose comparison run" />
+                                <WrapPanel Margin="0,8,0,0">
+                                    <Button Content="Compare selected" Command="{Binding CompareCommand}" Margin="0,0,8,6" Padding="10,7" />
+                                    <Button Content="Compare previous" Command="{Binding ComparePreviousCommand}" Margin="0,0,8,6" Padding="10,7" />
+                                    <Button Content="Remove comparison" Command="{Binding RemoveComparisonCommand}" Margin="0,0,0,6" Padding="10,7"
+                                            Visibility="{Binding HasComparison, Converter={StaticResource RunVisibility}}" />
+                                </WrapPanel>
+                                <StackPanel Visibility="{Binding HasComparison, Converter={StaticResource RunVisibility}}">
+                                    <TextBlock Text="{Binding RunBLabel}" Foreground="{x:Static local:RunComparisonColors.RunB}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,5,0,9" />
+                                    <CheckBox Content="Match an acceleration speed range" IsChecked="{Binding SameSpeed}" IsEnabled="{Binding CanEditRecordingOptions}" Margin="0,0,0,8" />
+                                    <WrapPanel IsEnabled="{Binding CanEditRecordingOptions}">
+                                        <TextBlock Text="From" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBox Text="{Binding FromSpeed, UpdateSourceTrigger=PropertyChanged}" Width="58" AutomationProperties.Name="Acceleration start speed" />
+                                        <TextBlock Text="to" VerticalAlignment="Center" Margin="8,0" />
+                                        <TextBox Text="{Binding ToSpeed, UpdateSourceTrigger=PropertyChanged}" Width="58" AutomationProperties.Name="Acceleration end speed" />
+                                        <TextBlock Text="{Binding SpeedUnitText}" VerticalAlignment="Center" Margin="8,0" />
+                                        <Button Content="Apply range" Command="{Binding ApplySpeedRangeCommand}" Padding="10,6" />
+                                    </WrapPanel>
+                                    <TextBlock Text="{Binding ComparisonNote}" Style="{StaticResource RunHint}" Margin="0,8,0,0" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
+                </Border>
+                <TextBlock x:Name="FindingsHeading" Text="What stands out" FontSize="19" FontWeight="SemiBold" Margin="2,4,0,10" />
+                <ItemsControl ItemsSource="{Binding Findings}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type local:RunFindingItem}">
+                            <Border Style="{StaticResource RunCard}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding Detail}" Style="{StaticResource RunHint}" Margin="0,6,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="{Binding QualityNote}" Style="{StaticResource RunHint}" Margin="2,0,2,14" />
+                <TextBlock Text="{Binding IntervalLabel}" FontSize="17" FontWeight="SemiBold" Margin="2,0,0,10" />
+                <ItemsControl ItemsSource="{Binding Metrics}" Margin="0,0,0,8">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type local:RunMetric}">
+                            <Border Style="{StaticResource RunCard}" Width="204" Margin="0,0,8,8" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Label}" Style="{StaticResource RunHint}" FontSize="11" />
+                                    <TextBlock Text="{Binding Value}" FontSize="22" FontWeight="SemiBold" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding Comparison, StringFormat=B · {0}}" Foreground="{x:Static local:RunComparisonColors.RunB}" Margin="0,4,0,0" TextWrapping="Wrap">
+                                        <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Style.Triggers>
+                                            <DataTrigger Binding="{Binding Comparison}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        </Style.Triggers></Style></TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+    <Grid x:Name="GraphWorkspace" Visibility="{Binding IsGraphWorkspaceOpen, Converter={StaticResource RunVisibility}}">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <DockPanel Margin="0,0,4,10">
+                <Button x:Name="BackToSummaryButton" Content="Back to summary" Click="RunSummary_Click" DockPanel.Dock="Left" Margin="0,0,14,0" Padding="10,6" />
+                <Button Content="Save image" Click="SaveImage_Click" IsEnabled="{Binding CanExportImage}" DockPanel.Dock="Right" Padding="10,6" />
+                <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                    <TextBlock Text="{Binding RunALabel}" Foreground="{x:Static local:RunComparisonColors.RunA}" ToolTip="{Binding RunALabel}" Style="{StaticResource RunHint}" TextWrapping="NoWrap" FontSize="11" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding RunBLabel}" Foreground="{x:Static local:RunComparisonColors.RunB}" ToolTip="{Binding RunBLabel}" Style="{StaticResource RunHint}" TextWrapping="NoWrap" FontSize="11" Visibility="{Binding HasComparison, Converter={StaticResource RunVisibility}}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+        </DockPanel>
+        <ListBox x:Name="GraphPicker" Grid.Row="1" ItemsSource="{Binding GraphChoices}" SelectedItem="{Binding SelectedGraph, Mode=TwoWay}"
+                 SelectionChanged="GraphPicker_SelectionChanged" IsEnabled="{Binding CanEditRecordingOptions}" ItemContainerStyle="{StaticResource RunGraphTab}"
+                 Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,4,6" HorizontalContentAlignment="Stretch"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                 AutomationProperties.Name="Choose a graph">
+            <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
+            <ListBox.ItemTemplate><DataTemplate DataType="{x:Type local:RunGraphChoice}"><TextBlock Text="{Binding Label}" FontSize="12" /></DataTemplate></ListBox.ItemTemplate>
+        </ListBox>
+        <StackPanel Grid.Row="2" Margin="0,0,4,0">
+            <TextBlock x:Name="GraphActionError" Text="{Binding Error}" ToolTip="{Binding Error}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource WarningBrush}" FontSize="12" Margin="0,0,0,8"
+                       Visibility="{Binding HasError, Converter={StaticResource RunVisibility}}" AutomationProperties.LiveSetting="Assertive" />
+            <TextBlock x:Name="GraphExportStatus" Text="{Binding Status}" FontSize="12" Foreground="{DynamicResource MutedBrush}"
+                       TextWrapping="Wrap" Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite">
+                <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers><DataTrigger Binding="{Binding Status}" Value="{x:Static local:RunsViewModel.ImageExportSavedMessage}">
+                        <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger></Style.Triggers>
+                </Style></TextBlock.Style>
+            </TextBlock>
+        </StackPanel>
+        <ScrollViewer x:Name="GraphScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,4,22">
+                <StackPanel x:Name="GraphsSurface">
+                    <ItemsControl x:Name="ChartPanels" ItemsSource="{Binding Charts}" Visibility="{Binding IsTimeGraph, Converter={StaticResource RunVisibility}}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type local:RunPlotPanel}">
+                                <Border Style="{StaticResource RunCard}" Padding="14">
+                                    <local:RunChartView Panel="{Binding}" Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}, Converter={StaticResource RunChartHeight}}" Loaded="Chart_Loaded" Unloaded="Chart_Unloaded"
+                                        StartSeconds="{Binding DataContext.ViewStart, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        EndSeconds="{Binding DataContext.ViewEnd, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CursorSeconds="{Binding DataContext.CursorSeconds, Mode=TwoWay, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        SelectionStart="{Binding DataContext.SelectionStart, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        SelectionEnd="{Binding DataContext.SelectionEnd, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        Markers="{Binding DataContext.PlotMarkers, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        AccentBrush="{x:Static local:RunComparisonColors.RunA}" TextBrush="{DynamicResource TextBrush}"
+                                        MutedBrush="{DynamicResource MutedBrush}" WarningBrush="{DynamicResource WarningBrush}"
+                                        AutomationProperties.Name="{Binding Title}" AutomationProperties.HelpText="Arrow keys move the cursor. Select time ranges with the controls below the graphs." />
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding AlternativeCharts}" Visibility="{Binding IsAlternativeGraph, Converter={StaticResource RunVisibility}}">
+                        <ItemsControl.ItemTemplate><DataTemplate DataType="{x:Type local:RunAlternativePlotPanel}">
+                            <Border Style="{StaticResource RunCard}" Padding="14">
+                                <local:RunAlternativePlotView Panel="{Binding}" Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}, Converter={StaticResource RunChartHeight}}"
+                                    IsEnabled="{Binding DataContext.CanEditRecordingOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    Loaded="AlternativeChart_Loaded" Unloaded="AlternativeChart_Unloaded"
+                                    AccentBrush="{x:Static local:RunComparisonColors.RunA}" TextBrush="{DynamicResource TextBrush}" MutedBrush="{DynamicResource MutedBrush}"
+                                    AutomationProperties.Name="{Binding Title}" />
+                            </Border>
+                        </DataTemplate></ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+                <Border Style="{StaticResource RunCard}">
+                    <StackPanel>
+                        <TextBlock Text="{Binding GraphHelp}" Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,8" />
+                        <WrapPanel Visibility="{Binding IsRpmGraph, Converter={StaticResource RunVisibility}}" IsEnabled="{Binding CanEditRecordingOptions}" Margin="0,0,0,8">
+                            <CheckBox Content="Full throttle only" IsChecked="{Binding FullThrottleOnly}" VerticalAlignment="Center" Margin="0,0,12,8" />
+                            <ComboBox ItemsSource="{Binding GearOptions}" SelectedItem="{Binding GearFilter, Mode=TwoWay}" DisplayMemberPath="Label"
+                                      MinWidth="155" Margin="0,0,0,8" AutomationProperties.Name="Engine graph gear filter" />
+                        </WrapPanel>
+                        <Expander x:Name="GraphRangeExpander" Header="Time range and cursor">
+                            <StackPanel Margin="0,10,0,0">
+                                <TextBlock Text="{Binding IntervalLabel}" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                <TextBlock Text="{Binding CursorText}" Margin="0,8,0,8" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding CursorVehicleContext}" Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,8" />
+                                <TextBlock Text="{Binding SelectedPointContext}" Style="{StaticResource RunHint}" FontSize="11" TextWrapping="Wrap" Visibility="{Binding HasSelectedPoint, Converter={StaticResource RunVisibility}}" />
+                                <WrapPanel IsEnabled="{Binding CanEditRecordingOptions}">
+                                    <TextBlock Text="From" VerticalAlignment="Center" Margin="0,0,6,6" />
+                                    <TextBox Text="{Binding SelectionFrom, UpdateSourceTrigger=PropertyChanged}" Width="64" Margin="0,0,8,6" AutomationProperties.Name="Selected interval start in seconds" />
+                                    <TextBlock Text="to" VerticalAlignment="Center" Margin="0,0,6,6" />
+                                    <TextBox Text="{Binding SelectionTo, UpdateSourceTrigger=PropertyChanged}" Width="64" Margin="0,0,6,6" AutomationProperties.Name="Selected interval end in seconds" />
+                                    <TextBlock Text="seconds" VerticalAlignment="Center" Margin="0,0,8,6" />
+                                    <Button Content="Select" Command="{Binding ApplyIntervalCommand}" Padding="10,6" Margin="0,0,0,6" />
+                                </WrapPanel>
+                                <WrapPanel>
+                                    <Button Content="Zoom selection" Command="{Binding ZoomSelectionCommand}" Padding="10,6" Margin="0,0,8,0" />
+                                    <Button Content="Show whole run" Command="{Binding ResetViewCommand}" Padding="10,6" Margin="0,0,8,0" />
+                                    <Button Content="Clear selection" Command="{Binding ClearSelectionCommand}" Padding="10,6" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
+                </Border>
+                <Expander x:Name="MarkersExpander" Header="Marked moments" Margin="0,0,0,12" Visibility="{Binding HasMarkers, Converter={StaticResource RunVisibility}}">
+                    <ItemsControl ItemsSource="{Binding Markers}">
+                        <ItemsControl.ItemTemplate><DataTemplate DataType="{x:Type local:RunMarkerItem}">
+                            <Border Style="{StaticResource RunCard}" Padding="12" Margin="0,6,0,0">
+                                <DockPanel><Button Content="Jump" Command="{Binding JumpCommand}" DockPanel.Dock="Right" Padding="10,6" Margin="10,0,0,0" />
+                                    <StackPanel><TextBlock Text="{Binding Label}" TextWrapping="Wrap">
+                                        <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                            <Setter Property="Foreground" Value="{x:Static local:RunComparisonColors.RunA}" />
+                                            <Style.Triggers><DataTrigger Binding="{Binding Comparison}" Value="True">
+                                                <Setter Property="Foreground" Value="{x:Static local:RunComparisonColors.RunB}" />
+                                            </DataTrigger></Style.Triggers>
+                                        </Style></TextBlock.Style>
+                                    </TextBlock><TextBlock Text="{Binding Time}" Style="{StaticResource RunHint}" FontSize="11" /></StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate></ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Expander>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+    </Grid>
+</UserControl>

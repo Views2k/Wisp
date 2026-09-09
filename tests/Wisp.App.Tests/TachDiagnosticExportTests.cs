@@ -202,7 +202,7 @@ public sealed class TachDiagnosticExportTests
             {
                 schema_version = 1,
                 build_kind = "release",
-                version = "1.1.4",
+                version = ApplicationVersionInfo.MachineVersion,
                 source_revision = new string('a', 40),
                 source_dirty = true,
                 created_at_utc = Now,
@@ -234,10 +234,10 @@ public sealed class TachDiagnosticExportTests
             Assert.Equal(200, nativeRenderer.GetProperty("bytes").GetInt64());
             foreach (var wrongIdentity in new[]
             {
-                text.Replace("1.1.4", "1.1.3", StringComparison.Ordinal),
-                text.Replace("1.1.4", "1.1.5", StringComparison.Ordinal),
+                text.Replace(ApplicationVersionInfo.MachineVersion, "1.1.3", StringComparison.Ordinal),
+                text.Replace(ApplicationVersionInfo.MachineVersion, "1.1.5", StringComparison.Ordinal),
                 text.Replace("release", "diagnostics.4", StringComparison.Ordinal),
-                text.Replace("\"build_kind\":\"release\",\"version\":\"1.1.4\"",
+                text.Replace($"\"build_kind\":\"release\",\"version\":\"{ApplicationVersionInfo.MachineVersion}\"",
                     "\"build_id\":\"diagnostics.4\",\"build_label\":\"1.1.3 Diagnostics4\",\"baseline_version\":\"1.1.3\"", StringComparison.Ordinal)
             })
             {
@@ -258,6 +258,12 @@ public sealed class TachDiagnosticExportTests
                 Assert.Null(TachDiagnosticReport.ReadPackagedBuild(path));
             }
             File.WriteAllText(path, "not-json-private-sentinel");
+            Assert.Null(TachDiagnosticReport.ReadPackagedBuild(path));
+            var privateText = text.Replace("\"build_kind\":\"release\"",
+                $"\"build_kind\":\"private\",\"private_build_id\":\"{ApplicationVersionInfo.DiagnosticBuildId}\"", StringComparison.Ordinal);
+            File.WriteAllText(path, privateText);
+            Assert.NotNull(TachDiagnosticReport.ReadPackagedBuild(path));
+            File.WriteAllText(path, privateText.Replace(ApplicationVersionInfo.DiagnosticBuildId!, "wrong-preview", StringComparison.Ordinal));
             Assert.Null(TachDiagnosticReport.ReadPackagedBuild(path));
         }
         finally { Directory.Delete(root, recursive: true); }

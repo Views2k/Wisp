@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using Wisp.App;
+using Wisp.App.Runs;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -17,7 +18,7 @@ public sealed class XamlContractTests
         @"\{Binding(?:\s+Path\s*=\s*|\s+)(?<path>[A-Za-z_][A-Za-z0-9_.]*)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex AncestorTypePattern = new(
-        @"RelativeSource\s*=\s*\{RelativeSource\s+AncestorType\s*=\s*\{x:Type\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s*\}\s*\}",
+        @"RelativeSource\s*=\s*\{RelativeSource\s+AncestorType\s*=\s*(?:\{x:Type\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s*\}|(?<type>[A-Za-z_][A-Za-z0-9_]*))\s*\}",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly HashSet<string> RoutedHandlerAttributes =
@@ -30,13 +31,16 @@ public sealed class XamlContractTests
         "ValueChanged",
         "SelectionChanged",
         "SelectedColorChanged",
-        "ResetRequested"
+        "ResetRequested",
+        "Loaded",
+        "Unloaded"
     ];
 
     private static readonly HashSet<string> InteractiveElements =
     [
         "Button",
         "CheckBox",
+        "ComboBox",
         "ListBox",
         "ListBoxItem",
         "RadioButton",
@@ -183,6 +187,39 @@ public sealed class XamlContractTests
         Assert.False(BindingPathResolves(sourceType!, "AccentTypo"));
         document.Root!.Attribute("DataType")!.Remove();
         Assert.Null(BindingSourceType("{Binding Name}", document, target));
+    }
+
+    [Fact]
+    public void RunsBindingContractChecksPageTemplatesAndSharedDashboardContext()
+    {
+        var runs = LoadXaml(RunsPagePath());
+        var chart = Assert.Single(runs.Descendants(XName.Get("RunChartView", "clr-namespace:Wisp.App.Runs")));
+        var owner = BindingSourceType(chart.Attribute("StartSeconds")!.Value, runs, chart);
+        Assert.Equal(typeof(RunsPage), owner);
+        Assert.True(BindingPathResolves(owner!, "DataContext.ViewStart"));
+        Assert.False(BindingPathResolves(owner!, "DataContext.ViewStartTypo"));
+        Assert.Equal(typeof(RunPlotPanel), BindingSourceType("{Binding Title}", runs, chart));
+        Assert.True(BindingPathResolves(typeof(RunPlotPanel), "Title"));
+        Assert.False(BindingPathResolves(typeof(RunPlotPanel), "TitleTypo"));
+        Assert.Equal(typeof(RunsViewModel), BindingSourceType("{Binding RecordingStatus}", runs, runs.Root));
+        Assert.False(BindingPathResolves(typeof(RunsViewModel), "RecordingStatusTypo"));
+        var graphName = runs.Descendants(Presentation + "Style").Single(element => element.Attribute(Xaml + "Key")?.Value == "RunGraphTab")
+            .Elements(Presentation + "Setter").Single(element => element.Attribute("Property")?.Value == "AutomationProperties.Name");
+        Assert.Equal(typeof(RunGraphChoice), BindingSourceType(graphName.Attribute("Value")!.Value, runs, graphName));
+        Assert.True(BindingPathResolves(typeof(RunGraphChoice), "Label"));
+        Assert.False(BindingPathResolves(typeof(RunGraphChoice), "LabelTypo"));
+        var dropdown = Assert.Single(runs.Descendants(Presentation + "ToggleButton"));
+        var templateSource = BindingSourceType(dropdown.Attribute("IsChecked")!.Value, runs, dropdown);
+        Assert.Equal(typeof(System.Windows.Controls.ComboBox), templateSource);
+        Assert.True(BindingPathResolves(templateSource!, "IsDropDownOpen"));
+        Assert.False(BindingPathResolves(templateSource!, "IsDropDownOpenTypo"));
+
+        var main = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var panel = Assert.Single(main.Descendants(), element => element.Attribute(Xaml + "Name")?.Value == "DashboardRunPanel");
+        Assert.Equal(typeof(RunsViewModel), BindingSourceType("{Binding RecordingStatus}", main, panel));
+        var code = File.ReadAllText(Path.Combine(AppSourceDirectory(), "MainWindow.xaml.cs"));
+        Assert.Contains("RunsSurface.DataContext = controller.Runs;", code, StringComparison.Ordinal);
+        Assert.Contains("DashboardRunPanel.DataContext = controller.Runs;", code, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -404,25 +441,28 @@ public sealed class XamlContractTests
     [Fact]
     public void EveryMainWindowControlHasAnAccessibleNameOrTextLabel()
     {
-        var xamlPath = Path.Combine(AppSourceDirectory(), "MainWindow.xaml");
-        var document = LoadXaml(xamlPath);
         var failures = new List<string>();
-
-        foreach (var element in document.Descendants()
-                     .Where(element => element.Name.Namespace == Presentation &&
-                                       InteractiveElements.Contains(element.Name.LocalName)))
+        foreach (var xamlPath in new[] { Path.Combine(AppSourceDirectory(), "MainWindow.xaml"), RunsPagePath() })
         {
-            var automationName = element.Attribute("AutomationProperties.Name")?.Value;
-            var content = element.Attribute("Content")?.Value;
-            var header = element.Attribute("Header")?.Value;
-            var hasDescriptiveAutomationName = !string.IsNullOrWhiteSpace(automationName);
-            var hasTextLabel = IsDescriptiveText(content) || IsDescriptiveText(header);
-
-            if (!hasDescriptiveAutomationName && !hasTextLabel)
+            var document = LoadXaml(xamlPath);
+            foreach (var element in document.Descendants()
+                         .Where(element => (element.Name.Namespace == Presentation &&
+                                            InteractiveElements.Contains(element.Name.LocalName)) ||
+                                           (element.Name.NamespaceName == "clr-namespace:Wisp.App.Runs" &&
+                                            element.Name.LocalName is "RunChartView" or "RunAlternativePlotView")))
             {
-                failures.Add(
-                    $"{Location(xamlPath, element)}: {element.Name.LocalName} needs descriptive Content/Header " +
-                    "or AutomationProperties.Name.");
+                var automationName = element.Attribute("AutomationProperties.Name")?.Value;
+                var content = element.Attribute("Content")?.Value;
+                var header = element.Attribute("Header")?.Value;
+                var hasDescriptiveAutomationName = !string.IsNullOrWhiteSpace(automationName);
+                var hasTextLabel = IsDescriptiveText(content) || IsDescriptiveText(header);
+
+                if (!hasDescriptiveAutomationName && !hasTextLabel)
+                {
+                    failures.Add(
+                        $"{Location(xamlPath, element)}: {element.Name.LocalName} needs descriptive Content/Header " +
+                        "or AutomationProperties.Name.");
+                }
             }
         }
 
@@ -992,9 +1032,26 @@ public sealed class XamlContractTests
         var tabs = document.Descendants(Presentation + "TabControl")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "RootTabs");
         var scrollViewers = tabs.Elements(Presentation + "TabItem")
-            .Select(tab => Assert.Single(tab.Descendants(Presentation + "ScrollViewer")))
+            .SelectMany(tab =>
+            {
+                if (tab.Attribute(Xaml + "Name")?.Value != "RunsTab")
+                    return new[] { Assert.Single(tab.Descendants(Presentation + "ScrollViewer")) };
+
+                var page = Assert.Single(tab.Elements());
+                Assert.Equal(XName.Get("RunsPage", "clr-namespace:Wisp.App.Runs"), page.Name);
+                Assert.Equal("RunsSurface", page.Attribute(Xaml + "Name")?.Value);
+                var runs = LoadXaml(RunsPagePath());
+                Assert.Equal(typeof(RunsPage).FullName, runs.Root!.Attribute(Xaml + "Class")?.Value);
+                Assert.Empty(runs.Descendants(Presentation + "Viewbox"));
+                var panes = runs.Descendants(Presentation + "ScrollViewer")
+                    .Where(element => element.Attribute(Xaml + "Name")?.Value is "RunsScroll" or "GraphScroll")
+                    .ToArray();
+                Assert.Equal(2, panes.Length);
+                Assert.All(panes, scroll => Assert.Equal("Auto", scroll.Attribute("VerticalScrollBarVisibility")?.Value));
+                return panes;
+            })
             .ToArray();
-        Assert.Equal(7, scrollViewers.Length);
+        Assert.Equal(9, scrollViewers.Length);
         Assert.All(
             scrollViewers,
             scrollViewer => Assert.Equal(
@@ -1028,6 +1085,31 @@ public sealed class XamlContractTests
                 "{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}",
                 designSurface.Attribute("Width")?.Value);
         }
+    }
+
+    [Fact]
+    public void RunsHasOneGraphEntryAndKeepsEveryGraphChoiceOutsideTheScrollingPlots()
+    {
+        var runs = LoadXaml(RunsPagePath());
+        var showGraphs = Assert.Single(runs.Descendants(Presentation + "Button"),
+            element => element.Attribute("Content")?.Value == "Show graphs");
+        Assert.Equal("ShowGraphsButton", showGraphs.Attribute(Xaml + "Name")?.Value);
+        Assert.Equal("ViewGraphs_Click", showGraphs.Attribute("Click")?.Value);
+
+        var picker = Assert.Single(runs.Descendants(Presentation + "ListBox"),
+            element => element.Attribute(Xaml + "Name")?.Value == "GraphPicker");
+        Assert.Equal("{Binding GraphChoices}", picker.Attribute("ItemsSource")?.Value);
+        Assert.Contains("SelectedGraph", picker.Attribute("SelectedItem")?.Value ?? "", StringComparison.Ordinal);
+        Assert.Empty(picker.Ancestors(Presentation + "ScrollViewer"));
+        Assert.DoesNotContain(runs.Descendants(Presentation + "ComboBox"), element =>
+            element.Attribute("AutomationProperties.Name")?.Value is "Chart channels" or "Graph type");
+
+        var summary = Assert.Single(runs.Descendants(Presentation + "Button"),
+            element => element.Attribute(Xaml + "Name")?.Value == "BackToSummaryButton");
+        Assert.Equal("RunSummary_Click", summary.Attribute("Click")?.Value);
+        var comparison = Assert.Single(runs.Descendants(Presentation + "Expander"),
+            element => element.Attribute(Xaml + "Name")?.Value == "CompareExpander");
+        Assert.NotEqual("True", comparison.Attribute("IsExpanded")?.Value);
     }
 
     [Fact]
@@ -1396,6 +1478,12 @@ public sealed class XamlContractTests
     {
         if (binding.Contains("RelativeSource", StringComparison.Ordinal))
         {
+            if (Regex.IsMatch(binding, @"RelativeSource\s*=\s*\{RelativeSource\s+TemplatedParent\s*\}"))
+            {
+                var template = targetElement?.AncestorsAndSelf()
+                    .FirstOrDefault(element => element.Name == Presentation + "ControlTemplate");
+                return ResolveXamlType(template?.Attribute("TargetType")?.Value, template);
+            }
             var ancestor = AncestorTypePattern.Match(binding);
             if (!ancestor.Success)
             {
@@ -1437,14 +1525,33 @@ public sealed class XamlContractTests
             .FirstOrDefault(element => element.Name == Presentation + "DataTemplate");
         if (dataTemplate is not null)
         {
-            var type = Regex.Match(dataTemplate.Attribute("DataType")?.Value ?? string.Empty,
-                @"^\{x:Type\s+(?<prefix>[A-Za-z_][A-Za-z0-9_]*):(?<type>[A-Za-z_][A-Za-z0-9_]*)\s*\}$");
-            return type.Success && dataTemplate.GetNamespaceOfPrefix(type.Groups["prefix"].Value)?.NamespaceName == "clr-namespace:Wisp.App"
-                ? typeof(DiagnosticsViewModel).Assembly.GetType($"Wisp.App.{type.Groups["type"].Value}")
-                : null;
+            return ResolveXamlType(dataTemplate.Attribute("DataType")?.Value, dataTemplate);
         }
 
+        if (document?.Root?.Attribute(Xaml + "Class")?.Value == typeof(RunsPage).FullName &&
+            targetElement?.AncestorsAndSelf().Any(element => element.Name == Presentation + "Style" && element.Attribute(Xaml + "Key")?.Value == "RunGraphTab") == true)
+            return typeof(RunGraphChoice);
+
+        if (document?.Root?.Attribute(Xaml + "Class")?.Value == typeof(RunsPage).FullName ||
+            targetElement?.AncestorsAndSelf().Any(element => element.Attribute(Xaml + "Name")?.Value == "DashboardRunPanel") == true)
+            return typeof(RunsViewModel);
+
         return typeof(DiagnosticsViewModel);
+    }
+
+    private static Type? ResolveXamlType(string? name, XElement? element)
+    {
+        var type = Regex.Match(name ?? string.Empty,
+            @"^(?:\{x:Type\s+)?(?:(?<prefix>[A-Za-z_][A-Za-z0-9_]*):)?(?<type>[A-Za-z_][A-Za-z0-9_]*)(?:\s*\})?$");
+        if (!type.Success || element is null) return null;
+        var namespaceName = type.Groups["prefix"].Success
+            ? element.GetNamespaceOfPrefix(type.Groups["prefix"].Value)?.NamespaceName
+            : element.GetDefaultNamespace().NamespaceName;
+        if (namespaceName == Presentation.NamespaceName)
+            return typeof(System.Windows.Controls.Control).Assembly.GetType($"System.Windows.Controls.{type.Groups["type"].Value}");
+        return namespaceName is "clr-namespace:Wisp.App" or "clr-namespace:Wisp.App.Runs"
+            ? typeof(DiagnosticsViewModel).Assembly.GetType($"{namespaceName[14..]}.{type.Groups["type"].Value}")
+            : null;
     }
 
     private static XElement? BindingSourceElement(string binding, XDocument? document)
@@ -1467,7 +1574,11 @@ public sealed class XamlContractTests
                 return false;
             }
 
-            if (segment == "SelectedItem" &&
+            if (segment == "DataContext" && currentType == typeof(RunsPage))
+            {
+                currentType = typeof(RunsViewModel);
+            }
+            else if (segment == "SelectedItem" &&
                 currentType == typeof(System.Windows.Controls.TabControl) &&
                 sourceElement is not null && sourceElement.Name == Presentation + "TabControl")
             {
@@ -1591,7 +1702,10 @@ public sealed class XamlContractTests
 
     private static IEnumerable<string> AppXamlFiles() =>
         Directory.EnumerateFiles(AppSourceDirectory(), "*.xaml", SearchOption.TopDirectoryOnly)
+            .Append(RunsPagePath())
             .OrderBy(path => path, StringComparer.Ordinal);
+
+    private static string RunsPagePath() => Path.Combine(AppSourceDirectory(), "Runs", "RunsPage.xaml");
 
     private static string AppSourceDirectory() =>
         Path.Combine(RepositoryRoot(), "src", "Wisp.App");
