@@ -19,6 +19,7 @@ static_assert(sizeof(WispDrawCommand) == 80, "Managed/native draw ABI mismatch."
 #endif
 WISP_API HRESULT __cdecl WispRendererCreate(HWND hwnd, uint32_t width, uint32_t height, void** renderer) noexcept;
 WISP_API void __cdecl WispRendererDestroy(void* renderer) noexcept;
+// S_OK replaces the swapchain; S_FALSE preserves an already fresh chain.
 WISP_API HRESULT __cdecl WispRendererPrepareForResume(void* renderer) noexcept;
 WISP_API HRESULT __cdecl WispRendererSetOpacity(void* renderer, float opacity) noexcept;
 WISP_API HRESULT __cdecl WispRendererSetVisible(void* renderer, int visible) noexcept;

@@ -35,6 +35,8 @@ int main()
     uint32_t initialReady = 99;
     Require(SUCCEEDED(WispRendererWaitForFrame(renderer, 100, nullptr, &initialReady)), "initial queue wait");
     std::printf("initialHiddenWait=%u\n", initialReady);
+    Require(WispRendererPrepareForResume(renderer) == S_FALSE,
+        "fresh resume preserves the current chain and acquired readiness");
     std::vector<uint8_t> pixels(32 * 32 * 4);
     Require(WispRendererCapture(renderer, pixels.data(), static_cast<uint32_t>(pixels.size()), 128) == E_INVALIDARG,
         "readback requires explicit capture draw");
@@ -102,7 +104,8 @@ int main()
     for (uint32_t index = 0; index < 8; ++index)
     {
         Require(SUCCEEDED(WispRendererSetVisible(renderer, 0)), "suspend opacity commit");
-        Require(SUCCEEDED(WispRendererPrepareForResume(renderer)), "resume replaces only the stale swapchain");
+        Require(WispRendererPrepareForResume(renderer) == S_OK, "resume reports replacement of the stale swapchain");
+        Require(WispRendererPrepareForResume(renderer) == S_FALSE, "repeated resume retains the fresh swapchain");
         Require(SUCCEEDED(WispRendererCapture(renderer, pixels.data(), static_cast<uint32_t>(pixels.size()), 1152)), "explicit fresh target readback");
         bool freshTransparent = true; for (uint8_t value : pixels) freshTransparent = freshTransparent && value == 0;
         Require(freshTransparent, "fresh resume target contains no previous colored frame");

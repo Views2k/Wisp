@@ -81,7 +81,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         var playback = new AnalogHudPlayback();
         var batch = new (NativeGaugeFrame Frame, long Timestamp)[64];
         var waitHandles = new WaitHandle[] { _stop, _changed };
-        bool announced = false, hasFrame = false, wasActive = false;
+        bool announced = false, hasFrame = false, wasActive = false, frameReady = false;
         int width = 0, height = 0;
         try
         {
@@ -140,13 +140,21 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 }
                 // A previously hidden surface can still contain the old car.
                 // Resume with a transparent swapchain before making it visible.
-                if (!wasActive) device.PrepareForResume();
+                if (!wasActive && device.PrepareForResume()) frameReady = false;
                 device.SetOpacity(presentation.Opacity);
                 device.SetVisible(true);
                 wasActive = true;
-                var ready = device.WaitForNextFrame(100, _stop.SafeWaitHandle);
-                if (ready == DirectCompositionWaitResult.Cancelled) break;
-                if (ready == DirectCompositionWaitResult.Timeout) continue;
+                if (!frameReady)
+                {
+                    var ready = device.WaitForNextFrame(100, _stop.SafeWaitHandle);
+                    if (ready == DirectCompositionWaitResult.Cancelled) break;
+                    if (ready == DirectCompositionWaitResult.Timeout) continue;
+                    frameReady = true;
+                }
+
+                // A layout change or playback reset can restart this iteration
+                // after the frame wait. Keep its readiness until Present succeeds;
+                // waiting again without presenting can stall the swapchain.
 
                 // Fresh samples received while awaiting the swapchain belong
                 // to this frame; never render an earlier queued snapshot.
@@ -179,6 +187,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     _stop.WaitOne(1);
                     continue;
                 }
+                frameReady = false;
                 AnnounceReady();
                 Record(sample);
             }

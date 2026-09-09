@@ -54,10 +54,13 @@ internal sealed class DirectCompositionDevice : IDisposable
 
     public bool LastRenderWasOccluded { get; private set; }
 
-    public void PrepareForResume()
+    // Only a replaced swapchain requires a new frame-readiness wait.
+    public bool PrepareForResume()
     {
         ThrowIfDisposed();
-        Marshal.ThrowExceptionForHR(Native.PrepareForResume(_handle));
+        var result = Native.PrepareForResume(_handle);
+        Marshal.ThrowExceptionForHR(result);
+        return result == 0;
     }
 
     public void SetOpacity(float opacity)

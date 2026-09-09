@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Wisp.App.DebugLogging;
 using Wisp.Core;
 using Xunit;
 
@@ -79,6 +80,8 @@ internal static class NativeRendererIntegrationTests
             Assert.Equal(expectedContentVisibility, Assert.IsAssignableFrom<UIElement>(gauge.Content).Visibility);
             if (!hardwareAvailable) AssertFallbackNeedle(gauge, 7200);
             Assert.NotEqual(hwnd, GetForegroundWindow());
+
+            AssertAttachedGForceResizeKeepsRendering(controller, window, gauge, hardwareAvailable);
         }
         finally
         {
@@ -86,6 +89,84 @@ internal static class NativeRendererIntegrationTests
             Pump();
             controller.DisposeAsync().AsTask().GetAwaiter().GetResult();
             Application.Current.ShutdownMode = previousShutdown;
+        }
+    }
+
+    private static void AssertAttachedGForceResizeKeepsRendering(
+        AppController controller, OverlayWindow window, NativeAnalogSpeedometer gauge, bool hardwareAvailable)
+    {
+        var previousDiagnosticsEnabled = TachDiagnostics.IsEnabled;
+        var previousOverlay = controller.Overlay;
+        var hwnd = new WindowInteropHelper(window).Handle;
+        var root = Assert.IsType<Grid>(window.FindName("RootPanel"));
+        var viewbox = Assert.IsType<Viewbox>(window.FindName("RootViewbox"));
+        var gForce = Assert.IsAssignableFrom<FrameworkElement>(window.FindName("AttachedNativeGForce"));
+        controller.Overlay = window;
+        controller.Settings.OverlayWidthScale = 4d / 3;
+        controller.Settings.OverlayHeightScale = 4d / 3;
+        controller.ViewModel.GForceAttached = true;
+        TachDiagnostics.SetEnabled(true);
+        try
+        {
+            // Each settled state must consume new input, not merely retain the
+            // old surface or report the renderer's initialization status.
+            AssertState(true, 4300);
+            for (int cycle = 0; cycle < 4; cycle++)
+            {
+                AssertState(false, 4800 + cycle * 200);
+                AssertState(true, 6800 + cycle * 200);
+            }
+        }
+        finally
+        {
+            controller.Overlay = previousOverlay;
+            TachDiagnostics.SetEnabled(previousDiagnosticsEnabled);
+            if (!previousDiagnosticsEnabled) TachDiagnostics.Clear();
+        }
+
+        void AssertState(bool enabled, double rpm)
+        {
+            var started = Stopwatch.GetTimestamp();
+            // Appearance updates the binding first, then ApplyViewOptions
+            // applies this layout. Avoid its live focus query in this fixture.
+            controller.ViewModel.GForceEnabled = enabled;
+            controller.Settings.GForceEnabled = enabled;
+            window.ApplyLayout(HudLayoutMode.Native, NativeGaugeMode.Analogue,
+                controller.Settings.OverlayWidthScale, controller.Settings.OverlayHeightScale, 1);
+            Pump();
+
+            var top = enabled ? 72d : 0;
+            Assert.Equal(293.5 + top, root.Height);
+            Assert.Equal((293.5 + top) * 4 / 3, window.Height, 6);
+            // The HWND rounds to physical pixels before the Viewbox scales its content.
+            Assert.Equal(top * viewbox.ActualHeight / root.Height,
+                gauge.TransformToAncestor(window).Transform(new Point()).Y, 6);
+            Assert.Equal(enabled ? Visibility.Visible : Visibility.Collapsed, gForce.Visibility);
+            Assert.True(window.IsVisible);
+            Assert.True(gauge.IsVisible);
+
+            if (hardwareAvailable)
+            {
+                PumpUntil(() =>
+                {
+                    SetFrame(gauge, 315, rpm);
+                    var snapshot = TachDiagnostics.Snapshot();
+                    if (snapshot is null) return false;
+                    var fresh = snapshot.NeedleStartup.Concat(snapshot.NeedleRecent)
+                        .Where(row => row.Route == "directcomposition" && row.HostKind == nameof(OverlayWindow) &&
+                            row.HostWindowHandle == hwnd.ToInt64() && row.RawRpm == rpm &&
+                            row.AppliedTimestamp >= started && row.ReceivedTimestamp is long received && received >= started)
+                        .DistinctBy(row => (row.ControlId, row.AppliedTimestamp)).ToArray();
+                    return fresh.Length >= 4 && fresh.Select(row => row.ReceivedTimestamp).Distinct().Count() >= 2;
+                }, 2000);
+            }
+            else
+            {
+                SetFrame(gauge, 315, rpm);
+                AssertFallbackNeedle(gauge, rpm);
+            }
+            Assert.NotEqual(hwnd, GetForegroundWindow());
+            Assert.False(window.IsActive);
         }
     }
 
