@@ -1,4 +1,4 @@
-![Wisp header](docs/images/wisp-header.png)
+[![Watch the Wisp demonstration in Forza Horizon 6](docs/images/wisp-demo-thumbnail.jpg)](https://www.youtube.com/watch?v=GgWPN0Bb69E)
 
 <p align="center">
   <strong>A wheel-indicated speed, boost, tire-temperature, and G-force companion for Forza Horizon 6.</strong><br>
@@ -7,12 +7,6 @@
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
-
-## Watch Wisp in action
-
-[![Watch the Wisp demonstration in Forza Horizon 6](docs/images/wisp-demo-thumbnail.jpg)](https://www.youtube.com/watch?v=GgWPN0Bb69E)
-
-Wisp's custom HUD and live telemetry in Forza Horizon 6.
 
 ## New in Wisp 1.1.4
 
