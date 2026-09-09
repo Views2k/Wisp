@@ -1,13 +1,23 @@
+using System.Reflection;
 using Wisp.Update;
 
 namespace Wisp.App;
 
 public static class ApplicationVersionInfo
 {
+    public static string MachineVersion => SemanticVersion.FromSystemVersion(
+        typeof(ApplicationVersionInfo).Assembly.GetName().Version ?? new Version(1, 0, 0)).ToString();
+
     public static string DisplayVersion => Format(
         typeof(ApplicationVersionInfo).Assembly.GetName().Version ?? new Version(1, 0, 0));
 
-    public static string FooterText => $"WHEEL-INDICATED SPEED PANEL {DisplayVersion}";
+    public static string? DiagnosticBuildId { get; } = ReadBuildMetadata("WispDiagnosticBuildId");
+
+    public static string? DiagnosticBuildLabel { get; } = ReadBuildMetadata("WispDiagnosticBuildLabel");
+
+    public static string FooterText => DiagnosticBuildLabel is { Length: > 0 } label
+        ? $"WHEEL-INDICATED SPEED PANEL {label} (private)"
+        : $"WHEEL-INDICATED SPEED PANEL {DisplayVersion}";
 
     public static string ReleaseHistoryIntroduction =>
         $"Feature updates, hotfixes, and important refinements from every documented public release. The current {DisplayVersion} entry covers this release.";
@@ -18,4 +28,8 @@ public static class ApplicationVersionInfo
     public static string Format(SemanticVersion version) => version.Patch == 0
         ? $"{version.Major}.{version.Minor}"
         : version.ToString();
+
+    private static string? ReadBuildMetadata(string key) => typeof(ApplicationVersionInfo).Assembly
+        .GetCustomAttributes<AssemblyMetadataAttribute>()
+        .SingleOrDefault(attribute => attribute.Key == key)?.Value;
 }

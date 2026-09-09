@@ -1,3 +1,4 @@
+using Wisp.App.DebugLogging;
 using System.Diagnostics;
 using Wisp.Core;
 
@@ -271,6 +272,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             NativeHudSnapshot result;
             if (performFullResolve)
             {
+                if (TachDiagnostics.IsEnabled) TachDiagnostics.RecordNativeContext(memory.CompatibilityPack);
                 result = _resolver.Resolve(
                     memory,
                     memory.ModuleBase,
@@ -389,11 +391,19 @@ public sealed class NativeHudProcessService : IAsyncDisposable
         var remainingTicks = deadline - Stopwatch.GetTimestamp();
         if (remainingTicks <= 0)
         {
+            if (TachDiagnostics.IsEnabled) TachDiagnostics.RecordWorkerWait(remainingTicks, 0, false);
             return;
         }
 
         var timeout = TimeSpan.FromSeconds((double)remainingTicks / Stopwatch.Frequency);
-        await _wake.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        if (!TachDiagnostics.IsEnabled)
+        {
+            await _wake.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+        var waitStarted = Stopwatch.GetTimestamp();
+        var signaled = await _wake.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        TachDiagnostics.RecordWorkerWait(remainingTicks, Stopwatch.GetTimestamp() - waitStarted, signaled);
     }
 
     private void ResetAuditDeadlines()

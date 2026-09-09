@@ -40,6 +40,15 @@ internal sealed class NativeTachometerInterpolator
 
     public int? AcceptedCarOrdinal => _sampleCount > 0 ? _carOrdinal : null;
 
+    internal int BufferedSamples => _sampleCount;
+    internal bool PlaybackAtNewest => _sampleCount > 0 && _playbackTimestamp >= _lastReceivedTimestamp;
+    internal double PlaybackTargetDelayMilliseconds => _playbackDelayTicks * 1_000d / Stopwatch.Frequency;
+    internal double PlaybackDelayMilliseconds(long timestamp) => _sampleCount == 0
+        ? 0
+        : (timestamp - _playbackTimestamp) * 1_000d / Stopwatch.Frequency;
+    internal long ReseedCount { get; private set; }
+    internal long StarvationReseedCount { get; private set; }
+
     public double Observe(
         int carOrdinal,
         uint gameTimestampMilliseconds,
@@ -151,6 +160,9 @@ internal sealed class NativeTachometerInterpolator
         long receivedTimestamp, long nowTimestamp, bool recoverFromStarvation = false)
     {
         Reset();
+        ReseedCount++;
+        if (recoverFromStarvation)
+            StarvationReseedCount++;
         _carOrdinal = carOrdinal;
         _lastGameTimestampMilliseconds = gameTimestampMilliseconds;
         _lastReceivedTimestamp = receivedTimestamp;

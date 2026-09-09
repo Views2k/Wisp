@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Wisp.App"
         Title="Wisp Speed" Width="160" Height="120"
-        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="False"
         Background="Transparent" Topmost="False" ShowInTaskbar="False"
         ShowActivated="False">
     <Window.Resources>

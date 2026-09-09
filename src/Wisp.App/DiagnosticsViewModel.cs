@@ -172,6 +172,13 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    private string _nativeRendererStatus = "Analogue renderer: waiting for the live HUD";
+    public string NativeRendererStatus
+    {
+        get => _nativeRendererStatus;
+        internal set => Set(ref _nativeRendererStatus, value);
+    }
+
     public string StatusText { get => _statusText; private set => Set(ref _statusText, value); }
     public string StatusDetail { get => _statusDetail; private set => Set(ref _statusDetail, value); }
     public string HudSpeed

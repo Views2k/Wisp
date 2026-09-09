@@ -15,11 +15,25 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.1.4",
+            "September 8, 2026",
+            "TACHOMETER HOTFIX",
+            "Addresses choppy Analogue tachometer motion while Forza is focused, with corrected motion blur when native needle data is unavailable.",
+            true,
+            [
+                Group("Analogue tachometer",
+                    "Moves the live combustion Analogue HUD to Direct3D11 and DirectComposition on a dedicated render thread, keeping the original gauge artwork, native needle angle and blur, and existing playback timing.",
+                    "Corrects RPM fallback motion blur to use FH6's combustion needle shutter calculation when native needle data is unavailable.",
+                    "Digital and electric HUDs and Appearance previews continue using WPF. No new setting is required."),
+                Group("Debug reports",
+                    "Adds needle-source and render-submission timing to local debug exports, grouped by logging period to help investigate remaining smoothness reports.")
+            ]),
+        new(
             "1.1.3",
             "September 8, 2026",
             "COMPATIBILITY HOTFIX",
             "Xbox app / Microsoft Store FH6 3.440.853.0 support, optional boost vacuum pressure, and reliable automatic update checks.",
-            true,
+            false,
             [
                 Group("Compatibility",
                     "Adds a reviewed Native HUD map for Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC, retaining Store 3.430.771.0 and existing Steam maps.",

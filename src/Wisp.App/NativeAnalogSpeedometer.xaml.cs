@@ -3,6 +3,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Interop;
+using Wisp.App.DebugLogging;
+using Wisp.App.NativeRendering;
 
 namespace Wisp.App;
 
@@ -11,6 +14,10 @@ public partial class NativeAnalogSpeedometer : UserControl
     private readonly NativeNeedlePlayback _nativeNeedlePlayback = new();
     private readonly NativeTachometerInterpolator _tachometerInterpolator = new();
     private readonly NativeRenderLifetime _renderLifetime;
+    private readonly int _diagnosticControlId = TachDiagnostics.NextControlId();
+    private string _diagnosticHostKind = "unhosted";
+    private long _diagnosticHostWindowHandle;
+    private bool _diagnosticHostResolved;
     private double _previousNeedleAngle = double.NaN;
     private long _previousNeedleTimestamp;
     private NativeGaugeFrame _latestFrame;
@@ -20,6 +27,8 @@ public partial class NativeAnalogSpeedometer : UserControl
     private bool _renderingAttached;
     private bool _needsTachometerSeed = true;
     private bool _usingNativeNeedle;
+    private DirectCompositionAnalogHost? _directCompositionHost;
+    private bool _directCompositionFailed;
 
     public static readonly DependencyProperty FrameProperty = DependencyProperty.Register(
         nameof(Frame),
@@ -52,11 +61,23 @@ public partial class NativeAnalogSpeedometer : UserControl
         _hasFrame = true;
         _framePending = true;
         _renderLifetime.Refresh();
+        if (_directCompositionHost is not null)
+        {
+            _directCompositionHost.UpdateFrame(frame);
+            _framePending = false;
+            return;
+        }
         RefreshFrame();
     }
 
     private void RefreshFrame()
     {
+        if (_directCompositionHost is not null)
+        {
+            _directCompositionHost.UpdateFrame(_latestFrame);
+            _framePending = false;
+            return;
+        }
         if (!_framePending || !_renderLifetime.CanUpdateVisuals)
             return;
 
@@ -124,9 +145,9 @@ public partial class NativeAnalogSpeedometer : UserControl
         if (ShouldUpdateTachometerImmediately(_renderingAttached))
         {
             if (hasNativeNeedle)
-                UpdateNativeNeedle(frame, nativeNeedle);
+                UpdateNativeNeedle(frame, nativeNeedle, "immediate");
             else
-                UpdateFallbackNeedle(frame with { EngineRpm = renderedRpm }, timestamp);
+                UpdateFallbackNeedle(frame with { EngineRpm = renderedRpm }, timestamp, "immediate");
         }
         _framePending = false;
     }
@@ -209,9 +230,13 @@ public partial class NativeAnalogSpeedometer : UserControl
     {
         ResetTachometerPlayback();
         _renderLifetime.Refresh();
+        _directCompositionHost?.RefreshPresentation();
+        if (IsVisible)
+            Dispatcher.BeginInvoke(new Action(TryStartDirectComposition));
+        RecordDiagnosticLifecycle();
     }
 
-    private void UpdateFallbackNeedle(NativeGaugeFrame frame, long timestamp)
+    private void UpdateFallbackNeedle(NativeGaugeFrame frame, long timestamp, string route)
     {
         var hasTachometer = NativeGaugeGeometry.HasExactTachometerState(
             frame.ExactRedline,
@@ -232,20 +257,22 @@ public partial class NativeAnalogSpeedometer : UserControl
 
         Needle.Visibility = hasTachometer ? Visibility.Visible : Visibility.Collapsed;
         NeedleRotation.Angle = angle;
-        NeedleMaterial.BlurAmount = NativeGaugeGeometry.AnalogNeedleBlurRadians(
+        NeedleMaterial.BlurAmount = NativeGaugeGeometry.CombustionNeedleBlurRadians(
             angleDelta,
             elapsedSeconds);
         _previousNeedleAngle = hasTachometer ? angle : double.NaN;
         _previousNeedleTimestamp = timestamp;
         GaugeVisual.UpdateFrame(frame);
+        RecordNeedleDiagnostic(false, route, frame.EngineRpm);
     }
 
-    private void UpdateNativeNeedle(NativeGaugeFrame frame, NativeNeedleRenderState needle)
+    private void UpdateNativeNeedle(NativeGaugeFrame frame, NativeNeedleRenderState needle, string route)
     {
         Needle.Visibility = Visibility.Visible;
         NeedleRotation.Angle = needle.Angle;
         NeedleMaterial.BlurAmount = needle.Blur;
         GaugeVisual.UpdateFrame(frame);
+        RecordNeedleDiagnostic(true, route, null);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs eventArgs)
@@ -255,18 +282,27 @@ public partial class NativeAnalogSpeedometer : UserControl
             return;
         }
 
+        _diagnosticHostResolved = false;
+        ResolveDiagnosticHost();
         ResetTachometerPlayback();
         _renderLifetime.Loaded();
+        RecordDiagnosticLifecycle();
+        TryStartDirectComposition();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs eventArgs)
     {
+        _directCompositionHost?.Dispose();
+        _directCompositionHost = null;
+        if (Content is UIElement content) content.Visibility = Visibility.Visible;
         ResetTachometerPlayback();
         _renderLifetime.Unloaded();
+        RecordDiagnosticLifecycle();
     }
 
     private void OnRenderActivityChanged()
     {
+        _directCompositionHost?.RefreshPresentation();
         ResetTachometerPlayback();
         if (_renderLifetime.IsLive != _renderingAttached)
         {
@@ -279,10 +315,16 @@ public partial class NativeAnalogSpeedometer : UserControl
 
         _framePending = _hasFrame;
         RefreshFrame();
+        RecordDiagnosticLifecycle();
     }
 
     private void OnCompositionRendering(object? sender, EventArgs eventArgs)
     {
+        if (_directCompositionHost is not null)
+        {
+            _directCompositionHost.RefreshPresentation();
+            return;
+        }
         if (!_hasFrame || !_renderLifetime.IsLive)
         {
             return;
@@ -301,12 +343,113 @@ public partial class NativeAnalogSpeedometer : UserControl
         var timestamp = Stopwatch.GetTimestamp();
         if (_usingNativeNeedle && _nativeNeedlePlayback.Sample(timestamp, out var nativeNeedle))
         {
-            UpdateNativeNeedle(_latestFrame, nativeNeedle);
+            UpdateNativeNeedle(_latestFrame, nativeNeedle, "composition");
             return;
         }
 
         var renderedRpm = SampleTachometer(timestamp);
-        UpdateFallbackNeedle(_latestFrame with { EngineRpm = renderedRpm }, timestamp);
+        UpdateFallbackNeedle(_latestFrame with { EngineRpm = renderedRpm }, timestamp, "composition");
+    }
+
+    private void TryStartDirectComposition()
+    {
+        if (_directCompositionHost is not null || _directCompositionFailed || !IsLoaded || !IsVisible ||
+            Window.GetWindow(this) is not OverlayWindow overlay)
+            return;
+        try
+        {
+            _directCompositionHost = new DirectCompositionAnalogHost(this, overlay, _diagnosticControlId,
+                OnDirectCompositionStatus);
+            if (_hasFrame) _directCompositionHost.UpdateFrame(_latestFrame);
+            SetRendererStatus("Analogue renderer: Direct3D 11 starting");
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            OnDirectCompositionStatus(false, error.HResult);
+        }
+    }
+
+    private void OnDirectCompositionStatus(bool ready, int hresult)
+    {
+        if (ready)
+        {
+            if (Content is UIElement content) content.Visibility = Visibility.Hidden;
+            SetRendererStatus("Analogue renderer: Direct3D 11 / DirectComposition");
+            return;
+        }
+        _directCompositionFailed = true;
+        _directCompositionHost?.Dispose();
+        _directCompositionHost = null;
+        if (Content is UIElement fallback) fallback.Visibility = Visibility.Visible;
+        ResetTachometerPlayback();
+        _framePending = _hasFrame;
+        RefreshFrame();
+        SetRendererStatus($"Analogue renderer: WPF fallback (0x{hresult:X8})");
+    }
+
+    private void SetRendererStatus(string status)
+    {
+        if (DataContext is DiagnosticsViewModel viewModel)
+            viewModel.NativeRendererStatus = status;
+    }
+
+    private void RecordNeedleDiagnostic(bool native, string route, double? appliedRpm)
+    {
+        if (!TachDiagnostics.IsEnabled)
+            return;
+        ResolveDiagnosticHost();
+        var timestamp = Stopwatch.GetTimestamp();
+        var visible = Needle.Visibility == Visibility.Visible;
+        var sample = new TachNeedleDiagnostic
+        {
+            ControlId = _diagnosticControlId,
+            ControlKind = "analogue",
+            HostKind = _diagnosticHostKind,
+            HostWindowHandle = _diagnosticHostWindowHandle,
+            Route = route,
+            Source = visible ? native ? "native" : "fallback" : "unavailable",
+            IsLoaded = _renderLifetime.IsLoaded,
+            IsVisible = IsVisible,
+            IsLive = _renderLifetime.IsLive,
+            NeedleVisible = visible,
+            CarOrdinal = _latestFrame.CarOrdinal,
+            GameTimestampMilliseconds = _latestFrame.GameTimestampMilliseconds,
+            ReceivedTimestamp = _latestFrame.ReceivedTimestamp,
+            NativeObservedTimestamp = _latestFrame.NativeGaugeObservedTimestamp,
+            AppliedTimestamp = timestamp,
+            RawRpm = _latestFrame.EngineRpm,
+            AppliedRpm = appliedRpm,
+            Angle = NeedleRotation.Angle,
+            Blur = NeedleMaterial.BlurAmount,
+            AppliedFraction = null,
+            PlaybackDelayMilliseconds = native ? _nativeNeedlePlayback.PlaybackDelayMilliseconds(timestamp) : _tachometerInterpolator.PlaybackDelayMilliseconds(timestamp),
+            PlaybackTargetDelayMilliseconds = native ? _nativeNeedlePlayback.PlaybackTargetDelayMilliseconds : _tachometerInterpolator.PlaybackTargetDelayMilliseconds,
+            BufferedSamples = native ? _nativeNeedlePlayback.BufferedSamples : _tachometerInterpolator.BufferedSamples,
+            PlaybackAtNewest = native ? _nativeNeedlePlayback.PlaybackAtNewest : _tachometerInterpolator.PlaybackAtNewest,
+            ReseedCount = native ? _nativeNeedlePlayback.ReseedCount : _tachometerInterpolator.ReseedCount,
+            StarvationReseedCount = native ? _nativeNeedlePlayback.StarvationReseedCount : _tachometerInterpolator.StarvationReseedCount
+        };
+        TachDiagnostics.RecordNeedle(in sample);
+    }
+
+    private void ResolveDiagnosticHost()
+    {
+        if (!TachDiagnostics.IsEnabled || _diagnosticHostResolved)
+            return;
+        var host = Window.GetWindow(this);
+        _diagnosticHostKind = host?.GetType().Name ?? "unhosted";
+        _diagnosticHostWindowHandle = host is null ? 0 : new WindowInteropHelper(host).Handle.ToInt64();
+        _diagnosticHostResolved = true;
+    }
+
+    private void RecordDiagnosticLifecycle()
+    {
+        if (!TachDiagnostics.IsEnabled)
+            return;
+        ResolveDiagnosticHost();
+        TachDiagnostics.RecordNeedleLifecycle(
+            _diagnosticControlId, "analogue", _diagnosticHostKind, _diagnosticHostWindowHandle,
+            _renderLifetime.IsLoaded, IsVisible, _renderLifetime.IsLive);
     }
 
     private static void UpdateAssist(

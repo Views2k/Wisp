@@ -1316,6 +1316,8 @@
                                             <StackPanel>
                                                 <TextBlock Text="CONNECTION" Style="{StaticResource EyebrowTextStyle}" />
                                                 <TextBlock Text="Telemetry stream" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,16" />
+                                                <TextBlock Text="{Binding NativeRendererStatus}" Foreground="{DynamicResource MutedBrush}"
+                                                           TextWrapping="Wrap" FontSize="11" Margin="0,0,0,8" />
                                                 <Grid>
                                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
                                                     <Grid.RowDefinitions>
@@ -1431,7 +1433,7 @@
                                                                    Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold"
                                                                    TextWrapping="Wrap" FontSize="11"
                                                                    AutomationProperties.LiveSetting="Polite" />
-                                                        <TextBlock Text="Records one local health sample per second for up to 24 hours. Cleanup of log segments older than 7 days runs on startup, during logging, and before export. Exported ZIPs stay until you delete them. No raw packets or memory contents, personal data, addresses, system inventory, or game FPS."
+                                                        <TextBlock Text="Records local health summaries and a bounded history of RPM, native gauge checks, and needle updates for up to 24 hours. Export while Wisp is still running to include detailed startup and recent samples. Log segments expire after 7 days; exported ZIPs stay until deleted. No raw packets, memory dumps, personal data, network addresses, or game FPS."
                                                                    Foreground="{DynamicResource FaintBrush}" TextWrapping="Wrap"
                                                                    FontSize="10" LineHeight="15" Margin="0,4,0,0" />
                                                         <WrapPanel Margin="0,10,0,0">

@@ -8,7 +8,7 @@ public sealed class ReleaseNotesCatalogTests
     public void CatalogCoversEveryDocumentedPostLaunchVersionInDescendingOrder()
     {
         Assert.Equal(
-            ["1.1.3", "1.1.2", "1.1.1", "1.1", "1.0.12", "1.0.11", "1.0.10", "1.0.8", "1.0.7", "1.0.6", "1.0.5", "1.0.4", "1.0.3", "1.0.2", "1.0.1"],
+            ["1.1.4", "1.1.3", "1.1.2", "1.1.1", "1.1", "1.0.12", "1.0.11", "1.0.10", "1.0.8", "1.0.7", "1.0.6", "1.0.5", "1.0.4", "1.0.3", "1.0.2", "1.0.1"],
             ReleaseNotesCatalog.Entries.Select(entry => entry.Version));
         Assert.True(ReleaseNotesCatalog.Entries[0].IsCurrent);
         Assert.All(ReleaseNotesCatalog.Entries.Skip(1), entry => Assert.False(entry.IsCurrent));
@@ -20,12 +20,12 @@ public sealed class ReleaseNotesCatalogTests
     }
 
     [Fact]
-    public void CurrentHotfixDocumentsUpdatedStoreCompatibilityAndOptInVacuumDisplay()
+    public void HistoricalHotfixDocumentsUpdatedStoreCompatibilityAndOptInVacuumDisplay()
     {
-        var entry = ReleaseNotesCatalog.Entries[0];
+        var entry = ReleaseNotesCatalog.Entries.Single(entry => entry.Version == "1.1.3");
         Assert.Equal("1.1.3", entry.Version);
         Assert.Equal("COMPATIBILITY HOTFIX", entry.Label);
-        Assert.True(entry.IsCurrent);
+        Assert.False(entry.IsCurrent);
         Assert.Contains("3.440.853.0", entry.Summary, StringComparison.Ordinal);
         var text = string.Join(' ', entry.Groups.SelectMany(group => group.Items));
         Assert.Contains("Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC", text, StringComparison.Ordinal);

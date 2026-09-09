@@ -1,3 +1,4 @@
+using Wisp.App.DebugLogging;
 using Wisp.Core;
 
 namespace Wisp.App;
@@ -180,6 +181,22 @@ public sealed class NativeHudMemoryResolver
             forceSourceAudit);
     }
 
+    private NativeGaugeDirectResult ReadNativeGaugeWithDiagnostics(
+        IReadOnlyProcessMemory memory, ulong moduleBase, ulong source, bool isElectric,
+        bool forceStructuralValidation, ulong generation, int carOrdinal, string route)
+    {
+        _nativeGaugeResolver.DiagnosticsEnabled = TachDiagnostics.IsEnabled;
+        try
+        {
+            return _nativeGaugeResolver.Read(memory, moduleBase, source, isElectric, forceStructuralValidation);
+        }
+        finally
+        {
+            if (TachDiagnostics.IsEnabled)
+                TachDiagnostics.RecordNative(_nativeGaugeResolver.LastDiagnostics, generation, carOrdinal, route);
+        }
+    }
+
     public void Reset()
     {
         _cachedSource = 0;
@@ -207,12 +224,9 @@ public sealed class NativeHudMemoryResolver
             return baseline;
         }
 
-        var nativeGauge = _nativeGaugeResolver.Read(
-            memory,
-            moduleBase,
-            _cachedSource,
-            isElectric,
-            forceStructuralValidation);
+        var nativeGauge = ReadNativeGaugeWithDiagnostics(
+            memory, moduleBase, _cachedSource, isElectric, forceStructuralValidation,
+            generation, baseline.CarOrdinal, "refresh");
         if (!nativeGauge.IsAvailable)
         {
             return baseline;
@@ -464,12 +478,9 @@ public sealed class NativeHudMemoryResolver
             tachometerAvailable ? tachometerMaximumRpm : 0,
             assists);
 
-        var nativeGauge = _nativeGaugeResolver.Read(
-            memory,
-            moduleBase,
-            source,
-            isElectric,
-            forceStructuralValidation);
+        var nativeGauge = ReadNativeGaugeWithDiagnostics(
+            memory, moduleBase, source, isElectric, forceStructuralValidation,
+            generation, carOrdinal, "full");
         if (!nativeGauge.IsAvailable)
         {
             return snapshot;

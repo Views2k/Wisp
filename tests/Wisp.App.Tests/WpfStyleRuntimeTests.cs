@@ -10,6 +10,7 @@ using Xunit;
 
 namespace Wisp.App.Tests;
 
+[Collection("Tach diagnostics")]
 public sealed class WpfStyleRuntimeTests
 {
     private readonly ITestOutputHelper _output;
@@ -64,6 +65,10 @@ public sealed class WpfStyleRuntimeTests
             {
                 var application = new ResourceOnlyApplication();
                 application.Resources = LoadApplicationResources();
+                AnalogHudSceneTests.AssertOnCurrentDispatcher();
+                TachNeedleDiagnosticsTests.AssertOnCurrentDispatcher();
+                OverlayPresentationTests.AssertOnCurrentDispatcher();
+                NativeRendererIntegrationTests.AssertOnCurrentDispatcher();
                 BoostGaugeVisualsTests.AssertOnCurrentDispatcher();
                 BoostVacuumUiTests.AssertOnCurrentDispatcher();
                 ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher();

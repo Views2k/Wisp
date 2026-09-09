@@ -183,6 +183,7 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
             var nowUtc = _utcNow();
             if (nowUtc.UtcDateTime.Ticks >= Interlocked.Read(ref _expiresAtUtcTicks) || !_log.IsEnabled)
             {
+                TachDiagnostics.SetEnabled(false);
                 if (_log.ExpireIfNeeded(nowUtc))
                 {
                     TryPostExpiration();
@@ -270,6 +271,9 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                     DroppedRecords = _log.DroppedRecords,
                     CollectorFailures = Interlocked.Read(ref _collectorFailures)
                 });
+
+                if (TachDiagnostics.CollectInterval(nowUtc) is { } tachInterval)
+                    _log.TryLogTachInterval(tachInterval);
 
                 previousCollection = now;
                 previousRateAt = now;

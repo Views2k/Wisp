@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.1.4 - 2026-09-08
+
+- Move the live combustion Analogue HUD to a dedicated Direct3D11 and DirectComposition renderer to address tachometer stutter while Forza is focused.
+- Keep the original gauge artwork, native needle angle and blur, and existing playback timing. Digital and electric HUDs and Appearance previews continue using WPF.
+- Correct RPM fallback motion blur to use FH6's combustion needle shutter calculation when native needle data is unavailable.
+- Include telemetry, native needle source, and render-submission timing in local debug exports, grouped by logging period to help investigate remaining smoothness reports.
+
 ## 1.1.3 - 2026-09-08
 
 - Add the reviewed native HUD map for Xbox app / Microsoft Store FH6 `3.440.853.0` on Windows PC, retaining Store `3.430.771.0` and the existing Steam maps.

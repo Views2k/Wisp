@@ -1,6 +1,7 @@
 #define MyAppName "Wisp"
-#define MyAppVersion "1.1.3"
-#define MyAppDisplayVersion "1.1.3"
+#define MyAppVersion "1.1.4"
+#define MyAppDisplayVersion MyAppVersion
+#define MyAppOutputVersion MyAppVersion
 #define MyAppPublisher "Wisp"
 #define MyAppExeName "Wisp.exe"
 
@@ -17,7 +18,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\outputs
-OutputBaseFilename=Wisp-Setup-{#MyAppVersion}
+OutputBaseFilename=Wisp-Setup-{#MyAppOutputVersion}
 SetupIconFile=..\src\Wisp.App\Assets\Wisp.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64

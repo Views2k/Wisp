@@ -86,6 +86,10 @@ internal sealed class NonActivatingWindowDrag : IDisposable
         _windowHandle = new WindowInteropHelper(_window).Handle;
         _source = HwndSource.FromHwnd(_windowHandle);
         _source?.AddHook(WindowProcedure);
+        if (_source is not null)
+        {
+            OverlayPresentation.Initialize(_source);
+        }
         ApplyInputStyle();
     }
 
@@ -106,6 +110,12 @@ internal sealed class NonActivatingWindowDrag : IDisposable
         IntPtr longParameter,
         ref bool handled)
     {
+        if (OverlayPresentation.TryHandleWindowMessage(windowHandle, message, wordParameter, longParameter))
+        {
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         if (OverlayActivationPolicy.TryHandleWindowMessage(message, out var activationResult))
         {
             handled = true;

@@ -3,8 +3,10 @@ using System.IO.Compression;
 using System.Security;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
+using Wisp.Core;
 
 namespace Wisp.App.DebugLogging;
 
@@ -125,6 +127,7 @@ internal sealed class DebugLogService : IAsyncDisposable
 
     private readonly string _rootDirectory;
     private readonly Func<DateTimeOffset> _utcNow;
+    private readonly Func<TachCaptureExport?> _tachSnapshot;
     private readonly long _maximumSegmentBytes;
     private readonly int _maximumSegments;
     private readonly TimeSpan _maximumAge;
@@ -148,7 +151,8 @@ internal sealed class DebugLogService : IAsyncDisposable
         Func<DateTimeOffset>? utcNow = null,
         long maximumSegmentBytes = DefaultMaximumSegmentBytes,
         int maximumSegments = DefaultMaximumSegments,
-        TimeSpan? maximumAge = null)
+        TimeSpan? maximumAge = null,
+        Func<TachCaptureExport?>? tachSnapshot = null)
     {
         if (maximumSegmentBytes < 256)
         {
@@ -163,6 +167,7 @@ internal sealed class DebugLogService : IAsyncDisposable
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp", "DebugLogs")
             : Path.GetFullPath(rootDirectory);
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+        _tachSnapshot = tachSnapshot ?? TachDiagnostics.Snapshot;
         _maximumSegmentBytes = maximumSegmentBytes;
         _maximumSegments = maximumSegments;
         _maximumAge = maximumAge ?? DefaultMaximumAge;
@@ -357,7 +362,21 @@ internal sealed class DebugLogService : IAsyncDisposable
         }
     }
 
-    public async Task<bool> ExportAsync(string destinationPath, string applicationVersion)
+    public void TryLogTachInterval(TachIntervalDiagnostic sample)
+    {
+        lock (_stateGate)
+        {
+            if (IsEnabled && !ExpireIfNeeded(sample.TimestampUtc))
+            {
+                TryQueue("tach_interval", sample);
+            }
+        }
+    }
+
+    public Task<bool> ExportAsync(string destinationPath, string applicationVersion) =>
+        Task.Run(() => ExportOnWorkerAsync(destinationPath, applicationVersion));
+
+    private async Task<bool> ExportOnWorkerAsync(string destinationPath, string applicationVersion)
     {
         try
         {
@@ -382,12 +401,14 @@ internal sealed class DebugLogService : IAsyncDisposable
                     var samples = new List<string>();
                     var events = new List<string>();
                     var health = new List<DebugHealthSample>();
+                    var tach = new List<TachIntervalDiagnostic>();
+                    var capture = _tachSnapshot();
                     var omittedRecords = 0L;
                     foreach (var segment in SafeSegmentFiles())
                     {
                         foreach (var line in File.ReadLines(segment))
                         {
-                            if (!TryCollectExportLine(line, samples, events, health))
+                            if (!TryCollectExportLine(line, samples, events, health, tach))
                             {
                                 omittedRecords++;
                             }
@@ -422,6 +443,24 @@ internal sealed class DebugLogService : IAsyncDisposable
                             $"Unreadable or unsupported records omitted: {omittedRecords}. Missing records limit diagnostic coverage.\n" +
                             "This export contains only Wisp telemetry health metrics selected by the debug logging whitelist.\n\n" +
                             DebugDiagnosticReport.Build(health, DroppedRecords));
+                        if (capture is not null || tach.Count > 0)
+                        {
+                            WriteEntry(archive, "tach-intervals.ndjson", tach.Select(sample => JsonSerializer.Serialize(sample, JsonOptions)));
+                            WriteEntry(archive, "tach-manifest.json", JsonSerializer.Serialize(
+                                TachDiagnosticReport.CreateManifest(tach, capture, DroppedRecords, omittedRecords), JsonOptions));
+                            WriteEntry(archive, "tach-report.txt", TachDiagnosticReport.Build(tach, capture));
+                            if (capture is not null)
+                            {
+                                WriteEntry(archive, "tach-input-startup.ndjson", capture.InputStartup.Select(SerializeDiagnostic));
+                                WriteEntry(archive, "tach-input-recent.ndjson", capture.InputRecent.Select(SerializeDiagnostic));
+                                WriteEntry(archive, "tach-native-startup.ndjson", capture.NativeStartup.Select(SerializeDiagnostic));
+                                WriteEntry(archive, "tach-native-recent.ndjson", capture.NativeRecent.Select(SerializeDiagnostic));
+                                WriteEntry(archive, "tach-needle-startup.ndjson", capture.NeedleStartup.Select(SerializeDiagnostic));
+                                WriteEntry(archive, "tach-needle-recent.ndjson", capture.NeedleRecent.Select(SerializeDiagnostic));
+                                WriteEntry(archive, "tach-lifecycle.ndjson", capture.Lifecycle.Select(SerializeDiagnostic));
+                                WriteEntry(archive, "tach-native-context.ndjson", capture.NativeContexts.Select(SerializeDiagnostic));
+                            }
+                        }
                     }
 
                     File.Move(temporaryPath, destination, overwrite: true);
@@ -642,7 +681,10 @@ internal sealed class DebugLogService : IAsyncDisposable
         }
     }
 
-    private static bool TryCollectExportLine(string line, List<string> samples, List<string> events, List<DebugHealthSample> health)
+    private static string SerializeDiagnostic<T>(T value) => JsonSerializer.Serialize(value, JsonOptions);
+
+    private static bool TryCollectExportLine(string line, List<string> samples, List<string> events,
+        List<DebugHealthSample> health, List<TachIntervalDiagnostic> tach)
     {
         try
         {
@@ -652,33 +694,101 @@ internal sealed class DebugLogService : IAsyncDisposable
             var payload = root.GetProperty("payload").GetRawText();
             if (kind == "sample")
             {
-                samples.Add(payload);
-                return true;
+                var sample = JsonSerializer.Deserialize<DebugTelemetrySample>(payload, JsonOptions);
+                if (sample is not null)
+                {
+                    samples.Add(JsonSerializer.Serialize(CreateExportSample(sample), JsonOptions));
+                    return true;
+                }
             }
             else if (kind == "event")
             {
-                events.Add(payload);
-                return true;
+                var debugEvent = JsonSerializer.Deserialize<DebugEvent>(payload, JsonOptions);
+                if (debugEvent is not null && Enum.IsDefined(debugEvent.Code) && Enum.IsDefined(debugEvent.Category))
+                {
+                    events.Add(JsonSerializer.Serialize(debugEvent, JsonOptions));
+                    return true;
+                }
             }
             else if (kind == "health")
             {
                 var sample = JsonSerializer.Deserialize<DebugHealthSample>(payload, JsonOptions);
                 if (sample is not null)
                 {
-                    health.Add(sample);
+                    health.Add(sample with
+                    {
+                        SessionId = TachDiagnosticReport.SafeCaptureId(sample.SessionId) ?? string.Empty,
+                        NativeStatus = SafeEnum<NativeAssistProviderStatus>(sample.NativeStatus),
+                        GameplayVisibility = SafeEnum<NativeGameplayVisibility>(sample.GameplayVisibility)
+                    });
+                    return true;
+                }
+            }
+            else if (kind == "tach_interval")
+            {
+                var interval = JsonSerializer.Deserialize<TachIntervalDiagnostic>(payload, JsonOptions);
+                if (interval is not null && TachDiagnosticReport.SanitizeInterval(interval) is { } safe)
+                {
+                    tach.Add(safe);
                     return true;
                 }
             }
         }
-        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException or
+            ArgumentException or NotSupportedException)
         {
             // Partial records are counted without copying their contents into the export.
         }
         return false;
     }
 
-    private static void WriteEntry(ZipArchive archive, string name, IEnumerable<string> lines) =>
-        WriteEntry(archive, name, string.Join('\n', lines) + (lines.Any() ? "\n" : string.Empty));
+    private static JsonObject CreateExportSample(DebugTelemetrySample sample)
+    {
+        var safe = sample with
+        {
+            Drivetrain = sample.Drivetrain is null ? null : SafeEnum<DrivetrainType>(sample.Drivetrain),
+            SpeedUnit = SafeEnum<SpeedUnit>(sample.SpeedUnit),
+            SpeedSource = SafeEnum<SpeedSourceMode>(sample.SpeedSource),
+            Gear = sample.Gear is null ? null : SafeEnum<TransmissionGear>(sample.Gear),
+            CalibrationState = sample.CalibrationState is null ? null : SafeCalibrationState(sample.CalibrationState),
+            NativeProviderStatus = SafeEnum<NativeAssistProviderStatus>(sample.NativeProviderStatus),
+            ExactRedlineStatus = SafeEnum<ExactRedlineStatus>(sample.ExactRedlineStatus),
+            GameplayHudVisibility = SafeEnum<NativeGameplayVisibility>(sample.GameplayHudVisibility),
+            OverlayLayout = SafeEnum<HudLayoutMode>(sample.OverlayLayout)
+        };
+        var payload = (JsonObject)JsonSerializer.SerializeToNode(safe, JsonOptions)!;
+        payload["game_fps"] = null;
+        payload["game_fps_status"] = "not_available_in_fh6_data_out";
+        return payload;
+    }
+
+    private static string SafeEnum<T>(string? value) where T : struct, Enum =>
+        value is not null && Enum.GetNames<T>().Contains(value, StringComparer.Ordinal) ? value : "Unknown";
+
+    private static string SafeCalibrationState(string value) => value switch
+    {
+        "trusted" or "sample_accepted" or "not_driving" or "stale_telemetry" or
+        "ground_speed_out_of_range" or "invalid_wheel_values" or "wheel_speed_too_low" or
+        "tire_slip" or "steering_input" or "cornering_acceleration" or "longitudinal_acceleration" or
+        "longitudinal_deceleration" or "braking_input" or "driven_axle_unloaded" or
+        "wheel_speeds_disagree" or "implausible_radius" or "candidate_radius_outlier" or
+        "stable_consensus_pending" or "replacement_consensus_pending" or "replacement_sample_rejected" or
+        "replacement_window_exhausted" or "not_available" => value,
+        _ => "unknown"
+    };
+
+    private static void WriteEntry(ZipArchive archive, string name, IEnumerable<string> lines)
+    {
+        var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
+        using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+        {
+            NewLine = "\n"
+        };
+        foreach (var line in lines)
+        {
+            writer.WriteLine(line);
+        }
+    }
 
     private static void WriteEntry(ZipArchive archive, string name, string content)
     {
