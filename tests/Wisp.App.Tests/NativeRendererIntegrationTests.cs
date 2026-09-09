@@ -99,6 +99,7 @@ internal static class NativeRendererIntegrationTests
         var previousOverlay = controller.Overlay;
         var hwnd = new WindowInteropHelper(window).Handle;
         var root = Assert.IsType<Grid>(window.FindName("RootPanel"));
+        var viewbox = Assert.IsType<Viewbox>(window.FindName("RootViewbox"));
         var gForce = Assert.IsAssignableFrom<FrameworkElement>(window.FindName("AttachedNativeGForce"));
         controller.Overlay = window;
         controller.Settings.OverlayWidthScale = 4d / 3;
@@ -137,7 +138,9 @@ internal static class NativeRendererIntegrationTests
             var top = enabled ? 72d : 0;
             Assert.Equal(293.5 + top, root.Height);
             Assert.Equal((293.5 + top) * 4 / 3, window.Height, 6);
-            Assert.Equal(top * 4 / 3, gauge.TransformToAncestor(window).Transform(new Point()).Y, 6);
+            // The HWND rounds to physical pixels before the Viewbox scales its content.
+            Assert.Equal(top * viewbox.ActualHeight / root.Height,
+                gauge.TransformToAncestor(window).Transform(new Point()).Y, 6);
             Assert.Equal(enabled ? Visibility.Visible : Visibility.Collapsed, gForce.Visibility);
             Assert.True(window.IsVisible);
             Assert.True(gauge.IsVisible);
