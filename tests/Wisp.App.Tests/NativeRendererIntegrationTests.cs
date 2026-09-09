@@ -159,6 +159,21 @@ internal static class NativeRendererIntegrationTests
                         .DistinctBy(row => (row.ControlId, row.AppliedTimestamp)).ToArray();
                     return fresh.Length >= 4 && fresh.Select(row => row.ReceivedTimestamp).Distinct().Count() >= 2;
                 }, 2000);
+                var renderer = TachDiagnostics.Snapshot()!.RendererRecent
+                    .Where(row => row.HostWindowHandle == hwnd.ToInt64() && row.StartedTimestamp >= started)
+                    .ToArray();
+                var presented = renderer.Where(row => row.Stage == "present" && row.Result == "submitted").ToArray();
+                Assert.NotEmpty(presented);
+                Assert.All(presented, row =>
+                {
+                    Assert.True(row.SampleTimestamp is > 0 && row.SampleTimestamp <= row.StartedTimestamp);
+                    Assert.True(row.QueuedTimestamp is > 0 && row.QueuedTimestamp <= row.SampleTimestamp);
+                    Assert.Equal(0, row.HResult);
+                });
+                Assert.Contains(renderer, row => row.Stage == "draw" && row.Result == "ready" &&
+                    row.DrawCommands > 0 && row.MapCount == row.DrawCommands &&
+                    row.NativeDrawTicks > 0 && row.NativeDrawTicks >= row.MapTicks &&
+                    row.CompletedTimestamp >= row.StartedTimestamp + row.NativeDrawTicks);
             }
             else
             {

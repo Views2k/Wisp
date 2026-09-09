@@ -14,13 +14,19 @@ internal sealed class AnalogHudPlayback
     private double _previousAngle = double.NaN;
     private long _previousTimestamp;
 
-    internal void Observe(NativeGaugeFrame frame, long timestamp)
+    internal bool HasNativeNeedle(long timestamp) => _usingNative && _native.HasFreshState(timestamp);
+
+    internal void Observe(NativeGaugeFrame frame, long timestamp) => ObserveQueued(frame, timestamp, timestamp);
+
+    internal void ObserveQueued(NativeGaugeFrame frame, long publicationTimestamp, long consumptionTimestamp)
     {
         _frame = frame;
         _hasFrame = true;
+        // A queued frame may predate the previous render sample without the
+        // clock rewinding. Check freshness at consumption, retaining source time.
         var native = _native.Observe(frame.CarOrdinal, frame.GameTimestampMilliseconds,
-            frame.NativeNeedleAngleDegrees, frame.NativeNeedleBlurAmount, timestamp,
-            frame.NativeGaugeObservedTimestamp > 0 ? frame.NativeGaugeObservedTimestamp : null,
+            frame.NativeNeedleAngleDegrees, frame.NativeNeedleBlurAmount, consumptionTimestamp,
+            frame.NativeGaugeObservedTimestamp > 0 ? frame.NativeGaugeObservedTimestamp : publicationTimestamp,
             frame.NativeGaugeSourceInvalidated, out _);
         if (native != _usingNative)
         {
@@ -30,7 +36,7 @@ internal sealed class AnalogHudPlayback
 
         var previousCar = _rpm.AcceptedCarOrdinal;
         _rpm.Observe(frame.CarOrdinal, frame.GameTimestampMilliseconds, frame.EngineRpm,
-            timestamp, frame.ReceivedTimestamp);
+            consumptionTimestamp, frame.ReceivedTimestamp ?? publicationTimestamp);
         if (previousCar is int previous && _rpm.AcceptedCarOrdinal is int current && previous != current)
             ResetBlur();
     }

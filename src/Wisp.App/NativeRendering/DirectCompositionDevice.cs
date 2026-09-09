@@ -29,6 +29,22 @@ internal struct DirectCompositionDrawCommand
     public float ParameterX, ParameterY, ParameterZ, ParameterW;
 }
 
+// CPU elapsed QPC ticks; these do not measure GPU execution or physical display.
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct DirectCompositionDrawMetrics
+{
+    public long TotalTicks, SetupTicks, MapTicks, MaximumMapTicks;
+    public uint MapCount, DrawCount;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct DirectCompositionPresentMetrics
+{
+    public long DurationTicks;
+    public int HResult;
+    public uint Reserved;
+}
+
 // The render worker owns this device. The HWND remains owned by WPF's UI thread.
 internal sealed class DirectCompositionDevice : IDisposable
 {
@@ -104,12 +120,30 @@ internal sealed class DirectCompositionDevice : IDisposable
         Marshal.ThrowExceptionForHR(Native.RemoveTexture(_handle, id));
     }
 
-    // A busy presentation queue returns false; the caller retries with the latest state.
+    // Legacy combined draw/present entry point for renderer contract checks.
     public bool RenderPresent(DirectCompositionDrawCommand[] commands, int count)
     {
         ValidateCommands(commands, count);
         LastRenderWasOccluded = false;
         var result = Native.Render(_handle, commands, (uint)count, 1);
+        LastRenderWasOccluded = result == 2;
+        Marshal.ThrowExceptionForHR(result);
+        return result == 0;
+    }
+
+    public void DrawForPresentation(DirectCompositionDrawCommand[] commands, int count, bool measure,
+        out DirectCompositionDrawMetrics metrics)
+    {
+        ValidateCommands(commands, count);
+        Marshal.ThrowExceptionForHR(Native.DrawForPresentation(_handle, commands, (uint)count, measure ? 1 : 0, out metrics));
+    }
+
+    // Retry a busy presentation without issuing another clear, map, or draw.
+    public bool TryPresent(bool measure, out DirectCompositionPresentMetrics metrics)
+    {
+        ThrowIfDisposed();
+        LastRenderWasOccluded = false;
+        var result = Native.TryPresent(_handle, measure ? 1 : 0, out metrics);
         LastRenderWasOccluded = result == 2;
         Marshal.ThrowExceptionForHR(result);
         return result == 0;
@@ -208,6 +242,11 @@ internal sealed class DirectCompositionDevice : IDisposable
         internal static extern int RemoveTexture(RendererHandle renderer, uint id);
         [DllImport(Library, EntryPoint = "WispRendererRender", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Render(RendererHandle renderer, [In] DirectCompositionDrawCommand[] commands, uint count, int present);
+        [DllImport(Library, EntryPoint = "WispRendererDrawForPresentation", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int DrawForPresentation(RendererHandle renderer, [In] DirectCompositionDrawCommand[] commands,
+            uint count, int measure, out DirectCompositionDrawMetrics metrics);
+        [DllImport(Library, EntryPoint = "WispRendererTryPresent", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int TryPresent(RendererHandle renderer, int measure, out DirectCompositionPresentMetrics metrics);
         [DllImport(Library, EntryPoint = "WispRendererWaitForFrame", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int WaitForFrame(RendererHandle renderer, uint timeoutMilliseconds, IntPtr cancellation,
             out DirectCompositionWaitResult result);

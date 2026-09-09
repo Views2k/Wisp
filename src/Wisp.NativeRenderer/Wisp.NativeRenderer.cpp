@@ -30,6 +30,29 @@ namespace
     };
     static_assert(sizeof(Constants) == 80, "Shader constant layout mismatch.");
 
+    int64_t Counter() noexcept
+    {
+        LARGE_INTEGER value{};
+        QueryPerformanceCounter(&value);
+        return value.QuadPart;
+    }
+
+    class CpuTimer final
+    {
+        int64_t* destination;
+        int64_t started;
+    public:
+        explicit CpuTimer(int64_t* ticks) noexcept : destination(ticks), started(ticks ? Counter() : 0) { }
+        ~CpuTimer() { if (destination) *destination = Counter() - started; }
+        int64_t Started() const noexcept { return started; }
+    };
+
+    HRESULT PresentationResult(HRESULT result) noexcept
+    {
+        if (result == DXGI_ERROR_WAS_STILL_DRAWING) return S_FALSE;
+        return result == DXGI_STATUS_OCCLUDED ? static_cast<HRESULT>(2) : result;
+    }
+
     class Renderer final
     {
     public:
@@ -41,6 +64,7 @@ namespace
         bool visible = false;
         float opacity = 1.0f;
         bool hasDrawn = false;
+        bool pendingPresentation = false;
         ComPtr<ID3D11Device> device;
         ComPtr<ID3D11DeviceContext> context;
         ComPtr<IDXGISwapChain2> swapChain;
@@ -172,6 +196,7 @@ namespace
         {
             CHECK_HR(CheckThread());
             if (visible) return HRESULT_FROM_WIN32(ERROR_INVALID_STATE);
+            pendingPresentation = false;
             if (!hasDrawn) return S_FALSE;
             ComPtr<IDXGIDevice> dxgiDevice;
             ComPtr<IDXGIAdapter> adapter;
@@ -215,6 +240,7 @@ namespace
             CHECK_HR(CheckThread());
             if (!ValidSize(targetWidth, targetHeight) || !std::isfinite(offsetX) || !std::isfinite(offsetY)) return E_INVALIDARG;
             captureReady = false;
+            pendingPresentation = false;
             if (width != targetWidth || height != targetHeight)
             {
                 context->OMSetRenderTargets(0, nullptr, nullptr);
@@ -252,9 +278,11 @@ namespace
             return S_OK;
         }
 
-        HRESULT Render(const WispDrawCommand* commands, uint32_t count, bool present)
+        HRESULT Draw(const WispDrawCommand* commands, uint32_t count, bool forPresentation, WispDrawMetrics* metrics)
         {
             CHECK_HR(CheckThread());
+            pendingPresentation = false;
+            CpuTimer drawTimer(metrics ? &metrics->totalTicks : nullptr);
             if ((count && !commands) || count > 4096 || !renderTarget) return E_INVALIDARG;
             for (uint32_t index = 0; index < count; ++index)
             {
@@ -288,6 +316,7 @@ namespace
             context->PSSetConstantBuffers(0, 1, &constantBuffer);
             ID3D11SamplerState* sample = sampler.Get();
             context->PSSetSamplers(0, 1, &sample);
+            if (metrics) metrics->setupTicks = Counter() - drawTimer.Started();
             for (uint32_t index = 0; index < count; ++index)
             {
                 const auto& c = commands[index];
@@ -298,20 +327,45 @@ namespace
                     {c.parameterX,c.parameterY,c.parameterZ,c.parameterW}
                 };
                 D3D11_MAPPED_SUBRESOURCE mapping{};
-                CHECK_HR(context->Map(constants.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapping));
+                const int64_t mapStarted = metrics ? Counter() : 0;
+                const HRESULT mapped = context->Map(constants.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapping);
+                if (metrics)
+                {
+                    const int64_t elapsed = Counter() - mapStarted;
+                    metrics->mapTicks += elapsed;
+                    if (elapsed > metrics->maximumMapTicks) metrics->maximumMapTicks = elapsed;
+                    ++metrics->mapCount;
+                }
+                CHECK_HR(mapped);
                 std::memcpy(mapping.pData, &data, sizeof(data));
                 context->Unmap(constants.Get(), 0);
                 ID3D11ShaderResourceView* view = textures.at(c.textureId).Get();
                 context->PSSetShaderResources(0, 1, &view);
                 context->PSSetShader(pixelShaders[c.shader].Get(), nullptr, 0);
                 context->Draw(6, 0);
+                if (metrics) ++metrics->drawCount;
             }
             hasDrawn = true;
             CHECK_HR(device->GetDeviceRemovedReason());
-            if (!present) { captureReady = true; return S_OK; }
+            captureReady = !forPresentation;
+            pendingPresentation = forPresentation;
+            return S_OK;
+        }
+
+        HRESULT TryPresent(WispPresentMetrics* metrics)
+        {
+            CHECK_HR(CheckThread());
+            if (!pendingPresentation) return HRESULT_FROM_WIN32(ERROR_INVALID_STATE);
+            CpuTimer presentTimer(metrics ? &metrics->durationTicks : nullptr);
             const HRESULT result = swapChain->Present(1, DXGI_PRESENT_DO_NOT_WAIT);
-            if (result == DXGI_ERROR_WAS_STILL_DRAWING) return S_FALSE;
-            return result == DXGI_STATUS_OCCLUDED ? static_cast<HRESULT>(2) : result;
+            if (result == S_OK) pendingPresentation = false;
+            return result;
+        }
+
+        HRESULT Render(const WispDrawCommand* commands, uint32_t count, bool present)
+        {
+            CHECK_HR(Draw(commands, count, present, nullptr));
+            return present ? PresentationResult(TryPresent(nullptr)) : S_OK;
         }
 
         HRESULT Capture(uint8_t* pixels, uint32_t byteCount, uint32_t stride)
@@ -361,7 +415,7 @@ HRESULT __cdecl WispRendererPrepareForResume(void* renderer) noexcept
 HRESULT __cdecl WispRendererSetOpacity(void* renderer, float opacity) noexcept
 { return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); if (!std::isfinite(opacity) || opacity < 0 || opacity > 1) return E_INVALIDARG; if (r.opacity == opacity) return S_OK; if (r.visible) { CHECK_HR(r.opacityEffect->SetOpacity(opacity)); CHECK_HR(r.composition->Commit()); } r.opacity = opacity; return S_OK; }); }
 HRESULT __cdecl WispRendererSetVisible(void* renderer, int visible) noexcept
-{ return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); const bool show = visible != 0; if (r.visible == show) return S_OK; CHECK_HR(r.opacityEffect->SetOpacity(show ? r.opacity : 0.0f)); CHECK_HR(r.composition->Commit()); r.visible = show; return S_OK; }); }
+{ return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); const bool show = visible != 0; if (!show) r.pendingPresentation = false; if (r.visible == show) return S_OK; CHECK_HR(r.opacityEffect->SetOpacity(show ? r.opacity : 0.0f)); CHECK_HR(r.composition->Commit()); r.visible = show; return S_OK; }); }
 HRESULT __cdecl WispRendererResize(void* renderer, uint32_t width, uint32_t height, float x, float y) noexcept
 { return Invoke(renderer, [&](Renderer& r) { return r.Resize(width,height,x,y); }); }
 HRESULT __cdecl WispRendererUploadTexture(void* renderer, uint32_t id, uint32_t width, uint32_t height,
@@ -371,6 +425,21 @@ HRESULT __cdecl WispRendererRemoveTexture(void* renderer, uint32_t id) noexcept
 { return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); if (!id) return E_INVALIDARG; r.textures.erase(id); return S_OK; }); }
 HRESULT __cdecl WispRendererRender(void* renderer, const WispDrawCommand* commands, uint32_t count, int present) noexcept
 { return Invoke(renderer, [&](Renderer& r) { return r.Render(commands,count,present != 0); }); }
+HRESULT __cdecl WispRendererDrawForPresentation(void* renderer, const WispDrawCommand* commands,
+    uint32_t count, int measure, WispDrawMetrics* metrics) noexcept
+{
+    if (!metrics) return E_POINTER;
+    *metrics = {};
+    return Invoke(renderer, [&](Renderer& r) { return r.Draw(commands, count, true, measure ? metrics : nullptr); });
+}
+HRESULT __cdecl WispRendererTryPresent(void* renderer, int measure, WispPresentMetrics* metrics) noexcept
+{
+    if (!metrics) return E_POINTER;
+    *metrics = {};
+    const HRESULT result = Invoke(renderer, [&](Renderer& r) { return r.TryPresent(measure ? metrics : nullptr); });
+    if (measure) metrics->hResult = result;
+    return PresentationResult(result);
+}
 HRESULT __cdecl WispRendererWaitForFrame(void* renderer, uint32_t timeout, HANDLE cancellation, uint32_t* result) noexcept
 {
     if (!result || timeout > 1000) return E_INVALIDARG;

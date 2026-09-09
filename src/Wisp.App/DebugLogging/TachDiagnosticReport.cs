@@ -11,6 +11,12 @@ internal static class TachDiagnosticReport
     private const string NeedleRoutePolicy =
         "Raw needle routes: immediate/composition record WPF transform application; directcomposition records successful Present submissions only, excluding queue-busy and occluded attempts. " +
         "AppliedTimestamp is the sampling time, not presentation completion. Neither route proves physical display. Interval applied counts combine routes; inspect raw routes before comparing rates.";
+    private const string RendererPolicy =
+        "Renderer events record completed CPU-side operations, including failed and queue-busy attempts. All timestamps and duration ticks use the process Stopwatch clock; optional CPU thread ticks must use that same frequency. " +
+        "Stage durations can contain waits; native setup/map timings are included in native draw, which is included in draw-stage time. Do not add nested durations. " +
+        "Present submitted means accepted by the presentation API, not displayed. Sequence correlates a prepared frame and its retry operations; use completion timestamps to order operations. Sample/received/queued timestamps can repeat across attempts. " +
+        "Input ages are measured at operation start, exclude missing/future origins, and do not measure physical display latency. " +
+        "Thrown draw/present operations retain stage elapsed time and HRESULT, but nested native durations are unavailable and recorded as zero for those error events.";
 
     internal static string? SafeCaptureId(string? value) =>
         value is { Length: 32 } && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f')
@@ -21,7 +27,9 @@ internal static class TachDiagnosticReport
         if (SafeCaptureId(sample.CaptureId) is null || !double.IsFinite(sample.IntervalMilliseconds) ||
             sample.IntervalMilliseconds <= 0 || sample.NativeReads is null || sample.Needles is null ||
             sample.NativeReads.Length > 1024 || sample.Needles.Length > 128 ||
-            sample.NativeReads.Any(read => read is null) || sample.Needles.Any(needle => needle is null))
+            sample.NativeReads.Any(read => read is null) || sample.Needles.Any(needle => needle is null) ||
+            sample.Renderer is null || sample.Renderer.Length > TachDiagnostics.RendererAggregateCapacity ||
+            sample.Renderer.Any(renderer => renderer is null || !ValidRendererCounts(renderer)))
             return null;
 
         return sample with
@@ -37,6 +45,11 @@ internal static class TachDiagnosticReport
             {
                 ControlKind = needle.ControlKind is "analogue" or "digital" ? needle.ControlKind : "unknown",
                 HostKind = HostKind(needle.HostKind)
+            }).ToArray(),
+            Renderer = sample.Renderer.Select(renderer => renderer with
+            {
+                Stage = TachDiagnostics.RendererStage(renderer.Stage),
+                Result = TachDiagnostics.RendererResult(renderer.Result)
             }).ToArray()
         };
     }
@@ -67,6 +80,14 @@ internal static class TachDiagnosticReport
             native_value_fields = "top-level nullable angle/blur are validated values; nested read.angle/read.blur are zero sanitization placeholders",
             native_changed_policy = "validated native angle changes counted across all observed reads; this is not displayed FPS",
             needle_route_policy = NeedleRoutePolicy,
+            renderer_schema_version = 1,
+            renderer_policy = RendererPolicy,
+            renderer_detail_policy = "every observed completed operation, bounded startup/recent rings; no sampling. In-progress operations at export have no completion record",
+            renderer_aggregate_policy = "at most 256 control/window/stage/result/HRESULT groups per collected interval; excess groups retain raw detail but omit aggregates. Counters reset each interval",
+            renderer_omission_counters = "cumulative within each capture; use the latest or maximum, do not sum intervals",
+            renderer_contention_omissions = capture?.RendererContentionOmissions,
+            renderer_aggregate_omissions = capture?.RendererAggregateOmissions,
+            renderer_invalid_omissions = capture?.RendererInvalidOmissions,
             native_context_records = capture?.NativeContexts.Length,
             native_context_policy = "active compatibility pack changes; at most the latest 32 records",
             contention_omissions = capture?.ContentionOmissions,
@@ -86,6 +107,9 @@ internal static class TachDiagnosticReport
                 capture.NeedleOverwritten, 18_000, 45_000, value => value.AppliedTimestamp),
             lifecycle = capture is null ? null : Coverage(Array.Empty<TachLifecycleDiagnostic>(), capture.Lifecycle,
                 capture.LifecycleOverwritten, 0, 1024, value => value.Timestamp),
+            renderer = capture is null ? null : Coverage(capture.RendererStartup, capture.RendererRecent,
+                capture.RendererOverwritten, TachDiagnostics.RendererStartupCapacity, TachDiagnostics.RendererRecentCapacity,
+                value => value.CompletedTimestamp),
             build = new
             {
                 diagnostic_build_id = ApplicationVersionInfo.DiagnosticBuildId,
@@ -108,6 +132,7 @@ internal static class TachDiagnosticReport
         text.AppendLine("Only the selected capture contributes to the measurements below. Other retained sessions remain in tach-intervals.ndjson.");
         text.AppendLine("Game FPS, GPU presentation and the physical display are not measured. Applied/changed values are not displayed frames.");
         text.AppendLine(NeedleRoutePolicy);
+        text.AppendLine(RendererPolicy);
         text.AppendLine("A steady RPM or native angle can correctly produce few changed values. These measurements alone cannot establish a renderer or Windows root cause.");
         if (capture is null)
         {
@@ -120,6 +145,7 @@ internal static class TachDiagnosticReport
             text.AppendLine($"Raw input startup/recent: {capture.InputStartup.Length}/{capture.InputRecent.Length}; recent overwritten: {capture.InputOverwritten}.");
             text.AppendLine($"Raw native startup/recent: {capture.NativeStartup.Length}/{capture.NativeRecent.Length}; recent overwritten: {capture.NativeOverwritten}.");
             text.AppendLine($"Raw needle startup/recent: {capture.NeedleStartup.Length}/{capture.NeedleRecent.Length}; recent overwritten: {capture.NeedleOverwritten}.");
+            text.AppendLine($"Raw renderer startup/recent: {capture.RendererStartup.Length}/{capture.RendererRecent.Length}; recent overwritten: {capture.RendererOverwritten}.");
             text.AppendLine($"Lifecycle retained: {capture.Lifecycle.Length}; overwritten: {capture.LifecycleOverwritten}.");
             text.AppendLine($"Collector contention omissions: {capture.ContentionOmissions}; native details sampled out: {capture.NativeDetailSampledOut}.");
             text.AppendLine("Startup is the first 60 seconds per stream, subject to capacity. Startup and recent histories overlap; consult tach-manifest.json before combining them.");
@@ -137,6 +163,7 @@ internal static class TachDiagnosticReport
         text.AppendLine($"Input received/drained/accepted/rejected/UI-selected: {Total(selected, interval => interval.InputReceived)}/{Total(selected, interval => interval.InputDrained)}/{Total(selected, interval => interval.InputAccepted)}/{Total(selected, interval => interval.InputRejected)}/{Total(selected, interval => interval.UiSelected)}.");
         text.AppendLine($"Accepted input rate: {Number(selected.Sum(interval => (double)interval.InputAccepted) / Math.Max(seconds, 0.001))}/second; observed RPM changes: {Total(selected, interval => interval.RpmChanges)}; maximum accepted gap: {Number(selected.Max(interval => interval.MaximumAcceptedGapMilliseconds))} ms.");
         text.AppendLine($"Fractional worker waits/deadline already due/signaled wakeups: {Total(selected, interval => interval.FractionalWaits)}/{Total(selected, interval => interval.DeadlineAlreadyDue)}/{Total(selected, interval => interval.WaitWakeups)}; maximum wait: {Number(selected.Max(interval => interval.MaximumWaitMilliseconds))} ms.");
+        AppendRenderer(text, selected);
         text.AppendLine("Native reads (all observed attempts; details are capped at 60 Hz plus state changes):");
         foreach (var group in selected.SelectMany(interval => interval.NativeReads)
                      .GroupBy(read => (read.Stage, read.Failure, read.Cache, read.Route)).Take(64))
@@ -156,6 +183,45 @@ internal static class TachDiagnosticReport
         text.AppendLine("Compare times with health.ndjson and your observation. One-second observations can miss brief focus changes; a low changed count alone is not evidence of lag.");
         return text.ToString();
     }
+
+    private static void AppendRenderer(StringBuilder text, TachIntervalDiagnostic[] selected)
+    {
+        var observations = selected.SelectMany(interval => interval.Renderer).ToArray();
+        text.AppendLine($"Renderer cumulative omissions (contention/aggregate capacity/invalid timing): {selected.Max(interval => interval.RendererContentionOmissions)}/{selected.Max(interval => interval.RendererAggregateOmissions)}/{selected.Max(interval => interval.RendererInvalidOmissions)}.");
+        if (observations.Length == 0)
+        {
+            text.AppendLine("No renderer-stage observations in these intervals. Older builds did not record these timings; absence is not zero rendering work.");
+            return;
+        }
+        text.AppendLine($"Present attempts submitted/busy/occluded/error: {RendererTotal(observations, "present", "submitted")}/{RendererTotal(observations, "present", "busy")}/{RendererTotal(observations, "present", "occluded")}/{RendererTotal(observations, "present", "error")}; frame-wait timeouts: {RendererTotal(observations, "frame_wait", "timeout")}.");
+        var longest = observations.Where(value => value.Count > 0)
+            .OrderByDescending(value => value.MaximumMilliseconds).FirstOrDefault();
+        if (longest is not null)
+            text.AppendLine($"Longest observed renderer operation: {longest.Stage}/{longest.Result}, {Number(longest.MaximumMilliseconds)} ms (control {longest.ControlId}, window handle {longest.HostWindowHandle}). This identifies where time was observed, not why the operation waited.");
+        text.AppendLine("Renderer stages by control and outcome (CPU-side elapsed time, including waits):");
+        foreach (var group in observations.GroupBy(value => (value.ControlId, value.HostWindowHandle, value.Stage, value.Result, value.HResult)).Take(256))
+        {
+            var count = group.Sum(value => (double)value.Count);
+            var mean = group.Sum(value => value.MeanMilliseconds * value.Count) / Math.Max(1, count);
+            var queueSamples = group.Sum(value => (double)value.QueueAgeSamples);
+            var queueAge = group.Sum(value => value.MeanQueueAgeMilliseconds * value.QueueAgeSamples) / Math.Max(1, queueSamples);
+            text.AppendLine($"  Control {group.Key.ControlId}, window handle {group.Key.HostWindowHandle}, {group.Key.Stage}/{group.Key.Result}, HRESULT 0x{group.Key.HResult:X8}: {Number(count)} operations; {Number(mean)} ms mean, {Number(group.Max(value => value.MaximumMilliseconds))} ms maximum.");
+            text.AppendLine($"    Draw commands/maps: {Number(group.Sum(value => (double)value.DrawCommands))}/{Number(group.Sum(value => (double)value.MapCount))}; total scene/setup/native draw/map/present: {Number(group.Sum(value => value.TotalSceneMilliseconds))}/{Number(group.Sum(value => value.TotalNativeSetupMilliseconds))}/{Number(group.Sum(value => value.TotalNativeDrawMilliseconds))}/{Number(group.Sum(value => value.TotalMapMilliseconds))}/{Number(group.Sum(value => value.TotalNativePresentMilliseconds))} ms; maximum single map: {Number(group.Max(value => value.MaximumMapMilliseconds))} ms.");
+            text.AppendLine($"    Queue age: {Number(queueAge)} ms mean, {Number(group.Max(value => value.MaximumQueueAgeMilliseconds))} ms maximum ({Number(queueSamples)} observations); discarded queued inputs: {Number(group.Sum(value => (double)value.QueueDropped))}.");
+        }
+    }
+
+    private static string RendererTotal(IEnumerable<TachRendererCounts> values, string stage, string result) =>
+        Number(values.Where(value => value.Stage == stage && value.Result == result).Sum(value => (double)value.Count));
+
+    private static bool ValidRendererCounts(TachRendererCounts value) =>
+        value.Count >= 0 && value.DrawCommands >= 0 && value.MapCount >= 0 && value.QueueDropped >= 0 &&
+        value.QueueAgeSamples >= 0 && value.ReceiveAgeSamples >= 0 && value.SampleAgeSamples >= 0 && value.CpuThreadSamples >= 0 &&
+        new[] { value.MeanMilliseconds, value.MaximumMilliseconds, value.TotalMapMilliseconds, value.MaximumMapMilliseconds,
+            value.TotalSceneMilliseconds, value.TotalNativeSetupMilliseconds, value.TotalNativeDrawMilliseconds,
+            value.TotalNativePresentMilliseconds, value.MeanQueueAgeMilliseconds, value.MaximumQueueAgeMilliseconds,
+            value.MeanReceiveAgeMilliseconds, value.MaximumReceiveAgeMilliseconds, value.MeanSampleAgeMilliseconds,
+            value.MaximumSampleAgeMilliseconds, value.TotalCpuThreadMilliseconds }.All(number => double.IsFinite(number) && number >= 0);
 
     internal static object Coverage<T>(T[] startup, T[] recent, long overwritten,
         int startupCapacity, int recentCapacity, Func<T, long> timestamp) where T : struct => new

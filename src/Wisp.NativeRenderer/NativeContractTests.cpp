@@ -4,6 +4,7 @@
 #include <vector>
 #include <thread>
 #include <cmath>
+#include <dxgi.h>
 
 static int failures = 0;
 static void Require(bool passed, const char* name)
@@ -90,6 +91,46 @@ int main()
     uint32_t waited = 99;
     Require(SUCCEEDED(WispRendererWaitForFrame(renderer, 100, cancellation, &waited)) && waited == 2, "cancellation wins over frame readiness");
     CloseHandle(cancellation);
+    WispDrawMetrics drawMetrics{};
+    WispPresentMetrics presentMetrics{};
+    Require(WispRendererTryPresent(renderer, 1, &presentMetrics) == HRESULT_FROM_WIN32(ERROR_INVALID_STATE),
+        "capture-only target cannot be presented");
+    Require(presentMetrics.hResult == HRESULT_FROM_WIN32(ERROR_INVALID_STATE), "invalid presentation status is recorded");
+    Require(SUCCEEDED(WispRendererDrawForPresentation(renderer, overlap, 2, 1, &drawMetrics)), "separate measured draw");
+    Require(drawMetrics.drawCount == 2 && drawMetrics.mapCount == 2 && drawMetrics.totalTicks > 0 &&
+        drawMetrics.setupTicks > 0 && drawMetrics.mapTicks >= drawMetrics.maximumMapTicks &&
+        drawMetrics.totalTicks >= drawMetrics.setupTicks + drawMetrics.mapTicks,
+        "CPU draw metrics include setup and each constant map");
+    Require(WispRendererCapture(renderer, pixels.data(), static_cast<uint32_t>(pixels.size()), 1152) == E_INVALIDARG,
+        "presentation draw does not enable readback");
+    const HRESULT separatePresent = WispRendererTryPresent(renderer, 1, &presentMetrics);
+    Require(separatePresent == S_OK || separatePresent == S_FALSE || separatePresent == 2, "separate presentation result");
+    Require(presentMetrics.durationTicks > 0 && presentMetrics.hResult ==
+        (separatePresent == S_FALSE ? DXGI_ERROR_WAS_STILL_DRAWING : separatePresent == 2 ? DXGI_STATUS_OCCLUDED : S_OK),
+        "presentation metrics preserve original DXGI status");
+    const HRESULT repeatedPresent = WispRendererTryPresent(renderer, 0, &presentMetrics);
+    Require(separatePresent == S_OK ? repeatedPresent == HRESULT_FROM_WIN32(ERROR_INVALID_STATE) :
+        repeatedPresent == S_OK || repeatedPresent == S_FALSE || repeatedPresent == 2,
+        "successful presentation consumes the frame; busy or occluded can retry without drawing");
+    Require(presentMetrics.durationTicks == 0 && presentMetrics.hResult == 0 && presentMetrics.reserved == 0,
+        "disabled presentation metrics stay zero");
+    Require(SUCCEEDED(WispRendererDrawForPresentation(renderer, overlap, 2, 0, &drawMetrics)) &&
+        drawMetrics.totalTicks == 0 && drawMetrics.setupTicks == 0 && drawMetrics.mapTicks == 0 &&
+        drawMetrics.maximumMapTicks == 0 && drawMetrics.mapCount == 0 && drawMetrics.drawCount == 0,
+        "disabled draw metrics stay zero");
+    Require(SUCCEEDED(WispRendererSetVisible(renderer, 0)) &&
+        WispRendererTryPresent(renderer, 0, &presentMetrics) == HRESULT_FROM_WIN32(ERROR_INVALID_STATE),
+        "hide invalidates a pending presentation even when already hidden");
+    Require(SUCCEEDED(WispRendererDrawForPresentation(renderer, overlap, 2, 0, &drawMetrics)) &&
+        SUCCEEDED(WispRendererResize(renderer, 288, 288, 2.5f, 3.5f)) &&
+        WispRendererTryPresent(renderer, 0, &presentMetrics) == HRESULT_FROM_WIN32(ERROR_INVALID_STATE),
+        "resize invalidates a pending presentation");
+    Require(SUCCEEDED(WispRendererDrawForPresentation(renderer, overlap, 2, 0, &drawMetrics)) &&
+        SUCCEEDED(WispRendererRender(renderer, overlap, 2, 0)) &&
+        WispRendererTryPresent(renderer, 0, &presentMetrics) == HRESULT_FROM_WIN32(ERROR_INVALID_STATE),
+        "capture draw replaces and invalidates pending presentation");
+    Require(WispRendererDrawForPresentation(renderer, overlap, 2, 1, nullptr) == E_POINTER &&
+        WispRendererTryPresent(renderer, 1, nullptr) == E_POINTER, "metrics output is required");
     Require(SUCCEEDED(WispRendererSetVisible(renderer, 1)) && SUCCEEDED(WispRendererSetVisible(renderer, 0)), "independent visual show and hide");
     Require(SUCCEEDED(WispRendererSetVisible(renderer, 0)), "hide before visible-HWND readiness check");
     SetWindowPos(window, HWND_BOTTOM, GetSystemMetrics(SM_XVIRTUALSCREEN)+40, GetSystemMetrics(SM_YVIRTUALSCREEN)+40,

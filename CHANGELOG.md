@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.2.1 - Test candidate
+
+- Separate queued telemetry publication time from consumption time so a sample queued during rendering cannot falsely trigger the needle's clock-rewind reset.
+- Draw the Analogue HUD once per pending frame, then retry only Present while the queue is busy. Continue consuming telemetry; discard pending pixels when their layout or source becomes invalid, or after occlusion.
+- Add bounded, nonblocking debug capture for frame waits, scene building, drawing, buffer mapping, presentation results and retry delays. These measure CPU-side operations, not displayed FPS.
+- Retain the existing renderer, artwork, interpolation, settings and Record and Compare Runs features. Remaining choppiness under game load still requires confirmation on affected PCs.
+
 ## 1.2.0 - 2026-09-09
 
 - Record drives locally from Dashboard or Runs, with optional shortcuts, a start countdown, timed stops and markers for moments to review.

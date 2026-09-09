@@ -15,11 +15,26 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.2.1",
+            "September 9, 2026",
+            "TACHOMETER TEST BUILD",
+            "Corrects queued needle timing and busy frame retries, with detailed diagnostics for remaining choppiness reports.",
+            true,
+            [
+                Group("Analogue tachometer",
+                    "Keeps queued telemetry arrival times separate from the render clock, preventing a late-consumed sample from falsely resetting needle playback.",
+                    "Retries a busy frame submission using the already drawn HUD, avoiding repeated drawing work while Windows cannot accept the frame.",
+                    "Retains the existing needle interpolation, artwork, settings and Record and Compare Runs features."),
+                Group("Test feedback",
+                    "Debug exports now separate frame-readiness waits, scene building, drawing, buffer mapping and presentation attempts, including busy retries and queued sample ages.",
+                    "This is a test candidate for remaining choppiness under game load. Improvement still needs confirmation on affected PCs.")
+            ]),
+        new(
             "1.2",
             "September 9, 2026",
             "RECORD & COMPARE RUNS",
             "Record a drive, review what happened, and compare it with another run inside Wisp.",
-            true,
+            false,
             [
                 Group("Record a run",
                     "Start and stop from Dashboard or Runs, with an optional keyboard shortcut while driving.",

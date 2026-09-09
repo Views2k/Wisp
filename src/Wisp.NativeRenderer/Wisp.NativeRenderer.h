@@ -12,6 +12,20 @@ struct WispDrawCommand
 };
 static_assert(sizeof(WispDrawCommand) == 80, "Managed/native draw ABI mismatch.");
 
+struct WispDrawMetrics
+{
+    int64_t totalTicks, setupTicks, mapTicks, maximumMapTicks;
+    uint32_t mapCount, drawCount;
+};
+struct WispPresentMetrics
+{
+    int64_t durationTicks;
+    int32_t hResult;
+    uint32_t reserved;
+};
+static_assert(sizeof(WispDrawMetrics) == 40, "Managed/native draw metrics ABI mismatch.");
+static_assert(sizeof(WispPresentMetrics) == 16, "Managed/native present metrics ABI mismatch.");
+
 #ifdef WISP_RENDERER_IMPORT
 #define WISP_API extern "C" __declspec(dllimport)
 #else
@@ -28,6 +42,11 @@ WISP_API HRESULT __cdecl WispRendererUploadTexture(void* renderer, uint32_t id, 
     uint32_t stride, const uint8_t* pixels, uint32_t byteCount) noexcept;
 WISP_API HRESULT __cdecl WispRendererRemoveTexture(void* renderer, uint32_t id) noexcept;
 WISP_API HRESULT __cdecl WispRendererRender(void* renderer, const WispDrawCommand* commands, uint32_t count, int present) noexcept;
+// Optional CPU timings use QPC ticks. Disabled measurement returns zeroed metrics without reading QPC.
+WISP_API HRESULT __cdecl WispRendererDrawForPresentation(void* renderer, const WispDrawCommand* commands,
+    uint32_t count, int measure, WispDrawMetrics* metrics) noexcept;
+// A busy/occluded result retains the drawn frame for retry; successful presentation consumes it.
+WISP_API HRESULT __cdecl WispRendererTryPresent(void* renderer, int measure, WispPresentMetrics* metrics) noexcept;
 WISP_API HRESULT __cdecl WispRendererWaitForFrame(void* renderer, uint32_t timeoutMilliseconds, HANDLE cancellation, uint32_t* result) noexcept;
 WISP_API HRESULT __cdecl WispRendererCapture(void* renderer, uint8_t* pixels, uint32_t byteCount, uint32_t stride) noexcept;
 WISP_API HRESULT __cdecl WispRendererDeviceRemovedReason(void* renderer) noexcept;
