@@ -351,7 +351,7 @@ public sealed class WpfStyleRuntimeTests
                 CalmSidebarTests.AssertOnCurrentDispatcher(mainWindow, surface);
                 MaintenancePersistenceTests.AssertProfileSaveRetryOnCurrentDispatcher();
 
-                tabs.SelectedIndex = 2;
+                tabs.SelectedIndex = 3;
                 surface.UpdateLayout();
                 mainWindow.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.DataBind);
                 var logo = Assert.IsType<Image>(mainWindow.FindName("HeaderLogo"));

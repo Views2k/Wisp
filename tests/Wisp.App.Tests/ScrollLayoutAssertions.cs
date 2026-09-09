@@ -14,11 +14,11 @@ internal static class ScrollLayoutAssertions
         (int TabIndex, string ViewName)[] pages =
         [
             (0, "DashboardScaleView"),
-            (1, "AppearanceScaleView"),
-            (2, "DiagnosticsScaleView"),
-            (3, "ProfilesScaleView"),
-            (4, "SetupScaleView"),
-            (6, "ReleaseNotesScaleView")
+            (2, "AppearanceScaleView"),
+            (3, "DiagnosticsScaleView"),
+            (4, "ProfilesScaleView"),
+            (5, "SetupScaleView"),
+            (7, "ReleaseNotesScaleView")
         ];
         var scrollingCases = 0;
         var compactCases = 0;

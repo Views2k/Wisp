@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:Wisp.App"
+        xmlns:runs="clr-namespace:Wisp.App.Runs"
         Title="Wisp" Width="1080" Height="780" MinWidth="720" MinHeight="440"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
         Foreground="{DynamicResource TextBrush}" Background="{DynamicResource WindowBrush}" WindowStartupLocation="CenterScreen" Cursor="Arrow"
@@ -124,14 +125,16 @@
                         <TranslateTransform x:Name="SidebarTranslation" />
                     </Border.RenderTransform>
                     <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <TextBlock Text="Workspace" Margin="22,24,0,8" FontSize="11" Foreground="{DynamicResource MutedBrush}" />
                         <ListBox x:Name="SidebarNavigation" Grid.Row="1" Margin="10,0" Padding="0"
                                  Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource SidebarItemStyle}"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 VirtualizingPanel.IsVirtualizing="False" VerticalAlignment="Top"
                                  SelectedIndex="{Binding SelectedIndex, ElementName=RootTabs, Mode=TwoWay}"
                                  AutomationProperties.Name="Wisp pages">
                             <ListBoxItem AutomationProperties.Name="Dashboard"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,1 H7 V7 H1 Z M11,1 H17 V7 H11 Z M1,11 H7 V17 H1 Z M11,11 H17 V17 H11 Z" /><TextBlock Text="Dashboard" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                            <ListBoxItem AutomationProperties.Name="Runs"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,1 V17 H18 M4,12 L8,7 L12,10 L17,3" /><TextBlock Text="Runs" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Appearance"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,3 H7 M11,3 H17 M1,9 H11 M15,9 H17 M1,15 H4 M8,15 H17 M7,1 V5 H11 V1 Z M11,7 V11 H15 V7 Z M4,13 V17 H8 V13 Z" /><TextBlock Text="Appearance" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Diagnostics"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M0,9 H4 L7,2 L11,16 L14,9 H18" /><TextBlock Text="Diagnostics" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Profiles"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M3,2 H15 V6 H3 Z M3,8 H15 V12 H3 Z M3,14 H15 V18 H3 Z" /><TextBlock Text="Profiles" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
@@ -368,10 +371,30 @@
                                                     VerticalAlignment="Center" Click="ToggleLock_Click" />
                                         </Grid>
                                     </Border>
+                                    <Border x:Name="DashboardRunPanel" Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Record a run" FontWeight="SemiBold" FontSize="15" />
+                                            <TextBlock Text="Save a drive, explore the graphs, and compare another run." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,5,0,12" />
+                                            <WrapPanel>
+                                                <Button Content="{Binding RecordButtonText}" Command="{Binding ToggleRecordingCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,8" AutomationProperties.Name="Start or stop recording a run" />
+                                                <Button Content="Open Runs" Click="OpenRuns_Click" Margin="0,0,0,8" />
+                                                <Button Content="Mark moment" Command="{Binding MarkMomentCommand}" Margin="8,0,0,8">
+                                                    <Button.Style><Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsRecording}" Value="False"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                                    </Style.Triggers></Style></Button.Style>
+                                                </Button>
+                                            </WrapPanel>
+                                            <TextBlock Text="{Binding RecordingStatus}" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" AutomationProperties.LiveSetting="Polite" />
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
                                 </Viewbox>
                                 </Decorator>
                             </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem x:Name="RunsTab" Header="Runs">
+                            <runs:RunsPage x:Name="RunsSurface" />
                         </TabItem>
 
                         <TabItem Header="Appearance">

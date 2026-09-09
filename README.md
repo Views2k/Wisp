@@ -8,6 +8,27 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
+## New in Wisp 1.2
+
+Record a drive and compare it with another run without leaving Wisp. Start from
+Dashboard or Runs, or set a recording shortcut. Add a countdown, choose a timed
+stop, and mark moments while driving. Runs stay on your PC, with names, tune
+labels and notes.
+
+Open **Show graphs** to review speed, driver inputs, engine readings, G-force
+and tire temperatures. Compare power and torque against RPM, inspect individual
+readings, or select a section for its own statistics. Run A and Run B use
+different colors and line styles in both Wisp and exported images.
+
+Compare whole recordings or match an acceleration speed range. Findings explain
+what the telemetry shows, with starting conditions and missing data called out.
+Export a report image, raw CSV, or a Wisp run file that someone else can open.
+Recordings are limited to ten minutes; Wisp does not identify tunes automatically
+or record gameplay video.
+
+[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
+[1.2 release notes](docs/releases/Wisp-1.2.0-release-notes.md)
+
 ## New in Wisp 1.1.4
 
 Addresses choppy Analogue tachometer motion while Forza is focused. The live

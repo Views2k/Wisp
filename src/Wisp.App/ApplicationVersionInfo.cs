@@ -19,8 +19,9 @@ public static class ApplicationVersionInfo
         ? $"WHEEL-INDICATED SPEED PANEL {label} (private)"
         : $"WHEEL-INDICATED SPEED PANEL {DisplayVersion}";
 
-    public static string ReleaseHistoryIntroduction =>
-        $"Feature updates, hotfixes, and important refinements from every documented public release. The current {DisplayVersion} entry covers this release.";
+    public static string ReleaseHistoryIntroduction => DiagnosticBuildLabel is { Length: > 0 } label
+        ? $"You are testing {label}. The test features and previous public releases are listed below."
+        : $"Feature updates, hotfixes, and important refinements from every documented public release. The current {DisplayVersion} entry covers this release.";
 
     public static string Format(Version version) => Format(
         new SemanticVersion(version.Major, version.Minor, Math.Max(0, version.Build)));

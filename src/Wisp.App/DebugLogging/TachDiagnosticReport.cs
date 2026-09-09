@@ -206,7 +206,10 @@ internal static class TachDiagnosticReport
             var nativeFile = nativeRenderer.GetProperty("file").GetString();
             var nativeHash = nativeRenderer.GetProperty("sha256").GetString();
             var nativeBytes = nativeRenderer.GetProperty("bytes").GetInt64();
-            if (root.GetProperty("schema_version").GetInt32() != 1 || kind != "release" ||
+            var validBuildKind = kind == "release" ||
+                (kind == "private" && ApplicationVersionInfo.DiagnosticBuildId is { Length: > 0 } privateId &&
+                 root.TryGetProperty("private_build_id", out var packagedId) && packagedId.GetString() == privateId);
+            if (root.GetProperty("schema_version").GetInt32() != 1 || !validBuildKind ||
                 version != ApplicationVersionInfo.MachineVersion ||
                 revision is not { Length: 40 or 64 } || !revision.All(Uri.IsHexDigit) ||
                 hash is not { Length: 64 } || !hash.All(Uri.IsHexDigit) || bytes <= 0 ||

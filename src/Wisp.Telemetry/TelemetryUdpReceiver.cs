@@ -33,6 +33,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     private int _lastParseError;
     private string? _listenerError;
     private int _disposed;
+    private RunDatagramCapture? _runCapture;
 
     public TelemetryUdpReceiver(Fh6PacketParser? parser = null)
     {
@@ -49,6 +50,21 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     public long ReceivedDatagrams => Interlocked.Read(ref _receivedDatagrams);
     public long DrainedDatagrams => Interlocked.Read(ref _drainedDatagrams);
     public long LastDatagramTimestamp => Interlocked.Read(ref _lastDatagramTimestamp);
+
+    public RunDatagramCapture BeginRunCapture(int capacity = 4096)
+    {
+        ThrowIfDisposed();
+        var capture = new RunDatagramCapture(capacity);
+        if (Interlocked.CompareExchange(ref _runCapture, capture, null) is not null)
+            throw new InvalidOperationException("A run is already being recorded.");
+        return capture;
+    }
+
+    public void EndRunCapture(RunDatagramCapture capture, string reason = "Recording stopped")
+    {
+        if (Interlocked.CompareExchange(ref _runCapture, null, capture) == capture)
+            capture.Complete(reason);
+    }
 
     public bool IsRunning => Volatile.Read(ref _session)?.ReceiveTask is { IsCompleted: false };
 
@@ -273,6 +289,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                     cancellationToken).ConfigureAwait(false);
 
                 RecordDatagram(drained: false);
+                CaptureRunDatagram(buffer.AsSpan(0, result.ReceivedBytes));
                 ObserveDatagram(buffer.AsSpan(0, result.ReceivedBytes), TelemetryPacketDiagnosticKind.Received);
 
                 var receivedBytes = DrainToNewestDatagram(
@@ -332,6 +349,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                 SocketFlags.None,
                 ref remoteEndpoint);
             RecordDatagram(drained: true);
+            CaptureRunDatagram(buffer.AsSpan(0, receivedBytes));
             ObserveDatagram(buffer.AsSpan(0, receivedBytes), TelemetryPacketDiagnosticKind.Drained);
         }
 
@@ -346,6 +364,14 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
             Interlocked.Increment(ref _drainedDatagrams);
         }
         Interlocked.Exchange(ref _lastDatagramTimestamp, Stopwatch.GetTimestamp());
+    }
+
+    private void CaptureRunDatagram(ReadOnlySpan<byte> bytes)
+    {
+        var capture = Volatile.Read(ref _runCapture);
+        if (capture is null) return;
+        try { capture.Capture(bytes, LastDatagramTimestamp); }
+        catch { EndRunCapture(capture, "Recording capture stopped after an error"); }
     }
 
     private void ObserveDatagram(ReadOnlySpan<byte> bytes, TelemetryPacketDiagnosticKind kind)
@@ -401,6 +427,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
 
     private void ResetSessionState()
     {
+        Interlocked.Exchange(ref _runCapture, null)?.Complete("Telemetry listener changed");
         Volatile.Write(ref _latest, null);
         lock (_statisticsGate)
         {

@@ -113,7 +113,7 @@ internal static class CalmShellReview
     private sealed class Session
     {
         private static readonly string[] PageNames =
-            ["Dashboard", "Appearance", "Diagnostics", "Profiles", "Setup", "Extras", "Release Notes"];
+            ["Dashboard", "Runs", "Appearance", "Diagnostics", "Profiles", "Setup", "Extras", "Release Notes"];
         private readonly string _output, _settingsPath, _initialHudSettings;
         private readonly SettingsService _settingsService;
         private readonly Application _application;
@@ -295,7 +295,7 @@ internal static class CalmShellReview
             Add("loaded", 20, () =>
             {
                 Check(_window.IsLoaded && _report.ContentRendered && _report.NonactivatingStyle, "loaded-nonactivating-window");
-                Check(_tabs.Items.Count == 5 && _navigation.Items.Count == 5, "page-count");
+                Check(_tabs.Items.Count == PageNames.Length && _navigation.Items.Count == PageNames.Length, "page-count");
                 Check(AppColorThemes.All.Count == 15 && _themes.Items.Count == 15, "theme-count");
                 Check(_globalBrushes.Length > 0, "global-brush-snapshot-empty");
                 CheckRows(); CheckSettled(open: true);

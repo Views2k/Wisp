@@ -74,8 +74,9 @@ internal static class ScrollReview
             {
                 token.ThrowIfCancellationRequested();
                 AssertOffscreen(sourceWindow, surface);
-                tabs.SelectedIndex = tab;
-                if (tabs.Items[tab] is not TabItem { Content: ScrollViewer scroll })
+                var selected = tabs.Items.OfType<TabItem>().Single(item => string.Equals(item.Header?.ToString(), Tabs[tab], StringComparison.OrdinalIgnoreCase));
+                tabs.SelectedItem = selected;
+                if (selected.Content is not ScrollViewer scroll)
                 {
                     throw new InvalidOperationException("The main-tab scroll contract changed.");
                 }

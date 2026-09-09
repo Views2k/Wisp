@@ -14,7 +14,7 @@ namespace Wisp.App;
 
 public sealed record ApplicationUpdateDetails(string Version, string ReleaseSummary);
 
-public sealed class AppController : IAsyncDisposable
+public sealed partial class AppController : IAsyncDisposable
 {
     private static readonly TimeSpan ConnectedTimerInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan IdleTimerInterval = TimeSpan.FromSeconds(1);
@@ -103,7 +103,8 @@ public sealed class AppController : IAsyncDisposable
             settings,
             settingsService.Save,
             new StartupRegistrationService(),
-            settingsService.SaveCompletedSetup)
+            settingsService.SaveCompletedSetup,
+            runsDirectory: Path.Combine(settingsService.DataDirectory, "Runs"))
     {
     }
 
@@ -112,7 +113,8 @@ public sealed class AppController : IAsyncDisposable
         Action<AppSettings> saveSettings,
         IStartupRegistrationService startupRegistrationService,
         Action<AppSettings>? saveCompletedSetup = null,
-        Func<Version, CancellationToken, Task<UpdateRelease?>>? checkForApplicationUpdate = null)
+        Func<Version, CancellationToken, Task<UpdateRelease?>>? checkForApplicationUpdate = null,
+        string? runsDirectory = null)
     {
         Settings = settings;
         _saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
@@ -145,6 +147,7 @@ public sealed class AppController : IAsyncDisposable
         SetTachDiagnosticsEnabled(_debugLog.IsEnabled);
         ViewModel = new DiagnosticsViewModel(settings);
         _dispatcher = Dispatcher.CurrentDispatcher;
+        InitializeRuns(runsDirectory);
         _debugHealthMonitor = new DebugHealthMonitor(
             _receiver,
             _nativeHudProcessService,
@@ -339,6 +342,7 @@ public sealed class AppController : IAsyncDisposable
 
         _uiTimer.Start();
         ApplyOverlayHotkeyRegistration();
+        StartRunsUi();
     }
 
     internal bool InitializeStartupRegistration()
@@ -384,6 +388,8 @@ public sealed class AppController : IAsyncDisposable
         // Closing to the opt-in companion releases UDP and native demand.
         // Queued packet/compositor callbacks cannot restart a suspended session.
         _runtimeSuspended = true;
+        SuspendRunShortcut();
+        var stoppedRun = _runRecording.StopAsync("Forza session ended");
         _manualOverlayHidden = false;
         _ = _overlayHotkeyRegistration?.Invoke(
             false,
@@ -407,6 +413,7 @@ public sealed class AppController : IAsyncDisposable
             SaveSettings();
         }
         await _receiver.StopAsync().ConfigureAwait(false);
+        await stoppedRun.ConfigureAwait(false);
     }
 
     public void CompleteSetup(SetupPreferences preferences)
@@ -831,6 +838,7 @@ public sealed class AppController : IAsyncDisposable
 
         try
         {
+            await _runRecording.StopAsync("Telemetry listener restarted");
             await _receiver.RestartAsync(port);
         }
         catch
@@ -1024,6 +1032,7 @@ public sealed class AppController : IAsyncDisposable
 
             UpdateOverlayVisibility(DateTimeOffset.UtcNow, force: true);
             ScheduleSettingsSave();
+            Runs.RefreshStatus();
             if (!previousAutomaticApplicationUpdateChecks && Settings.AutomaticApplicationUpdateChecks)
             {
                 BeginStartupApplicationUpdateCheck();
@@ -1712,6 +1721,8 @@ public sealed class AppController : IAsyncDisposable
         }
 
         _calibration.ResetProfile(carOrdinal);
+        _runCalibrationDrivetrain = null;
+        PublishRunContext();
         _capturedCalibrationProfiles.Remove(carOrdinal);
         Settings.Calibrations = _calibration.ExportSnapshots().ToList();
         _speedModel.Reset();
@@ -1801,6 +1812,9 @@ public sealed class AppController : IAsyncDisposable
         }
 
         _disposed = true;
+        _ = _runRecording.StopAsync("Wisp closed before the run finished");
+        SuspendRunShortcut();
+        Runs.Dispose();
         SetTachDiagnosticsEnabled(false);
         _compatibilityLifetime.Cancel();
         _applicationUpdateLifetime.Cancel();
@@ -1848,6 +1862,7 @@ public sealed class AppController : IAsyncDisposable
         {
             // Optional local logging must never prevent clean application shutdown.
         }
+        await _runRecording.DisposeAsync().ConfigureAwait(false);
         await _nativeHudProcessService.DisposeAsync().ConfigureAwait(false);
         await _receiver.DisposeAsync().ConfigureAwait(false);
         _compatibilityLifetime.Dispose();
@@ -1986,6 +2001,9 @@ public sealed class AppController : IAsyncDisposable
         {
             _nextStatisticsAtUtc = now + TimeSpan.FromMilliseconds(250);
             _cachedStatistics = _receiver.GetStatistics(now);
+            _runRecording.RefreshStatus();
+            PublishRunContext();
+            if (Runs.IsCountingDown) Runs.RefreshStatus();
         }
 
         var latest = _receiver.Latest;
@@ -2149,7 +2167,9 @@ public sealed class AppController : IAsyncDisposable
         _debugDerivedCarOrdinal = current.CarOrdinal;
         _debugIndicatedSpeed = indicated;
         _debugCalibration = calibration;
+        _runCalibrationDrivetrain = current.Drivetrain;
         _hasDebugDerivedTelemetry = true;
+        PublishRunContext();
         var detachedBoostWasEnabled = IsDetachedBoostGaugeEnabled;
         var detachedTireTemperatureWasEnabled = IsDetachedTireTemperatureGaugeEnabled;
         ViewModel.Update(

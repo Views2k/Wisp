@@ -23,6 +23,8 @@ public partial class App : Application
     private DispatcherTimer? _forzaStartupTimer;
     private StartupTrayIcon? _startupTray;
     private OverlayHotkeyService? _overlayHotkey;
+    private OverlayHotkeyService? _recordingHotkey;
+    private OverlayHotkeyService? _markerHotkey;
     private bool _runtimeActive;
     private bool _applicationUpdateHandoffActive;
     private bool _exiting;
@@ -54,6 +56,24 @@ public partial class App : Application
         _overlayHotkey = new OverlayHotkeyService();
         _overlayHotkey.Pressed += (_, _) => _controller?.ToggleManualOverlayHidden();
         _controller.SetOverlayHotkeyRegistration(_overlayHotkey.Apply);
+        _recordingHotkey = new OverlayHotkeyService();
+        _recordingHotkey.Pressed += async (_, _) =>
+        {
+            if (_controller is not null && _runtimeActive && !_controller.Runs.ShortcutCaptureActive)
+            {
+                await _controller.Runs.ToggleRecordingAsync();
+            }
+        };
+        _controller.SetRecordingHotkeyRegistration(_recordingHotkey.Apply);
+        _markerHotkey = new OverlayHotkeyService();
+        _markerHotkey.Pressed += (_, _) =>
+        {
+            if (_controller is not null && _runtimeActive && !_controller.Runs.ShortcutCaptureActive)
+            {
+                _controller.Runs.MarkMoment();
+            }
+        };
+        _controller.SetMarkerHotkeyRegistration(_markerHotkey.Apply);
         if (ApplicationUpdateLauncher.TryConsumeResult(out var updateResult))
         {
             _controller.ViewModel.UpdateApplicationUpdateStatus(
@@ -178,6 +198,10 @@ public partial class App : Application
         {
             _overlayHotkey?.Dispose();
             _overlayHotkey = null;
+            _recordingHotkey?.Dispose();
+            _recordingHotkey = null;
+            _markerHotkey?.Dispose();
+            _markerHotkey = null;
             _activationCancellation?.Dispose();
             _activationEvent?.Dispose();
             _instanceMutex?.Dispose();

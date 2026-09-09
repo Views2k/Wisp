@@ -2,6 +2,15 @@
 
 Notable changes to Wisp are recorded here.
 
+## 1.2.0 - 2026-09-09
+
+- Record drives locally from Dashboard or Runs, with optional shortcuts, a start countdown, timed stops and markers for moments to review.
+- Review measured findings, readable charts and selected-interval statistics inside Wisp. Open all eight graph views from one Show graphs button.
+- Compare two saved runs over time or through a shared speed range, including starting-condition differences and capture gaps. Separate run colors and line styles carry through graphs, legends, markers and exported images.
+- Inspect power and torque against RPM with gear and throttle filters, a G-force plot, or front/rear tire-temperature changes.
+- Export a readable report image, raw telemetry CSV, or a Wisp recording that can be imported for comparison.
+- Keep raw run capture and post-run analysis separate from the live HUD renderer and preserve existing HUD profiles.
+
 ## 1.1.4 - 2026-09-08
 
 - Move the live combustion Analogue HUD to a dedicated Direct3D11 and DirectComposition renderer to address tachometer stutter while Forza is focused.
