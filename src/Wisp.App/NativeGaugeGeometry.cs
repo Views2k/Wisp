@@ -10,6 +10,8 @@ public static class NativeGaugeGeometry
     public const double AnalogLargeDashRpm = 1000;
     public const double AnalogSmallDashRpm = 333.333343505859375;
     public const double AnalogNeedleShutterMilliseconds = 4;
+    private const double CombustionNeedleShutterTime = 4;
+    private const double CombustionNeedleReferenceFrameSeconds = 1d / 30;
     public const double AnalogMaximumNeedleBlurRadians = 0.65;
     public const int MaximumTextureSpeed = 999;
 
@@ -60,8 +62,8 @@ public static class NativeGaugeGeometry
         return ElectricAnalogStartAngleDegrees + (normalized * AnalogSweepAngleDegrees);
     }
 
-    // FH6's native needle material registers a 4 ms shutter and clamps the
-    // signed angular blur to 0.65 radians.
+    // Retain the existing electric needle fallback independently of the
+    // combustion gauge's native shutter calculation.
     public static double AnalogNeedleBlurRadians(double angleDeltaDegrees, double elapsedSeconds)
     {
         if (!double.IsFinite(angleDeltaDegrees) ||
@@ -76,6 +78,25 @@ public static class NativeGaugeGeometry
         var shutterSeconds = AnalogNeedleShutterMilliseconds / 1000d;
         return Math.Clamp(
             -angularVelocityDegreesPerSecond * Math.PI / 180d * shutterSeconds,
+            -AnalogMaximumNeedleBlurRadians,
+            AnalogMaximumNeedleBlurRadians);
+    }
+
+    // FH6 applies its combustion shutter setting to normalized sweep motion
+    // using a 1/30-second reference frame, not a duration in milliseconds.
+    public static double CombustionNeedleBlurRadians(double angleDeltaDegrees, double elapsedSeconds)
+    {
+        if (!double.IsFinite(angleDeltaDegrees) ||
+            !double.IsFinite(elapsedSeconds) ||
+            elapsedSeconds <= 0 ||
+            elapsedSeconds > 0.25)
+        {
+            return 0;
+        }
+
+        var normalizedSweepDelta = angleDeltaDegrees / AnalogSweepAngleDegrees;
+        return Math.Clamp(
+            -normalizedSweepDelta * CombustionNeedleShutterTime * CombustionNeedleReferenceFrameSeconds / elapsedSeconds,
             -AnalogMaximumNeedleBlurRadians,
             AnalogMaximumNeedleBlurRadians);
     }

@@ -20,6 +20,13 @@ internal sealed class NativeNeedlePlayback
 
     public int? AcceptedCarOrdinal => _hasNativeState ? _angle.AcceptedCarOrdinal : null;
 
+    internal int BufferedSamples => _angle.BufferedSamples;
+    internal bool PlaybackAtNewest => _angle.PlaybackAtNewest;
+    internal double PlaybackTargetDelayMilliseconds => _angle.PlaybackTargetDelayMilliseconds;
+    internal double PlaybackDelayMilliseconds(long timestamp) => _angle.PlaybackDelayMilliseconds(timestamp);
+    internal long ReseedCount => _angle.ReseedCount;
+    internal long StarvationReseedCount => _angle.StarvationReseedCount;
+
     public bool Observe(
         int carOrdinal,
         uint gameTimestampMilliseconds,

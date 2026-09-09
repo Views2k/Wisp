@@ -4,8 +4,9 @@
 
 A clean Windows Release build is Wisp's release boundary. The
 gate covers source formatting, dependency auditing, the complete .NET solution,
-the offline compatibility audit, Native asset identity, WPF layout checks, and
-installer staging.
+the offline compatibility audit, Native asset identity, WPF layout checks,
+the Direct3D11 renderer, and installer staging. The native build requires
+Visual Studio C++ build tools for x64 and a Windows SDK containing `fxc.exe`.
 
 A release artifact is acceptable only when the following commands pass against
 the exact source revision being packaged and the installer reports the version
@@ -15,13 +16,15 @@ declared by `src/Wisp.App/Wisp.App.csproj`:
 dotnet restore Wisp.sln --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
 dotnet format Wisp.sln --verify-no-changes --no-restore --verbosity minimal
 dotnet test Wisp.sln --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false
+.\src\Wisp.NativeRenderer\Build-NativeRenderer.ps1 -RunContractTests
 dotnet build tools/Wisp.UiReview/Wisp.UiReview.csproj --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false
 python -m unittest discover -s tools/tests -p "test_*.py" -v
 ```
 
 Packaging must additionally verify the staged executable version, PE identity,
-update-helper identity, Native asset manifest, bundled .NET 8.0.30 notices, and
-the installer/checksum pair before promotion.
+update-helper identity, the staged `Wisp.NativeRenderer.dll`, Native asset
+manifest, bundled .NET 8.0.30 notices, and the installer/checksum pair before
+promotion.
 
 ## Automated coverage
 
@@ -49,6 +52,10 @@ the installer/checksum pair before promotion.
 - Native asset manifest hashes, decoded pixels, geometry, and shader contracts;
 - compositor lifetime, recorded tachometer traces, and bounded Native needle
   playback/reset behavior;
+- Analogue scene geometry against the arranged WPF control, stock asset/alpha
+  selection, native angle/blur handoff, and raw gear RPM versus sampled number RPM;
+- DirectComposition ownership, cancellation, hidden-window suspension, resume,
+  device failure, and native renderer resource contracts;
 - process-memory permission boundaries and identity guards;
 - Store package origin/path validation, same-file alias binding, and bounded
   loaded-image identity checks, including mismatch and partial-read rejection;
@@ -89,6 +96,13 @@ Software `RenderTargetBitmap` does not execute WPF PS 3.0 effects, so those PNGs
 are layout evidence rather than proof of live shader output. Synthetic WPF
 hosts also do not establish live FH6 offsets, GPU frame time, or exact visual
 parity.
+
+The live combustion Analogue HUD uses Direct3D11 and DirectComposition; its
+Appearance preview remains WPF. Compare the existing WPF gauge's hardware
+output with native GPU readback for matching frames, signed blur, gear/assist
+states, units, traction color, opacity, and DPI/scale. Check the real overlay
+separately for focus behavior and smoothness: successful `Present` submissions
+are not proof of physical display cadence.
 
 ## CI and packaging
 

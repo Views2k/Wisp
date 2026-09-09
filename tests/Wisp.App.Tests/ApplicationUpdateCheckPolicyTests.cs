@@ -238,10 +238,17 @@ public sealed class ApplicationUpdateCheckPolicyTests
         {
             application.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             window = new MainWindow(controller);
+            var surface = Assert.IsAssignableFrom<FrameworkElement>(window.Content);
+            surface.Measure(new Size(720, 440));
+            surface.Arrange(new Rect(0, 0, 720, 440));
+            surface.UpdateLayout();
             var banner = Assert.IsType<Border>(window.FindName("DashboardUpdateBanner"));
             window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            Assert.Same(controller.ViewModel, banner.DataContext);
             Assert.Equal(Visibility.Collapsed, banner.Visibility);
             controller.BeginStartupApplicationUpdateCheck();
+            Assert.Equal(1, checks);
+            Assert.True(controller.ViewModel.IsApplicationUpdateAvailable);
             window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
             Assert.Equal(Visibility.Visible, banner.Visibility);
             FireDailyTimer(controller);

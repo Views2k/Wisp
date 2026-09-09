@@ -11,15 +11,30 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp</AssemblyTitle>
     <Description>Wheel-indicated speed and G-force display for Forza Horizon 6.</Description>
-    <Version>1.1.3</Version>
-    <FileVersion>1.1.3.0</FileVersion>
-    <AssemblyVersion>1.1.3.0</AssemblyVersion>
+    <Version>1.1.4</Version>
+    <FileVersion>1.1.4.0</FileVersion>
+    <AssemblyVersion>1.1.4.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Wisp.Core\Wisp.Core.csproj" />
     <ProjectReference Include="..\Wisp.Telemetry\Wisp.Telemetry.csproj" />
     <ProjectReference Include="..\Wisp.Update\Wisp.Update.csproj" />
   </ItemGroup>
+  <PropertyGroup>
+    <NativeRendererOutputDirectory>$(MSBuildProjectDirectory)\..\Wisp.NativeRenderer\bin\$(Configuration)\x64</NativeRendererOutputDirectory>
+    <NativeRendererDll>$(NativeRendererOutputDirectory)\Wisp.NativeRenderer.dll</NativeRendererDll>
+  </PropertyGroup>
+  <ItemGroup>
+    <NativeRendererInputs Include="..\Wisp.NativeRenderer\*.cpp;..\Wisp.NativeRenderer\*.h;..\Wisp.NativeRenderer\*.hlsl;..\Wisp.NativeRenderer\*.ps1;Shaders\AnalogGauge.hlsl;Shaders\AnalogNeedle.hlsl" />
+    <Content Include="$(NativeRendererDll)" Link="Wisp.NativeRenderer.dll"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true" />
+  </ItemGroup>
+  <Target Name="BuildWispNativeRenderer" BeforeTargets="PrepareForBuild"
+          Inputs="@(NativeRendererInputs)" Outputs="$(NativeRendererDll)"
+          Condition="'$(OS)' == 'Windows_NT' and '$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\Wisp.NativeRenderer\Build-NativeRenderer.ps1&quot; -OutputDirectory &quot;$(NativeRendererOutputDirectory)&quot;" />
+  </Target>
   <ItemGroup>
     <Resource Include="Assets\Wisp-logo.png" />
     <Resource Include="Assets\Native\**\*.png" />

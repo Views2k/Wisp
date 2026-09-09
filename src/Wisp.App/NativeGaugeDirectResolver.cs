@@ -162,7 +162,80 @@ public sealed class NativeGaugeDirectResolver
         _childlessElectricBlock = new byte[checked((int)(childlessBlockEnd - _childlessElectricBlockStartOffset))];
     }
 
+    private bool _diagnosticsActive;
+    private NativeGaugeReadFailure _diagnosticFailure;
+    private NativeGaugeReadStage _diagnosticStage;
+    private NativeGaugeCacheOutcome _diagnosticCacheOutcome;
+    private bool _diagnosticCacheRejected;
+    private NativeGaugeReadDiagnostics _lastDiagnostics;
+
+    public bool DiagnosticsEnabled { get; set; }
+    public NativeGaugeReadDiagnostics LastDiagnostics => DiagnosticsEnabled ? _lastDiagnostics : default;
+
     public NativeGaugeDirectResult Read(
+        IReadOnlyProcessMemory memory,
+        ulong moduleBase,
+        ulong expectedSource,
+        bool expectedElectric,
+        bool forceStructuralValidation = true)
+    {
+        _diagnosticsActive = DiagnosticsEnabled;
+        if (!_diagnosticsActive)
+        {
+            return ReadCore(memory, moduleBase, expectedSource, expectedElectric, forceStructuralValidation);
+        }
+
+        _diagnosticFailure = NativeGaugeReadFailure.None;
+        _diagnosticStage = NativeGaugeReadStage.Input;
+        _diagnosticCacheOutcome = NativeGaugeCacheOutcome.NotUsed;
+        _diagnosticCacheRejected = false;
+        var started = Stopwatch.GetTimestamp();
+        NativeGaugeDirectResult result = default;
+        var completed = false;
+        try
+        {
+            result = ReadCore(memory, moduleBase, expectedSource, expectedElectric, forceStructuralValidation);
+            completed = true;
+            return result;
+        }
+        finally
+        {
+            var available = completed && result.IsAvailable;
+            var hasNeedle = available && result.HasNeedlePair;
+            _lastDiagnostics = new NativeGaugeReadDiagnostics(
+                true,
+                !completed ? NativeGaugeReadFailure.ReadThrew : available ? NativeGaugeReadFailure.None :
+                    _diagnosticFailure == NativeGaugeReadFailure.None ? NativeGaugeReadFailure.ValidationFailed : _diagnosticFailure,
+                available ? NativeGaugeReadStage.None : _diagnosticStage,
+                _diagnosticCacheRejected
+                    ? available ? NativeGaugeCacheOutcome.RejectedThenResolved : NativeGaugeCacheOutcome.RejectedThenUnavailable
+                    : _diagnosticCacheOutcome,
+                available,
+                available ? result.Mode : 0,
+                hasNeedle,
+                hasNeedle ? result.NeedleAngleDegrees : double.NaN,
+                hasNeedle ? result.NeedleBlurAmount : double.NaN,
+                Math.Max(0, Stopwatch.GetTimestamp() - started));
+            _diagnosticsActive = false;
+        }
+    }
+
+    private bool DiagnosticCheck(bool passed, NativeGaugeReadStage stage,
+        NativeGaugeReadFailure failure = NativeGaugeReadFailure.ValidationFailed)
+    {
+        if (!passed && _diagnosticsActive && _diagnosticFailure == NativeGaugeReadFailure.None)
+        {
+            _diagnosticStage = stage;
+            _diagnosticFailure = failure;
+        }
+        return passed;
+    }
+
+    private bool DiagnosticFailure(NativeGaugeReadStage stage,
+        NativeGaugeReadFailure failure = NativeGaugeReadFailure.ValidationFailed) =>
+        DiagnosticCheck(false, stage, failure);
+
+    private NativeGaugeDirectResult ReadCore(
         IReadOnlyProcessMemory memory,
         ulong moduleBase,
         ulong expectedSource,
@@ -176,6 +249,8 @@ public sealed class NativeGaugeDirectResolver
             !IsObjectPointer(expectedSource))
         {
             Reset();
+            DiagnosticFailure(NativeGaugeReadStage.Input, _layout is null
+                ? NativeGaugeReadFailure.LayoutUnavailable : NativeGaugeReadFailure.InvalidInput);
             return Unavailable();
         }
 
@@ -206,9 +281,11 @@ public sealed class NativeGaugeDirectResolver
             }
             if (valid)
             {
+                if (_diagnosticsActive) _diagnosticCacheOutcome = NativeGaugeCacheOutcome.Hit;
                 return cachedRead.ToResult(NativeGaugeDirectState.Cached);
             }
 
+            if (_diagnosticsActive) _diagnosticCacheRejected = true;
             _cache = null;
         }
         else
@@ -216,10 +293,16 @@ public sealed class NativeGaugeDirectResolver
             _cache = null;
         }
 
+        if (_diagnosticsActive)
+        {
+            _diagnosticCacheOutcome = NativeGaugeCacheOutcome.Miss;
+            _diagnosticFailure = NativeGaugeReadFailure.None;
+        }
         if (!TryResolveChain(memory, moduleBase, expectedSource, expectedElectric, out var firstChain) ||
             !TryReadChainGauge(memory, firstChain, expectedElectric, out var read) ||
             !TryResolveChain(memory, moduleBase, expectedSource, expectedElectric, out var secondChain) ||
-            firstChain != secondChain)
+            !DiagnosticCheck(firstChain == secondChain, NativeGaugeReadStage.OwnershipRecheck,
+                NativeGaugeReadFailure.OwnershipChanged))
         {
             return Unavailable();
         }
@@ -253,7 +336,7 @@ public sealed class NativeGaugeDirectResolver
                 expectedSource,
                 out var child))
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.OwnershipRecheck, NativeGaugeReadFailure.ValidationFailed);
         }
 
         ulong provider = 0;
@@ -261,7 +344,7 @@ public sealed class NativeGaugeDirectResolver
             (!expectedElectric ||
              !TryResolveChildlessProvider(memory, moduleBase, expectedSource, out provider)))
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Child, NativeGaugeReadFailure.MissingChild);
         }
 
         chain = new ChainSnapshot(
@@ -318,7 +401,7 @@ public sealed class NativeGaugeDirectResolver
             !memory.TryReadUInt64(global, out var wrapper) ||
             wrapper != registry.Wrapper)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Registry, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var wrapperEnd = Math.Max(
@@ -332,7 +415,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.RegistryContextControlOffset, out var contextControl) ||
             contextControl != registry.ContextControl)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Registry, NativeGaugeReadFailure.ValidationFailed);
         }
 
         if (!HasInlineObject(registry.ContextControl, layout.SharedControlObjectOffset, registry.Context) ||
@@ -340,7 +423,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(0, out var contextControlVtable) ||
             contextControlVtable != cached.ModuleBase + layout.RegistryContextControlVtableRva)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Registry, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var contextEnd = Math.Max(
@@ -369,7 +452,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.RegistryBucketCountOffset, out var bucketCount) ||
             bucketCount != registry.BucketCount)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Registry, NativeGaugeReadFailure.ValidationFailed);
         }
 
         if (!TryReadStructuralBlock(memory, registry.Bucket, layout.RegistryBucketStride) ||
@@ -378,7 +461,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.RegistryBucketNodeOffset, out var node) ||
             node != registry.Node)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.RegistryBucket, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var nodeEnd = Math.Max(
@@ -392,7 +475,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.RegistryNodeControlOffset, out var hudControl) ||
             hudControl != registry.HudControl)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.RegistryEntry, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var hudEnd = Math.Max(
@@ -406,7 +489,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.HudSubobjectOffset, out var subobjectVtable) ||
             subobjectVtable != cached.ModuleBase + layout.HudSubobjectVtableRva)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Hud, NativeGaugeReadFailure.ValidationFailed);
         }
 
         if (!HasInlineObject(registry.HudControl, layout.SharedControlObjectOffset, registry.Hud) ||
@@ -418,7 +501,7 @@ public sealed class NativeGaugeDirectResolver
             !memory.TryReadBytes(slotZero, _structuralBlock.AsSpan(0, _slotZeroPrologue.Length)) ||
             !_structuralBlock.AsSpan(0, _slotZeroPrologue.Length).SequenceEqual(_slotZeroPrologue))
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.HudSignature, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var vectorAddress = expected.Vector.Address;
@@ -433,7 +516,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.HudTypeVectorCapacityOffset, out var vectorCapacity) ||
             vectorCapacity != expected.Vector.Capacity)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.TypeVector, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var typeEnd = Math.Max(
@@ -451,7 +534,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.HudTypeInstancesCapacityOffset, out var instancesCapacity) ||
             instancesCapacity != expected.Instances.Capacity)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.TypeEntry, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var instanceEnd = Math.Max(
@@ -463,7 +546,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.HudTypeInstanceControlOffset, out var outerControl) ||
             outerControl != expected.OuterControl)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Instance, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var outerControlEnd = Math.Max(8UL, layout.SharedControlObjectOffset + 8);
@@ -473,7 +556,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.SharedControlObjectOffset, out var controlledOuter) ||
             controlledOuter != expected.Outer)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.OuterControl, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var outerEnd = Math.Max(
@@ -497,7 +580,7 @@ public sealed class NativeGaugeDirectResolver
             !StructuralUInt64(layout.OuterChildOffset, out var child) ||
             child != expected.Child)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.OuterBackReference, NativeGaugeReadFailure.ValidationFailed);
         }
 
         if (expected.Child == 0)
@@ -514,7 +597,7 @@ public sealed class NativeGaugeDirectResolver
         if (!memory.TryReadUInt64(expected.Child, out var childVtable) ||
             childVtable != cached.ModuleBase + layout.ChildVtableRva)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.ChildVtable, NativeGaugeReadFailure.ValidationFailed);
         }
 
         return true;
@@ -553,7 +636,7 @@ public sealed class NativeGaugeDirectResolver
             bucketsEnd != expectedBucketsEnd || bucketsCapacity < bucketsEnd ||
             (bucketsCapacity - buckets) % layout.RegistryBucketStride != 0)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Registry, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var bucketIndex = layout.RegistryKeyHash & mask;
@@ -564,7 +647,7 @@ public sealed class NativeGaugeDirectResolver
             !TryReadPointerField(memory, bucket, layout.RegistryBucketBoundaryOffset, out var boundary) ||
             !TryReadPointerField(memory, bucket, layout.RegistryBucketNodeOffset, out var node))
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.RegistryBucket, NativeGaugeReadFailure.ValidationFailed);
         }
 
         Span<ulong> visited = stackalloc ulong[MaximumRegistryCollisionHops];
@@ -574,14 +657,14 @@ public sealed class NativeGaugeDirectResolver
         {
             if (node == sentinel)
             {
-                return false;
+                return DiagnosticFailure(NativeGaugeReadStage.RegistryEntry, NativeGaugeReadFailure.NotFound);
             }
 
             if (!IsObjectPointer(node) || WasVisited(visited, visitedCount, node) ||
                 !TryReadField(memory, node, layout.RegistryNodeHashOffset, out var hash) ||
                 (hash & mask) != bucketIndex)
             {
-                return false;
+                return DiagnosticFailure(NativeGaugeReadStage.RegistryEntry, NativeGaugeReadFailure.ValidationFailed);
             }
 
             visited[visitedCount++] = node;
@@ -594,7 +677,7 @@ public sealed class NativeGaugeDirectResolver
                     !HasVtable(memory, hudControl, moduleBase + layout.HudControlVtableRva) ||
                     !HasInlineObject(hudControl, layout.SharedControlObjectOffset, hud))
                 {
-                    return false;
+                    return DiagnosticFailure(NativeGaugeReadStage.Hud, NativeGaugeReadFailure.ValidationFailed);
                 }
 
                 registry = new RegistrySnapshot(
@@ -619,16 +702,16 @@ public sealed class NativeGaugeDirectResolver
             // the global intrusive list and can leave this bucket.
             if (node == boundary)
             {
-                return false;
+                return DiagnosticFailure(NativeGaugeReadStage.RegistryEntry, NativeGaugeReadFailure.NotFound);
             }
 
             if (!TryReadPointerField(memory, node, layout.RegistryNodeNextOffset, out node))
             {
-                return false;
+                return DiagnosticFailure(NativeGaugeReadStage.RegistryEntry, NativeGaugeReadFailure.ReadFailed);
             }
         }
 
-        return false;
+        return DiagnosticFailure(NativeGaugeReadStage.RegistryEntry, NativeGaugeReadFailure.NotFound);
     }
 
     private bool TryValidateHud(
@@ -649,7 +732,7 @@ public sealed class NativeGaugeDirectResolver
             !memory.TryReadUInt64(moduleBase + layout.HudSubobjectVtableRva, out var slotZero) ||
             slotZero != moduleBase + layout.HudSubobjectSlotZeroTargetRva)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Hud, NativeGaugeReadFailure.ValidationFailed);
         }
 
         for (var index = 0; index < _slotZeroPrologue.Length; index++)
@@ -657,7 +740,7 @@ public sealed class NativeGaugeDirectResolver
             if (!memory.TryReadByte(slotZero + (ulong)index, out var value) ||
                 value != _slotZeroPrologue[index])
             {
-                return false;
+                return DiagnosticFailure(NativeGaugeReadStage.HudSignature, NativeGaugeReadFailure.ValidationFailed);
             }
         }
 
@@ -679,13 +762,13 @@ public sealed class NativeGaugeDirectResolver
             (end - begin) % layout.HudTypeVectorEntryStride != 0 ||
             (capacity - begin) % layout.HudTypeVectorEntryStride != 0)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.TypeVector, NativeGaugeReadFailure.ValidationFailed);
         }
 
         var count = (end - begin) / layout.HudTypeVectorEntryStride;
         if (count is 0 || count > layout.HudTypeVectorMaximumCount)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.TypeVector, NativeGaugeReadFailure.ValidationFailed);
         }
 
         vector = new VectorSnapshot(vectorAddress, begin, end, capacity, count);
@@ -707,21 +790,21 @@ public sealed class NativeGaugeDirectResolver
                 !TryAdd(vector.Begin, offset, out var entry) ||
                 !TryReadField(memory, entry, layout.HudTypeTokenOffset, out var token))
             {
-                return false;
+                return DiagnosticFailure(NativeGaugeReadStage.TypeEntry, NativeGaugeReadFailure.ReadFailed);
             }
 
             if (token == expectedToken)
             {
                 if (typeEntry != 0)
                 {
-                    return false;
+                    return DiagnosticFailure(NativeGaugeReadStage.TypeEntry, NativeGaugeReadFailure.Ambiguous);
                 }
 
                 typeEntry = entry;
             }
         }
 
-        return typeEntry != 0;
+        return DiagnosticCheck(typeEntry != 0, NativeGaugeReadStage.TypeEntry, NativeGaugeReadFailure.NotFound);
     }
 
     private bool TryReadUniqueInstance(
@@ -745,7 +828,7 @@ public sealed class NativeGaugeDirectResolver
             !TryReadPointerField(memory, begin, layout.HudTypeInstanceObjectOffset, out outer) ||
             !TryReadPointerField(memory, begin, layout.HudTypeInstanceControlOffset, out outerControl))
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Instance, NativeGaugeReadFailure.ValidationFailed);
         }
 
         instances = new InstanceVectorSnapshot(begin, end, capacity);
@@ -785,19 +868,19 @@ public sealed class NativeGaugeDirectResolver
     {
         child = 0;
         var layout = _layout!;
-        return HasVtable(memory, outerControl, moduleBase + layout.OuterControlVtableRva) &&
-               HasManagedObject(memory, outerControl, layout.SharedControlObjectOffset, outer) &&
-               HasVtable(memory, outer, moduleBase + layout.OuterPrimaryVtableRva) &&
-               TryReadField(memory, outer, layout.OuterSecondaryOffset, out var secondaryVtable) &&
-               secondaryVtable == moduleBase + layout.OuterSecondaryVtableRva &&
-               TryReadField(memory, outer, layout.OuterHudBackReferenceOffset, out var hudBackReference) &&
-               hudBackReference == hud &&
-               TryReadField(memory, outer, layout.OuterHudControlBackReferenceOffset, out var hudControlBackReference) &&
-               hudControlBackReference == hudControl &&
-               TryReadField(memory, outer, layout.OuterSourceOffset, out var source) &&
-               source == expectedSource &&
-               TryReadField(memory, outer, layout.OuterChildOffset, out child) &&
-               (child == 0 || HasVtable(memory, child, moduleBase + layout.ChildVtableRva));
+        return DiagnosticCheck(HasVtable(memory, outerControl, moduleBase + layout.OuterControlVtableRva), NativeGaugeReadStage.OuterControl) &&
+               DiagnosticCheck(HasManagedObject(memory, outerControl, layout.SharedControlObjectOffset, outer), NativeGaugeReadStage.OuterControl) &&
+               DiagnosticCheck(HasVtable(memory, outer, moduleBase + layout.OuterPrimaryVtableRva), NativeGaugeReadStage.OuterVtable) &&
+               DiagnosticCheck(TryReadField(memory, outer, layout.OuterSecondaryOffset, out var secondaryVtable), NativeGaugeReadStage.OuterVtable) &&
+               DiagnosticCheck(secondaryVtable == moduleBase + layout.OuterSecondaryVtableRva, NativeGaugeReadStage.OuterVtable) &&
+               DiagnosticCheck(TryReadField(memory, outer, layout.OuterHudBackReferenceOffset, out var hudBackReference), NativeGaugeReadStage.OuterBackReference) &&
+               DiagnosticCheck(hudBackReference == hud, NativeGaugeReadStage.OuterBackReference) &&
+               DiagnosticCheck(TryReadField(memory, outer, layout.OuterHudControlBackReferenceOffset, out var hudControlBackReference), NativeGaugeReadStage.OuterBackReference) &&
+               DiagnosticCheck(hudControlBackReference == hudControl, NativeGaugeReadStage.OuterBackReference) &&
+               DiagnosticCheck(TryReadField(memory, outer, layout.OuterSourceOffset, out var source), NativeGaugeReadStage.Source, NativeGaugeReadFailure.ReadFailed) &&
+               DiagnosticCheck(source == expectedSource, NativeGaugeReadStage.Source, NativeGaugeReadFailure.WrongSource) &&
+               DiagnosticCheck(TryReadField(memory, outer, layout.OuterChildOffset, out child), NativeGaugeReadStage.Child, NativeGaugeReadFailure.ReadFailed) &&
+               DiagnosticCheck(child == 0 || HasVtable(memory, child, moduleBase + layout.ChildVtableRva), NativeGaugeReadStage.ChildVtable);
     }
 
     private bool TryResolveChildlessProvider(
@@ -819,7 +902,7 @@ public sealed class NativeGaugeDirectResolver
             !HasRequiredVtableSlots(memory, moduleBase, vtable, _layout!.RequiredProviderVtableSlots))
         {
             provider = 0;
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Provider, NativeGaugeReadFailure.ValidationFailed);
         }
 
         return true;
@@ -858,16 +941,16 @@ public sealed class NativeGaugeDirectResolver
             !IsAddressRange(blockAddress, (ulong)_gaugeBlock.Length) ||
             !memory.TryReadBytes(blockAddress, _gaugeBlock))
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.GaugeBlock, NativeGaugeReadFailure.ReadFailed);
         }
 
         // This timestamp belongs to the one block copy containing angle and blur.
         // Do not replace it with a later resolver/service publication timestamp.
         var observedTimestamp = Stopwatch.GetTimestamp();
-        if (!TryReadBlockUInt32(layout.ChildModeOffset, out var mode) ||
-            mode > 4)
+        if (!DiagnosticCheck(TryReadBlockUInt32(layout.ChildModeOffset, out var mode), NativeGaugeReadStage.Mode, NativeGaugeReadFailure.UnexpectedMode) ||
+            !DiagnosticCheck(mode <= 4, NativeGaugeReadStage.Mode, NativeGaugeReadFailure.UnexpectedMode))
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.Mode, NativeGaugeReadFailure.UnexpectedMode);
         }
 
         var hasHeadlightState = TryReadBlockBoolean(
@@ -876,12 +959,12 @@ public sealed class NativeGaugeDirectResolver
 
         if (!expectedElectric)
         {
-            if (mode > 2 ||
-                !TryReadBlockSingleBits(layout.ChildAngleOffset, 0f, 720f, out var angle) ||
-                !TryReadBlockSingleBits(layout.ChildBlurOffset, -0.65f, 0.65f, out var blur) ||
-                !TryReadBlockSingleBits(layout.ChildMaximumTachometerOffset, float.Epsilon, 100_000f, out var maximum))
+            if (!DiagnosticCheck(mode <= 2, NativeGaugeReadStage.Mode, NativeGaugeReadFailure.UnexpectedMode) ||
+                !DiagnosticCheck(TryReadBlockSingleBits(layout.ChildAngleOffset, 0f, 720f, out var angle), NativeGaugeReadStage.Angle, NativeGaugeReadFailure.InvalidAngle) ||
+                !DiagnosticCheck(TryReadBlockSingleBits(layout.ChildBlurOffset, -0.65f, 0.65f, out var blur), NativeGaugeReadStage.Blur, NativeGaugeReadFailure.InvalidBlur) ||
+                !DiagnosticCheck(TryReadBlockSingleBits(layout.ChildMaximumTachometerOffset, float.Epsilon, 100_000f, out var maximum), NativeGaugeReadStage.TachometerMaximum, NativeGaugeReadFailure.InvalidMaximum))
             {
-                return false;
+                return DiagnosticFailure(NativeGaugeReadStage.GaugeBlock, NativeGaugeReadFailure.ValidationFailed);
             }
 
             read = GaugeRead.Combustion(
@@ -901,7 +984,7 @@ public sealed class NativeGaugeDirectResolver
             TryReadDisplayedSpeedState(memory, out displayedSpeedState);
         }
 
-        if (mode is 1 or 2 ||
+        if (!DiagnosticCheck(mode is not (1 or 2), NativeGaugeReadStage.Mode, NativeGaugeReadFailure.UnexpectedMode) ||
             !TryReadBlockSingleBits(layout.ChildPowerOffset, 0f, 1f, out var power) ||
             !TryReadBlockSingleBits(layout.ChildRegenOffset, 0f, 1f, out var regen) ||
             !TryReadBlockSingleBits(layout.ChildRatioOffset, 0f, 1f, out var ratio) ||
@@ -912,7 +995,7 @@ public sealed class NativeGaugeDirectResolver
             !TryReadBlockBoolean(layout.ChildUseDriveFor1Offset, out var useDriveFor1) ||
             !TryReadBlockSingleBits(layout.ChildElectricMaximumSpeedOffset, float.Epsilon, 100_000f, out var maximumSpeed))
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.ElectricValues, NativeGaugeReadFailure.InvalidElectricValues);
         }
 
         var electricGearState = new NativeElectricGearState(
@@ -925,10 +1008,10 @@ public sealed class NativeGaugeDirectResolver
 
         if (mode == 3)
         {
-            if (!TryReadBlockSingleBits(layout.ChildAngleOffset, 150f, 390f, out var angle) ||
-                !TryReadBlockSingleBits(layout.ChildBlurOffset, -0.65f, 0.65f, out var blur))
+            if (!DiagnosticCheck(TryReadBlockSingleBits(layout.ChildAngleOffset, 150f, 390f, out var angle), NativeGaugeReadStage.Angle, NativeGaugeReadFailure.InvalidAngle) ||
+                !DiagnosticCheck(TryReadBlockSingleBits(layout.ChildBlurOffset, -0.65f, 0.65f, out var blur), NativeGaugeReadStage.Blur, NativeGaugeReadFailure.InvalidBlur))
             {
-                return false;
+                return DiagnosticFailure(NativeGaugeReadStage.GaugeBlock, NativeGaugeReadFailure.ValidationFailed);
             }
 
             read = GaugeRead.ElectricAnalog(
@@ -974,7 +1057,7 @@ public sealed class NativeGaugeDirectResolver
             !TryReadFiniteSingleField(memory, provider, layout.ProviderPowerLimitFirstOffset, out var firstLimit) ||
             !TryReadFiniteSingleField(memory, provider, layout.ProviderPowerLimitSecondOffset, out var secondLimit))
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.ElectricValues, NativeGaugeReadFailure.InvalidElectricValues);
         }
 
         var denominatorScale = BitConverter.UInt32BitsToSingle(layout.ProviderPowerDenominatorScaleBits);
@@ -985,7 +1068,7 @@ public sealed class NativeGaugeDirectResolver
             !float.IsFinite(denominatorScale) || !float.IsFinite(regenScale) ||
             !float.IsFinite(upperBase) || upperBase is < 0 or > 1)
         {
-            return false;
+            return DiagnosticFailure(NativeGaugeReadStage.ElectricValues, NativeGaugeReadFailure.InvalidElectricValues);
         }
 
         // Mirrors FH6 6.430.771.0 at 0x4B027C9 and 0x4B0281D: the first

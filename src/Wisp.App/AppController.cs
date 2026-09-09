@@ -142,6 +142,7 @@ public sealed class AppController : IAsyncDisposable
             settings.DebugLoggingExpiresAtUtc = null;
         }
 
+        SetTachDiagnosticsEnabled(_debugLog.IsEnabled);
         ViewModel = new DiagnosticsViewModel(settings);
         _dispatcher = Dispatcher.CurrentDispatcher;
         _debugHealthMonitor = new DebugHealthMonitor(
@@ -228,6 +229,12 @@ public sealed class AppController : IAsyncDisposable
         UpdateOverlayVisibility(DateTimeOffset.UtcNow, force: true);
     }
 
+    private void SetTachDiagnosticsEnabled(bool enabled)
+    {
+        TachDiagnostics.SetEnabled(enabled);
+        _receiver.DiagnosticObserver = enabled ? TachDiagnostics.RecordTelemetry : null;
+    }
+
     public async Task SetDebugLoggingEnabledAsync(bool enabled)
     {
         if (_disposed)
@@ -243,11 +250,13 @@ public sealed class AppController : IAsyncDisposable
             {
                 Settings.DebugLoggingEnabled = false;
                 Settings.DebugLoggingExpiresAtUtc = null;
+                SetTachDiagnosticsEnabled(false);
                 ViewModel.UpdateDebugLogging(false, "Off — local storage is unavailable");
                 SaveSettings();
                 return;
             }
 
+            SetTachDiagnosticsEnabled(true);
             Settings.DebugLoggingEnabled = true;
             Settings.DebugLoggingExpiresAtUtc = expiresAtUtc;
             ResetDebugSampleBaselines(nowUtc);
@@ -256,6 +265,7 @@ public sealed class AppController : IAsyncDisposable
         }
         else
         {
+            SetTachDiagnosticsEnabled(false);
             await _debugHealthMonitor.StopAsync().ConfigureAwait(true);
             await _debugLog.DisableAsync().ConfigureAwait(true);
             Settings.DebugLoggingEnabled = false;
@@ -293,6 +303,7 @@ public sealed class AppController : IAsyncDisposable
         var deleted = await _debugLog.DeleteLocalLogsAsync().ConfigureAwait(true);
         if (deleted)
         {
+            TachDiagnostics.Clear();
             ViewModel.UpdateDebugLogging(
                 Settings.DebugLoggingEnabled,
                 Settings.DebugLoggingEnabled
@@ -1790,6 +1801,7 @@ public sealed class AppController : IAsyncDisposable
         }
 
         _disposed = true;
+        SetTachDiagnosticsEnabled(false);
         _compatibilityLifetime.Cancel();
         _applicationUpdateLifetime.Cancel();
         _compatibilityUpdates.Dispose();
@@ -1984,6 +1996,7 @@ public sealed class AppController : IAsyncDisposable
         {
             _lastProcessedState = latest;
             Interlocked.Increment(ref _debugProcessedPackets);
+            if (TachDiagnostics.IsEnabled) TachDiagnostics.RecordUiInput(latest!);
         }
 
         var refreshDiagnostics = now >= _nextDiagnosticsAtUtc;
@@ -2235,6 +2248,7 @@ public sealed class AppController : IAsyncDisposable
 
         if (_debugLog.ExpireIfNeeded(nowUtc))
         {
+            SetTachDiagnosticsEnabled(false);
             Settings.DebugLoggingEnabled = false;
             Settings.DebugLoggingExpiresAtUtc = null;
             ViewModel.UpdateDebugLogging(false, "Off — 24-hour logging period expired");
@@ -2753,6 +2767,7 @@ public sealed class AppController : IAsyncDisposable
             return;
         }
 
+        SetTachDiagnosticsEnabled(false);
         Settings.DebugLoggingEnabled = false;
         Settings.DebugLoggingExpiresAtUtc = null;
         ViewModel.UpdateDebugLogging(false, "Off — 24-hour logging period expired");

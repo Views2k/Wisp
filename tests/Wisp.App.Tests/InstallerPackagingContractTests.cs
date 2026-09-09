@@ -248,6 +248,52 @@ public sealed class InstallerPackagingContractTests
     }
 
     [Fact]
+    public void PublicInstallerUsesReleaseIdentityAndRequiresNormalUpdateSwitch()
+    {
+        var packaging = InstallerScript();
+        var inno = InnoScript();
+        Assert.Contains("Assert-PublicBuildIdentity $projectText $projectVersion", packaging,
+            StringComparison.Ordinal);
+        Assert.Contains("$artifactVersion = $projectVersion", packaging, StringComparison.Ordinal);
+        Assert.Contains("& $innoExecutable \"/O$stageDirectory\" $innoScript", packaging, StringComparison.Ordinal);
+        Assert.Contains("Write-BuildProvenance $repository $publishFullPath", packaging, StringComparison.Ordinal);
+        Assert.Contains("#define MyAppVersion \"1.1.4\"", inno, StringComparison.Ordinal);
+        Assert.Contains("#define MyAppOutputVersion MyAppVersion", inno, StringComparison.Ordinal);
+        Assert.Contains("UpdatingExistingInstallation := UpdateSwitchPresent() and ExistingInstallationPresent();", inno,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("WispDiagnostics", inno, StringComparison.Ordinal);
+        Assert.DoesNotContain("diagnostics.4", packaging, StringComparison.Ordinal);
+        Assert.DoesNotContain("DeleteFile(SetupRequiredMarkerPath()", inno, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("public-identity")]
+    [InlineData("public-manifest")]
+    public Task PublicPackagingIdentityAndProvenanceAreBounded(string scenario) => RunHelperCase(scenario);
+
+    [Theory]
+    [InlineData("native-valid")]
+    [InlineData("native-missing")]
+    [InlineData("native-invalid-header")]
+    [InlineData("native-wrong-architecture")]
+    [InlineData("native-executable")]
+    [InlineData("native-truncated")]
+    [InlineData("native-pe32")]
+    public Task NativeRendererMustBeAnAvailableX64Library(string scenario) => RunHelperCase(scenario);
+
+    [Fact]
+    public void PublishedNativeRendererIsRequiredBeforeInstallerCompilation()
+    {
+        var script = InstallerScript();
+        var publish = script.IndexOf("& $dotnetExecutable publish $project", StringComparison.Ordinal);
+        var nativeValidation = script.IndexOf(
+            "Assert-NativeRendererLibrary (Assert-ReleasePath (Join-Path $publishFullPath 'Wisp.NativeRenderer.dll') $repository)",
+            StringComparison.Ordinal);
+        var compile = script.IndexOf("& $innoExecutable", StringComparison.Ordinal);
+        Assert.True(publish >= 0 && nativeValidation > publish && compile > nativeValidation);
+    }
+
+    [Fact]
     public void SharedPublishScratchIsLockedAndPromotionRetainsRecoveryCopies()
     {
         var script = InstallerScript();
@@ -306,6 +352,14 @@ public sealed class InstallerPackagingContractTests
     [InlineData("interrupted-promotion-recovery")]
     [InlineData("post-promotion-validation-failure")]
     public Task DurableTransactionRestoresTheCompletePreviousBundle(string scenario) => RunHelperCase(scenario);
+
+    [Theory]
+    [InlineData("private-bundle-new")]
+    [InlineData("private-bundle-reject-current")]
+    [InlineData("private-bundle-reject-suffix")]
+    [InlineData("private-bundle-reject-version")]
+    [InlineData("private-bundle-reject-case")]
+    public Task PrivateDiagnosticNamesCannotEnterPublicTransactions(string scenario) => RunHelperCase(scenario);
 
     [Fact]
     public Task InstallerVersionGuardAcceptsPaddedTextButRejectsWrongNumericVersion() =>
@@ -404,6 +458,9 @@ public sealed class InstallerPackagingContractTests
             if ($parseErrors.Count -ne 0) { throw 'Installer script syntax is invalid.' }
             foreach ($name in @(
                 'Assert-ReleasePath',
+                'Assert-PublicBuildIdentity',
+                'Assert-NativeRendererLibrary',
+                'Write-BuildProvenance',
                 'Get-RepositorySourceState',
                 'Assert-InstallerExecutable',
                 'Restore-InstallerArtifact',
@@ -425,8 +482,102 @@ public sealed class InstallerPackagingContractTests
                 if (-not $condition) { throw $message }
             }
 
+            function New-NativeLibraryFixture([string]$path) {
+                $data = [byte[]]::new(512)
+                [BitConverter]::GetBytes([uint16]0x5A4D).CopyTo($data, 0)
+                [BitConverter]::GetBytes([uint32]0x80).CopyTo($data, 0x3C)
+                [BitConverter]::GetBytes([uint32]0x00004550).CopyTo($data, 0x80)
+                [BitConverter]::GetBytes([uint16]0x8664).CopyTo($data, 0x84)
+                [BitConverter]::GetBytes([uint16]1).CopyTo($data, 0x86)
+                [BitConverter]::GetBytes([uint16]0xF0).CopyTo($data, 0x94)
+                [BitConverter]::GetBytes([uint16]0x2022).CopyTo($data, 0x96)
+                [BitConverter]::GetBytes([uint16]0x020B).CopyTo($data, 0x98)
+                [System.IO.File]::WriteAllBytes($path, $data)
+            }
+
             $root = $env:WISP_PACKAGING_TEST_ROOT
             $scenario = $env:WISP_PACKAGING_CASE
+            if ($scenario.StartsWith('native-', [StringComparison]::Ordinal)) {
+                $library = Join-Path $root 'Wisp.NativeRenderer.dll'
+                if ($scenario -ne 'native-missing') {
+                    New-NativeLibraryFixture $library
+                    $data = [System.IO.File]::ReadAllBytes($library)
+                    switch ($scenario) {
+                        'native-invalid-header' { $data[0] = 0 }
+                        'native-wrong-architecture' { [BitConverter]::GetBytes([uint16]0x014C).CopyTo($data, 0x84) }
+                        'native-executable' { [BitConverter]::GetBytes([uint16]0x0022).CopyTo($data, 0x96) }
+                        'native-truncated' { $data = [byte[]]$data[0..159] }
+                        'native-pe32' { [BitConverter]::GetBytes([uint16]0x010B).CopyTo($data, 0x98) }
+                    }
+                    [System.IO.File]::WriteAllBytes($library, $data)
+                }
+                $failure = $null
+                try { Assert-NativeRendererLibrary $library } catch { $failure = $_ }
+                Require (($null -eq $failure) -eq ($scenario -eq 'native-valid')) `
+                    'The native DLL header gate accepted an invalid library or rejected the valid x64 fixture.'
+                Write-Output 'packaging-helper-ok'
+                exit 0
+            }
+            if ($scenario.StartsWith('public-', [StringComparison]::Ordinal)) {
+                $projectText = '<Project><Version>1.1.4</Version></Project>'
+                Assert-PublicBuildIdentity $projectText '1.1.4'
+                if ($scenario -eq 'public-identity') {
+                    $invalidProjects = @(
+                        '<Project><WispDiagnosticBuildId>diagnostics.4</WispDiagnosticBuildId><WispDiagnosticBuildLabel>1.1.3 Diagnostics4</WispDiagnosticBuildLabel></Project>',
+                        '<Project><WispDiagnosticBuildId /></Project>',
+                        '<Project><WispDiagnosticBuildLabel>private</WispDiagnosticBuildLabel></Project>',
+                        '<Project><AssemblyMetadata Include="WispDiagnosticBuildId" Value="diagnostics.4" /></Project>')
+                    foreach ($invalidProject in $invalidProjects) {
+                        $failure = $null
+                        try { Assert-PublicBuildIdentity $invalidProject '1.1.4' } catch { $failure = $_ }
+                        Require ($null -ne $failure) 'A private diagnostic identity was accepted for public packaging.'
+                    }
+                    foreach ($invalidVersion in @('1.1.4-diagnostics.4', '1.1', '01.1.4')) {
+                        $versionFailure = $null
+                        try { Assert-PublicBuildIdentity $projectText $invalidVersion } catch { $versionFailure = $_ }
+                        Require ($null -ne $versionFailure) 'A non-release version was accepted for public packaging.'
+                    }
+                }
+                else {
+                    $publish = Join-Path $root 'publish'
+                    [System.IO.Directory]::CreateDirectory($publish) | Out-Null
+                    $application = Join-Path $publish 'Wisp.exe'
+                    [System.IO.File]::WriteAllBytes($application, [byte[]](1, 2, 3, 4))
+                    $nativeRenderer = Join-Path $publish 'Wisp.NativeRenderer.dll'
+                    $state = [pscustomobject]@{
+                        Revision = '0123456789abcdef0123456789abcdef01234567'
+                        IsDirty = $true
+                    }
+                    $manifestPath = Join-Path $publish 'build-provenance.json'
+                    $missingNativeFailure = $null
+                    try { Write-BuildProvenance $root $publish '1.1.4' $state } catch { $missingNativeFailure = $_ }
+                    Require ($null -ne $missingNativeFailure -and -not (Test-Path -LiteralPath $manifestPath)) `
+                        'The native renderer was optional in release build provenance.'
+                    New-NativeLibraryFixture $nativeRenderer
+                    Write-BuildProvenance $root $publish '1.1.4' $state
+                    $manifestText = [System.IO.File]::ReadAllText($manifestPath)
+                    $manifest = $manifestText | ConvertFrom-Json
+                    $fields = @($manifest.PSObject.Properties.Name | Sort-Object)
+                    Require (($fields -join ',') -ceq 'app_bytes,app_sha256,build_kind,created_at_utc,native_renderer,schema_version,source_dirty,source_revision,version') `
+                        'Unexpected provenance fields were published.'
+                    Require ($manifest.version -ceq '1.1.4' -and $manifest.source_dirty -eq $true -and
+                        $manifest.source_revision -ceq $state.Revision -and $manifest.build_kind -ceq 'release') `
+                        'The manifest lost its release version or dirty-source identity.'
+                    Require ($manifest.app_sha256 -ceq (Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash.ToLowerInvariant() -and
+                        $manifest.app_bytes -eq 4) 'The manifest does not identify the exact published application.'
+                    Require ($manifest.native_renderer.file -ceq 'Wisp.NativeRenderer.dll' -and
+                        $manifest.native_renderer.sha256 -ceq (Get-FileHash -LiteralPath $nativeRenderer -Algorithm SHA256).Hash.ToLowerInvariant() -and
+                        $manifest.native_renderer.bytes -eq 512 -and @($manifest.native_renderer.PSObject.Properties).Count -eq 3) `
+                        'The manifest does not identify the exact published native renderer.'
+                    Require (-not $manifestText.Contains($root)) 'The provenance leaked a local path.'
+                    $replaceFailure = $null
+                    try { Write-BuildProvenance $root $publish '1.1.4' $state } catch { $replaceFailure = $_ }
+                    Require ($null -ne $replaceFailure -and [System.IO.File]::ReadAllText($manifestPath) -ceq $manifestText) `
+                        'Existing provenance was replaced.'
+                }
+                Write-Output 'packaging-helper-ok'
+                exit 0
+            }
             if ($scenario.StartsWith('git-', [StringComparison]::Ordinal)) {
                 $source = Join-Path $root 'source'
                 [System.IO.Directory]::CreateDirectory($source) | Out-Null
@@ -592,9 +743,19 @@ public sealed class InstallerPackagingContractTests
             $output = Join-Path $root 'outputs'
             $stage = Join-Path $output '.staging\synthetic'
             [System.IO.Directory]::CreateDirectory($stage) | Out-Null
-            $setup = Join-Path $output 'Wisp-Setup-99.0.0.exe'
+            $artifactVersion = '99.0.0'
+            if ($scenario.StartsWith('private-bundle-', [StringComparison]::Ordinal)) {
+                $artifactVersion = '1.1.3-diagnostics.4'
+                $scenario = $scenario.Substring('private-bundle-'.Length)
+                switch ($scenario) {
+                    'reject-suffix' { $artifactVersion = '1.1.3-diagnostics.2' }
+                    'reject-version' { $artifactVersion = '1.1.4-diagnostics.4' }
+                    'reject-case' { $artifactVersion = '1.1.3-Diagnostics.3' }
+                }
+            }
+            $setup = Join-Path $output "Wisp-Setup-$artifactVersion.exe"
             $checksum = $setup + '.sha256'
-            $archive = Join-Path $output 'Wisp-Setup-99.0.0.zip'
+            $archive = Join-Path $output "Wisp-Setup-$artifactVersion.zip"
             $archiveChecksum = $archive + '.sha256'
             $stagedSetup = Join-Path $stage ([System.IO.Path]::GetFileName($setup))
             $stagedChecksum = $stagedSetup + '.sha256'
@@ -849,6 +1010,15 @@ public sealed class InstallerPackagingContractTests
                         'Post-promotion validation failure did not complete recovery.'
                     Require (-not (Test-Path -LiteralPath $transactionMarker)) `
                         'Post-promotion recovery left its transaction marker behind.'
+                }
+                elseif ($scenario.StartsWith('reject-', [StringComparison]::Ordinal)) {
+                    Require ($failure.Exception.Message.Contains('artifact set is inconsistent')) `
+                        'An unsupported private filename failed for an unrelated reason.'
+                    Require ((Test-Path -LiteralPath $stagedSetup -PathType Leaf) -and
+                        (Test-Path -LiteralPath $stagedChecksum -PathType Leaf) -and
+                        (Test-Path -LiteralPath $stagedArchive -PathType Leaf) -and
+                        (Test-Path -LiteralPath $stagedArchiveChecksum -PathType Leaf)) `
+                        'An unsupported private filename advanced into artifact promotion.'
                 }
             }
 

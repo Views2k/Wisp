@@ -32,8 +32,9 @@ They remain subject to the same review, validation, and owner-only merge rules.
 
 - Preserve Wisp's loopback-only telemetry, read-only FH6 access, and
   fail-closed compatibility checks.
-- Keep live HUD animation attached to WPF's compositor lifecycle. Do not add
-  timer loops or duplicate telemetry-driven gauge updates.
+- Keep each live HUD attached to its renderer's lifecycle. The native analogue
+  renderer uses the DXGI frame-latency wait handle; WPF views use their existing
+  compositor lifecycle. Do not add polling timers or duplicate gauge updates.
 - Add regression coverage for behavior changes and update existing contracts
   when an intentional interface changes.
 - Keep settings backward-compatible. New settings require defaults,
@@ -50,6 +51,22 @@ They remain subject to the same review, validation, and owner-only merge rules.
 Wisp requires Windows, the .NET 8 SDK selected by `global.json`, and Python
 3.12 or later. CI pins Python 3.14.7. Inno Setup 6 is required only for
 installer packaging.
+
+The analogue renderer also requires Visual Studio 2022
+C++ Build Tools with the x64 MSVC toolchain and a Windows 10/11 SDK (including
+`fxc.exe`). The application build compiles the native backend automatically.
+`Wisp.NativeRenderer.dll` must remain beside `Wisp.exe`; installer packaging
+checks its architecture and records its hash in diagnostic provenance.
+
+The runtime test checks hardware support before exercising either DirectComposition
+or the WPF fallback. An unsupported hardware adapter must still produce a working
+gauge and the exact fallback diagnostic; other initialization errors fail the test.
+The optional native pixel and presentation contracts require a hardware GPU and
+remain a separate check on a Windows desktop:
+
+```[WINDOWS POWERSHELL]
+./src/Wisp.NativeRenderer/Build-NativeRenderer.ps1 -RunContractTests
+```
 
 Run the commands below from the repository checkout. Installer packaging also
 requires Git and a clean checkout with a resolvable source commit; GitHub source

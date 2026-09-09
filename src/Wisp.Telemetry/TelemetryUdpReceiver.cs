@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using Wisp.Core;
@@ -39,6 +40,9 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     }
 
     public event EventHandler? PacketAvailable;
+
+    // Optional diagnostic observer. It must never block reception or retain the reused buffer.
+    public Action<TelemetryPacketDiagnostic>? DiagnosticObserver { get; set; }
 
     public VehicleState? Latest => Volatile.Read(ref _latest);
 
@@ -269,6 +273,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                     cancellationToken).ConfigureAwait(false);
 
                 RecordDatagram(drained: false);
+                ObserveDatagram(buffer.AsSpan(0, result.ReceivedBytes), TelemetryPacketDiagnosticKind.Received);
 
                 var receivedBytes = DrainToNewestDatagram(
                     socket,
@@ -282,12 +287,14 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                 {
                     Volatile.Write(ref _latest, state);
                     Interlocked.Increment(ref _acceptedPackets);
+                    ObserveParsed(state!, PacketParseError.None, receivedTimestamp);
                     NotifyPacketAvailable();
                 }
                 else
                 {
                     Volatile.Write(ref _lastParseError, (int)error);
                     Interlocked.Increment(ref _rejectedPackets);
+                    ObserveParsed(null, error, receivedTimestamp);
                 }
             }
         }
@@ -325,6 +332,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                 SocketFlags.None,
                 ref remoteEndpoint);
             RecordDatagram(drained: true);
+            ObserveDatagram(buffer.AsSpan(0, receivedBytes), TelemetryPacketDiagnosticKind.Drained);
         }
 
         return receivedBytes;
@@ -338,6 +346,39 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
             Interlocked.Increment(ref _drainedDatagrams);
         }
         Interlocked.Exchange(ref _lastDatagramTimestamp, Stopwatch.GetTimestamp());
+    }
+
+    private void ObserveDatagram(ReadOnlySpan<byte> bytes, TelemetryPacketDiagnosticKind kind)
+    {
+        var observer = DiagnosticObserver;
+        if (observer is null) return;
+        var now = Stopwatch.GetTimestamp();
+        var validLength = bytes.Length == Fh6PacketLayout.PacketLength;
+        var gameTime = validLength ? BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(Fh6PacketLayout.TimestampMilliseconds, 4)) : 0;
+        var rpm = validLength ? BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(Fh6PacketLayout.CurrentEngineRpm, 4))) : 0;
+        var maximum = validLength ? BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(Fh6PacketLayout.EngineMaximumRpm, 4))) : 0;
+        var car = validLength ? BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(Fh6PacketLayout.CarOrdinal, 4)) : 0;
+        var raceOn = validLength && BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(Fh6PacketLayout.IsRaceOn, 4)) == 1;
+        try
+        {
+            observer(new TelemetryPacketDiagnostic(kind, now, now, ReceivedDatagrams, gameTime,
+                float.IsFinite(rpm) ? rpm : 0, float.IsFinite(maximum) ? maximum : 0, car, raceOn,
+                validLength ? PacketParseError.None : PacketParseError.IncorrectLength));
+        }
+        catch { /* Optional evidence cannot terminate the telemetry listener. */ }
+    }
+
+    private void ObserveParsed(VehicleState? state, PacketParseError error, long receivedTimestamp)
+    {
+        var observer = DiagnosticObserver;
+        if (observer is null) return;
+        try
+        {
+            observer(new TelemetryPacketDiagnostic(state is null ? TelemetryPacketDiagnosticKind.Rejected : TelemetryPacketDiagnosticKind.Accepted,
+                Stopwatch.GetTimestamp(), receivedTimestamp, ReceivedDatagrams, state?.GameTimestampMilliseconds ?? 0,
+                state?.EngineRpm ?? 0, state?.EngineMaximumRpm ?? 0, state?.CarOrdinal ?? 0, state?.IsRaceOn ?? false, error));
+        }
+        catch { /* Optional evidence cannot terminate the telemetry listener. */ }
     }
 
     private void NotifyPacketAvailable()

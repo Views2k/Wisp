@@ -60,6 +60,15 @@ function Resolve-Executable {
     return $null
 }
 
+function Assert-PublicBuildIdentity {
+    param([string]$ProjectText, [string]$ProjectVersion)
+
+    if ($ProjectVersion -cnotmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$' -or
+        $ProjectText -match 'WispDiagnosticBuild(Id|Label)') {
+        throw 'Public packaging requires a release version without private diagnostic metadata.'
+    }
+}
+
 function Get-RepositorySourceState {
     param(
         [string]$RepositoryRoot,
@@ -130,6 +139,87 @@ function Assert-ReleasePath {
     }
 
     return $fullPath
+}
+
+function Assert-NativeRendererLibrary {
+    param([string]$Path)
+
+    $reader = [System.IO.BinaryReader]::new([System.IO.File]::OpenRead($Path))
+    try {
+        if ($reader.BaseStream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) {
+            throw 'The native renderer has an invalid executable header.'
+        }
+        $reader.BaseStream.Position = 0x3C
+        $peOffset = $reader.ReadUInt32()
+        if ($peOffset -lt 64 -or $peOffset -gt $reader.BaseStream.Length - 24) {
+            throw 'The native renderer has invalid PE header bounds.'
+        }
+        $reader.BaseStream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550 -or $reader.ReadUInt16() -ne 0x8664 -or
+            $reader.ReadUInt16() -eq 0) {
+            throw 'The native renderer must be an AMD64 PE library.'
+        }
+        $reader.BaseStream.Position = $peOffset + 20
+        $optionalHeaderSize = $reader.ReadUInt16()
+        $characteristics = $reader.ReadUInt16()
+        if (($characteristics -band 0x2002) -ne 0x2002 -or $optionalHeaderSize -lt 112 -or
+            $peOffset + 24 + $optionalHeaderSize -gt $reader.BaseStream.Length -or
+            $reader.ReadUInt16() -ne 0x020B) {
+            throw 'The native renderer must be a complete PE32+ DLL.'
+        }
+    }
+    finally {
+        $reader.Dispose()
+    }
+}
+
+function Write-BuildProvenance {
+    param(
+        [string]$RepositoryRoot,
+        [string]$PublishDirectory,
+        [string]$ProjectVersion,
+        [object]$SourceState
+    )
+
+    $publishPath = Assert-ReleasePath $PublishDirectory $RepositoryRoot
+    $applicationPath = Assert-ReleasePath (Join-Path $publishPath 'Wisp.exe') $RepositoryRoot
+    $nativeRendererPath = Assert-ReleasePath (Join-Path $publishPath 'Wisp.NativeRenderer.dll') $RepositoryRoot
+    $manifestPath = Assert-ReleasePath (Join-Path $publishPath 'build-provenance.json') $RepositoryRoot
+    if ($ProjectVersion -cnotmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$' -or
+        $SourceState.Revision -cnotmatch '^[0-9a-f]{40,64}$' -or
+        $SourceState.IsDirty -isnot [bool]) {
+        throw 'The build provenance is invalid.'
+    }
+    $application = Get-Item -LiteralPath $applicationPath
+    if ($application.PSIsContainer -or $application.Length -le 0) {
+        throw 'The published application is unavailable for hashing.'
+    }
+    Assert-NativeRendererLibrary $nativeRendererPath
+    $nativeRenderer = Get-Item -LiteralPath $nativeRendererPath
+    $manifest = [ordered]@{
+        schema_version = 1
+        build_kind = 'release'
+        version = $ProjectVersion
+        source_revision = $SourceState.Revision
+        source_dirty = $SourceState.IsDirty
+        created_at_utc = [DateTime]::UtcNow.ToString('o')
+        app_sha256 = (Get-FileHash -LiteralPath $applicationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        app_bytes = $application.Length
+        native_renderer = [ordered]@{
+            file = 'Wisp.NativeRenderer.dll'
+            sha256 = (Get-FileHash -LiteralPath $nativeRendererPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            bytes = $nativeRenderer.Length
+        }
+    }
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes(($manifest | ConvertTo-Json))
+    $stream = [System.IO.File]::Open($manifestPath, [System.IO.FileMode]::CreateNew,
+        [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try {
+        $stream.Write($bytes, 0, $bytes.Length)
+    }
+    finally {
+        $stream.Dispose()
+    }
 }
 
 function Assert-InstallerExecutable {
@@ -1048,9 +1138,11 @@ try {
         throw "Application version '$projectVersion' must use major.minor.patch format."
     }
 
-    $setupPath = Join-Path $outputsDirectory "Wisp-Setup-$projectVersion.exe"
+    Assert-PublicBuildIdentity $projectText $projectVersion
+    $artifactVersion = $projectVersion
+    $setupPath = Join-Path $outputsDirectory "Wisp-Setup-$artifactVersion.exe"
     $checksumPath = $setupPath + '.sha256'
-    $archivePath = Join-Path $outputsDirectory "Wisp-Setup-$projectVersion.zip"
+    $archivePath = Join-Path $outputsDirectory "Wisp-Setup-$artifactVersion.zip"
     $archiveChecksumPath = $archivePath + '.sha256'
 
     $innoText = [System.IO.File]::ReadAllText($innoScript)
@@ -1207,6 +1299,7 @@ try {
         'Wisp' `
         'Wisp' `
         $projectVersion
+    Assert-NativeRendererLibrary (Assert-ReleasePath (Join-Path $publishFullPath 'Wisp.NativeRenderer.dll') $repository)
 
     & $dotnetExecutable publish $updaterProject --configuration Release --runtime win-x64 --self-contained true `
         --output $updaterPublishDirectory `
@@ -1245,6 +1338,8 @@ try {
         'Wisp' `
         'Wisp Update Helper' `
         $projectVersion
+
+    Write-BuildProvenance $repository $publishFullPath $projectVersion $sourceState
 
     Push-Location $PSScriptRoot
     try {

@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Interop;
+using Wisp.App.DebugLogging;
 
 namespace Wisp.App;
 
@@ -10,6 +12,10 @@ public partial class NativeDigitalSpeedometer : UserControl
 {
     private readonly NativeTachometerInterpolator _tachometerInterpolator = new();
     private readonly NativeRenderLifetime _renderLifetime;
+    private readonly int _diagnosticControlId = TachDiagnostics.NextControlId();
+    private string _diagnosticHostKind = "unhosted";
+    private long _diagnosticHostWindowHandle;
+    private bool _diagnosticHostResolved;
     private NativeGaugeFrame _latestFrame;
     private TimeSpan _lastRenderingTime = TimeSpan.MinValue;
     private bool _hasFrame;
@@ -102,6 +108,7 @@ public partial class NativeDigitalSpeedometer : UserControl
             : Visibility.Collapsed;
 
         GaugeVisual.UpdateFrame(frame with { EngineRpm = renderedRpm });
+        RecordNeedleDiagnostic(renderedRpm, "immediate");
         _framePending = false;
     }
 
@@ -139,6 +146,7 @@ public partial class NativeDigitalSpeedometer : UserControl
     {
         ResetTachometerPlayback();
         _renderLifetime.Refresh();
+        RecordDiagnosticLifecycle();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs eventArgs)
@@ -148,14 +156,18 @@ public partial class NativeDigitalSpeedometer : UserControl
             return;
         }
 
+        _diagnosticHostResolved = false;
+        ResolveDiagnosticHost();
         ResetTachometerPlayback();
         _renderLifetime.Loaded();
+        RecordDiagnosticLifecycle();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs eventArgs)
     {
         ResetTachometerPlayback();
         _renderLifetime.Unloaded();
+        RecordDiagnosticLifecycle();
     }
 
     private void OnRenderActivityChanged()
@@ -172,6 +184,7 @@ public partial class NativeDigitalSpeedometer : UserControl
 
         _framePending = _hasFrame;
         RefreshFrame();
+        RecordDiagnosticLifecycle();
     }
 
     private void OnCompositionRendering(object? sender, EventArgs eventArgs)
@@ -193,6 +206,66 @@ public partial class NativeDigitalSpeedometer : UserControl
 
         var renderedRpm = SampleTachometer(Stopwatch.GetTimestamp());
         GaugeVisual.UpdateFrame(_latestFrame with { EngineRpm = renderedRpm });
+        RecordNeedleDiagnostic(renderedRpm, "composition");
+    }
+
+    private void RecordNeedleDiagnostic(double appliedRpm, string route)
+    {
+        if (!TachDiagnostics.IsEnabled)
+            return;
+        ResolveDiagnosticHost();
+        var timestamp = Stopwatch.GetTimestamp();
+        var available = double.IsFinite(appliedRpm) && NativeGaugeGeometry.ScaleMaximumRpm(_latestFrame.TachometerMaximumRpm) > 0;
+        var sample = new TachNeedleDiagnostic
+        {
+            ControlId = _diagnosticControlId,
+            ControlKind = "digital",
+            HostKind = _diagnosticHostKind,
+            HostWindowHandle = _diagnosticHostWindowHandle,
+            Route = route,
+            Source = available ? "rpm" : "unavailable",
+            IsLoaded = _renderLifetime.IsLoaded,
+            IsVisible = IsVisible,
+            IsLive = _renderLifetime.IsLive,
+            NeedleVisible = available,
+            CarOrdinal = _latestFrame.CarOrdinal,
+            GameTimestampMilliseconds = _latestFrame.GameTimestampMilliseconds,
+            ReceivedTimestamp = _latestFrame.ReceivedTimestamp,
+            NativeObservedTimestamp = _latestFrame.NativeGaugeObservedTimestamp,
+            AppliedTimestamp = timestamp,
+            RawRpm = _latestFrame.EngineRpm,
+            AppliedRpm = appliedRpm,
+            Angle = null,
+            Blur = null,
+            AppliedFraction = NativeGaugeGeometry.NormalizedRpm(appliedRpm, _latestFrame.TachometerMaximumRpm),
+            PlaybackDelayMilliseconds = _tachometerInterpolator.PlaybackDelayMilliseconds(timestamp),
+            PlaybackTargetDelayMilliseconds = _tachometerInterpolator.PlaybackTargetDelayMilliseconds,
+            BufferedSamples = _tachometerInterpolator.BufferedSamples,
+            PlaybackAtNewest = _tachometerInterpolator.PlaybackAtNewest,
+            ReseedCount = _tachometerInterpolator.ReseedCount,
+            StarvationReseedCount = _tachometerInterpolator.StarvationReseedCount
+        };
+        TachDiagnostics.RecordNeedle(in sample);
+    }
+
+    private void ResolveDiagnosticHost()
+    {
+        if (!TachDiagnostics.IsEnabled || _diagnosticHostResolved)
+            return;
+        var host = Window.GetWindow(this);
+        _diagnosticHostKind = host?.GetType().Name ?? "unhosted";
+        _diagnosticHostWindowHandle = host is null ? 0 : new WindowInteropHelper(host).Handle.ToInt64();
+        _diagnosticHostResolved = true;
+    }
+
+    private void RecordDiagnosticLifecycle()
+    {
+        if (!TachDiagnostics.IsEnabled)
+            return;
+        ResolveDiagnosticHost();
+        TachDiagnostics.RecordNeedleLifecycle(
+            _diagnosticControlId, "digital", _diagnosticHostKind, _diagnosticHostWindowHandle,
+            _renderLifetime.IsLoaded, IsVisible, _renderLifetime.IsLive);
     }
 
     private static void UpdateAssist(

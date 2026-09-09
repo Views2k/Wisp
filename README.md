@@ -8,6 +8,21 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
+## New in Wisp 1.1.4
+
+Addresses choppy Analogue tachometer motion while Forza is focused. The live
+combustion Analogue HUD now renders through Direct3D11 and DirectComposition,
+keeping the original gauge artwork, native needle angle and blur, and existing
+playback timing. RPM fallback also uses the corrected native motion-blur
+calculation when stock needle data is unavailable.
+
+Digital and electric HUDs and Appearance previews continue using WPF. No new
+setting is required. Local debug exports include needle-source and
+render-submission timing to help investigate remaining smoothness reports.
+
+[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
+[1.1.4 release notes](docs/releases/Wisp-1.1.4-release-notes.md)
+
 ## New in Wisp 1.1.3
 
 Adds native HUD support for Xbox app / Microsoft Store FH6 `3.440.853.0` on
@@ -330,9 +345,12 @@ builds, validation boundary, and update behavior.
 
 ## Build from source
 
-Use a Git checkout and the .NET 8 SDK selected by `global.json`. Python 3.12 or
-later runs the offline compatibility-audit tests; CI pins Python 3.14.7. Inno
-Setup 6 is needed only to package an installer.
+Use a Git checkout and the .NET 8 SDK selected by `global.json`. Building the
+native renderer also requires Visual Studio C++ build tools for x64 and a
+Windows SDK containing `fxc.exe`; the application build compiles and copies
+`Wisp.NativeRenderer.dll` automatically. Python 3.12 or later runs the offline
+compatibility-audit tests; CI pins Python 3.14.7. Inno Setup 6 is needed only to
+package an installer.
 
 Review the [contribution and permission requirements](CONTRIBUTING.md) before
 preparing changes. Installer packaging requires Git and a clean checkout;
