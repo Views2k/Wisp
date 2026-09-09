@@ -1,4 +1,4 @@
-![Wisp header](docs/images/wisp-header.png)
+[![Watch the Wisp demonstration in Forza Horizon 6](docs/images/wisp-demo-thumbnail.jpg)](https://www.youtube.com/watch?v=GgWPN0Bb69E)
 
 <p align="center">
   <strong>A wheel-indicated speed, boost, tire-temperature, and G-force companion for Forza Horizon 6.</strong><br>
