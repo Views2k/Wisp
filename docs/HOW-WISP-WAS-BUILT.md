@@ -13,14 +13,16 @@ Three decisions shaped the project from the beginning:
 
 ## Architecture
 
-The solution is split into five production projects:
+The solution has five managed production projects and a C++ rendering backend:
 
 ```text
 FH6 loopback UDP
     -> Wisp.Telemetry -> validated VehicleState
-    -> Wisp.Core      -> tire model, speed, G-force, freshness
-    -> Wisp.App       -> setup, settings, diagnostics, WPF overlays
-        |                  `-> guarded read-only Native capability
+    -> Wisp.Core      -> tire model, speed, G-force, freshness, run analysis
+    -> Wisp.App       -> setup, settings, diagnostics, run recording and views
+        |             -> guarded read-only Native capability
+        |             -> WPF views and overlays
+        |             -> Wisp.NativeRenderer -> live combustion Analogue HUD
         `-> Wisp.Update -> release validation and verified download
                          -> Wisp.Updater -> apply after Wisp exits
 ```
@@ -28,7 +30,9 @@ FH6 loopback UDP
 `Wisp.Telemetry` understands the fixed FH6 packet and owns the loopback UDP
 receiver. `Wisp.Core` contains the deterministic vehicle calculations and has
 no WPF dependency. `Wisp.App` owns startup, settings, application lifecycle,
-the setup gate, and the Windows presentation layer. `Wisp.Update` owns release
+the setup gate, local run storage, and the Windows presentation layer. Its native
+rendering bridge sends analogue scenes to `Wisp.NativeRenderer`, which owns the
+Direct3D11 resources and DirectComposition surface. `Wisp.Update` owns release
 metadata, transport, and artifact verification. `Wisp.Updater` is a small
 separate executable that applies an already verified installer after Wisp has
 closed.
@@ -63,6 +67,22 @@ fallback.
 The separate **FH6 speed** option is explicit: it displays the packet's vehicle
 speed directly and bypasses tire learning. The two sources are never blended.
 
+## Recording and comparing runs
+
+`Wisp.App.Runs.RunRecordingService` consumes a bounded capture from the telemetry
+receiver and pairs samples with validated driving context and tire radii. It
+records timestamps, gaps, rejected or dropped datagrams, and marked moments.
+Recordings stop at the selected limit, with a maximum of ten minutes. The local
+`RunStore` validates and saves Wisp run files with names, tune labels, and notes;
+recording and file work do not run in the HUD render loop.
+
+`Wisp.Core.Runs` holds the recording model and deterministic analysis for selected
+intervals, whole runs, and matched acceleration ranges. It preserves gaps and
+unavailable evidence when calculating statistics and comparison findings.
+`Wisp.App.Runs` provides the graphs, selection controls, and explicit exports to
+report images, CSV, or a shareable Wisp run file. No gameplay video is recorded,
+and tune labels come from the user.
+
 ## Reconstructing the Native HUD
 
 Native mode is composed from live controls rather than a static screenshot. It
@@ -74,9 +94,10 @@ SHA-256, role, and rendering treatment.
 The asset cache loads each image once, corrects the exported alpha
 representation before WPF composition, freezes the result, and reuses tinted
 variants. Digital, Analogue, Electric Digital, and Electric Analogue controls
-then select the appropriate elements for the current state. Pixel shaders
-provide the digital RPM material, analogue dial treatment, and tachometer
-needle trail.
+then select the appropriate elements for the current state. The native analogue
+scene uses the same stock assets and gauge geometry. Shaders provide the digital
+RPM material, analogue dial treatment, and tachometer needle trail in their
+respective renderers.
 
 Wisp is a free, non-commercial companion and uses these assets for
 interoperability and HUD presentation. The repository links to Microsoft's
@@ -122,19 +143,32 @@ state; no generated gear artwork is substituted.
 ## Rendering without unnecessary work
 
 Packet arrivals schedule a UI update using the newest available telemetry,
-independently of WPF compositor callbacks. RPM samples pass through a small
-receive-time interpolation buffer so the telemetry needle can move continuously
-between real samples without predicting future RPM. When an exact Native needle
-pair is available, a separate bounded playback
-path follows its observed angle and blur samples on the same compositor clock.
-It resets instead of extrapolating across stale input, a car change, or a hidden
-render lifetime.
+independently of WPF compositor callbacks. The live combustion Analogue HUD has
+a separate render worker paced by the DXGI frame-latency wait handle. It consumes
+bounded input, builds a scene, and submits it through Direct3D11 and
+DirectComposition. A full input queue is discarded and playback resets so a
+stalled renderer cannot replay an old backlog. Busy submissions retry the pending
+frame without repeatedly drawing it, while visibility or incompatible state
+changes invalidate pending work.
 
-Native controls detach from `CompositionTarget.Rendering` while hidden,
-collapsed, minimized, or unloaded. Diagnostics refresh at a much lower cadence,
-and game-window visibility checks are bounded separately. Scrolling uses stable
-parent containers so moving through a page does not replace the page's scale
-transform on every offset change.
+GPU rendering is the default. The optional **CPU rendering** setting in
+**Diagnostics** selects Direct3D11 WARP after restarting Wisp. CPU mode caches an
+unchanged dial background while continuing to update the needle and live
+readings. It can increase CPU usage and applies only to the live combustion
+Analogue HUD. Digital and electric HUDs, Appearance previews, and the analogue
+WPF fallback retain their WPF renderer.
+
+RPM samples pass through a small receive-time interpolation buffer without
+predicting future RPM. When exact Native needle samples are available, bounded
+playback follows their observed angle and blur. Playback uses the active
+renderer's timing and resets across stale input, car changes, and hidden
+lifetimes. WPF Native controls detach from `CompositionTarget.Rendering` while
+hidden, collapsed, minimized, or unloaded; the native worker suspends its drawing
+while inactive.
+
+Diagnostics refresh at a much lower cadence, and game-window visibility checks
+are bounded separately. Scrolling uses stable parent containers so moving through
+a page does not replace the page's scale transform on every offset change.
 
 FH6 can continue sending plausible driving telemetry while a menu is open, so
 packet activity alone is not a visibility signal. Wisp combines telemetry
@@ -165,8 +199,11 @@ work to the overlay render loop.
 The test suite covers packet offsets, malformed data, listener lifecycle,
 drivetrain calculations, calibration consensus, settings migration, setup
 gating, WPF resources, native asset hashes and pixels, gauge geometry, shaders,
-render lifetime, recorded RPM traces, compatibility validation, and installer
-promotion rollback.
+render lifetime, recorded RPM traces, run recording and comparison, compatibility
+validation, and installer promotion rollback. Native pixel and presentation
+contracts remain a separate manual hardware-GPU requirement for the
+[release gate](VALIDATION.md#release-gate); normal CI and installer packaging do
+not execute that command.
 
 The opt-in UI review tool constructs the compiled WPF surfaces with isolated
 settings and deterministic sample state. It checks page layouts at multiple
@@ -182,8 +219,10 @@ unique staging directory. It validates the installer, inner checksum, two-file
 ZIP, and outer checksum before promoting the four-file bundle with durable
 recovery state.
 
-Update availability checks run at startup, at most once every 24 hours. They are
-enabled by default and can be disabled in Extras; manual checks remain available.
+Update availability checks run whenever Wisp opens and every 24 hours while it
+remains running, including while waiting in the tray. They are enabled by default;
+turn off **Automatically check on open and daily** in **Extras** to disable them.
+Manual checks remain available.
 Wisp asks for confirmation before downloading and installing an update. The
 client reads GitHub's anonymous latest-release endpoint and accepts only a stable
 immutable release with a strict tag, exact versioned installer name, uploaded

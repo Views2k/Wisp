@@ -21,6 +21,12 @@ dotnet build tools/Wisp.UiReview/Wisp.UiReview.csproj --configuration Release --
 python -m unittest discover -s tools/tests -p "test_*.py" -v
 ```
 
+The native pixel and presentation command requires a hardware GPU on a Windows
+desktop. It remains a required manual release check: record the exact source
+commit and result alongside the release evidence. Normal CI and installer
+packaging build the native DLL but do not run `-RunContractTests`; their success
+alone does not satisfy this part of the release gate.
+
 Packaging must additionally verify the staged executable version, PE identity,
 update-helper identity, the staged `Wisp.NativeRenderer.dll`, Native asset
 manifest, bundled .NET 8.0.30 notices, and the installer/checksum pair before
@@ -111,7 +117,8 @@ GitHub Actions runs on `windows-latest` and performs:
 1. an audited NuGet restore;
 2. `dotnet format --verify-no-changes`;
 3. the complete Release .NET solution tests;
-4. a locked Release build of the UI review harness;
+4. a locked Release build of the UI review harness and bounded setup-wizard and
+   Appearance captures;
 5. the Python compatibility-audit tests.
 
 The local packaging script adds a separate installer gate. It runs the Release

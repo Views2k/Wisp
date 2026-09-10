@@ -61,8 +61,11 @@ checks its architecture and records its hash in diagnostic provenance.
 The runtime test checks hardware support before exercising either DirectComposition
 or the WPF fallback. An unsupported hardware adapter must still produce a working
 gauge and the exact fallback diagnostic; other initialization errors fail the test.
-The optional native pixel and presentation contracts require a hardware GPU and
-remain a separate check on a Windows desktop:
+The native pixel and presentation contracts require a hardware GPU and remain
+a separate manual check on a Windows desktop. They are required for the
+[release gate](docs/VALIDATION.md#release-gate), but normal CI and installer
+packaging do not run them. Building the native DLL does not execute these
+contracts; record the source commit and result separately before a release:
 
 ```[WINDOWS POWERSHELL]
 ./src/Wisp.NativeRenderer/Build-NativeRenderer.ps1 -RunContractTests

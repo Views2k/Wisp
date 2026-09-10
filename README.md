@@ -24,7 +24,7 @@ HUD settings, and Record and Compare Runs features are preserved.
 [Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
 [1.2.1 release notes](docs/releases/Wisp-1.2.1-release-notes.md)
 
-## New in Wisp 1.2
+## Record and compare runs
 
 Record a drive and compare it with another run without leaving Wisp. Start from
 Dashboard or Runs, or set a recording shortcut. Add a countdown, choose a timed
@@ -45,159 +45,8 @@ or record gameplay video.
 [Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
 [1.2 release notes](docs/releases/Wisp-1.2.0-release-notes.md)
 
-## New in Wisp 1.1.4
-
-Addresses choppy Analogue tachometer motion while Forza is focused. The live
-combustion Analogue HUD now renders through Direct3D11 and DirectComposition,
-keeping the original gauge artwork, native needle angle and blur, and existing
-playback timing. RPM fallback also uses the corrected native motion-blur
-calculation when stock needle data is unavailable.
-
-Digital and electric HUDs and Appearance previews continue using WPF. No new
-setting is required. Local debug exports include needle-source and
-render-submission timing to help investigate remaining smoothness reports.
-
-[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
-[1.1.4 release notes](docs/releases/Wisp-1.1.4-release-notes.md)
-
-## New in Wisp 1.1.3
-
-Adds native HUD support for Xbox app / Microsoft Store FH6 `3.440.853.0` on
-Windows PC. Previous Store and Steam maps remain available offline. Signed map
-updates introduced in 1.1.2 continue to support future reviewed builds within the
-existing reader; changed native layouts may still require an application update.
-
-Enable **Show vacuum pressure** in Appearance > Boost to display negative pressure
-reported by FH6. Digital and Analogue gauges support PSI and bar, including
-attached and detached layouts. The option starts off and saves with your settings
-and HUD profiles. Leave the boost gauge enabled even when you do not know a
-tune's induction setup: naturally aspirated cars show a stationary zero gauge,
-and pressure starts working once positive boost is detected. Electric vehicles
-never show the boost gauge. Vacuum requires positive boost to have been detected
-for the current car/session.
-
-Automatic application-update checks now run whenever Wisp opens and every 24
-hours while it stays open, including while waiting in the tray. An available
-update banner remains visible if a later automatic check fails.
-
-[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
-[1.1.3 release notes](docs/releases/Wisp-1.1.3-release-notes.md)
-
-## New in Wisp 1.1.2
-
-Adds support for Steam FH6 `6.440.853.0` and signed compatibility-map updates for
-future reviewed builds. Existing Steam and Store maps remain available offline.
-Unknown native layouts still require review; changes beyond the reader's
-supported schema may need an application update.
-
-[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
-[1.1.2 release notes](docs/releases/Wisp-1.1.2-release-notes.md)
-
-## New in Wisp 1.1.1
-
-[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
-[1.1.1 release notes](docs/releases/Wisp-1.1.1-release-notes.md)
-
-- **Xbox app and Microsoft Store support.** Native HUD compatibility now includes
-  the Windows PC release of FH6, build `3.430.771.0`. Steam build `6.430.771.0`
-  remains supported through its existing compatibility path.
-- **The same local setup.** Enable FH6 Data Out and complete Wisp's setup wizard.
-  No administrator access, permission changes, or game modifications are needed.
-
-This is support for the PC game, not Xbox consoles or cloud gaming. Existing
-HUD layouts, colors, profiles, and tire calibration are preserved.
-
-## New in Wisp 1.1
-
-[Download 1.1](https://github.com/Views2k/Wisp/releases/tag/v1.1.0) ·
-[1.1 release notes](docs/releases/Wisp-1.1.0-release-notes.md)
-
-- **More readable wheel speed while drifting.** Speed smoothing now follows the
-  selected amount during rapid wheel-speed changes. Zero smoothing remains immediate.
-- **Reliable saves.** Profile-save confirmation waits for a successful write and
-  offers a retry on failure. Calibration saves also track drivetrain and revision
-  changes without altering tire-learning rules.
-- **Connection and update fixes.** Windows clock changes no longer affect telemetry
-  freshness, and release details stay available when retrying a downloaded update.
-- **Setup and release-history polish.** Setup uses the website's particle material
-  and depth styling with smoother faint gradients. Version labels no longer clip.
-- **Flexible release labels.** New clients accept shortened versions while keeping
-  installer size, SHA-256, embedded-version, and downgrade checks intact. This
-  release retains the `v1.1.0` tag so older installations can discover it.
-
-Includes expired-log cleanup before debug export. Existing exported ZIPs are
-untouched. HUD layouts, saved colors, and tire calibration behavior are preserved.
-
-## New in 1.0.12
-
-[Download 1.0.12](https://github.com/Views2k/Wisp/releases/tag/v1.0.12) ·
-[Release notes](docs/releases/Wisp-1.0.12-release-notes.md)
-
-Local debug reports now separate telemetry, UI, native-data, and composition
-problems with timestamped evidence and practical next steps. Background collection
-continues during UI stalls and stays local, opt-in, and bounded. This release also
-improves native race-provider recovery after settings transitions and removes the
-update-confirmation outline.
-
-## The 1.0.10 quality-of-life update
-
-**Save your HUD setups, choose your own colors, and track more of each drive.**
-Version 1.0.10 brings the following additions and fixes since 1.0.8.
-
-### New features
-
-- **Named HUD profiles.** Save a Drift, Racing, Minimal, or Screenshot setup
-  from Appearance, then apply, update, rename, or delete it from Profiles.
-  Profiles include the layout, gauges, units, sizing, opacity, orientation,
-  and complete color combination. Tire calibration, saved screen positions,
-  telemetry, startup, update, debug, and hotkey settings stay separate.
-- **A rebuilt color editor in Extras.** Select an element on the left and edit
-  it on the right. Choose any point on the color wheel, adjust saturation,
-  brightness and opacity, or enter an exact ARGB color. Targets include the app
-  accent, backgrounds and surfaces, HUD border, and all three gauge-gradient
-  colors. The **traction hook cue now has its own color control**.
-- **Live torque and session peaks.** Torque joins horsepower on the Wheel Speed
-  Ready card with matching smoothing and typography. Choose Nm or lb-ft. Top
-  speed, peak power, and peak torque sit below their live readings; reset them
-  together or let them reset when you change cars.
-- **Update notifications and release details.** An optional startup check runs
-  no more than once every 24 hours. A Dashboard banner announces an available
-  update, and its GitHub release summary appears before you confirm the
-  download. Downloads and installation are never automatic.
-- **A customizable overlay hotkey.** Assign a global shortcut to show or hide
-  the HUD without opening Wisp.
-- **Local debug logging.** Enable it in Diagnostics to record bounded telemetry
-  and application-health samples once per second, then export an issue-ready
-  ZIP. Logging stops after 24 hours. Logs older than seven days are cleaned up
-  when Wisp starts, records logs, or exports them. Exported ZIPs remain yours
-  to keep or delete. You choose whether to share them.
-- **Release notes inside Wisp.** A dedicated sidebar page covers the documented
-  public releases. Extras also includes a direct link to star Wisp on GitHub.
-
-### Bug fixes and refinements
-
-- Detached boost and tire-temperature gauges retain their saved positions
-  across restarts and updates, including placements on secondary displays.
-- Applying a profile restores the correct saved placement when changing
-  layouts or switching between Native Digital and Native Analogue. The selected
-  torque unit is also saved and applied.
-- Expired native tachometer samples no longer repeatedly interrupt smooth
-  RPM fallback motion when the native reader stalls.
-- The traction hook cue works across Native HUD styles, and stale slip evidence
-  is cleared after stopping.
-- Color-wheel clicks and drags work throughout the wheel. Slider adjustments
-  no longer move the selected wheel position, and very dark background colors
-  remain visible and editable without sacrificing readable surfaces.
-- Color customization uses a themed element list and a larger editor instead
-  of the unstyled dropdown. The local debug logging control is styled to match.
-- The duplicate profile-save button is removed, and the save confirmation
-  dialog no longer has an outer border.
-- Simultaneous debug-log actions no longer wait indefinitely, and a failed
-  telemetry-listener start no longer leaves UI callbacks running.
-
-[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
-[1.0.10 release notes](docs/releases/Wisp-1.0.10-release-notes.md) ·
-[What's new on the website](https://wispoverlay.com/releases/1.0.10/)
+For earlier changes, see the [changelog](CHANGELOG.md) and
+[release history](https://github.com/Views2k/Wisp/releases).
 
 ![Wisp 1.1 Dashboard showing live FH6 telemetry, torque, and session peaks](docs/images/dashboard-1.1.png)
 
@@ -232,8 +81,11 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
   connection status.
 - One continuous color editor for the application accent, background surfaces,
   HUD border, shared gauge gradient, and traction hook cue, plus named visual profiles.
-- Optional once-daily update discovery, a customizable HUD visibility shortcut,
-  and bounded local debug logging with ZIP export for issue reports.
+- Local run recording, graphs, and comparisons, with report images, CSV, and
+  shareable Wisp run files.
+- Optional update discovery on every open and daily while running, a customizable
+  HUD visibility shortcut, and bounded local debug logging with ZIP export for
+  issue reports.
 
 ## Gallery
 
@@ -280,11 +132,13 @@ Wisp 1.1 with custom colors. The Release Notes capture shows the 1.1 preview ent
 - Borderless fullscreen, windowed, or another desktop-composited display mode.
   Exclusive fullscreen can cover ordinary Windows overlays.
 
-Native process-derived HUD state supports Steam FH6 build `6.430.771.0` and
-Xbox app / Microsoft Store PC build `3.430.771.0`, each through its own reviewed
-build contract. Data Out reception and dashboard calculations remain independent
-of those contracts. Wisp runs on Windows alongside the game, not on Xbox consoles
-or a cloud-gaming session.
+Native process-derived HUD state supports Steam FH6 build `6.440.853.0` and
+Xbox app / Microsoft Store PC build `3.440.853.0`. Previous bundled maps remain
+available for installations that have not updated FH6. See
+[Compatibility and Update Safety](docs/COMPATIBILITY.md#current-support) for the
+complete bundled-build list and validation rules. Data Out reception and dashboard
+calculations remain independent of those contracts. Wisp runs on Windows alongside
+the game, not on Xbox consoles or a cloud-gaming session.
 
 The installer is self-contained and installs for the current user. It does not
 require administrator access or a separate .NET runtime.
@@ -375,7 +229,8 @@ builds, validation boundary, and update behavior.
 - Telemetry is accepted only from `127.0.0.1`.
 - Settings and tire profiles remain in the current user's local application data.
 - The installer is not code-signed.
-- A changed FH6 build identity requires a reviewed Wisp update.
+- A changed FH6 build identity requires a reviewed compatibility map and may
+  require an application update.
 - FH6 exposes no tune identifier. Relearn the current tires after changing wheel
   or tire diameter.
 - Software-only WPF captures do not reproduce the live Native HUD shaders.

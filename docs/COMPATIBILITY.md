@@ -2,10 +2,12 @@
 
 ## Current support
 
-Wisp 1.1.2 includes separate Native HUD compatibility contracts for:
+Wisp bundles separate Native HUD compatibility contracts for:
 
 - Steam FH6 build `6.440.853.0`, identified by its recorded executable fingerprint;
 - Steam FH6 build `6.430.771.0`, identified by its recorded executable fingerprint;
+- Xbox app / Microsoft Store Windows PC build `3.440.853.0`, identified by its
+  Store package and bounded loaded-image checks;
 - Xbox app / Microsoft Store Windows PC build `3.430.771.0`, identified by its
   Store package and bounded loaded-image checks.
 
@@ -124,10 +126,12 @@ replacement, local cache rollback by the same user, or system-clock tampering.
 ## Application updates
 
 The application updater is separate from compatibility contracts. Availability
-checks run at startup, at most once every 24 hours. They are enabled by default
-and can be disabled in **Extras**. **Check for updates** also allows a manual
-check. The client uses GitHub's anonymous latest-release endpoint and requires a
-non-draft, non-prerelease, immutable release. Exactly one uploaded
+checks run whenever Wisp opens and every 24 hours while it remains running,
+including while waiting in the tray. They are enabled by default; turn off
+**Automatically check on open and daily** in **Extras** to disable them.
+**Check for updates** also allows a manual check. The client uses GitHub's
+anonymous latest-release endpoint and requires a non-draft, non-prerelease,
+immutable release. Exactly one uploaded
 `Wisp-Setup-<version>.exe` asset provides the numeric version, byte length, and
 GitHub SHA-256 digest. One-, two-, and three-part numeric versions normalize to
 `X.Y.Z`; numeric tags must agree with the installer. Stable release titles are

@@ -32,10 +32,12 @@ exposed.
 
 ## Application-update boundary
 
-Wisp checks for application updates at startup, at most once every 24 hours.
-These checks are enabled by default and can be disabled in **Extras**. The
-**Check for updates** action also allows a manual check. The client makes an
-anonymous HTTPS request to the latest-release API and accepts only a non-draft,
+Wisp checks for application updates whenever it opens and every 24 hours while
+it remains running, including while waiting in the tray. These checks are enabled
+by default; turn off **Automatically check on open and daily** in **Extras** to
+disable them. The **Check for updates** action also allows a manual check. The
+client makes an anonymous HTTPS request to the latest-release API and accepts
+only a non-draft,
 non-prerelease, immutable release. Exactly one versioned installer supplies its
 numeric version, uploaded state, byte length, and GitHub SHA-256 digest.
 Short numeric versions are normalized; numeric release tags must agree with the
