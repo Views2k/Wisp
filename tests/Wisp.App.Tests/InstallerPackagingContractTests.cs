@@ -185,7 +185,7 @@ public sealed class InstallerPackagingContractTests
     [Fact]
     public void SelfContainedDistributionCarriesPinnedRuntimeNotices()
     {
-        const string runtimeVersion = "8.0.30";
+        const string runtimeVersion = "8.0.31";
         var root = RepositoryRoot();
         var project = File.ReadAllText(Path.Combine(root, "src", "Wisp.App", "Wisp.App.csproj"));
         Assert.Contains($"<RuntimeFrameworkVersion>{runtimeVersion}</RuntimeFrameworkVersion>", project,

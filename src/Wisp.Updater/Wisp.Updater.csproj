@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <RuntimeFrameworkVersion>8.0.30</RuntimeFrameworkVersion>
+    <RuntimeFrameworkVersion>8.0.31</RuntimeFrameworkVersion>
     <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>true</PublishTrimmed>
     <TrimMode>full</TrimMode>
