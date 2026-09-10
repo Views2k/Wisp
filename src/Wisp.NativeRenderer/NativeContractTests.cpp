@@ -13,6 +13,21 @@ static void Require(bool passed, const char* name)
 {
     if (!passed) { ++failures; std::printf("FAIL: %s\n", name); }
 }
+static constexpr bool TimingsFitTotal(int64_t totalTicks, int64_t firstTicks, int64_t secondTicks, int64_t thirdTicks = 0)
+{
+    // Bound each subtraction instead of summing durations that could overflow.
+    return firstTicks >= 0 && secondTicks >= 0 && thirdTicks >= 0 &&
+        totalTicks >= firstTicks && totalTicks - firstTicks >= secondTicks &&
+        totalTicks - firstTicks - secondTicks >= thirdTicks;
+}
+static_assert(TimingsFitTotal(0, 0, 0) && TimingsFitTotal(10, 2, 3, 5), "Zero and exact-fit timings are valid.");
+static_assert(TimingsFitTotal(INT64_MAX, INT64_MAX - 2, 1, 1), "Exact fits remain valid at the signed limit.");
+static_assert(!TimingsFitTotal(9, 2, 3, 5), "Nested timings cannot exceed the total.");
+static_assert(!TimingsFitTotal(INT64_MAX, INT64_MAX, 1) &&
+    !TimingsFitTotal(INT64_MAX, INT64_MAX - 1, 1, 1), "Overflowing sums are rejected without evaluating them.");
+static_assert(!TimingsFitTotal(INT64_MIN, 0, 0) && !TimingsFitTotal(INT64_MAX, INT64_MIN, 0) &&
+    !TimingsFitTotal(INT64_MAX, 0, INT64_MIN) && !TimingsFitTotal(INT64_MAX, 0, 0, INT64_MIN),
+    "Negative timings are rejected before subtraction.");
 static WispDrawCommand Sprite(float x, float y, float width, float height, uint32_t texture = 0)
 {
     WispDrawCommand command{};
@@ -59,7 +74,7 @@ static void CheckDialCache(void* renderer, bool cpuRendering)
         Require(SUCCEEDED(WispRendererDrawForPresentation(renderer, commands, 2, 1, &metrics)), "measured cache draw");
         Require(metrics.drawCount == expectedDraws && metrics.mapCount == expectedDraws,
             "cache metrics count only actual draws and maps");
-        Require(metrics.totalTicks >= metrics.setupTicks + metrics.mapTicks,
+        Require(TimingsFitTotal(metrics.totalTicks, metrics.setupTicks, metrics.mapTicks),
             "cache setup and maps remain disjoint nested timings");
     };
     const uint32_t cachedDraws = cpuRendering ? 1u : 2u;
@@ -235,8 +250,8 @@ int main(int argc, char** argv)
     Require(SUCCEEDED(WispRendererWaitForFrameMeasured(renderer, 100, nullptr, 1, &initialReady, &waitMetrics)),
         "initial measured queue wait");
     Require(waitMetrics.totalTicks > 0 && waitMetrics.precheckTicks >= 0 && waitMetrics.waitCallTicks > 0 &&
-        waitMetrics.postcheckTicks >= 0 && waitMetrics.totalTicks >=
-        waitMetrics.precheckTicks + waitMetrics.waitCallTicks + waitMetrics.postcheckTicks &&
+        waitMetrics.postcheckTicks >= 0 && TimingsFitTotal(waitMetrics.totalTicks,
+            waitMetrics.precheckTicks, waitMetrics.waitCallTicks, waitMetrics.postcheckTicks) &&
         waitMetrics.cpuTime100ns >= -1 && waitMetrics.swapChainGeneration == 1 &&
         waitMetrics.waitResult == (initialReady == 1 ? WAIT_TIMEOUT : WAIT_OBJECT_0),
         "wait metrics partition wall time and record initial swapchain generation");
@@ -337,7 +352,7 @@ int main(int argc, char** argv)
     Require(SUCCEEDED(WispRendererDrawForPresentation(renderer, overlap, 2, 1, &drawMetrics)), "separate measured draw");
     Require(drawMetrics.drawCount == 2 && drawMetrics.mapCount == 2 && drawMetrics.totalTicks > 0 &&
         drawMetrics.setupTicks > 0 && drawMetrics.mapTicks >= drawMetrics.maximumMapTicks &&
-        drawMetrics.totalTicks >= drawMetrics.setupTicks + drawMetrics.mapTicks,
+        TimingsFitTotal(drawMetrics.totalTicks, drawMetrics.setupTicks, drawMetrics.mapTicks),
         "CPU draw metrics include setup and each constant map");
     Require(WispRendererCapture(renderer, pixels.data(), static_cast<uint32_t>(pixels.size()), 1152) == E_INVALIDARG,
         "presentation draw does not enable readback");
