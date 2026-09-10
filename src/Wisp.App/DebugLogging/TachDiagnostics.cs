@@ -49,6 +49,7 @@ internal readonly record struct TachLifecycleDiagnostic(
 
 internal readonly record struct TachRendererDiagnostic
 {
+    public bool? CpuRendering { get; init; }
     public int ControlId { get; init; }
     public uint? NativeThreadId { get; init; }
     public long HostWindowHandle { get; init; }

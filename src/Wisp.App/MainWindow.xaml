@@ -1449,6 +1449,17 @@
                                                               AutomationProperties.HelpText="Opt in for up to 24 hours. No files are created while this is off."
                                                               ToolTip="Opt in for up to 24 hours. No files are created while this is off." />
                                                 </WrapPanel>
+                                                <StackPanel Margin="0,14,0,0">
+                                                    <CheckBox x:Name="CpuRenderingToggle" Content="CPU rendering (Analogue tachometer)"
+                                                              IsChecked="{Binding CpuRenderingEnabled, Mode=OneWay}" Click="CpuRenderingToggle_Click"
+                                                              Style="{StaticResource ToggleSwitchStyle}" FontSize="11"
+                                                              AutomationProperties.Name="CPU rendering for the Analogue tachometer"
+                                                              AutomationProperties.HelpText="Requires restarting Wisp. Off uses the GPU. Windows still uses the GPU to composite the overlay." />
+                                                    <TextBlock Text="Requires restarting Wisp. Off uses the GPU; on draws the Analogue tachometer on the CPU. Other gauges and Windows composition still use their existing rendering paths. CPU usage may increase."
+                                                               Foreground="{DynamicResource FaintBrush}" TextWrapping="Wrap" FontSize="10" Margin="0,6,0,0" />
+                                                    <TextBlock Text="{Binding CpuRenderingChangeStatus}" TextWrapping="Wrap" FontSize="11"
+                                                               Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
+                                                </StackPanel>
                                                 <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0"
                                                         Margin="0,10,0,0" Padding="0,10,0,0">
                                                     <StackPanel>

@@ -1,6 +1,7 @@
 #define WISP_RENDERER_IMPORT
 #include "Wisp.NativeRenderer.h"
 #include <cstdio>
+#include <cstring>
 #include <vector>
 #include <thread>
 #include <cmath>
@@ -122,8 +123,10 @@ static void CheckVisiblePacing(void* renderer, HWND window)
         "presentation throughput remains bounded by display cadence");
 }
 
-int main()
+int main(int argc, char** argv)
 {
+    const bool cpuRendering = argc == 2 && std::strcmp(argv[1], "--cpu") == 0;
+    if (argc > 1 && !cpuRendering) return 2;
     HWND window = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP,
         L"STATIC", L"Wisp native renderer contract", WS_POPUP, -32000, -32000, 288, 288,
         nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -131,8 +134,10 @@ int main()
     if (!window) return 1;
     HWND foregroundBefore = GetForegroundWindow();
     void* renderer = nullptr;
-    HRESULT result = WispRendererCreate(window, 32, 32, &renderer);
-    Require(SUCCEEDED(result) && renderer, "hardware D3D11 and DirectComposition creation");
+    Require(WispRendererCreateWithMode(window, 32, 32, 2, &renderer) == E_INVALIDARG && !renderer, "invalid renderer mode rejected");
+    HRESULT result = cpuRendering ? WispRendererCreateWithMode(window, 32, 32, 1, &renderer)
+        : WispRendererCreate(window, 32, 32, &renderer);
+    Require(SUCCEEDED(result) && renderer, "selected D3D11 driver and DirectComposition creation");
     if (!renderer) { DestroyWindow(window); return 1; }
     uint32_t initialReady = 99;
     WispWaitMetrics waitMetrics{};
@@ -312,6 +317,6 @@ int main()
     WispRendererDestroy(renderer);
     Require(GetForegroundWindow() == foregroundBefore, "no foreground changes");
     DestroyWindow(window);
-    std::printf("{\"contractFailures\":%d,\"hardwareOnly\":true,\"testWindowShown\":true}\n", failures);
+    std::printf("{\"contractFailures\":%d,\"cpuRendering\":%s,\"testWindowShown\":true}\n", failures, cpuRendering ? "true" : "false");
     return failures ? 1 : 0;
 }

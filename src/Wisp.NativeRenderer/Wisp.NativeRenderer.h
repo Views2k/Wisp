@@ -38,6 +38,8 @@ static_assert(sizeof(WispWaitMetrics) == 48, "Managed/native wait metrics ABI mi
 #define WISP_API extern "C" __declspec(dllexport)
 #endif
 WISP_API HRESULT __cdecl WispRendererCreate(HWND hwnd, uint32_t width, uint32_t height, void** renderer) noexcept;
+// cpuRendering: 0 = hardware, 1 = WARP; no automatic driver fallback.
+WISP_API HRESULT __cdecl WispRendererCreateWithMode(HWND hwnd, uint32_t width, uint32_t height, uint32_t cpuRendering, void** renderer) noexcept;
 WISP_API void __cdecl WispRendererDestroy(void* renderer) noexcept;
 // S_OK replaces the swapchain; S_FALSE preserves an already fresh chain.
 WISP_API HRESULT __cdecl WispRendererPrepareForResume(void* renderer) noexcept;

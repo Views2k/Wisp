@@ -69,6 +69,8 @@ public sealed class WpfStyleRuntimeTests
                 TachNeedleDiagnosticsTests.AssertOnCurrentDispatcher();
                 OverlayPresentationTests.AssertOnCurrentDispatcher();
                 NativeRendererIntegrationTests.AssertOnCurrentDispatcher();
+                NativeRendererIntegrationTests.AssertOnCurrentDispatcher(cpuRendering: true);
+                CpuRenderingSettingsTests.AssertControllerPersistenceOnCurrentDispatcher();
                 BoostGaugeVisualsTests.AssertOnCurrentDispatcher();
                 BoostVacuumUiTests.AssertOnCurrentDispatcher();
                 ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher();
@@ -336,6 +338,9 @@ public sealed class WpfStyleRuntimeTests
                 nativeMeter.UpdateLayout();
                 nativeGForceVisibility = nativeMeter.Visibility;
                 var mainWindow = new MainWindow(controller);
+                var cpuToggle = Assert.IsType<CheckBox>(mainWindow.FindName("CpuRenderingToggle"));
+                Assert.Same(mainWindow.FindResource("ToggleSwitchStyle"), cpuToggle.Style);
+                Assert.NotNull(cpuToggle.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty));
                 var tabs = Assert.IsType<TabControl>(mainWindow.FindName("RootTabs"));
                 var surface = Assert.IsAssignableFrom<FrameworkElement>(mainWindow.Content);
                 for (var tab = 0; tab < tabs.Items.Count; tab++)

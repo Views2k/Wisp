@@ -13,10 +13,10 @@ namespace Wisp.App.Tests;
 
 internal static class NativeRendererIntegrationTests
 {
-    internal static void AssertOnCurrentDispatcher()
+    internal static void AssertOnCurrentDispatcher(bool cpuRendering = false)
     {
-        var hardwareAvailable = ProbeHardwareSupport();
-        var expectedStatus = hardwareAvailable
+        var hardwareAvailable = cpuRendering || ProbeHardwareSupport();
+        var expectedStatus = cpuRendering ? "Analogue renderer: CPU (WARP) / DirectComposition" : hardwareAvailable
             ? "Analogue renderer: Direct3D 11 / DirectComposition"
             : "Analogue renderer: WPF fallback (0x887A0004)";
         var expectedContentVisibility = hardwareAvailable ? Visibility.Hidden : Visibility.Visible;
@@ -26,6 +26,7 @@ internal static class NativeRendererIntegrationTests
             StartWithForza = false,
             AutomaticApplicationUpdateChecks = false,
             DebugLoggingEnabled = false,
+            CpuRenderingEnabled = cpuRendering,
             LayoutMode = HudLayoutMode.Native,
             NativeGaugeMode = NativeGaugeMode.Analogue,
             OverlayOpacity = 1,
@@ -168,6 +169,7 @@ internal static class NativeRendererIntegrationTests
                 var presented = renderer.Where(row => row.Stage == "present" && row.Result == "submitted").ToArray();
                 Assert.NotEmpty(presented);
                 Assert.All(renderer, row => Assert.True(row.NativeThreadId is > 0));
+                Assert.All(renderer, row => Assert.Equal(controller.ViewModel.ActiveCpuRendering, row.CpuRendering));
                 Assert.All(presented, row =>
                 {
                     Assert.True(row.SampleTimestamp is > 0 && row.SampleTimestamp <= row.StartedTimestamp);

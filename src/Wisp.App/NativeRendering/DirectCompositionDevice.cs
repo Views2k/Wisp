@@ -72,11 +72,11 @@ internal sealed class DirectCompositionDevice : IDisposable
         _height = height;
     }
 
-    public static DirectCompositionDevice Create(IntPtr hwnd, int width, int height)
+    public static DirectCompositionDevice Create(IntPtr hwnd, int width, int height, bool cpuRendering = false)
     {
         ValidateSize(width, height);
         if (hwnd == IntPtr.Zero) throw new ArgumentException("A live overlay window is required.", nameof(hwnd));
-        Marshal.ThrowExceptionForHR(Native.Create(hwnd, (uint)width, (uint)height, out var handle));
+        Marshal.ThrowExceptionForHR(Native.CreateWithMode(hwnd, (uint)width, (uint)height, cpuRendering ? 1u : 0u, out var handle));
         return new DirectCompositionDevice(handle, width, height);
     }
 
@@ -244,6 +244,9 @@ internal sealed class DirectCompositionDevice : IDisposable
     private static class Native
     {
         private const string Library = "Wisp.NativeRenderer.dll";
+        [DllImport(Library, EntryPoint = "WispRendererCreateWithMode", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CreateWithMode(IntPtr hwnd, uint width, uint height, uint cpuRendering, out RendererHandle renderer);
+
         [DllImport(Library, EntryPoint = "WispRendererCreate", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Create(IntPtr hwnd, uint width, uint height, out RendererHandle renderer);
         [DllImport(Library, EntryPoint = "WispRendererDestroy", CallingConvention = CallingConvention.Cdecl)]

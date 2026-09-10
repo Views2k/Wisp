@@ -133,7 +133,7 @@ namespace
             return device->CreateRenderTargetView(buffer.Get(), nullptr, &renderTarget);
         }
 
-        HRESULT Initialize(HWND window, uint32_t targetWidth, uint32_t targetHeight)
+        HRESULT Initialize(HWND window, uint32_t targetWidth, uint32_t targetHeight, bool cpuRendering)
         {
             DWORD process = 0;
             if (!IsWindow(window) || !GetWindowThreadProcessId(window, &process) || process != GetCurrentProcessId()
@@ -141,8 +141,8 @@ namespace
             hwnd = window; width = targetWidth; height = targetHeight;
             const D3D_FEATURE_LEVEL requested[] = { D3D_FEATURE_LEVEL_11_0 };
             D3D_FEATURE_LEVEL obtained{};
-            // Hardware failure is returned to Wisp; silently switching to WARP would hide a regression.
-            CHECK_HR(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            // Use only the explicitly selected driver; failure must not silently change modes.
+            CHECK_HR(D3D11CreateDevice(nullptr, cpuRendering ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                 requested, ARRAYSIZE(requested), D3D11_SDK_VERSION, &device, &obtained, &context));
             ComPtr<IDXGIDevice> dxgiDevice;
             ComPtr<IDXGIAdapter> adapter;
@@ -483,11 +483,16 @@ namespace
 
 HRESULT __cdecl WispRendererCreate(HWND hwnd, uint32_t width, uint32_t height, void** output) noexcept
 {
+    return WispRendererCreateWithMode(hwnd, width, height, 0, output);
+}
+HRESULT __cdecl WispRendererCreateWithMode(HWND hwnd, uint32_t width, uint32_t height, uint32_t cpuRendering, void** output) noexcept
+{
     if (!output) return E_POINTER;
     *output = nullptr;
+    if (cpuRendering > 1) return E_INVALIDARG;
     try {
         auto renderer = std::make_unique<Renderer>();
-        CHECK_HR(renderer->Initialize(hwnd, width, height));
+        CHECK_HR(renderer->Initialize(hwnd, width, height, cpuRendering != 0));
         *output = renderer.release();
         return S_OK;
     } catch (const std::bad_alloc&) { return E_OUTOFMEMORY; } catch (...) { return E_FAIL; }

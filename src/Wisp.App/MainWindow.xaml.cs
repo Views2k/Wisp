@@ -751,6 +751,12 @@ public partial class MainWindow : Window
         }
     }
 
+    private void CpuRenderingToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _controller.SetCpuRenderingEnabled(CpuRenderingToggle.IsChecked == true);
+        CpuRenderingToggle.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty)?.UpdateTarget();
+    }
+
     private async void DebugLoggingToggle_Click(object sender, RoutedEventArgs e)
     {
         DebugLoggingToggle.IsEnabled = false;

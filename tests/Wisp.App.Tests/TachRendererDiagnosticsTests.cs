@@ -12,6 +12,20 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
     public TachRendererDiagnosticsTests() => Reset();
     public void Dispose() => Reset();
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [InlineData(null)]
+    public void ExportPreservesCpuModeAndUnknownLegacyMode(bool? cpuRendering)
+    {
+        TachDiagnostics.SetEnabled(true);
+        var sample = Sample() with { CpuRendering = cpuRendering };
+        TachDiagnostics.RecordRenderer(in sample);
+        var row = Assert.Single(TachDiagnostics.Snapshot()!.RendererRecent);
+        var restored = JsonSerializer.Deserialize<TachRendererDiagnostic>(JsonSerializer.Serialize(row));
+        Assert.Equal(cpuRendering, restored.CpuRendering);
+    }
+
     [Fact]
     public void DisabledRendererDoesNotAllocateOrCreateCapture()
     {

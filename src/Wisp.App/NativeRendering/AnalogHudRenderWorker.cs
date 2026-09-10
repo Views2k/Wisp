@@ -17,6 +17,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
     private readonly AutoResetEvent _changed = new(false);
     private readonly IntPtr _window;
     private readonly int _controlId;
+    private readonly bool _cpuRendering;
     private readonly IReadOnlyList<AnalogHudTexture> _textures;
     private readonly Action<bool, int> _status;
     private readonly Thread _thread;
@@ -26,10 +27,11 @@ internal sealed class AnalogHudRenderWorker : IDisposable
     private int _queueDropped;
 
     internal AnalogHudRenderWorker(IntPtr window, int controlId, IReadOnlyList<AnalogHudTexture> textures,
-        AnalogHudPresentation presentation, Action<bool, int> status)
+        AnalogHudPresentation presentation, Action<bool, int> status, bool cpuRendering = false)
     {
         _window = window;
         _controlId = controlId;
+        _cpuRendering = cpuRendering;
         _textures = textures;
         _presentation = presentation;
         _status = status;
@@ -146,7 +148,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 if (device is null)
                 {
                     BeginOperation("state");
-                    device = DirectCompositionDevice.Create(_window, presentation.Width, presentation.Height);
+                    device = DirectCompositionDevice.Create(_window, presentation.Width, presentation.Height, _cpuRendering);
                     foreach (var texture in _textures)
                         device.UploadTexture(texture.Id, texture.Width, texture.Height, texture.Stride, texture.Pixels.ToArray());
                     width = presentation.Width;
@@ -317,6 +319,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             {
                 ControlId = _controlId,
                 NativeThreadId = nativeThreadId,
+                CpuRendering = _cpuRendering,
                 HostWindowHandle = _window.ToInt64(),
                 Sequence = pending?.Sequence ?? sequence + 1,
                 Stage = stage,

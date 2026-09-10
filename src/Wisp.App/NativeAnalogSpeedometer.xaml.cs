@@ -374,7 +374,9 @@ public partial class NativeAnalogSpeedometer : UserControl
         if (ready)
         {
             if (Content is UIElement content) content.Visibility = Visibility.Hidden;
-            SetRendererStatus("Analogue renderer: Direct3D 11 / DirectComposition");
+            SetRendererStatus((DataContext as DiagnosticsViewModel)?.ActiveCpuRendering == true
+                ? "Analogue renderer: CPU (WARP) / DirectComposition"
+                : "Analogue renderer: Direct3D 11 / DirectComposition");
             return;
         }
         _directCompositionFailed = true;
