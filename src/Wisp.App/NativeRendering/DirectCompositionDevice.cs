@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -29,6 +30,33 @@ internal struct DirectCompositionDrawCommand
     public float ParameterX, ParameterY, ParameterZ, ParameterW;
 }
 
+// CPU elapsed QPC ticks; these do not measure GPU execution or physical display.
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct DirectCompositionDrawMetrics
+{
+    public long TotalTicks, SetupTicks, MapTicks, MaximumMapTicks;
+    public uint MapCount, DrawCount;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct DirectCompositionPresentMetrics
+{
+    public long DurationTicks;
+    public int HResult;
+    public uint Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct DirectCompositionWaitMetrics
+{
+    public long TotalTicks, PrecheckTicks, WaitCallTicks, PostcheckTicks, CpuTime100ns;
+    public uint SwapChainGeneration, WaitResult;
+
+    // GetThreadTimes uses coarse 100 ns execution accounting, not elapsed QPC time.
+    public readonly long? CpuThreadStopwatchTicks => CpuTime100ns < 0 ? null :
+        (long)(CpuTime100ns * (Stopwatch.Frequency / (double)TimeSpan.TicksPerSecond));
+}
+
 // The render worker owns this device. The HWND remains owned by WPF's UI thread.
 internal sealed class DirectCompositionDevice : IDisposable
 {
@@ -44,11 +72,11 @@ internal sealed class DirectCompositionDevice : IDisposable
         _height = height;
     }
 
-    public static DirectCompositionDevice Create(IntPtr hwnd, int width, int height)
+    public static DirectCompositionDevice Create(IntPtr hwnd, int width, int height, bool cpuRendering = false)
     {
         ValidateSize(width, height);
         if (hwnd == IntPtr.Zero) throw new ArgumentException("A live overlay window is required.", nameof(hwnd));
-        Marshal.ThrowExceptionForHR(Native.Create(hwnd, (uint)width, (uint)height, out var handle));
+        Marshal.ThrowExceptionForHR(Native.CreateWithMode(hwnd, (uint)width, (uint)height, cpuRendering ? 1u : 0u, out var handle));
         return new DirectCompositionDevice(handle, width, height);
     }
 
@@ -104,7 +132,7 @@ internal sealed class DirectCompositionDevice : IDisposable
         Marshal.ThrowExceptionForHR(Native.RemoveTexture(_handle, id));
     }
 
-    // A busy presentation queue returns false; the caller retries with the latest state.
+    // Legacy combined draw/present entry point for renderer contract checks.
     public bool RenderPresent(DirectCompositionDrawCommand[] commands, int count)
     {
         ValidateCommands(commands, count);
@@ -115,8 +143,31 @@ internal sealed class DirectCompositionDevice : IDisposable
         return result == 0;
     }
 
-    public DirectCompositionWaitResult WaitForNextFrame(int timeoutMilliseconds, SafeWaitHandle? cancellationHandle = null)
+    public void DrawForPresentation(DirectCompositionDrawCommand[] commands, int count, bool measure,
+        out DirectCompositionDrawMetrics metrics)
     {
+        ValidateCommands(commands, count);
+        Marshal.ThrowExceptionForHR(Native.DrawForPresentation(_handle, commands, (uint)count, measure ? 1 : 0, out metrics));
+    }
+
+    // Retry a busy presentation without issuing another clear, map, or draw.
+    public bool TryPresent(bool measure, out DirectCompositionPresentMetrics metrics)
+    {
+        ThrowIfDisposed();
+        LastRenderWasOccluded = false;
+        var result = Native.TryPresent(_handle, measure ? 1 : 0, out metrics);
+        LastRenderWasOccluded = result == 2;
+        Marshal.ThrowExceptionForHR(result);
+        return result == 0;
+    }
+
+    public DirectCompositionWaitResult WaitForNextFrame(int timeoutMilliseconds, SafeWaitHandle? cancellationHandle = null) =>
+        WaitForNextFrame(timeoutMilliseconds, cancellationHandle, false, out _);
+
+    public DirectCompositionWaitResult WaitForNextFrame(int timeoutMilliseconds, SafeWaitHandle? cancellationHandle,
+        bool measure, out DirectCompositionWaitMetrics metrics)
+    {
+        metrics = default;
         ThrowIfDisposed();
         if (timeoutMilliseconds is < 0 or > 1000) throw new ArgumentOutOfRangeException(nameof(timeoutMilliseconds));
         bool addRef = false;
@@ -124,7 +175,11 @@ internal sealed class DirectCompositionDevice : IDisposable
         {
             cancellationHandle?.DangerousAddRef(ref addRef);
             var cancel = cancellationHandle?.DangerousGetHandle() ?? IntPtr.Zero;
-            Marshal.ThrowExceptionForHR(Native.WaitForFrame(_handle, (uint)timeoutMilliseconds, cancel, out var result));
+            DirectCompositionWaitResult result;
+            var hresult = measure
+                ? Native.WaitForFrameMeasured(_handle, (uint)timeoutMilliseconds, cancel, 1, out result, out metrics)
+                : Native.WaitForFrame(_handle, (uint)timeoutMilliseconds, cancel, out result);
+            Marshal.ThrowExceptionForHR(hresult);
             return result;
         }
         finally
@@ -189,6 +244,9 @@ internal sealed class DirectCompositionDevice : IDisposable
     private static class Native
     {
         private const string Library = "Wisp.NativeRenderer.dll";
+        [DllImport(Library, EntryPoint = "WispRendererCreateWithMode", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CreateWithMode(IntPtr hwnd, uint width, uint height, uint cpuRendering, out RendererHandle renderer);
+
         [DllImport(Library, EntryPoint = "WispRendererCreate", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Create(IntPtr hwnd, uint width, uint height, out RendererHandle renderer);
         [DllImport(Library, EntryPoint = "WispRendererDestroy", CallingConvention = CallingConvention.Cdecl)]
@@ -208,9 +266,17 @@ internal sealed class DirectCompositionDevice : IDisposable
         internal static extern int RemoveTexture(RendererHandle renderer, uint id);
         [DllImport(Library, EntryPoint = "WispRendererRender", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Render(RendererHandle renderer, [In] DirectCompositionDrawCommand[] commands, uint count, int present);
+        [DllImport(Library, EntryPoint = "WispRendererDrawForPresentation", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int DrawForPresentation(RendererHandle renderer, [In] DirectCompositionDrawCommand[] commands,
+            uint count, int measure, out DirectCompositionDrawMetrics metrics);
+        [DllImport(Library, EntryPoint = "WispRendererTryPresent", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int TryPresent(RendererHandle renderer, int measure, out DirectCompositionPresentMetrics metrics);
         [DllImport(Library, EntryPoint = "WispRendererWaitForFrame", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int WaitForFrame(RendererHandle renderer, uint timeoutMilliseconds, IntPtr cancellation,
             out DirectCompositionWaitResult result);
+        [DllImport(Library, EntryPoint = "WispRendererWaitForFrameMeasured", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int WaitForFrameMeasured(RendererHandle renderer, uint timeoutMilliseconds, IntPtr cancellation,
+            int measure, out DirectCompositionWaitResult result, out DirectCompositionWaitMetrics metrics);
         [DllImport(Library, EntryPoint = "WispRendererCapture", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Capture(RendererHandle renderer, [Out] byte[] pixels, uint byteCount, uint stride);
         [DllImport(Library, EntryPoint = "WispRendererDeviceRemovedReason", CallingConvention = CallingConvention.Cdecl)]

@@ -8,6 +8,22 @@
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
 </p>
 
+## New in Wisp 1.2.1
+
+If the Analogue tachometer lags or hitches, enable **CPU rendering** in
+**Diagnostics**. Right-click Wisp's tray icon, choose **Exit Wisp**, then reopen
+it to apply the change.
+
+CPU mode reuses the unchanged dial background to reduce repeated drawing work,
+while the needle and live readings continue updating.
+
+GPU rendering remains the default. CPU mode can increase CPU usage; other
+gauges keep their existing renderers. The gauge artwork, needle smoothing,
+HUD settings, and Record and Compare Runs features are preserved.
+
+[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
+[1.2.1 release notes](docs/releases/Wisp-1.2.1-release-notes.md)
+
 ## New in Wisp 1.2
 
 Record a drive and compare it with another run without leaving Wisp. Start from

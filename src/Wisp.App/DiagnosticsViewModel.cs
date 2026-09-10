@@ -96,6 +96,8 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _startMinimizedWithForza;
     private bool _animatedBackground;
     private bool _automaticApplicationUpdateChecks;
+    private bool _cpuRenderingEnabled;
+    private string _cpuRenderingChangeStatus = "";
     private bool _debugLoggingEnabled;
     private string _debugLoggingStatus = "Off — no debug files are created";
     private bool _tractionCueEnabled;
@@ -158,6 +160,8 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         _startMinimizedWithForza = settings.StartMinimizedWithForza;
         _animatedBackground = settings.AnimatedBackground;
         _automaticApplicationUpdateChecks = settings.AutomaticApplicationUpdateChecks;
+        _cpuRenderingEnabled = settings.CpuRenderingEnabled;
+        ActiveCpuRendering = settings.CpuRenderingEnabled;
         _debugLoggingEnabled = settings.DebugLoggingEnabled;
         if (_debugLoggingEnabled && settings.DebugLoggingExpiresAtUtc is { } expiresAtUtc)
         {
@@ -218,6 +222,16 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public string NativeCompatibilityUpdates { get => _nativeCompatibilityUpdates; private set => Set(ref _nativeCompatibilityUpdates, value); }
     public bool CanCheckNativeCompatibility { get => _canCheckNativeCompatibility; private set => Set(ref _canCheckNativeCompatibility, value); }
     public bool CanImportNativeCompatibility { get => _canImportNativeCompatibility; private set => Set(ref _canImportNativeCompatibility, value); }
+    public bool ActiveCpuRendering { get; }
+    public bool CpuRenderingEnabled { get => _cpuRenderingEnabled; private set => Set(ref _cpuRenderingEnabled, value); }
+    public string CpuRenderingChangeStatus { get => _cpuRenderingChangeStatus; private set => Set(ref _cpuRenderingChangeStatus, value); }
+    internal void UpdateCpuRendering(bool enabled, bool saved)
+    {
+        CpuRenderingEnabled = enabled;
+        CpuRenderingChangeStatus = !saved ? "Could not save the renderer option. Try again."
+            : enabled != ActiveCpuRendering ? "Restart Wisp to apply this change." : "";
+    }
+
     public bool DebugLoggingEnabled { get => _debugLoggingEnabled; private set => Set(ref _debugLoggingEnabled, value); }
     public string DebugLoggingStatus { get => _debugLoggingStatus; private set => Set(ref _debugLoggingStatus, value); }
     public string LateralGText { get => _lateralGText; private set => Set(ref _lateralGText, value); }

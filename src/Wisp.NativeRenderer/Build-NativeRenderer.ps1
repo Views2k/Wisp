@@ -70,4 +70,4 @@ $sha256 = [Security.Cryptography.SHA256]::Create()
 $dllStream = [IO.File]::OpenRead($dll)
 try { $dllHash = [BitConverter]::ToString($sha256.ComputeHash($dllStream)).Replace('-', '').ToLowerInvariant() }
 finally { $dllStream.Dispose(); $sha256.Dispose() }
-[ordered]@{ built=$true; architecture='x64'; hardwareOnly=$true; dllSha256=$dllHash } | ConvertTo-Json -Compress
+[ordered]@{ built=$true; architecture='x64'; gpuDefault=$true; supportsCpuRendering=$true; dllSha256=$dllHash } | ConvertTo-Json -Compress

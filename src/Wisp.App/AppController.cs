@@ -238,6 +238,16 @@ public sealed partial class AppController : IAsyncDisposable
         _receiver.DiagnosticObserver = enabled ? TachDiagnostics.RecordTelemetry : null;
     }
 
+    public void SetCpuRenderingEnabled(bool enabled)
+    {
+        if (_disposed) return;
+        var previous = Settings.CpuRenderingEnabled;
+        Settings.CpuRenderingEnabled = enabled;
+        var saved = SaveSettings();
+        if (!saved) Settings.CpuRenderingEnabled = previous;
+        ViewModel.UpdateCpuRendering(Settings.CpuRenderingEnabled, saved);
+    }
+
     public async Task SetDebugLoggingEnabledAsync(bool enabled)
     {
         if (_disposed)

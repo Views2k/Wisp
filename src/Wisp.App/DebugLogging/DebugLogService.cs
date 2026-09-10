@@ -457,6 +457,8 @@ internal sealed class DebugLogService : IAsyncDisposable
                                 WriteEntry(archive, "tach-native-recent.ndjson", capture.NativeRecent.Select(SerializeDiagnostic));
                                 WriteEntry(archive, "tach-needle-startup.ndjson", capture.NeedleStartup.Select(SerializeDiagnostic));
                                 WriteEntry(archive, "tach-needle-recent.ndjson", capture.NeedleRecent.Select(SerializeDiagnostic));
+                                WriteEntry(archive, "tach-renderer-startup.ndjson", capture.RendererStartup.Select(SerializeDiagnostic));
+                                WriteEntry(archive, "tach-renderer-recent.ndjson", capture.RendererRecent.Select(SerializeDiagnostic));
                                 WriteEntry(archive, "tach-lifecycle.ndjson", capture.Lifecycle.Select(SerializeDiagnostic));
                                 WriteEntry(archive, "tach-native-context.ndjson", capture.NativeContexts.Select(SerializeDiagnostic));
                             }

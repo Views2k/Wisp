@@ -59,6 +59,139 @@ public sealed class AnalogHudPlaybackTests
         Assert.Equal(0, playback.Sample(Timestamp(400)).Blur);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void QueuedRpmFrameCrossingThePreviousSampleDoesNotReseedOrShiftItsSourceTime(bool hasReceivedTimestamp)
+    {
+        var playback = new AnalogHudPlayback();
+        for (int ms = 0; ms <= 40; ms += 10)
+            playback.Observe(Frame(ms, 1_000 + ms * 100), Timestamp(ms));
+        var before = playback.Sample(Timestamp(50));
+        var queued = Frame(49, 5_900) with { ReceivedTimestamp = hasReceivedTimestamp ? Timestamp(49) : null };
+
+        playback.ObserveQueued(queued, Timestamp(49), Timestamp(52));
+        var after = playback.Sample(Timestamp(52));
+
+        Assert.Equal(before.ReseedCount, after.ReseedCount);
+        Assert.Equal(before.StarvationReseedCount, after.StarvationReseedCount);
+        Assert.Equal(2_200, after.AppliedRpm!.Value, 6);
+        Assert.Equal(5_900, after.Frame.EngineRpm);
+        Assert.Equal(40, after.PlaybackTargetDelayMilliseconds, 6);
+        Assert.Equal(5_500, playback.Sample(Timestamp(85)).AppliedRpm!.Value, 6);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void QueuedNativePairCrossingThePreviousSampleRetainsBothOriginalChannels(bool hasNativeTimestamp)
+    {
+        var playback = new AnalogHudPlayback();
+        for (int ms = 0; ms <= 40; ms += 10)
+            playback.Observe(Frame(ms, 4_000) with
+            {
+                NativeNeedleAngleDegrees = 120 + ms,
+                NativeNeedleBlurAmount = -.2 + ms * .005
+            }, Timestamp(ms));
+        var before = playback.Sample(Timestamp(50));
+        var queued = Frame(49, 4_000) with
+        {
+            NativeNeedleAngleDegrees = 169,
+            NativeNeedleBlurAmount = .045,
+            NativeGaugeObservedTimestamp = hasNativeTimestamp ? Timestamp(49) : 0
+        };
+
+        playback.ObserveQueued(queued, Timestamp(49), Timestamp(52));
+        var after = playback.Sample(Timestamp(52));
+
+        Assert.True(after.Native);
+        Assert.Equal(before.ReseedCount, after.ReseedCount);
+        Assert.Equal(132, after.Angle, 6);
+        Assert.Equal(-.14, after.Blur, 6);
+        var later = playback.Sample(Timestamp(85));
+        Assert.True(later.Native);
+        Assert.Equal(165, later.Angle, 6);
+        Assert.Equal(.025, later.Blur, 6);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WaitingInTheQueueCannotRefreshAnExpiredNativePair(bool hasNativeTimestamp)
+    {
+        var playback = new AnalogHudPlayback();
+        var queued = Frame(0, 4_000) with
+        {
+            NativeNeedleAngleDegrees = 320,
+            NativeNeedleBlurAmount = -.4,
+            NativeGaugeObservedTimestamp = hasNativeTimestamp ? Timestamp(0) : 0
+        };
+
+        playback.ObserveQueued(queued, Timestamp(10), Timestamp(100));
+        var after = playback.Sample(Timestamp(100));
+
+        Assert.False(after.Native);
+        Assert.Equal(4_000, after.AppliedRpm);
+        Assert.Equal(240, after.Angle);
+        Assert.Equal(0, after.Blur);
+    }
+
+    [Fact]
+    public void OlderQueuedRpmCannotRetargetOrReseedPlayback()
+    {
+        var playback = new AnalogHudPlayback();
+        for (int ms = 0; ms <= 40; ms += 10)
+            playback.Observe(Frame(ms, 1_000 + ms * 100), Timestamp(ms));
+        var before = playback.Sample(Timestamp(50));
+
+        playback.ObserveQueued(Frame(20, 7_000), Timestamp(49), Timestamp(52));
+        var after = playback.Sample(Timestamp(52));
+
+        Assert.Equal(before.ReseedCount, after.ReseedCount);
+        Assert.Equal(2_200, after.AppliedRpm!.Value, 6);
+        Assert.Equal(5_000, playback.Sample(Timestamp(85)).AppliedRpm!.Value, 6);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ATrueConsumptionClockRewindStillReseedsTheSelectedSource(bool native)
+    {
+        var playback = new AnalogHudPlayback();
+        NativeGaugeFrame Source(int ms, double value) => native
+            ? Frame(ms, 4_000) with { NativeNeedleAngleDegrees = value, NativeNeedleBlurAmount = -.1 }
+            : Frame(ms, value);
+        playback.Observe(Source(0, native ? 150 : 1_000), Timestamp(0));
+        playback.Observe(Source(40, native ? 300 : 7_000), Timestamp(40));
+        var before = playback.Sample(Timestamp(50));
+
+        playback.ObserveQueued(Source(10, native ? 240 : 900), Timestamp(10), Timestamp(11));
+        var after = playback.Sample(Timestamp(11));
+
+        Assert.Equal(before.ReseedCount + 1, after.ReseedCount);
+        Assert.Equal(native, after.Native);
+        if (native) { Assert.Equal(240, after.Angle); Assert.Equal(-.1, after.Blur); }
+        else { Assert.Equal(900, after.AppliedRpm); Assert.Equal(0, after.Blur); }
+    }
+
+    [Fact]
+    public void QueuedCarChangeStillSnapsWithoutBlendingTheOldEngine()
+    {
+        var playback = new AnalogHudPlayback();
+        playback.Observe(Frame(0, 1_000), Timestamp(0));
+        playback.Observe(Frame(40, 7_000), Timestamp(40));
+        var before = playback.Sample(Timestamp(50));
+        var queued = Frame(49, 900) with { CarOrdinal = 3766 };
+
+        playback.ObserveQueued(queued, Timestamp(49), Timestamp(52));
+        var after = playback.Sample(Timestamp(52));
+
+        Assert.Equal(before.ReseedCount + 1, after.ReseedCount);
+        Assert.Equal(queued.CarOrdinal, after.Frame.CarOrdinal);
+        Assert.Equal(900, after.AppliedRpm);
+        Assert.Equal(0, after.Blur);
+    }
+
     [Fact]
     public void NativeAngleAndSignedBlurRemainTheExactPairedPlaybackChannels()
     {
@@ -74,6 +207,52 @@ public sealed class AnalogHudPlaybackTests
         Assert.Equal(.10, sample.Blur, 6);
         Assert.Equal(5_000, sample.Frame.EngineRpm);
         Assert.Equal(40, sample.PlaybackTargetDelayMilliseconds, 6);
+    }
+
+    [Fact]
+    public void NativeAvailabilityChecksDoNotAdvanceOrResetEitherPlaybackChannel()
+    {
+        var actual = new AnalogHudPlayback();
+        var reference = new AnalogHudPlayback();
+        foreach (var playback in new[] { actual, reference })
+        {
+            playback.Observe(Frame(0, 1_000) with { NativeNeedleAngleDegrees = 120, NativeNeedleBlurAmount = -.2 }, Timestamp(0));
+            playback.Observe(Frame(20, 5_000) with { NativeNeedleAngleDegrees = 240, NativeNeedleBlurAmount = .4 }, Timestamp(20));
+            Assert.True(playback.Sample(Timestamp(50)).Native);
+        }
+
+        Assert.True(actual.HasNativeNeedle(Timestamp(60)));
+        Assert.False(actual.HasNativeNeedle(Timestamp(200)));
+        Assert.True(actual.HasNativeNeedle(Timestamp(50)));
+
+        var afterChecks = actual.Sample(Timestamp(55));
+        Assert.Equal(reference.Sample(Timestamp(55)), afterChecks);
+        Assert.Equal(210, afterChecks.Angle, 6);
+        Assert.Equal(.25, afterChecks.Blur, 6);
+    }
+
+    [Fact]
+    public void NativeAvailabilityUsesExactObservationAgeAndRejectsFallbackAndResetState()
+    {
+        var playback = new AnalogHudPlayback();
+        Assert.False(playback.HasNativeNeedle(Timestamp(0)));
+        playback.Observe(Frame(0, 4_000), Timestamp(0));
+        Assert.False(playback.HasNativeNeedle(Timestamp(1)));
+        playback.Observe(Frame(20, 4_000) with
+        {
+            NativeNeedleAngleDegrees = 240,
+            NativeNeedleBlurAmount = -.1
+        }, Timestamp(20));
+        var observedAt = Timestamp(20);
+        var lastFresh = Timestamp(20 + NativeNeedlePlayback.NativeSampleFreshnessMilliseconds);
+
+        Assert.False(playback.HasNativeNeedle(observedAt - 1));
+        Assert.True(playback.HasNativeNeedle(observedAt));
+        Assert.True(playback.HasNativeNeedle(lastFresh));
+        Assert.False(playback.HasNativeNeedle(lastFresh + 1));
+        Assert.True(playback.HasNativeNeedle(observedAt));
+        playback.Reset();
+        Assert.False(playback.HasNativeNeedle(observedAt));
     }
 
     [Fact]

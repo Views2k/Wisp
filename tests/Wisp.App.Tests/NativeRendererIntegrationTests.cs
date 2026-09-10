@@ -13,10 +13,10 @@ namespace Wisp.App.Tests;
 
 internal static class NativeRendererIntegrationTests
 {
-    internal static void AssertOnCurrentDispatcher()
+    internal static void AssertOnCurrentDispatcher(bool cpuRendering = false)
     {
-        var hardwareAvailable = ProbeHardwareSupport();
-        var expectedStatus = hardwareAvailable
+        var hardwareAvailable = cpuRendering || ProbeHardwareSupport();
+        var expectedStatus = cpuRendering ? "Analogue renderer: CPU (WARP) / DirectComposition" : hardwareAvailable
             ? "Analogue renderer: Direct3D 11 / DirectComposition"
             : "Analogue renderer: WPF fallback (0x887A0004)";
         var expectedContentVisibility = hardwareAvailable ? Visibility.Hidden : Visibility.Visible;
@@ -26,6 +26,7 @@ internal static class NativeRendererIntegrationTests
             StartWithForza = false,
             AutomaticApplicationUpdateChecks = false,
             DebugLoggingEnabled = false,
+            CpuRenderingEnabled = cpuRendering,
             LayoutMode = HudLayoutMode.Native,
             NativeGaugeMode = NativeGaugeMode.Analogue,
             OverlayOpacity = 1,
@@ -41,8 +42,11 @@ internal static class NativeRendererIntegrationTests
         {
             window = new OverlayWindow(controller)
             {
-                Left = SystemParameters.VirtualScreenLeft - 2000,
-                Top = SystemParameters.VirtualScreenTop - 2000
+                // Successful Present requires an unoccluded surface. An off-screen
+                // HWND can initialize D3D successfully but never submit a frame.
+                Left = SystemParameters.WorkArea.Left + 20,
+                Top = SystemParameters.WorkArea.Top + 20,
+                Topmost = true
             };
             var panel = Assert.IsType<Grid>(window.FindName("NativeAnalogPanel"));
             var gauge = Assert.IsType<NativeAnalogSpeedometer>(Assert.Single(panel.Children.Cast<UIElement>()));
@@ -159,6 +163,35 @@ internal static class NativeRendererIntegrationTests
                         .DistinctBy(row => (row.ControlId, row.AppliedTimestamp)).ToArray();
                     return fresh.Length >= 4 && fresh.Select(row => row.ReceivedTimestamp).Distinct().Count() >= 2;
                 }, 2000);
+                var renderer = TachDiagnostics.Snapshot()!.RendererRecent
+                    .Where(row => row.HostWindowHandle == hwnd.ToInt64() && row.StartedTimestamp >= started)
+                    .ToArray();
+                var presented = renderer.Where(row => row.Stage == "present" && row.Result == "submitted").ToArray();
+                Assert.NotEmpty(presented);
+                Assert.All(renderer, row => Assert.True(row.NativeThreadId is > 0));
+                Assert.All(renderer, row => Assert.Equal(controller.ViewModel.ActiveCpuRendering, row.CpuRendering));
+                Assert.All(presented, row =>
+                {
+                    Assert.True(row.SampleTimestamp is > 0 && row.SampleTimestamp <= row.StartedTimestamp);
+                    Assert.True(row.QueuedTimestamp is > 0 && row.QueuedTimestamp <= row.SampleTimestamp);
+                    Assert.Equal(0, row.HResult);
+                });
+                Assert.Contains(renderer, row => row.Stage == "draw" && row.Result == "ready" &&
+                    row.DrawCommands > 0 && row.MapCount == row.DrawCommands &&
+                    row.NativeDrawTicks > 0 && row.NativeDrawTicks >= row.MapTicks &&
+                    row.CompletedTimestamp >= row.StartedTimestamp + row.NativeDrawTicks);
+                Assert.Contains(renderer, row => row.Stage == "frame_wait" && row.Result == "ready" &&
+                    row.NativeWaitTicks is > 0 && row.WaitPrecheckTicks is >= 0 &&
+                    row.WaitCallTicks is >= 0 && row.WaitPostcheckTicks is >= 0 &&
+                    row.SwapChainGeneration is > 0 && row.WaitReturnCode == 1 &&
+                    row.NativeWaitTicks >= row.WaitPrecheckTicks + row.WaitCallTicks + row.WaitPostcheckTicks &&
+                    row.CompletedTimestamp >= row.StartedTimestamp + row.NativeWaitTicks);
+                Assert.All(renderer.Where(row => row.Stage != "frame_wait"), row =>
+                {
+                    Assert.Null(row.NativeWaitTicks);
+                    Assert.Null(row.WaitCallTicks);
+                    Assert.Null(row.CpuThreadTicks);
+                });
             }
             else
             {
@@ -222,7 +255,11 @@ internal static class NativeRendererIntegrationTests
             Pump();
             Thread.Sleep(10);
         }
-        Assert.True(predicate(), "Native renderer did not reach the expected bounded lifecycle state.");
+        var reached = predicate();
+        var evidence = reached ? string.Empty : string.Join(", ",
+            TachDiagnostics.Snapshot()?.RendererRecent.TakeLast(24).Select(row =>
+                $"{row.Stage}/{row.Result}:hr=0x{row.HResult:X8},wait={row.WaitReturnCode},generation={row.SwapChainGeneration}") ?? []);
+        Assert.True(reached, "Native renderer did not reach the expected bounded lifecycle state. " + evidence);
     }
 
     private static void Pump() => Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);

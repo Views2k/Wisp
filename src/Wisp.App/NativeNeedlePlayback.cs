@@ -26,6 +26,7 @@ internal sealed class NativeNeedlePlayback
     internal double PlaybackDelayMilliseconds(long timestamp) => _angle.PlaybackDelayMilliseconds(timestamp);
     internal long ReseedCount => _angle.ReseedCount;
     internal long StarvationReseedCount => _angle.StarvationReseedCount;
+    internal bool HasFreshState(long timestamp) => _hasNativeState && IsFresh(timestamp);
 
     public bool Observe(
         int carOrdinal,

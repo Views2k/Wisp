@@ -82,6 +82,7 @@ public sealed class AppSettings
     public bool AnimatedBackground { get; set; } = true;
     public bool AutomaticApplicationUpdateChecks { get; set; } = true;
     public DateTimeOffset? LastApplicationUpdateCheckUtc { get; set; }
+    public bool CpuRenderingEnabled { get; set; }
     public bool DebugLoggingEnabled { get; set; }
     public DateTimeOffset? DebugLoggingExpiresAtUtc { get; set; }
     public string ColorTheme { get; set; } = AppColorThemes.DefaultName;

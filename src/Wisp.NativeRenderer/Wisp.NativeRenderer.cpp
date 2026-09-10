@@ -19,6 +19,12 @@ using Microsoft::WRL::ComPtr;
 
 namespace
 {
+    // Keep one additional frame in flight so drawing can overlap presentation.
+    // Present remains synchronized, and the waitable queue still bounds the work.
+    constexpr UINT SwapChainBufferCount = 3;
+    constexpr UINT MaximumFrameLatency = 2;
+    constexpr uint64_t MaximumDialCacheBytes = 16ull * 1024 * 1024;
+
     bool ValidSize(uint32_t width, uint32_t height) noexcept
     {
         return width > 0 && height > 0 && width <= 8192 && height <= 8192;
@@ -30,17 +36,71 @@ namespace
     };
     static_assert(sizeof(Constants) == 80, "Shader constant layout mismatch.");
 
+    int64_t Counter() noexcept
+    {
+        LARGE_INTEGER value{};
+        QueryPerformanceCounter(&value);
+        return value.QuadPart;
+    }
+
+    class CpuTimer final
+    {
+        int64_t* destination;
+        int64_t started;
+    public:
+        explicit CpuTimer(int64_t* ticks) noexcept : destination(ticks), started(ticks ? Counter() : 0) { }
+        ~CpuTimer() { if (destination) *destination = Counter() - started; }
+        int64_t Started() const noexcept { return started; }
+    };
+
+    int64_t ThreadCpuTime100ns() noexcept
+    {
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)) return -1;
+        const uint64_t kernelTime = (static_cast<uint64_t>(kernel.dwHighDateTime) << 32) | kernel.dwLowDateTime;
+        const uint64_t userTime = (static_cast<uint64_t>(user.dwHighDateTime) << 32) | user.dwLowDateTime;
+        return static_cast<int64_t>(kernelTime + userTime);
+    }
+
+    class ThreadCpuTimer final
+    {
+        int64_t* destination;
+        int64_t started;
+    public:
+        explicit ThreadCpuTimer(int64_t* time) noexcept
+            : destination(time), started(time ? ThreadCpuTime100ns() : -1) { }
+        ~ThreadCpuTimer()
+        {
+            if (!destination || started < 0) return;
+            const int64_t ended = ThreadCpuTime100ns();
+            if (ended >= started) *destination = ended - started;
+        }
+    };
+
+    HRESULT PresentationResult(HRESULT result) noexcept
+    {
+        if (result == DXGI_ERROR_WAS_STILL_DRAWING) return S_FALSE;
+        return result == DXGI_STATUS_OCCLUDED ? static_cast<HRESULT>(2) : result;
+    }
+
     class Renderer final
     {
     public:
         DWORD threadId = GetCurrentThreadId();
         HWND hwnd = nullptr;
         uint32_t width = 0, height = 0;
+        uint32_t swapChainGeneration = 1;
         HANDLE latency = nullptr;
         bool captureReady = false;
         bool visible = false;
         float opacity = 1.0f;
         bool hasDrawn = false;
+        bool pendingPresentation = false;
+        bool cacheDialOnCpu = false;
+        bool dialCacheValid = false;
+        bool dialCacheUnavailable = false;
+        WispDrawCommand cachedDial{};
+        ComPtr<ID3D11Texture2D> dialCache;
         ComPtr<ID3D11Device> device;
         ComPtr<ID3D11DeviceContext> context;
         ComPtr<IDXGISwapChain2> swapChain;
@@ -79,16 +139,37 @@ namespace
             return device->CreateRenderTargetView(buffer.Get(), nullptr, &renderTarget);
         }
 
-        HRESULT Initialize(HWND window, uint32_t targetWidth, uint32_t targetHeight)
+        bool PrepareDialCache(const WispDrawCommand* commands, uint32_t count)
+        {
+            if (!cacheDialOnCpu || count == 0 || commands[0].shader != 1 || dialCacheUnavailable ||
+                static_cast<uint64_t>(width) * height * 4 > MaximumDialCacheBytes) return false;
+            if (dialCache) return true;
+            D3D11_TEXTURE2D_DESC description{};
+            description.Width = width; description.Height = height;
+            description.MipLevels = description.ArraySize = 1;
+            description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            description.SampleDesc.Count = 1;
+            description.Usage = D3D11_USAGE_DEFAULT;
+            if (FAILED(device->CreateTexture2D(&description, nullptr, &dialCache)))
+            {
+                // An optional cache must not turn memory pressure into a HUD failure.
+                dialCacheUnavailable = true;
+                return false;
+            }
+            return true;
+        }
+
+        HRESULT Initialize(HWND window, uint32_t targetWidth, uint32_t targetHeight, bool cpuRendering)
         {
             DWORD process = 0;
             if (!IsWindow(window) || !GetWindowThreadProcessId(window, &process) || process != GetCurrentProcessId()
                 || !ValidSize(targetWidth, targetHeight)) return E_INVALIDARG;
             hwnd = window; width = targetWidth; height = targetHeight;
+            cacheDialOnCpu = cpuRendering;
             const D3D_FEATURE_LEVEL requested[] = { D3D_FEATURE_LEVEL_11_0 };
             D3D_FEATURE_LEVEL obtained{};
-            // Hardware failure is returned to Wisp; silently switching to WARP would hide a regression.
-            CHECK_HR(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            // Use only the explicitly selected driver; failure must not silently change modes.
+            CHECK_HR(D3D11CreateDevice(nullptr, cpuRendering ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                 requested, ARRAYSIZE(requested), D3D11_SDK_VERSION, &device, &obtained, &context));
             ComPtr<IDXGIDevice> dxgiDevice;
             ComPtr<IDXGIAdapter> adapter;
@@ -101,7 +182,7 @@ namespace
             description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
             description.SampleDesc.Count = 1;
             description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-            description.BufferCount = 2;
+            description.BufferCount = SwapChainBufferCount;
             description.Scaling = DXGI_SCALING_STRETCH;
             description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
             description.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
@@ -109,7 +190,7 @@ namespace
             ComPtr<IDXGISwapChain1> chain;
             CHECK_HR(factory->CreateSwapChainForComposition(device.Get(), &description, nullptr, &chain));
             CHECK_HR(chain.As(&swapChain));
-            CHECK_HR(swapChain->SetMaximumFrameLatency(1));
+            CHECK_HR(swapChain->SetMaximumFrameLatency(MaximumFrameLatency));
             latency = swapChain->GetFrameLatencyWaitableObject();
             if (!latency) return HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
             CHECK_HR(CreateTarget());
@@ -172,6 +253,8 @@ namespace
         {
             CHECK_HR(CheckThread());
             if (visible) return HRESULT_FROM_WIN32(ERROR_INVALID_STATE);
+            pendingPresentation = false;
+            dialCacheValid = false;
             if (!hasDrawn) return S_FALSE;
             ComPtr<IDXGIDevice> dxgiDevice;
             ComPtr<IDXGIAdapter> adapter;
@@ -185,7 +268,7 @@ namespace
             ComPtr<IDXGISwapChain2> replacement;
             CHECK_HR(factory->CreateSwapChainForComposition(device.Get(), &description, nullptr, &created));
             CHECK_HR(created.As(&replacement));
-            CHECK_HR(replacement->SetMaximumFrameLatency(1));
+            CHECK_HR(replacement->SetMaximumFrameLatency(MaximumFrameLatency));
             HANDLE replacementLatency = replacement->GetFrameLatencyWaitableObject();
             if (!replacementLatency) return HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
             ComPtr<ID3D11Texture2D> buffer;
@@ -207,6 +290,7 @@ namespace
             latency = replacementLatency;
             captureReady = true;
             hasDrawn = false;
+            ++swapChainGeneration;
             return S_OK;
         }
 
@@ -215,11 +299,15 @@ namespace
             CHECK_HR(CheckThread());
             if (!ValidSize(targetWidth, targetHeight) || !std::isfinite(offsetX) || !std::isfinite(offsetY)) return E_INVALIDARG;
             captureReady = false;
+            pendingPresentation = false;
+            dialCacheValid = false;
             if (width != targetWidth || height != targetHeight)
             {
+                dialCache.Reset();
+                dialCacheUnavailable = false;
                 context->OMSetRenderTargets(0, nullptr, nullptr);
                 renderTarget.Reset();
-                CHECK_HR(swapChain->ResizeBuffers(2, targetWidth, targetHeight, DXGI_FORMAT_B8G8R8A8_UNORM,
+                CHECK_HR(swapChain->ResizeBuffers(SwapChainBufferCount, targetWidth, targetHeight, DXGI_FORMAT_B8G8R8A8_UNORM,
                     DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT));
                 width = targetWidth; height = targetHeight;
                 CHECK_HR(CreateTarget());
@@ -249,12 +337,15 @@ namespace
             CHECK_HR(device->CreateTexture2D(&description, &initial, &texture));
             CHECK_HR(device->CreateShaderResourceView(texture.Get(), nullptr, &view));
             textures[id] = std::move(view);
+            dialCacheValid = false;
             return S_OK;
         }
 
-        HRESULT Render(const WispDrawCommand* commands, uint32_t count, bool present)
+        HRESULT Draw(const WispDrawCommand* commands, uint32_t count, bool forPresentation, WispDrawMetrics* metrics)
         {
             CHECK_HR(CheckThread());
+            pendingPresentation = false;
+            CpuTimer drawTimer(metrics ? &metrics->totalTicks : nullptr);
             if ((count && !commands) || count > 4096 || !renderTarget) return E_INVALIDARG;
             for (uint32_t index = 0; index < count; ++index)
             {
@@ -267,8 +358,23 @@ namespace
                     || (command.shader == 1 && command.parameterY <= 0)) return E_INVALIDARG;
             }
             captureReady = false;
+            const bool cacheDial = PrepareDialCache(commands, count);
+            const bool reuseDial = cacheDial && dialCacheValid &&
+                std::memcmp(&cachedDial, commands, sizeof(cachedDial)) == 0;
+            ComPtr<ID3D11Resource> frameBuffer;
+            if (cacheDial) renderTarget->GetResource(&frameBuffer);
             const float clear[4]{};
-            context->ClearRenderTargetView(renderTarget.Get(), clear);
+            if (reuseDial)
+            {
+                // Copy exact target pixels: no second sampling pass or changed AA.
+                context->OMSetRenderTargets(0, nullptr, nullptr);
+                context->CopyResource(frameBuffer.Get(), dialCache.Get());
+            }
+            else
+            {
+                context->ClearRenderTargetView(renderTarget.Get(), clear);
+                if (cacheDial) dialCacheValid = false;
+            }
             ID3D11RenderTargetView* targetView = renderTarget.Get();
             context->OMSetRenderTargets(1, &targetView, nullptr);
             const float factors[4]{};
@@ -288,7 +394,8 @@ namespace
             context->PSSetConstantBuffers(0, 1, &constantBuffer);
             ID3D11SamplerState* sample = sampler.Get();
             context->PSSetSamplers(0, 1, &sample);
-            for (uint32_t index = 0; index < count; ++index)
+            if (metrics) metrics->setupTicks = Counter() - drawTimer.Started();
+            for (uint32_t index = reuseDial ? 1u : 0u; index < count; ++index)
             {
                 const auto& c = commands[index];
                 const Constants data{
@@ -298,20 +405,54 @@ namespace
                     {c.parameterX,c.parameterY,c.parameterZ,c.parameterW}
                 };
                 D3D11_MAPPED_SUBRESOURCE mapping{};
-                CHECK_HR(context->Map(constants.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapping));
+                const int64_t mapStarted = metrics ? Counter() : 0;
+                const HRESULT mapped = context->Map(constants.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapping);
+                if (metrics)
+                {
+                    const int64_t elapsed = Counter() - mapStarted;
+                    metrics->mapTicks += elapsed;
+                    if (elapsed > metrics->maximumMapTicks) metrics->maximumMapTicks = elapsed;
+                    ++metrics->mapCount;
+                }
+                CHECK_HR(mapped);
                 std::memcpy(mapping.pData, &data, sizeof(data));
                 context->Unmap(constants.Get(), 0);
                 ID3D11ShaderResourceView* view = textures.at(c.textureId).Get();
                 context->PSSetShaderResources(0, 1, &view);
                 context->PSSetShader(pixelShaders[c.shader].Get(), nullptr, 0);
                 context->Draw(6, 0);
+                if (metrics) ++metrics->drawCount;
+                if (cacheDial && index == 0)
+                {
+                    // Only the first dial is static; every later quad remains live.
+                    context->OMSetRenderTargets(0, nullptr, nullptr);
+                    context->CopyResource(dialCache.Get(), frameBuffer.Get());
+                    context->OMSetRenderTargets(1, &targetView, nullptr);
+                    cachedDial = commands[0];
+                    dialCacheValid = true;
+                }
             }
             hasDrawn = true;
             CHECK_HR(device->GetDeviceRemovedReason());
-            if (!present) { captureReady = true; return S_OK; }
+            captureReady = !forPresentation;
+            pendingPresentation = forPresentation;
+            return S_OK;
+        }
+
+        HRESULT TryPresent(WispPresentMetrics* metrics)
+        {
+            CHECK_HR(CheckThread());
+            if (!pendingPresentation) return HRESULT_FROM_WIN32(ERROR_INVALID_STATE);
+            CpuTimer presentTimer(metrics ? &metrics->durationTicks : nullptr);
             const HRESULT result = swapChain->Present(1, DXGI_PRESENT_DO_NOT_WAIT);
-            if (result == DXGI_ERROR_WAS_STILL_DRAWING) return S_FALSE;
-            return result == DXGI_STATUS_OCCLUDED ? static_cast<HRESULT>(2) : result;
+            if (result == S_OK) pendingPresentation = false;
+            return result;
+        }
+
+        HRESULT Render(const WispDrawCommand* commands, uint32_t count, bool present)
+        {
+            CHECK_HR(Draw(commands, count, present, nullptr));
+            return present ? PresentationResult(TryPresent(nullptr)) : S_OK;
         }
 
         HRESULT Capture(uint8_t* pixels, uint32_t byteCount, uint32_t stride)
@@ -342,15 +483,72 @@ namespace
         catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
         catch (...) { return E_FAIL; }
     }
+
+    HRESULT WaitForFrame(void* renderer, uint32_t timeout, HANDLE cancellation,
+        uint32_t* result, WispWaitMetrics* metrics) noexcept
+    {
+        if (metrics)
+        {
+            metrics->cpuTime100ns = -1;
+            metrics->waitResult = WAIT_FAILED;
+        }
+        CpuTimer totalTimer(metrics ? &metrics->totalTicks : nullptr);
+        ThreadCpuTimer cpuTimer(metrics ? &metrics->cpuTime100ns : nullptr);
+        if (!result || timeout > 1000) return E_INVALIDARG;
+        return Invoke(renderer, [&](Renderer& r) {
+            {
+                CpuTimer precheckTimer(metrics ? &metrics->precheckTicks : nullptr);
+                CHECK_HR(r.CheckThread());
+                if (metrics) metrics->swapChainGeneration = r.swapChainGeneration;
+                if (cancellation)
+                {
+                    const DWORD cancelled = WaitForSingleObject(cancellation, 0);
+                    if (cancelled == WAIT_OBJECT_0)
+                    {
+                        if (metrics) metrics->waitResult = cancelled;
+                        *result = 2;
+                        return S_OK;
+                    }
+                    if (cancelled == WAIT_FAILED) return HRESULT_FROM_WIN32(GetLastError());
+                }
+                CHECK_HR(r.device->GetDeviceRemovedReason());
+            }
+            HANDLE handles[2] = { cancellation ? cancellation : r.latency, r.latency };
+            DWORD waited;
+            DWORD waitError = ERROR_SUCCESS;
+            {
+                CpuTimer waitTimer(metrics ? &metrics->waitCallTicks : nullptr);
+                waited = WaitForMultipleObjects(cancellation ? 2 : 1, handles, FALSE, timeout);
+                // Preserve the original failure before diagnostic clock calls run.
+                if (waited == WAIT_FAILED) waitError = GetLastError();
+            }
+            if (metrics) metrics->waitResult = waited;
+            {
+                CpuTimer postcheckTimer(metrics ? &metrics->postcheckTicks : nullptr);
+                if (cancellation && waited == WAIT_OBJECT_0) { *result = 2; return S_OK; }
+                if (waited == WAIT_FAILED) return HRESULT_FROM_WIN32(waitError);
+                CHECK_HR(r.device->GetDeviceRemovedReason());
+                if (waited == WAIT_TIMEOUT) { *result = 1; return S_OK; }
+                if (waited == WAIT_OBJECT_0) { *result = 0; return S_OK; }
+                if (cancellation && waited == WAIT_OBJECT_0 + 1) { *result = 0; return S_OK; }
+                return E_UNEXPECTED;
+            }
+        });
+    }
 }
 
 HRESULT __cdecl WispRendererCreate(HWND hwnd, uint32_t width, uint32_t height, void** output) noexcept
 {
+    return WispRendererCreateWithMode(hwnd, width, height, 0, output);
+}
+HRESULT __cdecl WispRendererCreateWithMode(HWND hwnd, uint32_t width, uint32_t height, uint32_t cpuRendering, void** output) noexcept
+{
     if (!output) return E_POINTER;
     *output = nullptr;
+    if (cpuRendering > 1) return E_INVALIDARG;
     try {
         auto renderer = std::make_unique<Renderer>();
-        CHECK_HR(renderer->Initialize(hwnd, width, height));
+        CHECK_HR(renderer->Initialize(hwnd, width, height, cpuRendering != 0));
         *output = renderer.release();
         return S_OK;
     } catch (const std::bad_alloc&) { return E_OUTOFMEMORY; } catch (...) { return E_FAIL; }
@@ -361,38 +559,41 @@ HRESULT __cdecl WispRendererPrepareForResume(void* renderer) noexcept
 HRESULT __cdecl WispRendererSetOpacity(void* renderer, float opacity) noexcept
 { return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); if (!std::isfinite(opacity) || opacity < 0 || opacity > 1) return E_INVALIDARG; if (r.opacity == opacity) return S_OK; if (r.visible) { CHECK_HR(r.opacityEffect->SetOpacity(opacity)); CHECK_HR(r.composition->Commit()); } r.opacity = opacity; return S_OK; }); }
 HRESULT __cdecl WispRendererSetVisible(void* renderer, int visible) noexcept
-{ return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); const bool show = visible != 0; if (r.visible == show) return S_OK; CHECK_HR(r.opacityEffect->SetOpacity(show ? r.opacity : 0.0f)); CHECK_HR(r.composition->Commit()); r.visible = show; return S_OK; }); }
+{ return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); const bool show = visible != 0; if (!show) r.pendingPresentation = false; if (r.visible == show) return S_OK; CHECK_HR(r.opacityEffect->SetOpacity(show ? r.opacity : 0.0f)); CHECK_HR(r.composition->Commit()); r.visible = show; return S_OK; }); }
 HRESULT __cdecl WispRendererResize(void* renderer, uint32_t width, uint32_t height, float x, float y) noexcept
 { return Invoke(renderer, [&](Renderer& r) { return r.Resize(width,height,x,y); }); }
 HRESULT __cdecl WispRendererUploadTexture(void* renderer, uint32_t id, uint32_t width, uint32_t height,
     uint32_t stride, const uint8_t* pixels, uint32_t bytes) noexcept
 { if (!id) return E_INVALIDARG; return Invoke(renderer, [&](Renderer& r) { return r.Upload(id,width,height,stride,pixels,bytes); }); }
 HRESULT __cdecl WispRendererRemoveTexture(void* renderer, uint32_t id) noexcept
-{ return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); if (!id) return E_INVALIDARG; r.textures.erase(id); return S_OK; }); }
+{ return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); if (!id) return E_INVALIDARG; r.textures.erase(id); r.dialCacheValid = false; return S_OK; }); }
 HRESULT __cdecl WispRendererRender(void* renderer, const WispDrawCommand* commands, uint32_t count, int present) noexcept
 { return Invoke(renderer, [&](Renderer& r) { return r.Render(commands,count,present != 0); }); }
+HRESULT __cdecl WispRendererDrawForPresentation(void* renderer, const WispDrawCommand* commands,
+    uint32_t count, int measure, WispDrawMetrics* metrics) noexcept
+{
+    if (!metrics) return E_POINTER;
+    *metrics = {};
+    return Invoke(renderer, [&](Renderer& r) { return r.Draw(commands, count, true, measure ? metrics : nullptr); });
+}
+HRESULT __cdecl WispRendererTryPresent(void* renderer, int measure, WispPresentMetrics* metrics) noexcept
+{
+    if (!metrics) return E_POINTER;
+    *metrics = {};
+    const HRESULT result = Invoke(renderer, [&](Renderer& r) { return r.TryPresent(measure ? metrics : nullptr); });
+    if (measure) metrics->hResult = result;
+    return PresentationResult(result);
+}
 HRESULT __cdecl WispRendererWaitForFrame(void* renderer, uint32_t timeout, HANDLE cancellation, uint32_t* result) noexcept
 {
-    if (!result || timeout > 1000) return E_INVALIDARG;
-    return Invoke(renderer, [&](Renderer& r) {
-        CHECK_HR(r.CheckThread());
-        if (cancellation)
-        {
-            const DWORD cancelled = WaitForSingleObject(cancellation, 0);
-            if (cancelled == WAIT_OBJECT_0) { *result = 2; return S_OK; }
-            if (cancelled == WAIT_FAILED) return HRESULT_FROM_WIN32(GetLastError());
-        }
-        CHECK_HR(r.device->GetDeviceRemovedReason());
-        HANDLE handles[2] = { cancellation ? cancellation : r.latency, r.latency };
-        const DWORD waited = WaitForMultipleObjects(cancellation ? 2 : 1, handles, FALSE, timeout);
-        if (cancellation && waited == WAIT_OBJECT_0) { *result = 2; return S_OK; }
-        if (waited == WAIT_FAILED) return HRESULT_FROM_WIN32(GetLastError());
-        CHECK_HR(r.device->GetDeviceRemovedReason());
-        if (waited == WAIT_TIMEOUT) { *result = 1; return S_OK; }
-        if (waited == WAIT_OBJECT_0) { *result = 0; return S_OK; }
-        if (cancellation && waited == WAIT_OBJECT_0 + 1) { *result = 0; return S_OK; }
-        return E_UNEXPECTED;
-    });
+    return WaitForFrame(renderer, timeout, cancellation, result, nullptr);
+}
+HRESULT __cdecl WispRendererWaitForFrameMeasured(void* renderer, uint32_t timeout, HANDLE cancellation,
+    int measure, uint32_t* result, WispWaitMetrics* metrics) noexcept
+{
+    if (!metrics) return E_POINTER;
+    *metrics = {};
+    return WaitForFrame(renderer, timeout, cancellation, result, measure ? metrics : nullptr);
 }
 HRESULT __cdecl WispRendererCapture(void* renderer, uint8_t* pixels, uint32_t bytes, uint32_t stride) noexcept
 { return Invoke(renderer, [&](Renderer& r) { return r.Capture(pixels,bytes,stride); }); }
