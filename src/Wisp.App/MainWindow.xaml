@@ -1450,12 +1450,14 @@
                                                               ToolTip="Opt in for up to 24 hours. No files are created while this is off." />
                                                 </WrapPanel>
                                                 <StackPanel Margin="0,14,0,0">
-                                                    <CheckBox x:Name="CpuRenderingToggle" Content="CPU rendering (Analogue tachometer)"
+                                                    <CheckBox x:Name="CpuRenderingToggle" Content="CPU rendering"
                                                               IsChecked="{Binding CpuRenderingEnabled, Mode=OneWay}" Click="CpuRenderingToggle_Click"
                                                               Style="{StaticResource ToggleSwitchStyle}" FontSize="11"
                                                               AutomationProperties.Name="CPU rendering for the Analogue tachometer"
-                                                              AutomationProperties.HelpText="Requires restarting Wisp. Off uses the GPU. Windows still uses the GPU to composite the overlay." />
-                                                    <TextBlock Text="Requires restarting Wisp. Off uses the GPU; on draws the Analogue tachometer on the CPU. Other gauges and Windows composition still use their existing rendering paths. CPU usage may increase."
+                                                              AutomationProperties.HelpText="Please enable CPU rendering if you are experiencing lag or hitching in the overlay. Applies to the Analogue tachometer. Restart Wisp to apply." />
+                                                    <TextBlock Text="Please enable CPU rendering if you are experiencing lag or hitching in the overlay."
+                                                               Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0" />
+                                                    <TextBlock Text="Applies to the Analogue tachometer. Exit Wisp from the tray icon and reopen it to apply. CPU usage may increase."
                                                                Foreground="{DynamicResource FaintBrush}" TextWrapping="Wrap" FontSize="10" Margin="0,6,0,0" />
                                                     <TextBlock Text="{Binding CpuRenderingChangeStatus}" TextWrapping="Wrap" FontSize="11"
                                                                Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />

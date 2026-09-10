@@ -2,12 +2,15 @@
 
 Notable changes to Wisp are recorded here.
 
-## 1.2.1 - Test candidate
+## 1.2.1 - 2026-09-10
 
+- Add an optional **CPU rendering** toggle in Diagnostics for Analogue tachometer lag or hitching. GPU rendering remains the default. Choose **Exit Wisp** from the tray menu and reopen Wisp to apply the change.
+- CPU mode can increase CPU usage. Other gauges keep their existing renderers, and Windows still uses the GPU to compose the overlay.
+- Reuse unchanged dial-background pixels in CPU mode to reduce repeated drawing work while the needle and live readings continue updating.
 - Separate queued telemetry publication time from consumption time so a sample queued during rendering cannot falsely trigger the needle's clock-rewind reset.
 - Draw the Analogue HUD once per pending frame, then retry only Present while the queue is busy. Continue consuming telemetry; discard pending pixels when their layout or source becomes invalid, or after occlusion.
-- Add bounded, nonblocking debug capture for frame waits, scene building, drawing, buffer mapping, presentation results and retry delays. These measure CPU-side operations, not displayed FPS.
-- Retain the existing renderer, artwork, interpolation, settings and Record and Compare Runs features. Remaining choppiness under game load still requires confirmation on affected PCs.
+- Add bounded, nonblocking debug capture for frame waits, scene building, drawing, buffer mapping, presentation results and retry delays. Exports identify the active rendering mode and separate the native wait from its surrounding checks. These measure CPU-side operations, not displayed FPS.
+- Preserve the existing artwork, needle interpolation, HUD settings and Record and Compare Runs features.
 
 ## 1.2.0 - 2026-09-09
 

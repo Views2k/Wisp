@@ -16,18 +16,21 @@ public static class ReleaseNotesCatalog
     [
         new(
             "1.2.1",
-            "September 9, 2026",
-            "TACHOMETER TEST BUILD",
-            "Corrects queued needle timing and busy frame retries, with detailed diagnostics for remaining choppiness reports.",
+            "September 10, 2026",
+            "ANALOGUE RENDERING",
+            "Optional CPU rendering for Analogue tachometer lag or hitching, with fixes for queued needle updates and busy frame submissions.",
             true,
             [
-                Group("Analogue tachometer",
+                Group("CPU rendering",
+                    "If the Analogue tachometer lags or hitches, enable CPU rendering in Diagnostics.",
+                    "To apply the change, right-click Wisp's tray icon, choose Exit Wisp, then reopen the app.",
+                    "CPU mode reuses the unchanged dial background to reduce repeated drawing work while the needle and live readings continue updating.",
+                    "GPU rendering remains the default. CPU mode can increase CPU usage; other gauges keep their existing renderers, and Windows still uses the GPU to compose the overlay."),
+                Group("Fixes and diagnostics",
                     "Keeps queued telemetry arrival times separate from the render clock, preventing a late-consumed sample from falsely resetting needle playback.",
                     "Retries a busy frame submission using the already drawn HUD, avoiding repeated drawing work while Windows cannot accept the frame.",
-                    "Retains the existing needle interpolation, artwork, settings and Record and Compare Runs features."),
-                Group("Test feedback",
-                    "Debug exports now separate frame-readiness waits, scene building, drawing, buffer mapping and presentation attempts, including busy retries and queued sample ages.",
-                    "This is a test candidate for remaining choppiness under game load. Improvement still needs confirmation on affected PCs.")
+                    "Bounded local debug exports identify the active rendering mode and separate native frame waits from their surrounding checks, along with drawing and presentation attempts. These are CPU-side timings, not displayed FPS.",
+                    "Preserves the existing needle interpolation, artwork, HUD settings and Record and Compare Runs features.")
             ]),
         new(
             "1.2",

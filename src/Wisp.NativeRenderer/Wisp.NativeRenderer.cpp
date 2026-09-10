@@ -23,6 +23,7 @@ namespace
     // Present remains synchronized, and the waitable queue still bounds the work.
     constexpr UINT SwapChainBufferCount = 3;
     constexpr UINT MaximumFrameLatency = 2;
+    constexpr uint64_t MaximumDialCacheBytes = 16ull * 1024 * 1024;
 
     bool ValidSize(uint32_t width, uint32_t height) noexcept
     {
@@ -95,6 +96,11 @@ namespace
         float opacity = 1.0f;
         bool hasDrawn = false;
         bool pendingPresentation = false;
+        bool cacheDialOnCpu = false;
+        bool dialCacheValid = false;
+        bool dialCacheUnavailable = false;
+        WispDrawCommand cachedDial{};
+        ComPtr<ID3D11Texture2D> dialCache;
         ComPtr<ID3D11Device> device;
         ComPtr<ID3D11DeviceContext> context;
         ComPtr<IDXGISwapChain2> swapChain;
@@ -133,12 +139,33 @@ namespace
             return device->CreateRenderTargetView(buffer.Get(), nullptr, &renderTarget);
         }
 
+        bool PrepareDialCache(const WispDrawCommand* commands, uint32_t count)
+        {
+            if (!cacheDialOnCpu || count == 0 || commands[0].shader != 1 || dialCacheUnavailable ||
+                static_cast<uint64_t>(width) * height * 4 > MaximumDialCacheBytes) return false;
+            if (dialCache) return true;
+            D3D11_TEXTURE2D_DESC description{};
+            description.Width = width; description.Height = height;
+            description.MipLevels = description.ArraySize = 1;
+            description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            description.SampleDesc.Count = 1;
+            description.Usage = D3D11_USAGE_DEFAULT;
+            if (FAILED(device->CreateTexture2D(&description, nullptr, &dialCache)))
+            {
+                // An optional cache must not turn memory pressure into a HUD failure.
+                dialCacheUnavailable = true;
+                return false;
+            }
+            return true;
+        }
+
         HRESULT Initialize(HWND window, uint32_t targetWidth, uint32_t targetHeight, bool cpuRendering)
         {
             DWORD process = 0;
             if (!IsWindow(window) || !GetWindowThreadProcessId(window, &process) || process != GetCurrentProcessId()
                 || !ValidSize(targetWidth, targetHeight)) return E_INVALIDARG;
             hwnd = window; width = targetWidth; height = targetHeight;
+            cacheDialOnCpu = cpuRendering;
             const D3D_FEATURE_LEVEL requested[] = { D3D_FEATURE_LEVEL_11_0 };
             D3D_FEATURE_LEVEL obtained{};
             // Use only the explicitly selected driver; failure must not silently change modes.
@@ -227,6 +254,7 @@ namespace
             CHECK_HR(CheckThread());
             if (visible) return HRESULT_FROM_WIN32(ERROR_INVALID_STATE);
             pendingPresentation = false;
+            dialCacheValid = false;
             if (!hasDrawn) return S_FALSE;
             ComPtr<IDXGIDevice> dxgiDevice;
             ComPtr<IDXGIAdapter> adapter;
@@ -272,8 +300,11 @@ namespace
             if (!ValidSize(targetWidth, targetHeight) || !std::isfinite(offsetX) || !std::isfinite(offsetY)) return E_INVALIDARG;
             captureReady = false;
             pendingPresentation = false;
+            dialCacheValid = false;
             if (width != targetWidth || height != targetHeight)
             {
+                dialCache.Reset();
+                dialCacheUnavailable = false;
                 context->OMSetRenderTargets(0, nullptr, nullptr);
                 renderTarget.Reset();
                 CHECK_HR(swapChain->ResizeBuffers(SwapChainBufferCount, targetWidth, targetHeight, DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -306,6 +337,7 @@ namespace
             CHECK_HR(device->CreateTexture2D(&description, &initial, &texture));
             CHECK_HR(device->CreateShaderResourceView(texture.Get(), nullptr, &view));
             textures[id] = std::move(view);
+            dialCacheValid = false;
             return S_OK;
         }
 
@@ -326,8 +358,23 @@ namespace
                     || (command.shader == 1 && command.parameterY <= 0)) return E_INVALIDARG;
             }
             captureReady = false;
+            const bool cacheDial = PrepareDialCache(commands, count);
+            const bool reuseDial = cacheDial && dialCacheValid &&
+                std::memcmp(&cachedDial, commands, sizeof(cachedDial)) == 0;
+            ComPtr<ID3D11Resource> frameBuffer;
+            if (cacheDial) renderTarget->GetResource(&frameBuffer);
             const float clear[4]{};
-            context->ClearRenderTargetView(renderTarget.Get(), clear);
+            if (reuseDial)
+            {
+                // Copy exact target pixels: no second sampling pass or changed AA.
+                context->OMSetRenderTargets(0, nullptr, nullptr);
+                context->CopyResource(frameBuffer.Get(), dialCache.Get());
+            }
+            else
+            {
+                context->ClearRenderTargetView(renderTarget.Get(), clear);
+                if (cacheDial) dialCacheValid = false;
+            }
             ID3D11RenderTargetView* targetView = renderTarget.Get();
             context->OMSetRenderTargets(1, &targetView, nullptr);
             const float factors[4]{};
@@ -348,7 +395,7 @@ namespace
             ID3D11SamplerState* sample = sampler.Get();
             context->PSSetSamplers(0, 1, &sample);
             if (metrics) metrics->setupTicks = Counter() - drawTimer.Started();
-            for (uint32_t index = 0; index < count; ++index)
+            for (uint32_t index = reuseDial ? 1u : 0u; index < count; ++index)
             {
                 const auto& c = commands[index];
                 const Constants data{
@@ -375,6 +422,15 @@ namespace
                 context->PSSetShader(pixelShaders[c.shader].Get(), nullptr, 0);
                 context->Draw(6, 0);
                 if (metrics) ++metrics->drawCount;
+                if (cacheDial && index == 0)
+                {
+                    // Only the first dial is static; every later quad remains live.
+                    context->OMSetRenderTargets(0, nullptr, nullptr);
+                    context->CopyResource(dialCache.Get(), frameBuffer.Get());
+                    context->OMSetRenderTargets(1, &targetView, nullptr);
+                    cachedDial = commands[0];
+                    dialCacheValid = true;
+                }
             }
             hasDrawn = true;
             CHECK_HR(device->GetDeviceRemovedReason());
@@ -510,7 +566,7 @@ HRESULT __cdecl WispRendererUploadTexture(void* renderer, uint32_t id, uint32_t 
     uint32_t stride, const uint8_t* pixels, uint32_t bytes) noexcept
 { if (!id) return E_INVALIDARG; return Invoke(renderer, [&](Renderer& r) { return r.Upload(id,width,height,stride,pixels,bytes); }); }
 HRESULT __cdecl WispRendererRemoveTexture(void* renderer, uint32_t id) noexcept
-{ return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); if (!id) return E_INVALIDARG; r.textures.erase(id); return S_OK; }); }
+{ return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); if (!id) return E_INVALIDARG; r.textures.erase(id); r.dialCacheValid = false; return S_OK; }); }
 HRESULT __cdecl WispRendererRender(void* renderer, const WispDrawCommand* commands, uint32_t count, int present) noexcept
 { return Invoke(renderer, [&](Renderer& r) { return r.Render(commands,count,present != 0); }); }
 HRESULT __cdecl WispRendererDrawForPresentation(void* renderer, const WispDrawCommand* commands,
