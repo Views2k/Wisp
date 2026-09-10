@@ -210,21 +210,40 @@ public sealed class TachDiagnosticExportTests
         {
             var wait = RendererEvent() with
             {
-                Stage = "frame_wait", Result = "ready", HResult = 0, NativeThreadId = 120,
-                NativeWaitTicks = 18, WaitPrecheckTicks = 1, WaitCallTicks = 16,
-                WaitPostcheckTicks = 0, CpuThreadTicks = 5, SwapChainGeneration = 1, WaitReturnCode = 1
+                Stage = "frame_wait",
+                Result = "ready",
+                HResult = 0,
+                NativeThreadId = 120,
+                NativeWaitTicks = 18,
+                WaitPrecheckTicks = 1,
+                WaitCallTicks = 16,
+                WaitPostcheckTicks = 0,
+                CpuThreadTicks = 5,
+                SwapChainGeneration = 1,
+                WaitReturnCode = 1
             };
             var replacement = wait with { Sequence = 2, SwapChainGeneration = 2, CpuThreadTicks = null };
             var capture = Capture() with { RendererStartup = [wait], RendererRecent = [wait, replacement] };
             var counts = RendererCounts() with
             {
-                Stage = "frame_wait", Result = "ready", TotalNativePresentMilliseconds = 0, NativeThreadId = 120,
-                NativeWaitSamples = 2, TotalNativeWaitMilliseconds = 36,
-                WaitPrecheckSamples = 2, TotalWaitPrecheckMilliseconds = 2,
-                WaitCallSamples = 2, TotalWaitCallMilliseconds = 32, MaximumWaitCallMilliseconds = 16,
-                WaitPostcheckSamples = 2, TotalWaitPostcheckMilliseconds = 0,
-                CpuThreadSamples = 1, TotalCpuThreadMilliseconds = 5,
-                SwapChainGenerationSamples = 2, MinimumSwapChainGeneration = 1, MaximumSwapChainGeneration = 2,
+                Stage = "frame_wait",
+                Result = "ready",
+                TotalNativePresentMilliseconds = 0,
+                NativeThreadId = 120,
+                NativeWaitSamples = 2,
+                TotalNativeWaitMilliseconds = 36,
+                WaitPrecheckSamples = 2,
+                TotalWaitPrecheckMilliseconds = 2,
+                WaitCallSamples = 2,
+                TotalWaitCallMilliseconds = 32,
+                MaximumWaitCallMilliseconds = 16,
+                WaitPostcheckSamples = 2,
+                TotalWaitPostcheckMilliseconds = 0,
+                CpuThreadSamples = 1,
+                TotalCpuThreadMilliseconds = 5,
+                SwapChainGenerationSamples = 2,
+                MinimumSwapChainGeneration = 1,
+                MaximumSwapChainGeneration = 2,
                 WaitReturnCode = 1
             };
             var interval = Interval(CurrentCaptureId, Now, 10) with { Renderer = [counts] };
@@ -308,11 +327,18 @@ public sealed class TachDiagnosticExportTests
     {
         var valid = RendererCounts() with
         {
-            NativeWaitSamples = 1, TotalNativeWaitMilliseconds = 10,
-            WaitPrecheckSamples = 1, TotalWaitPrecheckMilliseconds = 1,
-            WaitCallSamples = 1, TotalWaitCallMilliseconds = 8, MaximumWaitCallMilliseconds = 8,
-            WaitPostcheckSamples = 1, TotalWaitPostcheckMilliseconds = 0,
-            SwapChainGenerationSamples = 1, MinimumSwapChainGeneration = 1, MaximumSwapChainGeneration = 2
+            NativeWaitSamples = 1,
+            TotalNativeWaitMilliseconds = 10,
+            WaitPrecheckSamples = 1,
+            TotalWaitPrecheckMilliseconds = 1,
+            WaitCallSamples = 1,
+            TotalWaitCallMilliseconds = 8,
+            MaximumWaitCallMilliseconds = 8,
+            WaitPostcheckSamples = 1,
+            TotalWaitPostcheckMilliseconds = 0,
+            SwapChainGenerationSamples = 1,
+            MinimumSwapChainGeneration = 1,
+            MaximumSwapChainGeneration = 2
         };
         var interval = Interval(CurrentCaptureId, Now, 1) with { Renderer = [valid] };
         Assert.NotNull(TachDiagnosticReport.SanitizeInterval(interval));

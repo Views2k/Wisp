@@ -111,21 +111,32 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         TachDiagnostics.SetEnabled(true);
         var sample = WaitSample() with
         {
-            NativeWaitTicks = Ticks(36), WaitPrecheckTicks = Ticks(3),
-            WaitCallTicks = Ticks(30), WaitPostcheckTicks = Ticks(2), CpuThreadTicks = Ticks(2)
+            NativeWaitTicks = Ticks(36),
+            WaitPrecheckTicks = Ticks(3),
+            WaitCallTicks = Ticks(30),
+            WaitPostcheckTicks = Ticks(2),
+            CpuThreadTicks = Ticks(2)
         };
         TachDiagnostics.RecordRenderer(in sample);
         var next = sample with
         {
-            Sequence = 2, NativeWaitTicks = Ticks(50), WaitPrecheckTicks = 0,
-            WaitCallTicks = Ticks(48), WaitPostcheckTicks = Ticks(1), CpuThreadTicks = 0,
+            Sequence = 2,
+            NativeWaitTicks = Ticks(50),
+            WaitPrecheckTicks = 0,
+            WaitCallTicks = Ticks(48),
+            WaitPostcheckTicks = Ticks(1),
+            CpuThreadTicks = 0,
             SwapChainGeneration = 3
         };
         TachDiagnostics.RecordRenderer(in next);
         var partial = sample with
         {
-            Sequence = 3, NativeWaitTicks = Ticks(10), WaitPrecheckTicks = Ticks(2),
-            WaitCallTicks = null, WaitPostcheckTicks = null, CpuThreadTicks = null,
+            Sequence = 3,
+            NativeWaitTicks = Ticks(10),
+            WaitPrecheckTicks = Ticks(2),
+            WaitCallTicks = null,
+            WaitPostcheckTicks = null,
+            CpuThreadTicks = null,
             SwapChainGeneration = 2
         };
         TachDiagnostics.RecordRenderer(in partial);
@@ -195,8 +206,12 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         TachDiagnostics.SetEnabled(true);
         var invalid = WaitSample() with
         {
-            NativeWaitTicks = -1, WaitPrecheckTicks = -2, WaitCallTicks = -3,
-            WaitPostcheckTicks = -4, CpuThreadTicks = -5, SwapChainGeneration = 0
+            NativeWaitTicks = -1,
+            WaitPrecheckTicks = -2,
+            WaitCallTicks = -3,
+            WaitPostcheckTicks = -4,
+            CpuThreadTicks = -5,
+            SwapChainGeneration = 0
         };
         TachDiagnostics.RecordRenderer(in invalid);
         var clean = Assert.Single(Snapshot().RendererRecent);
@@ -372,9 +387,14 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
     };
     private static TachRendererDiagnostic WaitSample() => Sample() with
     {
-        Stage = "frame_wait", NativeWaitTicks = 0, WaitPrecheckTicks = 0,
-        WaitCallTicks = 0, WaitPostcheckTicks = 0, CpuThreadTicks = 0,
-        SwapChainGeneration = 1, WaitReturnCode = 1
+        Stage = "frame_wait",
+        NativeWaitTicks = 0,
+        WaitPrecheckTicks = 0,
+        WaitCallTicks = 0,
+        WaitPostcheckTicks = 0,
+        CpuThreadTicks = 0,
+        SwapChainGeneration = 1,
+        WaitReturnCode = 1
     };
     private static long Ticks(double milliseconds) => (long)(milliseconds * Stopwatch.Frequency / 1000d);
     private static TachCaptureExport Snapshot() => Assert.IsType<TachCaptureExport>(TachDiagnostics.Snapshot());

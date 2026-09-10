@@ -50,7 +50,9 @@ public sealed class CpuRenderingSettingsTests
                 ValidatedPackets = SetupCompletionRecord.MinimumPackets,
                 MovingPackets = SetupCompletionRecord.MinimumMovingPackets,
                 ValidatedElapsedMilliseconds = SetupCompletionRecord.MinimumElapsedMilliseconds,
-                DataOutConfirmed = true, DisplayModeConfirmed = true, StockHudConfirmed = true
+                DataOutConfirmed = true,
+                DisplayModeConfirmed = true,
+                StockHudConfirmed = true
             }
         };
         bool failSave = false;
