@@ -19,6 +19,11 @@ using Microsoft::WRL::ComPtr;
 
 namespace
 {
+    // Keep one additional frame in flight so drawing can overlap presentation.
+    // Present remains synchronized, and the waitable queue still bounds the work.
+    constexpr UINT SwapChainBufferCount = 3;
+    constexpr UINT MaximumFrameLatency = 2;
+
     bool ValidSize(uint32_t width, uint32_t height) noexcept
     {
         return width > 0 && height > 0 && width <= 8192 && height <= 8192;
@@ -47,6 +52,30 @@ namespace
         int64_t Started() const noexcept { return started; }
     };
 
+    int64_t ThreadCpuTime100ns() noexcept
+    {
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)) return -1;
+        const uint64_t kernelTime = (static_cast<uint64_t>(kernel.dwHighDateTime) << 32) | kernel.dwLowDateTime;
+        const uint64_t userTime = (static_cast<uint64_t>(user.dwHighDateTime) << 32) | user.dwLowDateTime;
+        return static_cast<int64_t>(kernelTime + userTime);
+    }
+
+    class ThreadCpuTimer final
+    {
+        int64_t* destination;
+        int64_t started;
+    public:
+        explicit ThreadCpuTimer(int64_t* time) noexcept
+            : destination(time), started(time ? ThreadCpuTime100ns() : -1) { }
+        ~ThreadCpuTimer()
+        {
+            if (!destination || started < 0) return;
+            const int64_t ended = ThreadCpuTime100ns();
+            if (ended >= started) *destination = ended - started;
+        }
+    };
+
     HRESULT PresentationResult(HRESULT result) noexcept
     {
         if (result == DXGI_ERROR_WAS_STILL_DRAWING) return S_FALSE;
@@ -59,6 +88,7 @@ namespace
         DWORD threadId = GetCurrentThreadId();
         HWND hwnd = nullptr;
         uint32_t width = 0, height = 0;
+        uint32_t swapChainGeneration = 1;
         HANDLE latency = nullptr;
         bool captureReady = false;
         bool visible = false;
@@ -125,7 +155,7 @@ namespace
             description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
             description.SampleDesc.Count = 1;
             description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-            description.BufferCount = 2;
+            description.BufferCount = SwapChainBufferCount;
             description.Scaling = DXGI_SCALING_STRETCH;
             description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
             description.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
@@ -133,7 +163,7 @@ namespace
             ComPtr<IDXGISwapChain1> chain;
             CHECK_HR(factory->CreateSwapChainForComposition(device.Get(), &description, nullptr, &chain));
             CHECK_HR(chain.As(&swapChain));
-            CHECK_HR(swapChain->SetMaximumFrameLatency(1));
+            CHECK_HR(swapChain->SetMaximumFrameLatency(MaximumFrameLatency));
             latency = swapChain->GetFrameLatencyWaitableObject();
             if (!latency) return HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
             CHECK_HR(CreateTarget());
@@ -210,7 +240,7 @@ namespace
             ComPtr<IDXGISwapChain2> replacement;
             CHECK_HR(factory->CreateSwapChainForComposition(device.Get(), &description, nullptr, &created));
             CHECK_HR(created.As(&replacement));
-            CHECK_HR(replacement->SetMaximumFrameLatency(1));
+            CHECK_HR(replacement->SetMaximumFrameLatency(MaximumFrameLatency));
             HANDLE replacementLatency = replacement->GetFrameLatencyWaitableObject();
             if (!replacementLatency) return HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
             ComPtr<ID3D11Texture2D> buffer;
@@ -232,6 +262,7 @@ namespace
             latency = replacementLatency;
             captureReady = true;
             hasDrawn = false;
+            ++swapChainGeneration;
             return S_OK;
         }
 
@@ -245,7 +276,7 @@ namespace
             {
                 context->OMSetRenderTargets(0, nullptr, nullptr);
                 renderTarget.Reset();
-                CHECK_HR(swapChain->ResizeBuffers(2, targetWidth, targetHeight, DXGI_FORMAT_B8G8R8A8_UNORM,
+                CHECK_HR(swapChain->ResizeBuffers(SwapChainBufferCount, targetWidth, targetHeight, DXGI_FORMAT_B8G8R8A8_UNORM,
                     DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT));
                 width = targetWidth; height = targetHeight;
                 CHECK_HR(CreateTarget());
@@ -396,6 +427,58 @@ namespace
         catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
         catch (...) { return E_FAIL; }
     }
+
+    HRESULT WaitForFrame(void* renderer, uint32_t timeout, HANDLE cancellation,
+        uint32_t* result, WispWaitMetrics* metrics) noexcept
+    {
+        if (metrics)
+        {
+            metrics->cpuTime100ns = -1;
+            metrics->waitResult = WAIT_FAILED;
+        }
+        CpuTimer totalTimer(metrics ? &metrics->totalTicks : nullptr);
+        ThreadCpuTimer cpuTimer(metrics ? &metrics->cpuTime100ns : nullptr);
+        if (!result || timeout > 1000) return E_INVALIDARG;
+        return Invoke(renderer, [&](Renderer& r) {
+            {
+                CpuTimer precheckTimer(metrics ? &metrics->precheckTicks : nullptr);
+                CHECK_HR(r.CheckThread());
+                if (metrics) metrics->swapChainGeneration = r.swapChainGeneration;
+                if (cancellation)
+                {
+                    const DWORD cancelled = WaitForSingleObject(cancellation, 0);
+                    if (cancelled == WAIT_OBJECT_0)
+                    {
+                        if (metrics) metrics->waitResult = cancelled;
+                        *result = 2;
+                        return S_OK;
+                    }
+                    if (cancelled == WAIT_FAILED) return HRESULT_FROM_WIN32(GetLastError());
+                }
+                CHECK_HR(r.device->GetDeviceRemovedReason());
+            }
+            HANDLE handles[2] = { cancellation ? cancellation : r.latency, r.latency };
+            DWORD waited;
+            DWORD waitError = ERROR_SUCCESS;
+            {
+                CpuTimer waitTimer(metrics ? &metrics->waitCallTicks : nullptr);
+                waited = WaitForMultipleObjects(cancellation ? 2 : 1, handles, FALSE, timeout);
+                // Preserve the original failure before diagnostic clock calls run.
+                if (waited == WAIT_FAILED) waitError = GetLastError();
+            }
+            if (metrics) metrics->waitResult = waited;
+            {
+                CpuTimer postcheckTimer(metrics ? &metrics->postcheckTicks : nullptr);
+                if (cancellation && waited == WAIT_OBJECT_0) { *result = 2; return S_OK; }
+                if (waited == WAIT_FAILED) return HRESULT_FROM_WIN32(waitError);
+                CHECK_HR(r.device->GetDeviceRemovedReason());
+                if (waited == WAIT_TIMEOUT) { *result = 1; return S_OK; }
+                if (waited == WAIT_OBJECT_0) { *result = 0; return S_OK; }
+                if (cancellation && waited == WAIT_OBJECT_0 + 1) { *result = 0; return S_OK; }
+                return E_UNEXPECTED;
+            }
+        });
+    }
 }
 
 HRESULT __cdecl WispRendererCreate(HWND hwnd, uint32_t width, uint32_t height, void** output) noexcept
@@ -442,26 +525,14 @@ HRESULT __cdecl WispRendererTryPresent(void* renderer, int measure, WispPresentM
 }
 HRESULT __cdecl WispRendererWaitForFrame(void* renderer, uint32_t timeout, HANDLE cancellation, uint32_t* result) noexcept
 {
-    if (!result || timeout > 1000) return E_INVALIDARG;
-    return Invoke(renderer, [&](Renderer& r) {
-        CHECK_HR(r.CheckThread());
-        if (cancellation)
-        {
-            const DWORD cancelled = WaitForSingleObject(cancellation, 0);
-            if (cancelled == WAIT_OBJECT_0) { *result = 2; return S_OK; }
-            if (cancelled == WAIT_FAILED) return HRESULT_FROM_WIN32(GetLastError());
-        }
-        CHECK_HR(r.device->GetDeviceRemovedReason());
-        HANDLE handles[2] = { cancellation ? cancellation : r.latency, r.latency };
-        const DWORD waited = WaitForMultipleObjects(cancellation ? 2 : 1, handles, FALSE, timeout);
-        if (cancellation && waited == WAIT_OBJECT_0) { *result = 2; return S_OK; }
-        if (waited == WAIT_FAILED) return HRESULT_FROM_WIN32(GetLastError());
-        CHECK_HR(r.device->GetDeviceRemovedReason());
-        if (waited == WAIT_TIMEOUT) { *result = 1; return S_OK; }
-        if (waited == WAIT_OBJECT_0) { *result = 0; return S_OK; }
-        if (cancellation && waited == WAIT_OBJECT_0 + 1) { *result = 0; return S_OK; }
-        return E_UNEXPECTED;
-    });
+    return WaitForFrame(renderer, timeout, cancellation, result, nullptr);
+}
+HRESULT __cdecl WispRendererWaitForFrameMeasured(void* renderer, uint32_t timeout, HANDLE cancellation,
+    int measure, uint32_t* result, WispWaitMetrics* metrics) noexcept
+{
+    if (!metrics) return E_POINTER;
+    *metrics = {};
+    return WaitForFrame(renderer, timeout, cancellation, result, measure ? metrics : nullptr);
 }
 HRESULT __cdecl WispRendererCapture(void* renderer, uint8_t* pixels, uint32_t bytes, uint32_t stride) noexcept
 { return Invoke(renderer, [&](Renderer& r) { return r.Capture(pixels,bytes,stride); }); }

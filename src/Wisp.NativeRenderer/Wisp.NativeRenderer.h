@@ -23,8 +23,14 @@ struct WispPresentMetrics
     int32_t hResult;
     uint32_t reserved;
 };
+struct WispWaitMetrics
+{
+    int64_t totalTicks, precheckTicks, waitCallTicks, postcheckTicks, cpuTime100ns;
+    uint32_t swapChainGeneration, waitResult;
+};
 static_assert(sizeof(WispDrawMetrics) == 40, "Managed/native draw metrics ABI mismatch.");
 static_assert(sizeof(WispPresentMetrics) == 16, "Managed/native present metrics ABI mismatch.");
+static_assert(sizeof(WispWaitMetrics) == 48, "Managed/native wait metrics ABI mismatch.");
 
 #ifdef WISP_RENDERER_IMPORT
 #define WISP_API extern "C" __declspec(dllimport)
@@ -48,5 +54,9 @@ WISP_API HRESULT __cdecl WispRendererDrawForPresentation(void* renderer, const W
 // A busy/occluded result retains the drawn frame for retry; successful presentation consumes it.
 WISP_API HRESULT __cdecl WispRendererTryPresent(void* renderer, int measure, WispPresentMetrics* metrics) noexcept;
 WISP_API HRESULT __cdecl WispRendererWaitForFrame(void* renderer, uint32_t timeoutMilliseconds, HANDLE cancellation, uint32_t* result) noexcept;
+// Wall times use QPC ticks; coarse thread execution time uses 100 ns units (-1 if unavailable).
+// waitResult is the raw Win32 wait result, or WAIT_FAILED before a wait/error.
+WISP_API HRESULT __cdecl WispRendererWaitForFrameMeasured(void* renderer, uint32_t timeoutMilliseconds,
+    HANDLE cancellation, int measure, uint32_t* result, WispWaitMetrics* metrics) noexcept;
 WISP_API HRESULT __cdecl WispRendererCapture(void* renderer, uint8_t* pixels, uint32_t byteCount, uint32_t stride) noexcept;
 WISP_API HRESULT __cdecl WispRendererDeviceRemovedReason(void* renderer) noexcept;

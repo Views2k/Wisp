@@ -85,7 +85,7 @@ public sealed class TachDiagnosticExportTests
             Assert.True(manifest.RootElement.GetProperty("raw_lost_after_process_restart").GetBoolean());
             Assert.False(manifest.RootElement.GetProperty("gpu_presentation_measured").GetBoolean());
             Assert.False(manifest.RootElement.GetProperty("physical_display_measured").GetBoolean());
-            Assert.Equal(1, manifest.RootElement.GetProperty("renderer_schema_version").GetInt32());
+            Assert.Equal(2, manifest.RootElement.GetProperty("renderer_schema_version").GetInt32());
             Assert.Equal(5, manifest.RootElement.GetProperty("renderer").GetProperty("recent_overwritten").GetInt64());
             Assert.Equal(1, manifest.RootElement.GetProperty("renderer").GetProperty("startup_recent_duplicate_records").GetInt32());
             Assert.Contains("not displayed", manifest.RootElement.GetProperty("renderer_policy").GetString());
@@ -200,6 +200,143 @@ public sealed class TachDiagnosticExportTests
         var report = TachDiagnosticReport.Build([safe], null);
         Assert.Contains("Older builds did not record these timings", report);
         Assert.DoesNotContain("Present attempts submitted", report);
+    }
+
+    [Fact]
+    public async Task WaitDetailsSurviveRawAndPersistedArchivePaths()
+    {
+        var root = TemporaryDirectory();
+        try
+        {
+            var wait = RendererEvent() with
+            {
+                Stage = "frame_wait", Result = "ready", HResult = 0, NativeThreadId = 120,
+                NativeWaitTicks = 18, WaitPrecheckTicks = 1, WaitCallTicks = 16,
+                WaitPostcheckTicks = 0, CpuThreadTicks = 5, SwapChainGeneration = 1, WaitReturnCode = 1
+            };
+            var replacement = wait with { Sequence = 2, SwapChainGeneration = 2, CpuThreadTicks = null };
+            var capture = Capture() with { RendererStartup = [wait], RendererRecent = [wait, replacement] };
+            var counts = RendererCounts() with
+            {
+                Stage = "frame_wait", Result = "ready", TotalNativePresentMilliseconds = 0, NativeThreadId = 120,
+                NativeWaitSamples = 2, TotalNativeWaitMilliseconds = 36,
+                WaitPrecheckSamples = 2, TotalWaitPrecheckMilliseconds = 2,
+                WaitCallSamples = 2, TotalWaitCallMilliseconds = 32, MaximumWaitCallMilliseconds = 16,
+                WaitPostcheckSamples = 2, TotalWaitPostcheckMilliseconds = 0,
+                CpuThreadSamples = 1, TotalCpuThreadMilliseconds = 5,
+                SwapChainGenerationSamples = 2, MinimumSwapChainGeneration = 1, MaximumSwapChainGeneration = 2,
+                WaitReturnCode = 1
+            };
+            var interval = Interval(CurrentCaptureId, Now, 10) with { Renderer = [counts] };
+            var logs = Path.Combine(root, "logs");
+            await using (var service = new DebugLogService(logs, () => Now, tachSnapshot: () => capture))
+            {
+                Assert.True(service.TryEnable(Now + DebugLogService.EnableDuration));
+                service.TryLogTachInterval(interval);
+                var path = Path.Combine(root, "live.zip");
+                Assert.True(await service.ExportAsync(path, ApplicationVersionInfo.MachineVersion));
+                using var archive = ZipFile.OpenRead(path);
+                var raw = Read(archive, "tach-renderer-recent.ndjson").Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(value => JsonSerializer.Deserialize<TachRendererDiagnostic>(value, JsonOptions)).ToArray();
+                Assert.Equal(new[] { wait, replacement }, raw);
+                Assert.Equal(wait, JsonSerializer.Deserialize<TachRendererDiagnostic>(Read(archive, "tach-renderer-startup.ndjson"), JsonOptions));
+                Assert.Equal(counts, Assert.Single(JsonSerializer.Deserialize<TachIntervalDiagnostic>(Read(archive, "tach-intervals.ndjson"), JsonOptions)!.Renderer));
+                using var manifest = JsonDocument.Parse(Read(archive, "tach-manifest.json"));
+                Assert.Equal(2, manifest.RootElement.GetProperty("renderer_schema_version").GetInt32());
+                var policy = manifest.RootElement.GetProperty("renderer_policy").GetString()!;
+                Assert.Contains("full managed wrapper", policy);
+                Assert.Contains("coarse GetThreadTimes CPU accounting", policy);
+                Assert.Contains("error before the wait was reached", policy);
+                Assert.Contains("Missing split fields mean unavailable", policy);
+                var report = Read(archive, "tach-report.txt");
+                Assert.Contains("Native wait total: 36 ms (2 observations)", report);
+                Assert.Contains("wait call: 32 ms (2 observations)", report);
+                Assert.Contains("postcheck: 0 ms (2 observations)", report);
+                Assert.Contains("Maximum wait call: 16 ms", report);
+                Assert.Contains("Win32 wait outcome: 0x00000001", report);
+                Assert.Contains("Native render thread: 120", report);
+                Assert.Contains("swap-chain generation range: 1-2 (2 observations)", report);
+                Assert.Contains("Coarse thread CPU accounting: 5 ms (1 observations)", report);
+            }
+
+            await using var restarted = new DebugLogService(logs, () => Now, tachSnapshot: () => null);
+            var restartedPath = Path.Combine(root, "restarted.zip");
+            Assert.True(await restarted.ExportAsync(restartedPath, ApplicationVersionInfo.MachineVersion));
+            using var persisted = ZipFile.OpenRead(restartedPath);
+            Assert.Null(persisted.GetEntry("tach-renderer-recent.ndjson"));
+            Assert.Equal(counts, Assert.Single(JsonSerializer.Deserialize<TachIntervalDiagnostic>(Read(persisted, "tach-intervals.ndjson"), JsonOptions)!.Renderer));
+            Assert.Contains("Native wait total: 36 ms (2 observations)", Read(persisted, "tach-report.txt"));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public void OlderRendererTimingsDoNotImplyZeroNativeWaitOrThreadCpuWork()
+    {
+        var json = $$"""
+            {"timestamp_utc":"2026-09-08T12:00:00Z","capture_id":"{{CurrentCaptureId}}","timestamp":1000,"interval_milliseconds":1000,"native_reads":[],"needles":[],"renderer":[{"control_id":1,"stage":"frame_wait","result":"ready","count":2,"mean_milliseconds":20,"maximum_milliseconds":40}]}
+            """;
+        var interval = JsonSerializer.Deserialize<TachIntervalDiagnostic>(json, JsonOptions)!;
+        var safe = Assert.IsType<TachIntervalDiagnostic>(TachDiagnosticReport.SanitizeInterval(interval));
+        var counts = Assert.Single(safe.Renderer);
+        Assert.Equal(0, counts.NativeWaitSamples);
+        Assert.Null(counts.TotalNativeWaitMilliseconds);
+        Assert.Null(counts.TotalWaitPrecheckMilliseconds);
+        Assert.Null(counts.TotalWaitCallMilliseconds);
+        Assert.Null(counts.MaximumWaitCallMilliseconds);
+        Assert.Null(counts.TotalWaitPostcheckMilliseconds);
+        Assert.Null(counts.MinimumSwapChainGeneration);
+        Assert.Null(counts.WaitReturnCode);
+        Assert.Null(counts.NativeThreadId);
+        var report = TachDiagnosticReport.Build([safe], null);
+        Assert.Contains("Native wait total: unavailable (0 observations)", report);
+        Assert.Contains("Maximum wait call: unavailable", report);
+        Assert.Contains("Coarse thread CPU accounting: unavailable (0 observations)", report);
+        var raw = JsonSerializer.Deserialize<TachRendererDiagnostic>("""{"stage":"frame_wait","result":"ready","started_timestamp":100,"completed_timestamp":120}""", JsonOptions);
+        Assert.Null(raw.NativeWaitTicks);
+        Assert.Null(raw.WaitPrecheckTicks);
+        Assert.Null(raw.WaitCallTicks);
+        Assert.Null(raw.WaitPostcheckTicks);
+        Assert.Null(raw.CpuThreadTicks);
+        Assert.Null(raw.SwapChainGeneration);
+        Assert.Null(raw.WaitReturnCode);
+        Assert.Null(raw.NativeThreadId);
+    }
+
+    [Fact]
+    public void InvalidPersistedWaitCoverageAndDurationsAreRejected()
+    {
+        var valid = RendererCounts() with
+        {
+            NativeWaitSamples = 1, TotalNativeWaitMilliseconds = 10,
+            WaitPrecheckSamples = 1, TotalWaitPrecheckMilliseconds = 1,
+            WaitCallSamples = 1, TotalWaitCallMilliseconds = 8, MaximumWaitCallMilliseconds = 8,
+            WaitPostcheckSamples = 1, TotalWaitPostcheckMilliseconds = 0,
+            SwapChainGenerationSamples = 1, MinimumSwapChainGeneration = 1, MaximumSwapChainGeneration = 2
+        };
+        var interval = Interval(CurrentCaptureId, Now, 1) with { Renderer = [valid] };
+        Assert.NotNull(TachDiagnosticReport.SanitizeInterval(interval));
+        foreach (var invalid in new[]
+        {
+            valid with { NativeWaitSamples = -1 },
+            valid with { NativeWaitSamples = 3 },
+            valid with { NativeWaitSamples = 0 },
+            valid with { TotalNativeWaitMilliseconds = -1 },
+            valid with { TotalNativeWaitMilliseconds = null },
+            valid with { TotalWaitPrecheckMilliseconds = double.NaN },
+            valid with { TotalWaitCallMilliseconds = double.PositiveInfinity },
+            valid with { MaximumWaitCallMilliseconds = 9 },
+            valid with { MaximumWaitCallMilliseconds = null },
+            valid with { TotalWaitPostcheckMilliseconds = -1 },
+            valid with { SwapChainGenerationSamples = -1 },
+            valid with { SwapChainGenerationSamples = 3 },
+            valid with { SwapChainGenerationSamples = 0 },
+            valid with { MinimumSwapChainGeneration = 0 },
+            valid with { MinimumSwapChainGeneration = null },
+            valid with { MinimumSwapChainGeneration = 3 },
+            valid with { MaximumSwapChainGeneration = null }
+        })
+            Assert.Null(TachDiagnosticReport.SanitizeInterval(interval with { Renderer = [invalid] }));
     }
 
     [Fact]

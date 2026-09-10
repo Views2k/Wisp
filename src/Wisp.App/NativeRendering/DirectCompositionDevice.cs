@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -43,6 +44,17 @@ internal struct DirectCompositionPresentMetrics
     public long DurationTicks;
     public int HResult;
     public uint Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct DirectCompositionWaitMetrics
+{
+    public long TotalTicks, PrecheckTicks, WaitCallTicks, PostcheckTicks, CpuTime100ns;
+    public uint SwapChainGeneration, WaitResult;
+
+    // GetThreadTimes uses coarse 100 ns execution accounting, not elapsed QPC time.
+    public readonly long? CpuThreadStopwatchTicks => CpuTime100ns < 0 ? null :
+        (long)(CpuTime100ns * (Stopwatch.Frequency / (double)TimeSpan.TicksPerSecond));
 }
 
 // The render worker owns this device. The HWND remains owned by WPF's UI thread.
@@ -149,8 +161,13 @@ internal sealed class DirectCompositionDevice : IDisposable
         return result == 0;
     }
 
-    public DirectCompositionWaitResult WaitForNextFrame(int timeoutMilliseconds, SafeWaitHandle? cancellationHandle = null)
+    public DirectCompositionWaitResult WaitForNextFrame(int timeoutMilliseconds, SafeWaitHandle? cancellationHandle = null) =>
+        WaitForNextFrame(timeoutMilliseconds, cancellationHandle, false, out _);
+
+    public DirectCompositionWaitResult WaitForNextFrame(int timeoutMilliseconds, SafeWaitHandle? cancellationHandle,
+        bool measure, out DirectCompositionWaitMetrics metrics)
     {
+        metrics = default;
         ThrowIfDisposed();
         if (timeoutMilliseconds is < 0 or > 1000) throw new ArgumentOutOfRangeException(nameof(timeoutMilliseconds));
         bool addRef = false;
@@ -158,7 +175,11 @@ internal sealed class DirectCompositionDevice : IDisposable
         {
             cancellationHandle?.DangerousAddRef(ref addRef);
             var cancel = cancellationHandle?.DangerousGetHandle() ?? IntPtr.Zero;
-            Marshal.ThrowExceptionForHR(Native.WaitForFrame(_handle, (uint)timeoutMilliseconds, cancel, out var result));
+            DirectCompositionWaitResult result;
+            var hresult = measure
+                ? Native.WaitForFrameMeasured(_handle, (uint)timeoutMilliseconds, cancel, 1, out result, out metrics)
+                : Native.WaitForFrame(_handle, (uint)timeoutMilliseconds, cancel, out result);
+            Marshal.ThrowExceptionForHR(hresult);
             return result;
         }
         finally
@@ -250,6 +271,9 @@ internal sealed class DirectCompositionDevice : IDisposable
         [DllImport(Library, EntryPoint = "WispRendererWaitForFrame", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int WaitForFrame(RendererHandle renderer, uint timeoutMilliseconds, IntPtr cancellation,
             out DirectCompositionWaitResult result);
+        [DllImport(Library, EntryPoint = "WispRendererWaitForFrameMeasured", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int WaitForFrameMeasured(RendererHandle renderer, uint timeoutMilliseconds, IntPtr cancellation,
+            int measure, out DirectCompositionWaitResult result, out DirectCompositionWaitMetrics metrics);
         [DllImport(Library, EntryPoint = "WispRendererCapture", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Capture(RendererHandle renderer, [Out] byte[] pixels, uint byteCount, uint stride);
         [DllImport(Library, EntryPoint = "WispRendererDeviceRemovedReason", CallingConvention = CallingConvention.Cdecl)]

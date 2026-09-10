@@ -50,6 +50,7 @@ internal readonly record struct TachLifecycleDiagnostic(
 internal readonly record struct TachRendererDiagnostic
 {
     public int ControlId { get; init; }
+    public uint? NativeThreadId { get; init; }
     public long HostWindowHandle { get; init; }
     public long Sequence { get; init; }
     public string Stage { get; init; }
@@ -70,6 +71,12 @@ internal readonly record struct TachRendererDiagnostic
     public int HResult { get; init; }
     public int QueueDropped { get; init; }
     public long? CpuThreadTicks { get; init; }
+    public long? NativeWaitTicks { get; init; }
+    public long? WaitPrecheckTicks { get; init; }
+    public long? WaitCallTicks { get; init; }
+    public long? WaitPostcheckTicks { get; init; }
+    public uint? SwapChainGeneration { get; init; }
+    public uint? WaitReturnCode { get; init; }
 }
 
 internal sealed record TachRendererCounts(
@@ -83,6 +90,20 @@ internal sealed record TachRendererCounts(
     long CpuThreadSamples, double TotalCpuThreadMilliseconds)
 {
     public int HResult { get; init; }
+    public uint? NativeThreadId { get; init; }
+    public long NativeWaitSamples { get; init; }
+    public double? TotalNativeWaitMilliseconds { get; init; }
+    public long WaitPrecheckSamples { get; init; }
+    public double? TotalWaitPrecheckMilliseconds { get; init; }
+    public long WaitCallSamples { get; init; }
+    public double? TotalWaitCallMilliseconds { get; init; }
+    public double? MaximumWaitCallMilliseconds { get; init; }
+    public long WaitPostcheckSamples { get; init; }
+    public double? TotalWaitPostcheckMilliseconds { get; init; }
+    public long SwapChainGenerationSamples { get; init; }
+    public uint? MinimumSwapChainGeneration { get; init; }
+    public uint? MaximumSwapChainGeneration { get; init; }
+    public uint? WaitReturnCode { get; init; }
 }
 
 internal sealed record TachNativeCounts(string Stage, string Failure, string Cache, string Route,
@@ -360,7 +381,13 @@ internal static class TachDiagnostics
                 NativeDrawTicks = Math.Max(0, sample.NativeDrawTicks),
                 NativePresentTicks = Math.Max(0, sample.NativePresentTicks),
                 QueueDropped = Math.Max(0, sample.QueueDropped),
-                CpuThreadTicks = sample.CpuThreadTicks is >= 0 ? sample.CpuThreadTicks : null
+                CpuThreadTicks = sample.CpuThreadTicks is >= 0 ? sample.CpuThreadTicks : null,
+                NativeThreadId = sample.NativeThreadId is > 0 ? sample.NativeThreadId : null,
+                NativeWaitTicks = sample.NativeWaitTicks is >= 0 ? sample.NativeWaitTicks : null,
+                WaitPrecheckTicks = sample.WaitPrecheckTicks is >= 0 ? sample.WaitPrecheckTicks : null,
+                WaitCallTicks = sample.WaitCallTicks is >= 0 ? sample.WaitCallTicks : null,
+                WaitPostcheckTicks = sample.WaitPostcheckTicks is >= 0 ? sample.WaitPostcheckTicks : null,
+                SwapChainGeneration = sample.SwapChainGeneration is > 0 ? sample.SwapChainGeneration : null
             };
             capture.Renderer.Add(clean, clean.CompletedTimestamp);
             var index = 0;
@@ -485,14 +512,22 @@ internal static class TachDiagnostics
         private long _queueSamples, _receiveSamples, _sampleSamples, _cpuSamples;
         private double _queueAge, _receiveAge, _sampleAge;
         private long _maxQueueAge, _maxReceiveAge, _maxSampleAge;
+        private long _nativeWaitSamples, _precheckSamples, _waitCallSamples, _postcheckSamples, _generationSamples;
+        private double _nativeWaitTicks, _precheckTicks, _waitCallTicks, _postcheckTicks;
+        private long _maxWaitCallTicks;
+        private uint? _minimumGeneration, _maximumGeneration, _waitReturnCode, _nativeThreadId;
 
         internal readonly bool Matches(in TachRendererDiagnostic value) =>
-            _controlId == value.ControlId && _window == value.HostWindowHandle && _stage == value.Stage && _result == value.Result && _hResult == value.HResult;
+            _controlId == value.ControlId && _window == value.HostWindowHandle && _stage == value.Stage &&
+            _result == value.Result && _hResult == value.HResult && _waitReturnCode == value.WaitReturnCode &&
+            _nativeThreadId == value.NativeThreadId;
 
         internal void Observe(in TachRendererDiagnostic value)
         {
             _controlId = value.ControlId; _window = value.HostWindowHandle; _stage = value.Stage; _result = value.Result;
             _hResult = value.HResult;
+            _waitReturnCode = value.WaitReturnCode;
+            _nativeThreadId = value.NativeThreadId;
             _count++;
             var elapsed = value.CompletedTimestamp - value.StartedTimestamp;
             _ticks += elapsed; _maximum = Math.Max(_maximum, elapsed);
@@ -504,6 +539,20 @@ internal static class TachDiagnostics
             Age(value.StartedTimestamp, value.ReceivedTimestamp, ref _receiveSamples, ref _receiveAge, ref _maxReceiveAge);
             Age(value.StartedTimestamp, value.SampleTimestamp, ref _sampleSamples, ref _sampleAge, ref _maxSampleAge);
             if (value.CpuThreadTicks is { } cpu) { _cpuSamples++; _cpuTicks += cpu; }
+            if (value.NativeWaitTicks is { } nativeWait) { _nativeWaitSamples++; _nativeWaitTicks += nativeWait; }
+            if (value.WaitPrecheckTicks is { } precheck) { _precheckSamples++; _precheckTicks += precheck; }
+            if (value.WaitCallTicks is { } waitCall)
+            {
+                _waitCallSamples++; _waitCallTicks += waitCall;
+                _maxWaitCallTicks = Math.Max(_maxWaitCallTicks, waitCall);
+            }
+            if (value.WaitPostcheckTicks is { } postcheck) { _postcheckSamples++; _postcheckTicks += postcheck; }
+            if (value.SwapChainGeneration is { } generation)
+            {
+                _generationSamples++;
+                _minimumGeneration = _minimumGeneration is { } minimum ? Math.Min(minimum, generation) : generation;
+                _maximumGeneration = _maximumGeneration is { } maximum ? Math.Max(maximum, generation) : generation;
+            }
         }
 
         private static void Age(long now, long? origin, ref long samples, ref double sum, ref long maximum)
@@ -519,7 +568,23 @@ internal static class TachDiagnostics
             _queueSamples, Ms(_queueAge) / Math.Max(1, _queueSamples), Milliseconds(_maxQueueAge),
             _receiveSamples, Ms(_receiveAge) / Math.Max(1, _receiveSamples), Milliseconds(_maxReceiveAge),
             _sampleSamples, Ms(_sampleAge) / Math.Max(1, _sampleSamples), Milliseconds(_maxSampleAge), _cpuSamples, Ms(_cpuTicks))
-        { HResult = _hResult };
+        {
+            HResult = _hResult,
+            NativeThreadId = _nativeThreadId,
+            NativeWaitSamples = _nativeWaitSamples,
+            TotalNativeWaitMilliseconds = _nativeWaitSamples > 0 ? Ms(_nativeWaitTicks) : null,
+            WaitPrecheckSamples = _precheckSamples,
+            TotalWaitPrecheckMilliseconds = _precheckSamples > 0 ? Ms(_precheckTicks) : null,
+            WaitCallSamples = _waitCallSamples,
+            TotalWaitCallMilliseconds = _waitCallSamples > 0 ? Ms(_waitCallTicks) : null,
+            MaximumWaitCallMilliseconds = _waitCallSamples > 0 ? Milliseconds(_maxWaitCallTicks) : null,
+            WaitPostcheckSamples = _postcheckSamples,
+            TotalWaitPostcheckMilliseconds = _postcheckSamples > 0 ? Ms(_postcheckTicks) : null,
+            SwapChainGenerationSamples = _generationSamples,
+            MinimumSwapChainGeneration = _minimumGeneration,
+            MaximumSwapChainGeneration = _maximumGeneration,
+            WaitReturnCode = _waitReturnCode
+        };
 
         private static double Ms(double ticks) => ticks * 1000d / Stopwatch.Frequency;
     }

@@ -12,8 +12,12 @@ internal static class TachDiagnosticReport
         "Raw needle routes: immediate/composition record WPF transform application; directcomposition records successful Present submissions only, excluding queue-busy and occluded attempts. " +
         "AppliedTimestamp is the sampling time, not presentation completion. Neither route proves physical display. Interval applied counts combine routes; inspect raw routes before comparing rates.";
     private const string RendererPolicy =
-        "Renderer events record completed CPU-side operations, including failed and queue-busy attempts. All timestamps and duration ticks use the process Stopwatch clock; optional CPU thread ticks must use that same frequency. " +
+        "Renderer events record completed CPU-side operations, including failed and queue-busy attempts. All timestamps and duration ticks use the process Stopwatch clock. " +
         "Stage durations can contain waits; native setup/map timings are included in native draw, which is included in draw-stage time. Do not add nested durations. " +
+        "The frame_wait stage measures the full managed wrapper. Nullable native_wait_ticks measures the native wrapper; wait_precheck_ticks covers cancellation/device checks, wait_call_ticks covers WaitForMultipleObjects, and wait_postcheck_ticks covers the checks/outcome handling after it. " +
+        "Wait call elapsed time includes delayed thread resumption and is not an exact blocked-time measurement. Missing split fields mean unavailable, not zero cost; measured zero can mean that an early return skipped a later portion. " +
+        "Nullable wait_return_code is the Win32 wait outcome, including a cancellation precheck; 0xffffffff also marks an error before the wait was reached. Nullable swap_chain_generation starts at 1 and increments on replacement within that renderer lifetime, not ordinary resizing. " +
+        "Optional cpu_thread_ticks is coarse GetThreadTimes CPU accounting normalized from 100-nanosecond units to Stopwatch frequency; null means unavailable. It is not GPU execution time or a precise measure of blocked time or scheduler delay. " +
         "Present submitted means accepted by the presentation API, not displayed. Sequence correlates a prepared frame and its retry operations; use completion timestamps to order operations. Sample/received/queued timestamps can repeat across attempts. " +
         "Input ages are measured at operation start, exclude missing/future origins, and do not measure physical display latency. " +
         "Thrown draw/present operations retain stage elapsed time and HRESULT, but nested native durations are unavailable and recorded as zero for those error events.";
@@ -80,10 +84,10 @@ internal static class TachDiagnosticReport
             native_value_fields = "top-level nullable angle/blur are validated values; nested read.angle/read.blur are zero sanitization placeholders",
             native_changed_policy = "validated native angle changes counted across all observed reads; this is not displayed FPS",
             needle_route_policy = NeedleRoutePolicy,
-            renderer_schema_version = 1,
+            renderer_schema_version = 2,
             renderer_policy = RendererPolicy,
             renderer_detail_policy = "every observed completed operation, bounded startup/recent rings; no sampling. In-progress operations at export have no completion record",
-            renderer_aggregate_policy = "at most 256 control/window/stage/result/HRESULT groups per collected interval; excess groups retain raw detail but omit aggregates. Counters reset each interval",
+            renderer_aggregate_policy = "at most 256 control/window/stage/result/HRESULT/wait-return-code groups per collected interval; excess groups retain raw detail but omit aggregates. Counters reset each interval. Split timing sample counts describe measured coverage; nullable totals and generation bounds stay null when unavailable",
             renderer_omission_counters = "cumulative within each capture; use the latest or maximum, do not sum intervals",
             renderer_contention_omissions = capture?.RendererContentionOmissions,
             renderer_aggregate_omissions = capture?.RendererAggregateOmissions,
@@ -199,29 +203,62 @@ internal static class TachDiagnosticReport
         if (longest is not null)
             text.AppendLine($"Longest observed renderer operation: {longest.Stage}/{longest.Result}, {Number(longest.MaximumMilliseconds)} ms (control {longest.ControlId}, window handle {longest.HostWindowHandle}). This identifies where time was observed, not why the operation waited.");
         text.AppendLine("Renderer stages by control and outcome (CPU-side elapsed time, including waits):");
-        foreach (var group in observations.GroupBy(value => (value.ControlId, value.HostWindowHandle, value.Stage, value.Result, value.HResult)).Take(256))
+        foreach (var group in observations.GroupBy(value => (value.ControlId, value.HostWindowHandle, value.NativeThreadId, value.Stage, value.Result, value.HResult, value.WaitReturnCode)).Take(256))
         {
             var count = group.Sum(value => (double)value.Count);
             var mean = group.Sum(value => value.MeanMilliseconds * value.Count) / Math.Max(1, count);
             var queueSamples = group.Sum(value => (double)value.QueueAgeSamples);
             var queueAge = group.Sum(value => value.MeanQueueAgeMilliseconds * value.QueueAgeSamples) / Math.Max(1, queueSamples);
             text.AppendLine($"  Control {group.Key.ControlId}, window handle {group.Key.HostWindowHandle}, {group.Key.Stage}/{group.Key.Result}, HRESULT 0x{group.Key.HResult:X8}: {Number(count)} operations; {Number(mean)} ms mean, {Number(group.Max(value => value.MaximumMilliseconds))} ms maximum.");
+            text.AppendLine($"    Native render thread: {(group.Key.NativeThreadId is { } threadId ? threadId.ToString(CultureInfo.InvariantCulture) : "unavailable")}.");
             text.AppendLine($"    Draw commands/maps: {Number(group.Sum(value => (double)value.DrawCommands))}/{Number(group.Sum(value => (double)value.MapCount))}; total scene/setup/native draw/map/present: {Number(group.Sum(value => value.TotalSceneMilliseconds))}/{Number(group.Sum(value => value.TotalNativeSetupMilliseconds))}/{Number(group.Sum(value => value.TotalNativeDrawMilliseconds))}/{Number(group.Sum(value => value.TotalMapMilliseconds))}/{Number(group.Sum(value => value.TotalNativePresentMilliseconds))} ms; maximum single map: {Number(group.Max(value => value.MaximumMapMilliseconds))} ms.");
             text.AppendLine($"    Queue age: {Number(queueAge)} ms mean, {Number(group.Max(value => value.MaximumQueueAgeMilliseconds))} ms maximum ({Number(queueSamples)} observations); discarded queued inputs: {Number(group.Sum(value => (double)value.QueueDropped))}.");
+            if (group.Key.Stage == "frame_wait")
+            {
+                text.AppendLine($"    Native wait total: {DurationCoverage(group, value => value.NativeWaitSamples, value => value.TotalNativeWaitMilliseconds)}; precheck: {DurationCoverage(group, value => value.WaitPrecheckSamples, value => value.TotalWaitPrecheckMilliseconds)}; wait call: {DurationCoverage(group, value => value.WaitCallSamples, value => value.TotalWaitCallMilliseconds)}; postcheck: {DurationCoverage(group, value => value.WaitPostcheckSamples, value => value.TotalWaitPostcheckMilliseconds)}.");
+                var maximumCall = group.Max(value => value.MaximumWaitCallMilliseconds);
+                var firstGeneration = group.Min(value => value.MinimumSwapChainGeneration);
+                var lastGeneration = group.Max(value => value.MaximumSwapChainGeneration);
+                text.AppendLine($"    Maximum wait call: {(maximumCall is { } maximum ? Number(maximum) + " ms" : "unavailable")}; Win32 wait outcome: {(group.Key.WaitReturnCode is { } code ? $"0x{code:X8}" : "unavailable")}; swap-chain generation range: {(firstGeneration is { } first && lastGeneration is { } last ? $"{first}-{last}" : "unavailable")} ({Number(group.Sum(value => (double)value.SwapChainGenerationSamples))} observations).");
+                text.AppendLine($"    Coarse thread CPU accounting: {DurationCoverage(group, value => value.CpuThreadSamples, value => value.TotalCpuThreadMilliseconds)}. Missing measurements are not evidence of zero CPU work or zero waiting.");
+            }
         }
+    }
+
+    private static string DurationCoverage(IEnumerable<TachRendererCounts> values,
+        Func<TachRendererCounts, long> samples, Func<TachRendererCounts, double?> milliseconds)
+    {
+        var count = values.Sum(value => (double)samples(value));
+        return count == 0 ? "unavailable (0 observations)" :
+            $"{Number(values.Sum(value => milliseconds(value) ?? 0))} ms ({Number(count)} observations)";
     }
 
     private static string RendererTotal(IEnumerable<TachRendererCounts> values, string stage, string result) =>
         Number(values.Where(value => value.Stage == stage && value.Result == result).Sum(value => (double)value.Count));
 
     private static bool ValidRendererCounts(TachRendererCounts value) =>
+        value.NativeThreadId is not 0 &&
         value.Count >= 0 && value.DrawCommands >= 0 && value.MapCount >= 0 && value.QueueDropped >= 0 &&
         value.QueueAgeSamples >= 0 && value.ReceiveAgeSamples >= 0 && value.SampleAgeSamples >= 0 && value.CpuThreadSamples >= 0 &&
+        ValidOptionalDuration(value.NativeWaitSamples, value.TotalNativeWaitMilliseconds, value.Count) &&
+        ValidOptionalDuration(value.WaitPrecheckSamples, value.TotalWaitPrecheckMilliseconds, value.Count) &&
+        ValidOptionalDuration(value.WaitCallSamples, value.TotalWaitCallMilliseconds, value.Count) &&
+        ValidOptionalDuration(value.WaitCallSamples, value.MaximumWaitCallMilliseconds, value.Count) &&
+        ValidOptionalDuration(value.WaitPostcheckSamples, value.TotalWaitPostcheckMilliseconds, value.Count) &&
+        (value.WaitCallSamples == 0 || value.MaximumWaitCallMilliseconds <= value.TotalWaitCallMilliseconds) &&
+        value.SwapChainGenerationSamples >= 0 && value.SwapChainGenerationSamples <= value.Count &&
+        (value.SwapChainGenerationSamples == 0
+            ? value.MinimumSwapChainGeneration is null && value.MaximumSwapChainGeneration is null
+            : value.MinimumSwapChainGeneration is > 0 && value.MaximumSwapChainGeneration >= value.MinimumSwapChainGeneration) &&
         new[] { value.MeanMilliseconds, value.MaximumMilliseconds, value.TotalMapMilliseconds, value.MaximumMapMilliseconds,
             value.TotalSceneMilliseconds, value.TotalNativeSetupMilliseconds, value.TotalNativeDrawMilliseconds,
             value.TotalNativePresentMilliseconds, value.MeanQueueAgeMilliseconds, value.MaximumQueueAgeMilliseconds,
             value.MeanReceiveAgeMilliseconds, value.MaximumReceiveAgeMilliseconds, value.MeanSampleAgeMilliseconds,
             value.MaximumSampleAgeMilliseconds, value.TotalCpuThreadMilliseconds }.All(number => double.IsFinite(number) && number >= 0);
+
+    private static bool ValidOptionalDuration(long samples, double? total, long count) =>
+        samples >= 0 && samples <= count && (samples == 0 ? total is null :
+            total is { } milliseconds && double.IsFinite(milliseconds) && milliseconds >= 0);
 
     internal static object Coverage<T>(T[] startup, T[] recent, long overwritten,
         int startupCapacity, int recentCapacity, Func<T, long> timestamp) where T : struct => new

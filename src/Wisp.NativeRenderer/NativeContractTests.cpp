@@ -4,6 +4,7 @@
 #include <vector>
 #include <thread>
 #include <cmath>
+#include <algorithm>
 #include <dxgi.h>
 
 static int failures = 0;
@@ -21,6 +22,106 @@ static WispDrawCommand Sprite(float x, float y, float width, float height, uint3
     command.tintR = command.tintG = command.tintB = command.tintA = 1;
     return command;
 }
+
+static void CheckVisiblePacing(void* renderer, HWND window)
+{
+    MONITORINFOEXW monitor{};
+    monitor.cbSize = sizeof(monitor);
+    DEVMODEW mode{};
+    mode.dmSize = sizeof(mode);
+    const bool hasRefresh = GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor) &&
+        EnumDisplaySettingsW(monitor.szDevice, ENUM_CURRENT_SETTINGS, &mode) && mode.dmDisplayFrequency > 1;
+    Require(hasRefresh, "visible pacing has a known display refresh rate");
+    if (!hasRefresh) return;
+
+    Require(SUCCEEDED(WispRendererSetVisible(renderer, 0)) &&
+        WispRendererPrepareForResume(renderer) == S_OK, "pacing starts with a fresh queue");
+    Require(SUCCEEDED(WispRendererSetOpacity(renderer, .12f)), "pacing surface has low opacity");
+    Require(SUCCEEDED(WispRendererSetVisible(renderer, 1)), "pacing surface is visible");
+    SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    Require(IsWindowVisible(window) && GetForegroundWindow() != window, "pacing window does not activate");
+
+    LARGE_INTEGER frequency{}, started{}, now{};
+    QueryPerformanceFrequency(&frequency);
+    const double ticksPerSecond = static_cast<double>(frequency.QuadPart);
+    QueryPerformanceCounter(&started);
+    now = started;
+    uint32_t submitted = 0, busy = 0, occluded = 0, timeouts = 0;
+    bool ready = false, pending = false;
+    std::vector<double> waits;
+    waits.reserve(2048);
+    WispWaitMetrics waitMetrics{};
+    WispDrawMetrics drawMetrics{};
+    WispPresentMetrics presentMetrics{};
+    while (now.QuadPart - started.QuadPart < frequency.QuadPart * 3 && submitted < 10000)
+    {
+        if (!ready)
+        {
+            uint32_t waitResult = 99;
+            const HRESULT result = WispRendererWaitForFrameMeasured(renderer, 100, nullptr, 1, &waitResult, &waitMetrics);
+            Require(SUCCEEDED(result), "pacing wait remains healthy");
+            if (FAILED(result)) break;
+            waits.push_back(static_cast<double>(waitMetrics.totalTicks) * 1000.0 / ticksPerSecond);
+            if (waitResult == 1) ++timeouts;
+            else ready = waitResult == 0;
+        }
+        if (ready)
+        {
+            if (!pending)
+            {
+                auto sample = Sprite(64.0f + static_cast<float>(submitted % 80), 96, 24, 24);
+                sample.tintR = .2f;
+                sample.tintB = .7f;
+                const HRESULT result = WispRendererDrawForPresentation(renderer, &sample, 1, 0, &drawMetrics);
+                Require(SUCCEEDED(result), "pacing draw remains healthy");
+                if (FAILED(result)) break;
+                pending = true;
+            }
+            const HRESULT result = WispRendererTryPresent(renderer, 0, &presentMetrics);
+            if (result == S_OK)
+            {
+                ++submitted;
+                ready = pending = false;
+            }
+            else if (result == S_FALSE)
+            {
+                ++busy;
+                Sleep(1);
+            }
+            else if (result == 2)
+            {
+                ++occluded;
+                pending = false;
+                Sleep(100);
+            }
+            else
+            {
+                Require(false, "pacing presentation remains healthy");
+                break;
+            }
+        }
+        MSG message{};
+        while (PeekMessageW(&message, window, 0, 0, PM_REMOVE))
+        {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+        QueryPerformanceCounter(&now);
+    }
+    SetWindowPos(window, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    const double seconds = static_cast<double>(now.QuadPart - started.QuadPart) / ticksPerSecond;
+    std::sort(waits.begin(), waits.end());
+    const double p95 = waits.empty() ? 0 : waits[(waits.size() - 1) * 95 / 100];
+    std::printf("pacingSeconds=%.3f;displayHz=%lu;submittedPerSecond=%.3f;waitP95Ms=%.3f;busy=%u;occluded=%u;timeouts=%u\n",
+        seconds, mode.dmDisplayFrequency, submitted / seconds, p95, busy, occluded, timeouts);
+    // This checks actual submissions, not displayed frames. Allow initial queue
+    // credits and clock variance, but fail an accidentally unthrottled loop.
+    Require(submitted >= 2, "visible pacing successfully submits frames");
+    Require(submitted <= mode.dmDisplayFrequency * seconds * 1.25 + 4,
+        "presentation throughput remains bounded by display cadence");
+}
+
 int main()
 {
     HWND window = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP,
@@ -34,7 +135,15 @@ int main()
     Require(SUCCEEDED(result) && renderer, "hardware D3D11 and DirectComposition creation");
     if (!renderer) { DestroyWindow(window); return 1; }
     uint32_t initialReady = 99;
-    Require(SUCCEEDED(WispRendererWaitForFrame(renderer, 100, nullptr, &initialReady)), "initial queue wait");
+    WispWaitMetrics waitMetrics{};
+    Require(SUCCEEDED(WispRendererWaitForFrameMeasured(renderer, 100, nullptr, 1, &initialReady, &waitMetrics)),
+        "initial measured queue wait");
+    Require(waitMetrics.totalTicks > 0 && waitMetrics.precheckTicks >= 0 && waitMetrics.waitCallTicks > 0 &&
+        waitMetrics.postcheckTicks >= 0 && waitMetrics.totalTicks >=
+        waitMetrics.precheckTicks + waitMetrics.waitCallTicks + waitMetrics.postcheckTicks &&
+        waitMetrics.cpuTime100ns >= -1 && waitMetrics.swapChainGeneration == 1 &&
+        waitMetrics.waitResult == (initialReady == 1 ? WAIT_TIMEOUT : WAIT_OBJECT_0),
+        "wait metrics partition wall time and record initial swapchain generation");
     std::printf("initialHiddenWait=%u\n", initialReady);
     Require(WispRendererPrepareForResume(renderer) == S_FALSE,
         "fresh resume preserves the current chain and acquired readiness");
@@ -88,8 +197,40 @@ int main()
     std::thread other([&] { wrongThread = WispRendererRender(renderer, nullptr, 0, 0); }); other.join();
     Require(wrongThread == RPC_E_WRONG_THREAD, "render worker ownership enforced");
     HANDLE cancellation = CreateEventW(nullptr, TRUE, TRUE, nullptr);
+    Require(cancellation != nullptr, "cancellation event creation");
     uint32_t waited = 99;
     Require(SUCCEEDED(WispRendererWaitForFrame(renderer, 100, cancellation, &waited)) && waited == 2, "cancellation wins over frame readiness");
+    Require(SUCCEEDED(WispRendererWaitForFrameMeasured(renderer, 100, cancellation, 1, &waited, &waitMetrics)) &&
+        waited == 2 && waitMetrics.totalTicks > 0 && waitMetrics.precheckTicks >= 0 &&
+        waitMetrics.waitCallTicks == 0 && waitMetrics.postcheckTicks == 0 &&
+        waitMetrics.totalTicks >= waitMetrics.precheckTicks && waitMetrics.cpuTime100ns >= -1 &&
+        waitMetrics.swapChainGeneration == 1 && waitMetrics.waitResult == WAIT_OBJECT_0,
+        "measured cancellation returns before the frame wait");
+    waitMetrics = {1,1,1,1,1,1,1};
+    Require(SUCCEEDED(WispRendererWaitForFrameMeasured(renderer, 100, cancellation, 0, &waited, &waitMetrics)) &&
+        waited == 2 && waitMetrics.totalTicks == 0 && waitMetrics.precheckTicks == 0 &&
+        waitMetrics.waitCallTicks == 0 && waitMetrics.postcheckTicks == 0 && waitMetrics.cpuTime100ns == 0 &&
+        waitMetrics.swapChainGeneration == 0 && waitMetrics.waitResult == 0,
+        "disabled wait metrics stay zero without changing cancellation");
+    std::thread otherWait([&] {
+        wrongThread = WispRendererWaitForFrameMeasured(renderer, 100, cancellation, 1, &waited, &waitMetrics);
+    });
+    otherWait.join();
+    Require(wrongThread == RPC_E_WRONG_THREAD && waitMetrics.totalTicks > 0 && waitMetrics.precheckTicks >= 0 &&
+        waitMetrics.waitCallTicks == 0 && waitMetrics.postcheckTicks == 0 &&
+        waitMetrics.swapChainGeneration == 0 && waitMetrics.waitResult == WAIT_FAILED,
+        "failed ownership check preserves measured timing without waiting");
+    Require(WispRendererWaitForFrameMeasured(renderer, 100, cancellation, 1, &waited, nullptr) == E_POINTER,
+        "wait metrics output is required");
+    Require(WispRendererWaitForFrameMeasured(renderer, 1001, cancellation, 1, &waited, &waitMetrics) == E_INVALIDARG &&
+        waitMetrics.waitResult == WAIT_FAILED && waitMetrics.swapChainGeneration == 0 && waitMetrics.waitCallTicks == 0,
+        "invalid measured timeout is rejected before waiting");
+    Require(WispRendererWaitForFrameMeasured(renderer, 100, cancellation, 1, nullptr, &waitMetrics) == E_INVALIDARG &&
+        waitMetrics.waitResult == WAIT_FAILED && waitMetrics.waitCallTicks == 0,
+        "measured wait requires its result output");
+    Require(WispRendererWaitForFrameMeasured(nullptr, 100, cancellation, 1, &waited, &waitMetrics) == E_POINTER &&
+        waitMetrics.totalTicks > 0 && waitMetrics.swapChainGeneration == 0 && waitMetrics.waitResult == WAIT_FAILED,
+        "missing renderer preserves failure timing and an unknown generation");
     CloseHandle(cancellation);
     WispDrawMetrics drawMetrics{};
     WispPresentMetrics presentMetrics{};
@@ -152,7 +293,9 @@ int main()
         Require(freshTransparent, "fresh resume target contains no previous colored frame");
         Require(SUCCEEDED(WispRendererSetVisible(renderer, 1)), "show fresh transparent chain before waiting");
         uint32_t resumed = 99;
-        Require(SUCCEEDED(WispRendererWaitForFrame(renderer, 100, nullptr, &resumed)), "fresh queue wait");
+        Require(SUCCEEDED(WispRendererWaitForFrameMeasured(renderer, 100, nullptr, 1, &resumed, &waitMetrics)), "fresh queue wait");
+        Require(waitMetrics.swapChainGeneration == index + 2,
+            "only successful swapchain replacements advance the measured generation");
         if (resumed != 0) ++transitionTimeouts;
         transition.tintR = (index & 1) ? 1.0f : 0.0f;
         transition.tintB = (index & 1) ? 0.0f : 1.0f;
@@ -162,6 +305,7 @@ int main()
     }
     Require(transitionTimeouts == 0, "fresh queue has no resume readiness deadlock");
     std::printf("resumeTimeouts=%u;occludedFrames=%u\n", transitionTimeouts, occludedFrames);
+    CheckVisiblePacing(renderer, window);
     Require(SUCCEEDED(WispRendererSetOpacity(renderer, .5f)), "group opacity accepts half alpha");
     Require(WispRendererSetOpacity(renderer, 1.5f) == E_INVALIDARG, "invalid group opacity rejected");
     Require(SUCCEEDED(WispRendererDeviceRemovedReason(renderer)), "device remains healthy");

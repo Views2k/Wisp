@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Wisp.App.DebugLogging;
 
 namespace Wisp.App.NativeRendering;
@@ -79,6 +80,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
 
     private void Run()
     {
+        var nativeThreadId = GetCurrentThreadId();
         DirectCompositionDevice? device = null;
         var playback = new AnalogHudPlayback();
         var batch = new (NativeGaugeFrame Frame, long Timestamp)[64];
@@ -90,6 +92,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         NativeGaugeFrame latestFrame = default;
         long queuedTimestamp = 0, sequence = 0, operationStarted = 0;
         string operation = "state";
+        DirectCompositionWaitMetrics waitMetrics = default;
         try
         {
             while (!_stop.WaitOne(0))
@@ -180,7 +183,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 if (!frameReady)
                 {
                     BeginOperation("frame_wait");
-                    var ready = device.WaitForNextFrame(100, _stop.SafeWaitHandle);
+                    var ready = device.WaitForNextFrame(100, _stop.SafeWaitHandle, measure, out waitMetrics);
                     RecordStage(operation, ready switch
                     {
                         DirectCompositionWaitResult.Ready => "ready",
@@ -262,6 +265,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 {
                     operation = stage;
                     operationStarted = measure ? Stopwatch.GetTimestamp() : 0;
+                    waitMetrics = default;
                 }
 
                 void RetryWait(int milliseconds)
@@ -308,9 +312,11 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             DirectCompositionPresentMetrics presentMetrics = default, int dropped = 0, int hResult = 0)
         {
             if (started == 0 || !TachDiagnostics.IsEnabled) return;
+            var hasWaitDetails = stage == "frame_wait" && waitMetrics.TotalTicks > 0;
             var diagnostic = new TachRendererDiagnostic
             {
                 ControlId = _controlId,
+                NativeThreadId = nativeThreadId,
                 HostWindowHandle = _window.ToInt64(),
                 Sequence = pending?.Sequence ?? sequence + 1,
                 Stage = stage,
@@ -328,12 +334,22 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 NativeSetupTicks = drawMetrics.SetupTicks,
                 NativeDrawTicks = drawMetrics.TotalTicks,
                 NativePresentTicks = presentMetrics.DurationTicks,
+                NativeWaitTicks = hasWaitDetails ? waitMetrics.TotalTicks : null,
+                WaitPrecheckTicks = hasWaitDetails ? waitMetrics.PrecheckTicks : null,
+                WaitCallTicks = hasWaitDetails ? waitMetrics.WaitCallTicks : null,
+                WaitPostcheckTicks = hasWaitDetails ? waitMetrics.PostcheckTicks : null,
+                SwapChainGeneration = hasWaitDetails && waitMetrics.SwapChainGeneration > 0 ? waitMetrics.SwapChainGeneration : null,
+                WaitReturnCode = hasWaitDetails ? waitMetrics.WaitResult : null,
+                CpuThreadTicks = hasWaitDetails ? waitMetrics.CpuThreadStopwatchTicks : null,
                 HResult = hResult != 0 ? hResult : presentMetrics.HResult,
                 QueueDropped = dropped
             };
             TachDiagnostics.RecordRenderer(in diagnostic);
         }
     }
+
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern uint GetCurrentThreadId();
 
     internal static void Transform(DirectCompositionDrawCommand[] commands, AnalogHudPresentation presentation)
     {

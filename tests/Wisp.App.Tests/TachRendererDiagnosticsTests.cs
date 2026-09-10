@@ -92,6 +92,130 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
     }
 
     [Fact]
+    public void WaitDetailsPreserveIndependentCoverageTotalsAndReplacementGenerations()
+    {
+        TachDiagnostics.SetEnabled(true);
+        var sample = WaitSample() with
+        {
+            NativeWaitTicks = Ticks(36), WaitPrecheckTicks = Ticks(3),
+            WaitCallTicks = Ticks(30), WaitPostcheckTicks = Ticks(2), CpuThreadTicks = Ticks(2)
+        };
+        TachDiagnostics.RecordRenderer(in sample);
+        var next = sample with
+        {
+            Sequence = 2, NativeWaitTicks = Ticks(50), WaitPrecheckTicks = 0,
+            WaitCallTicks = Ticks(48), WaitPostcheckTicks = Ticks(1), CpuThreadTicks = 0,
+            SwapChainGeneration = 3
+        };
+        TachDiagnostics.RecordRenderer(in next);
+        var partial = sample with
+        {
+            Sequence = 3, NativeWaitTicks = Ticks(10), WaitPrecheckTicks = Ticks(2),
+            WaitCallTicks = null, WaitPostcheckTicks = null, CpuThreadTicks = null,
+            SwapChainGeneration = 2
+        };
+        TachDiagnostics.RecordRenderer(in partial);
+
+        Assert.Equal(new[] { sample, next, partial }, Snapshot().RendererRecent);
+        var interval = Interval();
+        var count = Assert.Single(interval.Renderer);
+        Assert.Equal(3, count.Count);
+        Assert.Equal(3, count.NativeWaitSamples);
+        Assert.Equal(96, count.TotalNativeWaitMilliseconds!.Value, 6);
+        Assert.Equal(3, count.WaitPrecheckSamples);
+        Assert.Equal(5, count.TotalWaitPrecheckMilliseconds!.Value, 6);
+        Assert.Equal(2, count.WaitCallSamples);
+        Assert.Equal(78, count.TotalWaitCallMilliseconds!.Value, 6);
+        Assert.Equal(48, count.MaximumWaitCallMilliseconds!.Value, 6);
+        Assert.Equal(2, count.WaitPostcheckSamples);
+        Assert.Equal(3, count.TotalWaitPostcheckMilliseconds!.Value, 6);
+        Assert.Equal(2, count.CpuThreadSamples);
+        Assert.Equal(2, count.TotalCpuThreadMilliseconds, 6);
+        Assert.Equal(3, count.SwapChainGenerationSamples);
+        Assert.Equal(1u, count.MinimumSwapChainGeneration);
+        Assert.Equal(3u, count.MaximumSwapChainGeneration);
+        Assert.Equal(1u, count.WaitReturnCode);
+        Assert.NotNull(TachDiagnosticReport.SanitizeInterval(interval));
+        Assert.Empty(Interval().Renderer);
+    }
+
+    [Fact]
+    public void DifferentWin32WaitOutcomesRemainDistinctInPersistedCounts()
+    {
+        TachDiagnostics.SetEnabled(true);
+        var sample = WaitSample();
+        foreach (uint? code in new uint?[] { null, 0, 1, 258, uint.MaxValue })
+        {
+            var next = sample with { WaitReturnCode = code };
+            TachDiagnostics.RecordRenderer(in next);
+        }
+        var counts = Interval().Renderer;
+        Assert.Equal(5, counts.Length);
+        Assert.Equal(new uint?[] { null, 0, 1, 258, uint.MaxValue }, counts.Select(value => value.WaitReturnCode));
+        Assert.All(counts, value => Assert.Equal(1, value.Count));
+    }
+
+    [Fact]
+    public void RenderThreadIdentitySurvivesExportAndSeparatesWorkerRestarts()
+    {
+        TachDiagnostics.SetEnabled(true);
+        foreach (uint? thread in new uint?[] { null, 0, 120, 240 })
+        {
+            var sample = WaitSample() with { NativeThreadId = thread };
+            TachDiagnostics.RecordRenderer(in sample);
+        }
+
+        var raw = Snapshot().RendererRecent;
+        Assert.Equal(new uint?[] { null, null, 120, 240 }, raw.Select(value => value.NativeThreadId));
+        var interval = Interval();
+        Assert.Equal(new uint?[] { null, 120, 240 }, interval.Renderer.Select(value => value.NativeThreadId));
+        Assert.Equal(new long[] { 2, 1, 1 }, interval.Renderer.Select(value => value.Count));
+        var restored = JsonSerializer.Deserialize<TachIntervalDiagnostic>(JsonSerializer.Serialize(interval));
+        Assert.NotNull(restored);
+        Assert.Equal(240u, TachDiagnosticReport.SanitizeInterval(restored)!.Renderer[2].NativeThreadId);
+    }
+
+    [Fact]
+    public void NegativeWaitDetailsBecomeUnavailableWhileMeasuredZeroRemainsMeasured()
+    {
+        TachDiagnostics.SetEnabled(true);
+        var invalid = WaitSample() with
+        {
+            NativeWaitTicks = -1, WaitPrecheckTicks = -2, WaitCallTicks = -3,
+            WaitPostcheckTicks = -4, CpuThreadTicks = -5, SwapChainGeneration = 0
+        };
+        TachDiagnostics.RecordRenderer(in invalid);
+        var clean = Assert.Single(Snapshot().RendererRecent);
+        Assert.Null(clean.NativeWaitTicks);
+        Assert.Null(clean.WaitPrecheckTicks);
+        Assert.Null(clean.WaitCallTicks);
+        Assert.Null(clean.WaitPostcheckTicks);
+        Assert.Null(clean.CpuThreadTicks);
+        Assert.Null(clean.SwapChainGeneration);
+        var missing = Assert.Single(Interval().Renderer);
+        Assert.Equal(0, missing.NativeWaitSamples);
+        Assert.Null(missing.TotalNativeWaitMilliseconds);
+        Assert.Null(missing.TotalWaitPrecheckMilliseconds);
+        Assert.Null(missing.TotalWaitCallMilliseconds);
+        Assert.Null(missing.MaximumWaitCallMilliseconds);
+        Assert.Null(missing.TotalWaitPostcheckMilliseconds);
+        Assert.Equal(0, missing.SwapChainGenerationSamples);
+        Assert.Null(missing.MinimumSwapChainGeneration);
+        Assert.Null(missing.MaximumSwapChainGeneration);
+
+        var zero = WaitSample();
+        TachDiagnostics.RecordRenderer(in zero);
+        var measured = Assert.Single(Interval().Renderer);
+        Assert.Equal(1, measured.NativeWaitSamples);
+        Assert.Equal(0d, measured.TotalNativeWaitMilliseconds);
+        Assert.Equal(1, measured.WaitCallSamples);
+        Assert.Equal(0d, measured.TotalWaitCallMilliseconds);
+        Assert.Equal(0d, measured.MaximumWaitCallMilliseconds);
+        Assert.Equal(1, measured.CpuThreadSamples);
+        Assert.Equal(0, measured.TotalCpuThreadMilliseconds);
+    }
+
+    [Fact]
     public void DetailRingsRetainStartupAndNewestEventsWithExactOverwriteCounts()
     {
         TachDiagnostics.SetEnabled(true);
@@ -199,7 +323,7 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
     public void EnabledUncontendedProducerHasNoPerEventAllocations()
     {
         TachDiagnostics.SetEnabled(true);
-        var sample = Sample();
+        var sample = WaitSample();
         long allocated = -1;
         Exception? failure = null;
         var producer = new Thread(() =>
@@ -231,6 +355,12 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         Result = "ready",
         StartedTimestamp = Stopwatch.GetTimestamp(),
         CompletedTimestamp = Stopwatch.GetTimestamp() + Ticks(1)
+    };
+    private static TachRendererDiagnostic WaitSample() => Sample() with
+    {
+        Stage = "frame_wait", NativeWaitTicks = 0, WaitPrecheckTicks = 0,
+        WaitCallTicks = 0, WaitPostcheckTicks = 0, CpuThreadTicks = 0,
+        SwapChainGeneration = 1, WaitReturnCode = 1
     };
     private static long Ticks(double milliseconds) => (long)(milliseconds * Stopwatch.Frequency / 1000d);
     private static TachCaptureExport Snapshot() => Assert.IsType<TachCaptureExport>(TachDiagnostics.Snapshot());
