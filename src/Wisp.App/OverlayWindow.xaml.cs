@@ -127,6 +127,11 @@ public partial class OverlayWindow : Window
             }
             var left = Left;
             var top = Top;
+            if (shouldShowGForce != _attachedGForceVisible)
+            {
+                var scaleY = _controller.Settings.OverlayHeightScale;
+                top += (shouldShowGForce ? -1 : 1) * AttachedGForceTopPadding * scaleY;
+            }
             ApplyLayout(_layoutMode, _nativeGaugeMode,
                 _controller.Settings.OverlayWidthScale,
                 _controller.Settings.OverlayHeightScale,
@@ -298,9 +303,7 @@ public partial class OverlayWindow : Window
         var attachedGForceVisible = layoutMode == HudLayoutMode.Native &&
                                     _controller.ViewModel.GForceEnabled &&
                                     _controller.ViewModel.GForceAttached;
-        // Keep the HWND and native surface stationary when this meter is toggled.
-        // Moving the window first briefly moves its previously presented pixels too.
-        var nativeTop = layoutMode == HudLayoutMode.Native ? AttachedGForceTopPadding : 0;
+        var nativeTop = attachedGForceVisible ? AttachedGForceTopPadding : 0;
         AttachedDigitalBoost.Visibility = digitalBoostVisible ? Visibility.Visible : Visibility.Collapsed;
         AttachedAnalogBoost.Visibility = analogBoostVisible ? Visibility.Visible : Visibility.Collapsed;
         AttachedDigitalTireTemperature.Visibility = digitalTireTemperatureVisible
@@ -391,28 +394,13 @@ public partial class OverlayWindow : Window
             _isElectricPowertrain,
             Width / RootPanel.Width,
             scaleY);
-        if (_layoutMode == HudLayoutMode.Native)
+        if (_attachedGForceVisible)
         {
             anchor.Offset(0, AttachedGForceTopPadding * scaleY);
         }
 
         return anchor;
     }
-
-    // Saved placements and detached-gauge defaults retain their existing bounds:
-    // the reserved transparent inset counts only while the attached meter is visible.
-    public Rect GetPlacementBounds()
-    {
-        var inset = HiddenGForceInset();
-        return new Rect(Left, Top + inset, Width, Height - inset);
-    }
-
-    public void RestorePlacementPosition(double left, double top) =>
-        RestorePosition(left, top - HiddenGForceInset());
-
-    private double HiddenGForceInset() => _layoutMode == HudLayoutMode.Native && !_attachedGForceVisible
-        ? AttachedGForceTopPadding * Height / RootPanel.Height
-        : 0;
 
     public void RestorePosition(double left, double top)
     {
