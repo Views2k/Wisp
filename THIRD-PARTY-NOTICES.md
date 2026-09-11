@@ -3,14 +3,19 @@
 Wisp includes components that are not covered by the Wisp Proprietary Source
 License.
 
-## .NET 8.0.30
+## .NET 8.0.31
 
 The self-contained Windows build includes components from the .NET runtime and
 Windows Desktop runtime. Their exact package notices are preserved in:
 
-- `LICENSES/dotnet-runtime-8.0.30-LICENSE.txt`
-- `LICENSES/dotnet-runtime-8.0.30-THIRD-PARTY-NOTICES.txt`
-- `LICENSES/windowsdesktop-runtime-8.0.30-LICENSE.txt`
+- `LICENSES/dotnet-runtime-8.0.31-LICENSE.txt`
+- `LICENSES/dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt`
+- `LICENSES/windowsdesktop-runtime-8.0.31-LICENSE.txt`
+
+The runtime license and third-party notices are copied byte-for-byte from
+[Microsoft's .NET 8.0.31 runtime package](https://www.nuget.org/packages/Microsoft.NETCore.App.Runtime.win-x64/8.0.31).
+The Windows Desktop license comes from the matching
+[Microsoft Windows Desktop runtime package](https://www.nuget.org/packages/Microsoft.WindowsDesktop.App.Runtime.win-x64/8.0.31).
 
 ## Forza Horizon 6 Game Content
 

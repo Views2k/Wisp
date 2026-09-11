@@ -2,6 +2,10 @@
 
 Notable changes to Wisp are recorded here.
 
+## Unreleased
+
+- Service the bundled .NET 8 runtime to 8.0.31 and build with SDK 8.0.425.
+
 ## 1.2.1 - 2026-09-10
 
 - Add an optional **CPU rendering** toggle in Diagnostics for Analogue tachometer lag or hitching. GPU rendering remains the default. Choose **Exit Wisp** from the tray menu and reopen Wisp to apply the change.

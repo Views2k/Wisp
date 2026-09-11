@@ -185,7 +185,7 @@ public sealed class InstallerPackagingContractTests
     [Fact]
     public void SelfContainedDistributionCarriesPinnedRuntimeNotices()
     {
-        const string runtimeVersion = "8.0.30";
+        const string runtimeVersion = "8.0.31";
         var root = RepositoryRoot();
         var project = File.ReadAllText(Path.Combine(root, "src", "Wisp.App", "Wisp.App.csproj"));
         Assert.Contains($"<RuntimeFrameworkVersion>{runtimeVersion}</RuntimeFrameworkVersion>", project,
@@ -257,7 +257,7 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("$artifactVersion = $projectVersion", packaging, StringComparison.Ordinal);
         Assert.Contains("& $innoExecutable \"/O$stageDirectory\" $innoScript", packaging, StringComparison.Ordinal);
         Assert.Contains("Write-BuildProvenance $repository $publishFullPath", packaging, StringComparison.Ordinal);
-        Assert.Contains("#define MyAppVersion \"1.2.1\"", inno, StringComparison.Ordinal);
+        Assert.Contains("#define MyAppVersion \"1.2.2\"", inno, StringComparison.Ordinal);
         Assert.Contains("#define MyAppOutputVersion MyAppVersion", inno, StringComparison.Ordinal);
         Assert.Contains("UpdatingExistingInstallation := UpdateSwitchPresent() and ExistingInstallationPresent();", inno,
             StringComparison.Ordinal);
