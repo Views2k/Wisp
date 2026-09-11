@@ -176,9 +176,16 @@ internal static class NativeRendererIntegrationTests
                     Assert.True(row.QueuedTimestamp is > 0 && row.QueuedTimestamp <= row.SampleTimestamp);
                     Assert.Equal(0, row.HResult);
                 });
-                Assert.Contains(renderer, row => row.Stage == "draw" && row.Result == "ready" &&
-                    row.DrawCommands > 0 && row.MapCount == row.DrawCommands &&
-                    row.NativeDrawTicks > 0 && row.NativeDrawTicks >= row.MapTicks &&
+                var draws = renderer.Where(row => row.Stage == "draw" && row.Result == "ready").ToArray();
+                Assert.NotEmpty(draws);
+                Assert.All(draws, row =>
+                {
+                    Assert.True(row.DrawCommands > 0);
+                    // Reusing the cached static dial skips its one buffer map;
+                    // the command count still includes that dial.
+                    Assert.InRange(row.MapCount, Math.Max(1, row.DrawCommands - 1), row.DrawCommands);
+                });
+                Assert.Contains(draws, row => row.NativeDrawTicks > 0 && row.NativeDrawTicks >= row.MapTicks &&
                     row.CompletedTimestamp >= row.StartedTimestamp + row.NativeDrawTicks);
                 Assert.Contains(renderer, row => row.Stage == "frame_wait" && row.Result == "ready" &&
                     row.NativeWaitTicks is > 0 && row.WaitPrecheckTicks is >= 0 &&
