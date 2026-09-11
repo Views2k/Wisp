@@ -1,9 +1,7 @@
 # Contributing to Wisp
 
-Wisp is a proprietary, source-available project. Contributions are reviewed at
-the sole discretion of the repository owner. Opening an issue or pull request
-does not guarantee acceptance, and only `@Views2k` may approve a change for
-merge.
+Wisp is a proprietary, source-available project. Acceptance is discretionary.
+Opening an issue or pull request does not guarantee acceptance.
 
 ## Acceptable contributions
 
@@ -20,13 +18,13 @@ loops, additional telemetry collection, network services, game injection, and
 unreviewed binary or Native HUD assets will not be accepted.
 
 Before preparing any source, documentation, automation, or asset change for
-submission, open an issue and obtain written owner approval for that specific
-scope. Bug reports and feature requests do not require advance approval. Keep
-each pull request focused on one approved change.
+submission, open an issue and obtain written approval for that specific scope.
+Bug reports and feature requests do not require advance approval. Keep each
+pull request focused on one approved change.
 
-Dependency updates opened by repository-owner-configured Dependabot are deemed
-invited only within the update scope configured in `.github/dependabot.yml`.
-They remain subject to the same review, validation, and owner-only merge rules.
+Updates opened by the repository's configured Dependabot are deemed invited
+only within the update scope configured in `.github/dependabot.yml`. They
+remain subject to the same review, validation, and merge-approval rules.
 
 ## Engineering requirements
 
@@ -91,7 +89,7 @@ The UI review harness and its bounded validation modes are documented in
 
 The PNG files under `src/Wisp.App/Assets/Native` remain Microsoft Game Content
 and are not covered by Wisp's source license. Do not add, replace, transform,
-or redistribute third-party assets without prior owner approval and a documented
+or redistribute third-party assets without prior approval and a documented
 provenance and distribution basis. Approved asset changes must record their
 provenance, role, dimensions, and SHA-256 in `ASSET-MANIFEST.csv` and preserve
 `THIRD-PARTY-NOTICE.txt`.

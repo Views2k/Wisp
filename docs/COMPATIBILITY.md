@@ -173,7 +173,7 @@ validation before it can be accepted.
 ### Publishing a reviewed map
 
 `tools/Sign-CompatibilityBundle.ps1` signs reviewed JSON contracts locally with
-the release owner's Windows-user-protected key. The private key stays outside
+the Windows-user-protected release-signing key. The private key stays outside
 the repository, installer, and website. Its DPAPI protection depends on the
 owning Windows profile; copying that file to a different machine is not a
 portable key backup. Never replace the established key during a routine map

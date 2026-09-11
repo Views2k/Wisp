@@ -9,7 +9,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Proposals should solve a specific user problem without weakening Wisp's local-only telemetry, read-only FH6 access, performance, or compatibility safeguards. Owner approval is required before implementation begins.
+        Proposals should solve a specific user problem without weakening Wisp's local-only telemetry, read-only FH6 access, performance, or compatibility safeguards. Approval is required before implementation begins.
 
   - type: textarea
     id: problem
