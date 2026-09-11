@@ -18,7 +18,7 @@ public sealed class WpfStyleRuntimeTests
     public WpfStyleRuntimeTests(ITestOutputHelper output) => _output = output;
 
     [Fact]
-    public void ScrollViewerCornerBrushResolvesToTheWindowBackground()
+    public void ApplicationStylesAndNativeControlsPassRuntimeChecks()
     {
         Color? resolvedColor = null;
         var nativeDigitalPixels = 0;
