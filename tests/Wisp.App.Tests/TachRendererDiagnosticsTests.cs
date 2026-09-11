@@ -10,7 +10,13 @@ namespace Wisp.App.Tests;
 [Collection("Tach diagnostics")]
 public sealed class TachRendererDiagnosticsTests : IDisposable
 {
-    public TachRendererDiagnosticsTests() => Reset();
+    private readonly ITestOutputHelper _output;
+
+    public TachRendererDiagnosticsTests(ITestOutputHelper output)
+    {
+        _output = output;
+        Reset();
+    }
     public void Dispose() => Reset();
 
     [Theory]
@@ -356,6 +362,7 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         var sample = WaitSample();
         long allocated = -1;
         Exception? failure = null;
+        using var evidence = new AllocationMeasurementEvidence();
         var producer = new Thread(() =>
         {
             try
@@ -363,24 +370,34 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
                 // Warm and measure the same isolated loop, with assertions outside the producer.
                 MeasureRendererAllocations(in sample);
                 TachDiagnostics.CollectInterval(DateTimeOffset.UtcNow);
-                allocated = MeasureRendererAllocations(in sample);
+                allocated = MeasureRendererAllocations(in sample, evidence);
             }
             catch (Exception exception) { failure = exception; }
         })
         { IsBackground = true };
         using (ExecutionContext.SuppressFlow()) producer.Start();
         Assert.True(producer.Join(TimeSpan.FromSeconds(10)));
+        _output.WriteLine(evidence.Summary());
         Assert.Null(failure);
         Assert.Equal(0, allocated);
         Assert.Equal(20_000, Assert.Single(Interval().Renderer).Count);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static long MeasureRendererAllocations(in TachRendererDiagnostic sample)
+    private static long MeasureRendererAllocations(
+        in TachRendererDiagnostic sample, AllocationMeasurementEvidence? evidence = null)
     {
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var index = 0; index < 20_000; index++) TachDiagnostics.RecordRenderer(in sample);
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        evidence?.Start();
+        try
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var index = 0; index < 20_000; index++) TachDiagnostics.RecordRenderer(in sample);
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+        finally
+        {
+            evidence?.Stop();
+        }
     }
 
     private static TachRendererDiagnostic Sample() => new()
