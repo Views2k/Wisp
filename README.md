@@ -10,7 +10,15 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## New in Wisp 1.2.1
+## Wisp 1.2.2 bug fix
+
+Toggling the attached G-force meter now keeps the main Native HUD in place.
+This update also services the bundled .NET runtime.
+
+[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
+[1.2.2 release notes](docs/releases/Wisp-1.2.2-release-notes.md)
+
+## Analogue CPU rendering
 
 If the Analogue tachometer lags or hitches, enable **CPU rendering** in
 **Diagnostics**. Right-click Wisp's tray icon, choose **Exit Wisp**, then reopen

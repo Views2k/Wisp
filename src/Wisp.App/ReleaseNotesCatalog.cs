@@ -16,8 +16,8 @@ public static class ReleaseNotesCatalog
     [
         new(
             "1.2.2",
-            "Unreleased",
-            "MAINTENANCE CANDIDATE",
+            "September 11, 2026",
+            "MAINTENANCE",
             "G-force visibility correction and bundled runtime servicing.",
             true,
             [

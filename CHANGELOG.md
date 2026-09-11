@@ -4,6 +4,8 @@ Notable changes to Wisp are recorded here.
 
 ## Unreleased
 
+## 1.2.2 - 2026-09-11
+
 - Keep the main Native HUD stationary when toggling its attached G-force meter.
 - Service the bundled .NET 8 runtime to 8.0.31 and build with SDK 8.0.425.
 
