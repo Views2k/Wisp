@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Wisp.App.DebugLogging;
 using Xunit;
@@ -359,11 +360,10 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         {
             try
             {
-                for (var index = 0; index < 20_000; index++) TachDiagnostics.RecordRenderer(in sample);
-                Interval();
-                var before = GC.GetAllocatedBytesForCurrentThread();
-                for (var index = 0; index < 20_000; index++) TachDiagnostics.RecordRenderer(in sample);
-                allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                // Warm and measure the same isolated loop, with assertions outside the producer.
+                MeasureRendererAllocations(in sample);
+                TachDiagnostics.CollectInterval(DateTimeOffset.UtcNow);
+                allocated = MeasureRendererAllocations(in sample);
             }
             catch (Exception exception) { failure = exception; }
         })
@@ -373,6 +373,14 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         Assert.Null(failure);
         Assert.Equal(0, allocated);
         Assert.Equal(20_000, Assert.Single(Interval().Renderer).Count);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static long MeasureRendererAllocations(in TachRendererDiagnostic sample)
+    {
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 20_000; index++) TachDiagnostics.RecordRenderer(in sample);
+        return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
     private static TachRendererDiagnostic Sample() => new()
