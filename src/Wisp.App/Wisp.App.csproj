@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <RuntimeFrameworkVersion>8.0.30</RuntimeFrameworkVersion>
+    <RuntimeFrameworkVersion>8.0.31</RuntimeFrameworkVersion>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\Wisp.ico</ApplicationIcon>
@@ -11,9 +11,9 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp</AssemblyTitle>
     <Description>Wheel-indicated speed and G-force display for Forza Horizon 6.</Description>
-    <Version>1.2.1</Version>
-    <FileVersion>1.2.1.0</FileVersion>
-    <AssemblyVersion>1.2.1.0</AssemblyVersion>
+    <Version>1.2.2</Version>
+    <FileVersion>1.2.2.0</FileVersion>
+    <AssemblyVersion>1.2.2.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Wisp.Core\Wisp.Core.csproj" />
@@ -48,8 +48,8 @@
     <Content Include="Assets\Native\THIRD-PARTY-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\LICENSES\dotnet-runtime-8.0.30-LICENSE.txt" Link="Licenses\dotnet-runtime-8.0.30-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\LICENSES\dotnet-runtime-8.0.30-THIRD-PARTY-NOTICES.txt" Link="Licenses\dotnet-runtime-8.0.30-THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\LICENSES\windowsdesktop-runtime-8.0.30-LICENSE.txt" Link="Licenses\windowsdesktop-runtime-8.0.30-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\dotnet-runtime-8.0.31-LICENSE.txt" Link="Licenses\dotnet-runtime-8.0.31-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt" Link="Licenses\dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\windowsdesktop-runtime-8.0.31-LICENSE.txt" Link="Licenses\windowsdesktop-runtime-8.0.31-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

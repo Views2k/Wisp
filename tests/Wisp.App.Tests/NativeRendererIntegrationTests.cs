@@ -85,7 +85,7 @@ internal static class NativeRendererIntegrationTests
             if (!hardwareAvailable) AssertFallbackNeedle(gauge, 7200);
             Assert.NotEqual(hwnd, GetForegroundWindow());
 
-            AssertAttachedGForceResizeKeepsRendering(controller, window, gauge, hardwareAvailable);
+            AssertAttachedGForceToggleKeepsRendering(controller, window, gauge, hardwareAvailable);
         }
         finally
         {
@@ -96,7 +96,7 @@ internal static class NativeRendererIntegrationTests
         }
     }
 
-    private static void AssertAttachedGForceResizeKeepsRendering(
+    private static void AssertAttachedGForceToggleKeepsRendering(
         AppController controller, OverlayWindow window, NativeAnalogSpeedometer gauge, bool hardwareAvailable)
     {
         var previousDiagnosticsEnabled = TachDiagnostics.IsEnabled;
@@ -115,10 +115,13 @@ internal static class NativeRendererIntegrationTests
             // Each settled state must consume new input, not merely retain the
             // old surface or report the renderer's initialization status.
             AssertState(true, 4300);
+            var stableBounds = new Rect(window.Left, window.Top, window.Width, window.Height);
             for (int cycle = 0; cycle < 4; cycle++)
             {
                 AssertState(false, 4800 + cycle * 200);
+                Assert.Equal(stableBounds, new Rect(window.Left, window.Top, window.Width, window.Height));
                 AssertState(true, 6800 + cycle * 200);
+                Assert.Equal(stableBounds, new Rect(window.Left, window.Top, window.Width, window.Height));
             }
         }
         finally
@@ -139,7 +142,7 @@ internal static class NativeRendererIntegrationTests
                 controller.Settings.OverlayWidthScale, controller.Settings.OverlayHeightScale, 1);
             Pump();
 
-            var top = enabled ? 72d : 0;
+            const double top = 72;
             Assert.Equal(293.5 + top, root.Height);
             Assert.Equal((293.5 + top) * 4 / 3, window.Height, 6);
             // The HWND rounds to physical pixels before the Viewbox scales its content.

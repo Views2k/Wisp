@@ -15,11 +15,24 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "1.2.2",
+            "Unreleased",
+            "MAINTENANCE CANDIDATE",
+            "G-force visibility correction and bundled runtime servicing.",
+            true,
+            [
+                Group("G-force meter",
+                    "Keeps the main Native HUD in place when the attached G-force meter is enabled or disabled.",
+                    "Preserves saved HUD placement and profiles. A placement at the top screen edge may move inward once to keep the meter visible."),
+                Group("Runtime",
+                    "Updates the bundled .NET 8 runtime to 8.0.31.")
+            ]),
+        new(
             "1.2.1",
             "September 10, 2026",
             "ANALOGUE RENDERING",
             "Optional CPU rendering for Analogue tachometer lag or hitching, with fixes for queued needle updates and busy frame submissions.",
-            true,
+            false,
             [
                 Group("CPU rendering",
                     "If the Analogue tachometer lags or hitches, enable CPU rendering in Diagnostics.",
