@@ -10,7 +10,7 @@
 
 <!-- List exact automated tests and any live FH6 or visual checks performed. -->
 
-- [ ] The change is within an owner-approved scope.
+- [ ] The change is within the approved scope.
 - [ ] The change improves usability, functionality, feel, reliability, or maintenance, or fixes a verified bug.
 - [ ] I have read and agree to the contributor-rights terms in `CONTRIBUTING.md`.
 - [ ] Regression coverage has been added or updated where appropriate.

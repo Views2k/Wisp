@@ -35,6 +35,7 @@ After import, verify both active rulesets under
 **Settings > Rules > Rulesets > Rule insights**.
 
 Tag rules protect Git references, not GitHub Release records or uploaded
-assets. Repository collaborators with write access can edit releases. Keep
-write access owner-only when release publication must remain owner-controlled,
-or use an organization repository with a narrower role for contributors.
+assets. Repository collaborators with write access can edit releases. Restrict
+write access to the account used to publish releases when publication requires
+sole approval, or use an organization repository with a narrower role for
+contributors.

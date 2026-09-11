@@ -1,5 +1,5 @@
 name: Private security contact request
-description: Ask the owner for help using the confidential reporting channel.
+description: Request help with the confidential reporting channel.
 title: "[Security contact] Private channel requested"
 body:
   - type: markdown
