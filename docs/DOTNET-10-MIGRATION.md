@@ -11,9 +11,8 @@ checked September 10, 2026.
 
 ## Scope and sequence
 
-The repository owner coordinates the migration and release. The expected scope
-is medium: project and SDK changes are small, but Windows presentation and
-installer validation must establish that the runtime change preserves behavior.
+Project and SDK changes are small, but Windows presentation and installer
+validation must establish that the runtime change preserves behavior.
 
 1. Prepare a focused migration pull request by October 13, 2026. Select the
    current supported .NET 10 SDK and runtime patch from
@@ -32,8 +31,8 @@ installer validation must establish that the runtime change preserves behavior.
    telemetry changes, or a native renderer redesign with this migration.
 4. Complete the acceptance gates below and prepare a release candidate by
    October 27, 2026, leaving time for corrections before November 10. Use the
-   existing protected pull-request and release workflows. The owner assigns the
-   application release version and publishes only after the evidence is complete.
+   existing protected pull-request and release workflows. Assign the application
+   release version and publish only after validation and release approval are complete.
 
 These are planning targets, not a scheduled automation or proof that a release
 has passed validation. If a gate is blocked, record the blocker and retain the
