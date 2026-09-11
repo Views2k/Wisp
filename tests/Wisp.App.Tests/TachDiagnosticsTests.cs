@@ -293,6 +293,7 @@ public sealed class TachDiagnosticsTests : IDisposable
         long warmupRecords = 0;
         var gcChanges = new int[3];
         Exception? failure = null;
+        using var evidence = new AllocationMeasurementEvidence();
         var thread = new Thread(() =>
         {
             try
@@ -303,9 +304,17 @@ public sealed class TachDiagnosticsTests : IDisposable
                 var gen1 = GC.CollectionCount(1);
                 var gen2 = GC.CollectionCount(2);
                 var started = Stopwatch.GetTimestamp();
-                var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
-                RecordNeedles(samples, 20_000, 20_000);
-                allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+                evidence.Start();
+                try
+                {
+                    var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+                    RecordNeedles(samples, 20_000, 20_000);
+                    allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+                }
+                finally
+                {
+                    evidence.Stop();
+                }
                 elapsedTicks = Stopwatch.GetTimestamp() - started;
                 gcChanges[0] = GC.CollectionCount(0) - gen0;
                 gcChanges[1] = GC.CollectionCount(1) - gen1;
@@ -320,6 +329,7 @@ public sealed class TachDiagnosticsTests : IDisposable
         using (ExecutionContext.SuppressFlow())
             thread.Start();
         Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "The isolated collector measurement did not finish.");
+        _output.WriteLine(evidence.Summary());
         Assert.Null(failure);
         Assert.Equal(20_000, warmupRecords);
         Assert.Equal(20_000, Assert.Single(Interval().Needles).Applied);

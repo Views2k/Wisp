@@ -1444,9 +1444,10 @@ public sealed partial class AppController : IAsyncDisposable
         var key = Overlay.GetDisplayKey();
         _activeOverlayPlacementKey = key;
         Settings.LastOverlayPlacementKey = key;
+        var bounds = Overlay.GetPlacementBounds();
         Settings.Placements[key] = new OverlayPlacement(
-            Overlay.Left,
-            Overlay.Top,
+            bounds.Left,
+            bounds.Top,
             Settings.OverlayWidthScale,
             Settings.OverlayHeightScale);
         ScheduleSettingsSave();
@@ -1515,7 +1516,6 @@ public sealed partial class AppController : IAsyncDisposable
         {
             _activeOverlayPlacementKey = key;
             Settings.LastOverlayPlacementKey = key;
-            Overlay.RestorePosition(placement.Left, placement.Top);
             ViewModel.OverlayWidthScale = placement.WidthScale;
             ViewModel.OverlayHeightScale = placement.HeightScale;
             Settings.OverlayWidthScale = Math.Clamp(placement.WidthScale, 0.5, 2.0);
@@ -1526,6 +1526,7 @@ public sealed partial class AppController : IAsyncDisposable
                 Settings.OverlayWidthScale,
                 Settings.OverlayHeightScale,
                 Settings.OverlayOpacity);
+            Overlay.RestorePlacementPosition(placement.Left, placement.Top);
         }
         else
         {
@@ -1547,9 +1548,10 @@ public sealed partial class AppController : IAsyncDisposable
             Overlay.ResetPosition();
             _activeOverlayPlacementKey = Overlay.GetDisplayKey();
             Settings.LastOverlayPlacementKey = _activeOverlayPlacementKey;
+            var bounds = Overlay.GetPlacementBounds();
             Settings.Placements[_activeOverlayPlacementKey] = new OverlayPlacement(
-                Overlay.Left,
-                Overlay.Top,
+                bounds.Left,
+                bounds.Top,
                 Settings.OverlayWidthScale,
                 Settings.OverlayHeightScale);
         }
@@ -1613,7 +1615,7 @@ public sealed partial class AppController : IAsyncDisposable
         if (Overlay is not null)
         {
             BoostGaugeOverlay.ResetPosition(
-                new Rect(Overlay.Left, Overlay.Top, Overlay.Width, Overlay.Height),
+                Overlay.GetPlacementBounds(),
                 Overlay.CurrentMonitorPlacementArea());
         }
     }
@@ -1647,7 +1649,7 @@ public sealed partial class AppController : IAsyncDisposable
         if (Overlay is not null)
         {
             TireTemperatureGaugeOverlay.ResetPosition(
-                new Rect(Overlay.Left, Overlay.Top, Overlay.Width, Overlay.Height),
+                Overlay.GetPlacementBounds(),
                 Overlay.CurrentMonitorPlacementArea());
         }
     }
@@ -1688,33 +1690,21 @@ public sealed partial class AppController : IAsyncDisposable
 
         if (Settings.LayoutMode == HudLayoutMode.SeparateBoxes && Overlay is not null)
         {
-            GForceOverlay.ResetPositionAdjacentTo(new Rect(
-                Overlay.Left,
-                Overlay.Top,
-                Overlay.Width,
-                Overlay.Height),
+            GForceOverlay.ResetPositionAdjacentTo(Overlay.GetPlacementBounds(),
                 Overlay.CurrentMonitorPlacementArea());
             return;
         }
 
         if (Settings.LayoutMode == HudLayoutMode.Native && Overlay is not null)
         {
-            GForceOverlay.ResetPositionBelow(new Rect(
-                Overlay.Left,
-                Overlay.Top,
-                Overlay.Width,
-                Overlay.Height),
+            GForceOverlay.ResetPositionBelow(Overlay.GetPlacementBounds(),
                 Overlay.CurrentMonitorPlacementArea());
             return;
         }
 
         if (IsStandaloneGForceWindowEnabled && Overlay is not null)
         {
-            GForceOverlay.ResetPositionBelow(new Rect(
-                Overlay.Left,
-                Overlay.Top,
-                Overlay.Width,
-                Overlay.Height),
+            GForceOverlay.ResetPositionBelow(Overlay.GetPlacementBounds(),
                 Overlay.CurrentMonitorPlacementArea());
             return;
         }
@@ -1777,8 +1767,9 @@ public sealed partial class AppController : IAsyncDisposable
         if (Overlay is not null && Settings.LastOverlayPlacementKey is { } overlayKey &&
             Settings.Placements.TryGetValue(overlayKey, out var overlayPlacement))
         {
-            overlayPlacement.Left = Overlay.Left;
-            overlayPlacement.Top = Overlay.Top;
+            var bounds = Overlay.GetPlacementBounds();
+            overlayPlacement.Left = bounds.Left;
+            overlayPlacement.Top = bounds.Top;
             overlayPlacement.WidthScale = Settings.OverlayWidthScale;
             overlayPlacement.HeightScale = Settings.OverlayHeightScale;
         }

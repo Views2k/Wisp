@@ -68,6 +68,7 @@ public sealed class WpfStyleRuntimeTests
                 AnalogHudSceneTests.AssertOnCurrentDispatcher();
                 TachNeedleDiagnosticsTests.AssertOnCurrentDispatcher();
                 OverlayPresentationTests.AssertOnCurrentDispatcher();
+                OverlayGForcePlacementTests.AssertOnCurrentDispatcher();
                 NativeRendererIntegrationTests.AssertOnCurrentDispatcher();
                 NativeRendererIntegrationTests.AssertOnCurrentDispatcher(cpuRendering: true);
                 CpuRenderingSettingsTests.AssertControllerPersistenceOnCurrentDispatcher();

@@ -19,6 +19,6 @@
 *.ps binary
 
 # Preserve authoritative runtime notice bytes exactly as published.
-/LICENSES/dotnet-runtime-8.0.30-LICENSE.txt -text whitespace=cr-at-eol
-/LICENSES/dotnet-runtime-8.0.30-THIRD-PARTY-NOTICES.txt -text whitespace=cr-at-eol
-/LICENSES/windowsdesktop-runtime-8.0.30-LICENSE.txt -text whitespace=cr-at-eol
+/LICENSES/dotnet-runtime-8.0.31-LICENSE.txt -text whitespace=cr-at-eol
+/LICENSES/dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt -text whitespace=cr-at-eol
+/LICENSES/windowsdesktop-runtime-8.0.31-LICENSE.txt -text whitespace=cr-at-eol
