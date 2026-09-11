@@ -102,7 +102,6 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: true
-      WISP_PRIVATE_CANDIDATE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'candidate/issue-fixes-20260911' }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -187,76 +186,7 @@ jobs:
             -InstallerPath $installer `
             -ExpectedVersion $version
 
-      - name: Encrypt private review installer
-        if: env.WISP_PRIVATE_CANDIDATE == 'true'
-        shell: pwsh
-        env:
-          WISP_ARCHIVE_KEY: ${{ secrets.WISP_CANDIDATE_20260911_ARCHIVE_KEY }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:WISP_ARCHIVE_KEY -cnotmatch '^[0-9a-f]{64}$') {
-            throw 'The private review archive key is missing or invalid.'
-          }
-          $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
-          if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
-            throw 'The required 7-Zip executable is unavailable.'
-          }
-          $project = [xml](Get-Content -LiteralPath .\src\Wisp.App\Wisp.App.csproj -Raw)
-          $version = @($project.Project.PropertyGroup | Where-Object { $null -ne $_.Version })[0].Version
-          $installerName = "Wisp-Setup-$version.exe"
-          $installer = (Resolve-Path -LiteralPath (Join-Path 'outputs' $installerName)).Path
-          $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
-          $innerChecksum = (Get-Content -LiteralPath "$installer.sha256" -Raw).Trim()
-          if ($innerChecksum -ine "$installerHash *$installerName") {
-            throw 'The private review installer checksum does not match the verified bundle.'
-          }
-          $reviewDirectory = Join-Path $env:RUNNER_TEMP 'wisp-private-review'
-          New-Item -ItemType Directory -Path $reviewDirectory -ErrorAction Stop | Out-Null
-          $archiveName = "Wisp-Review-$env:GITHUB_SHA.7z"
-          $archive = Join-Path $reviewDirectory $archiveName
-          Push-Location (Split-Path -Parent $installer)
-          try {
-            & $sevenZip a -t7z -mx=0 -mhe=on "-p$env:WISP_ARCHIVE_KEY" $archive $installerName "$installerName.sha256" *> $null
-            if ($LASTEXITCODE -ne 0) {
-              throw "Private review archive encryption failed with exit code $LASTEXITCODE."
-            }
-            & $sevenZip t "-p$env:WISP_ARCHIVE_KEY" $archive *> $null
-            if ($LASTEXITCODE -ne 0) {
-              throw "Private review archive integrity validation failed with exit code $LASTEXITCODE."
-            }
-          }
-          finally {
-            Pop-Location
-          }
-          $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$archiveHash *$archiveName" | Set-Content -LiteralPath "$archive.sha256" -Encoding ascii
-          [ordered]@{
-            schemaVersion = 1
-            sourceRevision = $env:GITHUB_SHA
-            runId = $env:GITHUB_RUN_ID
-            runAttempt = $env:GITHUB_RUN_ATTEMPT
-            version = $version
-            installerFile = $installerName
-            installerSha256 = $installerHash
-            archiveFile = $archiveName
-            archiveSha256 = $archiveHash
-          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reviewDirectory 'review-manifest.json') -Encoding utf8
-
-      - name: Upload encrypted review installer
-        if: env.WISP_PRIVATE_CANDIDATE == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: wisp-private-review-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/wisp-private-review/Wisp-Review-${{ github.sha }}.7z
-            ${{ runner.temp }}/wisp-private-review/Wisp-Review-${{ github.sha }}.7z.sha256
-            ${{ runner.temp }}/wisp-private-review/review-manifest.json
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
-
       - name: Upload installer bundle
-        if: env.WISP_PRIVATE_CANDIDATE != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wisp-installer-${{ github.sha }}
