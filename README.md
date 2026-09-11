@@ -5,7 +5,9 @@
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
   <a href="https://github.com/Views2k/Wisp/releases/latest"><strong>Download</strong></a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a>
+  <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
+  Support Wisp: <a href="https://ko-fi.com/views2k">Ko-fi</a> ·
+  <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
 ## New in Wisp 1.2.1
