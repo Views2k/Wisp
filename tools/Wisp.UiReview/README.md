@@ -9,9 +9,9 @@ dotnet build .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --disable-bui
 dotnet run --project .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --no-build --no-restore --no-launch-profile -- --output .\work\ui-review\matrix-01
 ```
 
-The output directory must be new or empty and inside this checkout; paths through junctions/symbolic links are rejected. Existing captures are never overwritten. The default review produces 31 PNGs plus `review.json`:
+The output directory must be new or empty and inside this checkout; paths through junctions/symbolic links are rejected. Existing captures are never overwritten. The default review produces 35 PNGs plus `review.json`:
 
-- Native Digital: all seven pages at 980x750, 720x440, 1280x900, and 2560x1440 device-independent pixels, at 96 DPI (28 PNGs).
+- Native Digital: all eight pages at 980x750, 720x440, 1280x900, and 2560x1440 device-independent pixels, at 96 DPI (32 PNGs).
 - Native Analogue, Native EV Digital, and Combined: Appearance at 980x750 and 144 DPI (three PNGs).
 
 At 144 DPI the baseline PNG is 1470x1125 pixels. These are actual root-DPI layouts, not resized screenshots.
@@ -23,7 +23,7 @@ Before each bounded layout pass, the harness updates root DPI and invalidates me
 Options:
 
 - `--fixture native-digital`, `native-analogue`, `native-ev-digital`, `native-ev-analogue`, `minimal`, `combined`, or `separate-boxes` selects just one fixture and omits the default supplements. There is no unbounded/all-fixture mode.
-- `--scope matrix` (default) captures all seven pages at four viewport sizes;
+- `--scope matrix` (default) captures all eight pages at four viewport sizes;
   `appearance` captures only Appearance at the baseline size. `wizard` uses the
   separate setup matrix below.
 - `--telemetry sample` (default) feeds a deterministic synthetic vehicle directly into `DiagnosticsViewModel.Update`; `waiting` leaves real telemetry unavailable and exercises the production `NativePreviewFrame` offline sample. Waiting mode intentionally has no active EV classification.
