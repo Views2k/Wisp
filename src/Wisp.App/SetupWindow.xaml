@@ -180,11 +180,11 @@
                             <StackPanel>
                                 <TextBlock Text="Display mode" Style="{StaticResource SectionTitleStyle}" />
                                 <TextBlock Style="{StaticResource SetupBodyText}" Margin="0,9,0,14"
-                                           Text="Use borderless fullscreen or windowed mode. True exclusive fullscreen can cover Windows overlays. If Wisp is hidden later, check this first." />
+                                           Text="Set FH6's display mode to Fullscreen. If Wisp is hidden later, check this setting first." />
                                 <CheckBox x:Name="DisplayConfirmation" Style="{StaticResource ToggleSwitchStyle}"
                                           Checked="Confirmation_Changed" Unchecked="Confirmation_Changed"
-                                          AutomationProperties.Name="I confirmed borderless or windowed display mode">
-                                    <TextBlock Text="I confirmed borderless fullscreen or windowed mode." TextWrapping="Wrap" MaxWidth="340" />
+                                          AutomationProperties.Name="I confirmed Fullscreen display mode">
+                                    <TextBlock Text="I confirmed Fullscreen mode." TextWrapping="Wrap" MaxWidth="340" />
                                 </CheckBox>
                             </StackPanel>
                         </Border>
@@ -251,7 +251,7 @@
                                                          Style="{StaticResource SetupChoice}" Checked="Preference_Changed" />
                                             <RadioButton x:Name="CombinedChoice" GroupName="SetupLayout" Content="Combined"
                                                          Style="{StaticResource SetupChoice}" Checked="Preference_Changed" />
-                                            <RadioButton x:Name="SeparateChoice" GroupName="SetupLayout" Content="Two boxes"
+                                            <RadioButton x:Name="SeparateChoice" GroupName="SetupLayout" Content="Box"
                                                          Style="{StaticResource SetupChoice}" Checked="Preference_Changed" />
                                             <RadioButton x:Name="NativeChoice" GroupName="SetupLayout" Content="Native"
                                                          Style="{StaticResource SetupChoice}" Checked="Preference_Changed" />

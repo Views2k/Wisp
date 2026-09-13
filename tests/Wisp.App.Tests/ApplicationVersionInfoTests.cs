@@ -21,12 +21,12 @@ public sealed class ApplicationVersionInfoTests
     [Fact]
     public void CurrentVersionLabelsShareTheAssemblyVersion()
     {
-        Assert.Equal("1.2.2", ApplicationVersionInfo.MachineVersion);
-        Assert.Equal("1.2.2", ApplicationVersionInfo.DisplayVersion);
+        Assert.Equal("2.0.0", ApplicationVersionInfo.MachineVersion);
+        Assert.Equal("2.0", ApplicationVersionInfo.DisplayVersion);
         Assert.Null(ApplicationVersionInfo.DiagnosticBuildId);
         Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
-        Assert.EndsWith("PANEL 1.2.2", ApplicationVersionInfo.FooterText);
-        Assert.Contains("The current 1.2.2 entry covers this release.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+        Assert.EndsWith("PANEL 2.0", ApplicationVersionInfo.FooterText);
+        Assert.Contains("The current 2.0 entry covers this release.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
         Assert.Equal(ApplicationVersionInfo.DisplayVersion, ReleaseNotesCatalog.Entries[0].Version);
     }
 }

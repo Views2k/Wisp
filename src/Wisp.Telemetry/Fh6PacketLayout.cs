@@ -10,6 +10,9 @@ public static class Fh6PacketLayout
     public const int CurrentEngineRpm = 16;
     public const int LateralAcceleration = 20;
     public const int LongitudinalAcceleration = 28;
+    public const int LocalVelocityX = 32;
+    public const int LocalVelocityY = 36;
+    public const int LocalVelocityZ = 40;
     public const int NormalizedSuspensionTravel = 68;
     public const int TireSlipRatio = 84;
     public const int WheelRotationSpeed = 100;

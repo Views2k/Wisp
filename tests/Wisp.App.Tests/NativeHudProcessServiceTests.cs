@@ -12,6 +12,27 @@ public sealed class NativeHudProcessServiceTests
     private const ulong Provider = 0x0000000400000000;
 
     [Fact]
+    public async Task AttachedBuildIdentityExpiresOnDisconnectAndDisposal()
+    {
+        var memory = ValidMemory(314, Provider, tcrOn: true);
+        var service = new NativeHudProcessService(new FakeFactory(memory));
+        try
+        {
+            Assert.Null(service.AttachedCompatibilityPack);
+            service.UpdateTelemetry(State(314), nativeLayoutActive: true);
+            await WaitForAsync(() => service.AttachedCompatibilityPack, pack => pack is not null);
+            Assert.Same(NativeHudBuildContract.BuiltIn, service.AttachedCompatibilityPack);
+            service.UpdateTelemetry(null, nativeLayoutActive: false);
+            Assert.Null(service.AttachedCompatibilityPack);
+            await WaitForAsync(() => memory.DisposeCount, count => count > 0);
+            service.UpdateTelemetry(State(314), nativeLayoutActive: true);
+            await WaitForAsync(() => service.AttachedCompatibilityPack, pack => pack is not null);
+        }
+        finally { await service.DisposeAsync(); }
+        Assert.Null(service.AttachedCompatibilityPack);
+    }
+
+    [Fact]
     public void FreshElectricGearSurvivesOneOptionalGaugeReadMiss()
     {
         var observed = Stopwatch.Frequency;

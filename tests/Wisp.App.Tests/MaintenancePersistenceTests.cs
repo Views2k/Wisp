@@ -164,9 +164,9 @@ public sealed class MaintenancePersistenceTests
         try
         {
             window = new MainWindow(controller);
-            var modeType = typeof(MainWindow).GetNestedType(
+            var modeType = typeof(ControlPanelWindow).GetNestedType(
                 "HudProfileDialogMode", BindingFlags.NonPublic);
-            var showDialog = typeof(MainWindow).GetMethod(
+            var showDialog = typeof(ControlPanelWindow).GetMethod(
                 "ShowHudProfileDialog", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(modeType);
             Assert.NotNull(showDialog);

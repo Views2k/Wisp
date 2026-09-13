@@ -15,13 +15,17 @@ public static class ApplicationVersionInfo
 
     public static string? DiagnosticBuildLabel { get; } = ReadBuildMetadata("WispDiagnosticBuildLabel");
 
+    private static bool IsPrivateCandidate => ReleaseNotesCatalog.Entries[0].Label == "PRIVATE TEST";
+
     public static string FooterText => DiagnosticBuildLabel is { Length: > 0 } label
         ? $"WHEEL-INDICATED SPEED PANEL {label} (private)"
-        : $"WHEEL-INDICATED SPEED PANEL {DisplayVersion}";
+        : $"WHEEL-INDICATED SPEED PANEL {DisplayVersion}" + (IsPrivateCandidate ? " (private test)" : "");
 
     public static string ReleaseHistoryIntroduction => DiagnosticBuildLabel is { Length: > 0 } label
         ? $"You are testing {label}. The test features and previous public releases are listed below."
-        : $"Feature updates, hotfixes, and important refinements from every documented public release. The current {DisplayVersion} entry covers this release.";
+        : IsPrivateCandidate
+            ? $"You are testing the private {DisplayVersion} candidate. It has not been published. The changes and previous public releases are listed below."
+            : $"Feature updates, hotfixes, and important refinements from every documented public release. The current {DisplayVersion} entry covers this release.";
 
     public static string Format(Version version) => Format(
         new SemanticVersion(version.Major, version.Minor, Math.Max(0, version.Build)));

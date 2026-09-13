@@ -15,7 +15,8 @@ internal sealed record RunImageSnapshot(
 internal static class RunImageExporter
 {
     internal const int ImageWidth = 1280;
-    internal const int MaximumImageHeight = 4096;
+    internal const int MaximumImageHeight = 8192;
+    internal const int MaximumPlots = 12;
     private static readonly Brush Background = Frozen(0x13, 0x1B, 0x20);
     private static readonly Brush Surface = Frozen(0x1D, 0x29, 0x30);
     private static readonly Brush Accent = RunComparisonColors.RunA;
@@ -27,8 +28,8 @@ internal static class RunImageExporter
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (!double.IsFinite(snapshot.StartSeconds) || !double.IsFinite(snapshot.EndSeconds) ||
-            snapshot.EndSeconds < snapshot.StartSeconds || snapshot.Charts.Length > 4 ||
-            snapshot.AlternativeCharts.Length > 4 || snapshot.Metrics.Length > 16 || snapshot.Findings.Length > 32)
+            snapshot.EndSeconds < snapshot.StartSeconds || snapshot.Charts.Length + snapshot.AlternativeCharts.Length > MaximumPlots ||
+            snapshot.Metrics.Length > 32 || snapshot.Findings.Length > 32)
             throw new ArgumentException("The report is too large or its interval is invalid.", nameof(snapshot));
 
         var body = new StackPanel { Margin = new Thickness(48, 36, 48, 32) };
@@ -110,7 +111,7 @@ internal static class RunImageExporter
         root.Measure(new Size(ImageWidth, double.PositiveInfinity));
         var height = (int)Math.Ceiling(root.DesiredSize.Height);
         if (height is <= 0 or > MaximumImageHeight)
-            throw new InvalidOperationException("This report is too tall to export. Choose a smaller graph group.");
+            throw new InvalidOperationException("This report is too tall to export. Hide a few graph panels and try again.");
         root.Arrange(new Rect(0, 0, ImageWidth, height));
         root.UpdateLayout();
         var bitmap = new RenderTargetBitmap(ImageWidth, height, 96, 96, PixelFormats.Pbgra32);

@@ -27,17 +27,25 @@ public sealed partial class RunsViewModel
             // Select the channel and presentation together so one click prepares one view.
             _chartGroup = value.Group;
             _graphView = AvailableGraphViews.First(view => view.Mode == value.Mode);
+            EnsureWorkspaceGraph(value.Group, value.Mode);
             OnChanged(nameof(ChartGroup));
             NotifyGraphMode();
             RequestCharts();
         }
+    }
+    public void ShowGraph(RunGraphChoice choice)
+    {
+        if (!HasRun || _disposed || RecordingActive || !GraphChoices.Contains(choice)) return;
+        SelectedGraph = choice;
+        EnsureWorkspaceGraph(choice.Group, choice.Mode);
+        ShowGraphs();
     }
     public void ShowGraphs()
     {
         if (!HasRun || _disposed) return;
         _isGraphWorkspaceOpen = true;
         NotifyNavigation();
-        if (Charts.Count + AlternativeCharts.Count == 0 && !_preparingCharts) RequestCharts();
+        if (UsesModularWorkspace || Charts.Count + AlternativeCharts.Count == 0 && !_preparingCharts) RequestCharts();
     }
     public void ShowSummary()
     {

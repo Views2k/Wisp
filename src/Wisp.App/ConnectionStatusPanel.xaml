@@ -1,0 +1,24 @@
+<UserControl x:Class="Wisp.App.ConnectionStatusPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    FontSize="13" Foreground="{DynamicResource TextBrush}"
+    KeyboardNavigation.TabNavigation="Cycle" AutomationProperties.Name="Connection status">
+    <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource StrokeBrush}"
+            BorderThickness="1" CornerRadius="12" Padding="20" Width="370">
+        <StackPanel>
+            <DockPanel Margin="0,0,0,18">
+                <Button x:Name="CloseButton" DockPanel.Dock="Right" Content="✕" Padding="8,4" Margin="12,0,0,0"
+                        Click="Close_Click" AutomationProperties.Name="Close connection status" ToolTip="Close (Escape)"/>
+                <TextBlock Text="Connection" FontSize="19" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </DockPanel>
+            <TextBlock Text="FORZA HORIZON 6" FontSize="11" Foreground="{DynamicResource MutedBrush}"/>
+            <TextBlock Text="{Binding Game}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,14"/>
+            <TextBlock Text="DATA OUT" FontSize="11" Foreground="{DynamicResource MutedBrush}"/>
+            <TextBlock Text="{Binding Telemetry}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,14"/>
+            <TextBlock Text="OVERLAY" FontSize="11" Foreground="{DynamicResource MutedBrush}"/>
+            <TextBlock Text="{Binding Hud}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,12"/>
+            <TextBlock Text="{Binding Fix}" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" LineHeight="19"/>
+            <Button x:Name="HelpButton" Content="Open Diagnostics" Click="Help_Click" HorizontalAlignment="Left" Margin="0,18,0,0"/>
+        </StackPanel>
+    </Border>
+</UserControl>

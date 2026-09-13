@@ -1,0 +1,162 @@
+<UserControl x:Class="Wisp.App.DriftGaugeSettingsControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:core="clr-namespace:Wisp.Core;assembly=Wisp.Core">
+    <UserControl.Resources>
+        <Style x:Key="DriftGuidanceItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemSurface" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="22" /></Grid.ColumnDefinitions>
+                                <ContentPresenter VerticalAlignment="Center" />
+                                <Path x:Name="SelectionMark" Grid.Column="1" Data="M1,5 L4,8 L10,1" Stroke="{DynamicResource AccentBrush}"
+                                      StrokeThickness="2" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="SelectionMark" Property="Visibility" Value="Visible" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ItemSurface" Property="Opacity" Value="0.45" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DriftGuidanceComboStyle" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource InputBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="IsTextSearchEnabled" Value="True" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DriftGuidanceItemStyle}" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid x:Name="ComboRoot">
+                            <Border x:Name="ComboSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="1" CornerRadius="12" Padding="{TemplateBinding Padding}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="22" /></Grid.ColumnDefinitions>
+                                    <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                      ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" Margin="0,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False" />
+                                    <Path Grid.Column="1" Data="M0,0 L4,4 L8,0" Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.5"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                            <ToggleButton Focusable="False" ClickMode="Press" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent" /></ControlTemplate></ToggleButton.Template>
+                            </ToggleButton>
+                            <Border x:Name="ComboFocus" CornerRadius="12" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2" Visibility="Collapsed" IsHitTestVisible="False" />
+                            <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False" VerticalOffset="4">
+                                <Border x:Name="PopupSurface" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                        Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="4">
+                                    <ScrollViewer CanContentScroll="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ComboSurface" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
+                            <Trigger Property="IsDropDownOpen" Value="True"><Setter TargetName="ComboSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboFocus" Property="Visibility" Value="Visible" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ComboRoot" Property="Opacity" Value="0.45" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+    <StackPanel>
+        <TextBlock Text="DRIFT ANGLE" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold" />
+        <TextBlock Text="Find and hold your angle" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,12" />
+        <CheckBox x:Name="EnabledToggle" Content="Show drift angle gauge" Style="{DynamicResource ToggleSwitchStyle}"
+                  Checked="Enabled_Changed" Unchecked="Enabled_Changed" AutomationProperties.Name="Show drift angle gauge" />
+        <TextBlock Text="Choose Drift Zone angle-bonus guidance or set your own target. Readings start at 5 mph (8 km/h) of ground speed."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,16" />
+        <Label Content="Guidance" Target="{Binding ElementName=GuidanceSelector}" Padding="0" Margin="0,0,0,6" />
+        <ComboBox x:Name="GuidanceSelector" Style="{StaticResource DriftGuidanceComboStyle}" SelectedValuePath="Tag" SelectionChanged="Guidance_Changed" Margin="0,0,0,12"
+                  AutomationProperties.Name="Drift gauge guidance">
+            <ComboBoxItem Content="Drift Zone angle bonus" Tag="{x:Static core:DriftGaugeGuidanceMode.DriftZoneAngleBonus}" />
+            <ComboBoxItem Content="Custom target" Tag="{x:Static core:DriftGaugeGuidanceMode.CustomTarget}" />
+        </ComboBox>
+        <StackPanel x:Name="ZoneGuidanceDescription" Margin="0,0,0,16">
+            <TextBlock Text="Ordinary 20–40° drifts already earn most of the angle bonus. Keep your speed and line; the gauge guides angle, not total points."
+                       TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
+            <TextBlock Text="Angle-bonus guidance needs a verified game build. If unavailable, you can still use Custom target."
+                       TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,8,0,0" />
+            <Expander Header="More options" Style="{StaticResource MoreOptionsStyle}" Margin="0,8,0,0"
+                      AutomationProperties.Name="More about drift guidance">
+                <StackPanel>
+                    <TextBlock Text="The verified scoring-angle range starts around 10°. Ordinary 20–40° drifts already receive about 80–90% of the maximum angle bonus. The ticks change from yellow toward green as that bonus grows; it reaches its ceiling at 59.4°."
+                               TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
+                    <TextBlock Text="Keep your speed and line. You do not need to hold 60° to score. Beyond the green ceiling marker, yellow means more angle adds no bonus; red means outside the verified angle range. The percentage compares the angle multiplier with its maximum, not your total points."
+                               TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,8,0,0" />
+                    <TextBlock Text="Speed, your line and road contact still affect points. The gauge guides angle; it does not predict your total score or confirm that points are being awarded."
+                               TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,8,0,0" />
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+        <CheckBox x:Name="DarkModeToggle" Content="Dark mode" Style="{DynamicResource ToggleSwitchStyle}"
+                  Checked="Enabled_Changed" Unchecked="Enabled_Changed" AutomationProperties.Name="Drift gauge dark mode"
+                  AutomationProperties.HelpText="Adds dark shading around the ticks and text for bright sky." />
+        <TextBlock Text="Adds dark shading around the ticks and text for bright sky."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
+        <CheckBox x:Name="BackgroundToggle" Content="Black background" Style="{DynamicResource ToggleSwitchStyle}"
+                  Checked="Enabled_Changed" Unchecked="Enabled_Changed" AutomationProperties.Name="Drift gauge black background" />
+        <TextBlock Text="Add a plain black backing behind the gauge. Adjust its opacity to keep the road visible."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,12" />
+        <StackPanel IsEnabled="{Binding IsChecked, ElementName=BackgroundToggle}" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock Text="Background opacity" />
+                <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=BackgroundOpacitySlider, StringFormat={}{0:P0}}" />
+            </Grid>
+            <Slider x:Name="BackgroundOpacitySlider" Minimum="0" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                    SmallChange="0.05" LargeChange="0.1" ValueChanged="Value_Changed" Margin="0,6,0,0"
+                    AutomationProperties.Name="Drift gauge black background opacity" />
+        </StackPanel>
+        <StackPanel x:Name="CustomTargetSettings" Visibility="Collapsed">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock Text="Target angle" />
+                <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=TargetSlider, StringFormat={}{0:0}°}" />
+            </Grid>
+            <Slider x:Name="TargetSlider" Minimum="10" Maximum="75" TickFrequency="1" IsSnapToTickEnabled="True"
+                    SmallChange="1" LargeChange="5" ValueChanged="Value_Changed" Margin="0,6,0,12"
+                    AutomationProperties.Name="Target drift angle in degrees" />
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock Text="Target zone width" />
+                <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=ToleranceSlider, StringFormat=±{0:0}°}" />
+            </Grid>
+            <Slider x:Name="ToleranceSlider" Minimum="2" Maximum="15" TickFrequency="1" IsSnapToTickEnabled="True"
+                    SmallChange="1" LargeChange="5" ValueChanged="Value_Changed" Margin="0,6,0,12"
+                    AutomationProperties.Name="Drift target tolerance in degrees" />
+            <TextBlock Text="Choose an angle that suits your car and corner. This is your reference zone, not a Drift Zone score prediction. Custom guidance pauses at low speed, in reverse, or when telemetry stops."
+                       TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,0,16" />
+        </StackPanel>
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock Text="Gauge size" />
+            <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=ScaleSlider, StringFormat={}{0:P0}}" />
+        </Grid>
+        <Slider x:Name="ScaleSlider" Minimum="0.5" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                SmallChange="0.05" LargeChange="0.25" ValueChanged="Value_Changed" Margin="0,6,0,12"
+                AutomationProperties.Name="Drift gauge size" />
+        <WrapPanel Margin="0,12,0,0">
+            <Button Content="Reset position" Click="ResetPosition_Click" Margin="0,0,12,6"
+                    AutomationProperties.Name="Reset drift gauge to the top center" />
+            <TextBlock Text="Use Edit HUD layout to move it." VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6" />
+        </WrapPanel>
+        <TextBlock x:Name="RenderStatus" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}"
+                   AutomationProperties.LiveSetting="Polite" />
+    </StackPanel>
+</UserControl>

@@ -57,15 +57,15 @@
 
             <local:GForceTrailView Position="{Binding GForceTrailPosition}"
                                    IsActive="{Binding HasLiveTelemetry}"
-                                   TrailBrush="{StaticResource AccentBrush}" />
+                                   TrailBrush="{Binding GForceTrailBrush, TargetNullValue={StaticResource AccentBrush}, FallbackValue={StaticResource AccentBrush}}" />
 
-            <Ellipse Width="14" Height="14" Fill="{StaticResource AccentBrush}"
+            <Ellipse Width="14" Height="14" Fill="{Binding GForceDotBrush, TargetNullValue={StaticResource AccentBrush}, FallbackValue={StaticResource AccentBrush}}"
                      HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Ellipse.RenderTransform>
                     <TranslateTransform X="{Binding GForceOffsetX}" Y="{Binding GForceOffsetY}" />
                 </Ellipse.RenderTransform>
                 <Ellipse.Effect>
-                    <DropShadowEffect Color="#55E6C1" BlurRadius="12" ShadowDepth="0" Opacity="0.8" />
+                    <DropShadowEffect Color="{Binding GForceGlowColor, TargetNullValue=#55E6C1, FallbackValue=#55E6C1}" BlurRadius="12" ShadowDepth="0" Opacity="0.8" />
                 </Ellipse.Effect>
             </Ellipse>
         </Grid>

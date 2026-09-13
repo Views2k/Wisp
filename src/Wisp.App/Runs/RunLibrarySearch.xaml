@@ -1,0 +1,17 @@
+<UserControl x:Class="Wisp.App.Runs.RunLibrarySearch"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel>
+        <TextBlock Text="Search runs or tunes" FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,4" />
+        <DockPanel LastChildFill="True">
+            <Button Content="Clear" Command="{Binding ClearLibrarySearchCommand}" DockPanel.Dock="Right" Padding="8,5" MinHeight="30" Margin="6,0,0,0" FontSize="11" AutomationProperties.Name="Clear saved run search">
+                <Button.Style><Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                    <Setter Property="Visibility" Value="Hidden" />
+                    <Style.Triggers><DataTrigger Binding="{Binding HasLibrarySearch}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                </Style></Button.Style>
+            </Button>
+            <TextBox x:Name="SearchBox" Text="{Binding LibrarySearch, UpdateSourceTrigger=PropertyChanged, Delay=150}" MaxLength="100" MinHeight="30" FontSize="12" Padding="7,5" AutomationProperties.Name="Search saved runs by name or tune" />
+        </DockPanel>
+        <TextBlock Text="{Binding LibrarySearchSummary}" FontSize="10" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0" />
+    </StackPanel>
+</UserControl>

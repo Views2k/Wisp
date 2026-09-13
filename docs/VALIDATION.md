@@ -91,12 +91,13 @@ from the Wisp runtime.
 
 The opt-in review tool constructs the real compiled WPF pages with isolated
 settings and deterministic sample state. The main matrix covers seven pages at
-four viewport sizes, plus three supplementary Native and Combined Appearance
-captures: 31 PNGs in total. Separate bounded modes cover:
+five viewport sizes, plus three supplementary Native and Combined Appearance
+captures: 38 PNGs in total. Separate bounded modes cover:
 
 - all four setup steps at multiple viewport and DPI combinations;
 - native-control render subscription and hidden-state behavior;
-- scrolling geometry and transform stability;
+- scrolling geometry and transform stability on Diagnostics, Profiles, and
+  Release Notes at two viewport sizes: six comparisons;
 - the loaded sidebar and accent/background resource combinations.
 
 Reports check missing resources, binding failures, unexpected clipping, label

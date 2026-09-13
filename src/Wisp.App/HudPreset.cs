@@ -49,6 +49,8 @@ public sealed class HudPreset
     public string? CustomBoostMidColor { get; set; }
     public string? CustomBoostHighColor { get; set; }
     public string? CustomTractionCueColor { get; set; }
+    public string? CustomGForceColor { get; set; }
+    public string? CustomGForceTrailColor { get; set; }
 
     [JsonIgnore]
     public string Summary => LayoutMode switch
@@ -57,7 +59,7 @@ public sealed class HudPreset
             ? "Native analogue HUD"
             : "Native digital HUD",
         HudLayoutMode.Combined => "Combined HUD",
-        HudLayoutMode.SeparateBoxes => "Two boxes HUD",
+        HudLayoutMode.SeparateBoxes => "Box HUD",
         _ => "Minimal HUD"
     };
 
@@ -111,7 +113,9 @@ public sealed class HudPreset
             CustomBoostLowColor = settings.CustomBoostLowColor,
             CustomBoostMidColor = settings.CustomBoostMidColor,
             CustomBoostHighColor = settings.CustomBoostHighColor,
-            CustomTractionCueColor = settings.CustomTractionCueColor
+            CustomTractionCueColor = settings.CustomTractionCueColor,
+            CustomGForceColor = settings.CustomGForceColor,
+            CustomGForceTrailColor = settings.CustomGForceTrailColor
         };
     }
 
@@ -158,6 +162,8 @@ public sealed class HudPreset
         settings.CustomBoostMidColor = CustomBoostMidColor;
         settings.CustomBoostHighColor = CustomBoostHighColor;
         settings.CustomTractionCueColor = CustomTractionCueColor;
+        settings.CustomGForceColor = CustomGForceColor;
+        settings.CustomGForceTrailColor = CustomGForceTrailColor;
     }
 
     public bool Normalize()
@@ -197,6 +203,8 @@ public sealed class HudPreset
         CustomBoostMidColor = ColorCustomization.NormalizeGauge(CustomBoostMidColor);
         CustomBoostHighColor = ColorCustomization.NormalizeGauge(CustomBoostHighColor);
         CustomTractionCueColor = ColorCustomization.NormalizeTractionCue(CustomTractionCueColor);
+        CustomGForceColor = ColorCustomization.NormalizeGauge(CustomGForceColor);
+        CustomGForceTrailColor = ColorCustomization.NormalizeGauge(CustomGForceTrailColor);
         return true;
     }
 

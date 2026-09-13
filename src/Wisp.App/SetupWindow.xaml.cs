@@ -259,7 +259,7 @@ public partial class SetupWindow : Window
             : SelectedLayout switch
             {
                 HudLayoutMode.Combined => "Combined",
-                HudLayoutMode.SeparateBoxes => "Two boxes",
+                HudLayoutMode.SeparateBoxes => "Box",
                 _ => "Minimal"
             };
         PreviewDescription.Text = native

@@ -47,6 +47,7 @@ public partial class OverlayWindow : Window
     private bool _attachedBoostVisible;
     private bool _attachedTireTemperatureVisible;
     private bool _attachedGForceVisible;
+    private bool _combinedGForceVisible;
     private int _visibilityRevision;
 
     public OverlayWindow(AppController controller)
@@ -121,7 +122,8 @@ public partial class OverlayWindow : Window
                                    _controller.ViewModel.GForceAttached;
             if (shouldShow == _attachedBoostVisible &&
                 shouldShowTireTemperature == _attachedTireTemperatureVisible &&
-                shouldShowGForce == _attachedGForceVisible)
+                shouldShowGForce == _attachedGForceVisible &&
+                (_layoutMode != HudLayoutMode.Combined || _combinedGForceVisible == _controller.ViewModel.GForceEnabled))
             {
                 return;
             }
@@ -255,8 +257,10 @@ public partial class OverlayWindow : Window
         _layoutMode = layoutMode;
         _nativeGaugeMode = nativeGaugeMode;
         MinimalPanel.Visibility = layoutMode == HudLayoutMode.Minimal ? Visibility.Visible : Visibility.Collapsed;
-        CombinedPanel.Visibility = layoutMode == HudLayoutMode.Combined ? Visibility.Visible : Visibility.Collapsed;
-        BoxedSpeedPanel.Visibility = layoutMode == HudLayoutMode.SeparateBoxes ? Visibility.Visible : Visibility.Collapsed;
+        _combinedGForceVisible = layoutMode == HudLayoutMode.Combined && _controller.ViewModel.GForceEnabled;
+        CombinedPanel.Visibility = _combinedGForceVisible ? Visibility.Visible : Visibility.Collapsed;
+        BoxedSpeedPanel.Visibility = layoutMode == HudLayoutMode.SeparateBoxes || layoutMode == HudLayoutMode.Combined && !_combinedGForceVisible
+            ? Visibility.Visible : Visibility.Collapsed;
         NativeDigitalPanel.Visibility = layoutMode == HudLayoutMode.Native &&
                                         nativeGaugeMode == NativeGaugeMode.Digital &&
                                         !_isElectricPowertrain
@@ -337,7 +341,7 @@ public partial class OverlayWindow : Window
 
         var (baseWidth, baseHeight) = layoutMode switch
         {
-            HudLayoutMode.Combined => (CombinedWidth, CombinedHeight),
+            HudLayoutMode.Combined => _combinedGForceVisible ? (CombinedWidth, CombinedHeight) : (BoxedWidth, BoxedHeight),
             HudLayoutMode.SeparateBoxes => (BoxedWidth, BoxedHeight),
             HudLayoutMode.Native when _isElectricPowertrain && nativeGaugeMode == NativeGaugeMode.Analogue =>
                 (analogTireTemperatureVisible ? NativeAnalogBoostWidth : NativeElectricAnalogWidth,

@@ -22,9 +22,14 @@ namespace Wisp.UiReview;
 internal static class Program
 {
     private static readonly (string Name, int Width, int Height)[] Viewports =
-        [("baseline", 980, 750), ("compact", 720, 440), ("wide", 1280, 900), ("fullscreen", 2560, 1440)];
+        [("baseline", 980, 750), ("compact", 720, 440), ("wide", 1280, 900), ("candidate", 1464, 994), ("fullscreen", 2560, 1440)];
+    private static readonly (string Name, int Width, int Height)[] DashboardViewports =
+        [("baseline", 980, 750), ("compact", 720, 440), ("laptop", 1366, 768), ("wide", 1280, 900),
+            ("candidate", 1464, 994), ("desktop", 1920, 1080), ("fullscreen", 2560, 1440), ("baseline-return", 980, 750)];
+    private static readonly (string Name, int Width, int Height)[] ResizableDashboardViewports =
+        [("minimum", 440, 280), ("small", 600, 420), .. DashboardViewports];
     private static readonly string[] TabNames =
-        ["dashboard", "runs", "appearance", "diagnostics", "profiles", "setup", "extras", "release-notes"];
+        ["dashboard", "runs", "appearance", "diagnostics", "profiles", "extras", "release-notes"];
     private static readonly (string Name, int Width, int Height)[] WizardViewports =
         [("baseline", 800, 730), ("compact", 540, 440), ("wide", 840, 760), ("launch", 900, 780)];
     private static readonly string[] WizardStepNames = ["welcome", "connection", "display", "appearance"];
@@ -34,28 +39,71 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--profile-modal-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return ProfileModalReview.Run(output, () => LoadApplicationResources(output, out _), DetachSurface);
+            }
+            if (args.Length == 3 && args[0] == "--connection-panel-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return ConnectionPanelReview.Run(output, () => LoadApplicationResources(output, out _));
+            }
+            if (args.Length == 3 && args[0] == "--particles-check" && args[1] == "--output")
+                return ParticleBackdropReview.Run(PrepareOutput(args[2]));
+            if (args.Length == 3 && args[0] == "--scroll-edge-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return ScrollEdgeReview.Run(output, () => LoadApplicationResources(output, out _), DetachSurface);
+            }
+            if (args.Length == 3 && args[0] == "--dashboard-rim-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return DashboardRimReview.Run(output, () => LoadApplicationResources(output, out _), DetachSurface);
+            }
+            if (args.Length == 3 && args[0] == "--drift-gauge-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return DriftGaugeReview.Run(output, () => LoadApplicationResources(output, out _));
+            }
             if (args.Length == 3 && args[0] == "--runs-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);
                 return RunsReview.Run(output, () => LoadApplicationResources(output, out _));
+            }
+            if (args.Length == 3 && args[0] == "--runs-workspace-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return RunWorkspaceReview.Run(output, () => LoadApplicationResources(output, out _), DetachSurface);
             }
             if (args.Length == 3 && args[0] == "--calm-shell-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);
                 return CalmShellReview.Run(output, () => LoadApplicationResources(output, out _));
             }
+            if (args.Length == 3 && args[0] == "--dashboard-window-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return DashboardWindowReview.Run(output, () => LoadApplicationResources(output, out _));
+            }
 
             var options = Options.Parse(args);
             if (options is null)
             {
-                Console.WriteLine("Wisp.UiReview --output <new workspace directory> [--fixture <name>] [--scope matrix|appearance|wizard] [--telemetry sample|waiting] [--dpi 96|144] [--present] [--step welcome|connection|display|appearance] [--scroll-check] [--native-lifetime-check]");
+                Console.WriteLine("Wisp.UiReview --output <new workspace directory> [--fixture <name>] [--scope matrix|dashboard|appearance|wizard] [--dashboard-mode normal|monitor|resizable] [--telemetry sample|waiting|lost] [--dpi 96|144] [--present] [--step welcome|connection|display|appearance] [--scroll-check] [--native-lifetime-check]");
                 Console.WriteLine("Fixtures: " + string.Join(", ", Fixture.All.Select(fixture => fixture.Name)));
                 Console.WriteLine("Main-window --present requires one --fixture, omits --scope/--dpi, and shows display-only Appearance at monitor DPI with a 120-second auto-close timer.");
                 Console.WriteLine("--scope wizard captures all four unconfirmed steps at four sizes and 96/144 DPI by default. --present --scope wizard shows one display-only step; --step selects it. Wizard mode never tests or completes setup.");
-                Console.WriteLine("--scroll-check measures bounded offscreen scrolling on all main tabs at 720x440 and 980x750, direct Viewbox versus a temporary Decorator. --scope and --step are rejected; no PNGs are produced.");
-                Console.WriteLine("--scroll-check --present automatically scrolls Appearance in an independent input-blocked host: direct then wrapped, 6 measured seconds each after warmup, 20-second auto-close and 30-second process watchdog. Uses monitor DPI; no --dpi. Compositor callback gaps are not GPU present timestamps.");
+                Console.WriteLine("--scroll-check compares direct Viewbox versus a temporary Decorator on Diagnostics, Profiles, and Release Notes at 720x440 and 980x750. --scope and --step are rejected; no PNGs are produced.");
+                Console.WriteLine("--scroll-check --present automatically scrolls Diagnostics in an independent input-blocked host: direct then wrapped, 6 measured seconds each after warmup, 20-second auto-close and 30-second process watchdog. Uses monitor DPI; no --dpi. Compositor callback gaps are not GPU present timestamps.");
                 Console.WriteLine("--native-lifetime-check requires only --output: four synthetic native controls in an independent nonactivating host, automatic minimize/restore/collapse/resume/close; 8-second close and 10-second watchdog. No controller or captures.");
                 Console.WriteLine("--calm-shell-check --output <new workspace directory> validates the loaded sidebar/theme shell with isolated settings; 25-second auto-close and 30-second process watchdog. No live services.");
+                Console.WriteLine("--runs-workspace-check --output <new workspace directory> captures and checks modular run graphs, comparison, selected sections, and statistics at 720x440 and 1440x900. Detached own surfaces only; no window is shown and no live services start.");
+                Console.WriteLine("--drift-gauge-check --output <new workspace directory> checks exact drift-gauge scene commands and transparent artwork for eight states at 96/144 DPI. No window, native device, or live telemetry.");
+                Console.WriteLine("--dashboard-rim-check --output <new workspace directory> captures detached dashboard rim effects at boundary widths, colors, animation states and display mode, with bounded CPU preparation timings. No shown window or live telemetry.");
+                Console.WriteLine("--scroll-edge-check --output <new workspace directory> captures viewport fades in detached modern and legacy pages, including scrollbars and horizontal edges. No shown window or live telemetry.");
+                Console.WriteLine("--scope dashboard captures seven sizes plus a baseline roundtrip; --dashboard-mode monitor or resizable checks real display-mode layout without opening a window. Resizable also includes 440x280 and 600x420. Choose 96 or 144 DPI; waiting/lost telemetry is supported.");
+                Console.WriteLine("--dashboard-window-check --output <new workspace directory> validates display-mode button/key routing and restored window state in a nonactivating isolated window; 12-second close and 15-second process watchdog. No live services or OS input injection.");
                 return 0;
             }
 
@@ -82,9 +130,9 @@ internal static class Program
         using var bindings = new BindingTrace();
         var report = new ReviewReport
         {
-            Telemetry = options.WizardOnly ? "not-started" : options.Waiting ? "waiting" : "synthetic-sample",
+            Telemetry = options.WizardOnly ? "not-started" : options.LostTelemetry ? "synthetic-sample-then-lost" : options.Waiting ? "waiting" : "synthetic-sample",
             PresentationMode = options.Present || options.NativeLifetimeCheck,
-            Scope = options.NativeLifetimeCheck ? "native-lifetime-check" : options.ScrollCheck ? "scroll-check" : options.WizardOnly ? "wizard" : options.AppearanceOnly ? "appearance" : "matrix"
+            Scope = options.NativeLifetimeCheck ? "native-lifetime-check" : options.ScrollCheck ? "scroll-check" : options.WizardOnly ? "wizard" : options.DashboardOnly ? options.DashboardResizable ? "dashboard-resizable" : options.DashboardMonitor ? "dashboard-monitor" : "dashboard" : options.AppearanceOnly ? "appearance" : "matrix"
         };
         OffscreenApplication? application = null;
         try
@@ -123,6 +171,11 @@ internal static class Program
         {
             report.FatalError = exception.GetType().Name;
             report.FatalInnerError = exception.InnerException?.GetType().Name;
+            report.FatalMethods = new System.Diagnostics.StackTrace(exception, false).GetFrames()
+                .Select(frame => frame.GetMethod())
+                .Where(method => method is not null)
+                .Select(method => method!.DeclaringType?.FullName + "." + method.Name)
+                .Take(12).ToArray();
             report.FatalPhase = bindings.Phase;
         }
         finally
@@ -161,8 +214,9 @@ internal static class Program
                        options.Present && report.Presentation is not { ContentRendered: true } ||
                        report.ScrollCheck?.HasFindings == true ||
                        report.NativeLifetimeCheck?.HasFindings == true ||
-                       inspections.Any(capture => !capture.Logo.Visible || !capture.Logo.Decoded || capture.BindingFailures.Length > 0 ||
-                           capture.Labels.OverflowCount > 0 || capture.VisualTreeTruncated || capture.Wizard?.HasFindings == true);
+                       inspections.Any(capture => !options.DashboardDisplay && (!capture.Logo.Visible || !capture.Logo.Decoded) || capture.BindingFailures.Length > 0 ||
+                           capture.Labels.OverflowCount > 0 || capture.VisualTreeTruncated || capture.Wizard?.HasFindings == true ||
+                           capture.DashboardSpeed?.HasFindings == true);
         if (options.NativeLifetimeCheck)
         {
             Console.WriteLine($"Native lifecycle check: {(report.NativeLifetimeCheck?.Completed == true ? "PASS" : "FAIL")}; " +
@@ -183,6 +237,7 @@ internal static class Program
         var result = options.Present ? "Synthetic presentation closed; no PNGs captured" : $"{report.Captures.Count} offscreen PNGs";
         Console.WriteLine($"{result}; {report.BindingMessageCount} binding diagnostics; " +
             $"{inspections.Sum(capture => capture.Labels.OverflowCount)} text-overflow findings; " +
+            $"{inspections.Count(capture => capture.DashboardSpeed?.HasFindings == true)} synthetic speed-render findings; " +
             $"{inspections.Count(capture => capture.Wizard?.HasFindings == true)} wizard layout/contrast findings. See review.json.");
         return report.FatalError is not null ? 1 : findings ? 2 : 0;
     }
@@ -194,13 +249,17 @@ internal static class Program
         Directory.CreateDirectory(stateDirectory);
         var settingsPath = Path.Combine(stateDirectory, "settings.json");
         AppController? controller = null;
-        MainWindow? window = null;
+        ControlPanelWindow? window = null;
         try
         {
             bindings.Phase = fixture.Name + "/initialize";
             controller = new AppController(fixture.CreateSettings(), new SettingsService(settingsPath));
-            fixture.Apply(controller.ViewModel, options.Waiting);
-            window = new MainWindow(controller);
+            fixture.Apply(controller.ViewModel, options.Waiting && !options.LostTelemetry);
+            if (options.LostTelemetry)
+                controller.ViewModel.UpdateWaiting(default, Wisp.Core.TelemetryConnectionState.Lost,
+                    TimeSpan.FromSeconds(1), 60, preserveHudVisuals: true);
+            window = controller.Settings.UseLegacyInterface
+                ? new LegacyMainWindow(controller) : new MainWindow(controller);
             if (!options.Waiting && window.FindName("PreviewCaptionText") is TextBlock previewCaption)
             {
                 previewCaption.Text = Fixture.SyntheticPreviewCaption;
@@ -213,14 +272,26 @@ internal static class Program
                 throw new InvalidOperationException("The tab count changed; review the capture matrix.");
             }
 
+            if (options.DashboardDisplay)
+            {
+                var main = window as MainWindow
+                    ?? throw new InvalidOperationException("Display mode requires the current interface.");
+                main.SetResizableDisplay(options.DashboardResizable);
+                main.SetDashboardDisplayMode(true);
+                if (!main.IsDashboardDisplayMode || tabs.SelectedIndex != 0)
+                    throw new InvalidOperationException("Dashboard display mode did not select the dashboard.");
+                if (controller.Settings.ResizableDashboardDisplay != options.DashboardResizable)
+                    throw new InvalidOperationException("Dashboard display preference did not match the requested fixture.");
+            }
+
             var surface = DetachSurface(window, controller.ViewModel);
             if (options.ScrollCheck)
             {
                 report.ScrollCheck = new ScrollCheckReport { Fixture = fixture.Name, Dpi = options.Present ? null : dpi };
                 if (options.Present)
-                    ScrollPresentation.Run(window, surface, tabs, fixture, report, bindings, cancellationToken);
+                    ScrollPresentation.Run((MainWindow)window, surface, tabs, fixture, report, bindings, cancellationToken);
                 else
-                    ScrollReview.Run(window, surface, tabs, bindings, cancellationToken, dpi, SetOffscreenDpi, report.ScrollCheck);
+                    ScrollReview.Run((MainWindow)window, surface, tabs, bindings, cancellationToken, dpi, SetOffscreenDpi, report.ScrollCheck);
                 return;
             }
 
@@ -231,10 +302,13 @@ internal static class Program
                 return;
             }
 
-            foreach (var viewport in appearanceOnly ? Viewports.Take(1) : Viewports)
+            var viewports = options.DashboardResizable ? ResizableDashboardViewports :
+                options.DashboardOnly ? DashboardViewports : appearanceOnly ? Viewports.Take(1) : Viewports;
+            CaptureReport? dashboardBaseline = null;
+            foreach (var viewport in viewports)
                 for (var index = 0; index < tabs.Items.Count; index++)
                 {
-                    if (appearanceOnly && index != 2)
+                    if (options.DashboardOnly ? index != 0 : appearanceOnly && index != 2)
                     {
                         continue;
                     }
@@ -244,6 +318,12 @@ internal static class Program
                     bindings.Phase = fileName;
                     var bindingStart = bindings.TotalCount;
                     tabs.SelectedIndex = index;
+                    if (fixture.ExtremeMetrics && !fixture.LegacyInterface && index == 2)
+                    {
+                        if (window.FindName("AppearanceColorsCategory") is not RadioButton colorsCategory)
+                            throw new InvalidOperationException("Appearance colors category is missing.");
+                        colorsCategory.IsChecked = true;
+                    }
                     var size = new Size(viewport.Width, viewport.Height);
                     for (var pass = 0; pass < 2; pass++)
                     {
@@ -277,9 +357,21 @@ internal static class Program
                         encoder.Save(destination);
                     }
 
-                    report.Captures.Add(ReviewDiagnostics.Inspect(surface, fileName, fixture.Name, TabNames[index],
-                        viewport.Name, dpi, pixelWidth, pixelHeight, bindings.TotalCount - bindingStart));
+                    var capture = ReviewDiagnostics.Inspect(surface, fileName, fixture.Name, TabNames[index],
+                        viewport.Name, dpi, pixelWidth, pixelHeight, bindings.TotalCount - bindingStart);
+                    report.Captures.Add(capture);
+                    if (options.DashboardDisplay) ValidateDashboardDisplayOccupancy(capture);
+                    if (options.DashboardOnly && viewport.Name == "baseline") dashboardBaseline = capture;
+                    if (options.DashboardOnly && viewport.Name == "baseline-return")
+                        ValidateDashboardRoundtrip(dashboardBaseline!, capture);
                 }
+
+            if (options.DashboardDisplay && window is MainWindow monitorWindow)
+            {
+                monitorWindow.SetDashboardDisplayMode(false);
+                if (monitorWindow.IsDashboardDisplayMode)
+                    throw new InvalidOperationException("Dashboard display mode did not exit.");
+            }
         }
         finally
         {
@@ -309,6 +401,45 @@ internal static class Program
             }
         }
     }
+
+    private static void ValidateDashboardRoundtrip(CaptureReport first, CaptureReport last)
+    {
+        // ScrollViewer lazily instantiates scrollbar template children during a
+        // compact pass. Compare stable application names, not template traversal order.
+        var originals = first.NamedElements.Where(DashboardElement)
+            .ToDictionary(element => element.Name, StringComparer.Ordinal);
+        var restored = last.NamedElements.Where(DashboardElement)
+            .ToDictionary(element => element.Name, StringComparer.Ordinal);
+        if (originals.Count == 0 || originals.Count != restored.Count)
+            throw new InvalidOperationException("Dashboard resize roundtrip changed the dashboard elements.");
+        foreach (var (name, original) in originals)
+        {
+            if (!restored.TryGetValue(name, out var element) || original.Type != element.Type || original.Visible != element.Visible)
+                throw new InvalidOperationException("Dashboard resize roundtrip changed element availability.");
+            if (element.Visible && !SameBounds(original.Bounds, element.Bounds))
+                throw new InvalidOperationException("Dashboard resize roundtrip did not restore layout.");
+        }
+        if (!SameBounds(first.DashboardSpeed?.Bounds, last.DashboardSpeed?.Bounds))
+            throw new InvalidOperationException("Dashboard resize roundtrip changed the readout layout.");
+    }
+
+    private static bool DashboardElement(ElementBounds element) =>
+        element.Name.StartsWith("Dashboard", StringComparison.Ordinal) || element.Name == "OrbitInstrument";
+
+    private static void ValidateDashboardDisplayOccupancy(CaptureReport capture)
+    {
+        var viewport = capture.NamedElements.FirstOrDefault(element => element.Name == "DashboardViewport")?.Bounds;
+        var instruments = capture.NamedElements.FirstOrDefault(element => element.Name == "OrbitInstrument")?.Bounds;
+        // A second-monitor dashboard must occupy the available landscape viewport,
+        // not silently pass a clipping-only check after collapsing to a thumbnail.
+        if (viewport is null || instruments is null || instruments.Width < viewport.Width * 0.6 || instruments.Height < 60)
+            throw new InvalidOperationException("Dashboard display mode did not fill the available instrument area.");
+    }
+
+    private static bool SameBounds(Bounds? first, Bounds? last) => first is null || last is null
+        ? first == last
+        : Math.Abs(first.X - last.X) < 0.5 && Math.Abs(first.Y - last.Y) < 0.5 &&
+          Math.Abs(first.Width - last.Width) < 0.5 && Math.Abs(first.Height - last.Height) < 0.5;
 
     private static void PopulateGForceTrails(DependencyObject root)
     {
@@ -547,6 +678,11 @@ internal static class Program
             {
                 report.FatalError = exception.GetType().Name;
                 report.FatalInnerError = exception.InnerException?.GetType().Name;
+                report.FatalMethods = new System.Diagnostics.StackTrace(exception, false).GetFrames()
+                    .Select(frame => frame.GetMethod())
+                    .Where(method => method is not null)
+                    .Select(method => method!.DeclaringType?.FullName + "." + method.Name)
+                    .Take(12).ToArray();
                 report.FatalPhase = bindings.Phase;
                 host.Close();
             }
@@ -676,6 +812,12 @@ internal static class Program
             }
         }
 
+        foreach (var declaration in dictionary.DescendantsAndSelf().Attributes()
+                     .Where(attribute => attribute.IsNamespaceDeclaration && attribute.Value == "clr-namespace:Wisp.App"))
+        {
+            declaration.Value = "clr-namespace:Wisp.App;assembly=Wisp";
+        }
+
         var context = new ParserContext
         {
             BaseUri = new Uri("pack://application:,,,/Wisp;component/App.xaml", UriKind.Absolute)
@@ -732,8 +874,10 @@ internal static class Program
     }
 
     private sealed record Options(string Output, Fixture[] Fixtures, bool Waiting, int Dpi, bool AppearanceOnly, bool Present,
-        bool WizardOnly, int[] WizardDpis, int? WizardStep, bool ScrollCheck, bool NativeLifetimeCheck)
+        bool WizardOnly, int[] WizardDpis, int? WizardStep, bool ScrollCheck, bool NativeLifetimeCheck,
+        bool DashboardOnly = false, bool DashboardMonitor = false, bool LostTelemetry = false, bool DashboardResizable = false)
     {
+        public bool DashboardDisplay => DashboardMonitor || DashboardResizable;
         public static Options? Parse(string[] args)
         {
             if (args.Length == 0 || args.SequenceEqual(new[] { "--help" }))
@@ -777,7 +921,7 @@ internal static class Program
                     continue;
                 }
 
-                if (index + 1 >= args.Length || args[index] is not ("--output" or "--fixture" or "--telemetry" or "--dpi" or "--scope" or "--step") ||
+                if (index + 1 >= args.Length || args[index] is not ("--output" or "--fixture" or "--telemetry" or "--dpi" or "--scope" or "--step" or "--dashboard-mode") ||
                     args[index + 1].StartsWith("--", StringComparison.Ordinal) ||
                     !values.TryAdd(args[index], args[index + 1]))
                 {
@@ -806,17 +950,29 @@ internal static class Program
             var telemetry = values.GetValueOrDefault("--telemetry", "sample");
             var dpi = values.GetValueOrDefault("--dpi", "96");
             var scope = values.GetValueOrDefault("--scope", "matrix");
-            if (fixtures.Length == 0 || telemetry is not ("sample" or "waiting") ||
-                dpi is not ("96" or "144") || scope is not ("matrix" or "appearance" or "wizard"))
+            if (fixtures.Length == 0 || telemetry is not ("sample" or "waiting" or "lost") ||
+                dpi is not ("96" or "144") || scope is not ("matrix" or "dashboard" or "appearance" or "wizard"))
             {
                 throw new ArgumentException("Unsupported fixture, telemetry mode, or DPI.");
             }
 
             var wizard = scope == "wizard";
+            var dashboard = scope == "dashboard";
+            if (telemetry == "lost" && (!dashboard || present || scrollCheck))
+                throw new ArgumentException("Lost telemetry is a bounded dashboard-only fixture.");
+            var dashboardMode = values.GetValueOrDefault("--dashboard-mode", "normal");
+            if (dashboardMode is not ("normal" or "monitor" or "resizable") ||
+                values.ContainsKey("--dashboard-mode") && (!dashboard || present || scrollCheck) ||
+                dashboardMode != "normal" && fixtures.Any(fixture => fixture.LegacyInterface))
+                throw new ArgumentException("Dashboard mode requires offscreen current-interface dashboard scope.");
+            if (dashboard && name is null) fixtures = [Fixture.All[0]];
             if (scrollCheck && (values.ContainsKey("--scope") || values.ContainsKey("--step")))
             {
                 throw new ArgumentException("Scroll checks use their own bounded offscreen matrix.");
             }
+
+            if (scrollCheck && fixtures.Any(fixture => fixture.LegacyInterface))
+                throw new ArgumentException("Legacy fixtures use the matrix review.");
 
             if (scrollCheck && name is null)
             {
@@ -852,8 +1008,9 @@ internal static class Program
             }
 
             var parsedDpi = int.Parse(dpi, CultureInfo.InvariantCulture);
-            return new Options(output, fixtures, telemetry == "waiting", parsedDpi, scope == "appearance", present,
-                wizard, wizard && !values.ContainsKey("--dpi") ? [96, 144] : [parsedDpi], wizardStep, scrollCheck, false);
+            return new Options(output, fixtures, telemetry != "sample", parsedDpi, scope == "appearance", present,
+                wizard, wizard && !values.ContainsKey("--dpi") ? [96, 144] : [parsedDpi], wizardStep, scrollCheck, false,
+                dashboard, dashboardMode == "monitor", telemetry == "lost", dashboardMode == "resizable");
         }
     }
 }

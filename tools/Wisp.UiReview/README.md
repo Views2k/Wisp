@@ -9,9 +9,9 @@ dotnet build .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --disable-bui
 dotnet run --project .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --no-build --no-restore --no-launch-profile -- --output .\work\ui-review\matrix-01
 ```
 
-The output directory must be new or empty and inside this checkout; paths through junctions/symbolic links are rejected. Existing captures are never overwritten. The default review produces 31 PNGs plus `review.json`:
+The output directory must be new or empty and inside this checkout; paths through junctions/symbolic links are rejected. Existing captures are never overwritten. The default review produces 38 PNGs plus `review.json`:
 
-- Native Digital: all seven pages at 980x750, 720x440, 1280x900, and 2560x1440 device-independent pixels, at 96 DPI (28 PNGs).
+- Native Digital: all seven pages at 980x750, 720x440, 1280x900, 1464x994, and 2560x1440 device-independent pixels, at 96 DPI (35 PNGs).
 - Native Analogue, Native EV Digital, and Combined: Appearance at 980x750 and 144 DPI (three PNGs).
 
 At 144 DPI the baseline PNG is 1470x1125 pixels. These are actual root-DPI layouts, not resized screenshots.
@@ -22,12 +22,79 @@ Before each bounded layout pass, the harness updates root DPI and invalidates me
 
 Options:
 
-- `--fixture native-digital`, `native-analogue`, `native-ev-digital`, `native-ev-analogue`, `minimal`, `combined`, or `separate-boxes` selects just one fixture and omits the default supplements. There is no unbounded/all-fixture mode.
-- `--scope matrix` (default) captures all seven pages at four viewport sizes;
+- `--fixture native-digital`, `native-analogue`, `native-ev-digital`, `native-ev-analogue`, `minimal`, `combined`, `separate-boxes`, `orbit-reference`, `legacy-reference`, `orbit-purple`, or `orbit-purple-extreme` selects just one fixture and omits the default supplements. There is no unbounded/all-fixture mode.
+- `--scope matrix` (default) captures all seven pages at five viewport sizes;
   `appearance` captures only Appearance at the baseline size. `wizard` uses the
   separate setup matrix below.
 - `--telemetry sample` (default) feeds a deterministic synthetic vehicle directly into `DiagnosticsViewModel.Update`; `waiting` leaves real telemetry unavailable and exercises the production `NativePreviewFrame` offline sample. Waiting mode intentionally has no active EV classification.
 - `--dpi 96` (default) or `144` controls the primary fixture. The default three supplementary captures always use 144 DPI.
+
+## Dashboard layout review
+
+```[WINDOWS POWERSHELL]
+dotnet run --project .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --no-build --no-restore --no-launch-profile -- --scope dashboard --fixture orbit-reference --dpi 96 --output .\work\ui-review\dashboard-96
+dotnet run --project .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --no-build --no-restore --no-launch-profile -- --scope dashboard --fixture orbit-reference --dpi 144 --dashboard-mode monitor --output .\work\ui-review\dashboard-monitor-144
+dotnet run --project .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --no-build --no-restore --no-launch-profile -- --scope dashboard --fixture orbit-purple-extreme --dpi 144 --dashboard-mode resizable --output .\work\ui-review\dashboard-resizable-purple-144
+```
+
+Dashboard scope captures the actual compiled dashboard at 980×750, 720×440,
+1366×768, 1280×900, 1464×994, 1920×1080, and 2560×1440 DIP, then returns the
+same tree to 980×750. The final pass checks that named-element visibility,
+geometry, and the speed readout return to their original bounds. It writes eight
+PNGs and the normal binding, overflow, and speed-glyph diagnostics. Run with
+`--telemetry waiting` in a separate output directory to inspect startup without
+telemetry. Dashboard-only `--telemetry lost` supplies the synthetic reading first,
+then loses telemetry with retained HUD pixels, so stale dashboard values can be
+distinguished from intentionally retained peaks. The `orbit-reference` fixture uses the reference's illustrative
+readings; it is never sent through a live listener.
+
+The explicit `orbit-purple` fixture combines a purple accent with custom border,
+text, and muted-text colors. `orbit-purple-extreme` uses the same palette with
+maximum border width, corner radius, and padding, reduced surface opacity, and
+no glow. Its large readings and peaks stress numeric layout; they are not claims
+about values achievable in Forza. Its Appearance capture selects Colors to
+exercise the new style controls; the ordinary purple fixture preserves the
+default Appearance category. Neither fixture changes the default selection.
+
+`--dashboard-mode monitor` and `--dashboard-mode resizable` set the isolated
+display preference before calling production display-mode entry and exit methods
+on the unshown source window. Both verify the selected page, preference, and
+mode state. Resizable mode adds 440×280 and 600×420 DIP captures for ten PNGs.
+Hidden application chrome, including its logo, is expected only in
+this explicit mode; numeric glyph, binding, and text checks remain active. The
+instrument panel must also occupy at least 60% of the landscape viewport width
+and 60 DIP in height; a tiny unclipped dashboard is a failure, not a valid capture.
+The source handle and detached presentation source must remain absent throughout.
+This verifies display-mode content layout, not taskbar coverage, native window
+placement, F11/Escape routing, or changing between physical monitors. A separate
+bounded loaded-window check is needed for those window behaviors. Neither mode
+starts application services or changes the installed application's settings.
+
+For the corresponding real-window lifecycle check:
+
+```[WINDOWS POWERSHELL]
+dotnet run --project .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --no-build --no-restore --no-launch-profile -- --dashboard-window-check --output .\work\ui-review\dashboard-window
+```
+
+This separate opt-in check briefly shows a non-topmost real
+`MainWindow` with a dormant controller and output-local synthetic settings. It
+checks the display button, F11/Escape routing, unchanged behavior on another
+page, normal-window bounds restoration, previously maximized state restoration,
+and lost telemetry with retained source pixels. It saves three WPF window-content
+PNGs and a report, then closes automatically. Its 12-second dispatcher deadline
+and 15-second process watchdog bound the run. Keys are raised only as routed
+events inside this review process; no OS input is sent. Display mode is a
+maximized instrument view, not exclusive fullscreen or a taskbar-bypass claim.
+The normal capture limitation for WPF software shader rendering still applies.
+The review HWND uses `WS_EX_NOACTIVATE`, `EnableWindow(false)`, and a review-only
+`WM_STYLECHANGING` hook to preserve those guard bits. The WPF control tree remains
+enabled for its in-process checks. Despite these guards, the current host reports
+activation when WPF maximizes the window; the check then closes immediately and
+reports failure. Do not run it during focus-sensitive work. The aborted run does
+not validate loaded maximize/restore behavior or the stages it did not reach;
+those require a foreground-safe manual check. The offscreen dashboard matrices
+remain independent of this limitation. See Microsoft's
+[EnableWindow contract](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enablewindow).
 
 ## Bounded native lifetime check
 
@@ -58,14 +125,15 @@ dotnet run --project .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --no-
 ```
 
 Without `--present`, this explicit mode writes `review.json` without PNGs or a
-visible window. It uses one fixture (Native Digital by default), the four
-scroll-mechanism pages (Dashboard, Appearance, Diagnostics, and Setup), and
-720x440/980x750 DIP at the selected `--dpi`. Extras is validated by the default
-matrix and the loaded-shell check rather than this four-page A/B comparison.
+visible window. It uses one fixture (Native Digital by default), the three
+remaining Viewbox pages (Diagnostics, Profiles, and Release notes), and
+720x440/980x750 DIP at the selected `--dpi`. Dashboard and Appearance now have
+different layout structures, and Setup is no longer a main-window page. Their
+current layouts are covered by their dedicated checks and the normal matrix.
 `--fixture` and `--telemetry waiting` remain available. `--scope` and `--step`
 are rejected.
 
-Each case compares direct `ScrollViewer > Viewbox` content with `ScrollViewer > Decorator > Viewbox`, temporarily reparenting the same existing controls and restoring the original tree afterward. An already-decorated production tree is also accepted, and its original content type is reported. A/B order alternates by case. Each scrollable variant receives 16 warm-up steps and 120 measured steps, with a 30-second cooperative budget for the eight comparisons. Tabs without overflow are explicitly marked non-scrollable, not reported as successful scrolling samples.
+Each case compares direct `ScrollViewer > Viewbox` content with `ScrollViewer > Decorator > Viewbox`, temporarily reparenting the same existing controls and restoring the original tree afterward. An already-decorated production tree is also accepted, and its original content type is reported. A/B order alternates by case. Each scrollable variant receives 16 warm-up steps and 120 measured steps, with a 30-second cooperative budget for the six comparisons. Tabs without overflow are explicitly marked non-scrollable, not reported as successful scrolling samples.
 
 The `scrollCheck` report counts actual offset changes and internal Viewbox `ContainerVisual.Transform` reference replacements. Timings and same-thread allocations cover only `ScrollToVerticalOffset` plus synchronous `UpdateLayout`, excluding metadata construction. Top/middle/bottom anchors compare offsets, extents, viewport sizes, scale, and transformed Viewbox/content bounds; drift checks verify that content translates by exactly the scroll offset throughout the measured steps. Geometry, offset, incomplete-matrix, and binding findings return exit code `2`.
 
@@ -77,7 +145,7 @@ For a visible A/B run:
 dotnet run --project .\tools\Wisp.UiReview\Wisp.UiReview.csproj -c Release --no-build --no-restore --no-launch-profile -- --output .\work\ui-review\scroll-present-01 --scroll-check --present
 ```
 
-This shows only an independent, fixed-size host titled **Wisp UI review - synthetic scroll A/B**, without requesting activation. It automatically scrolls the actual Appearance surface at monitor DPI: direct Viewbox first, then a temporary plain Decorator; each phase has one warm-up second and six measured seconds, capped at 4,096 samples. An already-wrapped production tree is temporarily unwrapped only inside the detached diagnostic tree, and restored afterward. There is no OS input injection or production window `Show()`; keys, text, mouse actions, and production-content hit testing remain blocked. Escape and ordinary host close still work.
+This shows only an independent, fixed-size host titled **Wisp UI review - synthetic scroll A/B**, without requesting activation. It automatically scrolls the actual Diagnostics surface at monitor DPI: direct Viewbox first, then a temporary plain Decorator; each phase has one warm-up second and six measured seconds, capped at 4,096 samples. An already-wrapped production tree is temporarily unwrapped only inside the detached diagnostic tree, and restored afterward. There is no OS input injection or production window `Show()`; keys, text, mouse actions, and production-content hit testing remain blocked. Escape and ordinary host close still work.
 
 The `scrollCheck.presentation` metadata records monotonic `Stopwatch` intervals at `CompositionTarget.Rendering`, deduplicating identical rendering timestamps. It includes per-phase >33 ms/>50 ms gap counts, median/p95/maximum intervals, actual/requested offsets, transform reference replacements, scroll/layout time and allocations, and extent/scale stability. Raw bounded samples retain exact offset progress and relative rendering timestamps. Renderer capability and host render-mode metadata remain in the normal report. These are **compositor callback intervals, not GPU present/completion timestamps**, and fixed synthetic data do not reproduce live telemetry load. No screenshot is captured; use an OS capture tool for visual evidence.
 

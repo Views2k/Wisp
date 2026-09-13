@@ -9,10 +9,12 @@ namespace Wisp.App.Runs;
 public sealed class RunAlternativePlotView : FrameworkElement
 {
     public static readonly DependencyProperty PanelProperty = DependencyProperty.Register(nameof(Panel), typeof(RunAlternativePlotPanel), typeof(RunAlternativePlotView), new FrameworkPropertyMetadata(null, Changed));
+    public static readonly DependencyProperty SelectionGroupProperty = DependencyProperty.Register(nameof(SelectionGroup), typeof(RunChartGroup?), typeof(RunAlternativePlotView), new PropertyMetadata(null));
     public static readonly DependencyProperty AccentBrushProperty = DependencyProperty.Register(nameof(AccentBrush), typeof(Brush), typeof(RunAlternativePlotView), new FrameworkPropertyMetadata(Brushes.Turquoise, Changed));
     public static readonly DependencyProperty TextBrushProperty = DependencyProperty.Register(nameof(TextBrush), typeof(Brush), typeof(RunAlternativePlotView), new FrameworkPropertyMetadata(Brushes.WhiteSmoke, Changed));
     public static readonly DependencyProperty MutedBrushProperty = DependencyProperty.Register(nameof(MutedBrush), typeof(Brush), typeof(RunAlternativePlotView), new FrameworkPropertyMetadata(Brushes.SlateGray, Changed));
     public RunAlternativePlotPanel? Panel { get => (RunAlternativePlotPanel?)GetValue(PanelProperty); set => SetValue(PanelProperty, value); }
+    public RunChartGroup? SelectionGroup { get => (RunChartGroup?)GetValue(SelectionGroupProperty); set => SetValue(SelectionGroupProperty, value); }
     public Brush AccentBrush { get => (Brush)GetValue(AccentBrushProperty); set => SetValue(AccentBrushProperty, value); }
     public Brush TextBrush { get => (Brush)GetValue(TextBrushProperty); set => SetValue(TextBrushProperty, value); }
     public Brush MutedBrush { get => (Brush)GetValue(MutedBrushProperty); set => SetValue(MutedBrushProperty, value); }
@@ -229,7 +231,7 @@ public sealed class RunAlternativePlotView : FrameworkElement
     {
         if (_selected >= 0 && _selected < _hits.Count && _hits[_selected].SampleIndex >= 0)
         {
-            var hit = _hits[_selected]; PointSelected?.Invoke(new(hit.Comparison, hit.Seconds, hit.SampleIndex));
+            var hit = _hits[_selected]; PointSelected?.Invoke(new(hit.Comparison, hit.Seconds, hit.SampleIndex, SelectionGroup));
         }
     }
 }

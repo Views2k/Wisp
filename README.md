@@ -1,141 +1,109 @@
 [![Watch the Wisp demonstration in Forza Horizon 6](docs/images/wisp-demo-thumbnail.jpg)](https://youtu.be/hoh169Sx_5I)
 
 <p align="center">
-  <strong>A wheel-indicated speed, boost, tire-temperature, and G-force companion for Forza Horizon 6.</strong><br>
+  <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
-  <a href="https://github.com/Views2k/Wisp/releases/latest"><strong>Download</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.0.0/Wisp-Setup-2.0.0.zip"><strong>Download Wisp 2.0</strong></a> ·
+  <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
   Support Wisp: <a href="https://ko-fi.com/views2k">Ko-fi</a> ·
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.0 preview
+## New in Wisp 2.0
 
-The features below are in the current Wisp 2.0 private test candidate. **This
-candidate is not publicly available yet. The public download remains Wisp
-1.2.2 and does not include these additions.** Screenshots retain their original
-prerelease version labels.
+[Dashboard](#new-in-wisp-20) · [Drift gauge](#drift-angle-guidance) ·
+[Runs](#a-more-useful-runs-workspace) · [Appearance](#make-the-interface-yours) ·
+[Gallery](#gallery) · [Install](#install)
 
-[Download stable Wisp 1.2.2](https://github.com/Views2k/Wisp/releases/tag/v1.2.2) ·
-[Explore the 2.0 preview](https://wispoverlay.com/releases/#release-2-0) ·
-[Preview gallery](#wisp-20-preview-gallery)
+The dashboard has a new layout built around a curved tachometer, large speed
+and gear readings, and live power and torque. Use **Display mode** as a borderless
+dashboard on a second monitor. Fill the screen or resize it to share the monitor
+with something else. Press **F11** from Dashboard to switch modes, or **Esc** to leave.
+Driver assists distinguish **Disabled**, **Enabled**, and **Active**.
 
-### A dashboard for your second screen
-
-Large speed and gear readings sit below a curved tachometer, with power,
-torque, session peaks, and grouped vehicle telemetry. Driver assists distinguish
-**Disabled**, **Enabled**, and **Active**.
-
-**Display mode** makes the dashboard borderless. Fill a second monitor or
-resize it to share the screen. **F11** switches modes from Dashboard; **Esc**
-exits. The in-game overlays remain separate.
-
-![Wisp 2.0 preview dashboard with live RPM, speed, gear, power, torque, and grouped vehicle telemetry](docs/images/wisp-2.0-dashboard.png)
+![Wisp dashboard with live RPM, speed, gear, power, torque, and grouped vehicle telemetry](docs/images/wisp-2.0-dashboard.png)
 
 ### Drift angle guidance
 
-Enable the gauge in **Appearance > Gauges**. It shows your drift angle above
-the gameplay, with native-style ticks and no outer frame. Move or resize it,
-add dark shading for bright skies, or choose a black background with adjustable
-opacity.
+Add a drift gauge above the action to see your angle and the share of the
+verified Drift Zone angle bonus you are using. The scoring-angle range starts
+at **10°** and the angle bonus reaches its ceiling at **59.4°**. A **20–40°** drift
+already corresponds to roughly **80–90%** of that maximum angle bonus; more angle is not
+automatically a better run. Speed, your line, and whether the game awards points
+still matter.
 
-**Drift Zone angle bonus** supports the verified Steam FH6 **6.440.853.0**
-build. The scoring-angle range starts at **10°** and the angle bonus reaches
-its ceiling at **59.4°**. Ordinary **20–40°** drifts already correspond to roughly
-**80–90%** of the maximum angle bonus. More angle is not automatically a better
-result.
+The percentage is **angle bonus, not total score**. Wisp does not detect zone
+entry, confirm that points are being awarded, or predict your final points.
+Verified guidance currently supports Steam
+FH6 **6.440.853.0**. Other builds, including Xbox app / Microsoft Store PC, can
+use **Custom target** guidance with their own target angle and tolerance.
+Native HUD compatibility alone does not enable a verified scoring profile.
 
-The percentage is **angle bonus, not total points**. Wisp does not detect zone
-entry, confirm that points are being awarded, or predict your final score.
-Speed, distance, your line, road contact, and scoring eligibility still matter.
-Other builds, including Xbox app / Microsoft Store PC, can use **Custom target**
-guidance with their own angle and tolerance; Native HUD compatibility alone
-does not enable a verified scoring profile.
-
-Both modes hide the angle, marker, and bonus below **5 mph ground speed**
-(about **8 km/h**), avoiding misleading readings while stationary on a slope
-or spinning the wheels.
+Choose the guidance in **Appearance > Gauges**. Adjust its size and position,
+enable dark shading for bright skies, or add a black background with adjustable
+opacity. The gauge keeps its ticks and readings without an outer frame.
+Below **5 mph ground speed** (about **8 km/h**), it hides the angle, marker, and
+bonus so a stationary car on a slope or spinning its wheels does not show
+misleading drift guidance.
 
 ![Wisp drift gauge showing 43.7 degrees and 92 percent of maximum angle bonus above Forza Horizon 6 gameplay](docs/images/wisp-2.0-drift-gameplay.jpg)
 
-### Browse, compare, and share runs
+### A more useful Runs workspace
 
-- Search saved runs by name or tune label. Names, tune labels, and notes save
-  automatically, with **Saving… / Saved** feedback and **Retry** if saving fails.
-  Switching runs preserves pending edits.
-- Open **Show graphs** and choose **Overview**, **Engine**, or **Tires & handling**.
-  Show, hide, reorder, and resize graphs. Compare overlaid or side by side, use
-  a shared cursor and selected time range, and view statistics as cards or a table.
-- Use the selected run's **Export** menu for a shareable `.wisprun` file or CSV.
-  **Save image** exports a graph report. **Import runs** accepts individual run
-  files or library ZIPs, and **Export all** backs up the library.
-- **Delete all** asks for confirmation and offers Undo. Imports skip identical
-  runs and reject conflicting duplicates without overwriting existing data.
+Record a drive from Dashboard or Runs, or use a recording shortcut. Set a
+countdown or timed stop, mark moments while driving, then add a name, tune label,
+and notes. Recordings stay on your PC and can last up to ten minutes.
 
-### Appearance and everyday use
+Search saved runs by name or tune label. Names, tune labels, and notes save
+automatically, with a quiet **Saving… / Saved** indicator. Switching runs keeps
+your pending edits; if saving fails, **Retry** lets you try again.
 
-- Set the application's accent, backgrounds, text, borders, glow, surface
-  opacity, rounding, and spacing beside a larger live HUD preview.
-- Customize G-force dot and trail colors independently; disable the meter in
-  every layout. Save combinations as HUD profiles.
-- Optional particles follow the accent or a separate color. Pause or hide
-  them independently. They do not react to the mouse or change your chosen
-  background color.
-- Fresh installations use the setup wizard's palette; updates preserve existing
-  colors, settings, calibration, profiles, and runs. **Use legacy interface** in
-  **Appearance > Layout** restores the previous interface after a restart.
-- Click the existing connection status for game detection, telemetry reception,
-  and an explanation when the overlay is hidden. Common settings stay visible,
-  with detailed adjustments under **More options**.
+One **Show graphs** button opens the workspace. **Overview**, **Engine**, and
+**Tires & handling** group related measurements. Show or hide graphs, reorder
+them, and choose their width. Review statistics as cards or a table. A shared
+cursor and selectable time range make it easier to inspect the same moment
+across speed, inputs, RPM, power, torque, boost, G-force, and tire temperatures.
 
-## Wisp 1.2.2 bug fix
+Compare two runs overlaid or side by side, with distinct colors and line styles.
+Match an acceleration speed range, inspect power and torque against RPM, or
+compare tire heat and cornering load. Summaries explain the measured differences
+and call out gaps or different starting conditions.
 
-Toggling the attached G-force meter now keeps the main Native HUD in place.
-This update also services the bundled .NET runtime.
-
-[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
-[1.2.2 release notes](docs/releases/Wisp-1.2.2-release-notes.md)
-
-## Analogue CPU rendering
-
-If the Analogue tachometer lags or hitches, enable **CPU rendering** in
-**Diagnostics**. Right-click Wisp's tray icon, choose **Exit Wisp**, then reopen
-it to apply the change.
-
-CPU mode reuses the unchanged dial background to reduce repeated drawing work,
-while the needle and live readings continue updating.
-
-GPU rendering remains the default. CPU mode can increase CPU usage; other
-gauges keep their existing renderers. The gauge artwork, needle smoothing,
-HUD settings, and Record and Compare Runs features are preserved.
-
-[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
-[1.2.1 release notes](docs/releases/Wisp-1.2.1-release-notes.md)
-
-## Record and compare runs
-
-Record a drive and compare it with another run without leaving Wisp. Start from
-Dashboard or Runs, or set a recording shortcut. Add a countdown, choose a timed
-stop, and mark moments while driving. Runs stay on your PC, with names, tune
-labels and notes.
-
-Open **Show graphs** to review speed, driver inputs, engine readings, G-force
-and tire temperatures. Compare power and torque against RPM, inspect individual
-readings, or select a section for its own statistics. Run A and Run B use
-different colors and line styles in both Wisp and exported images.
-
-Compare whole recordings or match an acceleration speed range. Findings explain
-what the telemetry shows, with starting conditions and missing data called out.
-Export a report image, raw CSV, or a Wisp run file that someone else can open.
-Recordings are limited to ten minutes; Wisp does not identify tunes automatically
+Use **Import runs** for individual `.wisprun` files or a Wisp library ZIP.
+**Export all** backs up the library, and **Delete all** has confirmation and Undo.
+Use the **Export** menu for a shareable run file or raw CSV, and **Save image**
+for a graph report. Imports skip identical runs and reject conflicting duplicates
+without overwriting existing data. Wisp does not identify tunes automatically
 or record gameplay video.
 
-[Download the latest version](https://github.com/Views2k/Wisp/releases/latest) ·
-[1.2 release notes](docs/releases/Wisp-1.2.0-release-notes.md)
+### Make the interface yours
 
-For earlier changes, see the [changelog](CHANGELOG.md) and
-[release history](https://github.com/Views2k/Wisp/releases).
+Appearance now groups **Layout**, **Gauges**, **Colors**, and **Behaviour** with
+a larger live HUD preview. Set your accent, backgrounds, text, borders, glow,
+surface opacity, corner rounding, and spacing. G-force dot and trail colors are
+independent, and the G-force meter can be disabled in every layout.
+
+Optional background particles follow your accent or a separate color. They do
+not react to the mouse or change your selected background color, and can be
+paused or hidden. The dashboard adds accent lighting and particles along its
+rim. Fresh installations use the setup wizard's palette; updates retain your
+colors and saved data. Prefer the previous interface? Enable **Use legacy
+interface** in **Appearance > Layout**, then restart Wisp.
+
+Common settings stay visible, with detailed adjustments under **More options**.
+Click the existing connection status to see whether Forza is detected, whether
+telemetry is arriving, and why the overlay is hidden, with the relevant next step.
+
+[Download Wisp 2.0](https://github.com/Views2k/Wisp/releases/download/v2.0.0/Wisp-Setup-2.0.0.zip) ·
+[2.0 release notes](docs/releases/Wisp-2.0.0-release-notes.md) ·
+[Changelog](CHANGELOG.md)
+
+Screenshots show the prerelease build used to develop Wisp 2.0. Older version
+labels in those captures are retained.
+
+## Wheel-indicated speed
 
 Wisp shows the speed implied by the driven wheels rather than only the car's
 ground speed. The difference becomes visible during wheelspin, burnouts,
@@ -162,61 +130,72 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
 - Live RPM, gear, driver assists, electric power, regeneration, and redline
   state when the installed FH6 build supports those sources.
 - Standalone or Native-attached G-force display with a longer motion trail.
-- A vehicle dashboard for speed, RPM, drivetrain, power, torque, controls, and
-  connection status.
-- One continuous color editor for the application accent, background surfaces,
-  HUD border, shared gauge gradient, and traction hook cue, plus named visual profiles.
-- Local run recording, graphs, and comparisons, with report images, CSV, and
-  shareable Wisp run files.
+- A borderless second-screen dashboard with a resizable Display mode.
+- Drift angle and verified angle-bonus guidance, or a custom target and tolerance.
+- Application styling, individual G-force dot and trail colors, and saved HUD
+  profiles for layouts and gauge colors.
+- Local run recording, configurable graphs, overlaid or side-by-side comparisons,
+  report images, CSV, shareable run files, and whole-library backup and import.
 - Optional update discovery on every open and daily while running, a customizable
   HUD visibility shortcut, and bounded local debug logging with ZIP export for
   issue reports.
 
-## Wisp 2.0 preview gallery
+## Gallery
 
-These are captures of the private test candidate, **not the current 1.2.2
-download**. Original prerelease version labels are retained.
+Actual Wisp captures with custom colors. The interface captures retain their
+prerelease version labels.
 
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/images/wisp-2.0-display-mode.png" alt="Wisp 2.0 preview borderless Display mode with a curved tachometer and large dashboard readings">
-      <br><sub>Display mode for a whole second screen or a resizable part of it.</sub>
+      <img src="docs/images/wisp-2.0-display-mode.png" alt="Wisp borderless Display mode with its curved tachometer and large dashboard readings">
+      <br><sub>Display mode for a dedicated screen or a resizable part of your second monitor.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/wisp-2.0-runs.png" alt="Wisp 2.0 preview Runs workspace comparing recorded telemetry with distinct colors">
+      <img src="docs/images/wisp-2.0-runs.png" alt="Wisp Runs workspace comparing recorded telemetry with different run colors">
       <br><sub>Configurable graphs and comparisons, with a separate color for each run.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/images/wisp-2.0-appearance.png" alt="Wisp 2.0 preview Appearance colors and particle controls beside a live Native Analogue HUD preview">
+      <img src="docs/images/wisp-2.0-appearance.png" alt="Wisp Appearance colors and particle controls beside a live Native Analogue HUD preview">
       <br><sub>Live HUD preview, gauge controls, colors, and application styling.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/wisp-2.0-diagnostics.png" alt="Wisp 2.0 preview Diagnostics showing telemetry reception, tire calibration, Native HUD capabilities, and debug controls">
-      <br><sub>Telemetry, tire calibration, Native HUD capabilities, and debug controls.</sub>
+      <img src="docs/images/wisp-2.0-diagnostics.png" alt="Wisp Diagnostics showing telemetry reception, tire calibration, Native HUD capabilities, and debug controls">
+      <br><sub>Live telemetry, tire calibration, Native HUD capabilities, and local debug controls.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/images/wisp-2.0-profiles.png" alt="Wisp 2.0 preview Profiles showing saved HUD layouts and color combinations">
+      <img src="docs/images/wisp-2.0-profiles.png" alt="Wisp Profiles showing saved HUD layouts and color combinations">
       <br><sub>Saved HUD profiles with their own layouts and colors.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/wisp-2.0-extras.png" alt="Wisp 2.0 preview Extras showing startup and application update settings">
+      <img src="docs/images/wisp-2.0-extras.png" alt="Wisp Extras with startup and application update settings">
       <br><sub>Startup behavior and application updates.</sub>
     </td>
   </tr>
 </table>
+
+## Analogue CPU rendering
+
+If the Analogue tachometer lags or hitches, enable **CPU rendering** in
+**Diagnostics**. Right-click Wisp's tray icon, choose **Exit Wisp**, then reopen
+it to apply the change. CPU mode reuses unchanged dial-background pixels while
+the needle and live readings continue updating.
+
+GPU rendering remains the default. CPU mode can increase CPU usage, and Windows
+still uses the GPU to compose the overlay. Other gauges keep their existing
+renderers. This option does not guarantee that every rendering-lag report is
+resolved.
 
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit.
 - Forza Horizon 6 for Windows PC from Steam, the Xbox app, or Microsoft Store,
   with Data Out enabled.
-- Borderless fullscreen, windowed, or another desktop-composited display mode.
-  Exclusive fullscreen can cover ordinary Windows overlays.
+- Set Forza Horizon 6's display mode to **Fullscreen**.
 
 Native process-derived HUD state supports Steam FH6 build `6.440.853.0` and
 Xbox app / Microsoft Store PC build `3.440.853.0`. Previous bundled maps remain
@@ -231,8 +210,8 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open [Releases](https://github.com/Views2k/Wisp/releases/latest).
-2. Download and extract the current `Wisp-Setup-*.zip` package.
+1. Open the [Wisp 2.0 release](https://github.com/Views2k/Wisp/releases/tag/v2.0.0).
+2. Download and extract [Wisp-Setup-2.0.0.zip](https://github.com/Views2k/Wisp/releases/download/v2.0.0/Wisp-Setup-2.0.0.zip).
 3. Keep the installer and its `.sha256` file together.
 4. Verify the installer checksum, then run the installer.
 5. Complete the required setup wizard on first launch.
@@ -357,6 +336,8 @@ To build the self-contained installer:
 
 - [Boost Gauge](docs/BOOST-GAUGE.md)
 - [Tire Temperature](docs/TIRE-TEMPERATURE.md)
+- [Run files and library archives](docs/run-library-format.md)
+- [Wisp 2.0 release notes](docs/releases/Wisp-2.0.0-release-notes.md)
 - [How Wisp Was Built](docs/HOW-WISP-WAS-BUILT.md)
 - [Wheel-Speed Model](docs/WHEEL-SPEED-MODEL.md)
 - [Compatibility and Update Safety](docs/COMPATIBILITY.md)

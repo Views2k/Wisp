@@ -12,7 +12,7 @@ public sealed record RunSummary(Guid Id, string Name, string Tune, string Notes,
     DateTimeOffset StartedAtUtc, double DurationSeconds, int SampleCount, int CarOrdinal,
     bool IsIncomplete, string FinishReason);
 
-public sealed class RunStore
+public sealed partial class RunStore
 {
     public const int MaximumSamples = 180_000;
     public const int MaximumMarkers = 128;
@@ -201,6 +201,7 @@ public sealed class RunStore
     {
         CheckPath(_directory);
         Directory.CreateDirectory(_directory);
+        RecoverBulkTransactions();
     }
 
     private string RunPath(Guid id)
@@ -417,6 +418,9 @@ public sealed class RunStore
             sample.Segment < 0 || (previous is not null && (sample.ElapsedSeconds < previous.ElapsedSeconds || sample.Segment < previous.Segment)) ||
             state.CarOrdinal is <= 0 or > 10_000_000 || !Enum.IsDefined(state.Drivetrain) || !Enum.IsDefined(state.Gear) || state.NumCylinders is < 0 or > 32 ||
             !FiniteBound(state.GroundSpeedMetersPerSecond, 500) || !FiniteBound(state.EngineRpm, 40_000) || state.EngineRpm < 0 ||
+            (state.LocalVelocityXMetersPerSecond is { } localX && !FiniteBound(localX, 500)) ||
+            (state.LocalVelocityYMetersPerSecond is { } localY && !FiniteBound(localY, 500)) ||
+            (state.LocalVelocityZMetersPerSecond is { } localZ && !FiniteBound(localZ, 500)) ||
             !FiniteBound(state.EngineMaximumRpm, 30_000) || state.EngineMaximumRpm < 0 ||
             !FiniteBound(state.PowerWatts, 100_000_000) || !FiniteBound(state.TorqueNm, 10_000_000) || !FiniteBound(state.BoostPressurePsi, 200) ||
             !FiniteBound(state.LateralAccelerationMetersPerSecondSquared, 10_000) || !FiniteBound(state.LongitudinalAccelerationMetersPerSecondSquared, 10_000) ||

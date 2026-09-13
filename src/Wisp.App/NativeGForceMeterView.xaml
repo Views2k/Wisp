@@ -41,15 +41,16 @@
 
             <local:GForceTrailView Position="{Binding GForceTrailPosition}"
                                    IsActive="{Binding HasLiveTelemetry}"
-                                   TrailBrush="#66FFFFFF" />
+                                   TrailBrush="{Binding GForceTrailBrush, TargetNullValue=#66FFFFFF, FallbackValue=#66FFFFFF}" />
 
-            <Ellipse Width="14" Height="14" Fill="#CCFFFFFF" Stroke="#66FFFFFF" StrokeThickness="1"
+            <Ellipse Width="14" Height="14" Fill="{Binding GForceDotBrush, TargetNullValue=#CCFFFFFF, FallbackValue=#CCFFFFFF}"
+                     Stroke="{Binding GForceDotStrokeBrush, TargetNullValue=#66FFFFFF, FallbackValue=#66FFFFFF}" StrokeThickness="1"
                      HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Ellipse.RenderTransform>
                     <TranslateTransform X="{Binding GForceOffsetX}" Y="{Binding GForceOffsetY}" />
                 </Ellipse.RenderTransform>
                 <Ellipse.Effect>
-                    <DropShadowEffect Color="#FFFFFFFF" BlurRadius="7" ShadowDepth="0" Opacity="0.30" />
+                    <DropShadowEffect Color="{Binding GForceGlowColor, TargetNullValue=#FFFFFFFF, FallbackValue=#FFFFFFFF}" BlurRadius="7" ShadowDepth="0" Opacity="0.30" />
                 </Ellipse.Effect>
             </Ellipse>
         </Grid>

@@ -1,4 +1,6 @@
 using System.Runtime.ExceptionServices;
+using System.ComponentModel;
+using System.Windows.Controls;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Net;
@@ -14,6 +16,231 @@ namespace Wisp.App.Tests;
 
 public sealed class RunsViewModelTests
 {
+    [Fact]
+    public void SavingRunDetailsKeepsPreparedGraphsAndComparisonArrangementAvailable() => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = Run("Baseline", 0, 4); var b = Run("Revised", 0, 5);
+            await service.Store.SaveAsync(a); await service.Store.SaveAsync(b);
+            model.SetModularWorkspaceEnabled(true);
+            await model.ShowReviewAsync(a, b);
+            model.ShowGraphs(); await Ready(model);
+            var original = model.WorkspacePanels.Single(module => module.Id == "speed").Plots[0].TimePanel!;
+            model.Name = "Street tune"; model.Notes = "Less wheelspin on the same corner.";
+            await model.SaveDetailsAsync(); await Ready(model);
+            Assert.Equal("A · Street tune", model.RunALabel);
+            Assert.True(model.WorkspaceHasPreparedCharts); Assert.True(model.CanExportImage);
+            Assert.Same(original, model.WorkspacePanels.Single(module => module.Id == "speed").Plots[0].TimePanel);
+            model.WorkspaceComparisonMode = model.WorkspaceComparisonModes.Single(option => option.Id == RunWorkspaceComparisonMode.SideBySide);
+            var split = model.WorkspacePanels.Single(module => module.Id == "speed").Plots;
+            Assert.Equal(new[] { "A", "B" }, split.Select(plot => plot.Label));
+            var expectedA = original.Series.Where(series => !series.Comparison).ToArray();
+            var expectedB = original.Series.Where(series => series.Comparison).ToArray();
+            Assert.NotEmpty(expectedA); Assert.NotEmpty(expectedB);
+            Assert.Equal(expectedA.Length, split[0].TimePanel!.Series.Length);
+            Assert.Equal(expectedB.Length, split[1].TimePanel!.Series.Length);
+            for (var index = 0; index < expectedA.Length; index++) Assert.Same(expectedA[index], split[0].TimePanel!.Series[index]);
+            for (var index = 0; index < expectedB.Length; index++) Assert.Same(expectedB[index], split[1].TimePanel!.Series[index]);
+            Assert.All(split[0].TimePanel!.Series, series => Assert.False(series.Comparison));
+            Assert.All(split[1].TimePanel!.Series, series => Assert.True(series.Comparison));
+            Assert.True(model.CanExportImage); Assert.False(model.IsPreparingCharts);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    [Fact]
+    public void ChartSourceIdentityIgnoresMetadataButRejectsDifferentSamplesAndRunIds()
+    {
+        var run = Run("Original", 0, 4);
+        Assert.True(RunsViewModel.SameChartSource(run, run with { Name = "Renamed", Notes = "New notes" }));
+        Assert.False(RunsViewModel.SameChartSource(run, run with { Samples = run.Samples.ToArray() }));
+        Assert.False(RunsViewModel.SameChartSource(run, run with { Id = Guid.NewGuid() }));
+        Assert.False(RunsViewModel.SameChartSource(run, null));
+        Assert.False(RunsViewModel.SameChartSource(null, run));
+        Assert.True(RunsViewModel.SameChartSource(null, null));
+    }
+
+    [Fact]
+    public void OpeningAnotherRunKeepsGraphsAndExistingPlotControlsUntilNewDataIsReady() => OnDispatcher(async () =>
+    {
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        model.SetModularWorkspaceEnabled(true);
+        var a = Run("First", 0, 4); var b = Run("Next", 0, 5);
+        await model.ShowReviewAsync(a, b);
+        model.ShowGraphs(); await Ready(model);
+        Assert.True(model.WorkspaceHasPreparedCharts);
+        var module = model.WorkspacePanels.Single(item => item.Id == "speed");
+        var plot = module.Plots[0];
+        var previousPanel = plot.TimePanel;
+        var resetEvents = 0; var reopened = 0;
+        module.Plots.CollectionChanged += (_, change) =>
+        { if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) resetEvents++; };
+        model.ReportOpened += (_, _) => reopened++;
+        model.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName == nameof(model.IsBusy)) Assert.True(model.CanSelectRun);
+        };
+        model.SelectedRun = model.Library.Single(item => item.Id == b.Id);
+        Assert.True(model.IsGraphWorkspaceOpen);
+        Assert.Same(previousPanel, plot.TimePanel);
+        await Ready(model);
+        Assert.Equal(b.Id, model.SelectedRun!.Id); Assert.True(model.IsGraphWorkspaceOpen);
+        Assert.Equal(0, resetEvents); Assert.Equal(0, reopened);
+        Assert.Same(plot, module.Plots[0]); Assert.NotSame(previousPanel, plot.TimePanel);
+        Assert.True(model.WorkspaceHasPreparedCharts); Assert.True(model.CanExportImage);
+        Assert.False(model.HasComparison);
+    });
+
+    [Theory]
+    [InlineData(RunWorkspacePreset.Overview, "gforce", RunChartGroup.Handling, "gforce-time", RunWorkspaceComparisonMode.Overlay)]
+    [InlineData(RunWorkspacePreset.Overview, "gforce", RunChartGroup.Handling, "gforce-time", RunWorkspaceComparisonMode.SideBySide)]
+    [InlineData(RunWorkspacePreset.Engine, "power-rpm", RunChartGroup.Engine, "rpm", RunWorkspaceComparisonMode.Overlay)]
+    [InlineData(RunWorkspacePreset.Engine, "power-rpm", RunChartGroup.Engine, "rpm", RunWorkspaceComparisonMode.SideBySide)]
+    public void WorkspaceScatterSelectionRevealsItsOwnTimeGraphs(RunWorkspacePreset preset, string moduleId,
+        RunChartGroup group, string timeModuleId, RunWorkspaceComparisonMode arrangement) => OnDispatcher(async () =>
+    {
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        model.SetModularWorkspaceEnabled(true);
+        await model.ShowReviewAsync(Run("A", 0, 4), Run("B", 0, 5));
+        model.SelectedWorkspacePreset = model.WorkspacePresets.Single(option => option.Id == preset);
+        model.WorkspaceComparisonMode = model.WorkspaceComparisonModes.Single(option => option.Id == arrangement);
+        model.ShowGraphs(); await Ready(model);
+        foreach (var module in model.WorkspacePanels.Where(module => module.Id != moduleId).ToArray()) module.IsVisible = false;
+        Assert.Equal(RunChartGroup.Speed, model.ChartGroup);
+        var plot = model.WorkspacePanels.Single().Plots.First(plot => plot.AlternativePanel!.Series.Any(series => series.Comparison));
+        Assert.Equal(group, plot.SourceGroup);
+        var point = plot.AlternativePanel!.Series.First(series => series.Comparison).Points.First();
+        var metrics = model.Statistics.ToArray();
+        model.SelectAlternativePoint(new(true, point.SourceSeconds, point.SampleIndex, plot.SourceGroup)); await Ready(model);
+        Assert.Equal(group, model.ChartGroup); Assert.True(model.IsTimeGraph);
+        Assert.Contains(model.WorkspacePanels, module => module.Id == timeModuleId && module.Plots.Count > 0);
+        Assert.Contains(model.WorkspacePanels, module => module.Id == moduleId);
+        Assert.DoesNotContain(model.WorkspacePanels, module => module.Id == "speed");
+        Assert.Equal(point.SourceSeconds, model.CursorSeconds); Assert.Contains("Selected point · B", model.SelectedPointContext);
+        Assert.True(model.HasComparison); Assert.True(model.WorkspaceHasPreparedCharts);
+        Assert.Equal(metrics, model.Statistics.ToArray());
+    });
+
+    [Theory]
+    [InlineData(RunWorkspacePreset.Acceleration)]
+    [InlineData(RunWorkspacePreset.Drifting)]
+    public void RetiredWorkspaceOpensAsOverviewWithoutChangingItsGraphsUntilReset(RunWorkspacePreset previousPreset) => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        var settings = new AppSettings
+        {
+            RunWorkspace = new()
+            {
+                Preset = previousPreset,
+                ComparisonMode = RunWorkspaceComparisonMode.SideBySide,
+                Panels = [new() { Id = "gforce", Width = RunWorkspaceWidth.Full },
+                    new() { Id = "speed", Width = RunWorkspaceWidth.Compact },
+                    new() { Id = "inputs", IsVisible = false }]
+            }
+        };
+        using var model = new RunsViewModel(service, settings, Dispatcher.CurrentDispatcher);
+        try
+        {
+            model.SetModularWorkspaceEnabled(true);
+            await model.ShowReviewAsync(Run("A", 0, 4), Run("B", 0, 5));
+            model.ShowGraphs(); await Ready(model);
+            Assert.Equal(new[] { "Overview", "Engine", "Tires & handling" }, model.WorkspacePresets.Select(preset => preset.Title));
+            Assert.Equal(RunWorkspacePreset.Overview, model.SelectedWorkspacePreset.Id);
+            Assert.Equal(new[] { "gforce", "speed" }, model.WorkspacePanels.Select(panel => panel.Id));
+            Assert.Equal(RunWorkspaceWidth.Full, model.WorkspacePanels[0].Width);
+            Assert.Equal(RunWorkspaceWidth.Compact, model.WorkspacePanels[1].Width);
+            Assert.True(model.HasCustomWorkspaceLayout);
+            Assert.True(model.WorkspaceHasPreparedCharts);
+            Assert.True(model.WorkspaceIsSideBySide);
+            model.SelectInterval(.5, 1.5); await Ready(model);
+            model.ResetWorkspaceCommand.Execute(null); await Ready(model);
+            Assert.Equal(RunWorkspaceCatalog.PresetModules(RunWorkspacePreset.Overview), model.WorkspacePanels.Select(panel => panel.Id));
+            Assert.False(model.HasCustomWorkspaceLayout);
+            Assert.True(model.WorkspaceHasPreparedCharts);
+            Assert.True(model.HasComparison); Assert.True(model.HasSelection);
+            Assert.True(model.WorkspaceIsSideBySide);
+            Assert.Equal(.5, model.SelectionStart); Assert.Equal(1.5, model.SelectionEnd);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    [Fact]
+    public void ModularWorkspaceIsLazyAndRevealsHiddenEvidenceWithoutLosingComparisonOrRange() => OnDispatcher(async () =>
+    {
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+        var settings = new AppSettings();
+        using var model = new RunsViewModel(service, settings, Dispatcher.CurrentDispatcher);
+        model.SetModularWorkspaceEnabled(true);
+        await model.ShowReviewAsync(Run("Baseline", 0, 4), Run("Revised", 0, 5));
+        Assert.False(model.WorkspaceHasPreparedCharts);
+        Assert.All(model.WorkspacePanels, module => Assert.Empty(module.Plots));
+        Assert.Equal(6, model.Statistics.Count);
+        model.ShowGraphs(); await Ready(model);
+        Assert.True(model.WorkspaceHasPreparedCharts);
+        model.SelectInterval(.5, 1.5); await Ready(model);
+        var metrics = model.Statistics.ToArray();
+        foreach (var module in model.WorkspacePanels.ToArray()) module.IsVisible = false;
+        Assert.False(model.CanExportImage);
+        Assert.Empty(model.WorkspacePanels);
+        model.ShowGraph(model.SelectedGraph); await Ready(model);
+        Assert.Contains(model.WorkspacePanels, module => module.Id == "speed");
+        Assert.True(model.WorkspaceHasPreparedCharts);
+        Assert.True(model.HasComparison); Assert.True(model.HasSelection);
+        Assert.Equal(metrics, model.Statistics.ToArray());
+        model.SetPageVisible(false);
+        settings.SpeedUnit = SpeedUnit.KilometersPerHour;
+        model.RefreshStatus(); await Ready(model);
+        Assert.False(model.WorkspaceHasPreparedCharts);
+        model.SetPageVisible(true); await Ready(model);
+        Assert.Equal("km/h", model.WorkspacePanels.Single(module => module.Id == "speed").Plots[0].TimePanel!.Unit);
+        Assert.Equal(.5, model.SelectionStart); Assert.Equal(1.5, model.SelectionEnd);
+    });
+
+    [Fact]
+    public void WorkspaceCustomizationCannotChangeDuringCountdownOrRecording() => OnDispatcher(async () =>
+    {
+        await WithLiveReceiver(async (receiver, refreshTelemetry) =>
+        {
+            await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+            var settings = new AppSettings { RecordingCountdownSeconds = 3 };
+            var clock = new ManualClock();
+            using var model = new RunsViewModel(service, settings, Dispatcher.CurrentDispatcher, clock);
+            model.SetModularWorkspaceEnabled(true);
+            model.BeforeStart = () => service.UpdateContext(new(Stopwatch.GetTimestamp(), 1, DrivetrainType.RearWheelDrive, true));
+            await model.ShowReviewAsync(Run("Baseline", 0, 4));
+            model.ShowGraphs(); await Ready(model);
+            var modules = model.WorkspacePanels.ToArray();
+            var preset = model.SelectedWorkspacePreset;
+            await refreshTelemetry(); await model.ToggleRecordingAsync();
+            Assert.True(model.IsCountingDown); CheckLocked();
+            await refreshTelemetry(); clock.Advance(TimeSpan.FromSeconds(3)); model.RefreshStatus();
+            Assert.True(model.IsRecording); CheckLocked();
+            void CheckLocked()
+            {
+                model.SelectedWorkspacePreset = model.WorkspacePresets.Last();
+                modules[0].IsVisible = false;
+                modules[0].Width = RunWorkspaceWidth.Full;
+                Assert.Equal(preset, model.SelectedWorkspacePreset);
+                Assert.Equal(modules, model.WorkspacePanels.ToArray());
+                Assert.True(modules[0].IsVisible);
+                Assert.False(modules[0].MoveDownCommand.CanExecute(null));
+                Assert.True(model.ToggleRecordingCommand.CanExecute(null));
+            }
+        });
+    });
+
     [Fact]
     public void GraphNavigationPreservesTheReviewAndNewRunsReturnToSummary() => OnDispatcher(async () =>
     {
@@ -36,6 +263,32 @@ public sealed class RunsViewModelTests
         await model.ShowReviewAsync(Run("Next run", 0, 3));
         Assert.True(model.IsSummaryVisible); Assert.False(model.IsGraphWorkspaceOpen);
         Assert.False(model.HasComparison); Assert.False(model.HasSelection);
+    });
+
+    [Fact]
+    public void DirectGraphChoicesOpenEveryViewAndPreserveTheSelectedReport() => OnDispatcher(async () =>
+    {
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        model.ShowGraph(model.GraphChoices[0]);
+        Assert.False(model.IsGraphWorkspaceOpen);
+        await model.ShowReviewAsync(Run("Baseline", 0, 4), Run("Revised", 0, 4));
+        model.SelectInterval(.5, 1.5); await Ready(model);
+        var metrics = model.Metrics.ToArray();
+        foreach (var choice in model.GraphChoices)
+        {
+            model.ShowSummary();
+            model.ShowGraph(choice); await Ready(model);
+            Assert.True(model.IsGraphWorkspaceOpen);
+            Assert.Equal(choice, model.SelectedGraph);
+            Assert.True(model.HasComparison); Assert.True(model.HasSelection);
+            Assert.Equal(.5, model.SelectionStart); Assert.Equal(1.5, model.SelectionEnd);
+            Assert.Equal(metrics, model.Metrics.ToArray());
+        }
+        model.ShowSummary();
+        model.ShowGraph(new RunGraphChoice("Unknown", RunChartGroup.Speed, RunPlotMode.TimeSeries));
+        Assert.True(model.IsSummaryVisible);
     });
 
     [Fact]
@@ -81,6 +334,7 @@ public sealed class RunsViewModelTests
                 model.SelectedRun = model.Library.Single(item => item.Id != runId); model.ComparisonChoice = model.SelectedRun;
                 model.GraphView = model.AvailableGraphViews[0]; model.ChartGroup = RunChartGroup.Handling;
                 model.SelectedGraph = model.GraphChoices[0];
+                model.ShowGraph(model.GraphChoices[0]);
                 model.FullThrottleOnly = false; model.GearFilter = model.GearOptions[1];
                 Assert.True(model.HasComparison); Assert.False(model.HasSelection); Assert.False(model.SameSpeed);
                 Assert.Equal(RunPurpose.General, model.Purpose); Assert.Equal("20", model.FromSpeed); Assert.Equal("60", model.ToSpeed);
@@ -364,6 +618,51 @@ public sealed class RunsViewModelTests
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
     });
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ComparingSavedRunsPreservesTheActiveWorkspaceAndGraphContext(bool graphsOpen, bool comparePrevious) => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = Run("Current", 0, 4);
+            var b = Run("Earlier", 1, 3) with { StartedAtUtc = a.StartedAtUtc.AddMinutes(-1) };
+            await service.Store.SaveAsync(a); await service.Store.SaveAsync(b); await model.InitializeAsync();
+            model.SelectedRun = model.Library.Single(item => item.Id == a.Id); await Ready(model);
+            var selectedGraph = model.GraphChoices.Single(choice => choice.Mode == RunPlotMode.PowerByRpm);
+            model.SelectedGraph = selectedGraph; model.FullThrottleOnly = false;
+            if (graphsOpen) model.ShowGraphs();
+            model.SelectInterval(3, 7); await Ready(model);
+            model.ZoomSelectionCommand.Execute(null); model.CursorSeconds = 5;
+            var reportOpened = 0;
+            model.ReportOpened += (_, _) => { reportOpened++; model.ShowSummary(); };
+            model.ComparisonChoice = model.Library.Single(item => item.Id == b.Id);
+
+            var command = comparePrevious ? model.ComparePreviousCommand : model.CompareCommand;
+            Assert.True(command.CanExecute(null));
+            command.Execute(null); await Ready(model);
+
+            Assert.Equal(a.Id, model.SelectedRun!.Id);
+            Assert.Equal("A · Current", model.RunALabel); Assert.Equal("B · Earlier", model.RunBLabel);
+            Assert.True(model.HasComparison); Assert.True(model.HasSelection);
+            Assert.Equal(selectedGraph, model.SelectedGraph); Assert.False(model.FullThrottleOnly);
+            Assert.Equal(graphsOpen, model.IsGraphWorkspaceOpen); Assert.Equal(!graphsOpen, model.IsSummaryVisible);
+            Assert.Equal(graphsOpen ? 0 : 1, reportOpened);
+            Assert.Contains(model.Metrics, metric => metric.Comparison is not null);
+            if (graphsOpen)
+            {
+                Assert.Equal(3, model.ViewStart); Assert.Equal(7, model.ViewEnd); Assert.Equal(5, model.CursorSeconds);
+            }
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
     [Fact]
     public void RapidSelectionsAndRefreshKeepTheDisplayedRunAndSelectorTogether() => OnDispatcher(async () =>
     {
@@ -384,6 +683,262 @@ public sealed class RunsViewModelTests
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
     });
+
+    [Fact]
+    public void RebindingRunPagesDetachesPreviousReportAndLayoutHandlers() => OnDispatcher(async () =>
+    {
+        await using var firstReceiver = new TelemetryUdpReceiver();
+        await using var secondReceiver = new TelemetryUdpReceiver();
+        await using var firstService = new RunRecordingService(firstReceiver, TemporaryDirectory());
+        await using var secondService = new RunRecordingService(secondReceiver, TemporaryDirectory());
+        using var first = new RunsViewModel(firstService, new AppSettings(), Dispatcher.CurrentDispatcher);
+        using var second = new RunsViewModel(secondService, new AppSettings(), Dispatcher.CurrentDispatcher);
+        var page = new SubscriptionTestRunsPage();
+        try
+        {
+            page.DataContext = first;
+            await first.ShowReviewAsync(Run("First report", 0, 4));
+            page.GraphChanges = 0;
+            first.ShowGraphs();
+            Assert.Equal(1, page.GraphChanges);
+
+            page.DataContext = second;
+            await second.ShowReviewAsync(Run("Current report", 0, 4));
+            second.ShowGraphs(); page.GraphChanges = 0;
+            first.ShowSummary();
+            await first.ShowReviewAsync(Run("Old model replacement", 0, 3));
+            Assert.Equal(0, page.GraphChanges);
+            Assert.True(second.IsGraphWorkspaceOpen);
+
+            second.ShowSummary();
+            Assert.Equal(1, page.GraphChanges);
+            page.DataContext = null; page.GraphChanges = 0;
+            second.ShowGraphs();
+            Assert.Equal(0, page.GraphChanges);
+        }
+        finally { page.DataContext = null; }
+    });
+
+    [Fact]
+    public void LibraryArchiveExportDeleteUndoAndImportPreserveRecordedRuns() => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        try
+        {
+            await using var receiver = new TelemetryUdpReceiver();
+            await using var service = new RunRecordingService(receiver, Path.Combine(directory, "library"));
+            using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+            var a = Run("First", 0, 4) with { Notes = "Baseline tune" };
+            var b = Run("Second", 0, 5) with { Tune = "Revised" };
+            await service.Store.SaveAsync(a); await service.Store.SaveAsync(b);
+            await model.InitializeAsync();
+            Assert.True(model.CanManageAllRuns);
+            var archive = Path.Combine(directory, "all-runs.zip");
+            await model.ExportAllAsync(archive);
+            Assert.True(File.Exists(archive)); Assert.Equal(2, model.Library.Count); Assert.False(model.HasError, model.Error);
+            await model.DeleteAllAsync();
+            Assert.Empty(model.Library); Assert.True(model.CanUndoDelete); Assert.False(model.CanManageAllRuns);
+            await model.UndoDeleteAsync();
+            Assert.Equal(2, model.Library.Count); Assert.False(model.CanUndoDelete);
+            Assert.Equal("Baseline tune", (await service.Store.LoadAsync(a.Id)).Notes);
+            await model.DeleteAllAsync();
+            await model.ImportManyAsync([archive]);
+            Assert.False(model.HasError, model.Error); Assert.Equal(2, model.Library.Count);
+            Assert.Equal(a.Samples.Length, (await service.Store.LoadAsync(a.Id)).Samples.Length);
+            Assert.Equal("Revised", (await service.Store.LoadAsync(b.Id)).Tune);
+            var selected = model.SelectedRun;
+            await model.ImportManyAsync([archive]);
+            Assert.Equal(2, model.Library.Count); Assert.Same(selected, model.SelectedRun);
+            Assert.Contains("already", model.Status);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    [Fact]
+    public void SwitchingRunsSupersedesAnInFlightChartWithoutLeavingExportBusy() => OnDispatcher(async () =>
+    {
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        model.SetModularWorkspaceEnabled(true);
+        var a = Run("First", 0, 4); var b = Run("Next", 0, 5);
+        await model.ShowReviewAsync(a, b);
+        model.ShowGraphs();
+        Assert.True(model.IsPreparingCharts);
+        model.SelectedRun = model.Library.Single(item => item.Id == b.Id);
+        await Ready(model);
+        Assert.True(model.IsGraphWorkspaceOpen); Assert.False(model.IsPreparingCharts);
+        Assert.True(model.CanExportImage); Assert.Equal(b.Id, model.SelectedRun!.Id);
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReplacingRunAUpdatesSummaryValuesWithoutReplacingRowsOrLosingComparison(bool graphsOpen) => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = Run("Original A", 0, 2); var b = Run("Reference B", 1, 3); var c = Run("Replacement A", 0, 5);
+            foreach (var run in new[] { a, b, c }) await service.Store.SaveAsync(run);
+            await model.InitializeAsync();
+            model.SetModularWorkspaceEnabled(true);
+            model.SetPageVisible(true);
+            model.SelectedRun = model.Library.Single(item => item.Id == a.Id); await Ready(model);
+            model.ComparisonChoice = model.Library.Single(item => item.Id == b.Id);
+            model.CompareCommand.Execute(null); await Ready(model);
+            model.SelectInterval(2, 7); await Ready(model);
+            model.ZoomSelectionCommand.Execute(null); model.CursorSeconds = 4;
+            if (graphsOpen) { model.ShowGraphs(); await Ready(model); }
+            var rows = model.Statistics.ToArray(); var findings = model.Findings.ToArray();
+            var oldValues = rows.Select(row => row.ValueA).ToArray();
+            var plotModels = model.WorkspacePanels.SelectMany(module => module.Plots).ToArray();
+            if (graphsOpen) { Assert.NotEmpty(plotModels); Assert.True(model.CanExportImage); }
+            var rowReplacements = 0;
+            model.Statistics.CollectionChanged += (_, _) => rowReplacements++;
+
+            model.SelectedRun = model.Library.Single(item => item.Id == c.Id);
+            Assert.Equal("A · Original A", model.RunALabel);
+            Assert.Equal(oldValues, model.Statistics.Select(row => row.ValueA));
+            Assert.Equal("B · Reference B", model.RunBLabel);
+            await Ready(model);
+
+            Assert.Equal("A · Replacement A", model.RunALabel); Assert.Equal("B · Reference B", model.RunBLabel);
+            Assert.Equal(b.Id, model.ComparisonChoice!.Id); Assert.True(model.HasComparison);
+            Assert.Equal(graphsOpen, model.IsGraphWorkspaceOpen);
+            Assert.Equal(2, model.SelectionStart); Assert.Equal(7, model.SelectionEnd);
+            Assert.Equal(2, model.ViewStart); Assert.Equal(7, model.ViewEnd); Assert.Equal(4, model.CursorSeconds);
+            Assert.Equal(0, rowReplacements);
+            Assert.True(rows.SequenceEqual(model.Statistics));
+            Assert.False(oldValues.SequenceEqual(model.Statistics.Select(row => row.ValueA)));
+            Assert.All(findings.Zip(model.Findings), pair => Assert.Same(pair.First, pair.Second));
+            if (graphsOpen)
+            {
+                Assert.True(plotModels.SequenceEqual(model.WorkspacePanels.SelectMany(module => module.Plots)));
+                Assert.True(model.CanExportImage);
+            }
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    [Theory]
+    [InlineData(4, true, 4)]
+    [InlineData(1, false, 0)]
+    public void ReplacingRunAClipsAnExistingSelectionAndExplainsMissingCoverage(int duration, bool selected, double end) => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = Run("Long", 0, 2); var source = Run("Short", 0, 4);
+            var shorter = source with { Samples = source.Samples.Where(sample => sample.ElapsedSeconds <= duration).ToArray() };
+            await service.Store.SaveAsync(a); await service.Store.SaveAsync(shorter); await model.InitializeAsync();
+            model.SelectedRun = model.Library.Single(item => item.Id == a.Id); await Ready(model);
+            model.SelectInterval(2, 7); await Ready(model); model.ZoomSelectionCommand.Execute(null);
+            model.SelectedRun = model.Library.Single(item => item.Id == shorter.Id); await Ready(model);
+            Assert.Equal(selected, model.HasSelection);
+            if (selected) { Assert.Equal(2, model.SelectionStart); Assert.Equal(end, model.SelectionEnd); }
+            else Assert.Equal(0, model.ViewStart);
+            Assert.Contains(selected ? "shortened" : "outside", model.ComparisonNote);
+            Assert.Equal(duration, model.ViewEnd);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    [Fact]
+    public void LatestRunSelectionSurvivesAReviewFocusChangeDuringLoading() => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = Run("First", 0, 2); var b = Run("Last selected", 0, 4);
+            await service.Store.SaveAsync(a); await service.Store.SaveAsync(b); await model.InitializeAsync();
+            model.SelectedRun = model.Library.Single(item => item.Id == a.Id); await Ready(model);
+            model.SelectedRun = model.Library.Single(item => item.Id == b.Id);
+            model.SelectedRun = model.Library.Single(item => item.Id == a.Id);
+            model.SelectedRun = model.Library.Single(item => item.Id == b.Id);
+            model.Purpose = RunPurpose.Acceleration;
+            await Ready(model);
+            Assert.Equal(b.Id, model.SelectedRun!.Id); Assert.Equal("A · Last selected", model.RunALabel);
+            Assert.Equal(RunPurpose.Acceleration, model.Purpose);
+            Assert.True(model.HasRun); Assert.False(model.IsBusy);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PendingComparisonKeepsTheChosenRunAndBusyOwnershipWhenReviewInputsChange(bool changeUnits) => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        var settings = new AppSettings();
+        using var model = new RunsViewModel(service, settings, Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = Run("Run A", 0, 2); var firstB = Run("Previous B", 1, 3); var nextB = Run("Chosen B", 0, 5);
+            foreach (var run in new[] { a, firstB, nextB }) await service.Store.SaveAsync(run);
+            await model.InitializeAsync(); model.SetPageVisible(true); model.SetModularWorkspaceEnabled(true);
+            model.SelectedRun = model.Library.Single(item => item.Id == a.Id); await Ready(model);
+            model.ComparisonChoice = model.Library.Single(item => item.Id == firstB.Id);
+            model.CompareCommand.Execute(null); await Ready(model);
+            model.ShowGraphs(); await Ready(model);
+            var plots = model.WorkspacePanels.SelectMany(module => module.Plots).ToArray();
+            Assert.NotEmpty(plots);
+            var changedInput = false; var unlockedBeforeCommit = false;
+            PropertyChangedEventHandler changed = (_, args) =>
+            {
+                if (!changedInput && args.PropertyName == nameof(RunsViewModel.Status) && model.Status == "Preparing the report…")
+                {
+                    changedInput = true;
+                    Assert.Equal("B · Previous B", model.RunBLabel);
+                    if (changeUnits) { settings.SpeedUnit = SpeedUnit.KilometersPerHour; model.RefreshStatus(); }
+                    else model.Purpose = RunPurpose.Acceleration;
+                }
+                if (args.PropertyName == nameof(RunsViewModel.IsBusy) && !model.IsBusy && model.RunBLabel != "B · Chosen B")
+                    unlockedBeforeCommit = true;
+            };
+            model.PropertyChanged += changed;
+            try
+            {
+                model.ComparisonChoice = model.Library.Single(item => item.Id == nextB.Id);
+                model.CompareCommand.Execute(null); await Ready(model);
+            }
+            finally { model.PropertyChanged -= changed; }
+            Assert.True(changedInput); Assert.False(unlockedBeforeCommit);
+            Assert.Equal(a.Id, model.SelectedRun!.Id); Assert.Equal(nextB.Id, model.ComparisonChoice!.Id);
+            Assert.Equal("B · Chosen B", model.RunBLabel); Assert.True(model.HasComparison);
+            Assert.True(model.IsGraphWorkspaceOpen); Assert.True(model.CanExportImage);
+            Assert.True(plots.SequenceEqual(model.WorkspacePanels.SelectMany(module => module.Plots)));
+            if (changeUnits) Assert.Contains("km/h", model.Statistics.Single(row => row.Key == "peak-speed").ValueB);
+            else Assert.Equal(RunPurpose.Acceleration, model.Purpose);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    private sealed class SubscriptionTestRunsPage : RunsPageBase
+    {
+        internal int GraphChanges { get; set; }
+
+        internal SubscriptionTestRunsPage() => InitializeRunsPage(new(
+            new Button(), new Button(), new ScrollViewer(), new ListBox(),
+            new TextBlock(), new ScrollViewer(), new StackPanel(), new Button()));
+
+        protected override void OnModelPropertyChanged(PropertyChangedEventArgs? change)
+        {
+            if (change?.PropertyName == nameof(RunsViewModel.IsGraphWorkspaceOpen)) GraphChanges++;
+        }
+    }
 
     private static RecordedRun Run(string name, double delay, double rate) => new()
     {

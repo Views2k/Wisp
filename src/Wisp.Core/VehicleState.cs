@@ -51,6 +51,10 @@ public sealed record VehicleState
     public WheelValues TireTemperatureFahrenheit { get; init; }
     public bool IsElectric => NumCylinders == 0;
     public required float GroundSpeedMetersPerSecond { get; init; }
+    // Optional so runs recorded before these channels were retained remain readable.
+    public float? LocalVelocityXMetersPerSecond { get; init; }
+    public float? LocalVelocityYMetersPerSecond { get; init; }
+    public float? LocalVelocityZMetersPerSecond { get; init; }
     public required WheelValues WheelRotationRadiansPerSecond { get; init; }
     public required WheelValues TireSlipRatio { get; init; }
     public required WheelValues TireSlipAngle { get; init; }

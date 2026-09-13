@@ -19,6 +19,7 @@ public sealed record AppBackgroundTheme(
 public static class AppBackgroundThemes
 {
     public const string DefaultName = "Neutral";
+    public const string FreshInstallName = "Wisp";
 
     public static IReadOnlyList<AppBackgroundTheme> All { get; } = Array.AsReadOnly(new[]
     {
@@ -36,7 +37,8 @@ public static class AppBackgroundThemes
         new AppBackgroundTheme("Forest",  "#09130C", "#0F1D15", "#15271D", "#1B3124", "#294735", "#0C170F", "#1E3528", "#304C3B", "#355343", "#486958"),
         new AppBackgroundTheme("Green",   "#08140B", "#0D1F12", "#13291A", "#183423", "#264A34", "#0A180D", "#1B3926", "#2D503A", "#325741", "#456D56"),
         new AppBackgroundTheme("Teal",    "#071414", "#0B1F1F", "#102A2A", "#153535", "#244B4B", "#091818", "#183A3A", "#2B5151", "#305959", "#436F6F"),
-        new AppBackgroundTheme("Cyan",    "#071318", "#0B1D25", "#102832", "#15323F", "#234857", "#09171D", "#183747", "#2A4E60", "#2F5569", "#426B80")
+        new AppBackgroundTheme("Cyan",    "#071318", "#0B1D25", "#102832", "#15323F", "#234857", "#09171D", "#183747", "#2A4E60", "#2F5569", "#426B80"),
+        new AppBackgroundTheme(FreshInstallName, "#090D12", "#0D1218", "#111822", "#1A2832", "#35404F", "#0A0F15", "#161F29", "#303D4E", "#334052", "#46566A")
     });
 
     public static AppBackgroundTheme Resolve(string? name)

@@ -33,6 +33,9 @@ public sealed class NativeHudProcessService : IAsyncDisposable
     private bool _fullResolvePending;
     private bool _disposed;
     private Task? _disposeTask;
+    private AttachmentIdentity? _attachmentIdentity;
+
+    private sealed record AttachmentIdentity(NativeHudCompatibilityPack Pack, long Epoch, long CompatibilityGeneration);
 
     // Only the worker touches process memory, resolver caches, or attachment timing.
     private NativeHudMemoryResolver _resolver = new();
@@ -62,6 +65,19 @@ public sealed class NativeHudProcessService : IAsyncDisposable
     }
 
     public string CompatibilityStatus => _memoryFactory.CompatibilityStatus;
+
+    // Immutable identity only; consumers never touch the worker-owned process handle.
+    internal NativeHudCompatibilityPack? AttachedCompatibilityPack
+    {
+        get
+        {
+            var identity = Volatile.Read(ref _attachmentIdentity);
+            return identity is not null && !Volatile.Read(ref _disposed) &&
+                identity.Epoch == Interlocked.Read(ref _sessionEpoch) &&
+                identity.CompatibilityGeneration == _memoryFactory.CompatibilityGeneration
+                ? identity.Pack : null;
+        }
+    }
 
     internal long DiagnosticReadAttempts => Interlocked.Read(ref _diagnosticReadAttempts);
     internal long DiagnosticReadFailures => Interlocked.Read(ref _diagnosticReadFailures);
@@ -150,6 +166,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             _sessionEpoch++;
             _telemetry = null;
             _snapshot = NativeHudSnapshot.Unavailable();
+            Volatile.Write(ref _attachmentIdentity, null);
             _cancellation.Cancel();
             _disposeTask = CompleteDisposalAsync();
             return new ValueTask(_disposeTask);
@@ -169,6 +186,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
         {
             _memory?.Dispose();
             _memory = null;
+            Volatile.Write(ref _attachmentIdentity, null);
             _wake.Dispose();
             _cancellation.Dispose();
         }
@@ -366,12 +384,17 @@ public sealed class NativeHudProcessService : IAsyncDisposable
 
             _snapshot = snapshot;
             _snapshotCompatibilityGeneration = compatibilityGeneration;
+            if (_memory is { } attached && (_attachmentIdentity is not { } identity ||
+                identity.Epoch != epoch || identity.CompatibilityGeneration != compatibilityGeneration ||
+                !ReferenceEquals(identity.Pack, attached.CompatibilityPack)))
+                Volatile.Write(ref _attachmentIdentity, new AttachmentIdentity(attached.CompatibilityPack, epoch, compatibilityGeneration));
             return true;
         }
     }
 
     private void CloseMemory()
     {
+        Volatile.Write(ref _attachmentIdentity, null);
         _memory?.Dispose();
         _memory = null;
         _visibilityResolver = null;

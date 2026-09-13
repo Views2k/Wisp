@@ -98,6 +98,9 @@ public sealed class Fh6PacketParser
             TireTemperatureFahrenheit = tireTemperatureFahrenheit,
             BoostPressurePsi = boostPressurePsi,
             GroundSpeedMetersPerSecond = groundSpeed,
+            LocalVelocityXMetersPerSecond = OptionalVelocity(packet, Fh6PacketLayout.LocalVelocityX),
+            LocalVelocityYMetersPerSecond = OptionalVelocity(packet, Fh6PacketLayout.LocalVelocityY),
+            LocalVelocityZMetersPerSecond = OptionalVelocity(packet, Fh6PacketLayout.LocalVelocityZ),
             WheelRotationRadiansPerSecond = wheelRotation,
             TireSlipRatio = slipRatio,
             TireSlipAngle = slipAngle,
@@ -114,6 +117,12 @@ public sealed class Fh6PacketParser
 
         error = PacketParseError.None;
         return true;
+    }
+
+    private static float? OptionalVelocity(ReadOnlySpan<byte> packet, int offset)
+    {
+        var value = ReadSingle(packet, offset);
+        return float.IsFinite(value) && MathF.Abs(value) <= 500 ? value : null;
     }
 
     private static WheelValues ReadWheels(ReadOnlySpan<byte> packet, int offset) => new(

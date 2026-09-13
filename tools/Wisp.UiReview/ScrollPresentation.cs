@@ -80,13 +80,13 @@ internal static class ScrollPresentation
     public static void Run(MainWindow sourceWindow, FrameworkElement surface, TabControl tabs, Fixture fixture,
         ReviewReport report, BindingTrace bindings, CancellationToken cancellationToken)
     {
-        if (report.ScrollCheck is null || tabs.Items[2] is not TabItem { Content: ScrollViewer scroll })
+        if (report.ScrollCheck is null || tabs.Items[3] is not TabItem { Header: "Diagnostics", Content: ScrollViewer scroll })
             throw new InvalidOperationException("The scroll presentation contract changed.");
-        tabs.SelectedIndex = 2;
+        tabs.SelectedIndex = 3;
         var originalContent = scroll.Content;
         var originalDecorator = originalContent is Decorator and not Viewbox ? (Decorator)originalContent : null;
         var viewbox = originalContent as Viewbox ?? originalDecorator?.Child as Viewbox
-            ?? throw new InvalidOperationException("Appearance must contain one outer Viewbox.");
+            ?? throw new InvalidOperationException("Diagnostics must contain one outer Viewbox.");
         if (VisualTreeHelper.GetChildrenCount(viewbox) != 1 ||
             VisualTreeHelper.GetChild(viewbox, 0) is not ContainerVisual container)
             throw new InvalidOperationException("The Viewbox visual contract changed.");
@@ -226,7 +226,7 @@ internal static class ScrollPresentation
                         return;
                     VerifyIndependentHost();
                     if (scroll.ScrollableHeight <= ScrollReview.GeometryTolerance)
-                        throw new InvalidOperationException("Appearance did not have scrollable content.");
+                        throw new InvalidOperationException("Diagnostics did not have scrollable content.");
                     scroll.ScrollToVerticalOffset(0);
                     surface.UpdateLayout();
                     var matrix = container.Transform.Value;

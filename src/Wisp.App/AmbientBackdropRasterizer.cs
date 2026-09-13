@@ -1,23 +1,31 @@
+using System.Windows.Media;
+
 namespace Wisp.App;
 
 // The website's dark background and point-sprite material, composited before
 // conversion to 8-bit output so faint overlapping particles do not form bands.
+// App particles use the same material over transparent pixels; the chosen
+// window background is never read, filled, or recolored here.
 internal sealed class AmbientBackdropRasterizer
 {
     internal const int MaximumPixels = 1_600_000;
+    internal const int MaximumParticlePixels = 400_000;
+    private readonly bool _particlesOnly;
     private readonly float[] _background;
     private readonly float[] _composite;
     private readonly byte[] _roundingNoise;
 
-    internal AmbientBackdropRasterizer(int width, int height)
+    internal AmbientBackdropRasterizer(int width, int height, bool particlesOnly = false)
     {
-        if (width <= 0 || height <= 0 || (long)width * height > MaximumPixels)
+        var maximumPixels = particlesOnly ? MaximumParticlePixels : MaximumPixels;
+        if (width <= 0 || height <= 0 || (long)width * height > maximumPixels)
             throw new ArgumentOutOfRangeException(nameof(width));
+        _particlesOnly = particlesOnly;
         Width = width;
         Height = height;
         var count = width * height;
-        _background = new float[count * 3];
-        _composite = new float[count * 3];
+        _background = particlesOnly ? [] : new float[count * 3];
+        _composite = new float[count * (particlesOnly ? 1 : 3)];
         _roundingNoise = new byte[count];
         Pixels = new byte[count * 4];
         var aspect = width / (double)height;
@@ -26,13 +34,15 @@ internal sealed class AmbientBackdropRasterizer
             var dy = (1 - (y + 0.5) / height - 0.42) * 0.8;
             for (var x = 0; x < width; x++)
             {
+                var index = y * width + x;
+                _roundingNoise[index] = Noise(x, y);
+                if (particlesOnly)
+                    continue;
                 var dx = ((x + 0.5) / width - 1.2) * aspect * 0.58;
                 var light = (float)(Math.Exp(-(dx * dx + dy * dy) * 1.24) * 0.135);
-                var index = y * width + x;
                 _background[index * 3] = 9 + 10 * light;
                 _background[index * 3 + 1] = 13 + 30 * light;
                 _background[index * 3 + 2] = 18 + 26 * light;
-                _roundingNoise[index] = Noise(x, y);
                 Pixels[index * 4 + 3] = 255;
             }
         }
@@ -42,10 +52,16 @@ internal sealed class AmbientBackdropRasterizer
     internal int Height { get; }
     internal byte[] Pixels { get; }
 
-    internal void Render(ReadOnlySpan<AmbientParticle> particles, double intensity)
+    internal void Render(ReadOnlySpan<AmbientParticle> particles, double intensity, Color? particleColor = null)
     {
-        Array.Copy(_background, _composite, _background.Length);
+        if (_particlesOnly)
+            Array.Clear(_composite);
+        else
+            Array.Copy(_background, _composite, _background.Length);
         intensity = double.IsFinite(intensity) ? Math.Clamp(intensity, 0, 1) : 0;
+        var color = particleColor ?? Colors.White;
+        if (_particlesOnly)
+            intensity *= color.A / 255d;
         if (intensity > 0)
             foreach (var particle in particles)
                 Composite(particle, intensity);
@@ -55,6 +71,16 @@ internal sealed class AmbientBackdropRasterizer
             // Stable stochastic rounding removes contour steps without adding
             // a visible animated grain layer or biasing the average color.
             var rounding = (_roundingNoise[index] + 0.5f) / 256;
+            if (_particlesOnly)
+            {
+                var alpha = Quantize(_composite[index] * 255, rounding);
+                var pixel = index * 4;
+                Pixels[pixel] = Premultiply(color.B, alpha);
+                Pixels[pixel + 1] = Premultiply(color.G, alpha);
+                Pixels[pixel + 2] = Premultiply(color.R, alpha);
+                Pixels[pixel + 3] = alpha;
+                continue;
+            }
             var source = index * 3;
             var target = index * 4;
             Pixels[target] = Quantize(_composite[source + 2], rounding);
@@ -101,7 +127,13 @@ internal sealed class AmbientBackdropRasterizer
                 var alpha = (float)(mask * Math.Pow(1 - radius, exponent) * peakAlpha);
                 if (alpha < 0.001f)
                     continue;
-                var index = (y * Width + x) * 3;
+                var pixelIndex = y * Width + x;
+                if (_particlesOnly)
+                {
+                    _composite[pixelIndex] += (1 - _composite[pixelIndex]) * alpha;
+                    continue;
+                }
+                var index = pixelIndex * 3;
                 _composite[index] += (red - _composite[index]) * alpha;
                 _composite[index + 1] += (green - _composite[index + 1]) * alpha;
                 _composite[index + 2] += (blue - _composite[index + 2]) * alpha;
@@ -116,6 +148,8 @@ internal sealed class AmbientBackdropRasterizer
     }
 
     private static byte Quantize(float value, float rounding) => (byte)Math.Clamp((int)(value + rounding), 0, 255);
+
+    private static byte Premultiply(byte channel, byte alpha) => (byte)((channel * alpha + 127) / 255);
 
     private static byte Noise(int x, int y)
     {

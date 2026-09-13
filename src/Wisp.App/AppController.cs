@@ -194,7 +194,7 @@ public sealed partial class AppController : IAsyncDisposable
     public GForceWindow? GForceOverlay { get; set; }
     public BoostGaugeWindow? BoostGaugeOverlay { get; set; }
     public TireTemperatureGaugeWindow? TireTemperatureGaugeOverlay { get; set; }
-    public MainWindow? ControlPanel { get; set; }
+    public ControlPanelWindow? ControlPanel { get; set; }
     public event EventHandler? StartupOptionsChanged;
     public bool IsAttachedGForceMeterEnabled =>
         Settings.GForceEnabled && Settings.GForceAttached &&
@@ -417,6 +417,7 @@ public sealed partial class AppController : IAsyncDisposable
         WindowZOrder.DetachFromGame(GForceOverlay);
         WindowZOrder.DetachFromGame(BoostGaugeOverlay);
         WindowZOrder.DetachFromGame(TireTemperatureGaugeOverlay);
+        WindowZOrder.DetachFromGame(DriftGaugeOverlay);
         if (!Settings.RequiresSetup)
         {
             Settings.Calibrations = _calibration.ExportSnapshots().ToList();
@@ -947,6 +948,7 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.StartWithWindows = ViewModel.StartWithWindows;
             Settings.StartWithForza = ViewModel.StartWithForza;
             Settings.StartMinimizedWithForza = ViewModel.StartMinimizedWithForza;
+            Settings.BackgroundParticlesEnabled = ViewModel.BackgroundParticlesEnabled;
             Settings.AnimatedBackground = ViewModel.AnimatedBackground;
             Settings.AutomaticApplicationUpdateChecks = ViewModel.AutomaticApplicationUpdateChecks;
             Settings.TractionCueEnabled = ViewModel.TractionCueEnabled;
@@ -1010,6 +1012,7 @@ public sealed partial class AppController : IAsyncDisposable
                 Settings.OverlayHeightScale,
                 Settings.OverlayOpacity);
             GForceOverlay?.SetEnabled(IsStandaloneGForceWindowEnabled);
+            DriftGaugeOverlay?.ApplyAppearance(Settings.DriftGaugeScale, Settings.OverlayOpacity);
             GForceOverlay?.ApplyAppearance(
                 Settings.GForceWidthScale,
                 Settings.GForceHeightScale,
@@ -1139,6 +1142,20 @@ public sealed partial class AppController : IAsyncDisposable
         ScheduleSettingsSave();
     }
 
+    public void SetApplicationStyle(AppStyleSettings style)
+    {
+        ArgumentNullException.ThrowIfNull(style);
+        var normalized = style.Clone();
+        normalized.Normalize();
+        if (Settings.ApplicationStyle is { } current && current.HasSameValues(normalized))
+        {
+            return;
+        }
+
+        Settings.ApplicationStyle = normalized;
+        ScheduleSettingsSave();
+    }
+
     public void SetHudBorderTheme(string? themeName)
     {
         var normalized = AppColorThemes.NormalizeName(themeName);
@@ -1190,6 +1207,14 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         Settings.CustomBackgroundColor = normalized;
+        ScheduleSettingsSave();
+    }
+
+    public void SetCustomParticleColor(string? value)
+    {
+        var normalized = ColorCustomization.NormalizeParticle(value);
+        if (Settings.CustomParticleColor == normalized) return;
+        Settings.CustomParticleColor = normalized;
         ScheduleSettingsSave();
     }
 
@@ -1349,6 +1374,7 @@ public sealed partial class AppController : IAsyncDisposable
         var previousLayoutMode = Settings.LayoutMode;
         var previousNativeGaugeMode = Settings.NativeGaugeMode;
         preset.ApplyTo(Settings);
+        ViewModel.UpdateGForceColors(Settings);
         SyncHudPresetToViewModel();
         ControlPanel?.ApplyHudPresetToControls();
         ApplyViewOptions(previousLayoutMode, previousNativeGaugeMode);
@@ -1407,6 +1433,27 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.TractionCueEnabled = Settings.TractionCueEnabled;
     }
 
+    public void SetUseLegacyInterface(bool enabled)
+    {
+        if (Settings.UseLegacyInterface == enabled)
+            return;
+
+        Settings.UseLegacyInterface = enabled;
+        ViewModel.UseLegacyInterface = enabled;
+        ScheduleSettingsSave();
+    }
+
+    public void SetResizableDashboardDisplay(bool enabled)
+    {
+        if (Settings.ResizableDashboardDisplay == enabled)
+        {
+            return;
+        }
+
+        Settings.ResizableDashboardDisplay = enabled;
+        ScheduleSettingsSave();
+    }
+
     public void SetSidebarCollapsed(bool collapsed)
     {
         if (Settings.SidebarCollapsed == collapsed)
@@ -1430,6 +1477,7 @@ public sealed partial class AppController : IAsyncDisposable
         GForceOverlay?.SetEditMode(!locked);
         BoostGaugeOverlay?.SetEditMode(!locked);
         TireTemperatureGaugeOverlay?.SetEditMode(!locked);
+        DriftGaugeOverlay?.SetEditMode(!locked);
         UpdateOverlayVisibility(DateTimeOffset.UtcNow, force: true);
         ScheduleSettingsSave();
     }
@@ -1816,6 +1864,9 @@ public sealed partial class AppController : IAsyncDisposable
         _ = _runRecording.StopAsync("Wisp closed before the run finished");
         SuspendRunShortcut();
         Runs.Dispose();
+        DriftGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+        WindowZOrder.DetachFromGame(DriftGaugeOverlay);
+        DriftGaugeOverlay?.Dispose();
         SetTachDiagnosticsEnabled(false);
         _compatibilityLifetime.Cancel();
         _applicationUpdateLifetime.Cancel();
@@ -1959,6 +2010,7 @@ public sealed partial class AppController : IAsyncDisposable
             }
 
             ProcessUiUpdate(processLatestPacket: true);
+            RefreshOpenConnectionPanel();
         }
     }
 
@@ -2124,7 +2176,8 @@ public sealed partial class AppController : IAsyncDisposable
             SetDrivingConnected(true);
         }
 
-        if (autoMinimizeTransition.ShouldMinimizeControlPanel && ControlPanel is not null)
+        if (autoMinimizeTransition.ShouldMinimizeControlPanel && ControlPanel is not null &&
+            ControlPanel is not MainWindow { IsDashboardDisplayMode: true })
         {
             ControlPanel.WindowState = WindowState.Minimized;
         }
@@ -2159,7 +2212,7 @@ public sealed partial class AppController : IAsyncDisposable
                 ResolveSpeedSmoothing(Settings.LayoutMode, Settings.Smoothing),
                 elapsed);
 
-        var gForceVisible = overlayVisible &&
+        var gForceVisible = overlayVisible && Settings.GForceEnabled &&
                             (Settings.LayoutMode == HudLayoutMode.Combined ||
                              IsStandaloneGForceWindowEnabled ||
                              IsAttachedGForceMeterEnabled);
@@ -2595,6 +2648,7 @@ public sealed partial class AppController : IAsyncDisposable
         {
             _overlayVisibleRequested = false;
             SetCompositionRenderingEnabled(false);
+            DriftGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
             Overlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
             GForceOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
             BoostGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
@@ -2625,6 +2679,7 @@ public sealed partial class AppController : IAsyncDisposable
         var detachedTireTemperatureEnabled = IsDetachedTireTemperatureGaugeEnabled;
         BoostGaugeOverlay?.SetEnabled(detachedBoostEnabled);
         TireTemperatureGaugeOverlay?.SetEnabled(detachedTireTemperatureEnabled);
+        var driftEnabled = IsDriftGaugeWindowEnabled;
         var overlayForeground =
             !Settings.OverlayLocked &&
             ((Overlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
@@ -2633,7 +2688,8 @@ public sealed partial class AppController : IAsyncDisposable
              detachedBoostEnabled &&
              (BoostGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
              detachedTireTemperatureEnabled &&
-             (TireTemperatureGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false));
+             (TireTemperatureGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
+             driftEnabled && (DriftGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false));
         if (_lastConfirmedForzaWindow != IntPtr.Zero &&
             !WindowZOrder.IsWindowAvailable(_lastConfirmedForzaWindow))
         {
@@ -2644,6 +2700,7 @@ public sealed partial class AppController : IAsyncDisposable
             ? focus.ForegroundWindow
             : _lastConfirmedForzaWindow;
         var forzaWindowKnown = WindowZOrder.IsWindowAvailable(confirmedForzaWindow);
+        if (driftEnabled && focus.IsForzaForeground) RefreshDriftGaugeDisplay(confirmedForzaWindow, now);
         var telemetryFresh = _freshness.GetState(Stopwatch.GetTimestamp()) == TelemetryConnectionState.Connected;
         var nativeVisibility = EvaluateNativeGameplayVisibility(
             _nativeHudProcessService.SnapshotFor(_receiver.Latest?.CarOrdinal ?? 0),
@@ -2670,6 +2727,7 @@ public sealed partial class AppController : IAsyncDisposable
         var wasOverlayVisible = _overlayVisibleRequested;
         _overlayVisibleRequested = overlayVisible;
         Overlay?.SetTelemetryVisible(overlayVisible, Settings.OverlayOpacity, hideImmediately);
+        DriftGaugeOverlay?.SetTelemetryVisible(overlayVisible && driftEnabled, Settings.OverlayOpacity, hideImmediately || !driftEnabled);
         GForceOverlay?.SetTelemetryVisible(
             overlayVisible && standaloneGForceEnabled,
             Settings.OverlayOpacity,
@@ -2707,7 +2765,8 @@ public sealed partial class AppController : IAsyncDisposable
                                        detachedTireTemperatureEnabled &&
                                        !WindowZOrder.IsAttachedToGame(
                                            TireTemperatureGaugeOverlay,
-                                           confirmedForzaWindow));
+                                           confirmedForzaWindow) ||
+                                       driftEnabled && !WindowZOrder.IsAttachedToGame(DriftGaugeOverlay, confirmedForzaWindow));
         if (overlayVisible && confirmedForzaWindow != IntPtr.Zero &&
             (!wasOverlayVisible || forzaWindowChanged || fullscreenChanged ||
              fullscreenRefreshDue || ownerAttachmentRequired))
@@ -2740,6 +2799,7 @@ public sealed partial class AppController : IAsyncDisposable
             _nextFullscreenZOrderAtUtc = focus.IsFullscreen
                 ? now + TimeSpan.FromSeconds(1)
                 : DateTimeOffset.MaxValue;
+            if (driftEnabled) _ = WindowZOrder.AttachAboveGame(DriftGaugeOverlay, confirmedForzaWindow, raise: focus.IsForzaForeground);
         }
         else if (!overlayVisible)
         {
@@ -2748,6 +2808,7 @@ public sealed partial class AppController : IAsyncDisposable
             WindowZOrder.DetachFromGame(GForceOverlay);
             WindowZOrder.DetachFromGame(BoostGaugeOverlay);
             WindowZOrder.DetachFromGame(TireTemperatureGaugeOverlay);
+            WindowZOrder.DetachFromGame(DriftGaugeOverlay);
         }
 
         if (!standaloneGForceEnabled)
@@ -2762,6 +2823,7 @@ public sealed partial class AppController : IAsyncDisposable
         {
             WindowZOrder.DetachFromGame(TireTemperatureGaugeOverlay);
         }
+        if (!driftEnabled) WindowZOrder.DetachFromGame(DriftGaugeOverlay);
 
         _lastForzaFullscreen = focus.IsFullscreen;
         SetCompositionRenderingEnabled(overlayVisible);
@@ -2886,7 +2948,10 @@ public sealed partial class AppController : IAsyncDisposable
         _overlayVisibleRequested = false;
         _lastConfirmedForzaWindow = IntPtr.Zero;
         _lastForzaFullscreen = false;
+        _driftGameDisplayKey = null;
+        _nextDriftMonitorCheckUtc = DateTimeOffset.MinValue;
         SetCompositionRenderingEnabled(false);
+        DriftGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         Overlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         GForceOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         BoostGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);

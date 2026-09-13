@@ -2,7 +2,46 @@
 
 Notable changes to Wisp are recorded here.
 
-## Unreleased
+## 2.0.0 - 2026-09-13
+
+### Dashboard and appearance
+
+- Rebuild the dashboard around a curved RPM scale, large speed and gear readings, power and torque, and grouped vehicle and connection information.
+- Add borderless Display mode for a second monitor, with fill-screen and resizable options. F11 switches modes from Dashboard; Escape exits Display mode.
+- Group Appearance into Layout, Gauges, Colors, and Behaviour, and enlarge the live HUD preview to use its available space.
+- Add application controls for borders, glow, surface opacity, corner rounding, spacing, and text colors. Fresh installations use the wizard palette; existing colors remain unchanged on update.
+- Add optional background particles with independent visibility, animation, and color controls. They follow the accent by default, preserve the chosen background color, and do not react to the mouse. Add accent lighting and outward-moving particles along the dashboard rim.
+- Keep the original interface available through Appearance > Layout > Use legacy interface after restarting Wisp.
+- Restore the three colored window controls and move the accent-colored Wisp logo and name to the right of the header. Preserve the connection status position.
+- Correct assist labels to Disabled, Enabled, and Active; align RPM ticks; and fix clipped controls, card outlines, Extras spacing, and the disabled saved-run list theme.
+- Keep the navigation bar themed while a profile dialog is open instead of turning white (#67).
+- Add soft fades at overflowing scroll viewport edges and improve nested scrolling without fading the scrollbars.
+- Allow the G-force meter to be disabled in every layout, rename Two boxes to Box, and add independent dot and trail colors that carry with HUD profiles.
+- Remove the redundant Setup page. Keep connection help in Diagnostics and use Fullscreen in FH6 setup instructions.
+- Make the existing connection status open a panel explaining game detection, telemetry, and HUD visibility with a relevant next step, without moving the status.
+- Keep common controls visible and group detailed explanations and fine adjustments under themed More options sections.
+
+### Drift guidance
+
+- Add a separate, movable drift angle gauge with native-style ticks, readable angle and percentage text, and no outer frame.
+- Add Drift Zone angle-bonus guidance for the verified Steam FH6 6.440.853.0 executable. The scoring-angle range begins at 10 degrees and its angle bonus saturates at 59.4 degrees; the display includes ordinary 20–40 degree drifts rather than treating the upper accepted limit as a target.
+- Show the share of maximum angle bonus, not a score prediction. Wisp does not detect zone entry or establish whether points are being awarded.
+- Add Custom target guidance with adjustable angle and tolerance for other builds, including Xbox app / Microsoft Store PC. Unverified builds do not inherit scoring guidance from a native HUD compatibility map.
+- Add dark shading, an optional black background with adjustable opacity, size controls, and position reset.
+- Hide the angle, marker, and bonus below 5 mph ground speed (about 8 km/h) in both guidance modes, avoiding misleading angles when stationary on a slope or spinning the wheels.
+
+### Runs
+
+- Automatically save run names, tune labels, and notes with Saving/Saved feedback, recovery drafts, and Retry on failure. Preserve pending edits when switching runs and protect them during export and shutdown.
+- Add visible search by run name or tune label and an Export menu for individual run files and CSV.
+- Organize graphs into Overview, Engine, and Tires & handling. Combine the overlapping Overview, Acceleration, and Drifting workspaces while retaining saved graph choices.
+- Let users show, hide, reorder, and resize graph modules. Arrange cards to use available row space and stack them in narrow windows.
+- Add overlaid or side-by-side comparisons and a cards-or-table statistics view. Keep distinct run colors and line styles, the shared graph cursor, selected intervals, and speed-range matching.
+- Preserve the open graph workspace when switching Run A and fix the graph customization panel's clipping and scrolling.
+- Add multi-file and library ZIP import, Export all, and Delete all with confirmation and Undo. Validate an import before changing the library; skip identical runs and reject conflicting duplicates without overwriting existing data.
+- Document the versioned library ZIP format while retaining the existing .wisprun format, report images, CSV, names, notes, tune labels, and markers.
+
+The existing Native HUD artwork, Analogue renderer and optional CPU mode, gauge behavior, tire calibration, profiles, and saved runs are retained.
 
 ## 1.2.2 - 2026-09-11
 

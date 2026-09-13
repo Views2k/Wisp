@@ -28,7 +28,7 @@ internal sealed class ScrollCheckReport
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ScrollPresentationReport? Presentation { get; set; }
     public bool HasFindings => Presentation is not null ? Presentation.HasFindings :
-        Comparisons.Count != 8 || Comparisons.Any(comparison => !comparison.Equivalent ||
+        Comparisons.Count != ScrollReview.ExpectedComparisonCount || Comparisons.Any(comparison => !comparison.Equivalent ||
             comparison.Direct.HasFindings || comparison.Decorator.HasFindings);
 }
 
@@ -57,7 +57,8 @@ internal static class ScrollReview
     internal const double GeometryTolerance = 0.001;
     private static readonly (string Name, int Width, int Height)[] Viewports =
         [("compact", 720, 440), ("baseline", 980, 750)];
-    private static readonly string[] Tabs = ["dashboard", "appearance", "diagnostics", "setup"];
+    private static readonly string[] Tabs = ["diagnostics", "profiles", "release notes"];
+    internal static int ExpectedComparisonCount => Tabs.Length * Viewports.Length;
 
     public static void Run(MainWindow sourceWindow, FrameworkElement surface, TabControl tabs,
         BindingTrace bindings, CancellationToken cancellationToken, int dpi,

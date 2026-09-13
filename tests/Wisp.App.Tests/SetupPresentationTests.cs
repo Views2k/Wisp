@@ -6,6 +6,41 @@ namespace Wisp.App.Tests;
 
 public sealed class SetupPresentationTests
 {
+    [Fact]
+    public void DisplayConfirmationUsesTheFullscreenSettingName()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var wizard = XDocument.Parse(Source("SetupWindow.xaml"));
+        var confirmation = Assert.Single(wizard.Descendants(), element =>
+            element.Attribute(x + "Name")?.Value == "DisplayConfirmation");
+        Assert.Equal("I confirmed Fullscreen display mode", confirmation.Attribute("AutomationProperties.Name")?.Value);
+        Assert.Equal("I confirmed Fullscreen mode.", Assert.Single(confirmation.Elements()).Attribute("Text")?.Value);
+        Assert.DoesNotContain("borderless", Source("SetupWindow.xaml"), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("MainWindow.xaml")]
+    [InlineData("LegacyMainWindow.xaml")]
+    public void ConnectionControlsRemainInDiagnosticsWithoutASeparateSetupPage(string filename)
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var document = XDocument.Parse(Source(filename));
+        Assert.DoesNotContain(document.Descendants(), element =>
+            element.Name.LocalName == "TabItem" && element.Attribute("Header")?.Value == "Setup");
+        Assert.DoesNotContain(document.Descendants(), element =>
+            element.Name.LocalName == "ListBoxItem" && element.Attribute("AutomationProperties.Name")?.Value == "Setup");
+        var diagnostics = Assert.Single(document.Descendants(), element =>
+            element.Name.LocalName == "TabItem" && element.Attribute("Header")?.Value == "Diagnostics");
+        Assert.Single(diagnostics.Descendants(), element => element.Attribute(x + "Name")?.Value == "PortApplyFeedback");
+        Assert.Single(diagnostics.Descendants(), element => element.Attribute("Click")?.Value == "ApplyPort_Click");
+        var help = Assert.Single(diagnostics.Descendants(), element => element.Attribute(x + "Name")?.Value == "ConnectionHelp");
+        Assert.Contains(help.Descendants(), element => element.Attribute("Text")?.Value?.Contains("Fullscreen", StringComparison.Ordinal) == true);
+        Assert.Contains(help.Descendants(), element => element.Attribute("Text")?.Value?.Contains("{Binding UdpPort", StringComparison.Ordinal) == true);
+        var appearance = Assert.Single(document.Descendants(), element =>
+            element.Name.LocalName == "TabItem" && element.Attribute("Header")?.Value == "Appearance");
+        Assert.Single(appearance.Descendants(), element => element.Attribute(x + "Name")?.Value == "LegacyInterfaceToggle");
+    }
+
     [Theory]
     [InlineData(0, true)]
     [InlineData(480, true)]
@@ -30,14 +65,21 @@ public sealed class SetupPresentationTests
     }
 
     [Fact]
-    public void OneAmbientSceneCoversEveryWizardStepButNotTheDashboardOrHud()
+    public void InstallerKeepsItsSceneAndAppUsesNoninteractiveParticlesWithoutAddingThemToHud()
     {
         var wizard = XDocument.Parse(Source("SetupWindow.xaml"));
         var backdrop = Assert.Single(wizard.Descendants(), element => element.Name.LocalName == "AmbientBackdrop");
         Assert.Equal("1", backdrop.Attribute("Grid.Row")?.Value);
         Assert.Equal("3", backdrop.Attribute("Grid.RowSpan")?.Value);
         Assert.Equal("{Binding AnimatedBackground}", backdrop.Attribute("IsAnimationEnabled")?.Value);
-        Assert.DoesNotContain("AmbientBackdrop", Source("MainWindow.xaml"), StringComparison.Ordinal);
+        foreach (var file in new[] { "MainWindow.xaml", "LegacyMainWindow.xaml" })
+        {
+            var appBackdrop = Assert.Single(XDocument.Parse(Source(file)).Descendants(), element => element.Name.LocalName == "AmbientBackdrop");
+            Assert.Equal("True", appBackdrop.Attribute("ParticlesOnly")?.Value);
+            Assert.Equal("False", appBackdrop.Attribute("IsPointerInteractionEnabled")?.Value);
+            Assert.Equal("{DynamicResource AppParticleColor}", appBackdrop.Attribute("ParticleColor")?.Value);
+            Assert.Equal("{Binding AnimatedBackground}", appBackdrop.Attribute("IsAnimationEnabled")?.Value);
+        }
         Assert.DoesNotContain("A little atmosphere", Source("MainWindow.xaml"), StringComparison.Ordinal);
         Assert.DoesNotContain("AmbientBackdrop", Source("OverlayWindow.xaml"), StringComparison.Ordinal);
         Assert.DoesNotContain("AmbientBackdrop", Source("GForceWindow.xaml"), StringComparison.Ordinal);
