@@ -10,6 +10,85 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
+## Wisp 2.0 preview
+
+The features below are in the current Wisp 2.0 private test candidate. **This
+candidate is not publicly available yet. The public download remains Wisp
+1.2.2 and does not include these additions.** Screenshots retain their original
+prerelease version labels.
+
+[Download stable Wisp 1.2.2](https://github.com/Views2k/Wisp/releases/tag/v1.2.2) ·
+[Explore the 2.0 preview](https://wispoverlay.com/releases/#release-2-0) ·
+[Preview gallery](#wisp-20-preview-gallery)
+
+### A dashboard for your second screen
+
+Large speed and gear readings sit below a curved tachometer, with power,
+torque, session peaks, and grouped vehicle telemetry. Driver assists distinguish
+**Disabled**, **Enabled**, and **Active**.
+
+**Display mode** makes the dashboard borderless. Fill a second monitor or
+resize it to share the screen. **F11** switches modes from Dashboard; **Esc**
+exits. The in-game overlays remain separate.
+
+![Wisp 2.0 preview dashboard with live RPM, speed, gear, power, torque, and grouped vehicle telemetry](docs/images/wisp-2.0-dashboard.png)
+
+### Drift angle guidance
+
+Enable the gauge in **Appearance > Gauges**. It shows your drift angle above
+the gameplay, with native-style ticks and no outer frame. Move or resize it,
+add dark shading for bright skies, or choose a black background with adjustable
+opacity.
+
+**Drift Zone angle bonus** supports the verified Steam FH6 **6.440.853.0**
+build. The scoring-angle range starts at **10°** and the angle bonus reaches
+its ceiling at **59.4°**. Ordinary **20–40°** drifts already correspond to roughly
+**80–90%** of the maximum angle bonus. More angle is not automatically a better
+result.
+
+The percentage is **angle bonus, not total points**. Wisp does not detect zone
+entry, confirm that points are being awarded, or predict your final score.
+Speed, distance, your line, road contact, and scoring eligibility still matter.
+Other builds, including Xbox app / Microsoft Store PC, can use **Custom target**
+guidance with their own angle and tolerance; Native HUD compatibility alone
+does not enable a verified scoring profile.
+
+Both modes hide the angle, marker, and bonus below **5 mph ground speed**
+(about **8 km/h**), avoiding misleading readings while stationary on a slope
+or spinning the wheels.
+
+![Wisp drift gauge showing 43.7 degrees and 92 percent of maximum angle bonus above Forza Horizon 6 gameplay](docs/images/wisp-2.0-drift-gameplay.jpg)
+
+### Browse, compare, and share runs
+
+- Search saved runs by name or tune label. Names, tune labels, and notes save
+  automatically, with **Saving… / Saved** feedback and **Retry** if saving fails.
+  Switching runs preserves pending edits.
+- Open **Show graphs** and choose **Overview**, **Engine**, or **Tires & handling**.
+  Show, hide, reorder, and resize graphs. Compare overlaid or side by side, use
+  a shared cursor and selected time range, and view statistics as cards or a table.
+- Use the selected run's **Export** menu for a shareable `.wisprun` file or CSV.
+  **Save image** exports a graph report. **Import runs** accepts individual run
+  files or library ZIPs, and **Export all** backs up the library.
+- **Delete all** asks for confirmation and offers Undo. Imports skip identical
+  runs and reject conflicting duplicates without overwriting existing data.
+
+### Appearance and everyday use
+
+- Set the application's accent, backgrounds, text, borders, glow, surface
+  opacity, rounding, and spacing beside a larger live HUD preview.
+- Customize G-force dot and trail colors independently; disable the meter in
+  every layout. Save combinations as HUD profiles.
+- Optional particles follow the accent or a separate color. Pause or hide
+  them independently. They do not react to the mouse or change your chosen
+  background color.
+- Fresh installations use the setup wizard's palette; updates preserve existing
+  colors, settings, calibration, profiles, and runs. **Use legacy interface** in
+  **Appearance > Layout** restores the previous interface after a restart.
+- Click the existing connection status for game detection, telemetry reception,
+  and an explanation when the overlay is hidden. Common settings stay visible,
+  with detailed adjustments under **More options**.
+
 ## Wisp 1.2.2 bug fix
 
 Toggling the attached G-force meter now keeps the main Native HUD in place.
@@ -58,10 +137,6 @@ or record gameplay video.
 For earlier changes, see the [changelog](CHANGELOG.md) and
 [release history](https://github.com/Views2k/Wisp/releases).
 
-![Wisp 1.1 Dashboard showing live FH6 telemetry, torque, and session peaks](docs/images/dashboard-1.1.png)
-
-<p align="center"><sub>Wisp 1.1 Dashboard with live FH6 telemetry, torque, and session peaks.</sub></p>
-
 Wisp shows the speed implied by the driven wheels rather than only the car's
 ground speed. The difference becomes visible during wheelspin, burnouts,
 drifting, lockup, and loss of grip.
@@ -97,39 +172,40 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
   HUD visibility shortcut, and bounded local debug logging with ZIP export for
   issue reports.
 
-## Gallery
+## Wisp 2.0 preview gallery
 
-Wisp 1.1 with custom colors. The Release Notes capture shows the 1.1 preview entry.
+These are captures of the private test candidate, **not the current 1.2.2
+download**. Original prerelease version labels are retained.
 
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/images/appearance-1.1.png" alt="Wisp 1.1 Appearance page showing the live Native Analogue HUD preview and overlay controls">
-      <br><sub>Native Analogue HUD preview with attached boost and tire-temperature dials.</sub>
+      <img src="docs/images/wisp-2.0-display-mode.png" alt="Wisp 2.0 preview borderless Display mode with a curved tachometer and large dashboard readings">
+      <br><sub>Display mode for a whole second screen or a resizable part of it.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/native-digital-hud.png" alt="Wisp Digital Native HUD with boost and tire-temperature rails during FH6 gameplay">
-      <br><sub>Digital Native HUD with attached boost and front/rear tire-temperature rails.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/images/native-analogue-hud.png" alt="Wisp Analogue Native HUD with attached boost and tire-temperature dials during FH6 gameplay">
-      <br><sub>Analogue Native HUD with attached boost and dual-needle tire-temperature dials.</sub>
-    </td>
-    <td width="50%">
-      <img src="docs/images/diagnostics-1.1.png" alt="Wisp 1.1 Diagnostics showing live telemetry, tire calibration, Native HUD capabilities, and local debug controls">
-      <br><sub>Live telemetry, tire calibration, Native HUD capabilities, and local debug controls.</sub>
+      <img src="docs/images/wisp-2.0-runs.png" alt="Wisp 2.0 preview Runs workspace comparing recorded telemetry with distinct colors">
+      <br><sub>Configurable graphs and comparisons, with a separate color for each run.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/images/profiles-1.1.png" alt="Wisp 1.1 Profiles page showing saved HUD layouts and color combinations">
+      <img src="docs/images/wisp-2.0-appearance.png" alt="Wisp 2.0 preview Appearance colors and particle controls beside a live Native Analogue HUD preview">
+      <br><sub>Live HUD preview, gauge controls, colors, and application styling.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/images/wisp-2.0-diagnostics.png" alt="Wisp 2.0 preview Diagnostics showing telemetry reception, tire calibration, Native HUD capabilities, and debug controls">
+      <br><sub>Telemetry, tire calibration, Native HUD capabilities, and debug controls.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/wisp-2.0-profiles.png" alt="Wisp 2.0 preview Profiles showing saved HUD layouts and color combinations">
       <br><sub>Saved HUD profiles with their own layouts and colors.</sub>
     </td>
     <td width="50%">
-      <img src="docs/images/release-notes-1.1-preview.png" alt="Wisp Release Notes page showing the 1.1 maintenance preview and earlier versions">
-      <br><sub>Release notes (1.1 preview).</sub>
+      <img src="docs/images/wisp-2.0-extras.png" alt="Wisp 2.0 preview Extras showing startup and application update settings">
+      <br><sub>Startup behavior and application updates.</sub>
     </td>
   </tr>
 </table>
