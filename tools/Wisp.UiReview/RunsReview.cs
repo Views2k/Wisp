@@ -50,6 +50,9 @@ internal static class RunsReview
             var showGraphs = (Button)page.FindName("ShowGraphsButton");
             var backToSummary = (Button)page.FindName("BackToSummaryButton");
             var compareOptions = (Expander)page.FindName("CompareExpander");
+            var comparisonControls = (Expander)page.FindName("RunComparisonControls");
+            var comparisonScroll = (ScrollViewer)page.FindName("RunComparisonScroll");
+            var comparisonSelector = (ComboBox)page.FindName("ComparisonRunSelector");
             var surface = (FrameworkElement)source.Content;
             var names = NameScope.GetNameScope(source);
             var font = (FontFamily)surface.GetValue(TextElement.FontFamilyProperty);
@@ -92,7 +95,7 @@ internal static class RunsReview
                     AwaitReady(controller.Runs);
                     if (!controller.Runs.IsSummaryVisible || controller.Runs.IsGraphWorkspaceOpen || !scroll.IsVisible || graphScroll.IsVisible)
                         failures.Add("new-report-did-not-open-summary");
-                    if (compareOptions.IsExpanded) failures.Add("comparison-controls-expanded-by-default");
+                    if (comparisonControls.IsExpanded || compareOptions.IsExpanded) failures.Add("comparison-controls-expanded-by-default");
                     if (Descendants(page).OfType<Button>().Count(button => Equals(button.Content, "Show graphs")) != 1)
                         failures.Add("graph-entry-is-not-unique");
                     Capture((comparison ? "comparison" : "report") + $"-{width}-opened");
@@ -118,6 +121,23 @@ internal static class RunsReview
                     Capture((comparison ? "comparison" : "report") + $"-{width}-selection");
                     Click(backToSummary); CheckSummaryNavigation($"{width}-return");
                 }
+                Click(showGraphs);
+                var graphBeforeComparison = controller.Runs.GraphChoices.Single(choice => choice.Mode == RunPlotMode.PowerByRpm);
+                controller.Runs.SelectedGraph = graphBeforeComparison; AwaitReady(controller.Runs);
+                var runAId = controller.Runs.SelectedRun!.Id;
+                comparisonControls.IsExpanded = true; Settle(surface);
+                comparisonSelector.SetCurrentValue(ComboBox.SelectedItemProperty,
+                    controller.Runs.Library.Single(item => item.Id != runAId));
+                var compareButton = Descendants(comparisonControls).OfType<Button>()
+                    .Single(button => Equals(button.Content, "Compare selected"));
+                comparisonScroll.ScrollToVerticalOffset(comparisonScroll.VerticalOffset + compareButton.TranslatePoint(new Point(), comparisonScroll).Y - 10);
+                Settle(surface);
+                if (!WithinPage(comparisonControls) || !WithinPage(compareButton) || !compareButton.IsEnabled || compareButton.Command?.CanExecute(null) != true)
+                    failures.Add("comparison-controls-unavailable-from-graphs");
+                compareButton.Command?.Execute(compareButton.CommandParameter); AwaitReady(controller.Runs); Settle(surface);
+                if (!controller.Runs.IsGraphWorkspaceOpen || controller.Runs.SelectedGraph != graphBeforeComparison || controller.Runs.SelectedRun?.Id != runAId || !controller.Runs.HasComparison)
+                    failures.Add("comparison-changed-the-open-graph-or-run-a");
+                Capture($"comparison-from-graphs-{width}");
                 compareOptions.IsExpanded = true; Settle(surface);
                 var matchToggle = Descendants(compareOptions).OfType<CheckBox>()
                     .Single(toggle => Equals(toggle.Content, "Match an acceleration speed range"));
@@ -126,15 +146,20 @@ internal static class RunsReview
                     controller.Runs.SameSpeed = enabled; AwaitReady(controller.Runs); Settle(surface);
                     if (matchToggle.IsChecked != enabled || matchToggle.Template.FindName("ToggleTrack", matchToggle) is not Border)
                         failures.Add("comparison-toggle-does-not-use-wisp-style");
-                    scroll.ScrollToVerticalOffset(scroll.VerticalOffset + matchToggle.TranslatePoint(new Point(), scroll).Y - 50);
-                    Settle(surface); Capture($"comparison-toggle-{width}-" + (enabled ? "checked" : "unchecked"));
+                    comparisonScroll.ScrollToVerticalOffset(comparisonScroll.VerticalOffset + matchToggle.TranslatePoint(new Point(), comparisonScroll).Y - 8);
+                    Settle(surface);
+                    if (!WithinPage(matchToggle)) failures.Add("comparison-match-toggle-outside-page");
+                    Capture($"comparison-toggle-{width}-" + (enabled ? "checked" : "unchecked"));
                 }
                 matchToggle.SetCurrentValue(UIElement.IsEnabledProperty, false); Settle(surface);
                 if (matchToggle.Template.FindName("ToggleContent", matchToggle) is not FrameworkElement { Opacity: < 1 })
                     failures.Add("comparison-toggle-disabled-state-not-visible");
                 Capture($"comparison-toggle-{width}-disabled");
                 matchToggle.GetBindingExpression(UIElement.IsEnabledProperty)?.UpdateTarget();
-                compareOptions.IsExpanded = false; Settle(surface);
+                compareOptions.IsExpanded = false; comparisonControls.IsExpanded = false; Settle(surface);
+                graphScroll.ScrollToHome(); Settle(surface);
+                CheckGraphNavigation($"{width}-comparison-completed", requireVisiblePlot: true);
+                Click(backToSummary); CheckSummaryNavigation($"{width}-comparison-summary");
                 Click(showGraphs); CheckGraphNavigation($"{width}-reopened", requireVisiblePlot: true);
                 controller.Runs.ClearSelectionCommand.Execute(null); AwaitReady(controller.Runs);
                 if (graphPicker.Items.Count != 8) failures.Add("graph-picker-does-not-list-all-eight-views");

@@ -242,7 +242,7 @@ public sealed class ApplicationUpdateCheckPolicyTests
             surface.Measure(new Size(720, 440));
             surface.Arrange(new Rect(0, 0, 720, 440));
             surface.UpdateLayout();
-            var banner = Assert.IsType<Border>(window.FindName("DashboardUpdateBanner"));
+            var banner = Assert.IsAssignableFrom<Border>(window.FindName("DashboardUpdateBanner"));
             window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
             Assert.Same(controller.ViewModel, banner.DataContext);
             Assert.Equal(Visibility.Collapsed, banner.Visibility);

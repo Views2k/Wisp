@@ -15,10 +15,10 @@ public sealed class XamlContractTests
     private static readonly XNamespace Xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
     private static readonly XNamespace Local = "clr-namespace:Wisp.App";
     private static readonly Regex BindingPathPattern = new(
-        @"\{Binding(?:\s+Path\s*=\s*|\s+)(?<path>[A-Za-z_][A-Za-z0-9_.]*)",
+        @"\{Binding(?:\s+Path\s*=\s*|\s+)(?<path>\([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\)|[A-Za-z_][A-Za-z0-9_.]*)(?![A-Za-z0-9_.]|\s*=)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex AncestorTypePattern = new(
-        @"RelativeSource\s*=\s*\{RelativeSource\s+AncestorType\s*=\s*(?:\{x:Type\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s*\}|(?<type>[A-Za-z_][A-Za-z0-9_]*))\s*\}",
+        @"RelativeSource\s*=\s*\{RelativeSource\s+AncestorType\s*=\s*(?:\{x:Type\s+(?<type>(?:[A-Za-z_][A-Za-z0-9_]*:)?[A-Za-z_][A-Za-z0-9_]*)\s*\}|(?<type>(?:[A-Za-z_][A-Za-z0-9_]*:)?[A-Za-z_][A-Za-z0-9_]*))\s*\}",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly HashSet<string> RoutedHandlerAttributes =
@@ -48,6 +48,18 @@ public sealed class XamlContractTests
         "TabItem",
         "TextBox"
     ];
+
+    [Theory]
+    [InlineData("{Binding ElementName=StyleGlowStrength}", null)]
+    [InlineData("{Binding ElementName = StyleGlowStrength}", null)]
+    [InlineData("{Binding RelativeSource={RelativeSource Self}}", null)]
+    [InlineData("{Binding Path=Value, ElementName=StyleGlowStrength}", "Value")]
+    [InlineData("{Binding Value, ElementName=StyleGlowStrength}", "Value")]
+    [InlineData("{Binding DataContext.Value, ElementName=StyleGlowStrength}", "DataContext.Value")]
+    [InlineData("{Binding (AutomationProperties.Name), RelativeSource={RelativeSource TemplatedParent}}", "(AutomationProperties.Name)")]
+    [InlineData("{Binding Path=(AutomationProperties.Name), RelativeSource={RelativeSource Self}}", "(AutomationProperties.Name)")]
+    public void BindingPathSeparatesNamedArgumentsFromPropertyPaths(string markup, string? expectedPath) =>
+        Assert.Equal(expectedPath, BindingPath(markup));
 
     [Fact]
     public void EveryDeclaredRoutedHandlerExistsOnItsXamlClass()
@@ -147,11 +159,14 @@ public sealed class XamlContractTests
     {
         var document = XDocument.Parse("""
             <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                  xmlns:local="clr-namespace:Wisp.App">
                 <TabControl x:Name="RootTabs">
                     <TabItem Header="Dashboard" />
                     <TabItem Header="Extras" />
                 </TabControl>
+                <local:OrbitSurface x:Name="Instrument" />
+                <local:MissingControl x:Name="Unknown" />
             </Grid>
             """);
         var tabs = BindingSourceType("{Binding SelectedIndex, ElementName=RootTabs}", document);
@@ -165,6 +180,84 @@ public sealed class XamlContractTests
         Assert.False(BindingPathResolves(tabs!, "SelectedItem.Header"));
         Assert.Null(BindingSourceType("{Binding SelectedIndex, ElementName=MissingControl}", document));
         Assert.Null(BindingSourceType("{Binding SelectedIndex, ElementName=RootTabs}"));
+        var instrument = BindingSourceType("{Binding Shape, ElementName=Instrument}", document);
+        Assert.Equal(typeof(OrbitSurface), instrument);
+        Assert.True(BindingPathResolves(instrument!, "Shape"));
+        Assert.True(BindingPathResolves(instrument!, "BorderThickness"));
+        Assert.False(BindingPathResolves(instrument!, "ShapeTypo"));
+        Assert.Null(BindingSourceType("{Binding Shape, ElementName=Unknown}", document));
+    }
+
+    [Fact]
+    public void SelfBindingContractUsesTheStyledControlRatherThanTheSetter()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "App.xaml"));
+        var style = document.Descendants(Presentation + "Style").Single(element =>
+            element.Attribute(Xaml + "Key")?.Value == "MoreOptionsStyle");
+        var setter = style.Elements(Presentation + "Setter").Single(element =>
+            element.Attribute("Property")?.Value == "AutomationProperties.Name");
+        var sourceType = BindingSourceType(setter.Attribute("Value")!.Value, document, setter);
+
+        Assert.Equal(typeof(System.Windows.Controls.Expander), sourceType);
+        Assert.Equal("Header", BindingPath(setter.Attribute("Value")!.Value));
+        Assert.True(BindingPathResolves(sourceType!, "Header"));
+        Assert.False(BindingPathResolves(sourceType!, "HeaderTypo"));
+
+        var disclosure = style.Descendants(Presentation + "ToggleButton").Single();
+        var self = BindingSourceType("{Binding IsChecked, RelativeSource={RelativeSource Self}}", document, disclosure);
+        Assert.Equal(typeof(System.Windows.Controls.Primitives.ToggleButton), self);
+        Assert.True(BindingPathResolves(self!, "IsChecked"));
+        Assert.False(BindingPathResolves(self!, "IsCheckedTypo"));
+
+        style.SetAttributeValue("TargetType", "MissingControl");
+        Assert.Null(BindingSourceType(setter.Attribute("Value")!.Value, document, setter));
+        style.Attribute("TargetType")!.Remove();
+        Assert.Null(BindingSourceType(setter.Attribute("Value")!.Value, document, setter));
+    }
+
+    [Fact]
+    public void AttachedAutomationBindingContractValidatesTheOwnerPropertyAndTarget()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "App.xaml"));
+        var disclosure = document.Descendants(Presentation + "ToggleButton").Single(element =>
+            element.Attribute(Xaml + "Name")?.Value == "Disclosure");
+        var binding = disclosure.Attribute("AutomationProperties.Name")!.Value;
+        var sourceType = BindingSourceType(binding, document, disclosure);
+        var path = BindingPath(binding);
+
+        Assert.Equal(typeof(System.Windows.Controls.Expander), sourceType);
+        Assert.Equal("(AutomationProperties.Name)", path);
+        Assert.True(BindingPathResolves(sourceType!, path!));
+        Assert.False(BindingPathResolves(sourceType!, "(AutomationProperties.NameTypo)"));
+        Assert.False(BindingPathResolves(sourceType!, "(AutomationPropertiesTypo.Name)"));
+        Assert.False(BindingPathResolves(typeof(ConnectionReport), path!));
+    }
+
+    [Fact]
+    public void ConnectionPanelBindingsUseTheConnectionReportContext()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "ConnectionStatusPanel.xaml"));
+        var values = document.Descendants(Presentation + "TextBlock")
+            .Where(element => BindingPath(element.Attribute("Text")?.Value) is not null).ToArray();
+        Assert.Equal(new[] { "Game", "Telemetry", "Hud", "Fix" },
+            values.Select(element => BindingPath(element.Attribute("Text")!.Value)));
+        foreach (var value in values)
+        {
+            var binding = value.Attribute("Text")!.Value;
+            var sourceType = BindingSourceType(binding, document, value);
+            var path = BindingPath(binding)!;
+            Assert.Equal(typeof(ConnectionReport), sourceType);
+            Assert.True(BindingPathResolves(sourceType!, path));
+            Assert.False(BindingPathResolves(sourceType!, path + "Typo"));
+        }
+
+        var text = values[0];
+        Assert.Equal(typeof(System.Windows.Controls.TextBlock),
+            BindingSourceType("{Binding Foreground, RelativeSource={RelativeSource Self}}", document, text));
+        Assert.Null(BindingSourceType("{Binding Game, ElementName=MissingControl}", document, text));
+        var update = File.ReadAllText(Path.Combine(AppSourceDirectory(), "ConnectionStatusPanel.xaml.cs"));
+        Assert.Contains("Update(ConnectionReport report)", update, StringComparison.Ordinal);
+        Assert.Contains("DataContext = report;", update, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -198,39 +291,76 @@ public sealed class XamlContractTests
         Assert.Equal(typeof(RunsPage), owner);
         Assert.True(BindingPathResolves(owner!, "DataContext.ViewStart"));
         Assert.False(BindingPathResolves(owner!, "DataContext.ViewStartTypo"));
-        Assert.Equal(typeof(RunPlotPanel), BindingSourceType("{Binding Title}", runs, chart));
-        Assert.True(BindingPathResolves(typeof(RunPlotPanel), "Title"));
-        Assert.False(BindingPathResolves(typeof(RunPlotPanel), "TitleTypo"));
+        Assert.Equal(typeof(RunWorkspacePlot), BindingSourceType("{Binding TimePanel.Title}", runs, chart));
+        Assert.True(BindingPathResolves(typeof(RunWorkspacePlot), "TimePanel.Title"));
+        Assert.False(BindingPathResolves(typeof(RunWorkspacePlot), "TimePanel.TitleTypo"));
         Assert.Equal(typeof(RunsViewModel), BindingSourceType("{Binding RecordingStatus}", runs, runs.Root));
         Assert.False(BindingPathResolves(typeof(RunsViewModel), "RecordingStatusTypo"));
         var graphName = runs.Descendants(Presentation + "Style").Single(element => element.Attribute(Xaml + "Key")?.Value == "RunGraphTab")
             .Elements(Presentation + "Setter").Single(element => element.Attribute("Property")?.Value == "AutomationProperties.Name");
-        Assert.Equal(typeof(RunGraphChoice), BindingSourceType(graphName.Attribute("Value")!.Value, runs, graphName));
-        Assert.True(BindingPathResolves(typeof(RunGraphChoice), "Label"));
-        Assert.False(BindingPathResolves(typeof(RunGraphChoice), "LabelTypo"));
+        Assert.Equal(typeof(RunWorkspacePresetOption), BindingSourceType(graphName.Attribute("Value")!.Value, runs, graphName));
+        Assert.True(BindingPathResolves(typeof(RunWorkspacePresetOption), "Title"));
+        Assert.False(BindingPathResolves(typeof(RunWorkspacePresetOption), "TitleTypo"));
         var dropdown = Assert.Single(runs.Descendants(Presentation + "ToggleButton"));
         var templateSource = BindingSourceType(dropdown.Attribute("IsChecked")!.Value, runs, dropdown);
         Assert.Equal(typeof(System.Windows.Controls.ComboBox), templateSource);
         Assert.True(BindingPathResolves(templateSource!, "IsDropDownOpen"));
         Assert.False(BindingPathResolves(templateSource!, "IsDropDownOpenTypo"));
+        var comparisonTrigger = runs.Descendants(Presentation + "Style")
+            .Single(element => element.Attribute(Xaml + "Key")?.Value == "RunComparisonValue")
+            .Descendants(Presentation + "DataTrigger").Single();
+        var comparisonSource = BindingSourceType(comparisonTrigger.Attribute("Binding")!.Value, runs, comparisonTrigger);
+        Assert.Equal(typeof(RunsPage), comparisonSource);
+        Assert.True(BindingPathResolves(comparisonSource!, "DataContext.HasComparison"));
+        Assert.False(BindingPathResolves(comparisonSource!, "DataContext.HasComparisonTypo"));
+        Assert.Null(BindingSourceType(
+            "{Binding DataContext.HasComparison, RelativeSource={RelativeSource AncestorType={x:Type missing:RunsPage}}}",
+            runs, comparisonTrigger));
+
+        var moduleContainer = runs.Descendants(Presentation + "ItemsControl")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "ChartPanels")
+            .Element(Presentation + "ItemsControl.ItemContainerStyle")!
+            .Descendants(Presentation + "Setter").First();
+        Assert.Equal(typeof(RunWorkspaceModule), BindingSourceType("{Binding Width}", runs, moduleContainer));
+        Assert.True(BindingPathResolves(typeof(RunWorkspaceModule), "Width"));
+        Assert.False(BindingPathResolves(typeof(RunWorkspaceModule), "WidthTypo"));
 
         var main = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var panel = Assert.Single(main.Descendants(), element => element.Attribute(Xaml + "Name")?.Value == "DashboardRunPanel");
         Assert.Equal(typeof(RunsViewModel), BindingSourceType("{Binding RecordingStatus}", main, panel));
-        var code = File.ReadAllText(Path.Combine(AppSourceDirectory(), "MainWindow.xaml.cs"));
+        var code = ControlPanelCode();
         Assert.Contains("RunsSurface.DataContext = controller.Runs;", code, StringComparison.Ordinal);
         Assert.Contains("DashboardRunPanel.DataContext = controller.Runs;", code, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ExtrasOffersOneLargeColorEditorWithSevenSelectableTargets()
+    public void LegacyRunsBindingsValidateInheritedViewModelPaths()
+    {
+        var document = LoadXaml(LegacyRunsPagePath());
+        Assert.True(IsRunsPageDocument(document));
+        var owner = BindingSourceType(
+            "{Binding DataContext.ViewStart, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}",
+            document, document.Root);
+        Assert.Equal(typeof(LegacyRunsPage), owner);
+        Assert.True(BindingPathResolves(owner!, "DataContext.ViewStart"));
+        Assert.False(BindingPathResolves(owner!, "DataContext.ViewStartTypo"));
+        Assert.Equal(typeof(RunsViewModel), BindingSourceType("{Binding RecordingStatus}", document, document.Root));
+        Assert.False(BindingPathResolves(typeof(RunsViewModel), "RecordingStatusTypo"));
+    }
+
+    [Fact]
+    public void AppearanceOffersOneLargeColorEditorWithSeparateGForceTargets()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var extras = document.Descendants(Presentation + "TabItem")
             .Single(element => element.Attribute("Header")?.Value == "Extras");
-        var layout = extras.Descendants(Presentation + "Grid")
+        var appearance = document.Descendants(Presentation + "TabItem")
+            .Single(element => element.Attribute("Header")?.Value == "Appearance");
+        var layout = appearance.Descendants(Presentation + "Grid")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "ColorEditorLayout");
-        var editors = layout.Elements(Local + "ColorWheelEditor").ToArray();
+        Assert.Empty(extras.Descendants(Local + "ColorWheelEditor"));
+        Assert.Single(document.Descendants(Local + "ColorWheelEditor"));
+        var editors = layout.Descendants(Local + "ColorWheelEditor").ToArray();
         var selector = layout.Descendants(Presentation + "ListBox").Single(element =>
             element.Attribute(Xaml + "Name")?.Value == "ColorTargetSelector");
         var targets = selector.Elements(Presentation + "ListBoxItem")
@@ -241,12 +371,15 @@ public sealed class XamlContractTests
         var editor = Assert.Single(editors);
         Assert.Null(editor.Attribute("Width"));
         Assert.Equal("Stretch", editor.Attribute("HorizontalAlignment")?.Value);
+        Assert.Equal("2", editor.Parent?.Attribute("Grid.Row")?.Value);
+        Assert.Single(selector.Descendants(Presentation + "WrapPanel"));
         Assert.Equal("ColorEditor_SelectedColorChanged", editor.Attribute("SelectedColorChanged")?.Value);
         Assert.Equal("ColorTargetSelector_SelectionChanged", selector.Attribute("SelectionChanged")?.Value);
         Assert.Equal(new[]
         {
             "App accent", "Background and surfaces", "HUD border",
-            "Gauge start", "Gauge middle", "Gauge end", "Traction hook cue"
+            "Gauge start", "Gauge middle", "Gauge end", "Traction hook cue",
+            "App borders", "Main text", "Secondary text", "G-force dot", "G-force trail", "Background particles"
         }, targets);
         Assert.Empty(layout.Descendants(Presentation + "ComboBox"));
         Assert.DoesNotContain(extras.Descendants(Presentation + "ListBox"), element =>
@@ -275,7 +408,7 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void ProfilesHaveOneDedicatedPageAndAStyledSaveConfirmation()
+    public void ProfilesSaveFromAppearanceAndTheDedicatedLibraryThroughOneConfirmation()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var appearance = document.Descendants(Presentation + "TabItem")
@@ -288,10 +421,16 @@ public sealed class XamlContractTests
             .Where(element => element.Attribute("Click")?.Value == "SaveHudProfile_Click")
             .ToArray();
 
-        Assert.Single(saveButtons);
-        Assert.Contains(saveButtons, button => appearance.Descendants().Contains(button));
-        Assert.DoesNotContain(saveButtons, button => profiles.Descendants().Contains(button));
+        Assert.Equal(2, saveButtons.Length);
+        Assert.Single(saveButtons, button => appearance.Descendants().Contains(button));
+        Assert.Single(saveButtons, button => profiles.Descendants().Contains(button));
         Assert.DoesNotContain(saveButtons, button => extras.Descendants().Contains(button));
+        Assert.All(saveButtons, button =>
+        {
+            Assert.Equal("{StaticResource PrimaryButtonStyle}", button.Attribute("Style")?.Value);
+            Assert.True(IsDescriptiveText(button.Attribute("Content")?.Value) ||
+                        IsDescriptiveText(button.Attribute("AutomationProperties.Name")?.Value));
+        });
         Assert.Single(profiles.Descendants(Presentation + "ListBox"), element =>
             element.Attribute(Xaml + "Name")?.Value == "HudProfileList");
         foreach (var action in new[] { "Apply", "Update", "Rename", "Delete" })
@@ -305,7 +444,7 @@ public sealed class XamlContractTests
         Assert.Equal("Collapsed", dialog.Attribute("Visibility")?.Value);
         Assert.Equal("Cycle", dialog.Attribute("KeyboardNavigation.TabNavigation")?.Value);
         Assert.Equal("HudProfileDialog_KeyDown", dialog.Attribute("KeyDown")?.Value);
-        Assert.Equal("0", dialog.Elements(Presentation + "Border").Single().Attribute("BorderThickness")?.Value);
+        Assert.Equal("0", dialog.Elements(Local + "OrbitSurface").Single().Attribute("BorderThickness")?.Value);
         Assert.Single(dialog.Descendants(Presentation + "TextBox"), element =>
             element.Attribute(Xaml + "Name")?.Value == "HudProfileNameInput" &&
             element.Attribute("MaxLength")?.Value == HudPreset.MaximumNameLength.ToString());
@@ -334,22 +473,24 @@ public sealed class XamlContractTests
     [Fact]
     public void MainWindowKeepsAllColorCustomizationsIndependent()
     {
-        var code = File.ReadAllText(Path.Combine(AppSourceDirectory(), "MainWindow.xaml.cs"));
-        var constructor = Regex.Match(
-            code,
-            @"public MainWindow\(AppController controller\).*?(?=\r?\n    private void )",
-            RegexOptions.Singleline).Value;
+        var code = ControlPanelCode();
+        var initialization = Handler(code, "InitializeControlPanel");
+        foreach (var file in new[] { "MainWindow.xaml.cs", "LegacyMainWindow.xaml.cs" })
+        {
+            Assert.Contains("InitializeControlPanel();", File.ReadAllText(Path.Combine(AppSourceDirectory(), file)),
+                StringComparison.Ordinal);
+        }
         var targetLoader = Handler(code, "LoadSelectedColorTarget");
         var colorHandler = Handler(code, "ColorEditor_SelectedColorChanged");
 
-        Assert.Contains("AppColorThemes.Resolve(controller.Settings.ColorTheme)", constructor, StringComparison.Ordinal);
-        Assert.Contains("AppBackgroundThemes.Resolve(controller.Settings.BackgroundTheme)", constructor, StringComparison.Ordinal);
-        Assert.Contains("AppColorThemes.Resolve(controller.Settings.HudBorderTheme)", constructor, StringComparison.Ordinal);
-        Assert.Contains("controller.Settings.CustomAccentColor", constructor, StringComparison.Ordinal);
-        Assert.Contains("controller.Settings.CustomBackgroundColor", constructor, StringComparison.Ordinal);
-        Assert.Contains("controller.Settings.CustomHudBorderColor", constructor, StringComparison.Ordinal);
-        Assert.Contains("controller.Settings.CustomBoostLowColor", constructor, StringComparison.Ordinal);
-        Assert.Contains("ColorCustomization.ResolveTractionCue(controller.Settings)", constructor, StringComparison.Ordinal);
+        Assert.Contains("AppColorThemes.Resolve(controller.Settings.ColorTheme)", initialization, StringComparison.Ordinal);
+        Assert.Contains("AppBackgroundThemes.Resolve(controller.Settings.BackgroundTheme)", initialization, StringComparison.Ordinal);
+        Assert.Contains("AppColorThemes.Resolve(controller.Settings.HudBorderTheme)", initialization, StringComparison.Ordinal);
+        Assert.Contains("controller.Settings.CustomAccentColor", initialization, StringComparison.Ordinal);
+        Assert.Contains("controller.Settings.CustomBackgroundColor", initialization, StringComparison.Ordinal);
+        Assert.Contains("controller.Settings.CustomHudBorderColor", initialization, StringComparison.Ordinal);
+        Assert.Contains("controller.Settings.CustomBoostLowColor", initialization, StringComparison.Ordinal);
+        Assert.Contains("ColorCustomization.ResolveTractionCue(controller.Settings)", initialization, StringComparison.Ordinal);
 
         Assert.Contains("MinimumOpacity = 0.82", targetLoader, StringComparison.Ordinal);
         Assert.Contains("MaximumBrightness = 0.34", targetLoader, StringComparison.Ordinal);
@@ -503,8 +644,8 @@ public sealed class XamlContractTests
         var nativePreview = FindLayoutPreview(document, 3);
 
         AssertPreviewMeterCondition(xamlPath, minimalPreview, shouldBeConditional: true, "Minimal");
-        AssertPreviewMeterCondition(xamlPath, combinedPreview, shouldBeConditional: false, "Combined");
-        AssertPreviewMeterCondition(xamlPath, separatePreview, shouldBeConditional: true, "Two boxes");
+        AssertPreviewMeterCondition(xamlPath, combinedPreview, shouldBeConditional: true, "Combined");
+        AssertPreviewMeterCondition(xamlPath, separatePreview, shouldBeConditional: true, "Box");
         Assert.Empty(nativePreview.Descendants(Local + "GForceMeterView"));
         var nativeMeters = nativePreview.Descendants(Local + "NativeGForceMeterView").ToArray();
         Assert.Equal(2, nativeMeters.Length);
@@ -620,7 +761,8 @@ public sealed class XamlContractTests
         var trail = Assert.Single(trails);
         Assert.Equal("{Binding GForceTrailPosition}", trail.Attribute("Position")?.Value);
         Assert.Equal("{Binding HasLiveTelemetry}", trail.Attribute("IsActive")?.Value);
-        Assert.Equal(expectedBrush, trail.Attribute("TrailBrush")?.Value);
+        Assert.Equal($"{{Binding GForceTrailBrush, TargetNullValue={expectedBrush}, FallbackValue={expectedBrush}}}",
+            trail.Attribute("TrailBrush")?.Value);
     }
 
     [Fact]
@@ -640,12 +782,16 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void ControlWindowPackagesItsOriginalLogo()
+    public void ControlWindowTintsTheOriginalLogoMaskWithTheAppAccent()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
-        var logo = document.Descendants(Presentation + "Image")
+        var logo = document.Descendants(Presentation + "Rectangle")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "HeaderLogo");
-        Assert.Equal("pack://application:,,,/Wisp;component/Assets/Wisp-logo.png", logo.Attribute("Source")?.Value);
+        Assert.Equal("{DynamicResource AccentBrush}", logo.Attribute("Fill")?.Value);
+        Assert.Equal("Wisp logo", logo.Attribute("AutomationProperties.Name")?.Value);
+        var mask = Assert.Single(logo.Descendants(Presentation + "ImageBrush"));
+        Assert.Equal("{x:Static local:WispLogoGlyph.Mask}", mask.Attribute("ImageSource")?.Value);
+        Assert.Equal("Uniform", mask.Attribute("Stretch")?.Value);
         var project = XDocument.Load(Path.Combine(AppSourceDirectory(), "Wisp.App.csproj"));
         Assert.Contains(project.Descendants("Resource"), resource =>
             resource.Attribute("Include")?.Value == @"Assets\Wisp-logo.png");
@@ -904,7 +1050,7 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void DebugLoggingIsExplicitLocalOptInBesideCompatibilityImport()
+    public void DebugLoggingIsExplicitLocalOptInWithinTroubleshooting()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var importButton = document.Descendants(Presentation + "Button")
@@ -912,7 +1058,9 @@ public sealed class XamlContractTests
         var toggle = document.Descendants(Presentation + "CheckBox")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "DebugLoggingToggle");
 
-        Assert.Same(importButton.Parent, toggle.Parent);
+        var troubleshooting = AssertDiagnosticsCategory(toggle, "DiagnosticsTroubleshootingCategory", "Troubleshooting");
+        var compatibility = AssertDiagnosticsCategory(importButton, "DiagnosticsCompatibilityCategory", "Compatibility");
+        Assert.NotSame(compatibility, troubleshooting);
         Assert.Equal(nameof(DiagnosticsViewModel.DebugLoggingEnabled),
             BindingPath(toggle.Attribute("IsChecked")?.Value));
         Assert.Equal("DebugLoggingToggle_Click", toggle.Attribute("Click")?.Value);
@@ -924,10 +1072,14 @@ public sealed class XamlContractTests
         var privacyHelp = document.Descendants(Presentation + "TextBlock").Single(element =>
             element.Attribute("Text")?.Value?.Contains("No raw packets", StringComparison.Ordinal) == true);
         Assert.Equal("{DynamicResource FaintBrush}", privacyHelp.Attribute("Foreground")?.Value);
-        Assert.Single(document.Descendants(Presentation + "Button"), element =>
+        Assert.Contains(status, troubleshooting.Descendants());
+        Assert.Contains(privacyHelp, troubleshooting.Descendants());
+        var export = Assert.Single(document.Descendants(Presentation + "Button"), element =>
             element.Attribute("Click")?.Value == "ExportDebugLogs_Click");
-        Assert.Single(document.Descendants(Presentation + "Button"), element =>
+        var delete = Assert.Single(document.Descendants(Presentation + "Button"), element =>
             element.Attribute("Click")?.Value == "DeleteDebugLogs_Click");
+        Assert.Contains(export, troubleshooting.Descendants());
+        Assert.Contains(delete, troubleshooting.Descendants());
 
         var controllerSource = File.ReadAllText(Path.Combine(AppSourceDirectory(), "AppController.cs"));
         var loggerSource = File.ReadAllText(Path.Combine(AppSourceDirectory(), "DebugLogging", "DebugLogService.cs"));
@@ -963,13 +1115,17 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void StandaloneGForceControlsAreContextuallyHiddenInCombinedLayout()
+    public void GForceToggleWorksInEveryLayoutWhileStandaloneSizeStaysContextual()
     {
         var xamlPath = Path.Combine(AppSourceDirectory(), "MainWindow.xaml");
         var document = LoadXaml(xamlPath);
+        var toggle = document.Descendants(Presentation + "CheckBox").Single(element =>
+            element.Attribute("AutomationProperties.Name")?.Value == "Show G-force meter");
+        Assert.Equal("{Binding GForceEnabled}", toggle.Attribute("IsChecked")?.Value);
+        Assert.False(HasLayoutVisibilityTrigger(toggle, layoutIndex: 1, visibility: "Collapsed"));
+        Assert.DoesNotContain(toggle.AncestorsAndSelf().Attributes("IsEnabled"), _ => true);
         var controlNames = new[]
         {
-            "Show standalone G-meter",
             "G-meter width",
             "G-meter height"
         };
@@ -984,9 +1140,8 @@ public sealed class XamlContractTests
             Assert.DoesNotContain(control.AncestorsAndSelf().Attributes("IsEnabled"), _ => true);
         }
 
-        var combinedNotice = document.Descendants()
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "CombinedGForceNotice");
-        Assert.True(HasLayoutVisibilityTrigger(combinedNotice, layoutIndex: 1, visibility: "Visible"));
+        Assert.DoesNotContain(document.Descendants(), element =>
+            element.Attribute(Xaml + "Name")?.Value == "CombinedGForceNotice");
     }
 
     [Fact]
@@ -1018,11 +1173,11 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void MainWindowUsesRoundedChromeAndResponsiveTabScaling()
+    public void MainWindowUsesRoundedChromeResponsiveDashboardAndScrollableSettings()
     {
         var xamlPath = Path.Combine(AppSourceDirectory(), "MainWindow.xaml");
         var document = LoadXaml(xamlPath);
-        var codeBehind = File.ReadAllText(Path.Combine(AppSourceDirectory(), "MainWindow.xaml.cs"));
+        var codeBehind = ControlPanelCode();
         var windowChrome = document.Descendants()
             .Single(element => element.Name.LocalName == "WindowChrome");
         Assert.Equal("8", windowChrome.Attribute("CornerRadius")?.Value);
@@ -1034,6 +1189,13 @@ public sealed class XamlContractTests
         var scrollViewers = tabs.Elements(Presentation + "TabItem")
             .SelectMany(tab =>
             {
+                if (tab.Attribute("Header")?.Value == "Appearance")
+                {
+                    var categoryPanes = tab.Descendants(Presentation + "ScrollViewer").ToArray();
+                    Assert.Equal(new[] { "AppearancePreviewScroll", "AppearanceLayoutScroll", "AppearanceGaugesScroll", "AppearanceColorsScroll", "AppearanceBehaviourScroll" },
+                        categoryPanes.Select(element => element.Attribute(Xaml + "Name")?.Value));
+                    return categoryPanes;
+                }
                 if (tab.Attribute(Xaml + "Name")?.Value != "RunsTab")
                     return new[] { Assert.Single(tab.Descendants(Presentation + "ScrollViewer")) };
 
@@ -1051,23 +1213,63 @@ public sealed class XamlContractTests
                 return panes;
             })
             .ToArray();
-        Assert.Equal(9, scrollViewers.Length);
+        Assert.Equal(12, scrollViewers.Length);
         Assert.All(
             scrollViewers,
             scrollViewer => Assert.Equal(
                 "Disabled",
                 scrollViewer.Attribute("HorizontalScrollBarVisibility")?.Value));
 
+        var dashboard = tabs.Elements(Presentation + "TabItem")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "DashboardTab");
+        var dashboardGrid = Assert.Single(dashboard.Elements(Presentation + "Grid"));
+        var dashboardRows = Assert.Single(dashboardGrid.Elements(Presentation + "Grid.RowDefinitions"))
+            .Elements(Presentation + "RowDefinition").ToArray();
+        Assert.Equal(new[] { "Auto", "*" }, dashboardRows.Select(row => row.Attribute("Height")?.Value));
+        var dashboardToolbar = Assert.Single(dashboardGrid.Elements(Presentation + "Grid"));
+        Assert.Equal("DashboardToolbar", dashboardToolbar.Attribute(Xaml + "Name")?.Value);
+        Assert.Equal("0", dashboardToolbar.Attribute("Grid.Row")?.Value ?? "0");
+        Assert.Equal("Collapsed", dashboardToolbar.Attribute("Visibility")?.Value);
+        Assert.Single(dashboardToolbar.Descendants(Presentation + "Button"), button =>
+            button.Attribute(Xaml + "Name")?.Value == "DashboardDisplayButton" &&
+            button.Attribute("Click")?.Value == "DashboardDisplay_Click");
+        Assert.Single(dashboardToolbar.Descendants(Presentation + "Button"), button =>
+            button.Attribute(Xaml + "Name")?.Value == "DashboardSizeButton" &&
+            button.Attribute("Click")?.Value == "DashboardSize_Click");
+        Assert.DoesNotContain(dashboardToolbar.Descendants(), element =>
+            element.Name.LocalName.EndsWith(".LayoutTransform", StringComparison.Ordinal));
+        Assert.Empty(dashboardGrid.Elements(Presentation + "Grid.LayoutTransform"));
+        var dashboardViewport = Assert.Single(dashboardGrid.Elements(Presentation + "ScrollViewer"));
+        Assert.Equal("DashboardViewport", dashboardViewport.Attribute(Xaml + "Name")?.Value);
+        Assert.Equal("1", dashboardViewport.Attribute("Grid.Row")?.Value);
+        var dashboardContent = Assert.Single(dashboardViewport.Elements(Presentation + "StackPanel"));
+        Assert.Equal("DashboardContent", dashboardContent.Attribute(Xaml + "Name")?.Value);
+        var displayTransform = Assert.Single(dashboardContent.Elements(Presentation + "StackPanel.LayoutTransform"));
+        Assert.Equal("DashboardDisplayScale", Assert.Single(displayTransform.Elements(Presentation + "ScaleTransform"))
+            .Attribute(Xaml + "Name")?.Value);
+        Assert.Null(dashboardContent.Attribute("Width"));
+        Assert.Empty(dashboardContent.Ancestors(Presentation + "Viewbox"));
+        Assert.DoesNotContain(dashboard.Descendants(), element =>
+            element.Attribute(Xaml + "Name")?.Value == "DashboardScaleView");
+        foreach (var name in new[] { "DashboardInstruments", "DashboardDetails", "DashboardActions" })
+        {
+            var columns = dashboard.Descendants().Single(element => element.Attribute(Xaml + "Name")?.Value == name);
+            Assert.Equal(Local + "DashboardColumns", columns.Name);
+            Assert.True(double.Parse(columns.Attribute("MinimumColumnWidth")!.Value, CultureInfo.InvariantCulture) > 0);
+            Assert.True(int.Parse(columns.Attribute("MaximumColumns")!.Value, CultureInfo.InvariantCulture) > 1);
+        }
+
         var scaleViews = document.Descendants(Presentation + "Viewbox")
             .Where(element => element.Attribute(Xaml + "Name")?.Value is
-                "DashboardScaleView" or
                 "AppearanceScaleView" or
+                "AppearanceGaugesScaleView" or
+                "AppearanceColorsScaleView" or
+                "AppearanceBehaviourScaleView" or
                 "ProfilesScaleView" or
                 "DiagnosticsScaleView" or
-                "SetupScaleView" or
                 "ReleaseNotesScaleView")
             .ToArray();
-        Assert.Equal(6, scaleViews.Length);
+        Assert.Equal(7, scaleViews.Length);
         foreach (var viewbox in scaleViews)
         {
             // Scroll offsets must move a lightweight parent, not recreate the
@@ -1081,14 +1283,69 @@ public sealed class XamlContractTests
             Assert.Null(viewbox.Parent.Attribute("MaxWidth"));
             var designSurface = viewbox.Elements().Single();
             Assert.Null(designSurface.Attribute("MaxWidth"));
-            Assert.Equal(
-                "{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}",
-                designSurface.Attribute("Width")?.Value);
+            var viewName = viewbox.Attribute(Xaml + "Name")!.Value;
+            if (viewName.StartsWith("Appearance", StringComparison.Ordinal))
+            {
+                Assert.Equal("480", designSurface.Attribute("MinWidth")?.Value);
+                Assert.Equal("{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}}",
+                    designSurface.Attribute("Width")?.Value);
+            }
+            else
+            {
+                Assert.Equal(
+                    "{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource ResponsivePageWidthConverter}}",
+                    designSurface.Attribute("Width")?.Value);
+            }
         }
     }
 
     [Fact]
-    public void RunsHasOneGraphEntryAndKeepsEveryGraphChoiceOutsideTheScrollingPlots()
+    public void AppearanceKeepsOnePersistentPreviewAndResidentCategoryControls()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var appearance = document.Descendants(Presentation + "TabItem")
+            .Single(element => element.Attribute("Header")?.Value == "Appearance");
+        var preview = appearance.Descendants(Presentation + "Border")
+            .Single(element => element.Attribute(Xaml + "Name")?.Value == "HudPreviewSurface");
+        var previewScroll = Assert.Single(preview.Ancestors(Presentation + "ScrollViewer"));
+        Assert.Equal("AppearancePreviewScroll", previewScroll.Attribute(Xaml + "Name")?.Value);
+        Assert.Equal("AppearancePreviewPane", previewScroll.Parent!.Attribute(Xaml + "Name")?.Value);
+        Assert.Equal("Auto", previewScroll.Attribute("VerticalScrollBarVisibility")?.Value);
+        Assert.Equal("Disabled", previewScroll.Attribute("HorizontalScrollBarVisibility")?.Value);
+        Assert.Equal("Visible", previewScroll.Attribute("Visibility")?.Value ?? "Visible");
+        Assert.Null(previewScroll.Element(Presentation + "ScrollViewer.Style"));
+        Assert.Empty(previewScroll.Ancestors(Presentation + "ScrollViewer"));
+        foreach (var category in new[] { "Layout", "Gauges", "Colors", "Behaviour" })
+        {
+            var selector = appearance.Descendants(Presentation + "RadioButton")
+                .Single(element => element.Attribute(Xaml + "Name")?.Value == $"Appearance{category}Category");
+            Assert.Equal("AppearanceWorkspaceCategory", selector.Attribute("GroupName")?.Value);
+            Assert.Equal(category, selector.Attribute("Content")?.Value);
+            Assert.Null(selector.Attribute("Checked"));
+            var pane = appearance.Descendants(Presentation + "ScrollViewer")
+                .Single(element => element.Attribute(Xaml + "Name")?.Value == $"Appearance{category}Scroll");
+            Assert.NotSame(previewScroll, pane);
+            Assert.Empty(pane.Ancestors(Presentation + "ScrollViewer"));
+            Assert.DoesNotContain(preview, pane.Descendants());
+            Assert.DoesNotContain(pane, previewScroll.Descendants());
+            var style = pane.Element(Presentation + "ScrollViewer.Style")!.Element(Presentation + "Style")!;
+            Assert.Contains(style.Elements(Presentation + "Setter"), setter =>
+                setter.Attribute("Property")?.Value == "Visibility" && setter.Attribute("Value")?.Value == "Collapsed");
+            var trigger = Assert.Single(style.Descendants(Presentation + "DataTrigger"));
+            Assert.Equal($"{{Binding IsChecked, ElementName=Appearance{category}Category}}", trigger.Attribute("Binding")?.Value);
+            Assert.Equal("True", trigger.Attribute("Value")?.Value);
+            Assert.Contains(trigger.Elements(Presentation + "Setter"), setter =>
+                setter.Attribute("Property")?.Value == "Visibility" && setter.Attribute("Value")?.Value == "Visible");
+        }
+        Assert.Single(appearance.Descendants(Presentation + "Button"), element =>
+            element.Attribute(Xaml + "Name")?.Value == "AppearanceLockButton" && element.Attribute("Click")?.Value == "ToggleLock_Click");
+        Assert.Contains(appearance.Descendants(Local + "OrbitSurface"), element =>
+            element.Attribute("Style")?.Value == "{StaticResource CardStyle}");
+        Assert.True(typeof(System.Windows.Controls.Border).IsAssignableFrom(typeof(OrbitSurface)));
+    }
+
+    [Fact]
+    public void RunsKeepsRecordingAndWorkspaceNavigationOutsideTheScrollingPlots()
     {
         var runs = LoadXaml(RunsPagePath());
         var showGraphs = Assert.Single(runs.Descendants(Presentation + "Button"),
@@ -1098,8 +1355,8 @@ public sealed class XamlContractTests
 
         var picker = Assert.Single(runs.Descendants(Presentation + "ListBox"),
             element => element.Attribute(Xaml + "Name")?.Value == "GraphPicker");
-        Assert.Equal("{Binding GraphChoices}", picker.Attribute("ItemsSource")?.Value);
-        Assert.Contains("SelectedGraph", picker.Attribute("SelectedItem")?.Value ?? "", StringComparison.Ordinal);
+        Assert.Equal("{Binding WorkspacePresets}", picker.Attribute("ItemsSource")?.Value);
+        Assert.Contains("SelectedWorkspacePreset", picker.Attribute("SelectedItem")?.Value ?? "", StringComparison.Ordinal);
         Assert.Empty(picker.Ancestors(Presentation + "ScrollViewer"));
         Assert.DoesNotContain(runs.Descendants(Presentation + "ComboBox"), element =>
             element.Attribute("AutomationProperties.Name")?.Value is "Chart channels" or "Graph type");
@@ -1108,12 +1365,29 @@ public sealed class XamlContractTests
             element => element.Attribute(Xaml + "Name")?.Value == "BackToSummaryButton");
         Assert.Equal("RunSummary_Click", summary.Attribute("Click")?.Value);
         var comparison = Assert.Single(runs.Descendants(Presentation + "Expander"),
-            element => element.Attribute(Xaml + "Name")?.Value == "CompareExpander");
+            element => element.Attribute(Xaml + "Name")?.Value == "RunComparisonControls");
         Assert.NotEqual("True", comparison.Attribute("IsExpanded")?.Value);
+        var header = Assert.Single(runs.Descendants(), element => element.Attribute(Xaml + "Name")?.Value == "RunRecordingHeader");
+        Assert.Empty(header.Ancestors(Presentation + "ScrollViewer"));
+        Assert.Contains(header.Descendants(Presentation + "Button"), element =>
+            element.Attribute("Command")?.Value == "{Binding ToggleRecordingCommand}");
+        var modules = Assert.Single(runs.Descendants(Presentation + "ItemsControl"),
+            element => element.Attribute(Xaml + "Name")?.Value == "WorkspaceModulePicker");
+        Assert.Equal("{Binding AvailableWorkspaceModules}", modules.Attribute("ItemsSource")?.Value);
+        Assert.Equal("GraphScroll", Assert.Single(modules.Ancestors(Presentation + "ScrollViewer")).Attribute(Xaml + "Name")?.Value);
+        Assert.DoesNotContain(modules.Ancestors(), element => element.Attribute(Xaml + "Name")?.Value == "GraphsSurface");
+        var range = Assert.Single(runs.Descendants(Presentation + "Expander"),
+            element => element.Attribute(Xaml + "Name")?.Value == "GraphRangeExpander");
+        Assert.Equal("GraphScroll", Assert.Single(range.Ancestors(Presentation + "ScrollViewer")).Attribute(Xaml + "Name")?.Value);
+        Assert.Empty(range.Descendants(Presentation + "ScrollViewer"));
+        var charts = Assert.Single(runs.Descendants(Presentation + "ItemsControl"),
+            element => element.Attribute(Xaml + "Name")?.Value == "ChartPanels");
+        Assert.Equal("{Binding WorkspacePanels}", charts.Attribute("ItemsSource")?.Value);
+        Assert.Contains(charts.Ancestors(), element => element.Attribute(Xaml + "Name")?.Value == "GraphScroll");
     }
 
     [Fact]
-    public void MacStyleHeaderKeepsTheBrandCenteredBetweenEqualSideColumns()
+    public void HeaderKeepsStoplightsLeftBrandRightAndStatusCentered()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var header = document.Descendants(Presentation + "Grid")
@@ -1132,39 +1406,65 @@ public sealed class XamlContractTests
         Assert.Equal("0", controls.Attribute("Grid.Column")?.Value);
         Assert.Equal("Left", controls.Attribute("HorizontalAlignment")?.Value);
         Assert.Equal("14,0,12,0", controls.Attribute("Margin")?.Value);
-        Assert.Equal("1", brand.Attribute("Grid.Column")?.Value);
-        Assert.Equal("Center", brand.Attribute("HorizontalAlignment")?.Value);
-        Assert.Null(brand.Attribute("Margin"));
-        var logo = brand.Element(Presentation + "Image")!;
-        Assert.Equal("20", logo.Attribute("Width")?.Value);
-        Assert.Equal("20", logo.Attribute("Height")?.Value);
+        Assert.Equal("2", brand.Attribute("Grid.Column")?.Value);
+        Assert.Equal("Right", brand.Attribute("HorizontalAlignment")?.Value);
+        Assert.Equal("0,0,24,0", brand.Attribute("Margin")?.Value);
+        var logo = brand.Element(Presentation + "Rectangle")!;
+        Assert.Equal("36", logo.Attribute("Width")?.Value);
+        Assert.Equal("36", logo.Attribute("Height")?.Value);
         var title = Assert.Single(brand.Descendants(Presentation + "TextBlock"));
         Assert.Equal("Wisp", title.Attribute("Text")?.Value);
-        Assert.Equal("14", title.Attribute("FontSize")?.Value);
-        Assert.Equal("2", status.Attribute("Grid.Column")?.Value);
-        Assert.Equal("Right", status.Attribute("HorizontalAlignment")?.Value);
+        Assert.Equal("24", title.Attribute("FontSize")?.Value);
+        Assert.Equal("1", status.Attribute("Grid.Column")?.Value);
+        Assert.Equal("Center", status.Attribute("HorizontalAlignment")?.Value);
+        Assert.Equal("16,0", status.Attribute("Margin")?.Value);
         Assert.Equal("24", status.Attribute("Height")?.Value);
+        var statusPolicy = status.Element(Presentation + "Border.Style")!
+            .Descendants(Presentation + "DataTrigger").Single();
+        Assert.Equal("{Binding SelectedIndex, ElementName=RootTabs}", statusPolicy.Attribute("Binding")?.Value);
+        Assert.Equal("0", statusPolicy.Attribute("Value")?.Value);
+        Assert.Contains(statusPolicy.Elements(Presentation + "Setter"), setter =>
+            setter.Attribute("Property")?.Value == "Visibility" && setter.Attribute("Value")?.Value == "Collapsed");
+        Assert.Empty(brand.Elements(Presentation + "Ellipse"));
+        var connectionStyle = document.Descendants(Presentation + "Style")
+            .Single(element => element.Attribute(Xaml + "Key")?.Value == "DashConnectionDot");
+        Assert.Contains(connectionStyle.Elements(Presentation + "Setter"), setter =>
+            setter.Attribute("Property")?.Value == "Fill" && setter.Attribute("Value")?.Value == "{DynamicResource FaintBrush}");
+        var liveConnection = Assert.Single(connectionStyle.Descendants(Presentation + "DataTrigger"));
+        Assert.Equal("{Binding HasLiveTelemetry}", liveConnection.Attribute("Binding")?.Value);
+        Assert.Equal("True", liveConnection.Attribute("Value")?.Value);
+        Assert.Contains(liveConnection.Elements(Presentation + "Setter"), setter =>
+            setter.Attribute("Property")?.Value == "Fill" && setter.Attribute("Value")?.Value == "{DynamicResource AccentBrush}");
         Assert.Equal("WindowControls", header.Elements()
             .First(element => element.Attribute(Xaml + "Name") is not null).Attribute(Xaml + "Name")?.Value);
     }
 
     [Fact]
-    public void TrafficLightWindowControlsPreserveNativeWindowActionsAndAccessibleTargets()
+    public void CaptionControlsPreserveNativeWindowActionsAndAccessibleTargets()
     {
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var group = document.Descendants(Presentation + "StackPanel")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "WindowControls");
+        Assert.Equal("Horizontal", group.Attribute("Orientation")?.Value);
         Assert.Equal("True", group.Attributes()
             .Single(attribute => attribute.Name.LocalName == "WindowChrome.IsHitTestVisibleInChrome").Value);
         var buttons = group.Elements(Presentation + "Button").ToArray();
+        Assert.Equal(new[] { "CloseWindowButton", "MinimizeWindowButton", "MaximizeWindowButton" },
+            buttons.Select(button => button.Attribute(Xaml + "Name")?.Value));
         Assert.Equal(new[] { "Close_Click", "Minimize_Click", "Maximize_Click" },
             buttons.Select(button => button.Attribute("Click")?.Value));
         Assert.Equal(new[] { "#FF5F57", "#FEBC2E", "#28C840" },
             buttons.Select(button => button.Attribute("Background")?.Value));
         Assert.All(buttons, button =>
         {
+            Assert.Equal("{StaticResource WindowButtonStyle}", button.Attribute("Style")?.Value);
             Assert.False(string.IsNullOrWhiteSpace(button.Attribute("ToolTip")?.Value));
             Assert.False(string.IsNullOrWhiteSpace(button.Attribute("AutomationProperties.Name")?.Value));
+            var glyph = Assert.Single(button.Elements());
+            Assert.Contains(glyph.Name, new[] { Presentation + "Path", Presentation + "Rectangle" });
+            Assert.False(string.IsNullOrWhiteSpace(glyph.Attribute("Stroke")?.Value));
+            Assert.Equal("6", glyph.Attribute("Width")?.Value);
+            Assert.Equal("6", glyph.Attribute("Height")?.Value);
         });
 
         var style = LoadXaml(Path.Combine(AppSourceDirectory(), "App.xaml"))
@@ -1174,10 +1474,27 @@ public sealed class XamlContractTests
             .Single(element => element.Attribute("Property")?.Value == "Width").Attribute("Value")?.Value);
         Assert.Equal("32", style.Elements(Presentation + "Setter")
             .Single(element => element.Attribute("Property")?.Value == "Height").Attribute("Value")?.Value);
-        Assert.Contains(style.Descendants(Presentation + "Trigger"),
+        var dot = Assert.Single(style.Descendants(Presentation + "Ellipse"),
+            element => element.Attribute(Xaml + "Name")?.Value == "WindowDot");
+        Assert.Equal("12", dot.Attribute("Width")?.Value);
+        Assert.Equal("12", dot.Attribute("Height")?.Value);
+        Assert.Equal("{TemplateBinding Background}", dot.Attribute("Fill")?.Value);
+        var glyphPresenter = Assert.Single(style.Descendants(Presentation + "ContentPresenter"));
+        Assert.Equal("WindowGlyph", glyphPresenter.Attribute(Xaml + "Name")?.Value);
+        Assert.Equal("0", glyphPresenter.Attribute("Opacity")?.Value);
+        var hover = Assert.Single(style.Descendants(Presentation + "DataTrigger"));
+        Assert.Contains("IsMouseOver", hover.Attribute("Binding")?.Value ?? "", StringComparison.Ordinal);
+        Assert.Contains(hover.Elements(Presentation + "Setter"), setter =>
+            setter.Attribute("TargetName")?.Value == "WindowGlyph" && setter.Attribute("Value")?.Value == "1");
+        var focus = Assert.Single(style.Descendants(Presentation + "Trigger"),
             trigger => trigger.Attribute("Property")?.Value == "IsKeyboardFocused");
-        Assert.Contains(style.Descendants(Presentation + "Ellipse"),
-            ellipse => ellipse.Attribute(Xaml + "Name")?.Value == "FocusRing");
+        Assert.Equal("True", focus.Attribute("Value")?.Value);
+        Assert.Contains(focus.Elements(Presentation + "Setter"),
+            setter => setter.Attribute("TargetName")?.Value == "FocusRing" &&
+                setter.Attribute("Property")?.Value == "Visibility" &&
+                setter.Attribute("Value")?.Value == "Visible");
+        Assert.Contains(focus.Elements(Presentation + "Setter"), setter =>
+            setter.Attribute("TargetName")?.Value == "WindowGlyph" && setter.Attribute("Value")?.Value == "1");
     }
 
     [Fact]
@@ -1353,7 +1670,7 @@ public sealed class XamlContractTests
         var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
         var confirmation = document.Descendants(Presentation + "Grid")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "ApplicationUpdateConfirmation");
-        Assert.Equal("0", confirmation.Elements(Presentation + "Border").Single().Attribute("BorderThickness")?.Value);
+        Assert.Equal("0", confirmation.Elements(Local + "OrbitSurface").Single().Attribute("BorderThickness")?.Value);
         var details = document.Descendants(Presentation + "Border")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "ApplicationUpdateConfirmationDetails");
         var summary = details.Descendants(Presentation + "TextBlock")
@@ -1366,7 +1683,7 @@ public sealed class XamlContractTests
         Assert.Equal("Auto", summaryViewport.Attribute("VerticalScrollBarVisibility")?.Value);
         Assert.Empty(summary.Descendants(Presentation + "Hyperlink"));
 
-        var code = File.ReadAllText(Path.Combine(AppSourceDirectory(), "MainWindow.xaml.cs"));
+        var code = ControlPanelCode();
         Assert.Contains("ApplicationUpdateConfirmationSummary.Text = details.ReleaseSummary;", code, StringComparison.Ordinal);
     }
 
@@ -1463,9 +1780,32 @@ public sealed class XamlContractTests
         Assert.Subset(requiredBindings.ToHashSet(StringComparer.Ordinal), bindings);
     }
 
+    private static XElement AssertDiagnosticsCategory(XElement control, string categoryName, string caption)
+    {
+        var diagnostics = Assert.Single(control.Ancestors(Presentation + "TabItem"));
+        Assert.Equal("Diagnostics", diagnostics.Attribute("Header")?.Value);
+        var selector = Assert.Single(diagnostics.Descendants(Presentation + "RadioButton"), element =>
+            element.Attribute(Xaml + "Name")?.Value == categoryName);
+        Assert.Equal(caption, selector.Attribute("Content")?.Value);
+        Assert.Equal("DiagnosticsCategory", selector.Attribute("GroupName")?.Value);
+        var binding = $"{{Binding IsChecked, ElementName={categoryName}}}";
+        var panel = Assert.Single(control.Ancestors(Presentation + "Grid"), element =>
+            element.Element(Presentation + "Grid.Style")?.Descendants(Presentation + "DataTrigger")
+                .Any(trigger => trigger.Attribute("Binding")?.Value == binding) == true);
+        var style = panel.Element(Presentation + "Grid.Style")!.Element(Presentation + "Style")!;
+        Assert.Contains(style.Elements(Presentation + "Setter"), setter =>
+            setter.Attribute("Property")?.Value == "Visibility" && setter.Attribute("Value")?.Value == "Collapsed");
+        var trigger = Assert.Single(style.Descendants(Presentation + "DataTrigger"), element =>
+            element.Attribute("Binding")?.Value == binding);
+        Assert.Equal("True", trigger.Attribute("Value")?.Value);
+        Assert.Contains(trigger.Elements(Presentation + "Setter"), setter =>
+            setter.Attribute("Property")?.Value == "Visibility" && setter.Attribute("Value")?.Value == "Visible");
+        return panel;
+    }
+
     private static string Handler(string source, string name) => Regex.Match(
         source,
-        $@"private void {Regex.Escape(name)}.*?(?=\r?\n    private void )",
+        $@"(?:private|protected|internal|public) void {Regex.Escape(name)}.*?(?=\r?\n    (?:private|protected|internal|public) )",
         RegexOptions.Singleline).Value;
 
     private static bool IsRoutedHandlerAttribute(XAttribute attribute)
@@ -1476,8 +1816,24 @@ public sealed class XamlContractTests
 
     private static Type? BindingSourceType(string binding, XDocument? document = null, XElement? targetElement = null)
     {
+        var runsStyle = document?.Root?.Name == Presentation + "ResourceDictionary" &&
+            targetElement?.AncestorsAndSelf().Any(element => element.Name == Presentation + "Style" &&
+                element.Attribute(Xaml + "Key")?.Value is "RunCard" or "RunPlotCard" or "RunCompactLibraryCard") == true;
         if (binding.Contains("RelativeSource", StringComparison.Ordinal))
         {
+            if (Regex.IsMatch(binding, @"RelativeSource\s*=\s*\{RelativeSource\s+Self\s*\}"))
+            {
+                if (targetElement?.Name == Presentation + "Setter")
+                {
+                    if (targetElement.Attribute("TargetName") is not null) return null;
+                    var style = targetElement.Ancestors().FirstOrDefault(element => element.Name == Presentation + "Style");
+                    return ResolveXamlType(style?.Attribute("TargetType")?.Value, style);
+                }
+                if (targetElement is null) return null;
+                var prefix = targetElement.GetPrefixOfNamespace(targetElement.Name.Namespace);
+                return ResolveXamlType(string.IsNullOrEmpty(prefix)
+                    ? targetElement.Name.LocalName : $"{prefix}:{targetElement.Name.LocalName}", targetElement);
+            }
             if (Regex.IsMatch(binding, @"RelativeSource\s*=\s*\{RelativeSource\s+TemplatedParent\s*\}"))
             {
                 var template = targetElement?.AncestorsAndSelf()
@@ -1491,6 +1847,7 @@ public sealed class XamlContractTests
             }
 
             var ancestorName = ancestor.Groups["type"].Value;
+            if (ancestorName == "UserControl" && runsStyle) return typeof(RunsPageBase);
             if (ancestorName == "UserControl" && document?.Root is { } root)
             {
                 var className = root.Attribute(Xaml + "Class")?.Value;
@@ -1503,23 +1860,34 @@ public sealed class XamlContractTests
                 }
             }
 
-            return typeof(System.Windows.Controls.Control).Assembly.GetType(
-                $"System.Windows.Controls.{ancestorName}");
+            return ancestorName.Contains(':')
+                ? ResolveXamlType(ancestorName, targetElement ?? document?.Root)
+                : typeof(System.Windows.Controls.Control).Assembly.GetType(
+                    $"System.Windows.Controls.{ancestorName}");
         }
 
         var elementName = Regex.Match(binding, @"\bElementName\s*=\s*(?<name>[A-Za-z_][A-Za-z0-9_]*)");
         if (elementName.Success)
         {
             var element = BindingSourceElement(binding, document);
-            return element is not null && element.Name.Namespace == Presentation
-                ? typeof(System.Windows.Controls.Control).Assembly.GetType(
-                    $"System.Windows.Controls.{element.Name.LocalName}")
-                : null;
+            if (element is null) return null;
+            var prefix = element.GetPrefixOfNamespace(element.Name.Namespace);
+            return ResolveXamlType(string.IsNullOrEmpty(prefix)
+                ? element.Name.LocalName : $"{prefix}:{element.Name.LocalName}", element);
         }
 
         // Other explicit sources must gain validation rather than being treated as the view model.
         if (Regex.IsMatch(binding, @"\bSource\s*="))
             return null;
+
+        var itemContainerStyle = targetElement?.AncestorsAndSelf()
+            .FirstOrDefault(element => element.Name == Presentation + "ItemsControl.ItemContainerStyle");
+        if (IsRunsPageDocument(document) && itemContainerStyle?.Parent is { } itemsControl)
+        {
+            var itemSourcePath = BindingPath(itemsControl.Attribute("ItemsSource")?.Value);
+            if (itemSourcePath == "WorkspacePanels") return typeof(RunWorkspaceModule);
+            if (itemSourcePath == "Plots") return typeof(RunWorkspacePlot);
+        }
 
         var dataTemplate = targetElement?.AncestorsAndSelf()
             .FirstOrDefault(element => element.Name == Presentation + "DataTemplate");
@@ -1528,13 +1896,22 @@ public sealed class XamlContractTests
             return ResolveXamlType(dataTemplate.Attribute("DataType")?.Value, dataTemplate);
         }
 
-        if (document?.Root?.Attribute(Xaml + "Class")?.Value == typeof(RunsPage).FullName &&
-            targetElement?.AncestorsAndSelf().Any(element => element.Name == Presentation + "Style" && element.Attribute(Xaml + "Key")?.Value == "RunGraphTab") == true)
-            return typeof(RunGraphChoice);
+        if (IsRunsPageDocument(document))
+        {
+            var styleKey = targetElement?.AncestorsAndSelf()
+                .FirstOrDefault(element => element.Name == Presentation + "Style")?.Attribute(Xaml + "Key")?.Value;
+            if (styleKey == "RunLibraryItem") return typeof(SavedRunItem);
+            if (styleKey == "RunGraphTab") return document?.Root?.Attribute(Xaml + "Class")?.Value == typeof(RunsPage).FullName
+                ? typeof(RunWorkspacePresetOption)
+                : typeof(RunGraphChoice);
+        }
 
-        if (document?.Root?.Attribute(Xaml + "Class")?.Value == typeof(RunsPage).FullName ||
+        if (runsStyle || IsRunsPageDocument(document) ||
             targetElement?.AncestorsAndSelf().Any(element => element.Attribute(Xaml + "Name")?.Value == "DashboardRunPanel") == true)
             return typeof(RunsViewModel);
+
+        if (document?.Root?.Attribute(Xaml + "Class")?.Value == typeof(ConnectionStatusPanel).FullName)
+            return typeof(ConnectionReport);
 
         return typeof(DiagnosticsViewModel);
     }
@@ -1548,7 +1925,8 @@ public sealed class XamlContractTests
             ? element.GetNamespaceOfPrefix(type.Groups["prefix"].Value)?.NamespaceName
             : element.GetDefaultNamespace().NamespaceName;
         if (namespaceName == Presentation.NamespaceName)
-            return typeof(System.Windows.Controls.Control).Assembly.GetType($"System.Windows.Controls.{type.Groups["type"].Value}");
+            return typeof(System.Windows.Controls.Control).Assembly.GetType($"System.Windows.Controls.{type.Groups["type"].Value}")
+                ?? typeof(System.Windows.Controls.Control).Assembly.GetType($"System.Windows.Controls.Primitives.{type.Groups["type"].Value}");
         return namespaceName is "clr-namespace:Wisp.App" or "clr-namespace:Wisp.App.Runs"
             ? typeof(DiagnosticsViewModel).Assembly.GetType($"{namespaceName[14..]}.{type.Groups["type"].Value}")
             : null;
@@ -1565,6 +1943,18 @@ public sealed class XamlContractTests
 
     private static bool BindingPathResolves(Type rootType, string path, XElement? sourceElement = null)
     {
+        if (path.StartsWith('('))
+        {
+            var attached = Regex.Match(path, @"^\((?<owner>[A-Za-z_][A-Za-z0-9_]*)\.(?<property>[A-Za-z_][A-Za-z0-9_]*)\)$");
+            if (!attached.Success || attached.Groups["owner"].Value != "AutomationProperties") return false;
+            var owner = typeof(System.Windows.Automation.AutomationProperties);
+            var propertyName = attached.Groups["property"].Value;
+            var field = owner.GetField(propertyName + "Property", BindingFlags.Public | BindingFlags.Static);
+            var getter = owner.GetMethod("Get" + propertyName, BindingFlags.Public | BindingFlags.Static,
+                null, [typeof(System.Windows.DependencyObject)], null);
+            return typeof(System.Windows.DependencyObject).IsAssignableFrom(rootType) &&
+                field?.FieldType == typeof(System.Windows.DependencyProperty) && getter is not null;
+        }
         var currentType = rootType;
         foreach (var segment in path.Split('.'))
         {
@@ -1574,7 +1964,7 @@ public sealed class XamlContractTests
                 return false;
             }
 
-            if (segment == "DataContext" && currentType == typeof(RunsPage))
+            if (segment == "DataContext" && typeof(RunsPageBase).IsAssignableFrom(currentType))
             {
                 currentType = typeof(RunsViewModel);
             }
@@ -1703,9 +2093,23 @@ public sealed class XamlContractTests
     private static IEnumerable<string> AppXamlFiles() =>
         Directory.EnumerateFiles(AppSourceDirectory(), "*.xaml", SearchOption.TopDirectoryOnly)
             .Append(RunsPagePath())
+            .Append(LegacyRunsPagePath())
             .OrderBy(path => path, StringComparer.Ordinal);
 
     private static string RunsPagePath() => Path.Combine(AppSourceDirectory(), "Runs", "RunsPage.xaml");
+
+    private static string LegacyRunsPagePath() => Path.Combine(AppSourceDirectory(), "Runs", "LegacyRunsPage.xaml");
+
+    private static string ControlPanelCode() =>
+        File.ReadAllText(Path.Combine(AppSourceDirectory(), "ControlPanelWindow.cs")) + Environment.NewLine +
+        File.ReadAllText(Path.Combine(AppSourceDirectory(), "MainWindow.xaml.cs"));
+
+    private static bool IsRunsPageDocument(XDocument? document)
+    {
+        var name = document?.Root?.Attribute(Xaml + "Class")?.Value;
+        var owner = name is null ? null : typeof(RunsPageBase).Assembly.GetType(name);
+        return owner is not null && typeof(RunsPageBase).IsAssignableFrom(owner);
+    }
 
     private static string AppSourceDirectory() =>
         Path.Combine(RepositoryRoot(), "src", "Wisp.App");

@@ -74,6 +74,9 @@ public sealed class WpfStyleRuntimeTests
                 CpuRenderingSettingsTests.AssertControllerPersistenceOnCurrentDispatcher();
                 BoostGaugeVisualsTests.AssertOnCurrentDispatcher();
                 BoostVacuumUiTests.AssertOnCurrentDispatcher();
+                DriftGaugeTargetRangeTests.AssertOnCurrentDispatcher();
+                DriftGaugeZoneVisualTests.AssertOnCurrentDispatcher();
+                DriftGaugeSettingsUiTests.AssertOnCurrentDispatcher();
                 ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher();
                 NativeGaugeLifecycleTests.AssertConsumersOnCurrentDispatcher();
                 NativeRenderLifetimeTests.AssertConsumersOnCurrentDispatcher(_output.WriteLine);
@@ -339,6 +342,12 @@ public sealed class WpfStyleRuntimeTests
                 nativeMeter.UpdateLayout();
                 nativeGForceVisibility = nativeMeter.Visibility;
                 var mainWindow = new MainWindow(controller);
+                LegacyInterfaceTests.AssertExistingWindowIsPreserved(mainWindow, controller);
+                ParticleVisibilitySettingsTests.Verify(mainWindow, controller);
+                var legacyParticlesWindow = new LegacyMainWindow(controller);
+                ParticleVisibilitySettingsTests.Verify(legacyParticlesWindow, controller);
+                ProfileModalThemeTests.Verify(legacyParticlesWindow);
+                legacyParticlesWindow.Close();
                 var cpuToggle = Assert.IsType<CheckBox>(mainWindow.FindName("CpuRenderingToggle"));
                 Assert.Same(mainWindow.FindResource("ToggleSwitchStyle"), cpuToggle.Style);
                 Assert.NotNull(cpuToggle.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty));
@@ -353,31 +362,54 @@ public sealed class WpfStyleRuntimeTests
                 }
 
                 ScrollLayoutAssertions.Verify(mainWindow, surface, tabs);
+                MainWindowRevisionAssertions.Verify(mainWindow, surface, tabs, controller);
+                GForceCustomizationTests.AssertOnCurrentDispatcher(controller);
                 ReleaseNotesLayoutAssertions.Verify(mainWindow, surface, tabs);
                 CalmSidebarTests.AssertOnCurrentDispatcher(mainWindow, surface);
+                ProfileModalThemeTests.Verify(mainWindow);
                 MaintenancePersistenceTests.AssertProfileSaveRetryOnCurrentDispatcher();
 
                 tabs.SelectedIndex = 3;
                 surface.UpdateLayout();
                 mainWindow.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.DataBind);
-                var logo = Assert.IsType<Image>(mainWindow.FindName("HeaderLogo"));
-                var logoBitmap = Assert.IsAssignableFrom<BitmapSource>(logo.Source);
-                Assert.True(logoBitmap.PixelWidth > 0 && logoBitmap.PixelHeight > 0);
-                Assert.Equal(20, logo.Width);
-                Assert.Equal(20, logo.Height);
-                AssertCenteredHeader(mainWindow, surface);
-                foreach (var name in new[] { "CloseWindowButton", "MinimizeWindowButton", "MaximizeWindowButton" })
+                var logo = Assert.IsType<System.Windows.Shapes.Rectangle>(mainWindow.FindName("HeaderLogo"));
+                var logoMask = Assert.IsType<ImageBrush>(logo.OpacityMask);
+                var logoBitmap = Assert.IsAssignableFrom<BitmapSource>(logoMask.ImageSource);
+                Assert.Same(WispLogoGlyph.Mask, logoBitmap);
+                Assert.True(logoBitmap.IsFrozen);
+                Assert.True(logoBitmap.PixelWidth > 640 && logoBitmap.PixelHeight > 640);
+                var logoPixels = new FormatConvertedBitmap(logoBitmap, PixelFormats.Bgra32, null, 0);
+                var logoPixel = new byte[4];
+                logoPixels.CopyPixels(new Int32Rect(640, 100, 1, 1), logoPixel, 4, 0);
+                Assert.Equal(0, logoPixel[3]);
+                logoPixels.CopyPixels(new Int32Rect(640, 640, 1, 1), logoPixel, 4, 0);
+                Assert.Equal(255, logoPixel[3]);
+                Assert.Equal(36, logo.Width);
+                Assert.Equal(36, logo.Height);
+                Assert.Equal(Stretch.Uniform, logoMask.Stretch);
+                var originalAccent = mainWindow.Resources["AccentBrush"];
+                try
                 {
-                    var button = Assert.IsType<Button>(mainWindow.FindName(name));
-                    Assert.Equal(24, button.ActualWidth);
-                    Assert.Equal(32, button.ActualHeight);
-                    var dot = Assert.IsType<System.Windows.Shapes.Ellipse>(button.Template.FindName("WindowDot", button));
-                    Assert.Equal(12, dot.ActualWidth);
-                    Assert.Same(button.Background, dot.Fill);
-                    Assert.NotNull(button.ToolTip);
-                    Assert.True(button.Focusable && button.IsTabStop && button.IsHitTestVisible);
-                    Assert.True(System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(button));
+                    foreach (var color in new[] { Colors.MediumPurple, Colors.Coral })
+                    {
+                        var accent = new SolidColorBrush(color);
+                        accent.Freeze();
+                        mainWindow.Resources["AccentBrush"] = accent;
+                        surface.UpdateLayout();
+                        mainWindow.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.DataBind);
+                        Assert.Same(accent, logo.Fill);
+                        Assert.Equal(color, Assert.IsType<SolidColorBrush>(logo.Fill).Color);
+                        Assert.Same(logoMask, logo.OpacityMask);
+                        Assert.Same(logoBitmap, logoMask.ImageSource);
+                    }
                 }
+                finally
+                {
+                    mainWindow.Resources["AccentBrush"] = originalAccent;
+                    surface.UpdateLayout();
+                }
+                Assert.Same(originalAccent, logo.Fill);
+                AssertCaptionControlsRemainReachable(mainWindow, surface);
                 Assert.Equal(controller.ViewModel.NativeCompatibilityUpdates,
                     Assert.IsType<TextBlock>(mainWindow.FindName("CompatibilityStatusText")).Text);
                 Assert.True(Assert.IsType<Button>(mainWindow.FindName("CompatibilityCheckButton")).IsEnabled);
@@ -454,51 +486,129 @@ public sealed class WpfStyleRuntimeTests
         Assert.Equal(Color.FromArgb(255, 255, 255, 255), decodedAnalogActiveAssistText);
     }
 
-    private static void AssertCenteredHeader(MainWindow window, FrameworkElement surface)
+    private static void AssertCaptionControlsRemainReachable(MainWindow window, FrameworkElement surface)
     {
         var titleBar = Assert.IsType<Grid>(window.FindName("TitleBar"));
         var brand = Assert.IsType<StackPanel>(window.FindName("HeaderBrand"));
         var controls = Assert.IsType<StackPanel>(window.FindName("WindowControls"));
         var status = Assert.IsType<Border>(window.FindName("HeaderStatus"));
-        var dots = controls.Children.OfType<Button>()
-            .Select(button => Assert.IsType<System.Windows.Shapes.Ellipse>(button.Template.FindName("WindowDot", button)))
-            .ToArray();
-        Assert.Equal(3, dots.Length);
+        var toggle = Assert.IsType<Button>(window.FindName("SidebarToggleButton"));
+        var buttons = controls.Children.OfType<Button>().ToArray();
+        Assert.Equal(new[] { "CloseWindowButton", "MinimizeWindowButton", "MaximizeWindowButton" }, buttons.Select(button => button.Name));
+        Assert.Equal(2, Grid.GetColumn(brand));
+        Assert.Equal(HorizontalAlignment.Right, brand.HorizontalAlignment);
+        Assert.Equal(0, Grid.GetColumn(controls));
+        Assert.Equal(HorizontalAlignment.Left, controls.HorizontalAlignment);
         var originalStatusWidth = status.Width;
-        foreach (var (width, height) in new[] { (720d, 440d), (1040d, 760d), (1280d, 900d) })
+        var originalSize = surface.RenderSize;
+        try
         {
-            foreach (var statusWidth in new[] { 140d, 205d })
+            foreach (var (width, height) in new[] { (720d, 440d), (1040d, 760d), (1280d, 900d), (1464d, 994d) })
             {
-                status.Width = statusWidth;
-                surface.Measure(new Size(width, height));
-                surface.Arrange(new Rect(0, 0, width, height));
-                surface.UpdateLayout();
-                var titleBarTop = titleBar.TranslatePoint(new Point(), surface).Y;
-                var brandTop = brand.TranslatePoint(new Point(), surface).Y;
-                var brandLeft = brand.TranslatePoint(new Point(), surface).X;
-                var controlsLeft = controls.TranslatePoint(new Point(), surface).X;
-                var statusTop = status.TranslatePoint(new Point(), surface).Y;
-                var statusLeft = status.TranslatePoint(new Point(), surface).X;
-                Assert.Equal(56, titleBar.ActualHeight);
-                Assert.Equal(32, controls.ActualHeight);
-                Assert.InRange(Math.Abs(brandLeft + brand.ActualWidth / 2 - width / 2), 0, 0.5);
-                Assert.InRange(Math.Abs(brandTop + brand.ActualHeight / 2 - titleBarTop - 28), 0, 0.5);
-                Assert.Equal(15, controlsLeft, precision: 2);
-                for (var index = 0; index < dots.Length; index++)
+                foreach (var statusWidth in new[] { 140d, 205d })
                 {
-                    var dotPosition = dots[index].TranslatePoint(new Point(), surface);
-                    Assert.Equal(21d + index * 24d, dotPosition.X, precision: 2);
-                    Assert.Equal(22, dotPosition.Y - titleBarTop, precision: 2);
-                    Assert.Equal(12, dots[index].ActualWidth);
-                    Assert.Equal(12, dots[index].ActualHeight);
+                    status.Width = statusWidth;
+                    surface.Measure(new Size(width, height));
+                    surface.Arrange(new Rect(0, 0, width, height));
+                    surface.UpdateLayout();
+                    Assert.Equal(56, titleBar.ActualHeight);
+                    if (((TabControl)window.FindName("RootTabs")).SelectedIndex == 0)
+                    {
+                        var instrument = Assert.IsType<OrbitSurface>(window.FindName("OrbitInstrument"));
+                        var reset = Assert.IsType<Button>(window.FindName("ResetPeaksButton"));
+                        var resetBounds = Bounds(reset, instrument);
+                        AssertContained(resetBounds, instrument.RenderSize);
+                        Assert.InRange(Math.Abs(resetBounds.Left + resetBounds.Width / 2 - instrument.ActualWidth / 2), 0, 0.5);
+                        Assert.InRange(instrument.ActualHeight - resetBounds.Bottom, 7, 10);
+                        Assert.True(resetBounds.Top > instrument.ActualHeight * 0.8);
+                    }
+                    var brandBounds = Bounds(brand, titleBar);
+                    var controlBounds = Bounds(controls, titleBar);
+                    var toggleBounds = Bounds(toggle, surface);
+                    AssertContained(brandBounds, titleBar.RenderSize);
+                    AssertContained(controlBounds, titleBar.RenderSize);
+                    AssertContained(toggleBounds, surface.RenderSize);
+                    Assert.True(controlBounds.Right <= brandBounds.Left);
+                    Assert.True(toggleBounds.Top >= titleBar.ActualHeight);
+                    Assert.InRange(Math.Abs(brandBounds.Top + brandBounds.Height / 2 - titleBar.ActualHeight / 2), 0, 0.5);
+                    Assert.InRange(Math.Abs(controlBounds.Top + controlBounds.Height / 2 - titleBar.ActualHeight / 2), 0, 0.5);
+                    double? previousRight = null;
+                    foreach (var button in buttons)
+                    {
+                        Assert.Equal(24, button.ActualWidth);
+                        Assert.Equal(32, button.ActualHeight);
+                        Assert.Same(window.FindResource("WindowButtonStyle"), button.Style);
+                        var glyph = Assert.IsAssignableFrom<System.Windows.Shapes.Shape>(button.Content);
+                        if (glyph is System.Windows.Shapes.Path path)
+                        {
+                            Assert.NotNull(path.Data);
+                            Assert.False(path.Data.IsEmpty());
+                        }
+                        Assert.NotNull(glyph.Stroke);
+                        Assert.True(glyph.Stroke.Opacity > 0 && glyph.ActualWidth > 0 && glyph.ActualHeight > 0);
+                        if (glyph.Stroke is SolidColorBrush stroke)
+                            Assert.True(stroke.Color.A > 0);
+                        var dot = Assert.IsType<System.Windows.Shapes.Ellipse>(button.Template.FindName("WindowDot", button));
+                        Assert.Equal(12, dot.ActualWidth);
+                        Assert.Equal(12, dot.ActualHeight);
+                        var expectedColor = button.Name switch
+                        {
+                            "CloseWindowButton" => Color.FromRgb(255, 95, 87),
+                            "MinimizeWindowButton" => Color.FromRgb(254, 188, 46),
+                            _ => Color.FromRgb(40, 200, 64)
+                        };
+                        Assert.Equal(expectedColor, Assert.IsType<SolidColorBrush>(dot.Fill).Color);
+                        Assert.Equal(Visibility.Visible, dot.Visibility);
+                        Assert.Equal(1, dot.Opacity);
+                        var glyphPresenter = Assert.IsType<ContentPresenter>(button.Template.FindName("WindowGlyph", button));
+                        Assert.Equal(0, glyphPresenter.Opacity);
+                        var focusRing = Assert.IsType<System.Windows.Shapes.Ellipse>(button.Template.FindName("FocusRing", button));
+                        Assert.Equal(Visibility.Collapsed, focusRing.Visibility);
+                        Assert.NotNull(button.ToolTip);
+                        Assert.False(string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(button)));
+                        Assert.True(button.IsEnabled && button.Focusable && button.IsTabStop && button.IsHitTestVisible);
+                        Assert.True(System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(button));
+                        var buttonBounds = Bounds(button, titleBar);
+                        AssertContained(buttonBounds, titleBar.RenderSize);
+                        AssertContained(Bounds(glyph, button), button.RenderSize);
+                        if (previousRight.HasValue)
+                            Assert.True(previousRight.Value <= buttonBounds.Left);
+                        previousRight = buttonBounds.Right;
+                    }
+                    if (status.Visibility == Visibility.Visible)
+                    {
+                        var statusBounds = Bounds(status, titleBar);
+                        AssertContained(statusBounds, titleBar.RenderSize);
+                        Assert.True(statusBounds.Right <= brandBounds.Left);
+                        Assert.True(controlBounds.Right <= statusBounds.Left);
+                    }
+                    var display = Assert.IsType<Button>(window.FindName("DashboardWindowDisplayButton"));
+                    if (display.Visibility == Visibility.Visible)
+                    {
+                        var displayBounds = Bounds(display, titleBar);
+                        AssertContained(displayBounds, titleBar.RenderSize);
+                        Assert.True(displayBounds.Right <= brandBounds.Left);
+                        Assert.True(controlBounds.Right <= displayBounds.Left);
+                    }
                 }
-                Assert.True(controlsLeft + controls.ActualWidth < brandLeft);
-                Assert.True(statusLeft > brandLeft + brand.ActualWidth);
-                Assert.True(statusLeft + status.ActualWidth <= width - 18);
-                Assert.True(statusTop >= titleBarTop && statusTop + status.ActualHeight <= titleBarTop + 56);
             }
         }
-        status.Width = originalStatusWidth;
+        finally
+        {
+            status.Width = originalStatusWidth;
+            surface.Measure(originalSize);
+            surface.Arrange(new Rect(originalSize));
+            surface.UpdateLayout();
+        }
+
+        static Rect Bounds(FrameworkElement element, UIElement relativeTo) =>
+            new(element.TranslatePoint(new Point(), relativeTo), element.RenderSize);
+
+        static void AssertContained(Rect bounds, Size size)
+        {
+            Assert.True(bounds.Left >= -0.5 && bounds.Top >= -0.5 &&
+                        bounds.Right <= size.Width + 0.5 && bounds.Bottom <= size.Height + 0.5);
+        }
     }
 
     private sealed class ResourceOnlyApplication : Application
@@ -523,6 +633,9 @@ public sealed class WpfStyleRuntimeTests
         var resources = new XElement(presentation + "ResourceDictionary",
             new XAttribute(XNamespace.Xmlns + "x", "http://schemas.microsoft.com/winfx/2006/xaml"),
             document.Root!.Element(presentation + "Application.Resources")!.Elements());
+        foreach (var declaration in resources.DescendantsAndSelf().Attributes()
+            .Where(attribute => attribute.IsNamespaceDeclaration && attribute.Value == "clr-namespace:Wisp.App"))
+            declaration.Value += ";assembly=Wisp";
         return (ResourceDictionary)XamlReader.Parse(resources.ToString());
     }
 

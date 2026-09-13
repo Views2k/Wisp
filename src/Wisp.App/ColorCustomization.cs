@@ -15,6 +15,11 @@ public static class ColorCustomization
     public static string? NormalizeAccent(string? value) =>
         Normalize(value, AccentMinimumOpacity);
 
+    public static string? NormalizeParticle(string? value) => Normalize(value, 0);
+
+    public static Color ResolveParticle(AppSettings settings) =>
+        TryParse(settings.CustomParticleColor, out var color) ? color : ResolveAccent(settings);
+
     public static string? NormalizeBackground(string? value)
     {
         if (!TryParse(value, out var color))

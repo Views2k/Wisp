@@ -12,6 +12,7 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Wisp.App;
+using Rectangle = System.Windows.Shapes.Rectangle;
 
 namespace Wisp.UiReview;
 
@@ -42,6 +43,7 @@ internal sealed class ReviewReport
     public int SuppressedStartupNotifications { get; set; }
     public string? FatalError { get; set; }
     public string? FatalInnerError { get; set; }
+    public string[]? FatalMethods { get; set; }
     public string? FatalPhase { get; set; }
     public int BindingMessageCount { get; set; }
     public bool BindingMessagesTruncated { get; set; }
@@ -78,7 +80,24 @@ internal sealed record CaptureReport(string? Image, string Fixture, string Tab, 
     bool VisualTreeTruncated, int NewBindingMessages)
 {
     public WizardReviewReport? Wizard { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DashboardSpeedReport? DashboardSpeed { get; init; }
 }
+internal sealed record DashboardSpeedReport(bool Found, bool Visible, string? Text, int TextLength,
+    string? BindingStatus, string? FontFamily, double FontSize, string? FontWeight,
+    string? Foreground, double EffectiveOpacity, Bounds? Bounds, Bounds? ContentBounds,
+    Bounds? ClipBounds, TextDrawingReport? Drawing, SpeedFontProbeReport[] FontProbes, bool OriginalFontUnchanged)
+{
+    public bool HasFindings => !Found || !Visible || string.IsNullOrWhiteSpace(Text) ||
+        Text == "<non-numeric>" || EffectiveOpacity <= 0 ||
+        Drawing is not { Found: true, GlyphRuns: > 0, GlyphIndices: > 0, Truncated: false } ||
+        FontProbes.Length == 0 || FontProbes[0].PaintedPixels <= 0 || !OriginalFontUnchanged;
+    public string FontProbeScope => "Synthetic offscreen TextBlock copies; the first probe uses the current dashboard font. Dashboard font properties are never modified.";
+}
+internal sealed record TextDrawingReport(bool Found, Bounds? Bounds, int GlyphRuns,
+    int GlyphIndices, string[] GlyphBrushes, bool Truncated);
+internal sealed record SpeedFontProbeReport(string FontFamily, double FontSize,
+    int PixelWidth, int PixelHeight, int PaintedPixels, TextDrawingReport Drawing);
 internal sealed record Bounds(double X, double Y, double Width, double Height);
 internal sealed record ElementBounds(string Name, string Type, bool Visible, Bounds? Bounds, double LocalWidth, double LocalHeight);
 internal sealed record LogoResourceReport(bool Found, long ByteLength, string? Sha256);
@@ -131,8 +150,10 @@ internal static class ReviewDiagnostics
 
     public static CaptureReport Inspect(FrameworkElement surface, string? image, string fixture,
         string tab, string viewport, int dpi, int pixelWidth, int pixelHeight, int newBindingMessages,
-        WizardReviewContext? wizard = null)
+        WizardReviewContext? wizard = null, DiagnosticsViewModel? fixtureContext = null)
     {
+        if (fixtureContext is not null && surface is not ContextMenu)
+            throw new ArgumentException("An external fixture context is only supported for a standalone ContextMenu.", nameof(fixtureContext));
         var pending = new Queue<DependencyObject>();
         var elements = new List<FrameworkElement>();
         var visuals = new List<Visual>();
@@ -165,17 +186,26 @@ internal static class ReviewDiagnostics
             }
         }
 
-        var logo = elements.OfType<Image>().FirstOrDefault(element =>
+        var logoGlyph = elements.OfType<Rectangle>().FirstOrDefault(element => element.Name == "HeaderLogo");
+        var logoImage = elements.OfType<Image>().FirstOrDefault(element =>
                        element.Name.Contains("Logo", StringComparison.OrdinalIgnoreCase) ||
                        element.Source is BitmapImage bitmap &&
                        bitmap.UriSource?.OriginalString.Contains("Wisp-logo.png", StringComparison.OrdinalIgnoreCase) == true)
                    ?? elements.OfType<Image>().FirstOrDefault(element =>
                        VisibleWithin(element, surface) && element.Width <= 64 &&
                        RelativeBounds(element, surface) is { Y: >= 0 and < 55 });
-        var logoBitmap = logo?.Source as BitmapSource;
+        FrameworkElement? logo = (FrameworkElement?)logoGlyph ?? logoImage;
+        var logoMask = logoGlyph?.OpacityMask as ImageBrush;
+        var logoBitmap = (logoGlyph is not null ? logoMask?.ImageSource : logoImage?.Source) as BitmapSource;
+        var validGlyph = logoGlyph is null ||
+                         logoMask is { Stretch: Stretch.Uniform } &&
+                         logoBitmap is { IsFrozen: true } && ReferenceEquals(logoBitmap, WispLogoGlyph.Mask);
+        var visibleFill = logoGlyph is null || logoGlyph.Fill is { Opacity: > 0 } &&
+                          (logoGlyph.Fill is not SolidColorBrush solidFill || solidFill.Color.A > 0);
         var logoReport = new LogoReport(logo is not null,
-            logo is not null && VisibleWithin(logo, surface) && logo.ActualWidth > 0 && logo.ActualHeight > 0,
-            logoBitmap is { PixelWidth: > 0, PixelHeight: > 0 },
+            logo is not null && VisibleWithin(logo, surface) && logo.ActualWidth > 0 && logo.ActualHeight > 0 &&
+            visibleFill && (logoMask is null || logoMask.Opacity > 0),
+            logoBitmap is { PixelWidth: > 0, PixelHeight: > 0 } && validGlyph,
             logoBitmap?.PixelWidth ?? 0, logoBitmap?.PixelHeight ?? 0,
             logo is null ? null : RelativeBounds(logo, surface));
 
@@ -204,7 +234,7 @@ internal static class ReviewDiagnostics
         }
 
         PreviewStateReport? previewState = null;
-        if (surface.DataContext is DiagnosticsViewModel viewModel)
+        if ((surface.DataContext as DiagnosticsViewModel ?? fixtureContext) is { } viewModel)
         {
             var preview = viewModel.NativePreviewFrame;
             previewState = new PreviewStateReport(viewModel.HasLiveTelemetry, viewModel.IsPreviewLive,
@@ -221,9 +251,144 @@ internal static class ReviewDiagnostics
             InspectLabels(elements, surface),
             failures.ToArray(), visited, truncated || pending.Count > 0, newBindingMessages)
         {
-            Wizard = wizard is null ? null : WizardReview.Inspect(surface, elements, wizard)
+            Wizard = wizard is null ? null : WizardReview.Inspect(surface, elements, wizard),
+            DashboardSpeed = tab == "dashboard" ? InspectDashboardSpeed(elements, surface) : null
         };
     }
+
+    private static DashboardSpeedReport InspectDashboardSpeed(
+        IReadOnlyList<FrameworkElement> elements, FrameworkElement surface)
+    {
+        var text = elements.OfType<TextBlock>().FirstOrDefault(element =>
+            BindingOperations.GetBinding(element, TextBlock.TextProperty)?.Path?.Path == nameof(DiagnosticsViewModel.DashboardSpeed));
+        if (text is null)
+        {
+            return new(false, false, null, 0, null, null, 0, null, null, 0, null, null, null, null, [], true);
+        }
+
+        var family = text.FontFamily;
+        var fontSize = text.FontSize;
+        var localFamily = text.ReadLocalValue(TextBlock.FontFamilyProperty);
+        var localSize = text.ReadLocalValue(TextBlock.FontSizeProperty);
+        var opacity = text.Foreground?.Opacity ?? 1;
+        for (DependencyObject? current = text; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is UIElement element)
+            {
+                opacity *= element.Opacity;
+            }
+            if (ReferenceEquals(current, surface))
+            {
+                break;
+            }
+        }
+        if (text.Foreground is SolidColorBrush brush)
+        {
+            opacity *= brush.Color.A / 255d;
+        }
+
+        var drawing = InspectTextDrawing(text);
+        var contentBounds = ToBounds(VisualTreeHelper.GetContentBounds(text));
+        var clipBounds = VisualTreeHelper.GetClip(text) is { } clip ? ToBounds(clip.Bounds) : null;
+        // Only this known numeric readout is recorded; never emit arbitrary bound text.
+        var numericText = text.Text.Length <= 32 && text.Text.All(character =>
+            char.IsDigit(character) || char.IsWhiteSpace(character) || character is '.' or ',' or '-' or '+' or '\u2014');
+        var probes = VisibleWithin(text, surface) && numericText
+            ? new[]
+            {
+                ProbeSpeedFont(text, family, fontSize),
+                ProbeSpeedFont(text, new FontFamily("Segoe UI"), fontSize),
+                ProbeSpeedFont(text, new FontFamily("Segoe UI"), 48)
+            }
+            : [];
+        var originalFontUnchanged = Equals(family, text.FontFamily) && fontSize == text.FontSize &&
+            Equals(localFamily, text.ReadLocalValue(TextBlock.FontFamilyProperty)) &&
+            Equals(localSize, text.ReadLocalValue(TextBlock.FontSizeProperty));
+        return new(true, VisibleWithin(text, surface), numericText ? text.Text : "<non-numeric>", text.Text.Length,
+            BindingOperations.GetBindingExpression(text, TextBlock.TextProperty)?.Status.ToString(),
+            family.Source, fontSize, text.FontWeight.ToString(), DescribeBrush(text.Foreground), Round(opacity),
+            RelativeBounds(text, surface), contentBounds, clipBounds, drawing, probes, originalFontUnchanged);
+    }
+
+    private static SpeedFontProbeReport ProbeSpeedFont(TextBlock source, FontFamily family, double fontSize)
+    {
+        var probe = new TextBlock
+        {
+            Text = source.Text,
+            FontFamily = family,
+            FontSize = fontSize,
+            FontWeight = source.FontWeight,
+            FontStyle = source.FontStyle,
+            FontStretch = source.FontStretch,
+            Foreground = source.Foreground,
+            FlowDirection = source.FlowDirection
+        };
+        TextOptions.SetTextFormattingMode(probe, TextOptions.GetTextFormattingMode(source));
+        TextOptions.SetTextRenderingMode(probe, TextOptions.GetTextRenderingMode(source));
+        var dpi = VisualTreeHelper.GetDpi(source);
+        VisualTreeHelper.SetRootDpi(probe, dpi);
+        probe.Measure(new Size(1024, 256));
+        probe.Arrange(new Rect(probe.DesiredSize));
+        probe.UpdateLayout();
+        var width = Math.Clamp((int)Math.Ceiling(probe.ActualWidth * dpi.DpiScaleX), 1, 2048);
+        var height = Math.Clamp((int)Math.Ceiling(probe.ActualHeight * dpi.DpiScaleY), 1, 512);
+        var bitmap = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+        bitmap.Render(probe);
+        var pixels = new byte[width * height * 4];
+        bitmap.CopyPixels(pixels, width * 4, 0);
+        var painted = 0;
+        for (var index = 3; index < pixels.Length; index += 4)
+        {
+            if (pixels[index] > 0)
+            {
+                painted++;
+            }
+        }
+        return new(family.Source, fontSize, width, height, painted, InspectTextDrawing(probe));
+    }
+
+    private static TextDrawingReport InspectTextDrawing(Visual visual)
+    {
+        var drawing = VisualTreeHelper.GetDrawing(visual);
+        if (drawing is null)
+        {
+            return new(false, null, 0, 0, [], false);
+        }
+        var pending = new Queue<Drawing>();
+        pending.Enqueue(drawing);
+        var glyphRuns = 0;
+        var glyphIndices = 0;
+        var brushes = new HashSet<string>(StringComparer.Ordinal);
+        var visited = 0;
+        var truncated = false;
+        while (pending.Count > 0 && visited++ < 128)
+        {
+            switch (pending.Dequeue())
+            {
+                case GlyphRunDrawing glyph:
+                    glyphRuns++;
+                    glyphIndices += glyph.GlyphRun?.GlyphIndices.Count ?? 0;
+                    brushes.Add(DescribeBrush(glyph.ForegroundBrush));
+                    break;
+                case DrawingGroup group:
+                    var available = Math.Max(0, 128 - visited - pending.Count);
+                    truncated |= group.Children.Count > available;
+                    foreach (var child in group.Children.Take(available))
+                    {
+                        pending.Enqueue(child);
+                    }
+                    break;
+            }
+        }
+        return new(true, ToBounds(drawing.Bounds), glyphRuns, glyphIndices, brushes.ToArray(), truncated || pending.Count > 0);
+    }
+
+    private static string DescribeBrush(Brush? brush) => brush switch
+    {
+        SolidColorBrush solid => $"{solid.Color}; opacity={solid.Opacity.ToString(CultureInfo.InvariantCulture)}",
+        null => "none",
+        _ => brush.GetType().Name
+    };
 
     private static PreviewReport InspectPreview(FrameworkElement host, FrameworkElement surface,
         IReadOnlyList<FrameworkElement> elements, IReadOnlyList<Visual> visuals)

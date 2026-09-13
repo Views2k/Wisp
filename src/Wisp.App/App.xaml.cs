@@ -27,6 +27,7 @@ public partial class App : Application
     private OverlayHotkeyService? _markerHotkey;
     private bool _runtimeActive;
     private bool _applicationUpdateHandoffActive;
+    private bool _closePreparationActive;
     private bool _exiting;
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -171,7 +172,11 @@ public partial class App : Application
         _controller.RestoreTireTemperatureGaugePlacement();
         tireTemperatureGaugeOverlay.SetEditMode(!settings.OverlayLocked);
 
-        var mainWindow = new MainWindow(_controller);
+        _controller.InitializeDriftGaugeWindow();
+
+        ControlPanelWindow mainWindow = settings.UseLegacyInterface
+            ? new LegacyMainWindow(_controller)
+            : new MainWindow(_controller);
         _controller.ControlPanel = mainWindow;
         MainWindow = mainWindow;
         mainWindow.Closing += OnControlPanelClosing;
@@ -382,7 +387,8 @@ public partial class App : Application
 
     private void OnControlPanelClosing(object? sender, CancelEventArgs e)
     {
-        if (_applicationUpdateHandoffActive)
+        if (_exiting) return;
+        if (_applicationUpdateHandoffActive || _closePreparationActive)
         {
             e.Cancel = true;
             return;
@@ -398,9 +404,9 @@ public partial class App : Application
             return;
         }
 
-        _exiting = true;
-        _forzaStartupTimer?.Stop();
-        ShutdownMode = ShutdownMode.OnMainWindowClose;
+        // Keep the dispatcher alive while pending run details reach durable storage.
+        e.Cancel = true;
+        if (sender is Window closingWindow) _ = CloseApplicationAsync(closingWindow);
     }
 
     private async Task SuspendRuntimeAsync()
@@ -424,26 +430,58 @@ public partial class App : Application
 
     private void ExitFromTray()
     {
-        if (_applicationUpdateHandoffActive)
+        if (_exiting || _applicationUpdateHandoffActive || _closePreparationActive)
         {
             return;
         }
 
-        _exiting = true;
-        _forzaStartupTimer?.Stop();
-        Shutdown();
+        _ = CloseApplicationAsync(null);
+    }
+
+    private async Task CloseApplicationAsync(Window? closingWindow)
+    {
+        _closePreparationActive = true;
+        try
+        {
+            if (!await PrepareRunMetadataForExitAsync()) return;
+            _exiting = true;
+            _forzaStartupTimer?.Stop();
+            if (closingWindow is not null)
+            {
+                ShutdownMode = ShutdownMode.OnMainWindowClose;
+                closingWindow.Close();
+            }
+            else Shutdown();
+        }
+        finally { _closePreparationActive = false; }
+    }
+
+    private async Task<bool> PrepareRunMetadataForExitAsync()
+    {
+        if (_controller is null) return true;
+        if (await _controller.Runs.PrepareToCloseMetadataAsync()) return true;
+        RestoreControlPanel();
+        _controller.ControlPanel?.ShowRunSaveProblem();
+        return false;
     }
 
     internal async Task<(bool Started, string Error)> TryBeginApplicationUpdateAsync(
         VerifiedInstaller installer)
     {
-        if (_exiting || _controller is null || _applicationUpdateHandoffActive)
+        if (_exiting || _controller is null || _applicationUpdateHandoffActive || _closePreparationActive)
         {
             return (false, "Wisp is already closing or preparing another update.");
         }
 
         _applicationUpdateHandoffActive = true;
         _controller.MarkApplicationUpdatePreparing(installer);
+        if (!await PrepareRunMetadataForExitAsync())
+        {
+            _applicationUpdateHandoffActive = false;
+            const string saveError = "Save the pending run details before updating. Wisp has stayed open.";
+            _controller.ViewModel.UpdateApplicationUpdateStatus(saveError, "Try again", canCheck: true);
+            return (false, saveError);
+        }
         ApplicationUpdateHandoff handoff;
         try
         {
@@ -455,6 +493,7 @@ public partial class App : Application
         {
             var error = "Wisp could not start the verified update. No files were installed.";
             _applicationUpdateHandoffActive = false;
+            _controller.Runs.CancelMetadataClosePreparation();
             _controller.ViewModel.UpdateApplicationUpdateStatus(error, "Try again", canCheck: true);
             return (false, error);
         }
@@ -471,6 +510,7 @@ public partial class App : Application
             {
                 handoff.StopIfRunning();
                 _applicationUpdateHandoffActive = false;
+                _controller.Runs.CancelMetadataClosePreparation();
                 const string waitError =
                     "The update helper could not complete its safety checks. Wisp stayed open and no files were installed.";
                 _controller.ViewModel.UpdateApplicationUpdateStatus(waitError, "Try again", canCheck: true);
@@ -481,6 +521,7 @@ public partial class App : Application
             {
                 handoff.StopIfRunning();
                 _applicationUpdateHandoffActive = false;
+                _controller.Runs.CancelMetadataClosePreparation();
                 var error = handoffState == ApplicationUpdateHandoffState.TimedOut
                     ? "The update helper did not become ready in time. Wisp stayed open and no files were installed."
                     : "The update helper could not verify this installation. Wisp stayed open and no files were installed.";

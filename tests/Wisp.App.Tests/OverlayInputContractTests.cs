@@ -68,14 +68,14 @@ public sealed class OverlayInputContractTests
     }
 
     [Fact]
-    public void TelemetryMinimizeAssignmentIsGuardedByTransitionDecision()
+    public void TelemetryMinimizeAssignmentRequiresTransitionAndExcludesDashboardDisplayMode()
     {
         var source = File.ReadAllText(Path.Combine(AppSourceDirectory(), "AppController.cs"));
-        const string guardedAssignment =
-            "if (autoMinimizeTransition.ShouldMinimizeControlPanel && ControlPanel is not null)";
-
-        Assert.Contains(guardedAssignment, source, StringComparison.Ordinal);
-        Assert.Contains("ControlPanel.WindowState = WindowState.Minimized;", source, StringComparison.Ordinal);
+        Assert.Matches(
+            @"if\s*\(autoMinimizeTransition\.ShouldMinimizeControlPanel\s*&&\s*ControlPanel is not null\s*&&\s*" +
+            @"ControlPanel is not MainWindow\s*\{\s*IsDashboardDisplayMode:\s*true\s*\}\s*\)\s*\{\s*" +
+            @"ControlPanel\.WindowState = WindowState\.Minimized;",
+            source);
         Assert.Equal(
             1,
             source.Split("WindowState = WindowState.Minimized", StringSplitOptions.None).Length - 1);

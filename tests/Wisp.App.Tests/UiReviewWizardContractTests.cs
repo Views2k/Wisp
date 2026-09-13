@@ -6,15 +6,34 @@ namespace Wisp.App.Tests;
 public sealed class UiReviewWizardContractTests
 {
     [Fact]
-    public void WizardAddsItsOwnBoundedMatrixWithoutChangingTheMainMatrix()
+    public void WizardKeepsItsOwnBoundedMatrixSeparateFromTheControlPanel()
     {
         var program = ToolSource("Program.cs");
 
-        Assert.Matches(@"\[\(""baseline"", 980, 750\), \(""compact"", 720, 440\), \(""wide"", 1280, 900\), \(""fullscreen"", 2560, 1440\)\]", program);
+        Assert.Matches(@"\[\(""baseline"", 980, 750\), \(""compact"", 720, 440\), \(""wide"", 1280, 900\), \(""candidate"", 1464, 994\), \(""fullscreen"", 2560, 1440\)\]", program);
         Assert.Matches(@"\[\(""baseline"", 800, 730\), \(""compact"", 540, 440\), \(""wide"", 840, 760\), \(""launch"", 900, 780\)\]", program);
         Assert.Contains("""["welcome", "connection", "display", "appearance"]""", program, StringComparison.Ordinal);
         Assert.Contains("""wizard && !values.ContainsKey("--dpi") ? [96, 144]""", program, StringComparison.Ordinal);
         Assert.Contains("""fixtures = [Fixture.All[0]];""", program, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OrbitReferenceIsAnExplicitSyntheticFixtureWithoutChangingDefaultSelection()
+    {
+        var program = ToolSource("Program.cs");
+        var fixtures = ToolSource("Fixtures.cs");
+
+        Assert.Contains("""? [Fixture.All[0], Fixture.All[1], Fixture.All[2], Fixture.All[5]]""", program, StringComparison.Ordinal);
+        Assert.Contains("""new("orbit-reference", HudLayoutMode.Native, NativeGaugeMode.Digital, OrbitReference: true)""", fixtures, StringComparison.Ordinal);
+        Assert.Contains("Telemetry = options.WizardOnly ? \"not-started\" : options.LostTelemetry ? \"synthetic-sample-then-lost\" : options.Waiting ? \"waiting\" : \"synthetic-sample\"", program, StringComparison.Ordinal);
+        Assert.Contains("Sample preview · illustrative fixture values, not live FH6 data", fixtures, StringComparison.Ordinal);
+        Assert.Contains("viewModel.Update(peakState,", fixtures, StringComparison.Ordinal);
+        Assert.Contains("viewModel.Update(state,", fixtures, StringComparison.Ordinal);
+        Assert.DoesNotContain(".StartAsync(", fixtures, StringComparison.Ordinal);
+        Assert.DoesNotContain(".RestartListenerAsync(", fixtures, StringComparison.Ordinal);
+        Assert.DoesNotContain(".Show(", fixtures, StringComparison.Ordinal);
+        Assert.DoesNotContain(".ShowDialog(", fixtures, StringComparison.Ordinal);
+        Assert.DoesNotContain("CanToggleRecording =", fixtures, StringComparison.Ordinal);
     }
 
     [Fact]

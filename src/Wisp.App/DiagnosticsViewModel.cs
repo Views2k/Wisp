@@ -8,7 +8,7 @@ using Wisp.Telemetry;
 
 namespace Wisp.App;
 
-public sealed class DiagnosticsViewModel : INotifyPropertyChanged
+public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
 {
     private readonly DashboardPowerDisplayModel _dashboardPowerDisplayModel = new();
     private readonly GForceDisplayModel _gForceDisplayModel = new();
@@ -38,6 +38,13 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private string _exactRedlineServiceState = "Inactive";
     private string _nativeAssistState = "Unavailable";
     private string _nativeAssistDetails = "—";
+    private string _absAssistStatus = "Unavailable";
+    private string _tcrAssistStatus = "Unavailable";
+    private string _stmAssistStatus = "Unavailable";
+    private string _lcAssistStatus = "Unavailable";
+    private string _throttleInputText = "Unavailable";
+    private string _brakeInputText = "Unavailable";
+    private string _steeringInputText = "Unavailable";
     private string _gameplayHudVisibility = "Unavailable";
     private string _nativeCompatibilityValidation = "Awaiting FH6 build validation";
     private string _nativeCompatibilityUpdates = "Offline; bundled compatibility is available";
@@ -92,8 +99,10 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     private string _overlayHotkeyStatus = "Off";
     private bool _autoMinimizeOnTelemetry;
     private bool _startWithWindows;
+    private bool _useLegacyInterface;
     private bool _startWithForza;
     private bool _startMinimizedWithForza;
+    private bool _backgroundParticlesEnabled;
     private bool _animatedBackground;
     private bool _automaticApplicationUpdateChecks;
     private bool _cpuRenderingEnabled;
@@ -115,6 +124,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
 
     public DiagnosticsViewModel(AppSettings settings)
     {
+        UpdateGForceColors(settings);
         _udpPort = settings.UdpPort;
         _udpPortText = settings.UdpPort.ToString(CultureInfo.InvariantCulture);
         _unitSelectionIndex = settings.SpeedUnit == SpeedUnit.MilesPerHour ? 0 : 1;
@@ -156,8 +166,10 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             : $"Off — {OverlayHotkeyText}";
         _autoMinimizeOnTelemetry = settings.AutoMinimizeOnTelemetry;
         _startWithWindows = settings.StartWithWindows;
+        _useLegacyInterface = settings.UseLegacyInterface;
         _startWithForza = settings.StartWithForza;
         _startMinimizedWithForza = settings.StartMinimizedWithForza;
+        _backgroundParticlesEnabled = settings.BackgroundParticlesEnabled;
         _animatedBackground = settings.AnimatedBackground;
         _automaticApplicationUpdateChecks = settings.AutomaticApplicationUpdateChecks;
         _cpuRenderingEnabled = settings.CpuRenderingEnabled;
@@ -217,6 +229,17 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public string ExactRedlineStateText { get => _exactRedlineServiceState; private set => Set(ref _exactRedlineServiceState, value); }
     public string NativeAssistState { get => _nativeAssistState; private set => Set(ref _nativeAssistState, value); }
     public string NativeAssistDetails { get => _nativeAssistDetails; private set => Set(ref _nativeAssistDetails, value); }
+    public string AbsAssistLabel => "Anti-lock braking";
+    public string AbsAssistStatus { get => _absAssistStatus; private set => Set(ref _absAssistStatus, value); }
+    public string TcrAssistLabel => "Traction control";
+    public string TcrAssistStatus { get => _tcrAssistStatus; private set => Set(ref _tcrAssistStatus, value); }
+    public string StmAssistLabel => "Stability management";
+    public string StmAssistStatus { get => _stmAssistStatus; private set => Set(ref _stmAssistStatus, value); }
+    public string LcAssistLabel => "Launch control";
+    public string LcAssistStatus { get => _lcAssistStatus; private set => Set(ref _lcAssistStatus, value); }
+    public string ThrottleInputText { get => _throttleInputText; private set => Set(ref _throttleInputText, value); }
+    public string BrakeInputText { get => _brakeInputText; private set => Set(ref _brakeInputText, value); }
+    public string SteeringInputText { get => _steeringInputText; private set => Set(ref _steeringInputText, value); }
     public string GameplayHudVisibility { get => _gameplayHudVisibility; private set => Set(ref _gameplayHudVisibility, value); }
     public string NativeCompatibilityValidation { get => _nativeCompatibilityValidation; private set => Set(ref _nativeCompatibilityValidation, value); }
     public string NativeCompatibilityUpdates { get => _nativeCompatibilityUpdates; private set => Set(ref _nativeCompatibilityUpdates, value); }
@@ -287,6 +310,13 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             {
                 if (!value)
                 {
+                    AbsAssistStatus = "Unavailable";
+                    TcrAssistStatus = "Unavailable";
+                    StmAssistStatus = "Unavailable";
+                    LcAssistStatus = "Unavailable";
+                    ThrottleInputText = "Unavailable";
+                    BrakeInputText = "Unavailable";
+                    SteeringInputText = "Unavailable";
                     _dashboardPowerDisplayModel.ResetCurrent();
                     _dashboardPower = "—";
                     _dashboardTorque = "—";
@@ -645,6 +675,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     public string OverlayHotkeyStatus { get => _overlayHotkeyStatus; private set => Set(ref _overlayHotkeyStatus, value); }
     public bool AutoMinimizeOnTelemetry { get => _autoMinimizeOnTelemetry; set => Set(ref _autoMinimizeOnTelemetry, value); }
     public bool StartWithWindows { get => _startWithWindows; set => Set(ref _startWithWindows, value); }
+    public bool UseLegacyInterface { get => _useLegacyInterface; set => Set(ref _useLegacyInterface, value); }
     public bool StartWithForza
     {
         get => _startWithForza;
@@ -658,6 +689,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
     }
     public bool CanSetWindowsStartup => !StartWithForza;
     public bool StartMinimizedWithForza { get => _startMinimizedWithForza; set => Set(ref _startMinimizedWithForza, value); }
+    public bool BackgroundParticlesEnabled { get => _backgroundParticlesEnabled; set => Set(ref _backgroundParticlesEnabled, value); }
     public bool AnimatedBackground { get => _animatedBackground; set => Set(ref _animatedBackground, value); }
     public bool AutomaticApplicationUpdateChecks
     {
@@ -813,6 +845,11 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             return;
         }
 
+        ThrottleInputText = (state.Accelerator / 255d * 100).ToString("0", CultureInfo.InvariantCulture) + "%";
+        BrakeInputText = (state.Brake / 255d * 100).ToString("0", CultureInfo.InvariantCulture) + "%";
+        SteeringInputText = (state.Steering / (state.Steering < 0 ? 128d : 127d) * 100)
+            .ToString("+0;-0;0", CultureInfo.InvariantCulture) + "%";
+
         if (gForce is { } currentGForce)
         {
             LateralGText = $"{currentGForce.LateralG:+0.00;-0.00;0.00} g";
@@ -878,6 +915,10 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
                 AssistText("STM", nativeAssists.IsSTMAvailable, nativeAssists.IsSTMOn),
                 AssistText("LC", nativeAssists.IsLCAvailable, nativeAssists.IsLCOn))
             : "—";
+        AbsAssistStatus = AssistActivityText(nativeAssists.Available, nativeAssists.IsABSAvailable, nativeAssists.IsABSOn);
+        TcrAssistStatus = AssistActivityText(nativeAssists.Available, nativeAssists.IsTCRAvailable, nativeAssists.IsTCROn);
+        StmAssistStatus = AssistActivityText(nativeAssists.Available, nativeAssists.IsSTMAvailable, nativeAssists.IsSTMOn);
+        LcAssistStatus = AssistActivityText(nativeAssists.Available, nativeAssists.IsLCAvailable, nativeAssists.IsLCOn);
         var requiredSamples = CalibrationOptions.DefaultMinimumSamples;
         Confidence = speedSource == SpeedSourceMode.Fh6VehicleSpeed
             ? "N/A"
@@ -939,7 +980,7 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
             ? statistics.ListenerError
             : statistics.RejectedPackets > 0 && statistics.AcceptedPackets == 0
                 ? $"Packets rejected · last error: {statistics.LastParseError}"
-                : "Enable Data Out to 127.0.0.1 using the port below";
+                : "Return to free roam, or check Data Out in Diagnostics.";
         PacketRate = $"{statistics.PacketsPerSecond:F1} Hz";
         RenderRate = renderRate > 0 ? $"{renderRate:F1} Hz" : "Measuring";
         PacketAge = age is null ? "—" : $"{age.Value.TotalMilliseconds:F0} ms";
@@ -1063,6 +1104,9 @@ public sealed class DiagnosticsViewModel : INotifyPropertyChanged
         NativeAssistProviderStatus.Ready => "Ready",
         _ => "Unavailable"
     };
+
+    private static string AssistActivityText(bool observed, bool enabled, bool active) =>
+        !observed ? "Unavailable" : !enabled ? "Disabled" : active ? "Active" : "Enabled";
 
     private static string AssistText(string name, bool available, bool on) =>
         available ? $"{name} {(on ? "ON" : "OFF")}" : $"{name} —";

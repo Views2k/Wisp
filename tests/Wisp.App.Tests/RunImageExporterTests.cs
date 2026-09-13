@@ -65,6 +65,25 @@ public sealed class RunImageExporterTests
         }
     });
 
+    [Fact]
+    public void AllWorkspaceGraphTypesFitOneBoundedExport() => OnSta(() =>
+    {
+        var run = ExampleRun();
+        var report = RunAnalysis.BuildReport(run);
+        var time = new[] { RunChartGroup.Speed, RunChartGroup.Inputs, RunChartGroup.Engine, RunChartGroup.Tires, RunChartGroup.Handling }
+            .SelectMany(group => RunPresentation.Charts(run, run, group, SpeedUnit.MilesPerHour, TireTemperatureUnit.Fahrenheit))
+            .DistinctBy(panel => panel.Title).ToArray();
+        var alternative = new[] { RunPlotMode.PowerByRpm, RunPlotMode.GForce, RunPlotMode.TireChange }
+            .SelectMany(mode => RunAlternativePlots.Build(run, run, mode, TireTemperatureUnit.Fahrenheit, TorqueUnit.NewtonMeters, fullThrottleOnly: false)).ToArray();
+        Assert.Equal(RunImageExporter.MaximumPlots, time.Length + alternative.Length);
+        var snapshot = new RunImageSnapshot("Baseline", "Revised", "Whole run", report.QualityNote,
+            report.Findings.ToArray(), RunPresentation.Metrics(report, report, SpeedUnit.MilesPerHour, TorqueUnit.NewtonMeters), time, alternative, 0, 2);
+        var image = RunImageExporter.Render(snapshot);
+        Assert.True(image.IsFrozen);
+        Assert.InRange(image.PixelHeight, 4096, RunImageExporter.MaximumImageHeight);
+        Assert.Throws<ArgumentException>(() => RunImageExporter.Render(snapshot with { Charts = [.. time, time[0]] }));
+    });
+
     private static RecordedRun ExampleRun() => new()
     {
         Samples = Enumerable.Range(0, 201).Select(index =>

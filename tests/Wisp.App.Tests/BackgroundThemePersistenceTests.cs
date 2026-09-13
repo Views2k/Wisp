@@ -9,6 +9,33 @@ namespace Wisp.App.Tests;
 public sealed class BackgroundThemePersistenceTests
 {
     [Fact]
+    public void OnlyAMissingSettingsFileReceivesTheWizardPalette()
+    {
+        WithSettingsPath(path =>
+        {
+            var service = new SettingsService(path);
+            var fresh = service.Load();
+            Assert.Equal("Wisp", fresh.BackgroundTheme);
+            Assert.Equal("Aqua", fresh.ColorTheme);
+            Assert.Null(fresh.CustomAccentColor);
+            Assert.Null(fresh.CustomBackgroundColor);
+            service.Save(fresh);
+            Assert.Equal("Wisp", service.Load().BackgroundTheme);
+
+            File.WriteAllText(path, """{"SettingsRevision":9,"ColorTheme":"Plum","UdpPort":5601}""");
+            var existing = service.Load();
+            Assert.Equal("Neutral", existing.BackgroundTheme);
+            Assert.Equal("Plum", existing.ColorTheme);
+            Assert.Equal(5601, existing.UdpPort);
+
+            File.WriteAllText(path, """{"SettingsRevision":9,"BackgroundTheme":"Rose","CustomBackgroundColor":"#FF201020"}""");
+            var customized = service.Load();
+            Assert.Equal("Rose", customized.BackgroundTheme);
+            Assert.Equal("#FF201020", customized.CustomBackgroundColor);
+        });
+    }
+
+    [Fact]
     public void MissingLegacyPreferenceLoadsTheDefaultWithoutChangingExistingValues()
     {
         WithSettingsPath(path =>

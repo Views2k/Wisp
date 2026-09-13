@@ -3,6 +3,64 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
+        <Style x:Key="ConnectionStatusButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid Background="Transparent">
+                            <Border x:Name="StatusFocus" CornerRadius="6" BorderThickness="1" BorderBrush="Transparent" Margin="-4" IsHitTestVisible="False"/>
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="StatusFocus" Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="StatusFocus" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="StatusFocus" Property="Background" Value="{DynamicResource RaisedBrush}"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="MoreOptionsStyle" TargetType="Expander">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="AutomationProperties.Name" Value="{Binding Header, RelativeSource={RelativeSource Self}}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Expander">
+                        <StackPanel>
+                            <ToggleButton x:Name="Disclosure" IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" HorizontalContentAlignment="Left" Padding="10,9"
+                                          AutomationProperties.Name="{Binding (AutomationProperties.Name), RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="DisclosureSurface" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                                            <DockPanel><Path x:Name="Arrow" Data="M0,0 L4,4 L0,8" Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.5" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                                                <ContentPresenter VerticalAlignment="Center"/></DockPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="Arrow" Property="Data" Value="M0,0 L4,4 L8,0"/></Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="DisclosureSurface" Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
+                                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="DisclosureSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
+                                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="DisclosureSurface" Property="Background" Value="{DynamicResource RaisedBrush}"/></Trigger>
+                                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="DisclosureSurface" Property="Opacity" Value="0.5"/></Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
+                            </ToggleButton>
+                            <ContentPresenter x:Name="Details" Visibility="Collapsed" Margin="0,10,0,0" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers><Trigger Property="IsExpanded" Value="True"><Setter TargetName="Details" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <SolidColorBrush x:Key="WindowBrush" Color="#090C11" />
         <SolidColorBrush x:Key="PanelBrush" Color="#0E131B" />
         <SolidColorBrush x:Key="CardBrush" Color="#141B25" />
@@ -283,6 +341,10 @@
         <Style TargetType="TabControl">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style TargetType="ScrollContentPresenter" xmlns:local="clr-namespace:Wisp.App">
+            <Setter Property="local:ScrollEdgeFade.IsEnabled" Value="True" />
         </Style>
 
         <Style TargetType="ScrollViewer">

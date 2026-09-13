@@ -130,6 +130,35 @@ public sealed class RunAlternativePlotsTests
     }
 
     [Fact]
+    public void SelectingAScatterPointPublishesItsWorkspaceGraphFamily()
+    {
+        OnSta(() =>
+        {
+            var run = new RecordedRun { Samples = [Sample(0), Sample(.1, 4500)] };
+            var view = new RunAlternativePlotView
+            {
+                Panel = Assert.Single(Plot(run, mode: RunPlotMode.GForce)),
+                SelectionGroup = RunChartGroup.Handling,
+                Width = 700,
+                Height = 360
+            };
+            RenderContainsRed(view);
+            RunAlternativeSelection? selected = null;
+            view.PointSelected += point => selected = point;
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            typeof(RunAlternativePlotView).GetMethod("Select", flags)!.Invoke(view, [0]);
+            typeof(RunAlternativePlotView).GetMethod("PublishSelection", flags)!.Invoke(view, null);
+            Assert.NotNull(selected);
+            Assert.Equal(RunChartGroup.Handling, selected.Value.SourceGroup);
+            Assert.Equal(0, selected.Value.SampleIndex);
+            Assert.False(selected.Value.Comparison);
+            view.SelectionGroup = null;
+            typeof(RunAlternativePlotView).GetMethod("PublishSelection", flags)!.Invoke(view, null);
+            Assert.Null(selected.Value.SourceGroup);
+        });
+    }
+
+    [Fact]
     public void OffscreenViewsRenderDataWithoutCreatingAWindow()
     {
         OnSta(() =>

@@ -12,6 +12,63 @@ public sealed class RunStoreTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "WispRunTests", Guid.NewGuid().ToString("N"));
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0f)]
+    [InlineData(-12.5f)]
+    [InlineData(-500f)]
+    [InlineData(500f)]
+    public async Task OptionalLocalYVelocitySurvivesSavedRunRoundTrip(float? y)
+    {
+        var store = new RunStore(_directory);
+        var run = RunTestData.CreateRun();
+        run = run with { Samples = run.Samples.Select(sample => sample with { State = sample.State with { LocalVelocityYMetersPerSecond = y } }).ToArray() };
+        await store.SaveAsync(run);
+        Assert.Equal(run.Samples, (await store.LoadAsync(run.Id)).Samples);
+    }
+
+    [Fact]
+    public async Task RunWithoutLocalYFieldImportsWithUnknownYRatherThanZero()
+    {
+        Directory.CreateDirectory(_directory);
+        var source = Path.Combine(_directory, "legacy.wisprun");
+        var run = RunTestData.CreateRun();
+        var options = new JsonSerializerOptions(RunStore.JsonOptions)
+        {
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+        await using (var file = File.Create(source))
+        await using (var gzip = new GZipStream(file, CompressionLevel.Fastest))
+        await using (var writer = new StreamWriter(gzip))
+        {
+            await writer.WriteLineAsync(JsonSerializer.Serialize(run with { Samples = [] }, options));
+            foreach (var sample in run.Samples)
+            {
+                var json = JsonSerializer.Serialize(sample, options);
+                Assert.DoesNotContain("localVelocityYMetersPerSecond", json, StringComparison.Ordinal);
+                await writer.WriteLineAsync(json);
+            }
+        }
+        var store = new RunStore(Path.Combine(_directory, "library"));
+        var imported = await store.ImportAsync(source);
+        var loaded = await store.LoadAsync(imported.Id);
+        Assert.Equal(run.Samples, loaded.Samples);
+        Assert.All(loaded.Samples, sample => Assert.Null(sample.State.LocalVelocityYMetersPerSecond));
+    }
+
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NegativeInfinity)]
+    [InlineData(501f)]
+    [InlineData(-501f)]
+    public void InvalidPresentLocalYVelocityIsRejectedByRunValidation(float y)
+    {
+        var sample = RunTestData.CreateRun().Samples[0];
+        sample = sample with { State = sample.State with { LocalVelocityYMetersPerSecond = y } };
+        Assert.Throws<InvalidDataException>(() => RunStore.ValidateSample(sample, null));
+    }
+
     [Fact]
     public async Task SavedLibraryMetadataDeleteAndRestorePreserveSamples()
     {

@@ -7,12 +7,54 @@ public sealed class Fh6PacketParserTests
 {
     private readonly Fh6PacketParser _parser = new();
 
+    [Theory]
+    [InlineData(12f, 20f, 12f, 20f)]
+    [InlineData(float.NaN, 20f, null, 20f)]
+    [InlineData(12f, float.PositiveInfinity, 12f, null)]
+    [InlineData(501f, -501f, null, null)]
+    public void LocalVelocityChannelsAreOptionalAndDoNotDiscardHealthyDashboardTelemetry(float x, float z, float? expectedX, float? expectedZ)
+    {
+        var packet = Fh6PacketFixture.Create();
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(32, 4), x);
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(40, 4), z);
+        Assert.True(_parser.TryParse(packet, DateTimeOffset.UtcNow, out var state, out var error));
+        Assert.Equal(PacketParseError.None, error);
+        Assert.Equal(expectedX, state!.LocalVelocityXMetersPerSecond);
+        Assert.Equal(expectedZ, state.LocalVelocityZMetersPerSecond);
+        Assert.Equal(42.25f, state.GroundSpeedMetersPerSecond);
+    }
+
+    [Theory]
+    [InlineData(0f, 0f)]
+    [InlineData(-12.5f, -12.5f)]
+    [InlineData(500f, 500f)]
+    [InlineData(-500f, -500f)]
+    [InlineData(float.NaN, null)]
+    [InlineData(float.PositiveInfinity, null)]
+    [InlineData(float.NegativeInfinity, null)]
+    [InlineData(501f, null)]
+    [InlineData(-501f, null)]
+    public void LocalYVelocityIsRetainedOrMarkedUnavailableWithoutChangingOtherChannels(float y, float? expected)
+    {
+        var packet = Fh6PacketFixture.Create();
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(32, 4), 12f);
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(36, 4), y);
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(packet.AsSpan(40, 4), 20f);
+        Assert.True(_parser.TryParse(packet, DateTimeOffset.UtcNow, out var state, out var error));
+        Assert.Equal(PacketParseError.None, error);
+        Assert.Equal(expected, state!.LocalVelocityYMetersPerSecond);
+        Assert.Equal(12f, state.LocalVelocityXMetersPerSecond);
+        Assert.Equal(20f, state.LocalVelocityZMetersPerSecond);
+        Assert.Equal(42.25f, state.GroundSpeedMetersPerSecond);
+    }
+
     [Fact]
     public void ProductionLayoutMatchesDocumented324ByteHorizonOffsets()
     {
         Assert.Equal(324, Fh6PacketLayout.PacketLength);
         Assert.Equal(0, Fh6PacketLayout.IsRaceOn);
         Assert.Equal(4, Fh6PacketLayout.TimestampMilliseconds);
+        Assert.Equal(36, Fh6PacketLayout.LocalVelocityY);
         Assert.Equal(84, Fh6PacketLayout.TireSlipRatio);
         Assert.Equal(100, Fh6PacketLayout.WheelRotationSpeed);
         Assert.Equal(212, Fh6PacketLayout.CarOrdinal);

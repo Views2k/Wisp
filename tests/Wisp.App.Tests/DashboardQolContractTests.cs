@@ -13,20 +13,45 @@ public sealed class DashboardQolContractTests
         var path = Path.Combine(ProjectRoot(), "src", "Wisp.App", "MainWindow.xaml");
         var layout = XDocument.Load(path);
 
-        Assert.NotNull(layout.Descendants(Presentation + "Border")
-            .SingleOrDefault(element => HasAttribute(element, "Name", "DashboardUpdateBanner")));
-        Assert.Contains(layout.Descendants(), element =>
-            (string?)element.Attribute("Text") == "{Binding DashboardPeakPower, StringFormat=PEAK {0}}");
-        Assert.Contains(layout.Descendants(), element =>
-            (string?)element.Attribute("Text") == "{Binding DashboardPeakTorque, StringFormat=PEAK {0}}");
-        Assert.Contains(layout.Descendants(), element =>
-            (string?)element.Attribute("Text") == "{Binding DashboardTopSpeed, StringFormat=TOP {0}}");
+        Assert.Single(layout.Descendants(XName.Get("OrbitSurface", "clr-namespace:Wisp.App")),
+            element => HasAttribute(element, "Name", "DashboardUpdateBanner"));
+        AssertLabeledValue(layout, "DashboardPeakPower", "Peak ");
+        AssertLabeledValue(layout, "DashboardPeakTorque", "Peak ");
+        AssertLabeledValue(layout, "DashboardTopSpeed", "Top ");
+        Assert.Single(layout.Descendants(Presentation + "Button"), element =>
+            (string?)element.Attribute("Click") == "ResetDashboardPeaks_Click");
         Assert.Contains(layout.Descendants(), element =>
             HasAttribute(element, "Name", "NewtonMetersRadio"));
         Assert.Contains(layout.Descendants(), element =>
             HasAttribute(element, "Name", "PoundFeetRadio"));
         Assert.Contains(layout.Descendants(), element =>
             (string?)element.Attribute("Click") == "StarWispOnGitHub_Click");
+    }
+
+    [Fact]
+    public void DashboardMetricRunsOnlyReadTheirViewModelValues()
+    {
+        var path = Path.Combine(ProjectRoot(), "src", "Wisp.App", "MainWindow.xaml");
+        var layout = XDocument.Load(path);
+        var dashboard = Assert.Single(layout.Descendants(Presentation + "TabItem"), element =>
+            HasAttribute(element, "Name", "DashboardTab"));
+        var bindings = dashboard.Descendants(Presentation + "Run")
+            .Select(element => (string?)element.Attribute("Text"))
+            .Where(text => text?.StartsWith("{Binding ", StringComparison.Ordinal) == true)
+            .ToArray();
+
+        Assert.NotEmpty(bindings);
+        Assert.All(bindings, text => Assert.Matches(@",\s*Mode=OneWay\s*[,}]", text!));
+    }
+
+    private static void AssertLabeledValue(XDocument layout, string property, string label)
+    {
+        var value = Assert.Single(layout.Descendants(Presentation + "Run"), element =>
+            (string?)element.Attribute("Text") == $"{{Binding {property}, Mode=OneWay}}");
+        Assert.Equal(Presentation + "TextBlock", value.Parent!.Name);
+        Assert.Equal(new[] { label, $"{{Binding {property}, Mode=OneWay}}" },
+            value.Parent.Elements(Presentation + "Run").Select(element => (string?)element.Attribute("Text")));
+        Assert.Equal("SemiBold", (string?)value.Attribute("FontWeight"));
     }
 
     private static bool HasAttribute(XElement element, string name, string value) =>

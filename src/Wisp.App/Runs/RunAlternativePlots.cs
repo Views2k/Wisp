@@ -8,7 +8,7 @@ public enum RunAlternativePlotKind { Scatter, Bars }
 public readonly record struct RunAlternativePoint(double X, double Y, double SourceSeconds, int SampleIndex, int Segment, TransmissionGear Gear);
 public sealed record RunAlternativeSeries(string Name, bool Comparison, RunAlternativePoint[] Points, int SourcePointCount);
 public sealed record RunAlternativeBar(int Category, bool Comparison, double Value, double SourceSeconds);
-public readonly record struct RunAlternativeSelection(bool Comparison, double SourceSeconds, int SampleIndex);
+public readonly record struct RunAlternativeSelection(bool Comparison, double SourceSeconds, int SampleIndex, RunChartGroup? SourceGroup = null);
 public sealed record RunAlternativePlotPanel(string Title, string Description, RunAlternativePlotKind Kind,
     string XLabel, string XUnit, string YLabel, string YUnit,
     double XMinimum, double XMaximum, double YMinimum, double YMaximum,

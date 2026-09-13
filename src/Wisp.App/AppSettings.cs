@@ -79,6 +79,7 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; } = true;
     public bool StartWithForza { get; set; }
     public bool StartMinimizedWithForza { get; set; }
+    public bool BackgroundParticlesEnabled { get; set; } = true;
     public bool AnimatedBackground { get; set; } = true;
     public bool AutomaticApplicationUpdateChecks { get; set; } = true;
     public DateTimeOffset? LastApplicationUpdateCheckUtc { get; set; }
@@ -91,19 +92,35 @@ public sealed class AppSettings
     public string BoostGaugeTheme { get; set; } = BoostGaugeThemes.DefaultName;
     public string? CustomAccentColor { get; set; }
     public string? CustomBackgroundColor { get; set; }
+    public string? CustomParticleColor { get; set; }
+    public AppStyleSettings ApplicationStyle { get; set; } = new();
     public string? CustomHudBorderColor { get; set; }
     public string? CustomBoostLowColor { get; set; }
     public string? CustomBoostMidColor { get; set; }
     public string? CustomBoostHighColor { get; set; }
     public string? CustomTractionCueColor { get; set; }
+    public string? CustomGForceColor { get; set; }
+    public string? CustomGForceTrailColor { get; set; }
     public List<HudPreset> HudPresets { get; set; } = new();
     public bool SidebarCollapsed { get; set; }
+    public bool UseLegacyInterface { get; set; }
+    public bool ResizableDashboardDisplay { get; set; }
     public bool GameAwareVisibility { get; set; } = true;
     public bool OverlayHotkeyEnabled { get; set; }
     public OverlayHotkeyModifiers OverlayHotkeyModifiers { get; set; } =
         OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
     public Key OverlayHotkeyKey { get; set; } = Key.H;
     public Wisp.Core.Runs.RunPurpose RunPurpose { get; set; }
+    public Runs.RunWorkspaceSettings RunWorkspace { get; set; } = new();
+    public Runs.RunStatisticsView RunStatisticsView { get; set; }
+    public bool DriftGaugeEnabled { get; set; }
+    public bool DriftGaugeDarkMode { get; set; }
+    public bool DriftGaugeBackgroundEnabled { get; set; }
+    public double DriftGaugeBackgroundOpacity { get; set; } = 0.5;
+    public DriftGaugeGuidanceMode DriftGaugeGuidanceMode { get; set; } = global::Wisp.Core.DriftGaugeGuidanceMode.DriftZoneAngleBonus;
+    public double DriftTargetDegrees { get; set; } = 40;
+    public double DriftToleranceDegrees { get; set; } = 10;
+    public double DriftGaugeScale { get; set; } = 1;
     public bool RecordingShortcutEnabled { get; set; }
     public OverlayHotkeyModifiers RecordingShortcutModifiers { get; set; } =
         OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
@@ -129,10 +146,12 @@ public sealed class AppSettings
     public Dictionary<string, OverlayPlacement> GForcePlacements { get; set; } = new();
     public Dictionary<string, OverlayPlacement> BoostGaugePlacements { get; set; } = new();
     public Dictionary<string, OverlayPlacement> TireTemperatureGaugePlacements { get; set; } = new();
+    public Dictionary<string, OverlayPlacement> DriftGaugePlacements { get; set; } = new();
     public string? LastOverlayPlacementKey { get; set; }
     public string? LastGForcePlacementKey { get; set; }
     public string? LastBoostGaugePlacementKey { get; set; }
     public string? LastTireTemperatureGaugePlacementKey { get; set; }
+    public string? LastDriftGaugePlacementKey { get; set; }
     public List<CalibrationSnapshot> Calibrations { get; set; } = new();
 
     [JsonPropertyName("OverlayScale")]
@@ -223,11 +242,20 @@ public sealed class AppSettings
         BoostGaugeTheme = BoostGaugeThemes.NormalizeName(BoostGaugeTheme);
         CustomAccentColor = ColorCustomization.NormalizeAccent(CustomAccentColor);
         CustomBackgroundColor = ColorCustomization.NormalizeBackground(CustomBackgroundColor);
+        CustomParticleColor = ColorCustomization.NormalizeParticle(CustomParticleColor);
+        ApplicationStyle ??= new AppStyleSettings();
+        ApplicationStyle.Normalize();
+        RunWorkspace ??= new Runs.RunWorkspaceSettings();
+        RunWorkspace.Normalize();
+        if (!Enum.IsDefined(RunStatisticsView)) RunStatisticsView = Runs.RunStatisticsView.Cards;
+        NormalizeDriftGaugeSettings();
         CustomHudBorderColor = ColorCustomization.NormalizeHudBorder(CustomHudBorderColor);
         CustomBoostLowColor = ColorCustomization.NormalizeGauge(CustomBoostLowColor);
         CustomBoostMidColor = ColorCustomization.NormalizeGauge(CustomBoostMidColor);
         CustomBoostHighColor = ColorCustomization.NormalizeGauge(CustomBoostHighColor);
         CustomTractionCueColor = ColorCustomization.NormalizeTractionCue(CustomTractionCueColor);
+        CustomGForceColor = ColorCustomization.NormalizeGauge(CustomGForceColor);
+        CustomGForceTrailColor = ColorCustomization.NormalizeGauge(CustomGForceTrailColor);
 
         if (UdpPort is < 1024 or > 65535 or >= 5200 and <= 5300)
         {
@@ -378,6 +406,20 @@ public sealed class AppSettings
         }
     }
 
+    internal void NormalizeDriftGaugeSettings()
+    {
+        DriftGaugeBackgroundOpacity = double.IsFinite(DriftGaugeBackgroundOpacity) ? Math.Clamp(DriftGaugeBackgroundOpacity, 0, 1) : 0.5;
+        if (!Enum.IsDefined(DriftGaugeGuidanceMode)) DriftGaugeGuidanceMode = global::Wisp.Core.DriftGaugeGuidanceMode.DriftZoneAngleBonus;
+        DriftTargetDegrees = double.IsFinite(DriftTargetDegrees) ? Math.Clamp(DriftTargetDegrees, 10, 75) : 40;
+        DriftToleranceDegrees = double.IsFinite(DriftToleranceDegrees) ? Math.Clamp(DriftToleranceDegrees, 2, 15) : 10;
+        DriftGaugeScale = NormalizeScale(DriftGaugeScale);
+        DriftGaugePlacements ??= new Dictionary<string, OverlayPlacement>();
+        NormalizePlacements(DriftGaugePlacements);
+        if (DriftGaugePlacements.Count > 32)
+            DriftGaugePlacements = DriftGaugePlacements.TakeLast(32).ToDictionary(pair => pair.Key, pair => pair.Value);
+        if (LastDriftGaugePlacementKey is not null && !DriftGaugePlacements.ContainsKey(LastDriftGaugePlacementKey)) LastDriftGaugePlacementKey = null;
+    }
+
     private static void NormalizePlacements(Dictionary<string, OverlayPlacement> placements)
     {
         foreach (var key in placements
@@ -521,7 +563,7 @@ public sealed class SettingsService
         {
             if (!File.Exists(_settingsPath))
             {
-                return PrepareForLoad(new AppSettings());
+                return PrepareForLoad(new AppSettings { BackgroundTheme = AppBackgroundThemes.FreshInstallName });
             }
 
             var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), JsonOptions)
@@ -554,11 +596,20 @@ public sealed class SettingsService
         settings.BoostGaugeTheme = BoostGaugeThemes.NormalizeName(settings.BoostGaugeTheme);
         settings.CustomAccentColor = ColorCustomization.NormalizeAccent(settings.CustomAccentColor);
         settings.CustomBackgroundColor = ColorCustomization.NormalizeBackground(settings.CustomBackgroundColor);
+        settings.CustomParticleColor = ColorCustomization.NormalizeParticle(settings.CustomParticleColor);
+        settings.ApplicationStyle ??= new AppStyleSettings();
+        settings.ApplicationStyle.Normalize();
+        settings.RunWorkspace ??= new Runs.RunWorkspaceSettings();
+        settings.RunWorkspace.Normalize();
+        if (!Enum.IsDefined(settings.RunStatisticsView)) settings.RunStatisticsView = Runs.RunStatisticsView.Cards;
+        settings.NormalizeDriftGaugeSettings();
         settings.CustomHudBorderColor = ColorCustomization.NormalizeHudBorder(settings.CustomHudBorderColor);
         settings.CustomBoostLowColor = ColorCustomization.NormalizeGauge(settings.CustomBoostLowColor);
         settings.CustomBoostMidColor = ColorCustomization.NormalizeGauge(settings.CustomBoostMidColor);
         settings.CustomBoostHighColor = ColorCustomization.NormalizeGauge(settings.CustomBoostHighColor);
         settings.CustomTractionCueColor = ColorCustomization.NormalizeTractionCue(settings.CustomTractionCueColor);
+        settings.CustomGForceColor = ColorCustomization.NormalizeGauge(settings.CustomGForceColor);
+        settings.CustomGForceTrailColor = ColorCustomization.NormalizeGauge(settings.CustomGForceTrailColor);
         settings.HudPresets ??= new List<HudPreset>();
         HudPreset.NormalizeList(settings.HudPresets);
         var directory = Path.GetDirectoryName(_settingsPath)!;

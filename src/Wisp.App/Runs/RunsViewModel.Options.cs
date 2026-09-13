@@ -185,14 +185,14 @@ public sealed partial class RunsViewModel
     }
     public void SelectAlternativePoint(RunAlternativeSelection point)
     {
-        if (RecordingActive) return;
+        if (RecordingActive || point.SourceGroup is { } sourceGroup && !Enum.IsDefined(sourceGroup)) return;
         var run = point.Comparison ? _runB : _runA;
         if (run is null || point.SampleIndex < 0 || point.SampleIndex >= run.Samples.Length) return;
         var sample = run.Samples[point.SampleIndex];
         var bounds = ReportBounds(point.Comparison);
         if (!sample.IsDriving || !sample.State.IsRaceOn || Math.Abs(sample.ElapsedSeconds - point.SourceSeconds) > .000001 ||
             (bounds is { } interval && (sample.ElapsedSeconds < interval.StartSeconds || sample.ElapsedSeconds > interval.EndSeconds))) return;
-        JumpToMoment(point.SourceSeconds - (point.Comparison ? _offsetB : _offsetA));
+        JumpToMoment(point.SourceSeconds - (point.Comparison ? _offsetB : _offsetA), point.SourceGroup);
         var gear = sample.State.Gear switch
         {
             TransmissionGear.Reverse => "reverse",
@@ -202,37 +202,55 @@ public sealed partial class RunsViewModel
         };
         SelectedPointContext = $"Selected point · {(point.Comparison ? "B" : "A")} · {sample.ElapsedSeconds:0.000}s in that run · {sample.State.EngineRpm:N0} RPM · {gear}";
     }
-    private void JumpToMoment(double seconds)
+    private void JumpToMoment(double seconds, RunChartGroup? sourceGroup = null)
     {
         if (_runA is null || !double.IsFinite(seconds)) return;
         SelectedPointContext = "";
-        GraphView = AvailableGraphViews[0];
+        _chartGroup = sourceGroup ?? ChartGroup;
+        _graphView = AvailableGraphViews[0];
+        EnsureWorkspaceGraph(ChartGroup, RunPlotMode.TimeSeries);
+        OnChanged(nameof(ChartGroup)); NotifyGraphMode();
         var end = Math.Max((_matchedA?.EndSeconds ?? _runA.Samples.LastOrDefault()?.ElapsedSeconds ?? 0) - _offsetA,
             (_matchedB?.EndSeconds ?? _runB?.Samples.LastOrDefault()?.ElapsedSeconds ?? 0) - _offsetB);
         CursorSeconds = Math.Clamp(seconds, 0, Math.Max(0, end));
         ViewStart = Math.Max(0, CursorSeconds - 2); ViewEnd = Math.Max(ViewStart + .1, Math.Min(end, CursorSeconds + 2));
+        RequestCharts();
         FocusChartsRequested?.Invoke(this, EventArgs.Empty);
     }
-    public bool CanExportImage => CanManageRun && !_preparingCharts && Charts.Count + AlternativeCharts.Count > 0;
+    public bool CanExportImage => CanManageRun && !_preparingCharts && (UsesModularWorkspace
+        ? WorkspaceHasPreparedCharts : Charts.Count + AlternativeCharts.Count > 0);
     public async Task ExportImageAsync(string destination)
     {
         if (!CanExportImage) return;
         Error = "";
         Status = "Saving report image…";
-        var context = GraphView.Label + (IsTimeGraph ? $" · displayed {RunPresentation.Time(ViewStart)}–{RunPresentation.Time(ViewEnd)}." : ".") + " " + QualityNote + " " + ComparisonNote;
-        if (IsRpmGraph) context += $" · {GearFilter.Label} · {(FullThrottleOnly ? "Full throttle only" : "All throttle positions")}. Plot filters do not change report statistics.";
-        static string Label(RecordedRun run) => run.Name + (string.IsNullOrWhiteSpace(run.Tune) ? "" : " · " + run.Tune);
-        var snapshot = new RunImageSnapshot(Label(_runA!), _runB is null ? null : Label(_runB), "Report statistics: " + IntervalLabel, context,
-            _imageFindings.ToArray(), Metrics.ToArray(), Charts.ToArray(), AlternativeCharts.ToArray(), ViewStart, ViewEnd);
+        var id = _runA?.Id;
         IsBusy = true;
         try
         {
-            var bitmap = RunImageExporter.Render(snapshot);
+            if (!await FlushMetadataAsync()) { Fail("Save the pending run details before saving the image. Your draft is kept."); return; }
+            if (_runA?.Id != id || _runA is null) return;
+            var bitmap = RunImageExporter.Render(CreateImageSnapshot());
             await StoreOperationAsync(() => RunImageExporter.WriteAsync(bitmap, destination));
             Status = ImageExportSavedMessage;
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         { Fail("The report image could not be saved. Choose a new filename and try again."); }
         finally { IsBusy = false; OnChanged(nameof(CanExportImage)); }
+    }
+
+    internal RunImageSnapshot CreateImageSnapshot()
+    {
+        var context = (UsesModularWorkspace ? SelectedWorkspacePreset.Title + " workspace" : GraphView.Label) +
+            $" · time graphs display {RunPresentation.Time(ViewStart)}–{RunPresentation.Time(ViewEnd)}. " + QualityNote + " " + ComparisonNote;
+        if (UsesModularWorkspace ? WorkspaceHasRpmPlots : IsRpmGraph)
+            context += $" · RPM plots: {GearFilter.Label} · {(FullThrottleOnly ? "Full throttle only" : "All throttle positions")}. Plot filters do not change report statistics.";
+        if (UsesModularWorkspace && WorkspaceIsSideBySide) context += " Image graphs overlay A and B using the same scales.";
+        static string Label(RecordedRun run) => run.Name + (string.IsNullOrWhiteSpace(run.Tune) ? "" : " · " + run.Tune);
+        var plots = UsesModularWorkspace ? CreateWorkspaceExportCharts() : (Time: Charts.ToArray(), Alternative: AlternativeCharts.ToArray());
+        var metrics = UsesModularWorkspace ? Statistics.Select(row => new RunMetric(row.Label, row.ValueA,
+            row.ValueB is null ? null : row.ValueB + " (" + row.Difference + ")")).ToArray() : Metrics.ToArray();
+        return new RunImageSnapshot(Label(_runA!), _runB is null ? null : Label(_runB), "Report statistics: " + IntervalLabel, context,
+            _imageFindings.ToArray(), metrics, plots.Time, plots.Alternative, ViewStart, ViewEnd);
     }
 }
