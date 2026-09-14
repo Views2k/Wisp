@@ -120,6 +120,7 @@ public abstract partial class ControlPanelWindow : Window
         SetSidebarOpen(!controller.Settings.SidebarCollapsed, animate: false);
         DataContext = controller.ViewModel;
         FindControl<DriftGaugeSettingsControl>("DriftGaugeSettings").Initialize(controller);
+        FindControl<PowerTorqueGaugeSettingsControl>("PowerTorqueGaugeSettings").Initialize(controller);
         RunsSurface.DataContext = controller.Runs;
         DashboardRunPanel.DataContext = controller.Runs;
         MphRadio.IsChecked = controller.Settings.SpeedUnit == SpeedUnit.MilesPerHour;
@@ -203,9 +204,9 @@ public abstract partial class ControlPanelWindow : Window
                 };
                 ColorEditor.Description = ColorTargetSelector.SelectedIndex switch
                 {
-                    3 => "Low end of the shared boost and tire gauge gradient",
-                    4 => "Middle color of the shared boost and tire gauge gradient",
-                    _ => "High end of the shared boost and tire gauge gradient"
+                    3 => "Low end of the shared boost, tire, power, and torque gauge gradient",
+                    4 => "Middle color of the shared boost, tire, power, and torque gauge gradient",
+                    _ => "High end of the shared boost, tire, power, and torque gauge gradient"
                 };
                 ColorEditor.MinimumOpacity = 0.25;
                 ColorEditor.MaximumBrightness = 1;

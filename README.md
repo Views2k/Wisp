@@ -3,7 +3,7 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.0.1/Wisp-Setup-2.0.1.zip"><strong>Download Wisp 2.0</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.1.0/Wisp-Setup-2.1.0.zip"><strong>Download Wisp 2.1</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -11,13 +11,38 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## New in Wisp 2.0
+## New in Wisp 2.1
 
-**2.0.1 update:** an optional quick tour introduces the interface, alongside fixes for recurring interface pauses, particle timing, and top-speed clipping. Start from the welcome banner or choose **Replay the quick tour** in Release Notes. [Hotfix details](docs/releases/Wisp-2.0.1-release-notes.md).
-
-[Dashboard](#new-in-wisp-20) · [Drift gauge](#drift-angle-guidance) ·
+[Power & torque](#power-and-torque-gauges) · [Dashboard](#dashboard-and-interface) · [Drift gauge](#drift-angle-guidance) ·
 [Runs](#a-more-useful-runs-workspace) · [Appearance](#make-the-interface-yours) ·
 [Gallery](#gallery) · [Install](#install)
+
+### Power and torque gauges
+
+See live **BHP** and **torque** beside the speedometer, with native-style dials,
+needles, peak markers, and peak readouts. Turn either gauge on or off in
+**Appearance > Gauges > Engine output**. Attach each one to the speedometer,
+or detach it and use **Edit HUD layout** to place it separately. Torque follows
+your **Nm** or **lb-ft** preference. [See the gauges in gameplay](#gallery).
+
+Under **More options**, adjust gauge size, smoothing, and a fixed range for each
+car. **Set from this run** uses the peaks Wisp has observed plus 10%; the scale
+then stays fixed while driving. These are observed readings, not the car's rated
+maximum output. After retuning, reset the peaks and make another pull before
+setting the range again.
+
+The **Gauge start**, **Gauge middle**, and **Gauge end** colors apply across boost,
+tire temperature, power, and torque. Optional colored numbers follow the same
+palette. Smoothing defaults to **250 ms**; negative output is hidden unless you
+enable **Show negative power and torque**. Recorded telemetry retains its original values.
+
+Fresh installations start with **Native Analogue** and all gauges enabled, with
+matching sizes for the four supplementary dials. Updates preserve existing
+settings, profiles, tire calibration, and saved runs.
+
+[Read the Wisp 2.1 release notes](docs/releases/Wisp-2.1.0-release-notes.md).
+
+## Dashboard and interface
 
 The dashboard has a new layout built around a curved tachometer, large speed
 and gear readings, and live power and torque. Use **Display mode** as a borderless
@@ -92,12 +117,16 @@ Common settings stay visible, with detailed adjustments under **More options**.
 Click the existing connection status to see whether Forza is detected, whether
 telemetry is arriving, and why the overlay is hidden, with the relevant next step.
 
-[Download Wisp 2.0](https://github.com/Views2k/Wisp/releases/download/v2.0.1/Wisp-Setup-2.0.1.zip) ·
-[2.0 release notes](docs/releases/Wisp-2.0.0-release-notes.md) ·
+An optional quick tour introduces the drift gauge, Display mode, Runs, and
+Appearance. Start from the welcome banner or choose **Replay the quick tour**
+in Release Notes.
+
+[Download Wisp 2.1](https://github.com/Views2k/Wisp/releases/download/v2.1.0/Wisp-Setup-2.1.0.zip) ·
+[2.1 release notes](docs/releases/Wisp-2.1.0-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
-Screenshots show the prerelease build used to develop Wisp 2.0. Older version
-labels in those captures are retained.
+Interface screenshots show the build used to develop Wisp 2.0. Their original
+version labels are retained; the gameplay gallery also shows the new 2.1 gauges.
 
 ## Wheel-indicated speed
 
@@ -123,6 +152,9 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
 - Front and rear tire-temperature gauges for both Native layouts. Digital mode
   uses two markers in one neutral rail with no colored fill, while Analogue mode
   uses two solid-color needles in one dial. Values support Fahrenheit and Celsius.
+- Independently optional power and torque dials with live BHP, Nm or lb-ft,
+  peak markers, attached or detached placement, adjustable smoothing, and fixed
+  ranges saved per car.
 - Live RPM, gear, driver assists, electric power, regeneration, and redline
   state when the installed FH6 build supports those sources.
 - Standalone or Native-attached G-force display with a longer motion trail.
@@ -138,10 +170,17 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
 
 ## Gallery
 
-Actual Wisp captures with custom colors. The interface captures retain their
-prerelease version labels.
+Actual Wisp captures with custom colors. Click the 2.1 gameplay image to inspect
+the original-resolution HUD. The 2.0 interface captures retain their prerelease
+version labels.
 
 <table>
+  <tr>
+    <td colspan="2">
+      <a href="docs/images/wisp-2.1-power-torque-gameplay.webp"><img src="docs/images/wisp-2.1-power-torque-gameplay.webp" alt="Wisp 2.1 in Forza Horizon 6: power and torque dials beside boost and tire temperature, with drift angle guidance at the top of the screen"></a>
+      <br><sub>Wisp 2.1: live power and torque alongside the Native Analogue speedometer and Drift Zone angle gauge.</sub>
+    </td>
+  </tr>
   <tr>
     <td width="50%">
       <img src="docs/images/wisp-2.0-display-mode.png" alt="Wisp borderless Display mode with its curved tachometer and large dashboard readings">
@@ -206,8 +245,8 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open the [Wisp 2.0 release](https://github.com/Views2k/Wisp/releases/tag/v2.0.1).
-2. Download and extract [Wisp-Setup-2.0.1.zip](https://github.com/Views2k/Wisp/releases/download/v2.0.1/Wisp-Setup-2.0.1.zip).
+1. Open the [Wisp 2.1 release](https://github.com/Views2k/Wisp/releases/tag/v2.1.0).
+2. Download and extract [Wisp-Setup-2.1.0.zip](https://github.com/Views2k/Wisp/releases/download/v2.1.0/Wisp-Setup-2.1.0.zip).
 3. Keep the installer and its `.sha256` file together.
 4. Verify the installer checksum, then run the installer.
 5. Complete the required setup wizard on first launch.
@@ -333,6 +372,7 @@ To build the self-contained installer:
 - [Boost Gauge](docs/BOOST-GAUGE.md)
 - [Tire Temperature](docs/TIRE-TEMPERATURE.md)
 - [Run files and library archives](docs/run-library-format.md)
+- [Wisp 2.1 release notes](docs/releases/Wisp-2.1.0-release-notes.md)
 - [Wisp 2.0 release notes](docs/releases/Wisp-2.0.0-release-notes.md)
 - [How Wisp Was Built](docs/HOW-WISP-WAS-BUILT.md)
 - [Wheel-Speed Model](docs/WHEEL-SPEED-MODEL.md)

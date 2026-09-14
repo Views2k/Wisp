@@ -15,11 +15,30 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.1",
+            "September 14, 2026",
+            "WISP 2.1",
+            "Optional power and torque gauges beside your speedometer.",
+            true,
+            [
+                Group("Power and torque",
+                    "Turn on Power gauge and Torque gauge independently in Appearance → Gauges.",
+                    "Adjust smoothing for steadier readings, starting at 250 ms by default. Negative output is hidden by default; enable Show negative power and torque to display it.",
+                    "Attach each gauge to the speedometer or detach it and move it in Edit HUD layout. Gauge start, middle and end colors apply across boost, tire, power and torque gauges, with optional matching numbers.",
+                    "Keep fresh power and torque readings when game timestamps repeat, and play the needles continuously between readings.",
+                    "Native-style dials show live BHP and torque, with peak markers and peak readouts. Torque follows your Nm or lb-ft preference.",
+                    "Choose a fixed range for each car, or select Set from this run to use its observed peaks plus 10%. Scales stay fixed while driving and remember your choice for that car.",
+                    "Adjust gauge size under More options. Numbers remain readable beyond the scale limit; Reset peaks clears the peak markers without changing your fixed ranges.",
+                    "Peak readings reset when you change cars. HUD profiles save gauge visibility, size and the ranges currently selected."),
+                Group("Existing features",
+                    "Includes the Wisp 2.0.1 interface hotfixes and optional quick tour. Existing settings are preserved; fresh installations start with Native Analogue and all gauges enabled.")
+            ]),
+        new(
             "2.0.1",
             "September 14, 2026",
             "UI HOTFIX",
             "A quick tour of Wisp 2.0, with fixes for interface pauses, particle timing and clipped top speed.",
-            true,
+            false,
             [
                 Group("Quick tour",
                     "Adds an optional welcome banner and four-step tour of the drift gauge, Display mode, Runs and Appearance colors.",

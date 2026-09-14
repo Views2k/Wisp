@@ -1,0 +1,121 @@
+namespace Wisp.App;
+
+public sealed partial class AppController
+{
+    public PowerTorqueGaugeWindow? PowerGaugeOverlay { get; private set; }
+    public PowerTorqueGaugeWindow? TorqueGaugeOverlay { get; private set; }
+    public bool IsDetachedPowerGaugeEnabled => Settings.PowerGaugeEnabled &&
+        !Settings.PowerGaugeAttached && ViewModel.PowerTorqueDisplay.Available;
+    public bool IsDetachedTorqueGaugeEnabled => Settings.TorqueGaugeEnabled &&
+        !Settings.TorqueGaugeAttached && ViewModel.PowerTorqueDisplay.Available;
+    private bool _powerGaugeDetached;
+    private bool _torqueGaugeDetached;
+
+    internal System.Windows.Size DetachedSupplementaryGaugeCellSize
+    {
+        get
+        {
+            const double analogSize = PowerTorqueGaugeLayout.GaugeDiameter + 8;
+            var power = analogSize * Settings.PowerTorqueGaugeScale;
+            var boost = analogSize * Settings.BoostGaugeScale;
+            var tireWidth = (Settings.NativeGaugeMode == NativeGaugeMode.Digital ? 310 : analogSize) * Settings.TireTemperatureGaugeScale;
+            var tireHeight = (Settings.NativeGaugeMode == NativeGaugeMode.Digital ? 92 : analogSize) * Settings.TireTemperatureGaugeScale;
+            return new(Math.Max(power, Math.Max(boost, tireWidth)), Math.Max(power, Math.Max(boost, tireHeight)));
+        }
+    }
+
+    internal void InitializePowerTorqueGaugeWindows()
+    {
+        if (_disposed || Settings.RequiresSetup) return;
+        if (PowerGaugeOverlay is null)
+        {
+            var window = new PowerTorqueGaugeWindow(this, false);
+            PowerGaugeOverlay = window;
+            window.Closed += (_, _) => { if (ReferenceEquals(PowerGaugeOverlay, window)) PowerGaugeOverlay = null; };
+            RestorePowerGaugePlacement();
+        }
+        if (TorqueGaugeOverlay is null)
+        {
+            var window = new PowerTorqueGaugeWindow(this, true);
+            TorqueGaugeOverlay = window;
+            window.Closed += (_, _) => { if (ReferenceEquals(TorqueGaugeOverlay, window)) TorqueGaugeOverlay = null; };
+            RestoreTorqueGaugePlacement();
+        }
+        ApplyPowerTorqueGaugeWindowSettings();
+    }
+
+    internal void ApplyPowerTorqueGaugeWindowSettings(bool restorePlacement = false)
+    {
+        var powerDetached = Settings.PowerGaugeEnabled && !Settings.PowerGaugeAttached;
+        var torqueDetached = Settings.TorqueGaugeEnabled && !Settings.TorqueGaugeAttached;
+        PowerGaugeOverlay?.ApplyAppearance(Settings.PowerTorqueGaugeScale, Settings.OverlayOpacity);
+        TorqueGaugeOverlay?.ApplyAppearance(Settings.PowerTorqueGaugeScale, Settings.OverlayOpacity);
+        PowerGaugeOverlay?.SetEditMode(!Settings.OverlayLocked);
+        TorqueGaugeOverlay?.SetEditMode(!Settings.OverlayLocked);
+        if (powerDetached && (restorePlacement || !_powerGaugeDetached)) RestorePowerGaugePlacement();
+        if (torqueDetached && (restorePlacement || !_torqueGaugeDetached)) RestoreTorqueGaugePlacement();
+        _powerGaugeDetached = powerDetached;
+        _torqueGaugeDetached = torqueDetached;
+        PowerGaugeOverlay?.SetEnabled(IsDetachedPowerGaugeEnabled);
+        TorqueGaugeOverlay?.SetEnabled(IsDetachedTorqueGaugeEnabled);
+    }
+
+    public void SavePowerGaugePlacement() => SavePowerTorqueGaugePlacement(PowerGaugeOverlay);
+    public void SaveTorqueGaugePlacement() => SavePowerTorqueGaugePlacement(TorqueGaugeOverlay);
+
+    private void SavePowerTorqueGaugePlacement(PowerTorqueGaugeWindow? window)
+    {
+        if (_disposed || Settings.RequiresSetup || window is null) return;
+        var key = window.GetDisplayKey();
+        var placements = window.IsTorque ? Settings.TorqueGaugePlacements : Settings.PowerGaugePlacements;
+        if (window.IsTorque) Settings.LastTorqueGaugePlacementKey = key;
+        else Settings.LastPowerGaugePlacementKey = key;
+        placements[key] = new OverlayPlacement(window.Left, window.Top,
+            Settings.PowerTorqueGaugeScale, Settings.PowerTorqueGaugeScale);
+        ScheduleSettingsSave();
+    }
+
+    internal void RestorePowerGaugePlacement() => RestorePowerTorqueGaugePlacement(PowerGaugeOverlay);
+    internal void RestoreTorqueGaugePlacement() => RestorePowerTorqueGaugePlacement(TorqueGaugeOverlay);
+
+    private void RestorePowerTorqueGaugePlacement(PowerTorqueGaugeWindow? window)
+    {
+        if (window is null) return;
+        window.ApplyAppearance(Settings.PowerTorqueGaugeScale, Settings.OverlayOpacity);
+        var placements = window.IsTorque ? Settings.TorqueGaugePlacements : Settings.PowerGaugePlacements;
+        var lastKey = window.IsTorque ? Settings.LastTorqueGaugePlacementKey : Settings.LastPowerGaugePlacementKey;
+        var placement = OverlayPlacementResolver.FindPreferredPlacement(placements, lastKey,
+            window.GetDisplayKey(), window.PlacementSuffix, out var key);
+        if (placement is not null)
+        {
+            if (window.IsTorque) Settings.LastTorqueGaugePlacementKey = key;
+            else Settings.LastPowerGaugePlacementKey = key;
+            window.RestorePosition(placement.Left, placement.Top);
+        }
+        else if (Overlay is not null)
+            window.ResetPosition(Overlay.GetPlacementBounds(), Overlay.CurrentMonitorPlacementArea());
+    }
+
+    internal void ResetPowerTorqueGaugePositions()
+    {
+        if (_disposed || Settings.RequiresSetup || Overlay is null) return;
+        if (PowerGaugeOverlay is { } power)
+        {
+            Settings.PowerGaugePlacements.Remove(power.GetDisplayKey());
+            power.ResetPosition(Overlay.GetPlacementBounds(), Overlay.CurrentMonitorPlacementArea());
+            SavePowerGaugePlacement();
+        }
+        if (TorqueGaugeOverlay is { } torque)
+        {
+            Settings.TorqueGaugePlacements.Remove(torque.GetDisplayKey());
+            torque.ResetPosition(Overlay.GetPlacementBounds(), Overlay.CurrentMonitorPlacementArea());
+            SaveTorqueGaugePlacement();
+        }
+    }
+
+    public void SetPowerTorqueScalesFromCurrentRun()
+    {
+        if (_disposed || !ViewModel.SetPowerTorqueScalesFromCurrentRun()) return;
+        ScheduleSettingsSave();
+    }
+}

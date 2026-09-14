@@ -2,6 +2,16 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.1.0 - 2026-09-14
+
+- Add independently optional power and torque gauges with native-style needles, live BHP and Nm or lb-ft, peak markers, and peak readouts. Attach each to the speedometer or detach it for separate placement.
+- Add gauge size and fixed scale controls in Appearance → Gauges → More options. Remember ranges separately for each car, with an explicit Set from this run action using observed peaks plus 10%. Scales stay fixed while driving.
+- Add adjustable smoothing with a 250 ms default, paced numeric updates, and optional negative output. Use the shared Gauge start, middle, and end colors, with optional matching power and torque numbers. Preserve the original recorded telemetry.
+- Correct power/torque sample handling so fresh readings with the same game timestamp are retained. Advance the two needles between received samples without extrapolating beyond the latest reading.
+- Start fresh installations with Native Analogue and all gauges enabled. Match the four supplementary dial sizes and tighten the power/torque spacing. Preserve existing saved choices.
+- Save power and torque visibility, attachment, smoothing, size, and selected ranges in HUD profiles.
+- Include the 2.0.1 interface fixes and optional quick tour.
+
 ## 2.0.1 - 2026-09-14
 
 ### Interface hotfix

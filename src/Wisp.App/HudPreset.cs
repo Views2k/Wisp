@@ -37,6 +37,23 @@ public sealed class HudPreset
     public bool TireTemperatureReactiveColors { get; set; } = true;
     public TireTemperatureUnit TireTemperatureUnit { get; set; } = Wisp.App.TireTemperatureUnit.Fahrenheit;
     public double TireTemperatureGaugeScale { get; set; } = 1;
+    public bool PowerGaugeEnabled { get; set; }
+    public bool TorqueGaugeEnabled { get; set; }
+    public bool PowerGaugeAttached { get; set; } = true;
+    public bool TorqueGaugeAttached { get; set; } = true;
+    public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
+    public bool PowerTorqueShowNegative { get; set; }
+    public bool PowerGaugeColorNumber { get; set; }
+    public bool TorqueGaugeColorNumber { get; set; }
+    public string? CustomPowerLowColor { get; set; }
+    public string? CustomPowerMidColor { get; set; }
+    public string? CustomPowerHighColor { get; set; }
+    public string? CustomTorqueLowColor { get; set; }
+    public string? CustomTorqueMidColor { get; set; }
+    public string? CustomTorqueHighColor { get; set; }
+    public double PowerTorqueGaugeScale { get; set; } = 1;
+    public double PowerGaugeMaximum { get; set; } = 1000;
+    public double TorqueGaugeMaximumNm { get; set; } = 1200;
     public bool TractionCueEnabled { get; set; } = true;
     public string ColorTheme { get; set; } = AppColorThemes.DefaultName;
     public string BackgroundTheme { get; set; } = AppBackgroundThemes.DefaultName;
@@ -102,6 +119,23 @@ public sealed class HudPreset
             TireTemperatureReactiveColors = settings.TireTemperatureReactiveColors,
             TireTemperatureUnit = settings.TireTemperatureUnit,
             TireTemperatureGaugeScale = settings.TireTemperatureGaugeScale,
+            PowerGaugeEnabled = settings.PowerGaugeEnabled,
+            TorqueGaugeEnabled = settings.TorqueGaugeEnabled,
+            PowerGaugeAttached = settings.PowerGaugeAttached,
+            TorqueGaugeAttached = settings.TorqueGaugeAttached,
+            PowerTorqueSmoothingMilliseconds = settings.PowerTorqueSmoothingMilliseconds,
+            PowerTorqueShowNegative = settings.PowerTorqueShowNegative,
+            PowerGaugeColorNumber = settings.PowerGaugeColorNumber,
+            TorqueGaugeColorNumber = settings.TorqueGaugeColorNumber,
+            CustomPowerLowColor = settings.CustomPowerLowColor,
+            CustomPowerMidColor = settings.CustomPowerMidColor,
+            CustomPowerHighColor = settings.CustomPowerHighColor,
+            CustomTorqueLowColor = settings.CustomTorqueLowColor,
+            CustomTorqueMidColor = settings.CustomTorqueMidColor,
+            CustomTorqueHighColor = settings.CustomTorqueHighColor,
+            PowerTorqueGaugeScale = settings.PowerTorqueGaugeScale,
+            PowerGaugeMaximum = settings.PowerGaugeMaximum,
+            TorqueGaugeMaximumNm = settings.TorqueGaugeMaximumNm,
             TractionCueEnabled = settings.TractionCueEnabled,
             ColorTheme = settings.ColorTheme,
             BackgroundTheme = settings.BackgroundTheme,
@@ -150,6 +184,23 @@ public sealed class HudPreset
         settings.TireTemperatureReactiveColors = TireTemperatureReactiveColors;
         settings.TireTemperatureUnit = TireTemperatureUnit;
         settings.TireTemperatureGaugeScale = TireTemperatureGaugeScale;
+        settings.PowerGaugeEnabled = PowerGaugeEnabled;
+        settings.TorqueGaugeEnabled = TorqueGaugeEnabled;
+        settings.PowerGaugeAttached = PowerGaugeAttached;
+        settings.TorqueGaugeAttached = TorqueGaugeAttached;
+        settings.PowerTorqueSmoothingMilliseconds = PowerTorqueSmoothingMilliseconds;
+        settings.PowerTorqueShowNegative = PowerTorqueShowNegative;
+        settings.PowerGaugeColorNumber = PowerGaugeColorNumber;
+        settings.TorqueGaugeColorNumber = TorqueGaugeColorNumber;
+        settings.CustomPowerLowColor = CustomPowerLowColor;
+        settings.CustomPowerMidColor = CustomPowerMidColor;
+        settings.CustomPowerHighColor = CustomPowerHighColor;
+        settings.CustomTorqueLowColor = CustomTorqueLowColor;
+        settings.CustomTorqueMidColor = CustomTorqueMidColor;
+        settings.CustomTorqueHighColor = CustomTorqueHighColor;
+        settings.PowerTorqueGaugeScale = PowerTorqueGaugeScale;
+        settings.PowerGaugeMaximum = PowerGaugeMaximum;
+        settings.TorqueGaugeMaximumNm = TorqueGaugeMaximumNm;
         settings.TractionCueEnabled = TractionCueEnabled;
         settings.ColorTheme = ColorTheme;
         settings.BackgroundTheme = BackgroundTheme;
@@ -191,6 +242,16 @@ public sealed class HudPreset
         GForceHeightScale = NormalizeScale(GForceHeightScale);
         BoostGaugeScale = NormalizeScale(BoostGaugeScale);
         TireTemperatureGaugeScale = NormalizeScale(TireTemperatureGaugeScale);
+        PowerTorqueGaugeScale = NormalizeScale(PowerTorqueGaugeScale);
+        PowerTorqueSmoothingMilliseconds = AppSettings.NormalizePowerTorqueSmoothing(PowerTorqueSmoothingMilliseconds);
+        CustomPowerLowColor = ColorCustomization.NormalizeGauge(CustomPowerLowColor);
+        CustomPowerMidColor = ColorCustomization.NormalizeGauge(CustomPowerMidColor);
+        CustomPowerHighColor = ColorCustomization.NormalizeGauge(CustomPowerHighColor);
+        CustomTorqueLowColor = ColorCustomization.NormalizeGauge(CustomTorqueLowColor);
+        CustomTorqueMidColor = ColorCustomization.NormalizeGauge(CustomTorqueMidColor);
+        CustomTorqueHighColor = ColorCustomization.NormalizeGauge(CustomTorqueHighColor);
+        PowerGaugeMaximum = AppSettings.NormalizePowerGaugeMaximum(PowerGaugeMaximum);
+        TorqueGaugeMaximumNm = AppSettings.NormalizeTorqueGaugeMaximum(TorqueGaugeMaximumNm);
         OverlayOpacity = double.IsFinite(OverlayOpacity) ? Math.Clamp(OverlayOpacity, 0.35, 1) : 1;
         ColorTheme = AppColorThemes.NormalizeName(ColorTheme);
         BackgroundTheme = AppBackgroundThemes.NormalizeName(BackgroundTheme);

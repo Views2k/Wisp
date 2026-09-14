@@ -443,6 +443,31 @@
                                                 <Border x:Name="HudPreviewSurface" Height="330" CornerRadius="12" Background="#080C11"
                                                         BorderBrush="#243140" BorderThickness="1">
                                                     <Grid Margin="16">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Viewbox Grid.Column="1" Margin="8,0,0,0" MaxWidth="240"
+                                                                 Stretch="Uniform" StretchDirection="DownOnly"
+                                                                 VerticalAlignment="Center">
+                                                            <Viewbox.Style>
+                                                                <Style TargetType="Viewbox">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="3">
+                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                        </DataTrigger>
+                                                                        <MultiDataTrigger>
+                                                                            <MultiDataTrigger.Conditions>
+                                                                                <Condition Binding="{Binding PowerGaugeEnabled}" Value="False" />
+                                                                                <Condition Binding="{Binding TorqueGaugeEnabled}" Value="False" />
+                                                                            </MultiDataTrigger.Conditions>
+                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                        </MultiDataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Viewbox.Style>
+                                                            <local:PowerTorqueGaugePairPreview />
+                                                        </Viewbox>
                                                         <Grid x:Name="MinimalLayoutPreview">
                                                             <Grid.Style>
                                                                 <Style TargetType="Grid">
@@ -566,7 +591,7 @@
                                                             </Border>
                                                         </Grid>
 
-                                                        <Grid x:Name="NativeLayoutPreview">
+                                                        <Grid x:Name="NativeLayoutPreview" Grid.ColumnSpan="2">
                                                             <Grid.Style>
                                                                 <Style TargetType="Grid">
                                                                     <Setter Property="Visibility" Value="Collapsed" />
@@ -580,7 +605,13 @@
                                                             <Viewbox x:Name="NativePreviewScaleView" Stretch="Uniform"
                                                                      HorizontalAlignment="Center" VerticalAlignment="Center">
                                                                 <Grid>
-                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <local:PowerTorqueGaugePairPreview Grid.Column="1" Margin="8,76,0,0"
+                                                                                                       VerticalAlignment="Top" />
+                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top">
                                                                         <StackPanel.Style>
                                                                             <Style TargetType="StackPanel">
                                                                                 <Style.Triggers>
@@ -689,7 +720,7 @@
                                                                             </local:NativeGForceMeterView>
                                                                         </Grid>
                                                                     </StackPanel>
-                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top">
                                                                         <StackPanel.Style>
                                                                             <Style TargetType="StackPanel">
                                                                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -700,7 +731,32 @@
                                                                                 </Style.Triggers>
                                                                             </Style>
                                                                         </StackPanel.Style>
-                                                                        <Grid Width="439" Height="404" ClipToBounds="False">
+                                                                        <Grid Height="404" ClipToBounds="False">
+                                                                            <Grid.Style>
+                                                                                <Style TargetType="Grid">
+                                                                                    <Setter Property="Width" Value="439" />
+                                                                                    <Style.Triggers>
+                                                                                        <MultiDataTrigger>
+                                                                                            <MultiDataTrigger.Conditions>
+                                                                                                <Condition Binding="{Binding PowerGaugeEnabled}" Value="True" />
+                                                                                                <Condition Binding="{Binding PowerGaugeAttached}" Value="True" />
+                                                                                                <Condition Binding="{Binding BoostGaugeAttached}" Value="True" />
+                                                                                                <Condition Binding="{Binding TireTemperatureGaugeAttached}" Value="True" />
+                                                                                            </MultiDataTrigger.Conditions>
+                                                                                            <Setter Property="Width" Value="402" />
+                                                                                        </MultiDataTrigger>
+                                                                                        <MultiDataTrigger>
+                                                                                            <MultiDataTrigger.Conditions>
+                                                                                                <Condition Binding="{Binding TorqueGaugeEnabled}" Value="True" />
+                                                                                                <Condition Binding="{Binding TorqueGaugeAttached}" Value="True" />
+                                                                                                <Condition Binding="{Binding BoostGaugeAttached}" Value="True" />
+                                                                                                <Condition Binding="{Binding TireTemperatureGaugeAttached}" Value="True" />
+                                                                                            </MultiDataTrigger.Conditions>
+                                                                                            <Setter Property="Width" Value="402" />
+                                                                                        </MultiDataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </Grid.Style>
                                                                             <local:NativeAnalogSpeedometer Width="293" Height="293.5" Margin="0,72,0,0"
                                                                                                            HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                            Frame="{Binding NativePreviewFrame}">
@@ -757,7 +813,7 @@
                                                                                 </local:AnalogBoostGaugeView.Style>
                                                                             </local:AnalogBoostGaugeView>
                                                                             <local:AnalogTireTemperatureGaugeView x:Name="NativeAnalogTireTemperaturePreview"
-                                                                                                                  Width="116" Height="116"
+                                                                                                                  Width="136" Height="136"
                                                                                                                   HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                                   Display="{Binding PreviewTireTemperatureDisplay}"
                                                                                                                   TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
@@ -776,7 +832,7 @@
                                                                                                 <Setter Property="Visibility" Value="Visible" />
                                                                                             </DataTrigger>
                                                                                             <DataTrigger Binding="{Binding TireTemperatureGaugeAttached}" Value="True">
-                                                                                                <Setter Property="Margin" Value="286,76,0,0" />
+                                                                                                <Setter Property="Margin" Value="276,76,0,0" />
                                                                                             </DataTrigger>
                                                                                             <MultiDataTrigger>
                                                                                                 <MultiDataTrigger.Conditions>
@@ -785,7 +841,7 @@
                                                                                                     <Condition Binding="{Binding BoostGaugeAttached}" Value="True" />
                                                                                                     <Condition Binding="{Binding NativePreviewFrame.IsElectric}" Value="False" />
                                                                                                 </MultiDataTrigger.Conditions>
-                                                                                                <Setter Property="Margin" Value="286,214,0,0" />
+                                                                                                <Setter Property="Margin" Value="276,214,0,0" />
                                                                                             </MultiDataTrigger>
                                                                                         </Style.Triggers>
                                                                                     </Style>
@@ -819,6 +875,9 @@
 
                                         <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                                             <local:DriftGaugeSettingsControl x:Name="DriftGaugeSettings" />
+                                        </Border>
+                                        <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                            <local:PowerTorqueGaugeSettingsControl x:Name="PowerTorqueGaugeSettings" />
                                         </Border>
                                         <Border x:Name="GForceSettingsCard" Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                                             <StackPanel><Grid><StackPanel><TextBlock Text="G-FORCE METER" Style="{StaticResource EyebrowTextStyle}" />

@@ -49,7 +49,8 @@
                 </Border>
             </Grid>
 
-            <Grid x:Name="CombinedPanel" Width="390" Height="166" Visibility="Collapsed">
+            <Grid x:Name="CombinedPanel" Width="390" Height="166" Visibility="Collapsed"
+                  HorizontalAlignment="Left" VerticalAlignment="Top">
                 <Border x:Name="CombinedBorder" Margin="4" CornerRadius="12" Background="#E10A0E14"
                         BorderBrush="{DynamicResource HudBorderBrush}" BorderThickness="1">
                     <Grid Margin="14,11">
@@ -127,7 +128,7 @@
                                                    MidBrush="{DynamicResource BoostMidBrush}"
                                                    HighBrush="{DynamicResource BoostHighBrush}" />
             <local:AnalogTireTemperatureGaugeView x:Name="AttachedAnalogTireTemperature"
-                                                  Width="116" Height="116" Margin="286,142,0,0"
+                                                  Width="136" Height="136" Margin="276,142,0,0"
                                                   HorizontalAlignment="Left" VerticalAlignment="Top"
                                                   Display="{Binding TireTemperatureDisplay}"
                                                   TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
@@ -140,6 +141,29 @@
             <local:NativeGForceMeterView x:Name="AttachedNativeGForce" Width="144" Height="100"
                                          HorizontalAlignment="Left" VerticalAlignment="Top"
                                          Visibility="Collapsed" />
+            <local:PowerTorqueGaugeView x:Name="AttachedPowerGauge" Width="136" Height="136"
+                                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                                        Visibility="Collapsed" IsHitTestVisible="False"
+                                        Display="{Binding PowerTorqueDisplay}"
+                                        IsElectricMaterial="{Binding NativeGaugeFrame.IsElectric}"
+                                        Maximum="{Binding PowerGaugeMaximum}"
+                                        LowBrush="{Binding PowerGaugeLowBrush}"
+                                        MidBrush="{Binding PowerGaugeMidBrush}"
+                                        HighBrush="{Binding PowerGaugeHighBrush}"
+                                        ColorNumber="{Binding PowerGaugeColorNumber}"
+                                        AccentBrush="{DynamicResource AccentBrush}" />
+            <local:PowerTorqueGaugeView x:Name="AttachedTorqueGauge" Width="136" Height="136"
+                                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                                        Visibility="Collapsed" IsHitTestVisible="False" IsTorque="True"
+                                        Display="{Binding PowerTorqueDisplay}"
+                                        IsElectricMaterial="{Binding NativeGaugeFrame.IsElectric}"
+                                        TorqueUnit="{Binding SelectedTorqueUnit}"
+                                        Maximum="{Binding TorqueGaugeMaximum}"
+                                        LowBrush="{Binding TorqueGaugeLowBrush}"
+                                        MidBrush="{Binding TorqueGaugeMidBrush}"
+                                        HighBrush="{Binding TorqueGaugeHighBrush}"
+                                        ColorNumber="{Binding TorqueGaugeColorNumber}"
+                                        AccentBrush="{DynamicResource AccentBrush}" />
             <Grid x:Name="EditChrome" Visibility="Collapsed" IsHitTestVisible="False">
                 <Border x:Name="EditBorder" Margin="4" CornerRadius="12" BorderThickness="1">
                     <Border.Style>
