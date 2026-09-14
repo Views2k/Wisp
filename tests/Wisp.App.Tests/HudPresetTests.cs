@@ -152,6 +152,7 @@ public sealed class HudPresetTests
             "DigitalBoostGaugeColorNumber", "DigitalBoostGaugeStockColors", "ShowBoostVacuum", "BoostPressureUnit",
             "BoostGaugeScale", "TireTemperatureGaugeEnabled", "TireTemperatureGaugeAttached",
             "TireTemperatureReactiveColors", "TireTemperatureUnit", "TireTemperatureGaugeScale",
+            "PowerGaugeEnabled", "TorqueGaugeEnabled", "PowerTorqueGaugeScale", "PowerGaugeMaximum", "TorqueGaugeMaximumNm",
             "TractionCueEnabled", "ColorTheme", "BackgroundTheme", "HudBorderTheme", "BoostGaugeTheme",
             "CustomAccentColor", "CustomBackgroundColor", "CustomHudBorderColor",
             "CustomBoostLowColor", "CustomBoostMidColor", "CustomBoostHighColor", "CustomTractionCueColor",
