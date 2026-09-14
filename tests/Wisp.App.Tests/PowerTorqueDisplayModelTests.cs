@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -5,6 +6,60 @@ namespace Wisp.App.Tests;
 public sealed class PowerTorqueDisplayModelTests
 {
     private const double WattsPerBhp = 745.69987158227022;
+
+    private static long Ticks(double milliseconds) => (long)(milliseconds * Stopwatch.Frequency / 1_000);
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void MissingLegacyReceiveClockUsesGameTime(long missing)
+    {
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = 0 };
+        model.Observe(1, 1_000, 0, 0, missing);
+        var next = model.Observe(1, 1_016, 100 * WattsPerBhp, 200, missing);
+        Assert.Equal(100, next.PowerBhp, 9);
+        Assert.Equal(200, next.TorqueNm);
+    }
+
+    [Fact]
+    public void FreshPacketsSharingQuantizedGameTimeAdvanceTheNeedlesAndPreservePeaks()
+    {
+        var model = new PowerTorqueDisplayModel();
+        model.Observe(1, 1_000, 0, 0, Ticks(1_000));
+        var next = model.Observe(1, 1_000, 900 * WattsPerBhp, 1_100, Ticks(1_008));
+        Assert.InRange(next.PowerBhp, 28.34, 28.35);
+        Assert.InRange(next.TorqueNm, 34.64, 34.65);
+        Assert.Equal(900, next.PeakPowerBhp, 9);
+        Assert.Equal(1_100, next.PeakTorqueNm);
+        Assert.Equal(0, next.ReadoutPowerBhp);
+        Assert.Equal(0, next.ReadoutTorqueNm);
+    }
+
+    [Fact]
+    public void DuplicateOrOlderReceiveIdentityCannotAdvanceTheFilterOrReplacePeaks()
+    {
+        var model = new PowerTorqueDisplayModel();
+        var first = model.Observe(1, 100, 400 * WattsPerBhp, 500, Ticks(1_000));
+        Assert.Equal(first, model.Observe(1, 116, 9_000 * WattsPerBhp, 9_000, Ticks(1_000)));
+        Assert.Equal(first, model.Observe(1, 132, 9_000 * WattsPerBhp, 9_000, Ticks(999)));
+    }
+
+    [Fact]
+    public void QuantizedGameClockDoesNotChangeReceiveTimeSmoothingOrNumberCadence()
+    {
+        var regular = new PowerTorqueDisplayModel();
+        var quantized = new PowerTorqueDisplayModel();
+        regular.Observe(1, 1_000, 0, 0, Ticks(1_000));
+        quantized.Observe(1, 1_000, 0, 0, Ticks(1_000));
+        for (uint offset = 5; offset <= 200; offset += 5)
+        {
+            var received = Ticks(1_000 + offset);
+            var expected = regular.Observe(1, 1_000 + offset, 100 * WattsPerBhp, 200, received);
+            var actual = quantized.Observe(1, 1_000 + offset / 16 * 16, 100 * WattsPerBhp, 200, received);
+            Assert.Equal(expected, actual);
+        }
+        Assert.True(quantized.Current.ReadoutPowerBhp > 0);
+    }
 
     [Theory]
     [InlineData(427, 507)]
@@ -46,7 +101,7 @@ public sealed class PowerTorqueDisplayModelTests
     [Fact]
     public void RepeatedSnapshotDoesNotAdvanceSmoothingOrPeaks()
     {
-        var model = new PowerTorqueDisplayModel();
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
         var first = model.Observe(1, 100, 400 * WattsPerBhp, 500);
         Assert.Equal(first, model.Observe(1, 100, 9_000 * WattsPerBhp, 9_000));
     }
@@ -54,7 +109,7 @@ public sealed class PowerTorqueDisplayModelTests
     [Fact]
     public void BriefRawPeakIsRetainedEvenWhenTheReadoutSmoothingHasBarelyMoved()
     {
-        var model = new PowerTorqueDisplayModel();
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
         model.Observe(1, 1_000, 0, 0);
         var peak = model.Observe(1, 1_001, 900 * WattsPerBhp, 1_100);
         Assert.InRange(peak.PowerBhp, 1, 2);
@@ -73,7 +128,7 @@ public sealed class PowerTorqueDisplayModelTests
     [Fact]
     public void ResetUsesTheLatestRawSampleAndCannotRecreateAnOldPeakFromFilterLag()
     {
-        var model = new PowerTorqueDisplayModel();
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
         model.Observe(1, 1_000, 900 * WattsPerBhp, 1_100);
         var low = model.Observe(1, 1_001, 100 * WattsPerBhp, 120);
         Assert.True(low.PowerBhp > 800);
@@ -103,7 +158,7 @@ public sealed class PowerTorqueDisplayModelTests
     [InlineData(100)]
     public void DiscontinuityReseedsCurrentReadingWithoutErasingCarPeaks(uint timestamp)
     {
-        var model = new PowerTorqueDisplayModel();
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
         model.Observe(1, 1_000, 700 * WattsPerBhp, 900);
         var display = model.Observe(1, timestamp, 100 * WattsPerBhp, 120);
         Assert.Equal(100, display.PowerBhp, 9);
@@ -117,7 +172,7 @@ public sealed class PowerTorqueDisplayModelTests
     [Fact]
     public void CarChangeAndExplicitResetDoNotCarryThePreviousCarsPeaks()
     {
-        var model = new PowerTorqueDisplayModel();
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
         model.Observe(1, 100, 800 * WattsPerBhp, 900);
         var secondCar = model.Observe(2, 110, 100 * WattsPerBhp, 120);
         Assert.Equal(100, secondCar.PeakPowerBhp, 9);
@@ -130,7 +185,7 @@ public sealed class PowerTorqueDisplayModelTests
     [Fact]
     public void ResetPeaksStartsFromTheCurrentReadingAndEngineBrakingCannotRaisePeaks()
     {
-        var model = new PowerTorqueDisplayModel();
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
         model.Observe(1, 100, 800 * WattsPerBhp, 900);
         model.Observe(1, 3_000, 100 * WattsPerBhp, 120);
         model.ResetPeaks();
@@ -150,7 +205,7 @@ public sealed class PowerTorqueDisplayModelTests
     [InlineData(double.NegativeInfinity, 500)]
     public void InvalidTelemetryNeverEntersTheReadoutOrPeakState(double watts, double torque)
     {
-        var model = new PowerTorqueDisplayModel();
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
         model.Observe(1, 100, 400 * WattsPerBhp, 500);
         var invalid = model.Observe(1, 150, watts, torque);
         Assert.False(invalid.Available);
@@ -171,7 +226,7 @@ public sealed class PowerTorqueDisplayModelTests
     [Fact]
     public void LossOfCarHidesReadingsAndDoesNotEraseSameCarsPeak()
     {
-        var model = new PowerTorqueDisplayModel();
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
         model.Observe(1, 100, 400 * WattsPerBhp, 500);
         Assert.False(model.Observe(0, 150, 0, 0).Available);
         var restored = model.Observe(1, 200, 100 * WattsPerBhp, 120);
@@ -197,7 +252,7 @@ public sealed class PowerTorqueDisplayModelTests
     public void DefaultSmoothingSlowsReadoutsWhileTheNeedleStillReceivesEverySample()
     {
         var model = new PowerTorqueDisplayModel();
-        Assert.Equal(500, model.SmoothingMilliseconds);
+        Assert.Equal(250, model.SmoothingMilliseconds);
         model.Observe(1, 1_000, 0, 0);
         double lastNeedle = 0;
         for (uint timestamp = 1_010; timestamp < 1_100; timestamp += 10)
@@ -209,8 +264,8 @@ public sealed class PowerTorqueDisplayModelTests
             lastNeedle = sample.PowerBhp;
         }
         var published = model.Observe(1, 1_100, 1_000 * WattsPerBhp, 1_200);
-        Assert.InRange(published.PowerBhp, 181.26, 181.28);
-        Assert.InRange(published.TorqueNm, 217.51, 217.53);
+        Assert.InRange(published.PowerBhp, 329.67, 329.69);
+        Assert.InRange(published.TorqueNm, 395.61, 395.63);
         Assert.Equal(published.PowerBhp, published.ReadoutPowerBhp);
         Assert.Equal(published.TorqueNm, published.ReadoutTorqueNm);
         var next = model.Observe(1, 1_110, 1_000 * WattsPerBhp, 1_200);
@@ -222,8 +277,8 @@ public sealed class PowerTorqueDisplayModelTests
     [Fact]
     public void RapidAlternatingSignedOutputKeepsNumbersOnTheirCadenceAndRetainsRawPeaks()
     {
-        var signed = new PowerTorqueDisplayModel { ShowNegative = true };
-        var positiveOnly = new PowerTorqueDisplayModel();
+        var signed = new PowerTorqueDisplayModel { ShowNegative = true, SmoothingMilliseconds = 500 };
+        var positiveOnly = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
         signed.Observe(1, 1_000, 0, 0);
         positiveOnly.Observe(1, 1_000, 0, 0);
         double? previousReadout = 0;
@@ -270,8 +325,8 @@ public sealed class PowerTorqueDisplayModelTests
     [Fact]
     public void HiddenNegativeInputsAreClampedBeforeFilteringRatherThanDraggingPositiveOutputBelowZero()
     {
-        var positiveOnly = new PowerTorqueDisplayModel();
-        var signed = new PowerTorqueDisplayModel { ShowNegative = true };
+        var positiveOnly = new PowerTorqueDisplayModel { SmoothingMilliseconds = 500 };
+        var signed = new PowerTorqueDisplayModel { ShowNegative = true, SmoothingMilliseconds = 500 };
         Assert.False(positiveOnly.ShowNegative);
         positiveOnly.Observe(1, 1_000, 400 * WattsPerBhp, 500);
         signed.Observe(1, 1_000, 400 * WattsPerBhp, 500);
@@ -316,8 +371,8 @@ public sealed class PowerTorqueDisplayModelTests
     [InlineData(0, 0)]
     [InlineData(750, 750)]
     [InlineData(2_000, 1_500)]
-    [InlineData(double.NaN, 500)]
-    [InlineData(double.PositiveInfinity, 500)]
+    [InlineData(double.NaN, 250)]
+    [InlineData(double.PositiveInfinity, 250)]
     public void SmoothingIsBoundedAndSurvivesCarAndDisplayResets(double requested, double expected)
     {
         var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = requested, ShowNegative = true };

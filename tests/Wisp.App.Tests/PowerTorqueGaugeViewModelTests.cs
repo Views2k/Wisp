@@ -5,7 +5,7 @@ namespace Wisp.App.Tests;
 public sealed class PowerTorqueGaugeViewModelTests
 {
     [Fact]
-    public void OutputOptionsAndIndependentColorsInitializeAndNotifyTheirBrushes()
+    public void OutputOptionsAndLegacyColorsRemainStored()
     {
         var model = new DiagnosticsViewModel(new AppSettings
         {
@@ -25,14 +25,8 @@ public sealed class PowerTorqueGaugeViewModelTests
         Assert.False(model.TorqueGaugeColorNumber);
         Assert.Equal("#FF102030", model.CustomPowerLowColor);
         Assert.Equal("#FF405060", model.CustomTorqueHighColor);
-        var changes = new List<string?>();
-        model.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
-        model.CustomPowerLowColor = "#FF708090";
-        Assert.Contains(nameof(model.PowerGaugeLowBrush), changes);
-        Assert.DoesNotContain(nameof(model.TorqueGaugeHighBrush), changes);
-        Assert.Equal("#FF405060", model.CustomTorqueHighColor);
         model.PowerTorqueSmoothingMilliseconds = double.NaN;
-        Assert.Equal(500, model.PowerTorqueSmoothingMilliseconds);
+        Assert.Equal(250, model.PowerTorqueSmoothingMilliseconds);
     }
 
     [Fact]

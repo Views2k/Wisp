@@ -1,7 +1,6 @@
 <UserControl x:Class="Wisp.App.PowerTorqueGaugeSettingsControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:Wisp.App">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <UserControl.Resources>
         <Style x:Key="GaugeSettingFocus" TargetType="Control">
             <Setter Property="Template">
@@ -95,27 +94,14 @@
                            TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
                 <Button Content="Reset peaks" Click="ResetPeaks_Click" HorizontalAlignment="Left" Margin="0,14,0,0"
                         AutomationProperties.Name="Reset dashboard and gauge peaks" />
-                <Expander Header="Gauge line colors" Style="{StaticResource MoreOptionsStyle}" Margin="0,14,0,0" AutomationProperties.Name="Power and torque gauge line colors">
-                    <StackPanel>
-                        <UniformGrid Columns="3" Margin="0,0,0,6">
-                            <RadioButton x:Name="PowerStartColor" Content="Power start" Tag="0" GroupName="OutputGaugeColor" IsChecked="True" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
-                            <RadioButton Content="Power middle" Tag="1" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
-                            <RadioButton Content="Power end" Tag="2" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
-                        </UniformGrid>
-                        <UniformGrid Columns="3" Margin="0,0,0,12">
-                            <RadioButton Content="Torque start" Tag="3" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
-                            <RadioButton Content="Torque middle" Tag="4" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
-                            <RadioButton Content="Torque end" Tag="5" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
-                        </UniformGrid>
-                        <local:ColorWheelEditor x:Name="GaugeColorEditor" MinimumOpacity="0.25" MaximumBrightness="1" SelectedColorChanged="GaugeColor_Changed" />
-                        <CheckBox x:Name="PowerColorNumberToggle" Content="Color the power number" Style="{StaticResource GaugeSettingToggle}"
-                                  IsChecked="{Binding PowerGaugeColorNumber, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
-                                  Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,14,0,0" AutomationProperties.Name="Color the power number" />
-                        <CheckBox x:Name="TorqueColorNumberToggle" Content="Color the torque number" Style="{StaticResource GaugeSettingToggle}"
-                                  IsChecked="{Binding TorqueGaugeColorNumber, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
-                                  Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,12,0,0" AutomationProperties.Name="Color the torque number" />
-                    </StackPanel>
-                </Expander>
+                <TextBlock Text="Gauge start, middle, and end colors in Appearance apply to boost, tire, power, and torque gauges."
+                           TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,14,0,0" />
+                <CheckBox x:Name="PowerColorNumberToggle" Content="Color the power number" Style="{StaticResource GaugeSettingToggle}"
+                          IsChecked="{Binding PowerGaugeColorNumber, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                          Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,14,0,0" AutomationProperties.Name="Color the power number" />
+                <CheckBox x:Name="TorqueColorNumberToggle" Content="Color the torque number" Style="{StaticResource GaugeSettingToggle}"
+                          IsChecked="{Binding TorqueGaugeColorNumber, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                          Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,12,0,0" AutomationProperties.Name="Color the torque number" />
             </StackPanel>
         </Expander>
     </StackPanel>

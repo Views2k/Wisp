@@ -41,7 +41,7 @@ public sealed class HudPreset
     public bool TorqueGaugeEnabled { get; set; }
     public bool PowerGaugeAttached { get; set; } = true;
     public bool TorqueGaugeAttached { get; set; } = true;
-    public double PowerTorqueSmoothingMilliseconds { get; set; } = 500;
+    public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
     public bool PowerTorqueShowNegative { get; set; }
     public bool PowerGaugeColorNumber { get; set; }
     public bool TorqueGaugeColorNumber { get; set; }

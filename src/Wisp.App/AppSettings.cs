@@ -75,7 +75,7 @@ public sealed class AppSettings
     public bool TorqueGaugeEnabled { get; set; }
     public bool PowerGaugeAttached { get; set; } = true;
     public bool TorqueGaugeAttached { get; set; } = true;
-    public double PowerTorqueSmoothingMilliseconds { get; set; } = 500;
+    public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
     public bool PowerTorqueShowNegative { get; set; }
     public bool PowerGaugeColorNumber { get; set; }
     public bool TorqueGaugeColorNumber { get; set; }
@@ -469,7 +469,7 @@ public sealed class AppSettings
         double.IsFinite(value) ? Math.Clamp(value, 100, 5000) : 1000;
 
     internal static double NormalizePowerTorqueSmoothing(double value) =>
-        double.IsFinite(value) ? Math.Clamp(value, 0, 1500) : 500;
+        double.IsFinite(value) ? Math.Clamp(value, 0, 1500) : 250;
 
     internal static double NormalizeTorqueGaugeMaximum(double value) =>
         double.IsFinite(value) ? Math.Clamp(value, 100, 10000) : 1200;

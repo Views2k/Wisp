@@ -7,7 +7,7 @@ public sealed partial class DiagnosticsViewModel
     private bool _torqueGaugeEnabled;
     private bool _powerGaugeAttached = true;
     private bool _torqueGaugeAttached = true;
-    private double _powerTorqueSmoothingMilliseconds = 500;
+    private double _powerTorqueSmoothingMilliseconds = 250;
     private bool _powerTorqueShowNegative;
     private bool _powerGaugeColorNumber;
     private bool _torqueGaugeColorNumber;

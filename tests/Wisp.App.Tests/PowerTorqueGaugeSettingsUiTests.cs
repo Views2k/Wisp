@@ -17,7 +17,9 @@ internal static class PowerTorqueGaugeSettingsUiTests
             StartWithForza = false,
             AutomaticApplicationUpdateChecks = false,
             PowerGaugeEnabled = true,
-            TorqueGaugeEnabled = true
+            TorqueGaugeEnabled = true,
+            CustomPowerLowColor = "#FF90A0B0",
+            CustomTorqueHighColor = "#FFB0C0D0"
         };
         var now = DateTimeOffset.UtcNow;
         var preferences = SetupPreferences.FromSettings(settings) with
@@ -37,7 +39,7 @@ internal static class PowerTorqueGaugeSettingsUiTests
             control.Arrange(new Rect(0, 0, 500, 1800));
             control.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
             var smoothing = Assert.IsType<Slider>(control.FindName("SmoothingSlider"));
-            Assert.Equal(500, smoothing.Value);
+            Assert.Equal(250, smoothing.Value);
             Assert.NotNull(smoothing.FocusVisualStyle);
             smoothing.SetCurrentValue(RangeBase.ValueProperty, 950d);
             Assert.Equal(950, settings.PowerTorqueSmoothingMilliseconds);
@@ -51,15 +53,28 @@ internal static class PowerTorqueGaugeSettingsUiTests
             Assert.True(settings.PowerGaugeColorNumber);
             Assert.False(settings.TorqueGaugeColorNumber);
 
-            var editor = Assert.IsType<ColorWheelEditor>(control.FindName("GaugeColorEditor"));
-            editor.SetCurrentValue(ColorWheelEditor.SelectedColorProperty, Color.FromRgb(0x10, 0x20, 0x30));
-            Assert.Equal("#FF102030", settings.CustomPowerLowColor);
-            Assert.Null(settings.CustomTorqueLowColor);
-            var torqueEnd = Descendants(control).OfType<RadioButton>().Single(radio => Equals(radio.Tag, "5"));
-            torqueEnd.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
-            editor.SetCurrentValue(ColorWheelEditor.SelectedColorProperty, Color.FromRgb(0x40, 0x50, 0x60));
-            Assert.Equal("#FF405060", settings.CustomTorqueHighColor);
-            Assert.Equal("#FF102030", settings.CustomPowerLowColor);
+            Assert.Empty(Descendants(control).OfType<ColorWheelEditor>());
+            var changes = new List<string?>();
+            controller.ViewModel.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+            controller.SetCustomGaugeColors("#FF102030", "#FF405060", "#FF708090");
+            AssertSharedPalette(controller, settings);
+            foreach (var property in new[]
+            {
+                nameof(DiagnosticsViewModel.PowerGaugeLowBrush), nameof(DiagnosticsViewModel.PowerGaugeMidBrush),
+                nameof(DiagnosticsViewModel.PowerGaugeHighBrush), nameof(DiagnosticsViewModel.TorqueGaugeLowBrush),
+                nameof(DiagnosticsViewModel.TorqueGaugeMidBrush), nameof(DiagnosticsViewModel.TorqueGaugeHighBrush)
+            }) Assert.Contains(property, changes);
+            Assert.Equal("#FF90A0B0", settings.CustomPowerLowColor);
+            Assert.Equal("#FFB0C0D0", settings.CustomTorqueHighColor);
+
+            var profile = HudPreset.Capture(settings, "Shared palette");
+            settings.HudPresets.Add(profile);
+            controller.SetCustomGaugeColors(null, null, null);
+            controller.SetBoostGaugeTheme("Mint");
+            AssertSharedPalette(controller, settings);
+            Assert.True(controller.TryApplyHudPreset(profile.Id, out var profileError), profileError);
+            Assert.Equal("#FF102030", settings.CustomBoostLowColor);
+            AssertSharedPalette(controller, settings);
 
             Assert.IsType<CheckBox>(control.FindName("PowerToggle")).SetCurrentValue(ToggleButton.IsCheckedProperty, false);
             control.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
@@ -68,6 +83,23 @@ internal static class PowerTorqueGaugeSettingsUiTests
             Assert.True(settings.TorqueGaugeEnabled);
         }
         finally { controller.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+    }
+
+    private static void AssertSharedPalette(AppController controller, AppSettings settings)
+    {
+        var resources = new ResourceDictionary();
+        BoostGaugeThemeResources.Apply(resources, settings.BoostGaugeTheme,
+            settings.CustomBoostLowColor, settings.CustomBoostMidColor, settings.CustomBoostHighColor);
+        var low = Assert.IsType<SolidColorBrush>(resources["BoostLowBrush"]).Color;
+        var mid = Assert.IsType<SolidColorBrush>(resources["BoostMidBrush"]).Color;
+        var high = Assert.IsType<SolidColorBrush>(resources["BoostHighBrush"]).Color;
+        var model = controller.ViewModel;
+        Assert.Equal(low, Assert.IsType<SolidColorBrush>(model.PowerGaugeLowBrush).Color);
+        Assert.Equal(mid, Assert.IsType<SolidColorBrush>(model.PowerGaugeMidBrush).Color);
+        Assert.Equal(high, Assert.IsType<SolidColorBrush>(model.PowerGaugeHighBrush).Color);
+        Assert.Equal(low, Assert.IsType<SolidColorBrush>(model.TorqueGaugeLowBrush).Color);
+        Assert.Equal(mid, Assert.IsType<SolidColorBrush>(model.TorqueGaugeMidBrush).Color);
+        Assert.Equal(high, Assert.IsType<SolidColorBrush>(model.TorqueGaugeHighBrush).Color);
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)

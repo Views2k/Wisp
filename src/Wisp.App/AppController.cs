@@ -1270,6 +1270,7 @@ public sealed partial class AppController : IAsyncDisposable
         Settings.CustomBoostLowColor = normalizedLow;
         Settings.CustomBoostMidColor = normalizedMid;
         Settings.CustomBoostHighColor = normalizedHigh;
+        ViewModel.RefreshPowerTorquePalette();
         Overlay?.ApplyBoostGaugeCustomization(
             Settings.BoostGaugeTheme,
             normalizedLow,
@@ -2029,6 +2030,7 @@ public sealed partial class AppController : IAsyncDisposable
 
         if (latest is { IsRaceOn: true, CarOrdinal: > 0 })
         {
+            ViewModel.AdvancePowerTorqueNeedles(Stopwatch.GetTimestamp());
             _nativeHudProcessService.RequestNativeGaugeSample();
             if (!hasNewPacket)
             {

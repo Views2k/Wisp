@@ -9,6 +9,22 @@ public sealed class PowerTorqueRangeFlowTests
     private const double WattsPerBhp = 745.69987158227022;
 
     [Fact]
+    public void ReapplyingUnchangedDisplayOptionsDoesNotJumpOrResetTheNeedles()
+    {
+        var model = new DiagnosticsViewModel(new AppSettings { PowerGaugeEnabled = true });
+        Update(model, 1, 1_000, 400, 500);
+        Update(model, 1, 1_016, 1_400, 1_600);
+        var displayed = model.PowerTorqueDisplay;
+        model.RefreshPowerTorqueDisplayOptions();
+        Assert.Equal(displayed, model.PowerTorqueDisplay);
+        model.PowerTorqueShowNegative = true;
+        model.RefreshPowerTorqueDisplayOptions();
+        var afterChange = model.PowerTorqueDisplay;
+        model.AdvancePowerTorqueNeedles(System.Diagnostics.Stopwatch.GetTimestamp());
+        Assert.Equal(afterChange, model.PowerTorqueDisplay);
+    }
+
+    [Fact]
     public void LivePowerNeverChangesFixedRangesUntilTheUserExplicitlyFitsThem()
     {
         var settings = new AppSettings { PowerGaugeMaximum = 1_000, TorqueGaugeMaximumNm = 1_200 };

@@ -26,7 +26,7 @@ public sealed class PowerTorqueGaugeSettingsTests
             Assert.True(fresh.DriftGaugeEnabled);
             Assert.True(fresh.PowerGaugeAttached);
             Assert.True(fresh.TorqueGaugeAttached);
-            Assert.Equal(500, fresh.PowerTorqueSmoothingMilliseconds);
+            Assert.Equal(250, fresh.PowerTorqueSmoothingMilliseconds);
             Assert.False(fresh.PowerTorqueShowNegative);
             service.Save(fresh);
             var reopened = service.Load();
@@ -62,8 +62,8 @@ public sealed class PowerTorqueGaugeSettingsTests
     [Theory]
     [InlineData(-1, 0)]
     [InlineData(2000, 1500)]
-    [InlineData(double.NaN, 500)]
-    [InlineData(double.PositiveInfinity, 500)]
+    [InlineData(double.NaN, 250)]
+    [InlineData(double.PositiveInfinity, 250)]
     public void SmoothingNormalizesForSettingsAndProfiles(double value, double expected)
     {
         var settings = new AppSettings { PowerTorqueSmoothingMilliseconds = value };
@@ -72,6 +72,19 @@ public sealed class PowerTorqueGaugeSettingsTests
         profile.Normalize();
         Assert.Equal(expected, settings.PowerTorqueSmoothingMilliseconds);
         Assert.Equal(expected, profile.PowerTorqueSmoothingMilliseconds);
+    }
+
+    [Fact]
+    public void NewSmoothingDefaultDoesNotReplaceExplicitSavedSettingsOrProfiles()
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>("""{"PowerTorqueSmoothingMilliseconds":500}""")!;
+        settings.MigrateSettings();
+        Assert.Equal(500, settings.PowerTorqueSmoothingMilliseconds);
+        var profile = JsonSerializer.Deserialize<HudPreset>("""{"Name":"Saved","PowerTorqueSmoothingMilliseconds":950}""")!;
+        profile.ApplyTo(settings);
+        Assert.Equal(950, settings.PowerTorqueSmoothingMilliseconds);
+        Assert.Equal(250, new AppSettings().PowerTorqueSmoothingMilliseconds);
+        Assert.Equal(250, new HudPreset().PowerTorqueSmoothingMilliseconds);
     }
 
     [Fact]
