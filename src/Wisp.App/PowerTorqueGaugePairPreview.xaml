@@ -1,0 +1,60 @@
+<UserControl x:Class="Wisp.App.PowerTorqueGaugePairPreview"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Wisp.App"
+             IsHitTestVisible="False">
+    <UserControl.Style>
+        <Style TargetType="UserControl">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding PowerGaugeEnabled}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding TorqueGaugeEnabled}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Style>
+    <UserControl.LayoutTransform>
+        <ScaleTransform ScaleX="{Binding PowerTorqueGaugeScale}" ScaleY="{Binding PowerTorqueGaugeScale}" />
+    </UserControl.LayoutTransform>
+    <StackPanel>
+        <local:PowerTorqueGaugeView Width="140" Height="140"
+                                   Display="{Binding PreviewPowerTorqueDisplay}"
+                                   IsElectricMaterial="{Binding NativePreviewFrame.IsElectric}"
+                                   Maximum="{Binding PreviewPowerGaugeMaximum}"
+                                   AccentBrush="{DynamicResource AccentBrush}">
+            <local:PowerTorqueGaugeView.Style>
+                <Style TargetType="local:PowerTorqueGaugeView">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding PowerGaugeEnabled}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </local:PowerTorqueGaugeView.Style>
+        </local:PowerTorqueGaugeView>
+        <local:PowerTorqueGaugeView Width="140" Height="140" IsTorque="True"
+                                   Display="{Binding PreviewPowerTorqueDisplay}"
+                                   IsElectricMaterial="{Binding NativePreviewFrame.IsElectric}"
+                                   TorqueUnit="{Binding SelectedTorqueUnit}"
+                                   Maximum="{Binding PreviewTorqueGaugeMaximum}"
+                                   AccentBrush="{DynamicResource AccentBrush}">
+            <local:PowerTorqueGaugeView.Style>
+                <Style TargetType="local:PowerTorqueGaugeView">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding TorqueGaugeEnabled}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding PowerGaugeEnabled}" Value="True">
+                            <Setter Property="Margin" Value="0,8,0,0" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </local:PowerTorqueGaugeView.Style>
+        </local:PowerTorqueGaugeView>
+    </StackPanel>
+</UserControl>

@@ -73,6 +73,7 @@ public sealed class WpfStyleRuntimeTests
                 NativeRendererIntegrationTests.AssertOnCurrentDispatcher(cpuRendering: true);
                 CpuRenderingSettingsTests.AssertControllerPersistenceOnCurrentDispatcher();
                 BoostGaugeVisualsTests.AssertOnCurrentDispatcher();
+                PowerTorqueGaugeVisualTests.AssertOnCurrentDispatcher();
                 BoostVacuumUiTests.AssertOnCurrentDispatcher();
                 DriftGaugeTargetRangeTests.AssertOnCurrentDispatcher();
                 DriftGaugeZoneVisualTests.AssertOnCurrentDispatcher();

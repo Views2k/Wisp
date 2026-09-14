@@ -120,6 +120,7 @@ public abstract partial class ControlPanelWindow : Window
         SetSidebarOpen(!controller.Settings.SidebarCollapsed, animate: false);
         DataContext = controller.ViewModel;
         FindControl<DriftGaugeSettingsControl>("DriftGaugeSettings").Initialize(controller);
+        FindControl<PowerTorqueGaugeSettingsControl>("PowerTorqueGaugeSettings").Initialize(controller);
         RunsSurface.DataContext = controller.Runs;
         DashboardRunPanel.DataContext = controller.Runs;
         MphRadio.IsChecked = controller.Settings.SpeedUnit == SpeedUnit.MilesPerHour;

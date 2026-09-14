@@ -1,0 +1,80 @@
+<UserControl x:Class="Wisp.App.PowerTorqueGaugeSettingsControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="GaugeSettingFocus" TargetType="Control">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Control">
+                        <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="6" Margin="-2" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="GaugeSettingSlider" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
+            <Setter Property="FocusVisualStyle" Value="{StaticResource GaugeSettingFocus}" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.88" /></Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="GaugeSettingToggle" TargetType="CheckBox" BasedOn="{StaticResource ToggleSwitchStyle}">
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.88" /></Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+    <StackPanel>
+        <TextBlock Text="POWER &amp; TORQUE" Style="{StaticResource EyebrowTextStyle}" />
+        <TextBlock Text="Engine output" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,12" />
+        <CheckBox x:Name="PowerToggle" Content="Power gauge" Style="{StaticResource GaugeSettingToggle}"
+                  IsChecked="{Binding PowerGaugeEnabled, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                  Checked="Toggle_Changed" Unchecked="Toggle_Changed" AutomationProperties.Name="Power gauge" />
+        <CheckBox x:Name="TorqueToggle" Content="Torque gauge" Style="{StaticResource GaugeSettingToggle}" Margin="0,12,0,0"
+                  IsChecked="{Binding TorqueGaugeEnabled, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                  Checked="Toggle_Changed" Unchecked="Toggle_Changed" AutomationProperties.Name="Torque gauge" />
+        <TextBlock Text="Shown beside the speedometer." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
+        <Expander Header="More options" Style="{StaticResource MoreOptionsStyle}" Margin="0,12,0,0"
+                  AutomationProperties.Name="Power and torque gauge options">
+            <StackPanel>
+                <TextBlock Text="{Binding PowerTorqueRangeCaption}" Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,14" />
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Gauge size" />
+                    <TextBlock Grid.Column="1" Text="{Binding PowerTorqueGaugeScale, StringFormat={}{0:P0}}" />
+                </Grid>
+                <Slider x:Name="GaugeScaleSlider" Style="{StaticResource GaugeSettingSlider}" Minimum="0.5" Maximum="2"
+                        Value="{Binding PowerTorqueGaugeScale, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                        TickFrequency="0.05" IsSnapToTickEnabled="True" SmallChange="0.05" LargeChange="0.25"
+                        ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Power and torque gauge size" />
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Power maximum (BHP)" />
+                    <TextBlock Grid.Column="1" Text="{Binding PowerGaugeMaximum, StringFormat={}{0:0} BHP}" />
+                </Grid>
+                <Slider x:Name="PowerMaximumSlider" Style="{StaticResource GaugeSettingSlider}" Minimum="100" Maximum="5000"
+                        Value="{Binding PowerGaugeMaximum, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                        TickFrequency="50" IsSnapToTickEnabled="True" SmallChange="50" LargeChange="250"
+                        ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Power gauge maximum in BHP" />
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Torque maximum (Nm)" />
+                    <TextBlock Grid.Column="1" Text="{Binding TorqueGaugeMaximumNm, StringFormat={}{0:0} Nm}" />
+                </Grid>
+                <Slider x:Name="TorqueMaximumSlider" Style="{StaticResource GaugeSettingSlider}" Minimum="100" Maximum="10000"
+                        Value="{Binding TorqueGaugeMaximumNm, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                        TickFrequency="50" IsSnapToTickEnabled="True" SmallChange="50" LargeChange="250"
+                        ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Torque gauge maximum in newton meters" />
+                <Button Content="Set from this run" Click="SetFromRun_Click" IsEnabled="{Binding CanSetPowerTorqueScales}"
+                        HorizontalAlignment="Left" Margin="0,0,0,12"
+                        AutomationProperties.Name="Set fixed gauge ranges from this run's peak readings plus ten percent" />
+                <TextBlock Text="Set a fixed range for this car, or use this run’s peak readings plus 10%. The scale stays fixed while driving."
+                           TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+                <TextBlock Text="Ranges save separately for each car. Before Wisp detects a car, these controls set the defaults. Torque follows your selected Nm or lb-ft unit."
+                           Margin="0,8,0,0"
+                           TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+                <Button Content="Reset peaks" Click="ResetPeaks_Click" HorizontalAlignment="Left" Margin="0,14,0,0"
+                        AutomationProperties.Name="Reset dashboard and gauge peaks" />
+            </StackPanel>
+        </Expander>
+    </StackPanel>
+</UserControl>

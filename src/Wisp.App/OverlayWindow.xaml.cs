@@ -48,6 +48,9 @@ public partial class OverlayWindow : Window
     private bool _attachedTireTemperatureVisible;
     private bool _attachedGForceVisible;
     private bool _combinedGForceVisible;
+    private bool _attachedPowerVisible;
+    private bool _attachedTorqueVisible;
+    private double _powerTorqueScale;
     private int _visibilityRevision;
 
     public OverlayWindow(AppController controller)
@@ -104,6 +107,10 @@ public partial class OverlayWindow : Window
             nameof(DiagnosticsViewModel.TireTemperatureDisplay) or
             nameof(DiagnosticsViewModel.TireTemperatureGaugeEnabled) or
             nameof(DiagnosticsViewModel.TireTemperatureGaugeAttached) or
+            nameof(DiagnosticsViewModel.PowerTorqueDisplay) or
+            nameof(DiagnosticsViewModel.PowerGaugeEnabled) or
+            nameof(DiagnosticsViewModel.TorqueGaugeEnabled) or
+            nameof(DiagnosticsViewModel.PowerTorqueGaugeScale) or
             nameof(DiagnosticsViewModel.GForceEnabled) or
             nameof(DiagnosticsViewModel.GForceAttached))
         {
@@ -120,9 +127,15 @@ public partial class OverlayWindow : Window
             var shouldShowGForce = _layoutMode == HudLayoutMode.Native &&
                                    _controller.ViewModel.GForceEnabled &&
                                    _controller.ViewModel.GForceAttached;
+            var showPower = _controller.ViewModel.PowerGaugeEnabled &&
+                            _controller.ViewModel.PowerTorqueDisplay.Available;
+            var showTorque = _controller.ViewModel.TorqueGaugeEnabled &&
+                             _controller.ViewModel.PowerTorqueDisplay.Available;
             if (shouldShow == _attachedBoostVisible &&
                 shouldShowTireTemperature == _attachedTireTemperatureVisible &&
                 shouldShowGForce == _attachedGForceVisible &&
+                showPower == _attachedPowerVisible && showTorque == _attachedTorqueVisible &&
+                _powerTorqueScale == _controller.ViewModel.PowerTorqueGaugeScale &&
                 (_layoutMode != HudLayoutMode.Combined || _combinedGForceVisible == _controller.ViewModel.GForceEnabled))
             {
                 return;
@@ -358,15 +371,34 @@ public partial class OverlayWindow : Window
                     : digitalBoostVisible ? NativeDigitalBoostHeight : NativeDigitalHeight),
             _ => (MinimalWidth, MinimalHeight)
         };
-        RootPanel.Width = baseWidth;
         baseHeight += nativeTop;
-        RootPanel.Height = baseHeight;
-        Width = baseWidth * widthScale;
-        Height = baseHeight * heightScale;
+        _attachedPowerVisible = _controller.ViewModel.PowerGaugeEnabled &&
+                                _controller.ViewModel.PowerTorqueDisplay.Available;
+        _attachedTorqueVisible = _controller.ViewModel.TorqueGaugeEnabled &&
+                                 _controller.ViewModel.PowerTorqueDisplay.Available;
+        _powerTorqueScale = _controller.ViewModel.PowerTorqueGaugeScale;
+        var powerTorqueLayout = PowerTorqueGaugeLayout.Calculate(
+            new Size(baseWidth, baseHeight), nativeTop + 4,
+            _attachedPowerVisible, _attachedTorqueVisible, _powerTorqueScale);
+        ApplyPowerTorqueBounds(AttachedPowerGauge, powerTorqueLayout.PowerBounds);
+        ApplyPowerTorqueBounds(AttachedTorqueGauge, powerTorqueLayout.TorqueBounds);
+        RootPanel.Width = powerTorqueLayout.Size.Width;
+        RootPanel.Height = powerTorqueLayout.Size.Height;
+        Width = powerTorqueLayout.Size.Width * widthScale;
+        Height = powerTorqueLayout.Size.Height * heightScale;
         EditChrome.Visibility = _editMode && layoutMode != HudLayoutMode.Minimal
             ? Visibility.Visible
             : Visibility.Collapsed;
         SetTelemetryVisible(_telemetryVisible, opacity);
+    }
+
+    private static void ApplyPowerTorqueBounds(FrameworkElement gauge, Rect bounds)
+    {
+        gauge.Visibility = bounds.IsEmpty ? Visibility.Collapsed : Visibility.Visible;
+        if (bounds.IsEmpty) return;
+        gauge.Width = bounds.Width;
+        gauge.Height = bounds.Height;
+        gauge.Margin = new Thickness(bounds.X, bounds.Y, 0, 0);
     }
 
     public void ResetPosition()

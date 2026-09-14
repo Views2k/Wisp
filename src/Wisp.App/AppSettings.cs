@@ -39,6 +39,8 @@ public enum BoostPressureUnit
     Bar = 1
 }
 
+public sealed record PowerTorqueGaugeRange(double PowerMaximum, double TorqueMaximumNm);
+
 public sealed class AppSettings
 {
     private const int CurrentSettingsRevision = 9;
@@ -69,6 +71,12 @@ public sealed class AppSettings
     public bool TireTemperatureReactiveColors { get; set; } = true;
     public TireTemperatureUnit TireTemperatureUnit { get; set; } = TireTemperatureUnit.Fahrenheit;
     public double TireTemperatureGaugeScale { get; set; } = 1.0;
+    public bool PowerGaugeEnabled { get; set; }
+    public bool TorqueGaugeEnabled { get; set; }
+    public double PowerTorqueGaugeScale { get; set; } = 1;
+    public double PowerGaugeMaximum { get; set; } = 1000;
+    public double TorqueGaugeMaximumNm { get; set; } = 1200;
+    public Dictionary<int, PowerTorqueGaugeRange> PowerTorqueGaugeRanges { get; set; } = new();
     public double GForceWidthScale { get; set; } = 1.0;
     public double GForceHeightScale { get; set; } = 1.0;
     public HudLayoutMode LayoutMode { get; set; } = HudLayoutMode.Minimal;
@@ -250,6 +258,7 @@ public sealed class AppSettings
         RunWorkspace.Normalize();
         if (!Enum.IsDefined(RunStatisticsView)) RunStatisticsView = Runs.RunStatisticsView.Cards;
         NormalizeDriftGaugeSettings();
+        NormalizePowerTorqueGaugeSettings();
         CustomHudBorderColor = ColorCustomization.NormalizeHudBorder(CustomHudBorderColor);
         CustomBoostLowColor = ColorCustomization.NormalizeGauge(CustomBoostLowColor);
         CustomBoostMidColor = ColorCustomization.NormalizeGauge(CustomBoostMidColor);
@@ -406,6 +415,32 @@ public sealed class AppSettings
             LastTireTemperatureGaugePlacementKey = null;
         }
     }
+
+    internal void NormalizePowerTorqueGaugeSettings()
+    {
+        PowerTorqueGaugeScale = NormalizeScale(PowerTorqueGaugeScale);
+        PowerGaugeMaximum = NormalizePowerGaugeMaximum(PowerGaugeMaximum);
+        TorqueGaugeMaximumNm = NormalizeTorqueGaugeMaximum(TorqueGaugeMaximumNm);
+        PowerTorqueGaugeRanges ??= new Dictionary<int, PowerTorqueGaugeRange>();
+        foreach (var (carOrdinal, range) in PowerTorqueGaugeRanges.ToArray())
+        {
+            if (carOrdinal <= 0 || range is null)
+            {
+                PowerTorqueGaugeRanges.Remove(carOrdinal);
+                continue;
+            }
+            var power = NormalizePowerGaugeMaximum(range.PowerMaximum);
+            var torque = NormalizeTorqueGaugeMaximum(range.TorqueMaximumNm);
+            if (power != range.PowerMaximum || torque != range.TorqueMaximumNm)
+                PowerTorqueGaugeRanges[carOrdinal] = new PowerTorqueGaugeRange(power, torque);
+        }
+    }
+
+    internal static double NormalizePowerGaugeMaximum(double value) =>
+        double.IsFinite(value) ? Math.Clamp(value, 100, 5000) : 1000;
+
+    internal static double NormalizeTorqueGaugeMaximum(double value) =>
+        double.IsFinite(value) ? Math.Clamp(value, 100, 10000) : 1200;
 
     internal void NormalizeDriftGaugeSettings()
     {
@@ -604,6 +639,7 @@ public sealed class SettingsService
         settings.RunWorkspace.Normalize();
         if (!Enum.IsDefined(settings.RunStatisticsView)) settings.RunStatisticsView = Runs.RunStatisticsView.Cards;
         settings.NormalizeDriftGaugeSettings();
+        settings.NormalizePowerTorqueGaugeSettings();
         settings.CustomHudBorderColor = ColorCustomization.NormalizeHudBorder(settings.CustomHudBorderColor);
         settings.CustomBoostLowColor = ColorCustomization.NormalizeGauge(settings.CustomBoostLowColor);
         settings.CustomBoostMidColor = ColorCustomization.NormalizeGauge(settings.CustomBoostMidColor);

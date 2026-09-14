@@ -125,6 +125,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     public DiagnosticsViewModel(AppSettings settings)
     {
         UpdateGForceColors(settings);
+        InitializePowerTorqueSettings(settings);
         _udpPort = settings.UdpPort;
         _udpPortText = settings.UdpPort.ToString(CultureInfo.InvariantCulture);
         _unitSelectionIndex = settings.SpeedUnit == SpeedUnit.MilesPerHour ? 0 : 1;
@@ -308,6 +309,8 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         {
             if (Set(ref _hasLiveTelemetry, value))
             {
+                OnPropertyChanged(nameof(CanSetPowerTorqueScales));
+                OnPropertyChanged(nameof(PowerTorqueRangeCaption));
                 if (!value)
                 {
                     AbsAssistStatus = "Unavailable";
@@ -420,6 +423,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     public void ResetDashboardPeaks()
     {
         _dashboardPowerDisplayModel.ResetPeaks();
+        ResetPowerTorquePeaks();
         var current = _dashboardPowerDisplayModel.Current(
             SelectedTorqueUnit,
             SelectedSpeedUnit);
@@ -505,6 +509,8 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             }
 
             OnPropertyChanged(nameof(SelectedTorqueUnit));
+            OnPropertyChanged(nameof(TorqueGaugeMaximum));
+            OnPropertyChanged(nameof(PreviewTorqueGaugeMaximum));
             var reformatted = _dashboardPowerDisplayModel.Current(
                 SelectedTorqueUnit,
                 SelectedSpeedUnit);
@@ -790,6 +796,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             state.CarOrdinal,
             state.TireTemperatureFahrenheit);
         UpdateDashboardPowertrain(state, speed, unit);
+        UpdatePowerTorqueDisplay(state);
         var nextNativeGaugeFrame = new NativeGaugeFrame(
             speed.IsAvailable,
             displayedSpeed,
@@ -1010,6 +1017,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         _boostDisplayModel.Reset();
         BoostDisplay = BoostDisplay.Unavailable;
         TireTemperatureDisplay = TireTemperatureDisplay.Unavailable;
+        ClearPowerTorqueDisplay();
         LateralGText = "0.00 g";
         LongitudinalGText = "0.00 g";
         GForceScaleText = "1.0 G";

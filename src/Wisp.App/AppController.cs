@@ -899,6 +899,10 @@ public sealed partial class AppController : IAsyncDisposable
                 ? SpeedUnit.MilesPerHour
                 : SpeedUnit.KilometersPerHour;
             Settings.TorqueUnit = ViewModel.SelectedTorqueUnit;
+            Settings.PowerGaugeEnabled = ViewModel.PowerGaugeEnabled;
+            Settings.TorqueGaugeEnabled = ViewModel.TorqueGaugeEnabled;
+            Settings.PowerTorqueGaugeScale = ViewModel.PowerTorqueGaugeScale;
+            ViewModel.SavePowerTorqueRange();
             Settings.SpeedSource = (SpeedSourceMode)Math.Clamp(
                 ViewModel.SpeedSourceSelectionIndex,
                 (int)SpeedSourceMode.WheelIndicated,
@@ -1298,6 +1302,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         preset = HudPreset.Capture(Settings, normalizedName);
+        ViewModel.CapturePowerTorquePresetRange(preset);
         Settings.HudPresets.Add(preset);
         ScheduleSettingsSave();
         error = string.Empty;
@@ -1316,6 +1321,7 @@ public sealed partial class AppController : IAsyncDisposable
 
         var existing = Settings.HudPresets[index];
         preset = HudPreset.Capture(Settings, existing.Name, existing.Id);
+        ViewModel.CapturePowerTorquePresetRange(preset);
         Settings.HudPresets[index] = preset;
         ScheduleSettingsSave();
         error = string.Empty;
@@ -1374,6 +1380,7 @@ public sealed partial class AppController : IAsyncDisposable
         var previousLayoutMode = Settings.LayoutMode;
         var previousNativeGaugeMode = Settings.NativeGaugeMode;
         preset.ApplyTo(Settings);
+        ViewModel.ApplyPowerTorquePresetRange(preset);
         ViewModel.UpdateGForceColors(Settings);
         SyncHudPresetToViewModel();
         ControlPanel?.ApplyHudPresetToControls();
@@ -1418,6 +1425,7 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.InvertLateralG = Settings.InvertLateralG;
         ViewModel.InvertLongitudinalG = Settings.InvertLongitudinalG;
         ViewModel.BoostGaugeEnabled = Settings.BoostGaugeEnabled;
+        ViewModel.InitializePowerTorqueSettings(Settings);
         ViewModel.BoostGaugeAttached = Settings.BoostGaugeAttached;
         ViewModel.BoostGaugeColorNumber = Settings.BoostGaugeColorNumber;
         ViewModel.DigitalBoostGaugeColorNumber = Settings.DigitalBoostGaugeColorNumber;

@@ -373,6 +373,31 @@
 <Border x:Name="HudPreviewSurface" Height="330" CornerRadius="12" Background="{DynamicResource InputBrush}"
                                                         BorderThickness="0">
                                                     <Grid Margin="16">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Viewbox Grid.Column="1" Margin="8,0,0,0" MaxWidth="240"
+                                                                 Stretch="Uniform" StretchDirection="DownOnly"
+                                                                 VerticalAlignment="Center">
+                                                            <Viewbox.Style>
+                                                                <Style TargetType="Viewbox">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="3">
+                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                        </DataTrigger>
+                                                                        <MultiDataTrigger>
+                                                                            <MultiDataTrigger.Conditions>
+                                                                                <Condition Binding="{Binding PowerGaugeEnabled}" Value="False" />
+                                                                                <Condition Binding="{Binding TorqueGaugeEnabled}" Value="False" />
+                                                                            </MultiDataTrigger.Conditions>
+                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                        </MultiDataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Viewbox.Style>
+                                                            <local:PowerTorqueGaugePairPreview />
+                                                        </Viewbox>
                                                         <Grid x:Name="MinimalLayoutPreview">
                                                             <Grid.Style>
                                                                 <Style TargetType="Grid">
@@ -496,7 +521,7 @@
                                                             </Border>
                                                         </Grid>
 
-                                                        <Grid x:Name="NativeLayoutPreview">
+                                                        <Grid x:Name="NativeLayoutPreview" Grid.ColumnSpan="2">
                                                             <Grid.Style>
                                                                 <Style TargetType="Grid">
                                                                     <Setter Property="Visibility" Value="Collapsed" />
@@ -510,7 +535,13 @@
                                                             <Viewbox x:Name="NativePreviewScaleView" Stretch="Uniform"
                                                                      HorizontalAlignment="Center" VerticalAlignment="Center">
                                                                 <Grid>
-                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <local:PowerTorqueGaugePairPreview Grid.Column="1" Margin="8,76,0,0"
+                                                                                                       VerticalAlignment="Top" />
+                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top">
                                                                         <StackPanel.Style>
                                                                             <Style TargetType="StackPanel">
                                                                                 <Style.Triggers>
@@ -619,7 +650,7 @@
                                                                             </local:NativeGForceMeterView>
                                                                         </Grid>
                                                                     </StackPanel>
-                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top">
                                                                         <StackPanel.Style>
                                                                             <Style TargetType="StackPanel">
                                                                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -970,6 +1001,9 @@
                 Width="{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}}">
                 <local:OrbitSurface Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                     <local:DriftGaugeSettingsControl x:Name="DriftGaugeSettings" />
+                </local:OrbitSurface>
+                <local:OrbitSurface Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                    <local:PowerTorqueGaugeSettingsControl x:Name="PowerTorqueGaugeSettings" />
                 </local:OrbitSurface>
 <local:OrbitSurface x:Name="GForceSettingsCard" Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                                             <StackPanel><Grid><StackPanel><TextBlock Text="G-FORCE METER" Style="{StaticResource EyebrowTextStyle}" />

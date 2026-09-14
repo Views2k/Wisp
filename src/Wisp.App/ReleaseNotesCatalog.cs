@@ -15,11 +15,27 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.1",
+            "September 14, 2026",
+            "PRIVATE TEST",
+            "Optional power and torque gauges beside your speedometer.",
+            true,
+            [
+                Group("Power and torque",
+                    "Turn on Power gauge and Torque gauge independently in Appearance → Gauges.",
+                    "Native-style dials show live BHP and torque, with peak markers and peak readouts. Torque follows your Nm or lb-ft preference.",
+                    "Choose a fixed range for each car, or select Set from this run to use its observed peaks plus 10%. Scales stay fixed while driving and remember your choice for that car.",
+                    "Adjust gauge size under More options. Numbers remain readable beyond the scale limit; Reset peaks clears the peak markers without changing your fixed ranges.",
+                    "Peak readings reset when you change cars. HUD profiles save gauge visibility, size and the ranges currently selected."),
+                Group("Existing features",
+                    "Includes the Wisp 2.0.1 interface hotfixes and optional quick tour. Your existing HUD layout stays unchanged until you enable the new gauges.")
+            ]),
+        new(
             "2.0.1",
             "September 14, 2026",
             "UI HOTFIX",
             "A quick tour of Wisp 2.0, with fixes for interface pauses, particle timing and clipped top speed.",
-            true,
+            false,
             [
                 Group("Quick tour",
                     "Adds an optional welcome banner and four-step tour of the drift gauge, Display mode, Runs and Appearance colors.",

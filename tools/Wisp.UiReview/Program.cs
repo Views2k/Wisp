@@ -39,6 +39,11 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--power-torque-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return PowerTorqueReview.Run(output, () => LoadApplicationResources(output, out _), DetachSurface, SetOffscreenDpi);
+            }
             if (args.Length == 3 && args[0] == "--tour-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);
