@@ -21,7 +21,7 @@
                                                    MidBrush="{DynamicResource BoostMidBrush}"
                                                    HighBrush="{DynamicResource BoostHighBrush}" />
             <local:AnalogTireTemperatureGaugeView x:Name="AnalogGauge"
-                                                  Width="118" Height="118" Margin="4"
+                                                  Width="136" Height="136" Margin="4"
                                                   Visibility="Collapsed"
                                                   Display="{Binding TireTemperatureDisplay}"
                                                   TemperatureUnit="{Binding SelectedTireTemperatureUnit}"

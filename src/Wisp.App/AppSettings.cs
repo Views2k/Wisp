@@ -73,6 +73,18 @@ public sealed class AppSettings
     public double TireTemperatureGaugeScale { get; set; } = 1.0;
     public bool PowerGaugeEnabled { get; set; }
     public bool TorqueGaugeEnabled { get; set; }
+    public bool PowerGaugeAttached { get; set; } = true;
+    public bool TorqueGaugeAttached { get; set; } = true;
+    public double PowerTorqueSmoothingMilliseconds { get; set; } = 500;
+    public bool PowerTorqueShowNegative { get; set; }
+    public bool PowerGaugeColorNumber { get; set; }
+    public bool TorqueGaugeColorNumber { get; set; }
+    public string? CustomPowerLowColor { get; set; }
+    public string? CustomPowerMidColor { get; set; }
+    public string? CustomPowerHighColor { get; set; }
+    public string? CustomTorqueLowColor { get; set; }
+    public string? CustomTorqueMidColor { get; set; }
+    public string? CustomTorqueHighColor { get; set; }
     public double PowerTorqueGaugeScale { get; set; } = 1;
     public double PowerGaugeMaximum { get; set; } = 1000;
     public double TorqueGaugeMaximumNm { get; set; } = 1200;
@@ -156,11 +168,15 @@ public sealed class AppSettings
     public Dictionary<string, OverlayPlacement> BoostGaugePlacements { get; set; } = new();
     public Dictionary<string, OverlayPlacement> TireTemperatureGaugePlacements { get; set; } = new();
     public Dictionary<string, OverlayPlacement> DriftGaugePlacements { get; set; } = new();
+    public Dictionary<string, OverlayPlacement> PowerGaugePlacements { get; set; } = new();
+    public Dictionary<string, OverlayPlacement> TorqueGaugePlacements { get; set; } = new();
     public string? LastOverlayPlacementKey { get; set; }
     public string? LastGForcePlacementKey { get; set; }
     public string? LastBoostGaugePlacementKey { get; set; }
     public string? LastTireTemperatureGaugePlacementKey { get; set; }
     public string? LastDriftGaugePlacementKey { get; set; }
+    public string? LastPowerGaugePlacementKey { get; set; }
+    public string? LastTorqueGaugePlacementKey { get; set; }
     public List<CalibrationSnapshot> Calibrations { get; set; } = new();
 
     [JsonPropertyName("OverlayScale")]
@@ -418,6 +434,19 @@ public sealed class AppSettings
 
     internal void NormalizePowerTorqueGaugeSettings()
     {
+        PowerTorqueSmoothingMilliseconds = NormalizePowerTorqueSmoothing(PowerTorqueSmoothingMilliseconds);
+        CustomPowerLowColor = ColorCustomization.NormalizeGauge(CustomPowerLowColor);
+        CustomPowerMidColor = ColorCustomization.NormalizeGauge(CustomPowerMidColor);
+        CustomPowerHighColor = ColorCustomization.NormalizeGauge(CustomPowerHighColor);
+        CustomTorqueLowColor = ColorCustomization.NormalizeGauge(CustomTorqueLowColor);
+        CustomTorqueMidColor = ColorCustomization.NormalizeGauge(CustomTorqueMidColor);
+        CustomTorqueHighColor = ColorCustomization.NormalizeGauge(CustomTorqueHighColor);
+        PowerGaugePlacements ??= new Dictionary<string, OverlayPlacement>();
+        TorqueGaugePlacements ??= new Dictionary<string, OverlayPlacement>();
+        NormalizePlacements(PowerGaugePlacements);
+        NormalizePlacements(TorqueGaugePlacements);
+        if (LastPowerGaugePlacementKey is not null && !PowerGaugePlacements.ContainsKey(LastPowerGaugePlacementKey)) LastPowerGaugePlacementKey = null;
+        if (LastTorqueGaugePlacementKey is not null && !TorqueGaugePlacements.ContainsKey(LastTorqueGaugePlacementKey)) LastTorqueGaugePlacementKey = null;
         PowerTorqueGaugeScale = NormalizeScale(PowerTorqueGaugeScale);
         PowerGaugeMaximum = NormalizePowerGaugeMaximum(PowerGaugeMaximum);
         TorqueGaugeMaximumNm = NormalizeTorqueGaugeMaximum(TorqueGaugeMaximumNm);
@@ -438,6 +467,9 @@ public sealed class AppSettings
 
     internal static double NormalizePowerGaugeMaximum(double value) =>
         double.IsFinite(value) ? Math.Clamp(value, 100, 5000) : 1000;
+
+    internal static double NormalizePowerTorqueSmoothing(double value) =>
+        double.IsFinite(value) ? Math.Clamp(value, 0, 1500) : 500;
 
     internal static double NormalizeTorqueGaugeMaximum(double value) =>
         double.IsFinite(value) ? Math.Clamp(value, 100, 10000) : 1200;
@@ -599,7 +631,18 @@ public sealed class SettingsService
         {
             if (!File.Exists(_settingsPath))
             {
-                return PrepareForLoad(new AppSettings { BackgroundTheme = AppBackgroundThemes.FreshInstallName });
+                return PrepareForLoad(new AppSettings
+                {
+                    BackgroundTheme = AppBackgroundThemes.FreshInstallName,
+                    LayoutMode = HudLayoutMode.Native,
+                    NativeGaugeMode = NativeGaugeMode.Analogue,
+                    GForceEnabled = true,
+                    BoostGaugeEnabled = true,
+                    TireTemperatureGaugeEnabled = true,
+                    PowerGaugeEnabled = true,
+                    TorqueGaugeEnabled = true,
+                    DriftGaugeEnabled = true
+                });
             }
 
             var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), JsonOptions)

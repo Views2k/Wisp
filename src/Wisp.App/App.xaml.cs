@@ -173,6 +173,7 @@ public partial class App : Application
         tireTemperatureGaugeOverlay.SetEditMode(!settings.OverlayLocked);
 
         _controller.InitializeDriftGaugeWindow();
+        _controller.InitializePowerTorqueGaugeWindows();
 
         ControlPanelWindow mainWindow = settings.UseLegacyInterface
             ? new LegacyMainWindow(_controller)

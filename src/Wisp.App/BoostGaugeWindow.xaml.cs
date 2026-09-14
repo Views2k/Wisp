@@ -9,7 +9,8 @@ namespace Wisp.App;
 public partial class BoostGaugeWindow : Window
 {
     private const uint DefaultToNearestMonitor = 2;
-    private const double BaseSize = 148;
+    private const double BaseSize = PowerTorqueGaugeLayout.GaugeDiameter + 8;
+    private readonly AppController _controller;
     private readonly NonActivatingWindowDrag _windowDrag;
     private bool _enabled;
     private bool _telemetryVisible;
@@ -17,6 +18,7 @@ public partial class BoostGaugeWindow : Window
     public BoostGaugeWindow(AppController controller)
     {
         InitializeComponent();
+        _controller = controller;
         DataContext = controller.ViewModel;
         BoostGaugeThemeResources.Apply(
             Resources,
@@ -73,7 +75,8 @@ public partial class BoostGaugeWindow : Window
 
     public void ResetPosition(Rect anchorBounds, Rect workArea)
     {
-        var position = OverlayPlacementGeometry.PlaceAbove(workArea, anchorBounds, new Size(Width, Height));
+        var position = DetachedSupplementaryGaugeLayout.Place(workArea, anchorBounds,
+            new Size(Width, Height), _controller.DetachedSupplementaryGaugeCellSize, 0);
         Left = position.X;
         Top = position.Y;
     }

@@ -35,6 +35,8 @@ public sealed partial class DiagnosticsViewModel
 
     private void UpdatePowerTorqueDisplay(VehicleState state)
     {
+        _powerTorqueDisplayModel.SmoothingMilliseconds = PowerTorqueSmoothingMilliseconds;
+        _powerTorqueDisplayModel.ShowNegative = PowerTorqueShowNegative;
         if (state.CarOrdinal > 0 && state.CarOrdinal != _powerTorqueCarOrdinal)
         {
             _powerTorqueCarOrdinal = state.CarOrdinal;
@@ -54,6 +56,13 @@ public sealed partial class DiagnosticsViewModel
     private void ResetPowerTorquePeaks()
     {
         _powerTorqueDisplayModel.ResetPeaks();
+        PowerTorqueDisplay = _powerTorqueDisplayModel.Current;
+    }
+
+    internal void RefreshPowerTorqueDisplayOptions()
+    {
+        _powerTorqueDisplayModel.SmoothingMilliseconds = PowerTorqueSmoothingMilliseconds;
+        _powerTorqueDisplayModel.ShowNegative = PowerTorqueShowNegative;
         PowerTorqueDisplay = _powerTorqueDisplayModel.Current;
     }
 }

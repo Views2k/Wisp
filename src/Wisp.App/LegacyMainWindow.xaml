@@ -731,7 +731,32 @@
                                                                                 </Style.Triggers>
                                                                             </Style>
                                                                         </StackPanel.Style>
-                                                                        <Grid Width="439" Height="404" ClipToBounds="False">
+                                                                        <Grid Height="404" ClipToBounds="False">
+                                                                            <Grid.Style>
+                                                                                <Style TargetType="Grid">
+                                                                                    <Setter Property="Width" Value="439" />
+                                                                                    <Style.Triggers>
+                                                                                        <MultiDataTrigger>
+                                                                                            <MultiDataTrigger.Conditions>
+                                                                                                <Condition Binding="{Binding PowerGaugeEnabled}" Value="True" />
+                                                                                                <Condition Binding="{Binding PowerGaugeAttached}" Value="True" />
+                                                                                                <Condition Binding="{Binding BoostGaugeAttached}" Value="True" />
+                                                                                                <Condition Binding="{Binding TireTemperatureGaugeAttached}" Value="True" />
+                                                                                            </MultiDataTrigger.Conditions>
+                                                                                            <Setter Property="Width" Value="402" />
+                                                                                        </MultiDataTrigger>
+                                                                                        <MultiDataTrigger>
+                                                                                            <MultiDataTrigger.Conditions>
+                                                                                                <Condition Binding="{Binding TorqueGaugeEnabled}" Value="True" />
+                                                                                                <Condition Binding="{Binding TorqueGaugeAttached}" Value="True" />
+                                                                                                <Condition Binding="{Binding BoostGaugeAttached}" Value="True" />
+                                                                                                <Condition Binding="{Binding TireTemperatureGaugeAttached}" Value="True" />
+                                                                                            </MultiDataTrigger.Conditions>
+                                                                                            <Setter Property="Width" Value="402" />
+                                                                                        </MultiDataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </Grid.Style>
                                                                             <local:NativeAnalogSpeedometer Width="293" Height="293.5" Margin="0,72,0,0"
                                                                                                            HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                            Frame="{Binding NativePreviewFrame}">
@@ -788,7 +813,7 @@
                                                                                 </local:AnalogBoostGaugeView.Style>
                                                                             </local:AnalogBoostGaugeView>
                                                                             <local:AnalogTireTemperatureGaugeView x:Name="NativeAnalogTireTemperaturePreview"
-                                                                                                                  Width="116" Height="116"
+                                                                                                                  Width="136" Height="136"
                                                                                                                   HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                                   Display="{Binding PreviewTireTemperatureDisplay}"
                                                                                                                   TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
@@ -807,7 +832,7 @@
                                                                                                 <Setter Property="Visibility" Value="Visible" />
                                                                                             </DataTrigger>
                                                                                             <DataTrigger Binding="{Binding TireTemperatureGaugeAttached}" Value="True">
-                                                                                                <Setter Property="Margin" Value="286,76,0,0" />
+                                                                                                <Setter Property="Margin" Value="276,76,0,0" />
                                                                                             </DataTrigger>
                                                                                             <MultiDataTrigger>
                                                                                                 <MultiDataTrigger.Conditions>
@@ -816,7 +841,7 @@
                                                                                                     <Condition Binding="{Binding BoostGaugeAttached}" Value="True" />
                                                                                                     <Condition Binding="{Binding NativePreviewFrame.IsElectric}" Value="False" />
                                                                                                 </MultiDataTrigger.Conditions>
-                                                                                                <Setter Property="Margin" Value="286,214,0,0" />
+                                                                                                <Setter Property="Margin" Value="276,214,0,0" />
                                                                                             </MultiDataTrigger>
                                                                                         </Style.Triggers>
                                                                                     </Style>

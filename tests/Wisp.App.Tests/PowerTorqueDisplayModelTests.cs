@@ -12,20 +12,26 @@ public sealed class PowerTorqueDisplayModelTests
     [InlineData(-87, -145)]
     public void FirstReadingPreservesSignedPowerAndTorque(double horsepower, double torque)
     {
-        var model = new PowerTorqueDisplayModel();
+        var model = new PowerTorqueDisplayModel { ShowNegative = true };
         var display = model.Observe(2974, 1_000, horsepower * WattsPerBhp, torque);
         Assert.True(display.Available);
         Assert.Equal(horsepower, display.PowerBhp, 9);
         Assert.Equal(torque, display.TorqueNm);
+        Assert.Equal(horsepower, display.ReadoutPowerBhp!.Value, 9);
+        Assert.Equal(torque, display.ReadoutTorqueNm);
         Assert.Equal(Math.Max(0, horsepower), display.PeakPowerBhp, 9);
         Assert.Equal(Math.Max(0, torque), display.PeakTorqueNm);
     }
 
-    [Fact]
-    public void SmoothingDependsOnGameTimeRatherThanObserverFrequency()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(150)]
+    [InlineData(500)]
+    [InlineData(1500)]
+    public void SmoothingDependsOnGameTimeRatherThanObserverFrequency(double smoothing)
     {
-        var frequent = new PowerTorqueDisplayModel();
-        var sparse = new PowerTorqueDisplayModel();
+        var frequent = new PowerTorqueDisplayModel { SmoothingMilliseconds = smoothing };
+        var sparse = new PowerTorqueDisplayModel { SmoothingMilliseconds = smoothing };
         frequent.Observe(1, 1_000, 0, 0);
         sparse.Observe(1, 1_000, 0, 0);
         for (uint timestamp = 1_010; timestamp <= 1_150; timestamp += 10)
@@ -33,8 +39,8 @@ public sealed class PowerTorqueDisplayModelTests
         var result = sparse.Observe(1, 1_150, 1_000 * WattsPerBhp, 1_200);
         Assert.Equal(result.PowerBhp, frequent.Current.PowerBhp, 9);
         Assert.Equal(result.TorqueNm, frequent.Current.TorqueNm, 9);
-        Assert.InRange(result.PowerBhp, 632.12, 632.13);
-        Assert.InRange(result.TorqueNm, 758.54, 758.55);
+        Assert.Equal(result.PeakPowerBhp, frequent.Current.PeakPowerBhp);
+        Assert.Equal(result.PeakTorqueNm, frequent.Current.PeakTorqueNm);
     }
 
     [Fact]
@@ -51,8 +57,10 @@ public sealed class PowerTorqueDisplayModelTests
         var model = new PowerTorqueDisplayModel();
         model.Observe(1, 1_000, 0, 0);
         var peak = model.Observe(1, 1_001, 900 * WattsPerBhp, 1_100);
-        Assert.InRange(peak.PowerBhp, 5, 7);
-        Assert.InRange(peak.TorqueNm, 7, 8);
+        Assert.InRange(peak.PowerBhp, 1, 2);
+        Assert.InRange(peak.TorqueNm, 2, 3);
+        Assert.Equal(0, peak.ReadoutPowerBhp);
+        Assert.Equal(0, peak.ReadoutTorqueNm);
         Assert.Equal(900, peak.PeakPowerBhp, 9);
         Assert.Equal(1_100, peak.PeakTorqueNm);
         var afterPeak = model.Observe(1, 1_002, 0, 0);
@@ -100,6 +108,8 @@ public sealed class PowerTorqueDisplayModelTests
         var display = model.Observe(1, timestamp, 100 * WattsPerBhp, 120);
         Assert.Equal(100, display.PowerBhp, 9);
         Assert.Equal(120, display.TorqueNm);
+        Assert.Equal(100, display.ReadoutPowerBhp!.Value, 9);
+        Assert.Equal(120, display.ReadoutTorqueNm);
         Assert.Equal(700, display.PeakPowerBhp, 9);
         Assert.Equal(900, display.PeakTorqueNm);
     }
@@ -146,12 +156,16 @@ public sealed class PowerTorqueDisplayModelTests
         Assert.False(invalid.Available);
         Assert.Equal(0, invalid.PowerBhp);
         Assert.Equal(0, invalid.TorqueNm);
+        Assert.Null(invalid.ReadoutPowerBhp);
+        Assert.Null(invalid.ReadoutTorqueNm);
         Assert.Equal(400, invalid.PeakPowerBhp, 9);
         Assert.Equal(500, invalid.PeakTorqueNm);
         var recovered = model.Observe(1, 200, 200 * WattsPerBhp, 250);
         Assert.True(recovered.Available);
         Assert.Equal(200, recovered.PowerBhp, 9);
         Assert.Equal(250, recovered.TorqueNm);
+        Assert.Equal(200, recovered.ReadoutPowerBhp!.Value, 9);
+        Assert.Equal(250, recovered.ReadoutTorqueNm);
     }
 
     [Fact]
@@ -177,5 +191,146 @@ public sealed class PowerTorqueDisplayModelTests
         Assert.Equal(737.5621492772656, PowerTorqueDisplay.ConvertTorque(display.TorqueNm, TorqueUnit.PoundFeet), 9);
         Assert.Equal(-73.75621492772656, PowerTorqueDisplay.ConvertTorque(-100, TorqueUnit.PoundFeet), 9);
         Assert.Equal(1_000, display.TorqueNm);
+    }
+
+    [Fact]
+    public void DefaultSmoothingSlowsReadoutsWhileTheNeedleStillReceivesEverySample()
+    {
+        var model = new PowerTorqueDisplayModel();
+        Assert.Equal(500, model.SmoothingMilliseconds);
+        model.Observe(1, 1_000, 0, 0);
+        double lastNeedle = 0;
+        for (uint timestamp = 1_010; timestamp < 1_100; timestamp += 10)
+        {
+            var sample = model.Observe(1, timestamp, 1_000 * WattsPerBhp, 1_200);
+            Assert.True(sample.PowerBhp > lastNeedle);
+            Assert.Equal(0, sample.ReadoutPowerBhp);
+            Assert.Equal(0, sample.ReadoutTorqueNm);
+            lastNeedle = sample.PowerBhp;
+        }
+        var published = model.Observe(1, 1_100, 1_000 * WattsPerBhp, 1_200);
+        Assert.InRange(published.PowerBhp, 181.26, 181.28);
+        Assert.InRange(published.TorqueNm, 217.51, 217.53);
+        Assert.Equal(published.PowerBhp, published.ReadoutPowerBhp);
+        Assert.Equal(published.TorqueNm, published.ReadoutTorqueNm);
+        var next = model.Observe(1, 1_110, 1_000 * WattsPerBhp, 1_200);
+        Assert.True(next.PowerBhp > published.PowerBhp);
+        Assert.Equal(published.ReadoutPowerBhp, next.ReadoutPowerBhp);
+        Assert.Equal(published.ReadoutTorqueNm, next.ReadoutTorqueNm);
+    }
+
+    [Fact]
+    public void RapidAlternatingSignedOutputKeepsNumbersOnTheirCadenceAndRetainsRawPeaks()
+    {
+        var signed = new PowerTorqueDisplayModel { ShowNegative = true };
+        var positiveOnly = new PowerTorqueDisplayModel();
+        signed.Observe(1, 1_000, 0, 0);
+        positiveOnly.Observe(1, 1_000, 0, 0);
+        double? previousReadout = 0;
+        var changes = 0;
+        for (uint index = 1; index <= 100; index++)
+        {
+            var sign = index % 2 == 0 ? -1 : 1;
+            var sample = signed.Observe(1, 1_000 + index * 20, sign * 900 * WattsPerBhp, sign * 1_100);
+            positiveOnly.Observe(1, 1_000 + index * 20, sign * 900 * WattsPerBhp, sign * 1_100);
+            if (sample.ReadoutPowerBhp != previousReadout)
+            {
+                Assert.Equal(0u, index % 5);
+                changes++;
+            }
+            previousReadout = sample.ReadoutPowerBhp;
+        }
+        Assert.Equal(20, changes);
+        Assert.InRange(Math.Abs(signed.Current.PowerBhp), 0, 25);
+        Assert.InRange(Math.Abs(signed.Current.TorqueNm), 0, 30);
+        Assert.InRange(positiveOnly.Current.PowerBhp, 420, 470);
+        Assert.InRange(positiveOnly.Current.TorqueNm, 510, 580);
+        Assert.Equal(900, signed.Current.PeakPowerBhp, 9);
+        Assert.Equal(1_100, signed.Current.PeakTorqueNm);
+        Assert.Equal(signed.Current.PeakPowerBhp, positiveOnly.Current.PeakPowerBhp);
+        Assert.Equal(signed.Current.PeakTorqueNm, positiveOnly.Current.PeakTorqueNm);
+    }
+
+    [Theory]
+    [InlineData(false, 0, 0)]
+    [InlineData(true, -69, -138)]
+    public void NegativeReadingsAreOptionalWithoutChangingRawPositivePeaks(bool showNegative,
+        double expectedPower, double expectedTorque)
+    {
+        var model = new PowerTorqueDisplayModel { ShowNegative = showNegative };
+        var display = model.Observe(1, 100, -69 * WattsPerBhp, -138);
+        Assert.Equal(expectedPower, display.PowerBhp, 9);
+        Assert.Equal(expectedTorque, display.TorqueNm);
+        Assert.Equal(expectedPower, display.ReadoutPowerBhp!.Value, 9);
+        Assert.Equal(expectedTorque, display.ReadoutTorqueNm);
+        Assert.Equal(0, display.PeakPowerBhp);
+        Assert.Equal(0, display.PeakTorqueNm);
+    }
+
+    [Fact]
+    public void HiddenNegativeInputsAreClampedBeforeFilteringRatherThanDraggingPositiveOutputBelowZero()
+    {
+        var positiveOnly = new PowerTorqueDisplayModel();
+        var signed = new PowerTorqueDisplayModel { ShowNegative = true };
+        Assert.False(positiveOnly.ShowNegative);
+        positiveOnly.Observe(1, 1_000, 400 * WattsPerBhp, 500);
+        signed.Observe(1, 1_000, 400 * WattsPerBhp, 500);
+        var clamped = positiveOnly.Observe(1, 1_100, -4_000 * WattsPerBhp, -5_000);
+        var unclamped = signed.Observe(1, 1_100, -4_000 * WattsPerBhp, -5_000);
+        Assert.InRange(clamped.PowerBhp, 325, 330);
+        Assert.InRange(clamped.TorqueNm, 405, 415);
+        Assert.True(unclamped.PowerBhp < 0);
+        Assert.True(unclamped.TorqueNm < 0);
+        Assert.Equal(400, clamped.PeakPowerBhp, 9);
+        Assert.Equal(500, clamped.PeakTorqueNm);
+        Assert.Equal(clamped.PeakPowerBhp, unclamped.PeakPowerBhp);
+        Assert.Equal(clamped.PeakTorqueNm, unclamped.PeakTorqueNm);
+    }
+
+    [Fact]
+    public void HidingNegativeReadingsClearsPreviouslyDisplayedNegativesImmediately()
+    {
+        var model = new PowerTorqueDisplayModel { ShowNegative = true };
+        model.Observe(1, 100, 100 * WattsPerBhp, 200);
+        model.Observe(1, 3_000, -69 * WattsPerBhp, -138);
+        Assert.True(model.Current.PowerBhp < 0);
+        Assert.True(model.Current.ReadoutPowerBhp < 0);
+        model.ShowNegative = false;
+        Assert.Equal(0, model.Current.PowerBhp);
+        Assert.Equal(0, model.Current.TorqueNm);
+        Assert.Equal(0, model.Current.ReadoutPowerBhp);
+        Assert.Equal(0, model.Current.ReadoutTorqueNm);
+        Assert.Equal(100, model.Current.PeakPowerBhp, 9);
+        Assert.Equal(200, model.Current.PeakTorqueNm);
+        Assert.Equal(0, model.Observe(1, 3_010, -500 * WattsPerBhp, -600).PowerBhp);
+        model.SmoothingMilliseconds = 0;
+        model.ShowNegative = true;
+        var signed = model.Observe(1, 3_100, -69 * WattsPerBhp, -138);
+        Assert.Equal(-69, signed.PowerBhp, 9);
+        Assert.Equal(-69, signed.ReadoutPowerBhp!.Value, 9);
+        Assert.Equal(-138, signed.ReadoutTorqueNm);
+    }
+
+    [Theory]
+    [InlineData(-10, 0)]
+    [InlineData(0, 0)]
+    [InlineData(750, 750)]
+    [InlineData(2_000, 1_500)]
+    [InlineData(double.NaN, 500)]
+    [InlineData(double.PositiveInfinity, 500)]
+    public void SmoothingIsBoundedAndSurvivesCarAndDisplayResets(double requested, double expected)
+    {
+        var model = new PowerTorqueDisplayModel { SmoothingMilliseconds = requested, ShowNegative = true };
+        Assert.Equal(expected, model.SmoothingMilliseconds);
+        model.Observe(1, 100, 200 * WattsPerBhp, 300);
+        model.Observe(2, 110, -69 * WattsPerBhp, -138);
+        Assert.Equal(expected, model.SmoothingMilliseconds);
+        Assert.True(model.ShowNegative);
+        Assert.Equal(-69, model.Current.ReadoutPowerBhp!.Value, 9);
+        model.ResetCurrent();
+        Assert.Null(model.Current.ReadoutPowerBhp);
+        model.Reset();
+        Assert.Equal(expected, model.SmoothingMilliseconds);
+        Assert.True(model.ShowNegative);
     }
 }

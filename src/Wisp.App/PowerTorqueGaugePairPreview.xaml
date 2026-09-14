@@ -7,12 +7,20 @@
         <Style TargetType="UserControl">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
-                <DataTrigger Binding="{Binding PowerGaugeEnabled}" Value="True">
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding PowerGaugeEnabled}" Value="True" />
+                        <Condition Binding="{Binding PowerGaugeAttached}" Value="True" />
+                    </MultiDataTrigger.Conditions>
                     <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding TorqueGaugeEnabled}" Value="True">
+                </MultiDataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding TorqueGaugeEnabled}" Value="True" />
+                        <Condition Binding="{Binding TorqueGaugeAttached}" Value="True" />
+                    </MultiDataTrigger.Conditions>
                     <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
+                </MultiDataTrigger>
             </Style.Triggers>
         </Style>
     </UserControl.Style>
@@ -20,38 +28,58 @@
         <ScaleTransform ScaleX="{Binding PowerTorqueGaugeScale}" ScaleY="{Binding PowerTorqueGaugeScale}" />
     </UserControl.LayoutTransform>
     <StackPanel>
-        <local:PowerTorqueGaugeView Width="140" Height="140"
+        <local:PowerTorqueGaugeView Width="136" Height="136"
                                    Display="{Binding PreviewPowerTorqueDisplay}"
                                    IsElectricMaterial="{Binding NativePreviewFrame.IsElectric}"
                                    Maximum="{Binding PreviewPowerGaugeMaximum}"
+                                   LowBrush="{Binding PowerGaugeLowBrush}"
+                                   MidBrush="{Binding PowerGaugeMidBrush}"
+                                   HighBrush="{Binding PowerGaugeHighBrush}"
+                                   ColorNumber="{Binding PowerGaugeColorNumber}"
                                    AccentBrush="{DynamicResource AccentBrush}">
             <local:PowerTorqueGaugeView.Style>
                 <Style TargetType="local:PowerTorqueGaugeView">
                     <Setter Property="Visibility" Value="Collapsed" />
                     <Style.Triggers>
-                        <DataTrigger Binding="{Binding PowerGaugeEnabled}" Value="True">
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding PowerGaugeEnabled}" Value="True" />
+                                <Condition Binding="{Binding PowerGaugeAttached}" Value="True" />
+                            </MultiDataTrigger.Conditions>
                             <Setter Property="Visibility" Value="Visible" />
-                        </DataTrigger>
+                        </MultiDataTrigger>
                     </Style.Triggers>
                 </Style>
             </local:PowerTorqueGaugeView.Style>
         </local:PowerTorqueGaugeView>
-        <local:PowerTorqueGaugeView Width="140" Height="140" IsTorque="True"
+        <local:PowerTorqueGaugeView Width="136" Height="136" IsTorque="True"
                                    Display="{Binding PreviewPowerTorqueDisplay}"
                                    IsElectricMaterial="{Binding NativePreviewFrame.IsElectric}"
                                    TorqueUnit="{Binding SelectedTorqueUnit}"
                                    Maximum="{Binding PreviewTorqueGaugeMaximum}"
+                                   LowBrush="{Binding TorqueGaugeLowBrush}"
+                                   MidBrush="{Binding TorqueGaugeMidBrush}"
+                                   HighBrush="{Binding TorqueGaugeHighBrush}"
+                                   ColorNumber="{Binding TorqueGaugeColorNumber}"
                                    AccentBrush="{DynamicResource AccentBrush}">
             <local:PowerTorqueGaugeView.Style>
                 <Style TargetType="local:PowerTorqueGaugeView">
                     <Setter Property="Visibility" Value="Collapsed" />
                     <Style.Triggers>
-                        <DataTrigger Binding="{Binding TorqueGaugeEnabled}" Value="True">
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding TorqueGaugeEnabled}" Value="True" />
+                                <Condition Binding="{Binding TorqueGaugeAttached}" Value="True" />
+                            </MultiDataTrigger.Conditions>
                             <Setter Property="Visibility" Value="Visible" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding PowerGaugeEnabled}" Value="True">
-                            <Setter Property="Margin" Value="0,8,0,0" />
-                        </DataTrigger>
+                        </MultiDataTrigger>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding PowerGaugeEnabled}" Value="True" />
+                                <Condition Binding="{Binding PowerGaugeAttached}" Value="True" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Margin" Value="0,2,0,0" />
+                        </MultiDataTrigger>
                     </Style.Triggers>
                 </Style>
             </local:PowerTorqueGaugeView.Style>

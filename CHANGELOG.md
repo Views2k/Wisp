@@ -6,7 +6,8 @@ Notable changes to Wisp are recorded here.
 
 - Add independently optional power and torque gauges beside the speedometer, with native-style needles, live values and peak markers.
 - Add gauge size and fixed scale controls in Appearance → Gauges. Remember ranges separately for each car, with an explicit Set from this run action using observed peaks plus 10%.
-- Reuse the current telemetry path and existing torque-unit preference. Keep both gauges off until enabled.
+- Add adjustable smoothing, stable numeric updates, optional signed output, independent attachment and boost-style line colors for power and torque. Preserve recorded telemetry and fixed per-car ranges.
+- Start fresh installations with Native Analogue and all gauges enabled. Match the four supplementary dial sizes and tighten the power/torque spacing. Preserve existing saved choices.
 - Include the 2.0.1 interface fixes and optional quick tour.
 
 ## 2.0.1 - 2026-09-14

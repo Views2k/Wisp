@@ -109,7 +109,9 @@ public partial class OverlayWindow : Window
             nameof(DiagnosticsViewModel.TireTemperatureGaugeAttached) or
             nameof(DiagnosticsViewModel.PowerTorqueDisplay) or
             nameof(DiagnosticsViewModel.PowerGaugeEnabled) or
+            nameof(DiagnosticsViewModel.PowerGaugeAttached) or
             nameof(DiagnosticsViewModel.TorqueGaugeEnabled) or
+            nameof(DiagnosticsViewModel.TorqueGaugeAttached) or
             nameof(DiagnosticsViewModel.PowerTorqueGaugeScale) or
             nameof(DiagnosticsViewModel.GForceEnabled) or
             nameof(DiagnosticsViewModel.GForceAttached))
@@ -128,8 +130,10 @@ public partial class OverlayWindow : Window
                                    _controller.ViewModel.GForceEnabled &&
                                    _controller.ViewModel.GForceAttached;
             var showPower = _controller.ViewModel.PowerGaugeEnabled &&
+                            _controller.ViewModel.PowerGaugeAttached &&
                             _controller.ViewModel.PowerTorqueDisplay.Available;
             var showTorque = _controller.ViewModel.TorqueGaugeEnabled &&
+                             _controller.ViewModel.TorqueGaugeAttached &&
                              _controller.ViewModel.PowerTorqueDisplay.Available;
             if (shouldShow == _attachedBoostVisible &&
                 shouldShowTireTemperature == _attachedTireTemperatureVisible &&
@@ -338,7 +342,7 @@ public partial class OverlayWindow : Window
             0,
             0);
         AttachedAnalogTireTemperature.Margin = new Thickness(
-            286,
+            PowerTorqueGaugeLayout.NativeSatelliteLeft,
             (analogBoostVisible ? 142 : 4) + nativeTop,
             0,
             0);
@@ -373,13 +377,16 @@ public partial class OverlayWindow : Window
         };
         baseHeight += nativeTop;
         _attachedPowerVisible = _controller.ViewModel.PowerGaugeEnabled &&
+                                _controller.ViewModel.PowerGaugeAttached &&
                                 _controller.ViewModel.PowerTorqueDisplay.Available;
         _attachedTorqueVisible = _controller.ViewModel.TorqueGaugeEnabled &&
+                                 _controller.ViewModel.TorqueGaugeAttached &&
                                  _controller.ViewModel.PowerTorqueDisplay.Available;
         _powerTorqueScale = _controller.ViewModel.PowerTorqueGaugeScale;
         var powerTorqueLayout = PowerTorqueGaugeLayout.Calculate(
             new Size(baseWidth, baseHeight), nativeTop + 4,
-            _attachedPowerVisible, _attachedTorqueVisible, _powerTorqueScale);
+            _attachedPowerVisible, _attachedTorqueVisible, _powerTorqueScale,
+            analogBoostVisible || analogTireTemperatureVisible);
         ApplyPowerTorqueBounds(AttachedPowerGauge, powerTorqueLayout.PowerBounds);
         ApplyPowerTorqueBounds(AttachedTorqueGauge, powerTorqueLayout.TorqueBounds);
         RootPanel.Width = powerTorqueLayout.Size.Width;

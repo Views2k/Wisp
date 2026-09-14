@@ -11,7 +11,8 @@ public partial class TireTemperatureGaugeWindow : Window
     private const uint DefaultToNearestMonitor = 2;
     private const double DigitalWidth = 310;
     private const double DigitalHeight = 92;
-    private const double AnalogSize = 126;
+    private const double AnalogSize = PowerTorqueGaugeLayout.GaugeDiameter + 8;
+    private readonly AppController _controller;
     private readonly NonActivatingWindowDrag _windowDrag;
     private NativeGaugeMode _gaugeMode;
     private double _scale = 1;
@@ -22,6 +23,7 @@ public partial class TireTemperatureGaugeWindow : Window
     public TireTemperatureGaugeWindow(AppController controller)
     {
         InitializeComponent();
+        _controller = controller;
         DataContext = controller.ViewModel;
         BoostGaugeThemeResources.Apply(
             Resources,
@@ -97,7 +99,8 @@ public partial class TireTemperatureGaugeWindow : Window
 
     public void ResetPosition(Rect anchorBounds, Rect workArea)
     {
-        var position = OverlayPlacementGeometry.PlaceAbove(workArea, anchorBounds, new Size(Width, Height));
+        var position = DetachedSupplementaryGaugeLayout.Place(workArea, anchorBounds,
+            new Size(Width, Height), _controller.DetachedSupplementaryGaugeCellSize, 1);
         Left = position.X;
         Top = position.Y;
     }

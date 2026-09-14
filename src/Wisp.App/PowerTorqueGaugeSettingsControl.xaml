@@ -1,6 +1,7 @@
 <UserControl x:Class="Wisp.App.PowerTorqueGaugeSettingsControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Wisp.App">
     <UserControl.Resources>
         <Style x:Key="GaugeSettingFocus" TargetType="Control">
             <Setter Property="Template">
@@ -32,10 +33,30 @@
         <CheckBox x:Name="TorqueToggle" Content="Torque gauge" Style="{StaticResource GaugeSettingToggle}" Margin="0,12,0,0"
                   IsChecked="{Binding TorqueGaugeEnabled, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
                   Checked="Toggle_Changed" Unchecked="Toggle_Changed" AutomationProperties.Name="Torque gauge" />
-        <TextBlock Text="Shown beside the speedometer." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
+        <TextBlock Text="Attach each gauge to the speedometer or place it separately." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
         <Expander Header="More options" Style="{StaticResource MoreOptionsStyle}" Margin="0,12,0,0"
                   AutomationProperties.Name="Power and torque gauge options">
             <StackPanel>
+                <CheckBox x:Name="PowerAttachedToggle" Content="Attach power gauge to speedometer" Style="{StaticResource GaugeSettingToggle}"
+                          IsChecked="{Binding PowerGaugeAttached, Mode=TwoWay, UpdateSourceTrigger=Explicit}" IsEnabled="{Binding PowerGaugeEnabled}"
+                          Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,0,0,12" AutomationProperties.Name="Attach power gauge to speedometer" />
+                <CheckBox x:Name="TorqueAttachedToggle" Content="Attach torque gauge to speedometer" Style="{StaticResource GaugeSettingToggle}"
+                          IsChecked="{Binding TorqueGaugeAttached, Mode=TwoWay, UpdateSourceTrigger=Explicit}" IsEnabled="{Binding TorqueGaugeEnabled}"
+                          Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,0,0,12" AutomationProperties.Name="Attach torque gauge to speedometer" />
+                <TextBlock Text="Use Edit HUD layout to move detached gauges." FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,16" />
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Gauge smoothing" />
+                    <TextBlock Grid.Column="1" Text="{Binding PowerTorqueSmoothingMilliseconds, StringFormat={}{0:0} ms}" />
+                </Grid>
+                <Slider x:Name="SmoothingSlider" Style="{StaticResource GaugeSettingSlider}" Minimum="0" Maximum="1500"
+                        Value="{Binding PowerTorqueSmoothingMilliseconds, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                        TickFrequency="50" IsSnapToTickEnabled="True" SmallChange="50" LargeChange="250" ValueChanged="Scale_Changed"
+                        Margin="0,6,0,8" AutomationProperties.Name="Power and torque smoothing in milliseconds" />
+                <TextBlock Text="Higher values steady the needle and number. Numbers refresh ten times per second." FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,14" />
+                <CheckBox x:Name="NegativeToggle" Content="Show negative power and torque" Style="{StaticResource GaugeSettingToggle}"
+                          IsChecked="{Binding PowerTorqueShowNegative, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                          Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,0,0,16" AutomationProperties.Name="Show negative power and torque" />
                 <TextBlock Text="{Binding PowerTorqueRangeCaption}" Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,14" />
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -74,6 +95,27 @@
                            TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
                 <Button Content="Reset peaks" Click="ResetPeaks_Click" HorizontalAlignment="Left" Margin="0,14,0,0"
                         AutomationProperties.Name="Reset dashboard and gauge peaks" />
+                <Expander Header="Gauge line colors" Style="{StaticResource MoreOptionsStyle}" Margin="0,14,0,0" AutomationProperties.Name="Power and torque gauge line colors">
+                    <StackPanel>
+                        <UniformGrid Columns="3" Margin="0,0,0,6">
+                            <RadioButton x:Name="PowerStartColor" Content="Power start" Tag="0" GroupName="OutputGaugeColor" IsChecked="True" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
+                            <RadioButton Content="Power middle" Tag="1" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
+                            <RadioButton Content="Power end" Tag="2" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
+                        </UniformGrid>
+                        <UniformGrid Columns="3" Margin="0,0,0,12">
+                            <RadioButton Content="Torque start" Tag="3" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
+                            <RadioButton Content="Torque middle" Tag="4" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
+                            <RadioButton Content="Torque end" Tag="5" GroupName="OutputGaugeColor" Style="{StaticResource SegmentRadioStyle}" Checked="ColorTarget_Changed" />
+                        </UniformGrid>
+                        <local:ColorWheelEditor x:Name="GaugeColorEditor" MinimumOpacity="0.25" MaximumBrightness="1" SelectedColorChanged="GaugeColor_Changed" />
+                        <CheckBox x:Name="PowerColorNumberToggle" Content="Color the power number" Style="{StaticResource GaugeSettingToggle}"
+                                  IsChecked="{Binding PowerGaugeColorNumber, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                                  Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,14,0,0" AutomationProperties.Name="Color the power number" />
+                        <CheckBox x:Name="TorqueColorNumberToggle" Content="Color the torque number" Style="{StaticResource GaugeSettingToggle}"
+                                  IsChecked="{Binding TorqueGaugeColorNumber, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                                  Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,12,0,0" AutomationProperties.Name="Color the torque number" />
+                    </StackPanel>
+                </Expander>
             </StackPanel>
         </Expander>
     </StackPanel>

@@ -31,7 +31,11 @@ internal static class PowerTorqueReview
                     Height = 280,
                     IsTorque = torque,
                     Maximum = torque ? 1200 : 1000,
-                    Display = new PowerTorqueDisplay(true, 427, 507, 612, 690)
+                    Display = new PowerTorqueDisplay(true, 427, 507, 612, 690),
+                    LowBrush = Brushes.Cyan,
+                    MidBrush = Brushes.LimeGreen,
+                    HighBrush = Brushes.OrangeRed,
+                    ColorNumber = true
                 };
                 var bitmap = PowerTorqueShaderCapture.RenderGauge(gauge, 144);
                 var filename = torque ? "torque-native-shader.png" : "power-native-shader.png";
@@ -82,8 +86,8 @@ internal static class PowerTorqueReview
                     Arrange(surface, size);
                     Capture(surface, size, dpi, variant + "-appearance.png");
                     var control = (PowerTorqueGaugeSettingsControl)window.FindName("PowerTorqueGaugeSettings");
-                    var options = LogicalDescendants(control).OfType<Expander>().Single();
-                    options.IsExpanded = true;
+                    foreach (var options in LogicalDescendants(control).OfType<Expander>())
+                        options.IsExpanded = true;
                     // Render the real shared settings control at a narrow available width.
                     var panel = (Border)control.Parent;
                     panel.Child = null;

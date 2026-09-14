@@ -23,12 +23,14 @@ public static class ReleaseNotesCatalog
             [
                 Group("Power and torque",
                     "Turn on Power gauge and Torque gauge independently in Appearance → Gauges.",
+                    "Adjust smoothing for steadier readings. Negative output is hidden by default; enable Show negative output to display it.",
+                    "Attach each gauge to the speedometer or detach it and move it in Edit HUD layout. Customize start, middle and end colors, with optional matching numbers.",
                     "Native-style dials show live BHP and torque, with peak markers and peak readouts. Torque follows your Nm or lb-ft preference.",
                     "Choose a fixed range for each car, or select Set from this run to use its observed peaks plus 10%. Scales stay fixed while driving and remember your choice for that car.",
                     "Adjust gauge size under More options. Numbers remain readable beyond the scale limit; Reset peaks clears the peak markers without changing your fixed ranges.",
                     "Peak readings reset when you change cars. HUD profiles save gauge visibility, size and the ranges currently selected."),
                 Group("Existing features",
-                    "Includes the Wisp 2.0.1 interface hotfixes and optional quick tour. Your existing HUD layout stays unchanged until you enable the new gauges.")
+                    "Includes the Wisp 2.0.1 interface hotfixes and optional quick tour. Existing settings are preserved; fresh installations start with Native Analogue and all gauges enabled.")
             ]),
         new(
             "2.0.1",
