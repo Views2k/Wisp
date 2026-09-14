@@ -36,12 +36,6 @@ already corresponds to roughly **80–90%** of that maximum angle bonus; more an
 automatically a better run. Speed, your line, and whether the game awards points
 still matter.
 
-The percentage is **angle bonus, not total score**. Wisp does not detect zone
-entry, confirm that points are being awarded, or predict your final points.
-Verified guidance currently supports Steam
-FH6 **6.440.853.0**. Other builds, including Xbox app / Microsoft Store PC, can
-use **Custom target** guidance with their own target angle and tolerance.
-Native HUD compatibility alone does not enable a verified scoring profile.
 
 Choose the guidance in **Appearance > Gauges**. Adjust its size and position,
 enable dark shading for bright skies, or add a black background with adjustable
