@@ -25,8 +25,8 @@ public sealed class ApplicationVersionInfoTests
         Assert.Equal("2.1", ApplicationVersionInfo.DisplayVersion);
         Assert.Null(ApplicationVersionInfo.DiagnosticBuildId);
         Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
-        Assert.EndsWith("PANEL 2.1 (private test)", ApplicationVersionInfo.FooterText);
-        Assert.Contains("private 2.1 candidate", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+        Assert.EndsWith("PANEL 2.1", ApplicationVersionInfo.FooterText);
+        Assert.Contains("current 2.1 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
         Assert.Equal(ApplicationVersionInfo.DisplayVersion, ReleaseNotesCatalog.Entries[0].Version);
     }
 }
