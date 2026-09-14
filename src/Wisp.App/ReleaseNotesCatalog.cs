@@ -22,7 +22,7 @@ public static class ReleaseNotesCatalog
             true,
             [
                 Group("Quick tour",
-                    "Adds an optional welcome banner and four-step tour of Dashboard, Appearance, Runs and connection help.",
+                    "Adds an optional welcome banner and four-step tour of the drift gauge, Display mode, Runs and Appearance colors.",
                     "Skip or dismiss the tour at any time, or replay it from Release Notes. It does not interrupt automatic game-triggered launches."),
                 Group("Interface and dashboard",
                     "Prevents game-detection scans from pausing the interface when Forza is not detected.",

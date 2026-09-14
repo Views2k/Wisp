@@ -13,6 +13,7 @@ $solution = Join-Path $repository 'Wisp.sln'
 $project = Join-Path $repository 'src\Wisp.App\Wisp.App.csproj'
 $updaterProject = Join-Path $repository 'src\Wisp.Updater\Wisp.Updater.csproj'
 $uiReviewProject = Join-Path $repository 'tools\Wisp.UiReview\Wisp.UiReview.csproj'
+$appTestsProject = Join-Path $repository 'tests\Wisp.App.Tests\Wisp.App.Tests.csproj'
 $updateTestsProject = Join-Path $repository 'tests\Wisp.Update.Tests\Wisp.Update.Tests.csproj'
 $updaterTestsProject = Join-Path $repository 'tests\Wisp.Updater.Tests\Wisp.Updater.Tests.csproj'
 $pythonTests = Join-Path $repository 'tools\tests'
@@ -1225,9 +1226,13 @@ try {
         throw "Source formatting verification failed with exit code $LASTEXITCODE. The installer was not built."
     }
 
+    # Keep the allocation measurement in a fresh test process, isolated from the
+    # other UI fixtures. Both invocations are mandatory; the assertion is unchanged.
+    $allocationTest = 'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'
     & $dotnetExecutable test $solution --configuration Release `
         --no-restore `
         --nologo `
+        --filter "FullyQualifiedName!=$allocationTest" `
         -p:ContinuousIntegrationBuild=true `
         -m:1 `
         -nodeReuse:false `
@@ -1235,6 +1240,22 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Release tests failed with exit code $LASTEXITCODE. The installer was not built."
     }
+
+    $allocationResults = Join-Path $stageDirectory 'allocation-validation-results'
+    & $dotnetExecutable test $appTestsProject --configuration Release `
+        --no-build `
+        --no-restore `
+        --nologo `
+        --filter "FullyQualifiedName=$allocationTest" `
+        --logger 'trx;LogFileName=renderer-allocation.trx' `
+        --results-directory $allocationResults `
+        --disable-build-servers `
+        -m:1 `
+        -p:UseSharedCompilation=false
+    if ($LASTEXITCODE -ne 0) {
+        throw "Isolated renderer allocation validation failed with exit code $LASTEXITCODE. The installer was not built."
+    }
+    Assert-SinglePassedTestResult (Join-Path $allocationResults 'renderer-allocation.trx') 'Renderer allocation validation'
 
     & $dotnetExecutable build $uiReviewProject --configuration Release `
         --no-restore `

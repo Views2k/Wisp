@@ -99,6 +99,21 @@ public sealed class InstallerPackagingContractTests
     }
 
     [Fact]
+    public void IsolatedAllocationMeasurementRemainsAMandatoryReleaseGate()
+    {
+        var script = InstallerScript();
+        Assert.Contains("$allocationTest = 'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'", script, StringComparison.Ordinal);
+        Assert.Contains("--filter \"FullyQualifiedName!=$allocationTest\"", script, StringComparison.Ordinal);
+        Assert.Contains("--filter \"FullyQualifiedName=$allocationTest\"", script, StringComparison.Ordinal);
+        var isolated = script.IndexOf("& $dotnetExecutable test $appTestsProject", StringComparison.Ordinal);
+        var failure = script.IndexOf("if ($LASTEXITCODE -ne 0)", isolated, StringComparison.Ordinal);
+        var result = script.IndexOf("Assert-SinglePassedTestResult (Join-Path $allocationResults 'renderer-allocation.trx')", StringComparison.Ordinal);
+        var publish = script.IndexOf("& $dotnetExecutable publish $project", StringComparison.Ordinal);
+        Assert.True(isolated >= 0 && failure > isolated && result > failure && publish > result);
+        Assert.Contains("Isolated renderer allocation validation failed", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExistingRuntimePublishFlagsAndInstallerFormatArePreserved()
     {
         var script = InstallerScript();
