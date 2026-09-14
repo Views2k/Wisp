@@ -15,11 +15,29 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.0.1",
+            "September 14, 2026",
+            "UI HOTFIX",
+            "A quick tour of Wisp 2.0, with fixes for interface pauses, particle timing and clipped top speed.",
+            true,
+            [
+                Group("Quick tour",
+                    "Adds an optional welcome banner and four-step tour of Dashboard, Appearance, Runs and connection help.",
+                    "Skip or dismiss the tour at any time, or replay it from Release Notes. It does not interrupt automatic game-triggered launches."),
+                Group("Interface and dashboard",
+                    "Prevents game-detection scans from pausing the interface when Forza is not detected.",
+                    "Corrects uneven timing in the background and dashboard-rim particles while keeping their animation work bounded.",
+                    "Keeps the top-speed label inside the dashboard oval in wide windows, including after leaving Display mode."),
+                Group("Existing settings",
+                    "Preserves HUD artwork, settings, profiles, tire calibration and saved runs.",
+                    "This is a maintenance update for Wisp 2.0. The bundled runtime remains .NET 8.0.31.")
+            ]),
+        new(
             "2.0",
             "September 13, 2026",
             "WISP 2.0",
             "Drift angle guidance, a dashboard for your second screen, and easier run analysis.",
-            true,
+            false,
             [
                 Group("Everyday use",
                     "Automatically saves run names, tune labels and notes, keeps edits when switching runs, and offers Retry if saving fails.",

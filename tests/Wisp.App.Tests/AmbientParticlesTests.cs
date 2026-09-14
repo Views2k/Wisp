@@ -182,6 +182,80 @@ public sealed class AmbientParticlesTests
         Assert.True(gate.ShouldDraw(TimeSpan.Zero));
     }
 
+    [Theory]
+    [InlineData(59.94, 0, 0, 16.6832, 16.6835)]
+    [InlineData(59.94, 0.1, 0, 16.4832, 16.8835)]
+    [InlineData(59.94, 0, 1, 16, 17)]
+    [InlineData(60, 0, 0, 16.6665, 16.667)]
+    [InlineData(60, 0.1, 0, 16.4665, 16.867)]
+    [InlineData(90, 0.1, 0, 10.911, 22.223)]
+    [InlineData(120, 0.1, 0, 16.6665, 16.667)]
+    [InlineData(144, 0.1, 0, 13.8887, 21.034)]
+    [InlineData(165, 0.1, 0, 12.1211, 18.382)]
+    [InlineData(240, 0.1, 0, 16.6665, 16.667)]
+    public void FrameGateToleratesTimingVariationWithoutLosingItsBudgetDuringLongSessions(
+        double refreshRate, double jitterMilliseconds, double quantumMilliseconds,
+        double minimumIntervalMilliseconds, double maximumIntervalMilliseconds)
+    {
+        const int durationSeconds = 90 * 60;
+        foreach (var originSeconds in new[] { 0, durationSeconds })
+        {
+            var gate = new AmbientParticleFrameGate();
+            var callbacks = (int)Math.Ceiling(refreshRate * durationSeconds);
+            var quantumTicks = (long)Math.Round(quantumMilliseconds * TimeSpan.TicksPerMillisecond);
+            var draws = 0;
+            long? previousDraw = null;
+            var minimumInterval = double.PositiveInfinity;
+            var maximumInterval = 0d;
+            for (var frame = 0; frame < callbacks; frame++)
+            {
+                var jitter = (frame % 2 == 0 ? jitterMilliseconds : -jitterMilliseconds) / 1000;
+                var ticks = (long)Math.Round((originSeconds + 0.01 + frame / refreshRate + jitter) *
+                    TimeSpan.TicksPerSecond);
+                if (quantumTicks > 0)
+                    ticks = (long)Math.Round(ticks / (double)quantumTicks) * quantumTicks;
+                if (!gate.ShouldDraw(TimeSpan.FromTicks(ticks)))
+                    continue;
+                draws++;
+                if (previousDraw is { } previous)
+                {
+                    var interval = (ticks - previous) / (double)TimeSpan.TicksPerMillisecond;
+                    minimumInterval = Math.Min(minimumInterval, interval);
+                    maximumInterval = Math.Max(maximumInterval, interval);
+                }
+                previousDraw = ticks;
+            }
+            var expectedDraws = (int)Math.Round(Math.Min(refreshRate, 60) * durationSeconds);
+            Assert.InRange(draws, expectedDraws - 1, expectedDraws + 1);
+            Assert.InRange(minimumInterval, minimumIntervalMilliseconds, maximumIntervalMilliseconds);
+            Assert.InRange(maximumInterval, minimumIntervalMilliseconds, maximumIntervalMilliseconds);
+        }
+    }
+
+    [Fact]
+    public void FrameGateRejectsDuplicateAndBackwardTimesAndDoesNotCatchUpAfterStalls()
+    {
+        var gate = new AmbientParticleFrameGate();
+        Assert.False(gate.ShouldDraw(TimeSpan.FromTicks(-1)));
+        Assert.True(gate.ShouldDraw(TimeSpan.Zero));
+        Assert.False(gate.ShouldDraw(TimeSpan.Zero));
+        Assert.False(gate.ShouldDraw(TimeSpan.FromMilliseconds(1)));
+        Assert.False(gate.ShouldDraw(TimeSpan.FromMilliseconds(0.5)));
+        Assert.True(gate.ShouldDraw(TimeSpan.FromMilliseconds(30)));
+        Assert.False(gate.ShouldDraw(TimeSpan.FromMilliseconds(30.0001)));
+        Assert.False(gate.ShouldDraw(TimeSpan.FromMilliseconds(35)));
+
+        var resumed = TimeSpan.FromMinutes(90);
+        Assert.True(gate.ShouldDraw(resumed));
+        Assert.False(gate.ShouldDraw(resumed));
+        Assert.False(gate.ShouldDraw(resumed - TimeSpan.FromMilliseconds(1)));
+        Assert.False(gate.ShouldDraw(resumed + TimeSpan.FromTicks(1)));
+        Assert.False(gate.ShouldDraw(resumed + TimeSpan.FromMilliseconds(8)));
+        Assert.True(gate.ShouldDraw(resumed + TimeSpan.FromMilliseconds(16.667)));
+        gate.Reset();
+        Assert.True(gate.ShouldDraw(TimeSpan.Zero));
+    }
+
     [Fact]
     public void DisablingParticleAnimationAndUnloadingDetachCompositionHandler() => OnSta(() =>
     {

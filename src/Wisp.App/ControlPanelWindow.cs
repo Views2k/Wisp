@@ -138,6 +138,7 @@ public abstract partial class ControlPanelWindow : Window
         AutomaticGearDisplayRadio.IsChecked = controller.Settings.GearDisplayMode == GearDisplayMode.Automatic;
         RefreshHudProfileList();
         RootTabs.SelectedItem = DashboardTab;
+        InitializeFeatureTour();
         UpdateLockButtonLabels(controller.Settings.OverlayLocked);
         SourceInitialized += (_, _) =>
         {

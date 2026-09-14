@@ -2,19 +2,19 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 using Wisp.Core;
 
 namespace Wisp.App;
 
 public sealed class ForzaFocusService
 {
-    private static readonly TimeSpan SearchInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan FullscreenCheckInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan MissingForegroundRetention = TimeSpan.FromMilliseconds(250);
 
     private HashSet<int> _forzaProcessIds = new();
     private HashSet<string> _forzaExecutableDirectories = new(StringComparer.OrdinalIgnoreCase);
-    private DateTimeOffset _nextSearchAtUtc = DateTimeOffset.MinValue;
+    private readonly ForzaProcessDiscovery _discovery = new(FindForzaProcesses);
     private DateTimeOffset _nextFullscreenCheckAtUtc = DateTimeOffset.MinValue;
     private IntPtr _lastFullscreenWindow;
     private IntPtr _lastForzaForegroundWindow;
@@ -28,16 +28,15 @@ public sealed class ForzaFocusService
 
     public ForzaFocusState GetState(DateTimeOffset nowUtc)
     {
-        if (nowUtc >= _nextSearchAtUtc)
+        if (_discovery.Refresh(nowUtc))
         {
-            var snapshot = FindForzaProcesses();
+            var snapshot = _discovery.Current;
             _forzaProcessIds = snapshot.ProcessIds;
             _forzaExecutableDirectories = snapshot.ExecutableDirectories;
             _lastClassifiedForegroundWindow = IntPtr.Zero;
             _lastClassifiedForegroundProcessId = 0;
             _lastClassifiedRootProcessId = 0;
             _lastClassifiedRootOwnerProcessId = 0;
-            _nextSearchAtUtc = nowUtc + SearchInterval;
         }
 
         var foregroundWindow = GetReliableForegroundWindow();
@@ -205,11 +204,15 @@ public sealed class ForzaFocusService
         try
         {
             using var process = Process.GetProcessById(processId);
-            recognizedWindowHost = ForzaProcessIdentityPolicy.IsRecognizedWindowHost(process.ProcessName);
-            var executablePath = TryGetExecutablePath(process);
+            var processName = process.ProcessName;
+            recognizedWindowHost = ForzaProcessIdentityPolicy.IsRecognizedWindowHost(processName);
+            var caption = GetWindowCaption(windowHandle);
+            if (ForzaProcessIdentityPolicy.Matches(processName, caption, null)) return true;
+            if (!recognizedWindowHost || _forzaExecutableDirectories.Count == 0) return false;
+            var executablePath = TryGetExecutablePath(process.Id);
             return ForzaProcessIdentityPolicy.Matches(
-                process.ProcessName,
-                GetWindowCaption(windowHandle),
+                processName,
+                caption,
                 executablePath,
                 _forzaExecutableDirectories);
         }
@@ -271,7 +274,7 @@ public sealed class ForzaFocusService
             foreach (var process in exactMatches)
             {
                 processIds.Add(process.Id);
-                AddExecutableDirectory(TryGetExecutablePath(process), executableDirectories);
+                AddExecutableDirectory(TryGetExecutablePath(process.Id), executableDirectories);
             }
         }
         finally
@@ -287,6 +290,7 @@ public sealed class ForzaFocusService
             return new ForzaProcessSnapshot(processIds, executableDirectories);
         }
 
+        var owners = new ForzaWindowOwnerCache(TryGetProcessName, TryGetExecutablePath);
         EnumWindows(
             (windowHandle, _) =>
             {
@@ -296,30 +300,10 @@ public sealed class ForzaFocusService
                     return true;
                 }
 
-                try
+                if (owners.Matches(processId, GetWindowCaption(windowHandle)))
                 {
-                    using var process = Process.GetProcessById(processId);
-                    var executablePath = TryGetExecutablePath(process);
-                    if (ForzaProcessIdentityPolicy.Matches(
-                            process.ProcessName,
-                            GetWindowCaption(windowHandle),
-                            executablePath))
-                    {
-                        processIds.Add(process.Id);
-                        AddExecutableDirectory(executablePath, executableDirectories);
-                    }
-                }
-                catch (ArgumentException)
-                {
-                    // The window owner exited while Windows was enumerating it.
-                }
-                catch (InvalidOperationException)
-                {
-                    // The process exited while its metadata was being read.
-                }
-                catch (System.ComponentModel.Win32Exception)
-                {
-                    // Protected processes remain fail-closed.
+                    processIds.Add(processId);
+                    AddExecutableDirectory(owners.GetMatchedExecutablePath(processId), executableDirectories);
                 }
 
                 return true;
@@ -399,11 +383,16 @@ public sealed class ForzaFocusService
             : string.Empty;
     }
 
-    private static string? TryGetExecutablePath(Process process)
+    private static string? TryGetProcessName(int processId)
     {
         try
         {
-            return process.MainModule?.FileName;
+            using var process = Process.GetProcessById(processId);
+            return process.ProcessName;
+        }
+        catch (ArgumentException)
+        {
+            return null;
         }
         catch (InvalidOperationException)
         {
@@ -417,6 +406,17 @@ public sealed class ForzaFocusService
         {
             return null;
         }
+    }
+
+    internal static string? TryGetExecutablePath(int processId)
+    {
+        // Getting the image name needs neither VM_READ nor enumeration of every
+        // module. Protected/exited processes return false instead of throwing.
+        using var process = OpenProcess(ProcessQueryLimitedInformation, false, processId);
+        if (process.IsInvalid) return null;
+        var path = new StringBuilder(32768);
+        var length = path.Capacity;
+        return QueryFullProcessImageName(process, 0, path, ref length) ? path.ToString() : null;
     }
 
     private static void AddExecutableDirectory(string? executablePath, HashSet<string> directories)
@@ -478,8 +478,16 @@ public sealed class ForzaFocusService
     private const uint GetRootOwner = 3;
     private const uint DefaultToNullMonitor = 0;
     private const uint DefaultToNearestMonitor = 2;
+    private const uint ProcessQueryLimitedInformation = 0x1000;
 
     private delegate bool EnumWindowsCallback(IntPtr windowHandle, IntPtr parameter);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern SafeProcessHandle OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, int processId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageName(SafeProcessHandle process, uint flags, StringBuilder path, ref int size);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
@@ -584,10 +592,6 @@ public sealed class ForzaFocusService
         public NativeRectangle WorkArea;
         public uint Flags;
     }
-
-    private sealed record ForzaProcessSnapshot(
-        HashSet<int> ProcessIds,
-        HashSet<string> ExecutableDirectories);
 }
 
 public readonly record struct ForzaFocusState(
