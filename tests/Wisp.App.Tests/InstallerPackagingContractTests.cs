@@ -114,6 +114,34 @@ public sealed class InstallerPackagingContractTests
     }
 
     [Fact]
+    public void CiAlsoRequiresTheIsolatedAllocationMeasurementBeforeContinuing()
+    {
+        var workflow = File.ReadAllText(Path.Combine(RepositoryRoot(), ".github", "workflows", "ci.yml"));
+        var start = workflow.IndexOf("- name: Test .NET projects", StringComparison.Ordinal);
+        var end = workflow.IndexOf("- name: Build UI review harness", start, StringComparison.Ordinal);
+        var step = workflow[start..end];
+        Assert.Contains("$allocationTest = 'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'", step, StringComparison.Ordinal);
+        Assert.Contains("--filter \"FullyQualifiedName!=$allocationTest\"", step, StringComparison.Ordinal);
+        Assert.Contains("--filter \"FullyQualifiedName=$allocationTest\"", step, StringComparison.Ordinal);
+        Assert.Contains("$env:RUNNER_TEMP ('wisp-allocation-' + [guid]::NewGuid())", step, StringComparison.Ordinal);
+        Assert.Contains("--no-build --no-restore", step, StringComparison.Ordinal);
+        Assert.Contains("if ($LASTEXITCODE -ne 0) { throw \"Release tests failed", step, StringComparison.Ordinal);
+        Assert.Contains("if ($LASTEXITCODE -ne 0) { throw \"Isolated renderer allocation validation failed", step, StringComparison.Ordinal);
+        foreach (var counter in new[] { "total", "executed", "passed" })
+        {
+            Assert.Contains($"$counters.GetAttribute('{counter}') -ne 1", step, StringComparison.Ordinal);
+        }
+        foreach (var counter in new[] { "failed", "error", "aborted", "notExecuted" })
+        {
+            Assert.Contains($"$counters.GetAttribute('{counter}') -ne 0", step, StringComparison.Ordinal);
+        }
+        Assert.Contains("$results.Count -ne 1", step, StringComparison.Ordinal);
+        Assert.Contains("$results[0].GetAttribute('outcome') -cne 'Passed'", step, StringComparison.Ordinal);
+        Assert.Contains("$results[0].GetAttribute('testName') -cne $allocationTest", step, StringComparison.Ordinal);
+        Assert.DoesNotContain("continue-on-error", step, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExistingRuntimePublishFlagsAndInstallerFormatArePreserved()
     {
         var script = InstallerScript();
