@@ -2,6 +2,16 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.0.1 - 2026-09-14
+
+### Interface hotfix
+
+- Add an optional four-step tour of the Wisp 2.0 interface, with a dismissible welcome banner and replay from Release Notes. Automatic game-triggered launches remain uninterrupted.
+- Keep game-discovery scans off the interface thread and avoid repeated module queries for unrelated window owners when Forza is not detected.
+- Correct particle frame pacing near refresh boundaries without removing the animation work limit.
+- Keep the dashboard top-speed label inside the oval at wide window sizes, including after leaving Display mode (#71).
+- Preserve HUD artwork, saved settings, profiles, tire calibration and runs. This maintenance update stays on the Wisp 2.0 release line and retains .NET 8.0.31.
+
 ## 2.0.0 - 2026-09-13
 
 ### Dashboard and appearance

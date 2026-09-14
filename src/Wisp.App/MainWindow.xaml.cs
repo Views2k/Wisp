@@ -42,6 +42,8 @@ public partial class MainWindow : ControlPanelWindow
                 ? new Rect(Left, Top, ActualWidth, ActualHeight) : RestoreBounds;
         }
         IsDashboardDisplayMode = enabled;
+        CloseFeatureTour();
+        RefreshFeatureTour();
         RootTabs.SelectedItem = DashboardTab;
         DashboardToolbar.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         TitleBar.Visibility = enabled ? Visibility.Collapsed : Visibility.Visible;
@@ -189,6 +191,12 @@ public partial class MainWindow : ControlPanelWindow
             HudPreviewSurface.Height = previewHeight;
     }
 
+    internal void PrepareAppearanceForFeatureTour()
+    {
+        _compactPreviewOpen = false;
+        UpdateAppearanceLayout();
+    }
+
     private void UpdateDashboardLayout()
     {
         if (_updatingDashboardLayout || DashboardViewport is null || OrbitInstrument is null) return;
@@ -201,6 +209,29 @@ public partial class MainWindow : ControlPanelWindow
             var wide = width >= 1100;
             OrbitInstrument.Shape = wide ? OrbitSurfaceShape.Swept : OrbitSurfaceShape.Card;
             OrbitInstrument.Padding = new Thickness(wide ? 112 : 24, 6, wide ? 62 : 24, 12);
+            if (DashboardSpeedMetrics is not null)
+            {
+                // Inset only the speed block inside its existing column. Other
+                // metrics and connection status keep their original positions.
+                var previous = DashboardSpeedMetrics.Margin.Left;
+                var inset = 0d;
+                if (wide && DashboardInstruments.ActualWidth > 0 && DashboardSpeedMetrics.ActualHeight > 0)
+                {
+                    // Reconstruct the column slot from its parent. A previous
+                    // wide inset can temporarily leave the child with zero width.
+                    var count = DashboardInstruments.Children.Cast<UIElement>().Count(child => child.Visibility != Visibility.Collapsed);
+                    var columns = DashboardColumns.ColumnCount(DashboardInstruments.ActualWidth,
+                        DashboardInstruments.MinimumColumnWidth, DashboardInstruments.Gap, DashboardInstruments.MaximumColumns, count);
+                    var cellWidth = Math.Max(0, (DashboardInstruments.ActualWidth - DashboardInstruments.Gap * (columns - 1)) / columns);
+                    var cell = DashboardInstruments.TransformToAncestor(OrbitInstrument)
+                        .TransformBounds(new Rect(0, 0, cellWidth, DashboardSpeedMetrics.ActualHeight));
+                    var edge = OrbitInstrument.BorderThickness;
+                    var clearance = 8 + Math.Max(Math.Max(edge.Left, edge.Right), Math.Max(edge.Top, edge.Bottom));
+                    inset = DashboardContourLayout.SpeedInset(OrbitInstrument.RenderSize, cell, clearance);
+                }
+                if (Math.Abs(previous - inset) > 0.01)
+                    DashboardSpeedMetrics.Margin = new Thickness(inset, 0, 0, 0);
+            }
             var scale = fillScreen && DashboardContent.ActualHeight > 0
                 ? Math.Min(Math.Max(1, DashboardViewport.ActualWidth - 20) / 1280,
                     Math.Max(1, DashboardViewport.ActualHeight - 24) / DashboardContent.ActualHeight)

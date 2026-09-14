@@ -1,0 +1,23 @@
+<UserControl x:Class="Wisp.App.FeatureTourOverlay"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Focusable="False">
+ <Canvas x:Name="TourCanvas" ClipToBounds="True">
+  <Border x:Name="TourHighlight" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2" CornerRadius="9" IsHitTestVisible="False" Visibility="Collapsed"/>
+  <Border x:Name="TourCard" Width="392" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="14" Padding="20,17" KeyboardNavigation.TabNavigation="Cycle" AutomationProperties.Name="Wisp quick tour">
+   <ScrollViewer x:Name="TourCardScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel>
+     <TextBlock x:Name="TourProgress" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Text="1 of 4 · QUICK TOUR" AutomationProperties.LiveSetting="Polite"/>
+     <TextBlock x:Name="TourHeading" FontSize="21" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" Margin="0,7,0,8"/>
+     <TextBlock x:Name="TourDescription" FontSize="14" LineHeight="20" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"/>
+     <TextBlock x:Name="TourLocation" FontSize="12" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap" Margin="0,11,0,0"/>
+     <WrapPanel Margin="0,18,0,0">
+      <Button x:Name="TourSkipButton" Content="Skip tour" Padding="11,8" Margin="0,0,8,5"/>
+      <Button x:Name="TourBackButton" Content="Back" Padding="14,8" Margin="0,0,8,5"/>
+      <Button x:Name="TourNextButton" Content="Next" Padding="18,8" Style="{DynamicResource PrimaryButtonStyle}" Margin="0,0,0,5"/>
+     </WrapPanel>
+     <TextBlock Text="You can replay this in Release Notes." FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,0"/>
+    </StackPanel>
+   </ScrollViewer>
+  </Border>
+ </Canvas>
+</UserControl>

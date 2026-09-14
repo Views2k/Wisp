@@ -2,15 +2,17 @@ namespace Wisp.App;
 
 internal sealed class AmbientParticleFrameGate
 {
-    private long? _origin;
-    private long _lastBucket = -1;
+    private const double FrameIntervalTicks = TimeSpan.TicksPerSecond / (double)AmbientBackdrop.ParticleFramesPerSecond;
+    private const double JitterToleranceTicks = TimeSpan.TicksPerMillisecond;
+    private double? _nextFrameTimestamp;
     private long _lastTimestamp = -1;
+    private long _lastDrawTimestamp = -1;
 
     internal void Reset()
     {
-        _origin = null;
-        _lastBucket = -1;
+        _nextFrameTimestamp = null;
         _lastTimestamp = -1;
+        _lastDrawTimestamp = -1;
     }
 
     internal bool ShouldDraw(TimeSpan renderingTime)
@@ -18,15 +20,26 @@ internal sealed class AmbientParticleFrameGate
         var ticks = renderingTime.Ticks;
         if (ticks < 0 || ticks <= _lastTimestamp)
             return false;
-        _origin ??= ticks;
         _lastTimestamp = ticks;
-        // Absolute buckets carry fractional refresh intervals across callbacks.
-        // One TimeSpan tick of tolerance avoids rounding a 60 Hz boundary down.
-        var bucket = (long)Math.Floor((ticks - _origin.Value + 1d) *
-            AmbientBackdrop.ParticleFramesPerSecond / TimeSpan.TicksPerSecond);
-        if (bucket <= _lastBucket)
-            return false;
-        _lastBucket = bucket;
+        if (_nextFrameTimestamp is { } deadline)
+        {
+            // RenderingTime is an estimate. Small timing variations around a
+            // 60 Hz boundary must not discard every other animation update.
+            if (ticks + JitterToleranceTicks < deadline ||
+                ticks - _lastDrawTimestamp < FrameIntervalTicks / 2)
+                return false;
+
+            // Carry the fractional interval at higher refresh rates, but discard
+            // missed deadlines after a stall instead of bursting to catch up.
+            _nextFrameTimestamp = ticks - deadline >= FrameIntervalTicks
+                ? ticks + FrameIntervalTicks
+                : deadline + FrameIntervalTicks;
+        }
+        else
+        {
+            _nextFrameTimestamp = ticks + FrameIntervalTicks;
+        }
+        _lastDrawTimestamp = ticks;
         return true;
     }
 }

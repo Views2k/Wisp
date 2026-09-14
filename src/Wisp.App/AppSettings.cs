@@ -104,6 +104,7 @@ public sealed class AppSettings
     public List<HudPreset> HudPresets { get; set; } = new();
     public bool SidebarCollapsed { get; set; }
     public bool UseLegacyInterface { get; set; }
+    public string? CompletedFeatureTourId { get; set; }
     public bool ResizableDashboardDisplay { get; set; }
     public bool GameAwareVisibility { get; set; } = true;
     public bool OverlayHotkeyEnabled { get; set; }

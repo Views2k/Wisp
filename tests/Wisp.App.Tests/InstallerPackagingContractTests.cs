@@ -99,6 +99,49 @@ public sealed class InstallerPackagingContractTests
     }
 
     [Fact]
+    public void IsolatedAllocationMeasurementRemainsAMandatoryReleaseGate()
+    {
+        var script = InstallerScript();
+        Assert.Contains("$allocationTest = 'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'", script, StringComparison.Ordinal);
+        Assert.Contains("--filter \"FullyQualifiedName!=$allocationTest\"", script, StringComparison.Ordinal);
+        Assert.Contains("--filter \"FullyQualifiedName=$allocationTest\"", script, StringComparison.Ordinal);
+        var isolated = script.IndexOf("& $dotnetExecutable test $appTestsProject", StringComparison.Ordinal);
+        var failure = script.IndexOf("if ($LASTEXITCODE -ne 0)", isolated, StringComparison.Ordinal);
+        var result = script.IndexOf("Assert-SinglePassedTestResult (Join-Path $allocationResults 'renderer-allocation.trx')", StringComparison.Ordinal);
+        var publish = script.IndexOf("& $dotnetExecutable publish $project", StringComparison.Ordinal);
+        Assert.True(isolated >= 0 && failure > isolated && result > failure && publish > result);
+        Assert.Contains("Isolated renderer allocation validation failed", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CiAlsoRequiresTheIsolatedAllocationMeasurementBeforeContinuing()
+    {
+        var workflow = File.ReadAllText(Path.Combine(RepositoryRoot(), ".github", "workflows", "ci.yml"));
+        var start = workflow.IndexOf("- name: Test .NET projects", StringComparison.Ordinal);
+        var end = workflow.IndexOf("- name: Build UI review harness", start, StringComparison.Ordinal);
+        var step = workflow[start..end];
+        Assert.Contains("$allocationTest = 'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'", step, StringComparison.Ordinal);
+        Assert.Contains("--filter \"FullyQualifiedName!=$allocationTest\"", step, StringComparison.Ordinal);
+        Assert.Contains("--filter \"FullyQualifiedName=$allocationTest\"", step, StringComparison.Ordinal);
+        Assert.Contains("$env:RUNNER_TEMP ('wisp-allocation-' + [guid]::NewGuid())", step, StringComparison.Ordinal);
+        Assert.Contains("--no-build --no-restore", step, StringComparison.Ordinal);
+        Assert.Contains("if ($LASTEXITCODE -ne 0) { throw \"Release tests failed", step, StringComparison.Ordinal);
+        Assert.Contains("if ($LASTEXITCODE -ne 0) { throw \"Isolated renderer allocation validation failed", step, StringComparison.Ordinal);
+        foreach (var counter in new[] { "total", "executed", "passed" })
+        {
+            Assert.Contains($"$counters.GetAttribute('{counter}') -ne 1", step, StringComparison.Ordinal);
+        }
+        foreach (var counter in new[] { "failed", "error", "aborted", "notExecuted" })
+        {
+            Assert.Contains($"$counters.GetAttribute('{counter}') -ne 0", step, StringComparison.Ordinal);
+        }
+        Assert.Contains("$results.Count -ne 1", step, StringComparison.Ordinal);
+        Assert.Contains("$results[0].GetAttribute('outcome') -cne 'Passed'", step, StringComparison.Ordinal);
+        Assert.Contains("$results[0].GetAttribute('testName') -cne $allocationTest", step, StringComparison.Ordinal);
+        Assert.DoesNotContain("continue-on-error", step, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExistingRuntimePublishFlagsAndInstallerFormatArePreserved()
     {
         var script = InstallerScript();
@@ -257,7 +300,7 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("$artifactVersion = $projectVersion", packaging, StringComparison.Ordinal);
         Assert.Contains("& $innoExecutable \"/O$stageDirectory\" $innoScript", packaging, StringComparison.Ordinal);
         Assert.Contains("Write-BuildProvenance $repository $publishFullPath", packaging, StringComparison.Ordinal);
-        Assert.Contains("#define MyAppVersion \"2.0.0\"", inno, StringComparison.Ordinal);
+        Assert.Contains("#define MyAppVersion \"2.0.1\"", inno, StringComparison.Ordinal);
         Assert.Contains("#define MyAppOutputVersion MyAppVersion", inno, StringComparison.Ordinal);
         Assert.Contains("UpdatingExistingInstallation := UpdateSwitchPresent() and ExistingInstallationPresent();", inno,
             StringComparison.Ordinal);

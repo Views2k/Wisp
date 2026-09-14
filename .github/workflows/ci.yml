@@ -50,7 +50,39 @@ jobs:
         run: dotnet format Wisp.sln --verify-no-changes --no-restore --verbosity minimal
 
       - name: Test .NET projects
-        run: dotnet test Wisp.sln --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Match canonical packaging: measure allocations in a fresh test host.
+          # Both invocations are required; the zero-allocation assertion is unchanged.
+          $allocationTest = 'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'
+          dotnet test Wisp.sln --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false --filter "FullyQualifiedName!=$allocationTest"
+          if ($LASTEXITCODE -ne 0) { throw "Release tests failed with exit code $LASTEXITCODE." }
+
+          $allocationResults = Join-Path $env:RUNNER_TEMP ('wisp-allocation-' + [guid]::NewGuid())
+          dotnet test tests/Wisp.App.Tests/Wisp.App.Tests.csproj --configuration Release --no-build --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false --filter "FullyQualifiedName=$allocationTest" --logger 'trx;LogFileName=renderer-allocation.trx' --results-directory $allocationResults
+          if ($LASTEXITCODE -ne 0) { throw "Isolated renderer allocation validation failed with exit code $LASTEXITCODE." }
+
+          $trxPath = Join-Path $allocationResults 'renderer-allocation.trx'
+          if (-not (Test-Path -LiteralPath $trxPath -PathType Leaf)) {
+            throw 'Renderer allocation validation did not produce its required TRX result.'
+          }
+          [xml]$trx = [System.IO.File]::ReadAllText($trxPath)
+          $counters = $trx.SelectSingleNode("/*[local-name()='TestRun']/*[local-name()='ResultSummary']/*[local-name()='Counters']")
+          $results = @($trx.SelectNodes("/*[local-name()='TestRun']/*[local-name()='Results']/*[local-name()='UnitTestResult']"))
+          if ($null -eq $counters -or
+              [int]$counters.GetAttribute('total') -ne 1 -or
+              [int]$counters.GetAttribute('executed') -ne 1 -or
+              [int]$counters.GetAttribute('passed') -ne 1 -or
+              [int]$counters.GetAttribute('failed') -ne 0 -or
+              [int]$counters.GetAttribute('error') -ne 0 -or
+              [int]$counters.GetAttribute('aborted') -ne 0 -or
+              [int]$counters.GetAttribute('notExecuted') -ne 0 -or
+              $results.Count -ne 1 -or
+              $results[0].GetAttribute('outcome') -cne 'Passed' -or
+              $results[0].GetAttribute('testName') -cne $allocationTest) {
+            throw 'Renderer allocation validation must execute and pass exactly the required test.'
+          }
 
       - name: Build UI review harness
         run: dotnet build tools/Wisp.UiReview/Wisp.UiReview.csproj --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false

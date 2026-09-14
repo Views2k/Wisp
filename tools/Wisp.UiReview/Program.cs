@@ -39,6 +39,16 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--tour-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return FeatureTourReview.Run(output, () => LoadApplicationResources(output, out _), DetachSurface, SetOffscreenDpi);
+            }
+            if (args.Length == 3 && args[0] == "--dashboard-contour-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return DashboardContourReview.Run(output, () => LoadApplicationResources(output, out _), DetachSurface, SetOffscreenDpi);
+            }
             if (args.Length == 3 && args[0] == "--profile-modal-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);

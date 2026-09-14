@@ -161,7 +161,12 @@
                                FontSize="23" FontWeight="SemiBold" Margin="0,0,0,18" />
                     <TabControl x:Name="RootTabs" Grid.Row="1" Style="{StaticResource SidebarPagesStyle}">
                         <TabItem x:Name="DashboardTab" Header="Dashboard">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
+                                <ScrollViewer.Resources>
+                                    <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}">
+                                        <Style.Triggers><Trigger Property="Maximum" Value="0"><Setter Property="Opacity" Value="0"/><Setter Property="IsHitTestVisible" Value="False"/></Trigger></Style.Triggers>
+                                    </Style>
+                                </ScrollViewer.Resources>
                                 <!-- Keep scrolling translation outside the page's scale transform. -->
                                 <Decorator>
                                 <Viewbox x:Name="DashboardScaleView" Stretch="Uniform" StretchDirection="DownOnly"
@@ -206,7 +211,7 @@
                                                     AutomationProperties.Name="Review available Wisp update" />
                                         </Grid>
                                     </Border>
-                                    <Grid>
+                                    <Grid x:Name="LegacyDashboardHero">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="1.45*" />
                                             <ColumnDefinition Width="14" />
@@ -288,6 +293,7 @@
                                         </Border>
                                     </Grid>
 
+                                    <local:FeatureTourBanner x:Name="FeatureTourWelcomeBanner" Visibility="Collapsed" Margin="0,14,0,0" />
                                     <UniformGrid Columns="3" Margin="0,14,0,0">
                                         <Border Style="{StaticResource CardStyle}" Margin="0,0,5,0">
                                             <StackPanel>
@@ -1883,6 +1889,7 @@
                                         <StackPanel>
                                             <TextBlock Text="VERSION HISTORY" Style="{StaticResource EyebrowTextStyle}" />
                                             <TextBlock Text="What changed in Wisp" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,0" />
+                                            <Button x:Name="ReplayFeatureTourButton" Content="Replay the quick tour" HorizontalAlignment="Left" Margin="0,10,0,4" AutomationProperties.Name="Replay the Wisp feature tour" />
                                             <TextBlock Text="{x:Static local:ApplicationVersionInfo.ReleaseHistoryIntroduction}"
                                                        Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
                                                        LineHeight="19" Margin="0,7,0,0" />

@@ -260,6 +260,7 @@ public partial class App : Application
         }
 
         window.ShowActivated = true;
+        if (window is ControlPanelWindow controlPanel) controlPanel.SetFeatureTourDiscoveryAllowed(true);
         window.Show();
         window.Activate();
         if (_setupWindow is null && _controller?.Settings.RequiresSetup == false)
@@ -343,6 +344,7 @@ public partial class App : Application
             EnsureRuntimeWindows();
             if (showControlPanel && _controller.ControlPanel is { } window)
             {
+                window.SetFeatureTourDiscoveryAllowed(!fromForza && !minimize);
                 window.ShowActivated = !minimize;
                 window.WindowState = minimize ? WindowState.Minimized : WindowState.Normal;
                 window.Show();
