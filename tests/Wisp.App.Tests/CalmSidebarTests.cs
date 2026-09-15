@@ -95,7 +95,7 @@ public sealed class CalmSidebarTests
         Assert.DoesNotContain("new DoubleAnimation", code, StringComparison.Ordinal);
         Assert.Contains("SidebarHost.IsKeyboardFocusWithin", code, StringComparison.Ordinal);
         Assert.Contains("SidebarToggleButton.Focus()", code, StringComparison.Ordinal);
-        var displayTransform = Assert.Single(document.Descendants(),
+        var displayTransform = Assert.Single(Named(document, "DashboardContent").Elements(),
             element => element.Name.LocalName.EndsWith(".LayoutTransform", StringComparison.Ordinal));
         Assert.Same(Named(document, "DashboardContent"), displayTransform.Parent);
         var displayScale = Assert.Single(displayTransform.Elements(Presentation + "ScaleTransform"));

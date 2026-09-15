@@ -15,11 +15,24 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.1.1",
+            "September 15, 2026",
+            "PRIVATE TEST",
+            "Aligned supplementary gauges with separate size controls.",
+            true,
+            [
+                Group("Gauge sizing",
+                    "Boost, tire temperature, power and torque use matching dial sizes at 100%. Rows and columns stay aligned when you choose different sizes.",
+                    "Set each gauge size independently in Appearance → Gauges. Boost and tire size controls also work while attached to the speedometer.",
+                    "The Analogue preview uses the same supplementary gauge layout as the HUD.",
+                    "Existing sizes, profiles and detached positions are preserved. The previous shared power and torque size becomes the starting value for both individual controls.")
+            ]),
+        new(
             "2.1",
             "September 14, 2026",
             "WISP 2.1",
             "Optional power and torque gauges beside your speedometer.",
-            true,
+            false,
             [
                 Group("Power and torque",
                     "Turn on Power gauge and Torque gauge independently in Appearance → Gauges.",

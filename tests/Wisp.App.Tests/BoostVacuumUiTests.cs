@@ -40,9 +40,23 @@ internal static class BoostVacuumUiTests
         {
             application.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             window = new MainWindow(controller);
-            window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.DataBind);
+            var tabs = Assert.IsType<TabControl>(window.FindName("RootTabs"));
+            tabs.SelectedItem = Assert.Single(tabs.Items.OfType<TabItem>(), tab => Equals(tab.Header, "Appearance"));
+            Assert.IsType<RadioButton>(window.FindName("AppearanceGaugesCategory")).SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+            // Materialize the same settings page the user opens. A synthetic
+            // window Loaded event alone leaves inactive-tab bindings unattached.
+            var surface = Assert.IsAssignableFrom<FrameworkElement>(window.Content);
+            surface.Measure(new Size(1464, 994));
+            surface.Arrange(new Rect(0, 0, 1464, 994));
+            surface.UpdateLayout();
+            window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
             var toggle = Assert.Single(Descendants(window).OfType<CheckBox>(), check =>
                 BindingOperations.GetBinding(check, ToggleButton.IsCheckedProperty)?.Path.Path == nameof(DiagnosticsViewModel.ShowBoostVacuum));
+            Assert.Equal(BindingStatus.Active, toggle.GetBindingExpression(ToggleButton.IsCheckedProperty)!.Status);
+            Assert.Same(controller.ViewModel, toggle.GetBindingExpression(ToggleButton.IsCheckedProperty)!.DataItem);
+            Assert.True(toggle.IsEnabled);
+            Assert.True(toggle.Focusable);
+            Assert.NotNull(toggle.Template);
             Assert.False(toggle.IsChecked);
             // Exercise the authored Checked/Unchecked handlers without showing a window or starting the App.
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
