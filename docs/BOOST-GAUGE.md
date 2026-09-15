@@ -58,7 +58,7 @@ neighboring colors from the same gradient so attached gauges remain coordinated.
 
 ## Controls
 
-Open **Appearance > Boost gauge** to change:
+Open **Appearance > Gauges > Boost pressure** to change:
 
 - gauge visibility;
 - attached or detached Analogue placement;
@@ -68,7 +68,10 @@ Open **Appearance > Boost gauge** to change:
 - Digital pressure-number color;
 - Digital stock-material mode.
 
-Set the shared gradient in **Extras** using **Gauge start**, **Gauge middle**,
-and **Gauge end**. Detached Analogue gauge size is controlled separately in
-Appearance. Detached placement is saved separately and can be adjusted through
-**Edit HUD layout**.
+Set the shared gradient in **Appearance > Colors** using **Gauge start**,
+**Gauge middle**, and **Gauge end**. Detached Analogue gauge size is also in
+**Appearance > Gauges**. Detached placement is saved separately and can be
+adjusted through **Edit HUD layout**.
+
+In the Legacy interface, gauge controls and size are in **Appearance**, and the
+shared gradient is in **Extras**.

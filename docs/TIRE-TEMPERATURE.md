@@ -40,7 +40,7 @@ can be adjusted without changing the speedometer or boost-gauge scale.
 
 ## Controls
 
-Open **Appearance > Tire temperature** to change:
+Open **Appearance > Gauges > Tire temperature** to change:
 
 - gauge visibility;
 - attached or detached placement;
@@ -48,6 +48,10 @@ Open **Appearance > Tire temperature** to change:
 - reactive marker and needle colors;
 - gauge size.
 
-The tire-temperature and boost gauges share the gradient configured in **Extras**.
+The tire-temperature and boost gauges share the gradient configured in
+**Appearance > Colors** using **Gauge start**, **Gauge middle**, and **Gauge end**.
 This keeps the stacked Native layout coordinated without adding a second
 competing color setting.
+
+In the Legacy interface, gauge controls and size are in **Appearance**, and the
+shared gradient is in **Extras**.

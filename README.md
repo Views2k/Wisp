@@ -4,7 +4,7 @@
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
   <a href="https://github.com/Views2k/Wisp/releases/download/v2.1.0/Wisp-Setup-2.1.0.zip"><strong>Download Wisp 2.1</strong></a> ·
-  <a href="https://wispoverlay.com/">Website</a> ·
+  <a href="https://wispoverlay.com/">Official Wisp website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
   Support Wisp: <a href="https://ko-fi.com/views2k">Ko-fi</a> ·
@@ -59,8 +59,8 @@ verified Drift Zone angle bonus you are using. The scoring-angle range starts
 at **10°** and the angle bonus reaches its ceiling at **59.4°**. A **20–40°** drift
 already corresponds to roughly **80–90%** of that maximum angle bonus; more angle is not
 automatically a better run. Speed, your line, and whether the game awards points
-still matter.
-
+still matter. Read the [Forza Horizon 6 drift angle guide](https://wispoverlay.com/drift-angle-gauge/)
+for more on the scoring range and gauge controls.
 
 Choose the guidance in **Appearance > Gauges**. Adjust its size and position,
 enable dark shading for bright skies, or add a black background with adjustable
@@ -137,6 +137,9 @@ drifting, lockup, and loss of grip.
 FH6 Data Out supplies the local telemetry stream. Wisp learns the effective
 rolling radius of the current tires, applies the correct driven-wheel model for
 FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
+
+See [why the Forza Horizon 6 speedometer hides wheelspin](https://wispoverlay.com/why-forza-horizon-6-speedometer-hides-wheelspin/)
+for a comparison of wheel-indicated and ground speed.
 
 ## Features
 
@@ -260,6 +263,9 @@ $installer = Get-ChildItem .\Wisp-Setup-*.exe | Select-Object -First 1
 
 Compare the result with the value in the adjacent `.sha256` file. The current
 installer is unsigned, so Windows may show an unfamiliar-publisher warning.
+
+See [Wisp setup and troubleshooting](https://wispoverlay.com/help/) for installation
+and connection help.
 
 ## Application updates
 
