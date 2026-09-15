@@ -33,6 +33,24 @@
                   IsChecked="{Binding TorqueGaugeEnabled, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
                   Checked="Toggle_Changed" Unchecked="Toggle_Changed" AutomationProperties.Name="Torque gauge" />
         <TextBlock Text="Attach each gauge to the speedometer or place it separately." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
+        <Grid Margin="0,14,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock Text="Power gauge size" />
+            <TextBlock Grid.Column="1" Text="{Binding PowerGaugeScale, StringFormat={}{0:P0}}" />
+        </Grid>
+        <Slider x:Name="PowerGaugeScaleSlider" Style="{StaticResource GaugeSettingSlider}" Minimum="0.5" Maximum="2"
+                Value="{Binding PowerGaugeScale, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                TickFrequency="0.05" IsSnapToTickEnabled="True" SmallChange="0.05" LargeChange="0.25"
+                ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Power gauge size" />
+        <Grid Margin="0,14,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock Text="Torque gauge size" />
+            <TextBlock Grid.Column="1" Text="{Binding TorqueGaugeScale, StringFormat={}{0:P0}}" />
+        </Grid>
+        <Slider x:Name="TorqueGaugeScaleSlider" Style="{StaticResource GaugeSettingSlider}" Minimum="0.5" Maximum="2"
+                Value="{Binding TorqueGaugeScale, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                TickFrequency="0.05" IsSnapToTickEnabled="True" SmallChange="0.05" LargeChange="0.25"
+                ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Torque gauge size" />
         <Expander Header="More options" Style="{StaticResource MoreOptionsStyle}" Margin="0,12,0,0"
                   AutomationProperties.Name="Power and torque gauge options">
             <StackPanel>
@@ -57,15 +75,6 @@
                           IsChecked="{Binding PowerTorqueShowNegative, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
                           Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,0,0,16" AutomationProperties.Name="Show negative power and torque" />
                 <TextBlock Text="{Binding PowerTorqueRangeCaption}" Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,14" />
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBlock Text="Gauge size" />
-                    <TextBlock Grid.Column="1" Text="{Binding PowerTorqueGaugeScale, StringFormat={}{0:P0}}" />
-                </Grid>
-                <Slider x:Name="GaugeScaleSlider" Style="{StaticResource GaugeSettingSlider}" Minimum="0.5" Maximum="2"
-                        Value="{Binding PowerTorqueGaugeScale, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
-                        TickFrequency="0.05" IsSnapToTickEnabled="True" SmallChange="0.05" LargeChange="0.25"
-                        ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Power and torque gauge size" />
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <TextBlock Text="Power maximum (BHP)" />

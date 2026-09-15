@@ -8,6 +8,56 @@ namespace Wisp.App.Tests;
 public sealed class PowerTorqueGaugeLayoutTests
 {
     [Fact]
+    public void DefaultAnalogGridAlignsEveryRowAndColumn()
+    {
+        var layout = AnalogSupplementaryGaugeLayout.Calculate(new Size(416, 365.5), 76,
+            true, true, true, true, 1, 1, 1, 1);
+        Assert.Equal(new Rect(276, 76, 136, 136), layout.BoostBounds);
+        Assert.Equal(new Rect(276, 214, 136, 136), layout.TireBounds);
+        Assert.Equal(new Rect(410, 76, 136, 136), layout.PowerBounds);
+        Assert.Equal(new Rect(410, 214, 136, 136), layout.TorqueBounds);
+    }
+
+    [Theory]
+    [InlineData(.5, 1, 2, 1.25)]
+    [InlineData(2, .5, 1, 2)]
+    [InlineData(1.25, 2, .5, 1)]
+    [InlineData(.5, .5, .5, .5)]
+    public void IndependentSizesKeepDialCentersAlignedAndRimsSeparated(
+        double boostScale, double tireScale, double powerScale, double torqueScale)
+    {
+        var layout = AnalogSupplementaryGaugeLayout.Calculate(new Size(416, 365.5), 76,
+            true, true, true, true, boostScale, tireScale, powerScale, torqueScale);
+        var boost = layout.BoostBounds;
+        var tire = layout.TireBounds;
+        var power = layout.PowerBounds;
+        var torque = layout.TorqueBounds;
+        Assert.Equal(boost.Left + boost.Width / 2, tire.Left + tire.Width / 2);
+        Assert.Equal(power.Left + power.Width / 2, torque.Left + torque.Width / 2);
+        Assert.Equal(boost.Top + boost.Height / 2, power.Top + power.Height / 2);
+        Assert.Equal(tire.Top + tire.Height / 2, torque.Top + torque.Height / 2);
+        var bounds = new[] { boost, tire, power, torque };
+        var scales = new[] { boostScale, tireScale, powerScale, torqueScale };
+        for (var index = 0; index < bounds.Length; index++)
+        {
+            Assert.Equal(136 * scales[index], bounds[index].Width);
+            Assert.True(new Rect(layout.Size).Contains(bounds[index]));
+            for (var other = index + 1; other < bounds.Length; other++)
+                Assert.False(DialInk(bounds[index], scales[index]).IntersectsWith(DialInk(bounds[other], scales[other])));
+        }
+    }
+
+    [Fact]
+    public void TorqueAndPowerScalesDoNotResizeEachOther()
+    {
+        var layout = PowerTorqueGaugeLayout.Calculate(new Size(416, 365.5), 76, true, true, 2, .5);
+        Assert.Equal(272, layout.PowerBounds.Width);
+        Assert.Equal(68, layout.TorqueBounds.Width);
+        Assert.Equal(layout.PowerBounds.Left + 136, layout.TorqueBounds.Left + 34);
+        Assert.True(new Rect(layout.Size).Contains(layout.TorqueBounds));
+    }
+
+    [Fact]
     public void DisabledGaugesLeaveExistingBoundsUnchanged()
     {
         var size = new Size(416, 365.5);

@@ -58,12 +58,15 @@ public sealed class PowerTorqueGaugeViewModelTests
         Assert.False(model.TorqueGaugeEnabled);
         Assert.Equal(1800, model.PowerGaugeMaximum);
         Assert.Equal(2500, model.TorqueGaugeMaximumNm);
-        Assert.Equal(1.25, model.PowerTorqueGaugeScale);
+        Assert.Equal(1.25, model.PowerGaugeScale);
+        Assert.Equal(1.25, model.TorqueGaugeScale);
         model.PowerGaugeMaximum = double.NaN;
         model.TorqueGaugeMaximumNm = double.PositiveInfinity;
-        model.PowerTorqueGaugeScale = double.NegativeInfinity;
+        model.PowerGaugeScale = double.NegativeInfinity;
+        model.TorqueGaugeScale = 1.65;
         Assert.Equal(1000, model.PowerGaugeMaximum);
         Assert.Equal(1200, model.TorqueGaugeMaximumNm);
-        Assert.Equal(1, model.PowerTorqueGaugeScale);
+        Assert.Equal(1, model.PowerGaugeScale);
+        Assert.Equal(1.65, model.TorqueGaugeScale);
     }
 }

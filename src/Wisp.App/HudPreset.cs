@@ -51,7 +51,21 @@ public sealed class HudPreset
     public string? CustomTorqueLowColor { get; set; }
     public string? CustomTorqueMidColor { get; set; }
     public string? CustomTorqueHighColor { get; set; }
+    // Retain the shared v2.1 value as the fallback for settings and profiles
+    // written before each gauge had its own size. Explicit sizes always win.
     public double PowerTorqueGaugeScale { get; set; } = 1;
+    private double? _powerGaugeScale;
+    private double? _torqueGaugeScale;
+    public double PowerGaugeScale
+    {
+        get => _powerGaugeScale ?? PowerTorqueGaugeScale;
+        set => _powerGaugeScale = value;
+    }
+    public double TorqueGaugeScale
+    {
+        get => _torqueGaugeScale ?? PowerTorqueGaugeScale;
+        set => _torqueGaugeScale = value;
+    }
     public double PowerGaugeMaximum { get; set; } = 1000;
     public double TorqueGaugeMaximumNm { get; set; } = 1200;
     public bool TractionCueEnabled { get; set; } = true;
@@ -134,6 +148,8 @@ public sealed class HudPreset
             CustomTorqueMidColor = settings.CustomTorqueMidColor,
             CustomTorqueHighColor = settings.CustomTorqueHighColor,
             PowerTorqueGaugeScale = settings.PowerTorqueGaugeScale,
+            PowerGaugeScale = settings.PowerGaugeScale,
+            TorqueGaugeScale = settings.TorqueGaugeScale,
             PowerGaugeMaximum = settings.PowerGaugeMaximum,
             TorqueGaugeMaximumNm = settings.TorqueGaugeMaximumNm,
             TractionCueEnabled = settings.TractionCueEnabled,
@@ -199,6 +215,8 @@ public sealed class HudPreset
         settings.CustomTorqueMidColor = CustomTorqueMidColor;
         settings.CustomTorqueHighColor = CustomTorqueHighColor;
         settings.PowerTorqueGaugeScale = PowerTorqueGaugeScale;
+        settings.PowerGaugeScale = PowerGaugeScale;
+        settings.TorqueGaugeScale = TorqueGaugeScale;
         settings.PowerGaugeMaximum = PowerGaugeMaximum;
         settings.TorqueGaugeMaximumNm = TorqueGaugeMaximumNm;
         settings.TractionCueEnabled = TractionCueEnabled;
@@ -243,6 +261,8 @@ public sealed class HudPreset
         BoostGaugeScale = NormalizeScale(BoostGaugeScale);
         TireTemperatureGaugeScale = NormalizeScale(TireTemperatureGaugeScale);
         PowerTorqueGaugeScale = NormalizeScale(PowerTorqueGaugeScale);
+        PowerGaugeScale = NormalizeScale(PowerGaugeScale);
+        TorqueGaugeScale = NormalizeScale(TorqueGaugeScale);
         PowerTorqueSmoothingMilliseconds = AppSettings.NormalizePowerTorqueSmoothing(PowerTorqueSmoothingMilliseconds);
         CustomPowerLowColor = ColorCustomization.NormalizeGauge(CustomPowerLowColor);
         CustomPowerMidColor = ColorCustomization.NormalizeGauge(CustomPowerMidColor);

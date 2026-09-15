@@ -43,6 +43,18 @@ internal static class PowerTorqueGaugeSettingsUiTests
             Assert.NotNull(smoothing.FocusVisualStyle);
             smoothing.SetCurrentValue(RangeBase.ValueProperty, 950d);
             Assert.Equal(950, settings.PowerTorqueSmoothingMilliseconds);
+            var powerScale = Assert.IsType<Slider>(control.FindName("PowerGaugeScaleSlider"));
+            var torqueScale = Assert.IsType<Slider>(control.FindName("TorqueGaugeScaleSlider"));
+            Assert.Equal(1, powerScale.Value);
+            Assert.Equal(1, torqueScale.Value);
+            Assert.NotNull(powerScale.FocusVisualStyle);
+            Assert.NotNull(torqueScale.FocusVisualStyle);
+            powerScale.SetCurrentValue(RangeBase.ValueProperty, 1.25d);
+            Assert.Equal(1.25, settings.PowerGaugeScale);
+            Assert.Equal(1, settings.TorqueGaugeScale);
+            torqueScale.SetCurrentValue(RangeBase.ValueProperty, 1.6d);
+            Assert.Equal(1.25, settings.PowerGaugeScale);
+            Assert.Equal(1.6, settings.TorqueGaugeScale);
             var powerAttached = Assert.IsType<CheckBox>(control.FindName("PowerAttachedToggle"));
             powerAttached.SetCurrentValue(ToggleButton.IsCheckedProperty, false);
             Assert.False(settings.PowerGaugeAttached);

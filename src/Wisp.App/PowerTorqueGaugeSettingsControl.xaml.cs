@@ -36,7 +36,8 @@ public partial class PowerTorqueGaugeSettingsControl : UserControl
         if (_controller is null || DataContext is not DiagnosticsViewModel model || sender is not Slider slider) return;
         var current = slider.Name switch
         {
-            nameof(GaugeScaleSlider) => model.PowerTorqueGaugeScale,
+            nameof(PowerGaugeScaleSlider) => model.PowerGaugeScale,
+            nameof(TorqueGaugeScaleSlider) => model.TorqueGaugeScale,
             nameof(PowerMaximumSlider) => model.PowerGaugeMaximum,
             nameof(TorqueMaximumSlider) => model.TorqueGaugeMaximumNm,
             nameof(SmoothingSlider) => model.PowerTorqueSmoothingMilliseconds,

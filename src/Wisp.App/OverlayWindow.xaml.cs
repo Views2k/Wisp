@@ -50,7 +50,10 @@ public partial class OverlayWindow : Window
     private bool _combinedGForceVisible;
     private bool _attachedPowerVisible;
     private bool _attachedTorqueVisible;
-    private double _powerTorqueScale;
+    private double _powerScale;
+    private double _torqueScale;
+    private double _boostScale;
+    private double _tireScale;
     private int _visibilityRevision;
 
     public OverlayWindow(AppController controller)
@@ -112,7 +115,10 @@ public partial class OverlayWindow : Window
             nameof(DiagnosticsViewModel.PowerGaugeAttached) or
             nameof(DiagnosticsViewModel.TorqueGaugeEnabled) or
             nameof(DiagnosticsViewModel.TorqueGaugeAttached) or
-            nameof(DiagnosticsViewModel.PowerTorqueGaugeScale) or
+            nameof(DiagnosticsViewModel.PowerGaugeScale) or
+            nameof(DiagnosticsViewModel.TorqueGaugeScale) or
+            nameof(DiagnosticsViewModel.BoostGaugeScale) or
+            nameof(DiagnosticsViewModel.TireTemperatureGaugeScale) or
             nameof(DiagnosticsViewModel.GForceEnabled) or
             nameof(DiagnosticsViewModel.GForceAttached))
         {
@@ -139,7 +145,10 @@ public partial class OverlayWindow : Window
                 shouldShowTireTemperature == _attachedTireTemperatureVisible &&
                 shouldShowGForce == _attachedGForceVisible &&
                 showPower == _attachedPowerVisible && showTorque == _attachedTorqueVisible &&
-                _powerTorqueScale == _controller.ViewModel.PowerTorqueGaugeScale &&
+                _powerScale == _controller.ViewModel.PowerGaugeScale &&
+                _torqueScale == _controller.ViewModel.TorqueGaugeScale &&
+                _boostScale == _controller.ViewModel.BoostGaugeScale &&
+                _tireScale == _controller.ViewModel.TireTemperatureGaugeScale &&
                 (_layoutMode != HudLayoutMode.Combined || _combinedGForceVisible == _controller.ViewModel.GForceEnabled))
             {
                 return;
@@ -382,17 +391,45 @@ public partial class OverlayWindow : Window
         _attachedTorqueVisible = _controller.ViewModel.TorqueGaugeEnabled &&
                                  _controller.ViewModel.TorqueGaugeAttached &&
                                  _controller.ViewModel.PowerTorqueDisplay.Available;
-        _powerTorqueScale = _controller.ViewModel.PowerTorqueGaugeScale;
-        var powerTorqueLayout = PowerTorqueGaugeLayout.Calculate(
-            new Size(baseWidth, baseHeight), nativeTop + 4,
-            _attachedPowerVisible, _attachedTorqueVisible, _powerTorqueScale,
-            analogBoostVisible || analogTireTemperatureVisible);
-        ApplyPowerTorqueBounds(AttachedPowerGauge, powerTorqueLayout.PowerBounds);
-        ApplyPowerTorqueBounds(AttachedTorqueGauge, powerTorqueLayout.TorqueBounds);
-        RootPanel.Width = powerTorqueLayout.Size.Width;
-        RootPanel.Height = powerTorqueLayout.Size.Height;
-        Width = powerTorqueLayout.Size.Width * widthScale;
-        Height = powerTorqueLayout.Size.Height * heightScale;
+        _powerScale = _controller.ViewModel.PowerGaugeScale;
+        _torqueScale = _controller.ViewModel.TorqueGaugeScale;
+        _boostScale = _controller.ViewModel.BoostGaugeScale;
+        _tireScale = _controller.ViewModel.TireTemperatureGaugeScale;
+        Size size;
+        if (layoutMode == HudLayoutMode.Native && nativeGaugeMode == NativeGaugeMode.Analogue)
+        {
+            var gauges = AnalogSupplementaryGaugeLayout.Calculate(
+                new Size(baseWidth, baseHeight), nativeTop + 4,
+                analogBoostVisible, analogTireTemperatureVisible,
+                _attachedPowerVisible, _attachedTorqueVisible,
+                _boostScale, _tireScale, _powerScale, _torqueScale);
+            ApplyAnalogGaugeBounds(AttachedAnalogBoost, gauges.BoostBounds);
+            ApplyAnalogGaugeBounds(AttachedAnalogTireTemperature, gauges.TireBounds);
+            ApplyPowerTorqueBounds(AttachedPowerGauge, gauges.PowerBounds);
+            ApplyPowerTorqueBounds(AttachedTorqueGauge, gauges.TorqueBounds);
+            size = gauges.Size;
+        }
+        else
+        {
+            if (digitalTireTemperatureVisible)
+            {
+                AttachedDigitalTireTemperature.LayoutTransform = new ScaleTransform(_tireScale, _tireScale);
+                baseWidth = Math.Max(baseWidth,
+                    AttachedDigitalTireTemperature.Margin.Left + AttachedDigitalTireTemperature.Width * _tireScale + 4);
+                baseHeight = Math.Max(baseHeight,
+                    AttachedDigitalTireTemperature.Margin.Top + AttachedDigitalTireTemperature.Height * _tireScale + 4);
+            }
+            var gauges = PowerTorqueGaugeLayout.Calculate(
+                new Size(baseWidth, baseHeight), nativeTop + 4,
+                _attachedPowerVisible, _attachedTorqueVisible, _powerScale, _torqueScale);
+            ApplyPowerTorqueBounds(AttachedPowerGauge, gauges.PowerBounds);
+            ApplyPowerTorqueBounds(AttachedTorqueGauge, gauges.TorqueBounds);
+            size = gauges.Size;
+        }
+        RootPanel.Width = size.Width;
+        RootPanel.Height = size.Height;
+        Width = size.Width * widthScale;
+        Height = size.Height * heightScale;
         EditChrome.Visibility = _editMode && layoutMode != HudLayoutMode.Minimal
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -405,6 +442,15 @@ public partial class OverlayWindow : Window
         if (bounds.IsEmpty) return;
         gauge.Width = bounds.Width;
         gauge.Height = bounds.Height;
+        gauge.Margin = new Thickness(bounds.X, bounds.Y, 0, 0);
+    }
+
+    private static void ApplyAnalogGaugeBounds(FrameworkElement gauge, Rect bounds)
+    {
+        gauge.Visibility = bounds.IsEmpty ? Visibility.Collapsed : Visibility.Visible;
+        if (bounds.IsEmpty) return;
+        var scale = bounds.Width / PowerTorqueGaugeLayout.GaugeDiameter;
+        gauge.LayoutTransform = new ScaleTransform(scale, scale);
         gauge.Margin = new Thickness(bounds.X, bounds.Y, 0, 0);
     }
 

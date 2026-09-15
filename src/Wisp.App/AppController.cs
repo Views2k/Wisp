@@ -905,7 +905,8 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.TorqueUnit = ViewModel.SelectedTorqueUnit;
             Settings.PowerGaugeEnabled = ViewModel.PowerGaugeEnabled;
             Settings.TorqueGaugeEnabled = ViewModel.TorqueGaugeEnabled;
-            Settings.PowerTorqueGaugeScale = ViewModel.PowerTorqueGaugeScale;
+            Settings.PowerGaugeScale = ViewModel.PowerGaugeScale;
+            Settings.TorqueGaugeScale = ViewModel.TorqueGaugeScale;
             Settings.PowerGaugeAttached = ViewModel.PowerGaugeAttached;
             Settings.TorqueGaugeAttached = ViewModel.TorqueGaugeAttached;
             Settings.PowerTorqueSmoothingMilliseconds = ViewModel.PowerTorqueSmoothingMilliseconds;

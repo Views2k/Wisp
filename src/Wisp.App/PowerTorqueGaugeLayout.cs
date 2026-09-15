@@ -18,24 +18,88 @@ internal readonly record struct PowerTorqueGaugeLayout(
         bool showPower,
         bool showTorque,
         double scale,
+        bool besideNativeAnalogSatellites = false) =>
+        Calculate(existingSize, top, showPower, showTorque, scale, scale, besideNativeAnalogSatellites);
+
+    internal static PowerTorqueGaugeLayout Calculate(
+        Size existingSize,
+        double top,
+        bool showPower,
+        bool showTorque,
+        double powerScale,
+        double torqueScale,
         bool besideNativeAnalogSatellites = false)
     {
         if (!showPower && !showTorque)
             return new(existingSize, Rect.Empty, Rect.Empty);
 
-        scale = double.IsFinite(scale) ? Math.Clamp(scale, 0.5, 2) : 1;
-        var diameter = GaugeDiameter * scale;
-        var gap = RowGap * scale;
+        var powerDiameter = Diameter(powerScale);
+        var torqueDiameter = Diameter(torqueScale);
+        var columnWidth = Math.Max(showPower ? powerDiameter : 0, showTorque ? torqueDiameter : 0);
+        var gap = RowGap * Math.Max(NormalizeScale(powerScale), NormalizeScale(torqueScale));
         // Analogue dial artwork occupies .43 of its square from the center.
         // Share the transparent edge padding, retaining space between the actual rims.
         var left = besideNativeAnalogSatellites ? NativeSecondColumnLeft : existingSize.Width + 2;
-        var power = showPower ? new Rect(left, top, diameter, diameter) : Rect.Empty;
+        var power = showPower ? new Rect(left + (columnWidth - powerDiameter) / 2, top,
+            powerDiameter, powerDiameter) : Rect.Empty;
         var torque = showTorque
-            ? new Rect(left, top + (showPower ? diameter + gap : 0), diameter, diameter)
+            ? new Rect(left + (columnWidth - torqueDiameter) / 2,
+                top + (showPower ? powerDiameter + gap : 0), torqueDiameter, torqueDiameter)
             : Rect.Empty;
         var bottom = showTorque ? torque.Bottom : power.Bottom;
-        return new(new Size(left + diameter, Math.Max(existingSize.Height, bottom + 4)), power, torque);
+        return new(new Size(Math.Max(existingSize.Width, left + columnWidth),
+            Math.Max(existingSize.Height, bottom + 4)), power, torque);
     }
+
+    internal static double NormalizeScale(double scale) => double.IsFinite(scale) ? Math.Clamp(scale, .5, 2) : 1;
+    internal static double Diameter(double scale) => GaugeDiameter * NormalizeScale(scale);
+}
+
+internal readonly record struct AnalogSupplementaryGaugeLayout(
+    Size Size, Rect BoostBounds, Rect TireBounds, Rect PowerBounds, Rect TorqueBounds)
+{
+    internal static AnalogSupplementaryGaugeLayout Calculate(
+        Size existingSize, double top,
+        bool showBoost, bool showTire, bool showPower, bool showTorque,
+        double boostScale, double tireScale, double powerScale, double torqueScale,
+        double firstColumnLeft = PowerTorqueGaugeLayout.NativeSatelliteLeft)
+    {
+        if (!showBoost && !showTire && !showPower && !showTorque)
+            return new(existingSize, Rect.Empty, Rect.Empty, Rect.Empty, Rect.Empty);
+
+        var boost = PowerTorqueGaugeLayout.Diameter(boostScale);
+        var tire = PowerTorqueGaugeLayout.Diameter(tireScale);
+        var power = PowerTorqueGaugeLayout.Diameter(powerScale);
+        var torque = PowerTorqueGaugeLayout.Diameter(torqueScale);
+        var hasLeft = showBoost || showTire;
+        var hasRight = showPower || showTorque;
+        var hasUpper = showBoost || showPower;
+        var hasLower = showTire || showTorque;
+        var leftWidth = hasLeft ? Math.Max(PowerTorqueGaugeLayout.GaugeDiameter,
+            Math.Max(showBoost ? boost : 0, showTire ? tire : 0)) : 0;
+        var rightWidth = hasRight ? Math.Max(PowerTorqueGaugeLayout.GaugeDiameter,
+            Math.Max(showPower ? power : 0, showTorque ? torque : 0)) : 0;
+        var upperHeight = hasUpper ? Math.Max(PowerTorqueGaugeLayout.GaugeDiameter,
+            Math.Max(showBoost ? boost : 0, showPower ? power : 0)) : 0;
+        var lowerHeight = hasLower ? Math.Max(PowerTorqueGaugeLayout.GaugeDiameter,
+            Math.Max(showTire ? tire : 0, showTorque ? torque : 0)) : 0;
+
+        // Rims occupy .43 of each square. Sharing two DIPs of transparent side
+        // padding keeps the original compact grid, even for unequal dial sizes.
+        var rightLeft = firstColumnLeft + (hasLeft ? leftWidth - 2 : 0);
+        var lowerTop = top + (hasUpper ? upperHeight + PowerTorqueGaugeLayout.RowGap : 0);
+        var boostBounds = Centered(showBoost, firstColumnLeft, top, leftWidth, upperHeight, boost);
+        var tireBounds = Centered(showTire, firstColumnLeft, lowerTop, leftWidth, lowerHeight, tire);
+        var powerBounds = Centered(showPower, rightLeft, top, rightWidth, upperHeight, power);
+        var torqueBounds = Centered(showTorque, rightLeft, lowerTop, rightWidth, lowerHeight, torque);
+        var right = hasRight ? rightLeft + rightWidth : firstColumnLeft + leftWidth;
+        var bottom = hasLower ? lowerTop + lowerHeight : top + upperHeight;
+        return new(new Size(Math.Max(existingSize.Width, right), Math.Max(existingSize.Height, bottom + 4)),
+            boostBounds, tireBounds, powerBounds, torqueBounds);
+    }
+
+    private static Rect Centered(bool visible, double left, double top, double width, double height, double diameter) =>
+        visible ? new Rect(left + (width - diameter) / 2, top + (height - diameter) / 2, diameter, diameter) : Rect.Empty;
 }
 
 internal static class DetachedSupplementaryGaugeLayout
