@@ -1,4 +1,4 @@
-[![Watch the Wisp demonstration in Forza Horizon 6](docs/images/wisp-demo-thumbnail.jpg)](https://youtu.be/hoh169Sx_5I)
+[![Watch the Wisp demonstration in Forza Horizon 6](docs/images/wisp-demo-thumbnail.jpg)](https://www.youtube.com/watch?v=RCR6KQ1_OlQ)
 
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
