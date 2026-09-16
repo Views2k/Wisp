@@ -3,7 +3,7 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.1.0/Wisp-Setup-2.1.0.zip"><strong>Download Wisp 2.1</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.1.1/Wisp-Setup-2.1.1.zip"><strong>Download Wisp 2.1.1</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -11,7 +11,16 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## New in Wisp 2.1
+## New in Wisp 2.1.1
+
+The four supplementary analogue dials now match at 100% and stay aligned when
+resized. Power and torque have separate size sliders, boost and tire sizing also
+works while attached, and a **50–200% G-force meter size** control applies across
+attached, detached, and Combined layouts. Previews follow these settings;
+existing sizes, profiles, and positions are preserved.
+
+[Read the Wisp 2.1.1 release notes](docs/releases/Wisp-2.1.1-release-notes.md).
+The power and torque features introduced in 2.1 are described below.
 
 [Power & torque](#power-and-torque-gauges) · [Dashboard](#dashboard-and-interface) · [Drift gauge](#drift-angle-guidance) ·
 [Runs](#a-more-useful-runs-workspace) · [Appearance](#make-the-interface-yours) ·
@@ -25,7 +34,8 @@ needles, peak markers, and peak readouts. Turn either gauge on or off in
 or detach it and use **Edit HUD layout** to place it separately. Torque follows
 your **Nm** or **lb-ft** preference. [See the gauges in gameplay](#gallery).
 
-Under **More options**, adjust gauge size, smoothing, and a fixed range for each
+Use the separate **Power gauge size** and **Torque gauge size** sliders to resize
+each dial. Under **More options**, adjust smoothing and a fixed range for each
 car. **Set from this run** uses the peaks Wisp has observed plus 10%; the scale
 then stays fixed while driving. These are observed readings, not the car's rated
 maximum output. After retuning, reset the peaks and make another pull before
@@ -121,8 +131,8 @@ An optional quick tour introduces the drift gauge, Display mode, Runs, and
 Appearance. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.1](https://github.com/Views2k/Wisp/releases/download/v2.1.0/Wisp-Setup-2.1.0.zip) ·
-[2.1 release notes](docs/releases/Wisp-2.1.0-release-notes.md) ·
+[Download Wisp 2.1.1](https://github.com/Views2k/Wisp/releases/download/v2.1.1/Wisp-Setup-2.1.1.zip) ·
+[2.1.1 release notes](docs/releases/Wisp-2.1.1-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Interface screenshots show the build used to develop Wisp 2.0. Their original
@@ -245,8 +255,8 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open the [Wisp 2.1 release](https://github.com/Views2k/Wisp/releases/tag/v2.1.0).
-2. Download and extract [Wisp-Setup-2.1.0.zip](https://github.com/Views2k/Wisp/releases/download/v2.1.0/Wisp-Setup-2.1.0.zip).
+1. Open the [Wisp 2.1.1 release](https://github.com/Views2k/Wisp/releases/tag/v2.1.1).
+2. Download and extract [Wisp-Setup-2.1.1.zip](https://github.com/Views2k/Wisp/releases/download/v2.1.1/Wisp-Setup-2.1.1.zip).
 3. Keep the installer and its `.sha256` file together.
 4. Verify the installer checksum, then run the installer.
 5. Complete the required setup wizard on first launch.
@@ -372,6 +382,7 @@ To build the self-contained installer:
 - [Boost Gauge](docs/BOOST-GAUGE.md)
 - [Tire Temperature](docs/TIRE-TEMPERATURE.md)
 - [Run files and library archives](docs/run-library-format.md)
+- [Wisp 2.1.1 release notes](docs/releases/Wisp-2.1.1-release-notes.md)
 - [Wisp 2.1 release notes](docs/releases/Wisp-2.1.0-release-notes.md)
 - [Wisp 2.0 release notes](docs/releases/Wisp-2.0.0-release-notes.md)
 - [How Wisp Was Built](docs/HOW-WISP-WAS-BUILT.md)

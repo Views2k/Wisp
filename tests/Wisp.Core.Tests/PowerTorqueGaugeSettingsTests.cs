@@ -7,6 +7,67 @@ namespace Wisp.Core.Tests;
 
 public sealed class PowerTorqueGaugeSettingsTests
 {
+    [Theory]
+    [InlineData("{\"PowerTorqueGaugeScale\":1.4}", 1.4, 1.4)]
+    [InlineData("{\"PowerTorqueGaugeScale\":1.4,\"PowerGaugeScale\":1}", 1, 1.4)]
+    [InlineData("{\"TorqueGaugeScale\":0.75,\"PowerTorqueGaugeScale\":1.4}", 1.4, 0.75)]
+    [InlineData("{\"PowerGaugeScale\":1.2,\"TorqueGaugeScale\":1.6,\"PowerTorqueGaugeScale\":1.4}", 1.2, 1.6)]
+    [InlineData("{}", 1, 1)]
+    public void SettingsAndProfilesMigrateSharedSizeOnlyWhenIndividualSizeIsMissing(string json, double power, double torque)
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>(json)!;
+        settings.MigrateSettings();
+        var preset = JsonSerializer.Deserialize<HudPreset>(json)!;
+        preset.Name = "Migrated sizes";
+        Assert.True(preset.Normalize());
+        Assert.Equal(power, settings.PowerGaugeScale);
+        Assert.Equal(torque, settings.TorqueGaugeScale);
+        Assert.Equal(power, preset.PowerGaugeScale);
+        Assert.Equal(torque, preset.TorqueGaugeScale);
+    }
+
+    [Fact]
+    public void IndependentSizesSurviveSettingsAndProfileRoundTrips()
+    {
+        var settings = new AppSettings
+        {
+            PowerTorqueGaugeScale = 1.35,
+            PowerGaugeScale = 0.8,
+            TorqueGaugeScale = 1.65,
+            BoostGaugeScale = 1.1,
+            TireTemperatureGaugeScale = 1.2
+        };
+        settings.MigrateSettings();
+        var restored = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings))!;
+        restored.MigrateSettings();
+        Assert.Equal(0.8, restored.PowerGaugeScale);
+        Assert.Equal(1.65, restored.TorqueGaugeScale);
+        var preset = JsonSerializer.Deserialize<HudPreset>(JsonSerializer.Serialize(HudPreset.Capture(restored, "Independent sizes")))!;
+        var target = new AppSettings { PowerGaugeScale = 2, TorqueGaugeScale = 0.5 };
+        preset.ApplyTo(target);
+        Assert.Equal(0.8, target.PowerGaugeScale);
+        Assert.Equal(1.65, target.TorqueGaugeScale);
+        Assert.Equal(1.1, target.BoostGaugeScale);
+        Assert.Equal(1.2, target.TireTemperatureGaugeScale);
+    }
+
+    [Theory]
+    [InlineData(-1, 0.5)]
+    [InlineData(3, 2)]
+    [InlineData(double.NaN, 1)]
+    [InlineData(double.PositiveInfinity, 1)]
+    public void IndependentSizesNormalizeWithoutChangingTheOtherGauge(double input, double expected)
+    {
+        var settings = new AppSettings { PowerGaugeScale = input, TorqueGaugeScale = 1.6 };
+        var preset = HudPreset.Capture(settings, "Normalized sizes");
+        settings.MigrateSettings();
+        preset.Normalize();
+        Assert.Equal(expected, settings.PowerGaugeScale);
+        Assert.Equal(expected, preset.PowerGaugeScale);
+        Assert.Equal(1.6, settings.TorqueGaugeScale);
+        Assert.Equal(1.6, preset.TorqueGaugeScale);
+    }
+
     [Fact]
     public void OnlyAMissingSettingsFileStartsWithNativeAnalogueAndAllGauges()
     {
@@ -186,6 +247,8 @@ public sealed class PowerTorqueGaugeSettingsTests
         Assert.Equal(power, target.PowerGaugeEnabled);
         Assert.Equal(torque, target.TorqueGaugeEnabled);
         Assert.Equal(1.35, target.PowerTorqueGaugeScale);
+        Assert.Equal(1.35, target.PowerGaugeScale);
+        Assert.Equal(1.35, target.TorqueGaugeScale);
         Assert.Equal(1500, target.PowerGaugeMaximum);
         Assert.Equal(2100, target.TorqueGaugeMaximumNm);
         Assert.Equal(TorqueUnit.PoundFeet, target.TorqueUnit);
@@ -197,13 +260,22 @@ public sealed class PowerTorqueGaugeSettingsTests
     public void OldProfilesRestoreTheOptInDefaults()
     {
         var preset = JsonSerializer.Deserialize<HudPreset>("""{"Name":"Existing"}""")!;
-        var target = new AppSettings { PowerGaugeEnabled = true, TorqueGaugeEnabled = true, PowerGaugeMaximum = 4500 };
+        var target = new AppSettings
+        {
+            PowerGaugeEnabled = true,
+            TorqueGaugeEnabled = true,
+            PowerGaugeMaximum = 4500,
+            PowerGaugeScale = 1.5,
+            TorqueGaugeScale = 1.7
+        };
         preset.ApplyTo(target);
         Assert.False(target.PowerGaugeEnabled);
         Assert.False(target.TorqueGaugeEnabled);
         Assert.Equal(1000, target.PowerGaugeMaximum);
         Assert.Equal(1200, target.TorqueGaugeMaximumNm);
         Assert.Equal(1, target.PowerTorqueGaugeScale);
+        Assert.Equal(1, target.PowerGaugeScale);
+        Assert.Equal(1, target.TorqueGaugeScale);
     }
 
     [Theory]

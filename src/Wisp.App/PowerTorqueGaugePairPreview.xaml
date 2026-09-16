@@ -24,9 +24,6 @@
             </Style.Triggers>
         </Style>
     </UserControl.Style>
-    <UserControl.LayoutTransform>
-        <ScaleTransform ScaleX="{Binding PowerTorqueGaugeScale}" ScaleY="{Binding PowerTorqueGaugeScale}" />
-    </UserControl.LayoutTransform>
     <StackPanel>
         <local:PowerTorqueGaugeView Width="136" Height="136"
                                    Display="{Binding PreviewPowerTorqueDisplay}"
@@ -37,6 +34,9 @@
                                    HighBrush="{Binding PowerGaugeHighBrush}"
                                    ColorNumber="{Binding PowerGaugeColorNumber}"
                                    AccentBrush="{DynamicResource AccentBrush}">
+            <local:PowerTorqueGaugeView.LayoutTransform>
+                <ScaleTransform ScaleX="{Binding PowerGaugeScale}" ScaleY="{Binding PowerGaugeScale}" />
+            </local:PowerTorqueGaugeView.LayoutTransform>
             <local:PowerTorqueGaugeView.Style>
                 <Style TargetType="local:PowerTorqueGaugeView">
                     <Setter Property="Visibility" Value="Collapsed" />
@@ -62,6 +62,9 @@
                                    HighBrush="{Binding TorqueGaugeHighBrush}"
                                    ColorNumber="{Binding TorqueGaugeColorNumber}"
                                    AccentBrush="{DynamicResource AccentBrush}">
+            <local:PowerTorqueGaugeView.LayoutTransform>
+                <ScaleTransform ScaleX="{Binding TorqueGaugeScale}" ScaleY="{Binding TorqueGaugeScale}" />
+            </local:PowerTorqueGaugeView.LayoutTransform>
             <local:PowerTorqueGaugeView.Style>
                 <Style TargetType="local:PowerTorqueGaugeView">
                     <Setter Property="Visibility" Value="Collapsed" />

@@ -816,37 +816,29 @@ public sealed class XamlContractTests
             element.Attribute("Text")?.Value == "{Binding PreviewCaption}");
     }
 
-    [Fact]
-    public void NativePreviewIncludesConfiguredBoostAndTireTemperatureGauges()
+    [Theory]
+    [InlineData("MainWindow.xaml")]
+    [InlineData("LegacyMainWindow.xaml")]
+    public void NativePreviewIncludesConfiguredBoostAndTireTemperatureGauges(string fileName)
     {
-        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "MainWindow.xaml"));
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), fileName));
         var digital = document.Descendants(Local + "DigitalBoostRailView")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeDigitalBoostPreview");
-        var analogue = document.Descendants(Local + "AnalogBoostGaugeView")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeAnalogBoostPreview");
+        var analogue = document.Descendants(Local + "SupplementaryAnalogGaugePreview").Single();
         var digitalTire = document.Descendants(Local + "DigitalTireTemperatureGaugeView")
             .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeDigitalTireTemperaturePreview");
-        var analogueTire = document.Descendants(Local + "AnalogTireTemperatureGaugeView")
-            .Single(element => element.Attribute(Xaml + "Name")?.Value == "NativeAnalogTireTemperaturePreview");
 
         Assert.Equal("{Binding PreviewBoostDisplay}", digital.Attribute("Display")?.Value);
         Assert.Equal("{Binding SelectedBoostPressureUnit}", digital.Attribute("PressureUnit")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeColorNumber}", digital.Attribute("ColorNumber")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeStockColors}", digital.Attribute("UseStockColors")?.Value);
-        Assert.Equal("{Binding PreviewBoostDisplay}", analogue.Attribute("Display")?.Value);
-        Assert.Equal("{Binding SelectedBoostPressureUnit}", analogue.Attribute("PressureUnit")?.Value);
-        Assert.Equal("{Binding BoostGaugeColorNumber}", analogue.Attribute("ColorNumber")?.Value);
+        Assert.Equal("{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='276,76,0,0'}",
+            analogue.Attribute("Margin")?.Value);
         Assert.Contains("{Binding BoostGaugeEnabled}", digital.ToString(), StringComparison.Ordinal);
-        Assert.Contains("{Binding BoostGaugeEnabled}", analogue.ToString(), StringComparison.Ordinal);
-        Assert.Contains("{Binding BoostGaugeAttached}", analogue.ToString(), StringComparison.Ordinal);
         Assert.Equal("{Binding PreviewTireTemperatureDisplay}", digitalTire.Attribute("Display")?.Value);
-        Assert.Equal("{Binding PreviewTireTemperatureDisplay}", analogueTire.Attribute("Display")?.Value);
         Assert.Equal("{Binding SelectedTireTemperatureUnit}", digitalTire.Attribute("TemperatureUnit")?.Value);
-        Assert.Equal("{Binding SelectedTireTemperatureUnit}", analogueTire.Attribute("TemperatureUnit")?.Value);
         Assert.Equal("{Binding TireTemperatureReactiveColors}", digitalTire.Attribute("ReactiveColors")?.Value);
-        Assert.Equal("{Binding TireTemperatureReactiveColors}", analogueTire.Attribute("ReactiveColors")?.Value);
         Assert.Contains("{Binding TireTemperatureGaugeEnabled}", digitalTire.ToString(), StringComparison.Ordinal);
-        Assert.Contains("{Binding TireTemperatureGaugeEnabled}", analogueTire.ToString(), StringComparison.Ordinal);
 
         var digitalMeter = digital.Parent!.Elements(Local + "NativeGForceMeterView").Single();
         Assert.Contains("176,0,0,0", digitalMeter.ToString(), StringComparison.Ordinal);

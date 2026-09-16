@@ -19,10 +19,13 @@ internal static class PowerTorqueReview
         using var bindings = new BindingTrace();
         var failures = new List<string>();
         var captures = new List<string>();
+        var gaugeGeometry = new List<object>();
         try
         {
             RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
             app.Resources = loadResources();
+            GForceSizingReview.Run(output, setDpi, captures, failures);
+            SupplementaryGaugeReview.Run(output, detachSurface, setDpi, captures, failures, gaugeGeometry);
             foreach (var torque in new[] { false, true })
             {
                 var gauge = new PowerTorqueGaugeView
@@ -51,7 +54,8 @@ internal static class PowerTorqueReview
                 settings.NativeGaugeMode = variant == "digital" ? NativeGaugeMode.Digital : NativeGaugeMode.Analogue;
                 settings.PowerGaugeEnabled = variant != "torque-only";
                 settings.TorqueGaugeEnabled = true;
-                settings.PowerTorqueGaugeScale = variant == "large-purple" ? 2 : 1;
+                settings.PowerGaugeScale = variant == "large-purple" ? 2 : 1;
+                settings.TorqueGaugeScale = variant == "large-purple" ? 2 : 1;
                 settings.TorqueUnit = variant == "torque-only" ? TorqueUnit.PoundFeet : TorqueUnit.NewtonMeters;
                 settings.BackgroundParticlesEnabled = false;
                 settings.AnimatedBackground = false;
@@ -119,6 +123,7 @@ internal static class PowerTorqueReview
         {
             method = "Actual authored Appearance preview and shared gauge settings, detached WPF rendering; no live game or production settings access.",
             captures,
+            gaugeGeometry,
             failures,
             bindingDiagnosticCount = bindings.TotalCount,
             bindings = bindings.Messages

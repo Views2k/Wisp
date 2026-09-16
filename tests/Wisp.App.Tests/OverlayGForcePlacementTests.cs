@@ -20,8 +20,57 @@ internal static class OverlayGForcePlacementTests
         {
             foreach (var mode in new[] { NativeGaugeMode.Digital, NativeGaugeMode.Analogue })
                 foreach (var electric in new[] { false, true }) AssertPlacement(mode, electric);
+            AssertUniformScaleReachesEveryRuntimeLayout();
         }
         finally { Application.Current.ShutdownMode = previousShutdown; }
+    }
+
+    private static void AssertUniformScaleReachesEveryRuntimeLayout()
+    {
+        foreach (var scale in new[] { .5, 1, 2 })
+        {
+            var settings = new AppSettings
+            {
+                LayoutMode = HudLayoutMode.Native,
+                NativeGaugeMode = NativeGaugeMode.Analogue,
+                GForceEnabled = true,
+                GForceAttached = true,
+                GForceGaugeScale = scale,
+                OverlayWidthScale = 1,
+                OverlayHeightScale = 1,
+                GForceWidthScale = 1.25,
+                GForceHeightScale = .75,
+                BoostGaugeEnabled = false,
+                TireTemperatureGaugeEnabled = false
+            };
+            var controller = new AppController(settings, _ => { }, new NoStartupRegistration());
+            var overlay = new OverlayWindow(controller);
+            var standalone = new GForceWindow(controller);
+            try
+            {
+                var root = Assert.IsType<Grid>(overlay.FindName("RootPanel"));
+                var meter = Assert.IsType<NativeGForceMeterView>(overlay.FindName("AttachedNativeGForce"));
+                Assert.Equal(scale, Assert.IsType<ScaleTransform>(meter.LayoutTransform).ScaleX);
+                Assert.True(new Rect(new Size(root.Width, root.Height)).Contains(GForceGaugeLayout.NativeBounds(NativeGaugeMode.Analogue, scale)));
+                Assert.Equal(144 * 1.25 * scale, standalone.Width);
+                Assert.Equal(100 * .75 * scale, standalone.Height);
+                settings.LayoutMode = HudLayoutMode.Combined;
+                overlay.ApplyLayout(HudLayoutMode.Combined, NativeGaugeMode.Analogue, 1, 1, 1);
+                var combined = Assert.IsType<Grid>(overlay.FindName("CombinedPanel"));
+                var combinedMeter = Assert.IsType<GForceMeterView>(overlay.FindName("CombinedGForceMeter"));
+                Assert.Equal(GForceGaugeLayout.CombinedSize(scale), new Size(combined.Width, combined.Height));
+                Assert.Equal(scale, Assert.IsType<ScaleTransform>(combinedMeter.LayoutTransform).ScaleX);
+                standalone.ApplyAppearance(1.25, .75, 1);
+                Assert.Equal(210 * 1.25 * scale, standalone.Width);
+                Assert.Equal(150 * .75 * scale, standalone.Height);
+            }
+            finally
+            {
+                overlay.Close();
+                standalone.Close();
+                controller.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+        }
     }
 
     private static void AssertPlacement(NativeGaugeMode mode, bool electric)

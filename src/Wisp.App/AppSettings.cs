@@ -85,10 +85,25 @@ public sealed class AppSettings
     public string? CustomTorqueLowColor { get; set; }
     public string? CustomTorqueMidColor { get; set; }
     public string? CustomTorqueHighColor { get; set; }
+    // Retain the shared v2.1 value as the fallback for settings and profiles
+    // written before each gauge had its own size. Explicit sizes always win.
     public double PowerTorqueGaugeScale { get; set; } = 1;
+    private double? _powerGaugeScale;
+    private double? _torqueGaugeScale;
+    public double PowerGaugeScale
+    {
+        get => _powerGaugeScale ?? PowerTorqueGaugeScale;
+        set => _powerGaugeScale = value;
+    }
+    public double TorqueGaugeScale
+    {
+        get => _torqueGaugeScale ?? PowerTorqueGaugeScale;
+        set => _torqueGaugeScale = value;
+    }
     public double PowerGaugeMaximum { get; set; } = 1000;
     public double TorqueGaugeMaximumNm { get; set; } = 1200;
     public Dictionary<int, PowerTorqueGaugeRange> PowerTorqueGaugeRanges { get; set; } = new();
+    public double GForceGaugeScale { get; set; } = 1.0;
     public double GForceWidthScale { get; set; } = 1.0;
     public double GForceHeightScale { get; set; } = 1.0;
     public HudLayoutMode LayoutMode { get; set; } = HudLayoutMode.Minimal;
@@ -365,6 +380,7 @@ public sealed class AppSettings
 
         OverlayWidthScale = NormalizeScale(OverlayWidthScale);
         OverlayHeightScale = NormalizeScale(OverlayHeightScale);
+        GForceGaugeScale = NormalizeScale(GForceGaugeScale);
         GForceWidthScale = NormalizeScale(GForceWidthScale);
         GForceHeightScale = NormalizeScale(GForceHeightScale);
         BoostGaugeScale = NormalizeScale(BoostGaugeScale);
@@ -448,6 +464,8 @@ public sealed class AppSettings
         if (LastPowerGaugePlacementKey is not null && !PowerGaugePlacements.ContainsKey(LastPowerGaugePlacementKey)) LastPowerGaugePlacementKey = null;
         if (LastTorqueGaugePlacementKey is not null && !TorqueGaugePlacements.ContainsKey(LastTorqueGaugePlacementKey)) LastTorqueGaugePlacementKey = null;
         PowerTorqueGaugeScale = NormalizeScale(PowerTorqueGaugeScale);
+        PowerGaugeScale = NormalizeScale(PowerGaugeScale);
+        TorqueGaugeScale = NormalizeScale(TorqueGaugeScale);
         PowerGaugeMaximum = NormalizePowerGaugeMaximum(PowerGaugeMaximum);
         TorqueGaugeMaximumNm = NormalizeTorqueGaugeMaximum(TorqueGaugeMaximumNm);
         PowerTorqueGaugeRanges ??= new Dictionary<int, PowerTorqueGaugeRange>();

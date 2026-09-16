@@ -76,6 +76,7 @@ public sealed class WpfStyleRuntimeTests
                 PowerTorqueGaugeVisualTests.AssertOnCurrentDispatcher();
                 PowerTorqueGaugeSettingsUiTests.AssertOnCurrentDispatcher();
                 BoostVacuumUiTests.AssertOnCurrentDispatcher();
+                GForceGaugeSizingUiTests.AssertOnCurrentDispatcher();
                 DriftGaugeTargetRangeTests.AssertOnCurrentDispatcher();
                 DriftGaugeZoneVisualTests.AssertOnCurrentDispatcher();
                 DriftGaugeSettingsUiTests.AssertOnCurrentDispatcher();

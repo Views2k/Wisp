@@ -20,6 +20,7 @@ public sealed class HudPreset
     public double OverlayOpacity { get; set; } = 1;
     public bool GForceEnabled { get; set; } = true;
     public bool GForceAttached { get; set; } = true;
+    public double GForceGaugeScale { get; set; } = 1;
     public double GForceWidthScale { get; set; } = 1;
     public double GForceHeightScale { get; set; } = 1;
     public bool InvertLateralG { get; set; } = true;
@@ -51,7 +52,21 @@ public sealed class HudPreset
     public string? CustomTorqueLowColor { get; set; }
     public string? CustomTorqueMidColor { get; set; }
     public string? CustomTorqueHighColor { get; set; }
+    // Retain the shared v2.1 value as the fallback for settings and profiles
+    // written before each gauge had its own size. Explicit sizes always win.
     public double PowerTorqueGaugeScale { get; set; } = 1;
+    private double? _powerGaugeScale;
+    private double? _torqueGaugeScale;
+    public double PowerGaugeScale
+    {
+        get => _powerGaugeScale ?? PowerTorqueGaugeScale;
+        set => _powerGaugeScale = value;
+    }
+    public double TorqueGaugeScale
+    {
+        get => _torqueGaugeScale ?? PowerTorqueGaugeScale;
+        set => _torqueGaugeScale = value;
+    }
     public double PowerGaugeMaximum { get; set; } = 1000;
     public double TorqueGaugeMaximumNm { get; set; } = 1200;
     public bool TractionCueEnabled { get; set; } = true;
@@ -102,6 +117,7 @@ public sealed class HudPreset
             OverlayOpacity = settings.OverlayOpacity,
             GForceEnabled = settings.GForceEnabled,
             GForceAttached = settings.GForceAttached,
+            GForceGaugeScale = settings.GForceGaugeScale,
             GForceWidthScale = settings.GForceWidthScale,
             GForceHeightScale = settings.GForceHeightScale,
             InvertLateralG = settings.InvertLateralG,
@@ -134,6 +150,8 @@ public sealed class HudPreset
             CustomTorqueMidColor = settings.CustomTorqueMidColor,
             CustomTorqueHighColor = settings.CustomTorqueHighColor,
             PowerTorqueGaugeScale = settings.PowerTorqueGaugeScale,
+            PowerGaugeScale = settings.PowerGaugeScale,
+            TorqueGaugeScale = settings.TorqueGaugeScale,
             PowerGaugeMaximum = settings.PowerGaugeMaximum,
             TorqueGaugeMaximumNm = settings.TorqueGaugeMaximumNm,
             TractionCueEnabled = settings.TractionCueEnabled,
@@ -167,6 +185,7 @@ public sealed class HudPreset
         settings.OverlayOpacity = OverlayOpacity;
         settings.GForceEnabled = GForceEnabled;
         settings.GForceAttached = GForceAttached;
+        settings.GForceGaugeScale = GForceGaugeScale;
         settings.GForceWidthScale = GForceWidthScale;
         settings.GForceHeightScale = GForceHeightScale;
         settings.InvertLateralG = InvertLateralG;
@@ -199,6 +218,8 @@ public sealed class HudPreset
         settings.CustomTorqueMidColor = CustomTorqueMidColor;
         settings.CustomTorqueHighColor = CustomTorqueHighColor;
         settings.PowerTorqueGaugeScale = PowerTorqueGaugeScale;
+        settings.PowerGaugeScale = PowerGaugeScale;
+        settings.TorqueGaugeScale = TorqueGaugeScale;
         settings.PowerGaugeMaximum = PowerGaugeMaximum;
         settings.TorqueGaugeMaximumNm = TorqueGaugeMaximumNm;
         settings.TractionCueEnabled = TractionCueEnabled;
@@ -238,11 +259,14 @@ public sealed class HudPreset
         if (!Enum.IsDefined(TireTemperatureUnit)) TireTemperatureUnit = Wisp.App.TireTemperatureUnit.Fahrenheit;
         OverlayWidthScale = NormalizeScale(OverlayWidthScale);
         OverlayHeightScale = NormalizeScale(OverlayHeightScale);
+        GForceGaugeScale = NormalizeScale(GForceGaugeScale);
         GForceWidthScale = NormalizeScale(GForceWidthScale);
         GForceHeightScale = NormalizeScale(GForceHeightScale);
         BoostGaugeScale = NormalizeScale(BoostGaugeScale);
         TireTemperatureGaugeScale = NormalizeScale(TireTemperatureGaugeScale);
         PowerTorqueGaugeScale = NormalizeScale(PowerTorqueGaugeScale);
+        PowerGaugeScale = NormalizeScale(PowerGaugeScale);
+        TorqueGaugeScale = NormalizeScale(TorqueGaugeScale);
         PowerTorqueSmoothingMilliseconds = AppSettings.NormalizePowerTorqueSmoothing(PowerTorqueSmoothingMilliseconds);
         CustomPowerLowColor = ColorCustomization.NormalizeGauge(CustomPowerLowColor);
         CustomPowerMidColor = ColorCustomization.NormalizeGauge(CustomPowerMidColor);

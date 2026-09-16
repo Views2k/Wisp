@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.1.1 - 2026-09-15
+
+- Align the boost, tire-temperature, power, and torque dials in Native Analogue. At 100% their dial sizes match; rows and columns remain centered when individual sizes differ.
+- Give power and torque separate size sliders. Apply boost and tire-temperature sizing while attached as well as detached, and keep the Analogue preview consistent with the HUD.
+- Add a uniform G-force meter size slider from 50% to 200%, including attached, detached, and Combined layouts and their previews.
+- Preserve saved sizes, HUD profiles, detached positions, tire calibration, and runs. Existing shared power/torque sizing becomes the starting value for both independent controls.
+
 ## 2.1.0 - 2026-09-14
 
 - Add independently optional power and torque gauges with native-style needles, live BHP and Nm or lb-ft, peak markers, and peak readouts. Attach each to the speedometer or detach it for separate placement.

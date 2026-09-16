@@ -905,7 +905,8 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.TorqueUnit = ViewModel.SelectedTorqueUnit;
             Settings.PowerGaugeEnabled = ViewModel.PowerGaugeEnabled;
             Settings.TorqueGaugeEnabled = ViewModel.TorqueGaugeEnabled;
-            Settings.PowerTorqueGaugeScale = ViewModel.PowerTorqueGaugeScale;
+            Settings.PowerGaugeScale = ViewModel.PowerGaugeScale;
+            Settings.TorqueGaugeScale = ViewModel.TorqueGaugeScale;
             Settings.PowerGaugeAttached = ViewModel.PowerGaugeAttached;
             Settings.TorqueGaugeAttached = ViewModel.TorqueGaugeAttached;
             Settings.PowerTorqueSmoothingMilliseconds = ViewModel.PowerTorqueSmoothingMilliseconds;
@@ -951,6 +952,9 @@ public sealed partial class AppController : IAsyncDisposable
                 ViewModel.TireTemperatureGaugeScale,
                 0.5,
                 2.0);
+            Settings.GForceGaugeScale = double.IsFinite(ViewModel.GForceGaugeScale)
+                ? Math.Clamp(ViewModel.GForceGaugeScale, 0.5, 2.0)
+                : 1.0;
             Settings.GForceWidthScale = Math.Clamp(ViewModel.GForceWidthScale, 0.5, 2.0);
             Settings.GForceHeightScale = Math.Clamp(ViewModel.GForceHeightScale, 0.5, 2.0);
             Settings.LayoutMode = layoutMode;
@@ -1440,6 +1444,7 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.OverlayOpacity = Settings.OverlayOpacity;
         ViewModel.GForceEnabled = Settings.GForceEnabled;
         ViewModel.GForceAttached = Settings.GForceAttached;
+        ViewModel.GForceGaugeScale = Settings.GForceGaugeScale;
         ViewModel.GForceWidthScale = Settings.GForceWidthScale;
         ViewModel.GForceHeightScale = Settings.GForceHeightScale;
         ViewModel.InvertLateralG = Settings.InvertLateralG;

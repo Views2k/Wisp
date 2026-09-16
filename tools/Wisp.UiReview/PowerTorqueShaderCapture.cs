@@ -23,25 +23,33 @@ internal static class PowerTorqueShaderCapture
         var size = new Size(
             double.IsFinite(gauge.Width) && gauge.Width > 0 ? gauge.Width : 140,
             double.IsFinite(gauge.Height) && gauge.Height > 0 ? gauge.Height : 140);
+        return RenderSurface(gauge, size, dpi);
+    }
+
+    internal static BitmapSource RenderSurface(FrameworkElement surface, Size size, int dpi)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        if (dpi is < 96 or > 384) throw new ArgumentOutOfRangeException(nameof(dpi));
         var pixelWidth = checked((int)Math.Ceiling(size.Width * dpi / 96d));
         var pixelHeight = checked((int)Math.Ceiling(size.Height * dpi / 96d));
         if (pixelWidth > 4096 || pixelHeight > 4096)
-            throw new ArgumentOutOfRangeException(nameof(gauge), "Review gauge is too large.");
+            throw new ArgumentOutOfRangeException(nameof(surface), "Review surface is too large.");
 
-        gauge.Measure(size);
-        gauge.Arrange(new Rect(size));
-        gauge.UpdateLayout();
+        surface.Measure(size);
+        surface.Arrange(new Rect(size));
+        surface.UpdateLayout();
         var originals = new List<(Canvas Parent, int Index, NativeAnalogNeedleVisual Original, Image Replacement)>();
         try
         {
-            foreach (var needle in Descendants(gauge).OfType<NativeAnalogNeedleVisual>().ToArray())
+            foreach (var needle in Descendants(surface).OfType<NativeAnalogNeedleVisual>().ToArray())
             {
+                if (!IsVisibleWithin(needle, surface)) continue;
                 if (needle.IsElectricMaterial)
                     throw new NotSupportedException("The existing D3D capture shader is combustion-only; it cannot verify the EV needle material.");
                 if (VisualTreeHelper.GetParent(needle) is not Canvas parent)
                     throw new InvalidOperationException("The gauge needle's authored canvas changed; review the capture adapter.");
 
-                var transform = needle.TransformToAncestor(gauge);
+                var transform = needle.TransformToAncestor(surface);
                 var origin = transform.Transform(new Point());
                 var xScale = (transform.Transform(new Point(1, 0)) - origin).Length;
                 var yScale = (transform.Transform(new Point(0, 1)) - origin).Length;
@@ -73,11 +81,11 @@ internal static class PowerTorqueShaderCapture
                 originals.Add((parent, index, needle, image));
             }
 
-            gauge.Measure(size);
-            gauge.Arrange(new Rect(size));
-            gauge.UpdateLayout();
+            surface.Measure(size);
+            surface.Arrange(new Rect(size));
+            surface.UpdateLayout();
             var bitmap = new RenderTargetBitmap(pixelWidth, pixelHeight, dpi, dpi, PixelFormats.Pbgra32);
-            bitmap.Render(gauge);
+            bitmap.Render(surface);
             bitmap.Freeze();
             return bitmap;
         }
@@ -88,8 +96,18 @@ internal static class PowerTorqueShaderCapture
                 entry.Parent.Children.Remove(entry.Replacement);
                 entry.Parent.Children.Insert(entry.Index, entry.Original);
             }
-            gauge.UpdateLayout();
+            surface.UpdateLayout();
         }
+    }
+
+    private static bool IsVisibleWithin(DependencyObject child, FrameworkElement surface)
+    {
+        for (DependencyObject? current = child; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is UIElement element && element.Visibility != Visibility.Visible) return false;
+            if (ReferenceEquals(current, surface)) return true;
+        }
+        return false;
     }
 
     private static BitmapSource CaptureNeedle(int width, int height, double blur)

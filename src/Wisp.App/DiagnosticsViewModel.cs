@@ -83,6 +83,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _useCelsiusTireTemperature;
     private double _tireTemperatureGaugeScale;
     private TireTemperatureDisplay _tireTemperatureDisplay = TireTemperatureDisplay.Unavailable;
+    private double _gForceGaugeScale;
     private double _gForceWidthScale;
     private double _gForceHeightScale;
     private int _layoutSelectionIndex;
@@ -150,6 +151,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         _tireTemperatureReactiveColors = settings.TireTemperatureReactiveColors;
         _useCelsiusTireTemperature = settings.TireTemperatureUnit == TireTemperatureUnit.Celsius;
         _tireTemperatureGaugeScale = settings.TireTemperatureGaugeScale;
+        _gForceGaugeScale = settings.GForceGaugeScale;
         _gForceWidthScale = settings.GForceWidthScale;
         _gForceHeightScale = settings.GForceHeightScale;
         _layoutSelectionIndex = (int)settings.LayoutMode;
@@ -619,6 +621,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             }
         }
     }
+    public double GForceGaugeScale { get => _gForceGaugeScale; set => Set(ref _gForceGaugeScale, value); }
     public double GForceWidthScale { get => _gForceWidthScale; set => Set(ref _gForceWidthScale, value); }
     public double GForceHeightScale { get => _gForceHeightScale; set => Set(ref _gForceHeightScale, value); }
     public int LayoutSelectionIndex

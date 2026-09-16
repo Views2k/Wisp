@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Media;
 using Xunit;
 
@@ -70,6 +71,84 @@ internal static class PowerTorqueGaugeVisualTests
         ColoredArcCacheIsFrozenReusedAndReplacedWhenItsPaletteChanges();
         ActiveArcClampsNegativeAndOverrangeOutput();
         ChangingNumberColorsDoesNotGrowTheGlobalTintedTextureCache();
+        SupplementaryRimsHaveMatchingRenderedDiameterAndCenter();
+        SharedPreviewUsesActualGaugeBindingsAndIndependentSizes();
+    }
+
+    private static void SharedPreviewUsesActualGaugeBindingsAndIndependentSizes()
+    {
+        var settings = new AppSettings
+        {
+            BoostGaugeEnabled = true,
+            TireTemperatureGaugeEnabled = true,
+            PowerGaugeEnabled = true,
+            TorqueGaugeEnabled = true,
+            PowerGaugeAttached = true,
+            TorqueGaugeAttached = true,
+            BoostGaugeScale = .5,
+            TireTemperatureGaugeScale = 1.25,
+            PowerGaugeScale = 2,
+            TorqueGaugeScale = 1
+        };
+        var preview = new SupplementaryAnalogGaugePreview { DataContext = new DiagnosticsViewModel(settings) };
+        var boost = Assert.Single(preview.Children.OfType<AnalogBoostGaugeView>());
+        var tire = Assert.Single(preview.Children.OfType<AnalogTireTemperatureGaugeView>());
+        var power = Assert.Single(preview.Children.OfType<PowerTorqueGaugeView>(), gauge => !gauge.IsTorque);
+        var torque = Assert.Single(preview.Children.OfType<PowerTorqueGaugeView>(), gauge => gauge.IsTorque);
+        Assert.Equal("PreviewBoostDisplay", BindingOperations.GetBinding(boost, BoostVisualBase.DisplayProperty)!.Path.Path);
+        Assert.Equal("SelectedBoostPressureUnit", BindingOperations.GetBinding(boost, BoostVisualBase.PressureUnitProperty)!.Path.Path);
+        Assert.Equal("PreviewTireTemperatureDisplay", BindingOperations.GetBinding(tire, TireTemperatureVisualBase.DisplayProperty)!.Path.Path);
+        Assert.Equal("SelectedTireTemperatureUnit", BindingOperations.GetBinding(tire, TireTemperatureVisualBase.TemperatureUnitProperty)!.Path.Path);
+        Assert.Equal("PreviewPowerTorqueDisplay", BindingOperations.GetBinding(power, PowerTorqueGaugeView.DisplayProperty)!.Path.Path);
+        Assert.Equal("PreviewPowerTorqueDisplay", BindingOperations.GetBinding(torque, PowerTorqueGaugeView.DisplayProperty)!.Path.Path);
+        Assert.Equal(.5, Assert.IsType<ScaleTransform>(boost.LayoutTransform).ScaleX);
+        Assert.Equal(1.25, Assert.IsType<ScaleTransform>(tire.LayoutTransform).ScaleX);
+        Assert.Equal(2, Assert.IsType<ScaleTransform>(power.LayoutTransform).ScaleX);
+        Assert.Equal(1, Assert.IsType<ScaleTransform>(torque.LayoutTransform).ScaleX);
+        Assert.Equal(boost.Margin.Top + 34, power.Margin.Top + 136);
+        Assert.Equal(tire.Margin.Top + 85, torque.Margin.Top + 68);
+        preview.DataContext = null;
+    }
+
+    private static void SupplementaryRimsHaveMatchingRenderedDiameterAndCenter()
+    {
+        var boost = new AnalogBoostGaugeView { Display = new BoostDisplay(true, 0, 0, 0, 70) };
+        var tire = new AnalogTireTemperatureGaugeView
+        {
+            Display = new TireTemperatureDisplay(true, 176, 177, .42, .423)
+        };
+        FrameworkElement[] gauges = [boost, tire, new PowerTorqueGaugeView(), new PowerTorqueGaugeView { IsTorque = true }];
+        foreach (var gauge in gauges)
+        {
+            gauge.Width = gauge.Height = 136;
+            gauge.Measure(new Size(136, 136));
+            gauge.Arrange(new Rect(0, 0, 136, 136));
+            var drawing = new DrawingGroup();
+            using (var dc = drawing.Open())
+                gauge.GetType().GetMethod("OnRender", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(gauge, [dc]);
+            var rim = Assert.Single(RimBounds(drawing, Matrix.Identity));
+            // These arcs include both horizontal extrema and their top. Compare
+            // actual authored drawing geometry, not just equal control widths.
+            // WPF approximates these arcs with Beziers; their computed bounds
+            // differ from the circle by about .02 DIP. Keep a subpixel tolerance.
+            Assert.InRange(rim.Width, 116.91, 117.01);
+            Assert.InRange(rim.Left + rim.Width / 2, 67.95, 68.05);
+            Assert.InRange(rim.Top + rim.Width / 2, 67.95, 68.05);
+        }
+    }
+
+    private static IEnumerable<Rect> RimBounds(Drawing drawing, Matrix transform)
+    {
+        if (drawing is DrawingGroup group)
+        {
+            var local = group.Transform?.Value ?? Matrix.Identity;
+            local.Append(transform);
+            foreach (var child in group.Children)
+                foreach (var bounds in RimBounds(child, local)) yield return bounds;
+        }
+        else if (drawing is GeometryDrawing { Geometry: StreamGeometry, Pen.Brush: SolidColorBrush brush } geometry &&
+                 brush.Color == Color.FromArgb(145, 142, 147, 156))
+            yield return new MatrixTransform(transform).TransformBounds(geometry.Geometry.Bounds);
     }
 
     private static void ReadoutAndNeedleUseTheirSeparateSamples()

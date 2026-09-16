@@ -17,7 +17,8 @@ public sealed partial class DiagnosticsViewModel
     private string? _customTorqueLowColor;
     private string? _customTorqueMidColor;
     private string? _customTorqueHighColor;
-    private double _powerTorqueGaugeScale = 1;
+    private double _powerGaugeScale = 1;
+    private double _torqueGaugeScale = 1;
     private double _powerGaugeMaximum = 1000;
     private double _torqueGaugeMaximumNm = 1200;
 
@@ -63,10 +64,15 @@ public sealed partial class DiagnosticsViewModel
         get => _customTorqueHighColor;
         set { if (Set(ref _customTorqueHighColor, ColorCustomization.NormalizeGauge(value))) OnPropertyChanged(nameof(TorqueGaugeHighBrush)); }
     }
-    public double PowerTorqueGaugeScale
+    public double PowerGaugeScale
     {
-        get => _powerTorqueGaugeScale;
-        set => Set(ref _powerTorqueGaugeScale, double.IsFinite(value) ? Math.Clamp(value, .5, 2) : 1);
+        get => _powerGaugeScale;
+        set => Set(ref _powerGaugeScale, double.IsFinite(value) ? Math.Clamp(value, .5, 2) : 1);
+    }
+    public double TorqueGaugeScale
+    {
+        get => _torqueGaugeScale;
+        set => Set(ref _torqueGaugeScale, double.IsFinite(value) ? Math.Clamp(value, .5, 2) : 1);
     }
     public double PowerGaugeMaximum
     {
@@ -110,7 +116,8 @@ public sealed partial class DiagnosticsViewModel
         CustomTorqueLowColor = settings.CustomTorqueLowColor;
         CustomTorqueMidColor = settings.CustomTorqueMidColor;
         CustomTorqueHighColor = settings.CustomTorqueHighColor;
-        PowerTorqueGaugeScale = settings.PowerTorqueGaugeScale;
+        PowerGaugeScale = settings.PowerGaugeScale;
+        TorqueGaugeScale = settings.TorqueGaugeScale;
         RestorePowerTorqueRange();
     }
 

@@ -16,7 +16,7 @@ public sealed partial class AppController
         get
         {
             const double analogSize = PowerTorqueGaugeLayout.GaugeDiameter + 8;
-            var power = analogSize * Settings.PowerTorqueGaugeScale;
+            var power = analogSize * Math.Max(Settings.PowerGaugeScale, Settings.TorqueGaugeScale);
             var boost = analogSize * Settings.BoostGaugeScale;
             var tireWidth = (Settings.NativeGaugeMode == NativeGaugeMode.Digital ? 310 : analogSize) * Settings.TireTemperatureGaugeScale;
             var tireHeight = (Settings.NativeGaugeMode == NativeGaugeMode.Digital ? 92 : analogSize) * Settings.TireTemperatureGaugeScale;
@@ -48,8 +48,8 @@ public sealed partial class AppController
     {
         var powerDetached = Settings.PowerGaugeEnabled && !Settings.PowerGaugeAttached;
         var torqueDetached = Settings.TorqueGaugeEnabled && !Settings.TorqueGaugeAttached;
-        PowerGaugeOverlay?.ApplyAppearance(Settings.PowerTorqueGaugeScale, Settings.OverlayOpacity);
-        TorqueGaugeOverlay?.ApplyAppearance(Settings.PowerTorqueGaugeScale, Settings.OverlayOpacity);
+        PowerGaugeOverlay?.ApplyAppearance(Settings.PowerGaugeScale, Settings.OverlayOpacity);
+        TorqueGaugeOverlay?.ApplyAppearance(Settings.TorqueGaugeScale, Settings.OverlayOpacity);
         PowerGaugeOverlay?.SetEditMode(!Settings.OverlayLocked);
         TorqueGaugeOverlay?.SetEditMode(!Settings.OverlayLocked);
         if (powerDetached && (restorePlacement || !_powerGaugeDetached)) RestorePowerGaugePlacement();
@@ -70,8 +70,8 @@ public sealed partial class AppController
         var placements = window.IsTorque ? Settings.TorqueGaugePlacements : Settings.PowerGaugePlacements;
         if (window.IsTorque) Settings.LastTorqueGaugePlacementKey = key;
         else Settings.LastPowerGaugePlacementKey = key;
-        placements[key] = new OverlayPlacement(window.Left, window.Top,
-            Settings.PowerTorqueGaugeScale, Settings.PowerTorqueGaugeScale);
+        var scale = window.IsTorque ? Settings.TorqueGaugeScale : Settings.PowerGaugeScale;
+        placements[key] = new OverlayPlacement(window.Left, window.Top, scale, scale);
         ScheduleSettingsSave();
     }
 
@@ -81,7 +81,8 @@ public sealed partial class AppController
     private void RestorePowerTorqueGaugePlacement(PowerTorqueGaugeWindow? window)
     {
         if (window is null) return;
-        window.ApplyAppearance(Settings.PowerTorqueGaugeScale, Settings.OverlayOpacity);
+        window.ApplyAppearance(window.IsTorque ? Settings.TorqueGaugeScale : Settings.PowerGaugeScale,
+            Settings.OverlayOpacity);
         var placements = window.IsTorque ? Settings.TorqueGaugePlacements : Settings.PowerGaugePlacements;
         var lastKey = window.IsTorque ? Settings.LastTorqueGaugePlacementKey : Settings.LastPowerGaugePlacementKey;
         var placement = OverlayPlacementResolver.FindPreferredPlacement(placements, lastKey,
