@@ -20,6 +20,7 @@ public sealed class HudPreset
     public double OverlayOpacity { get; set; } = 1;
     public bool GForceEnabled { get; set; } = true;
     public bool GForceAttached { get; set; } = true;
+    public double GForceGaugeScale { get; set; } = 1;
     public double GForceWidthScale { get; set; } = 1;
     public double GForceHeightScale { get; set; } = 1;
     public bool InvertLateralG { get; set; } = true;
@@ -116,6 +117,7 @@ public sealed class HudPreset
             OverlayOpacity = settings.OverlayOpacity,
             GForceEnabled = settings.GForceEnabled,
             GForceAttached = settings.GForceAttached,
+            GForceGaugeScale = settings.GForceGaugeScale,
             GForceWidthScale = settings.GForceWidthScale,
             GForceHeightScale = settings.GForceHeightScale,
             InvertLateralG = settings.InvertLateralG,
@@ -183,6 +185,7 @@ public sealed class HudPreset
         settings.OverlayOpacity = OverlayOpacity;
         settings.GForceEnabled = GForceEnabled;
         settings.GForceAttached = GForceAttached;
+        settings.GForceGaugeScale = GForceGaugeScale;
         settings.GForceWidthScale = GForceWidthScale;
         settings.GForceHeightScale = GForceHeightScale;
         settings.InvertLateralG = InvertLateralG;
@@ -256,6 +259,7 @@ public sealed class HudPreset
         if (!Enum.IsDefined(TireTemperatureUnit)) TireTemperatureUnit = Wisp.App.TireTemperatureUnit.Fahrenheit;
         OverlayWidthScale = NormalizeScale(OverlayWidthScale);
         OverlayHeightScale = NormalizeScale(OverlayHeightScale);
+        GForceGaugeScale = NormalizeScale(GForceGaugeScale);
         GForceWidthScale = NormalizeScale(GForceWidthScale);
         GForceHeightScale = NormalizeScale(GForceHeightScale);
         BoostGaugeScale = NormalizeScale(BoostGaugeScale);

@@ -68,7 +68,8 @@
                         </Viewbox>
 
                         <Border Grid.Column="1" Width="1" Background="#33485C" Margin="0,8" />
-                        <local:GForceMeterView Grid.Column="2" Margin="13,1,0,1" />
+                        <local:GForceMeterView x:Name="CombinedGForceMeter" Grid.Column="2" Margin="13,1,0,1"
+                                              Width="190" Height="132" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
             </Grid>

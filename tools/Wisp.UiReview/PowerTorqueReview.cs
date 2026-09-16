@@ -24,6 +24,7 @@ internal static class PowerTorqueReview
         {
             RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
             app.Resources = loadResources();
+            GForceSizingReview.Run(output, setDpi, captures, failures);
             SupplementaryGaugeReview.Run(output, detachSurface, setDpi, captures, failures, gaugeGeometry);
             foreach (var torque in new[] { false, true })
             {

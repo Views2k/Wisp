@@ -133,8 +133,9 @@ public partial class GForceWindow : Window
         var baseHeight = native ? NativeBaseHeight : BaseHeight;
         RootPanel.Width = baseWidth;
         RootPanel.Height = baseHeight;
-        Width = baseWidth * widthScale;
-        Height = baseHeight * heightScale;
+        var gaugeScale = GForceGaugeLayout.NormalizeScale(_controller.Settings.GForceGaugeScale);
+        Width = baseWidth * widthScale * gaugeScale;
+        Height = baseHeight * heightScale * gaugeScale;
         SetTelemetryVisible(_telemetryVisible, opacity);
     }
 

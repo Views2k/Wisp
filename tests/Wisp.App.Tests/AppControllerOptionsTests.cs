@@ -93,6 +93,7 @@ public sealed class AppControllerOptionsTests
                 controller.ViewModel.Smoothing = 0.42;
                 controller.ViewModel.GForceEnabled = false;
                 controller.ViewModel.GForceAttached = false;
+                controller.ViewModel.GForceGaugeScale = 1.6;
                 controller.ViewModel.GForceWidthScale = 1.35;
                 controller.ViewModel.GForceHeightScale = 0.85;
                 controller.ViewModel.BoostGaugeScale = 1.4;
@@ -128,6 +129,7 @@ public sealed class AppControllerOptionsTests
                 Assert.Equal(0.42, settings.Smoothing);
                 Assert.False(settings.GForceEnabled);
                 Assert.False(settings.GForceAttached);
+                Assert.Equal(1.6, settings.GForceGaugeScale);
                 Assert.Equal(1.35, settings.GForceWidthScale);
                 Assert.Equal(0.85, settings.GForceHeightScale);
                 Assert.Equal(1.4, settings.BoostGaugeScale);

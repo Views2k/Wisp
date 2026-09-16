@@ -832,7 +832,8 @@ public sealed class XamlContractTests
         Assert.Equal("{Binding SelectedBoostPressureUnit}", digital.Attribute("PressureUnit")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeColorNumber}", digital.Attribute("ColorNumber")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeStockColors}", digital.Attribute("UseStockColors")?.Value);
-        Assert.Equal("276,76,0,0", analogue.Attribute("Margin")?.Value);
+        Assert.Equal("{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='276,76,0,0'}",
+            analogue.Attribute("Margin")?.Value);
         Assert.Contains("{Binding BoostGaugeEnabled}", digital.ToString(), StringComparison.Ordinal);
         Assert.Equal("{Binding PreviewTireTemperatureDisplay}", digitalTire.Attribute("Display")?.Value);
         Assert.Equal("{Binding SelectedTireTemperatureUnit}", digitalTire.Attribute("TemperatureUnit")?.Value);

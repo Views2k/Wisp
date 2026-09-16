@@ -952,6 +952,9 @@ public sealed partial class AppController : IAsyncDisposable
                 ViewModel.TireTemperatureGaugeScale,
                 0.5,
                 2.0);
+            Settings.GForceGaugeScale = double.IsFinite(ViewModel.GForceGaugeScale)
+                ? Math.Clamp(ViewModel.GForceGaugeScale, 0.5, 2.0)
+                : 1.0;
             Settings.GForceWidthScale = Math.Clamp(ViewModel.GForceWidthScale, 0.5, 2.0);
             Settings.GForceHeightScale = Math.Clamp(ViewModel.GForceHeightScale, 0.5, 2.0);
             Settings.LayoutMode = layoutMode;
@@ -1441,6 +1444,7 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.OverlayOpacity = Settings.OverlayOpacity;
         ViewModel.GForceEnabled = Settings.GForceEnabled;
         ViewModel.GForceAttached = Settings.GForceAttached;
+        ViewModel.GForceGaugeScale = Settings.GForceGaugeScale;
         ViewModel.GForceWidthScale = Settings.GForceWidthScale;
         ViewModel.GForceHeightScale = Settings.GForceHeightScale;
         ViewModel.InvertLateralG = Settings.InvertLateralG;

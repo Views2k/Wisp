@@ -20,6 +20,7 @@
                 <ResourceDictionary Source="CalmWindowResources.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <local:ResponsivePageWidthConverter x:Key="ResponsivePageWidthConverter" />
+            <local:GForceGaugeLayoutConverter x:Key="GForceGaugeLayoutConverter" />
             <BooleanToVisibilityConverter x:Key="ParticleVisibility" />
             <SolidColorBrush x:Key="HudBorderBrush" Color="#6663D8D4" />
         </ResourceDictionary>
@@ -480,9 +481,9 @@
                                                                 </Style>
                                                             </Grid.Style>
                                                             <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="0.75*" />
+                                                                <ColumnDefinition Width="190" />
                                                                 <ColumnDefinition Width="12" />
-                                                                <ColumnDefinition Width="1.25*" />
+                                                                <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
                                                             <Viewbox Margin="18,38" Stretch="Uniform">
                                                                 <Viewbox.Style>
@@ -498,8 +499,14 @@
                                                                            FontFamily="Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"
                                                                            FontSize="104" FontWeight="SemiBold" />
                                                             </Viewbox>
-                                                            <Border Grid.Column="2" CornerRadius="11" Background="#E10A0E14"
+                                                            <Border Grid.Column="2" Width="202" Height="142" Margin="4" VerticalAlignment="Top" CornerRadius="11" Background="#E10A0E14"
                                                                     BorderBrush="#66394A5D" BorderThickness="1">
+                                                                <Border.LayoutTransform>
+                                                                    <TransformGroup>
+                                                                        <ScaleTransform ScaleX="{Binding GForceGaugeScale}" ScaleY="{Binding GForceGaugeScale}" />
+                                                                        <ScaleTransform ScaleX="{Binding GForceWidthScale}" ScaleY="{Binding GForceHeightScale}" />
+                                                                    </TransformGroup>
+                                                                </Border.LayoutTransform>
                                                                 <Border.Style>
                                                                     <Style TargetType="Border">
                                                                         <Style.Triggers>
@@ -509,36 +516,39 @@
                                                                         </Style.Triggers>
                                                                     </Style>
                                                                 </Border.Style>
-                                                                <local:GForceMeterView Margin="12,10" />
+                                                                <local:GForceMeterView Margin="13,10,13,11" />
                                                             </Border>
                                                         </Grid>
 
                                                         <Grid x:Name="CombinedLayoutPreview">
                                                             <Grid.Style>
                                                                 <Style TargetType="Grid">
+                                                                    <Setter Property="Width" Value="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter=combined-width}" />
+                                                                    <Setter Property="Height" Value="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter=combined-height}" />
                                                                     <Setter Property="Visibility" Value="Collapsed" />
-                                                                    <Style.Triggers>
+                                                                    <Style.Triggers><DataTrigger Binding="{Binding GForceEnabled}" Value="False"><Setter Property="Width" Value="190" /><Setter Property="Height" Value="150" /></DataTrigger>
                                                                         <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="1">
                                                                             <Setter Property="Visibility" Value="Visible" />
                                                                         </DataTrigger>
                                                                     </Style.Triggers>
                                                                 </Style>
                                                             </Grid.Style>
-                                                            <Border x:Name="CombinedPreviewBorder" CornerRadius="11" Background="#E10A0E14"
+                                                            <Border x:Name="CombinedPreviewBorder" Margin="4" CornerRadius="12" Background="#E10A0E14"
                                                                     BorderBrush="{DynamicResource HudBorderBrush}" BorderThickness="1">
-                                                                <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding GForceEnabled}" Value="False"><Setter Property="Width" Value="190" /><Setter Property="Height" Value="150" /></DataTrigger></Style.Triggers></Style></Border.Style><Grid Margin="13,11">
+                                                                <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding GForceEnabled}" Value="False"><Setter Property="Width" Value="190" /><Setter Property="Height" Value="150" /></DataTrigger></Style.Triggers></Style></Border.Style><Grid Margin="14,11">
                                                                     <Grid.ColumnDefinitions>
-                                                                        <ColumnDefinition Width="0.78*" />
+                                                                        <ColumnDefinition Width="148" />
                                                                         <ColumnDefinition Width="1" />
-                                                                        <ColumnDefinition Width="1.22*" />
+                                                                        <ColumnDefinition Width="*" />
                                                                     </Grid.ColumnDefinitions>
-                                                                    <Viewbox Margin="18,34" Stretch="Uniform"><Viewbox.Style><Style TargetType="Viewbox"><Style.Triggers><DataTrigger Binding="{Binding GForceEnabled}" Value="False"><Setter Property="Grid.ColumnSpan" Value="3" /></DataTrigger></Style.Triggers></Style></Viewbox.Style>
+                                                                    <Viewbox Margin="6,17,10,17" Stretch="Uniform"><Viewbox.Style><Style TargetType="Viewbox"><Style.Triggers><DataTrigger Binding="{Binding GForceEnabled}" Value="False"><Setter Property="Grid.ColumnSpan" Value="3" /></DataTrigger></Style.Triggers></Style></Viewbox.Style>
                                                                         <TextBlock Text="{Binding PreviewSpeed}"
                                                                                    FontFamily="Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"
                                                                                    FontSize="104" FontWeight="SemiBold" />
                                                                     </Viewbox>
                                                                     <Border Grid.Column="1" Background="#33485C" Margin="0,9"><Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding GForceEnabled}" Value="False"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Border.Style></Border>
-                                                                    <local:GForceMeterView Grid.Column="2" Margin="14,4,0,4"><local:GForceMeterView.Style><Style TargetType="local:GForceMeterView"><Style.Triggers><DataTrigger Binding="{Binding GForceEnabled}" Value="False"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></local:GForceMeterView.Style></local:GForceMeterView>
+                                                                    <local:GForceMeterView Grid.Column="2" Margin="13,1,0,1" Width="190" Height="132" VerticalAlignment="Center">
+                                                                        <local:GForceMeterView.LayoutTransform><ScaleTransform ScaleX="{Binding GForceGaugeScale}" ScaleY="{Binding GForceGaugeScale}" /></local:GForceMeterView.LayoutTransform><local:GForceMeterView.Style><Style TargetType="local:GForceMeterView"><Style.Triggers><DataTrigger Binding="{Binding GForceEnabled}" Value="False"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></local:GForceMeterView.Style></local:GForceMeterView>
                                                                 </Grid>
                                                             </Border>
                                                         </Grid>
@@ -555,9 +565,9 @@
                                                                 </Style>
                                                             </Grid.Style>
                                                             <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="0.75*" />
+                                                                <ColumnDefinition Width="190" />
                                                                 <ColumnDefinition Width="12" />
-                                                                <ColumnDefinition Width="1.25*" />
+                                                                <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
                                                             <Border x:Name="SeparateSpeedPreviewBorder" CornerRadius="11" Background="#E10A0E14"
                                                                     BorderBrush="{DynamicResource HudBorderBrush}" BorderThickness="1">
@@ -576,8 +586,14 @@
                                                                                FontSize="104" FontWeight="SemiBold" />
                                                                 </Viewbox>
                                                             </Border>
-                                                            <Border x:Name="SeparateGForcePreviewBorder" Grid.Column="2" CornerRadius="11" Background="#E10A0E14"
+                                                            <Border x:Name="SeparateGForcePreviewBorder" Grid.Column="2" Width="202" Height="142" Margin="4" VerticalAlignment="Top" CornerRadius="11" Background="#E10A0E14"
                                                                     BorderBrush="{DynamicResource HudBorderBrush}" BorderThickness="1">
+                                                                <Border.LayoutTransform>
+                                                                    <TransformGroup>
+                                                                        <ScaleTransform ScaleX="{Binding GForceGaugeScale}" ScaleY="{Binding GForceGaugeScale}" />
+                                                                        <ScaleTransform ScaleX="{Binding GForceWidthScale}" ScaleY="{Binding GForceHeightScale}" />
+                                                                    </TransformGroup>
+                                                                </Border.LayoutTransform>
                                                                 <Border.Style>
                                                                     <Style TargetType="Border">
                                                                         <Style.Triggers>
@@ -587,7 +603,7 @@
                                                                         </Style.Triggers>
                                                                     </Style>
                                                                 </Border.Style>
-                                                                <local:GForceMeterView Margin="12,10" />
+                                                                <local:GForceMeterView Margin="13,10,13,11" />
                                                             </Border>
                                                         </Grid>
 
@@ -620,7 +636,7 @@
                                                                                 </Style.Triggers>
                                                                             </Style>
                                                                         </Border.Style>
-                                                                        <local:PowerTorqueGaugePairPreview Margin="8,76,0,0" />
+                                                                        <local:PowerTorqueGaugePairPreview Margin="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='8,76,0,0'}" />
                                                                     </Border>
                                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top">
                                                                         <StackPanel.Style>
@@ -633,7 +649,7 @@
                                                                             </Style>
                                                                         </StackPanel.Style>
                                                                         <Grid MinWidth="327.5" MinHeight="404" ClipToBounds="False">
-                                                                            <local:NativeDigitalSpeedometer Width="320" Height="160" Margin="0,72,0,0"
+                                                                            <local:NativeDigitalSpeedometer Width="320" Height="160" Margin="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='0,72,0,0'}"
                                                                                                             HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                             Frame="{Binding NativePreviewFrame}">
                                                                                 <local:NativeDigitalSpeedometer.Style>
@@ -646,7 +662,7 @@
                                                                                     </Style>
                                                                                 </local:NativeDigitalSpeedometer.Style>
                                                                             </local:NativeDigitalSpeedometer>
-                                                                            <local:NativeElectricDigitalSpeedometer Width="320" Height="160" Margin="0,72,0,0"
+                                                                            <local:NativeElectricDigitalSpeedometer Width="320" Height="160" Margin="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='0,72,0,0'}"
                                                                                                                     HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                                     Frame="{Binding NativePreviewFrame}">
                                                                                 <local:NativeElectricDigitalSpeedometer.Style>
@@ -661,7 +677,7 @@
                                                                                 </local:NativeElectricDigitalSpeedometer.Style>
                                                                             </local:NativeElectricDigitalSpeedometer>
                                                                             <local:DigitalBoostRailView x:Name="NativeDigitalBoostPreview"
-                                                                                                        Width="302" Height="88" Margin="11,204,0,0"
+                                                                                                        Width="302" Height="88" Margin="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='11,204,0,0'}"
                                                                                                         HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                         Display="{Binding PreviewBoostDisplay}"
                                                                                                         PressureUnit="{Binding SelectedBoostPressureUnit}"
@@ -701,16 +717,16 @@
                                                                                 <local:DigitalTireTemperatureGaugeView.Style>
                                                                                     <Style TargetType="local:DigitalTireTemperatureGaugeView">
                                                                                         <Setter Property="Visibility" Value="Collapsed" />
-                                                                                        <Setter Property="Margin" Value="11,242,0,0" />
+                                                                                        <Setter Property="Margin" Value="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='11,242,0,0'}" />
                                                                                         <Style.Triggers>
                                                                                             <DataTrigger Binding="{Binding TireTemperatureGaugeEnabled}" Value="True">
                                                                                                 <Setter Property="Visibility" Value="Visible" />
                                                                                             </DataTrigger>
                                                                                             <DataTrigger Binding="{Binding BoostGaugeEnabled}" Value="False">
-                                                                                                <Setter Property="Margin" Value="11,204,0,0" />
+                                                                                                <Setter Property="Margin" Value="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='11,204,0,0'}" />
                                                                                             </DataTrigger>
                                                                                             <DataTrigger Binding="{Binding NativePreviewFrame.IsElectric}" Value="True">
-                                                                                                <Setter Property="Margin" Value="11,204,0,0" />
+                                                                                                <Setter Property="Margin" Value="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='11,204,0,0'}" />
                                                                                             </DataTrigger>
                                                                                         </Style.Triggers>
                                                                                     </Style>
@@ -718,9 +734,12 @@
                                                                             </local:DigitalTireTemperatureGaugeView>
                                                                             <local:NativeGForceMeterView Width="144" Height="100"
                                                                                                          HorizontalAlignment="Left" VerticalAlignment="Top">
+                                                                                <local:NativeGForceMeterView.LayoutTransform>
+                                                                                    <ScaleTransform ScaleX="{Binding GForceGaugeScale}" ScaleY="{Binding GForceGaugeScale}" />
+                                                                                </local:NativeGForceMeterView.LayoutTransform>
                                                                                 <local:NativeGForceMeterView.Style>
                                                                                     <Style TargetType="local:NativeGForceMeterView">
-                                                                                        <Setter Property="Margin" Value="176,0,0,0" />
+                                                                                        <Setter Property="Margin" Value="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='176,0,0,0'}" />
                                                                                         <Style.Triggers>
                                                                                             <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
                                                                                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -746,7 +765,7 @@
                                                                             </Style>
                                                                         </StackPanel.Style>
                                                                         <Grid MinWidth="345" MinHeight="417" ClipToBounds="False">
-                                                                            <local:NativeAnalogSpeedometer Width="293" Height="293.5" Margin="0,72,0,0"
+                                                                            <local:NativeAnalogSpeedometer Width="293" Height="293.5" Margin="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='0,72,0,0'}"
                                                                                                            HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                            Frame="{Binding NativePreviewFrame}">
                                                                                 <local:NativeAnalogSpeedometer.Style>
@@ -759,7 +778,7 @@
                                                                                     </Style>
                                                                                 </local:NativeAnalogSpeedometer.Style>
                                                                             </local:NativeAnalogSpeedometer>
-                                                                            <local:NativeElectricAnalogSpeedometer Width="345" Height="345" Margin="0,72,0,0"
+                                                                            <local:NativeElectricAnalogSpeedometer Width="345" Height="345" Margin="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='0,72,0,0'}"
                                                                                                                    HorizontalAlignment="Left" VerticalAlignment="Top"
                                                                                                                    Frame="{Binding NativePreviewFrame}">
                                                                                 <local:NativeElectricAnalogSpeedometer.Style>
@@ -774,12 +793,15 @@
                                                                                 </local:NativeElectricAnalogSpeedometer.Style>
                                                                             </local:NativeElectricAnalogSpeedometer>
                                                                             <local:SupplementaryAnalogGaugePreview x:Name="NativeSupplementaryGaugePreview"
-                                                                                Margin="276,76,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                                                                Margin="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='276,76,0,0'}" HorizontalAlignment="Left" VerticalAlignment="Top" />
                                                                             <local:NativeGForceMeterView Width="144" Height="100"
                                                                                                          HorizontalAlignment="Left" VerticalAlignment="Top">
+                                                                                <local:NativeGForceMeterView.LayoutTransform>
+                                                                                    <ScaleTransform ScaleX="{Binding GForceGaugeScale}" ScaleY="{Binding GForceGaugeScale}" />
+                                                                                </local:NativeGForceMeterView.LayoutTransform>
                                                                                 <local:NativeGForceMeterView.Style>
                                                                                     <Style TargetType="local:NativeGForceMeterView">
-                                                                                        <Setter Property="Margin" Value="195,0,0,0" />
+                                                                                        <Setter Property="Margin" Value="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='195,0,0,0'}" />
                                                                                         <Style.Triggers>
                                                                                             <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
                                                                                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -825,6 +847,30 @@
                                                           AutomationProperties.Name="Attach G-force meter to Native HUD"
                                                           Margin="0,14,0,0"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" ><CheckBox.Style><Style TargetType="CheckBox" BasedOn="{StaticResource ToggleSwitchStyle}"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="3"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></CheckBox.Style></CheckBox>
+<Grid Margin="0,16,0,0">
+                                                    <TextBlock Text="G-force meter size" />
+                                                    <TextBlock Text="{Binding GForceGaugeScale, StringFormat={}{0:P0}}" HorizontalAlignment="Right" />
+                                                </Grid>
+                                                <Slider x:Name="GForceGaugeScaleSlider" Minimum="0.5" Maximum="2"
+                                                        Value="{Binding GForceGaugeScale, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                                                        IsEnabled="{Binding GForceEnabled}" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                                        SmallChange="0.05" LargeChange="0.25" ValueChanged="Option_Changed"
+                                                        Margin="0,6,0,10" AutomationProperties.Name="G-force meter size">
+                                                    <Slider.Style>
+                                                        <Style TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
+                                                            <Setter Property="FocusVisualStyle">
+                                                                <Setter.Value>
+                                                                    <Style TargetType="Control">
+                                                                        <Setter Property="Template">
+                                                                            <Setter.Value><ControlTemplate TargetType="Control"><Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="6" Margin="-2" /></ControlTemplate></Setter.Value>
+                                                                        </Setter>
+                                                                    </Style>
+                                                                </Setter.Value>
+                                                            </Setter>
+                                                            <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.88" /></Trigger></Style.Triggers>
+                                                        </Style>
+                                                    </Slider.Style>
+                                                </Slider>
                                             </StackPanel>
                                         </Border>
 
@@ -1148,7 +1194,7 @@
                                                         </Style>
                                                     </StackPanel.Style>
                                                     <Grid Margin="0,13,0,5">
-                                                        <TextBlock Text="Standalone G-meter size" Foreground="{DynamicResource MutedBrush}" />
+                                                        <TextBlock Text="Standalone proportions" Foreground="{DynamicResource MutedBrush}" />
                                                         <TextBlock Text="50–200%" HorizontalAlignment="Right" Foreground="{DynamicResource FaintBrush}" FontSize="11" />
                                                     </Grid>
                                                     <Grid>

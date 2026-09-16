@@ -17,13 +17,14 @@ public static class ReleaseNotesCatalog
         new(
             "2.1.1",
             "September 15, 2026",
-            "PRIVATE TEST",
-            "Aligned supplementary gauges with separate size controls.",
+            "GAUGE SIZING",
+            "Aligned supplementary gauges, separate size controls, and adjustable G-force meter size.",
             true,
             [
                 Group("Gauge sizing",
                     "Boost, tire temperature, power and torque use matching dial sizes at 100%. Rows and columns stay aligned when you choose different sizes.",
                     "Set each gauge size independently in Appearance → Gauges. Boost and tire size controls also work while attached to the speedometer.",
+                    "Set G-force meter size from 50% to 200%. It applies to attached, detached and Combined layouts and their previews.",
                     "The Analogue preview uses the same supplementary gauge layout as the HUD.",
                     "Existing sizes, profiles and detached positions are preserved. The previous shared power and torque size becomes the starting value for both individual controls.")
             ]),

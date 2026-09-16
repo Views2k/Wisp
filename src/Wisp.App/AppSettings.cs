@@ -103,6 +103,7 @@ public sealed class AppSettings
     public double PowerGaugeMaximum { get; set; } = 1000;
     public double TorqueGaugeMaximumNm { get; set; } = 1200;
     public Dictionary<int, PowerTorqueGaugeRange> PowerTorqueGaugeRanges { get; set; } = new();
+    public double GForceGaugeScale { get; set; } = 1.0;
     public double GForceWidthScale { get; set; } = 1.0;
     public double GForceHeightScale { get; set; } = 1.0;
     public HudLayoutMode LayoutMode { get; set; } = HudLayoutMode.Minimal;
@@ -379,6 +380,7 @@ public sealed class AppSettings
 
         OverlayWidthScale = NormalizeScale(OverlayWidthScale);
         OverlayHeightScale = NormalizeScale(OverlayHeightScale);
+        GForceGaugeScale = NormalizeScale(GForceGaugeScale);
         GForceWidthScale = NormalizeScale(GForceWidthScale);
         GForceHeightScale = NormalizeScale(GForceHeightScale);
         BoostGaugeScale = NormalizeScale(BoostGaugeScale);

@@ -23,6 +23,7 @@ public sealed class HudPresetTests
             OverlayOpacity = 0.72,
             GForceEnabled = false,
             GForceAttached = false,
+            GForceGaugeScale = 1.6,
             GForceWidthScale = 1.4,
             GForceHeightScale = 1.2,
             InvertLateralG = false,
@@ -99,6 +100,9 @@ public sealed class HudPresetTests
         Assert.Equal(source.NativeGaugeMode, target.NativeGaugeMode);
         Assert.Equal(source.GearDisplayMode, target.GearDisplayMode);
         Assert.Equal(source.OverlayOpacity, target.OverlayOpacity);
+        Assert.Equal(source.GForceGaugeScale, target.GForceGaugeScale);
+        Assert.Equal(source.GForceWidthScale, target.GForceWidthScale);
+        Assert.Equal(source.GForceHeightScale, target.GForceHeightScale);
         Assert.Equal(source.InvertLateralG, target.InvertLateralG);
         Assert.Equal(source.InvertLongitudinalG, target.InvertLongitudinalG);
         Assert.Equal(source.BoostGaugeAttached, target.BoostGaugeAttached);
@@ -146,7 +150,7 @@ public sealed class HudPresetTests
         [
             "Id", "Name", "SpeedUnit", "TorqueUnit", "LayoutMode", "NativeGaugeMode", "GearDisplayMode",
             "OverlayWidthScale", "OverlayHeightScale", "OverlayOpacity",
-            "GForceEnabled", "GForceAttached", "GForceWidthScale", "GForceHeightScale",
+            "GForceEnabled", "GForceAttached", "GForceGaugeScale", "GForceWidthScale", "GForceHeightScale",
             "InvertLateralG", "InvertLongitudinalG",
             "BoostGaugeEnabled", "BoostGaugeAttached", "BoostGaugeColorNumber",
             "DigitalBoostGaugeColorNumber", "DigitalBoostGaugeStockColors", "ShowBoostVacuum", "BoostPressureUnit",
