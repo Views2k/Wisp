@@ -1,5 +1,5 @@
 #define MyAppName "Wisp"
-#define MyAppVersion "2.1.1"
+#define MyAppVersion "2.1.2"
 #define MyAppDisplayVersion MyAppVersion
 #define MyAppOutputVersion MyAppVersion
 #define MyAppPublisher "Wisp"

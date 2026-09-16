@@ -15,11 +15,22 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.1.2",
+            "September 16, 2026",
+            "PERFORMANCE HOTFIX",
+            "Bounded memory use for colored boost pressure numbers.",
+            true,
+            [
+                Group("Boost pressure numbers",
+                    "Reuse digit images as boost colors and pulse opacity change, preventing cached images from accumulating throughout a session.",
+                    "Preserve digit colors, shadows and sizing, along with existing needle behavior and saved settings.")
+            ]),
+        new(
             "2.1.1",
             "September 15, 2026",
             "GAUGE SIZING",
             "Aligned supplementary gauges, separate size controls, and adjustable G-force meter size.",
-            true,
+            false,
             [
                 Group("Gauge sizing",
                     "Boost, tire temperature, power and torque use matching dial sizes at 100%. Rows and columns stay aligned when you choose different sizes.",
