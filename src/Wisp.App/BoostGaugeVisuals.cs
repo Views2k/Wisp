@@ -305,6 +305,7 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
     private const double SweepAngle = 260;
     private readonly NativeAnalogNeedleVisual _needleMaterial;
     private readonly RotateTransform _needleRotation = new();
+    private readonly Dictionary<char, NativeTintedBitmap> _digitImages = new();
 
     public static readonly DependencyProperty IsElectricMaterialProperty = DependencyProperty.Register(
         nameof(IsElectricMaterial), typeof(bool), typeof(AnalogBoostGaugeView),
@@ -469,11 +470,13 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
                 left += minusWidth + gap;
                 continue;
             }
-            var image = NativeAssetCache.GetTinted(
-                NativeGaugeMode.Analogue,
-                $"HUD_Dial_Speed_Analogue_{digit}.png",
-                tint);
-            dc.DrawImage(image, new Rect(left, center.Y - height / 2, width, height));
+            if (!_digitImages.TryGetValue(digit, out var image))
+            {
+                image = new NativeTintedBitmap(NativeAssetCache.Get(
+                    NativeGaugeMode.Analogue, $"HUD_Dial_Speed_Analogue_{digit}.png"));
+                _digitImages.Add(digit, image);
+            }
+            dc.DrawImage(image.GetImage(tint), new Rect(left, center.Y - height / 2, width, height));
             left += width + gap;
         }
         if (scale < 1) dc.Pop();
