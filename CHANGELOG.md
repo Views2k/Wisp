@@ -2,6 +2,10 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.1.2 - 2026-09-16
+
+- Bound memory use for colored boost pressure numbers by reusing digit images as colors and pulse opacity change. Preserve their rendered appearance and existing needle behavior.
+
 ## 2.1.1 - 2026-09-15
 
 - Align the boost, tire-temperature, power, and torque dials in Native Analogue. At 100% their dial sizes match; rows and columns remain centered when individual sizes differ.
