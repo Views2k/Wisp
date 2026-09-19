@@ -126,7 +126,11 @@ public sealed class PowerTorqueDisplayModel
         }
         var continuous = _hasSample && elapsed > 0 && elapsed <= MaximumContinuousGapMilliseconds &&
             gameElapsed >= 0 && gameElapsed <= MaximumContinuousGapMilliseconds;
-        var hold = DriftModeEnabled && _driftHold.Observe(_lastRawHorsepower, _lastRawTorqueNm,
+        // A positive-only combustion gauge displays negative output as zero.
+        // Match that visible cut, while signed readings and EV regeneration stay unheld.
+        var driftPower = driftInput is { IsElectric: true } ? _lastRawHorsepower : horsepower;
+        var driftTorque = driftInput is { IsElectric: true } ? _lastRawTorqueNm : torqueNm;
+        var hold = DriftModeEnabled && _driftHold.Observe(driftPower, driftTorque,
             driftInput, continuous && gameElapsed <= PowerTorqueDriftHold.MaximumSampleGapMilliseconds, elapsed);
         if (hold)
         {

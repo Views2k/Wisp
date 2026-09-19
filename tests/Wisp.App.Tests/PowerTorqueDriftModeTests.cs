@@ -7,6 +7,8 @@ namespace Wisp.App.Tests;
 public sealed class PowerTorqueDriftModeTests
 {
     private const double WattsPerBhp = 745.69987158227022;
+    private const double CutPowerBhp = -310_778.21875 / WattsPerBhp;
+    private const double CutTorqueNm = -289.520263671875;
     private static readonly PowerTorqueDriftInput Driving = new(true, 255, 30, 6_000, TransmissionGear.Second);
     private static long Ticks(double milliseconds) => (long)(milliseconds * Stopwatch.Frequency / 1_000);
     private static PowerTorqueDisplayModel Enabled(double smoothing = 0) => new()
@@ -39,7 +41,7 @@ public sealed class PowerTorqueDriftModeTests
         var existing = new PowerTorqueDisplayModel { SmoothingMilliseconds = smoothing, ShowNegative = negative };
         var withContext = new PowerTorqueDisplayModel { SmoothingMilliseconds = smoothing, ShowNegative = negative };
         Assert.False(withContext.DriftModeEnabled);
-        var sequence = new[] { (1500d, 1600d), (0d, 0d), (1500d, 1600d), (-30d, -40d), (700d, 900d) };
+        var sequence = new[] { (1500d, 1600d), (0d, 0d), (1500d, 1600d), (CutPowerBhp, CutTorqueNm), (700d, 900d) };
         for (var index = 0; index < 25; index++)
         {
             var time = (uint)(1_000 + index * 20);
@@ -53,6 +55,9 @@ public sealed class PowerTorqueDriftModeTests
     [InlineData(0, 0)]
     [InlineData(0, 1600)]
     [InlineData(1500, 0)]
+    [InlineData(CutPowerBhp, CutTorqueNm)]
+    [InlineData(CutPowerBhp, 1600)]
+    [InlineData(1500, CutTorqueNm)]
     public void ABriefCutInEitherChannelHoldsBothNeedlesAndBothNumbers(double power, double torque)
     {
         var model = Enabled(250);
@@ -63,14 +68,16 @@ public sealed class PowerTorqueDriftModeTests
         AssertHeld(before, Observe(model, 1_400, power, torque));
     }
 
-    [Fact]
-    public void RepeatedBriefCutTrainsRemainStableButSustainedZeroExpiresWithoutRearming()
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(CutPowerBhp, CutTorqueNm)]
+    public void RepeatedBriefCutTrainsRemainStableButSustainedCutsExpireWithoutRearming(double cutPower, double cutTorque)
     {
         var model = Enabled();
         var expected = Observe(model, 1_000, 1_500, 1_600);
         for (uint time = 1_020; time < 3_020; time += 100)
         {
-            AssertHeld(expected, Observe(model, time, 0, 0));
+            AssertHeld(expected, Observe(model, time, cutPower, cutTorque));
             var recovered = Observe(model, time + 50, 1_500, 1_600);
             Assert.False(recovered.IsDriftPowerCut);
             Assert.Equal(expected.PowerBhp, recovered.PowerBhp);
@@ -78,7 +85,7 @@ public sealed class PowerTorqueDriftModeTests
         }
         for (uint time = 3_020; time <= 4_020; time += 50)
         {
-            var current = Observe(model, time, 0, 0);
+            var current = Observe(model, time, cutPower, cutTorque);
             if (time >= 3_520)
             {
                 Assert.False(current.IsDriftPowerCut);
@@ -87,7 +94,7 @@ public sealed class PowerTorqueDriftModeTests
             }
         }
         var positive = Observe(model, 4_070, 900, 1_000);
-        AssertHeld(positive, Observe(model, 4_090, 0, 0));
+        AssertHeld(positive, Observe(model, 4_090, cutPower, cutTorque));
     }
 
     private static IEnumerable<PowerTorqueDriftInput> IneligibleInputs()
@@ -111,7 +118,7 @@ public sealed class PowerTorqueDriftModeTests
             var model = Enabled();
             Observe(model, 1_000, 1_500, 1_600);
             Assert.True(Observe(model, 1_020, 0, 0).IsDriftPowerCut);
-            var released = Observe(model, 1_040, 0, 0, input);
+            var released = Observe(model, 1_040, CutPowerBhp, CutTorqueNm, input);
             Assert.False(released.IsDriftPowerCut);
             Assert.False(released.DriftPulseAllowed);
             Assert.Equal(0, released.PowerBhp);
@@ -130,6 +137,26 @@ public sealed class PowerTorqueDriftModeTests
         Assert.False(Observe(model, 1_040, 0, 0, electric with { Gear = TransmissionGear.Reverse }).IsDriftPowerCut);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ElectricRegenerationNeverRetainsPositiveOutput(bool showNegative)
+    {
+        var model = Enabled();
+        model.ShowNegative = showNegative;
+        var electric = Driving with { IsElectric = true, EngineRpm = 0 };
+        Observe(model, 1_000, 1_500, 1_600, electric);
+        AssertHeld(model.Current, Observe(model, 1_020, 0, 0, electric));
+        var regeneration = Observe(model, 1_140, CutPowerBhp, CutTorqueNm, electric);
+        Assert.False(regeneration.IsDriftPowerCut);
+        Assert.False(regeneration.DriftPulseAllowed);
+        Assert.Equal(showNegative ? CutPowerBhp : 0, regeneration.PowerBhp, 9);
+        Assert.Equal(showNegative ? CutTorqueNm : 0, regeneration.TorqueNm, 9);
+        Assert.Equal(regeneration.PowerBhp, regeneration.ReadoutPowerBhp);
+        Assert.Equal(regeneration.TorqueNm, regeneration.ReadoutTorqueNm);
+        Assert.False(Observe(model, 1_160, 0, 0, electric).IsDriftPowerCut);
+    }
+
     [Fact]
     public void SmallRecoveryNoiseDoesNotRestartTheMaximumCutWindow()
     {
@@ -146,7 +173,7 @@ public sealed class PowerTorqueDriftModeTests
     }
 
     [Fact]
-    public void MissingDrivingContextAndNegativeOutputNeverStartAHold()
+    public void MissingDrivingContextAndVisibleNegativeOutputNeverStartAHold()
     {
         var model = Enabled();
         model.ShowNegative = true;
@@ -212,8 +239,10 @@ public sealed class PowerTorqueDriftModeTests
         Assert.Equal(0, disabled.TorqueNm);
     }
 
-    [Fact]
-    public void CutTrainPlaybackKeepsBothReadingsSteadyAndTheFlashSlowAndBounded()
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(CutPowerBhp, CutTorqueNm)]
+    public void CutTrainPlaybackKeepsBothReadingsSteadyAndTheFlashSlowAndBounded(double cutPower, double cutTorque)
     {
         var model = Enabled();
         var playback = new PowerTorqueNeedlePlayback();
@@ -223,7 +252,9 @@ public sealed class PowerTorqueDriftModeTests
         for (uint time = 1_020; time <= 4_200; time += 20)
         {
             var cut = (time / 40) % 2 == 1;
-            var display = Observe(model, time, cut ? 0 : 1_500, cut ? 0 : 1_600);
+            var display = Observe(model, time, cut ? cutPower : 1_500, cut ? cutTorque : 1_600);
+            Assert.Equal(cut, display.IsDriftPowerCut);
+            Assert.True(display.DriftPulseAllowed);
             playback.Observe(display, 1, time, Ticks(time), Ticks(time));
             var rendered = playback.Sample(Ticks(time));
             Assert.Equal(start.PowerBhp, rendered.PowerBhp);
