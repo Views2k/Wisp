@@ -45,7 +45,7 @@ internal static class PowerTorqueHudLayer
             : vm.NativePowerTorqueInput;
         var options = new Options(width, height, control.IsTorque, control.TorqueUnit, control.Maximum,
             control.IsElectricMaterial, control.ColorNumber,
-            Color(control.PaletteColor(0)), Color(control.PaletteColor(.56)), Color(control.PaletteColor(1)));
+            Color(control.PaletteColor(0)), Color(control.PaletteColor(.56)), Color(control.PaletteColor(1)), Color(control.DriftFlashColor));
         if (cache.Snapshot is { } previous && previous.Input == input && previous.Options == options &&
             ReferenceEquals(previous.Artwork, cache.Artwork)) return previous;
         return cache.Snapshot = new Snapshot(cache.Artwork, input, options);
@@ -124,7 +124,8 @@ internal static class PowerTorqueHudLayer
     private readonly record struct ArtworkKey(long Revision, bool IsTorque, double Maximum, TorqueUnit Unit,
         double PixelsPerDip, double RasterScale);
     private readonly record struct Options(double Width, double Height, bool IsTorque, TorqueUnit Unit,
-        double Maximum, bool Electric, bool ColorNumber, AnalogHudColor Low, AnalogHudColor Mid, AnalogHudColor High);
+        double Maximum, bool Electric, bool ColorNumber, AnalogHudColor Low, AnalogHudColor Mid, AnalogHudColor High,
+        AnalogHudColor DriftFlash);
     private sealed record Artwork(uint FirstId, IReadOnlyList<AnalogHudTexture> Textures,
         double[] Advances, double[] Kerning, double UnavailableAdvance, AnalogHudPoint UnavailableSize);
     private sealed record Compatibility(Artwork Artwork, Options Options, int CarOrdinal, bool Available, long Revision);
@@ -135,8 +136,9 @@ internal static class PowerTorqueHudLayer
         internal NativePowerTorqueInput Input { get; } = input;
         internal Options Options { get; } = options;
         internal override IReadOnlyList<AnalogHudTexture> Textures => Artwork.Textures;
-        internal override object CompatibilityKey { get; } = new Compatibility(artwork, options, input.CarOrdinal,
-            input.Display.Available, input.Revision);
+        // A flash-color edit updates tint only; keep the existing playback phase.
+        internal override object CompatibilityKey { get; } = new Compatibility(artwork,
+            options with { DriftFlash = default }, input.CarOrdinal, input.Display.Available, input.Revision);
         internal override HudLayerPlayback CreatePlayback() => new Playback();
     }
 
@@ -194,7 +196,7 @@ internal static class PowerTorqueHudLayer
             if (double.IsFinite(peak) && peak > 0)
                 commands.Add(AnalogHudScene.Quad(art.FirstId + 2, new(124, 66, 16, 8),
                     PowerTorqueGaugeView.NeedleAngle(peak, options.Maximum), new(70, 70)));
-            if (available) AddReadout(commands, art, options, readout, 1 - .45 * display.DriftCutPulse);
+            if (available) AddReadout(commands, art, options, readout, display.DriftCutPulse);
             else commands.Add(AnalogHudScene.Quad(art.FirstId + 4,
                 new(70 - art.UnavailableAdvance / 2 - 2, 48, art.UnavailableSize.X, art.UnavailableSize.Y)));
             AddPeakText(commands, art, double.IsFinite(peak) && peak > 0
@@ -225,10 +227,12 @@ internal static class PowerTorqueHudLayer
         }
     }
 
-    private static void AddReadout(List<DirectCompositionDrawCommand> commands, Artwork art, Options options, double value, double opacity)
+    private static void AddReadout(List<DirectCompositionDrawCommand> commands, Artwork art, Options options, double value, double pulse)
     {
         var number = Whole(value).ToString("0", CultureInfo.InvariantCulture);
-        var tint = options.ColorNumber ? Palette(options, Math.Clamp(value / options.Maximum, 0, 1)) : WhiteSmoke;
+        var baseline = options.ColorNumber ? Palette(options, Math.Clamp(value / options.Maximum, 0, 1)) : new AnalogHudColor(255, 255, 255);
+        var tint = BlendDriftFlash(baseline, options.DriftFlash, pulse);
+        var signTint = options.ColorNumber ? tint : BlendDriftFlash(WhiteSmoke, options.DriftFlash, pulse);
         var width = number.Sum(character => character == '-' ? 8d : 18) - (number.Length - 1);
         var scale = Math.Min(1, 48 / width);
         var left = 70 - width / 2;
@@ -238,13 +242,18 @@ internal static class PowerTorqueHudLayer
             rectangle = new(70 + (rectangle.X - 70) * scale, 70 + (rectangle.Y - 70) * scale,
                 rectangle.Width * scale, rectangle.Height * scale);
             if (character == '-')
-                commands.Add(AnalogHudScene.Quad(0, rectangle, opacity: opacity, color: tint));
+                commands.Add(AnalogHudScene.Quad(0, rectangle, color: signTint));
             else
                 commands.Add(AnalogHudScene.Quad(art.FirstId + (options.ColorNumber ? 30u : 10u) + (uint)(character - '0'),
-                    rectangle, opacity: opacity, color: options.ColorNumber ? tint : null));
+                    rectangle, color: tint));
             left += character == '-' ? 7 : 17;
         }
     }
+
+    private static AnalogHudColor BlendDriftFlash(AnalogHudColor baseline, AnalogHudColor flash, double pulse) =>
+        Color(PowerTorqueGaugeView.BlendDriftFlash(
+            System.Windows.Media.Color.FromArgb(baseline.A, baseline.R, baseline.G, baseline.B),
+            System.Windows.Media.Color.FromArgb(flash.A, flash.R, flash.G, flash.B), pulse));
 
     private static void AddPeakText(List<DirectCompositionDrawCommand> commands, Artwork art, string text)
     {

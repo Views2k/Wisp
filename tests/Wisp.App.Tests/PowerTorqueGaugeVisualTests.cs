@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Wisp.App.NativeRendering;
 using Xunit;
 
@@ -69,7 +70,7 @@ internal static class PowerTorqueGaugeVisualTests
 
         ReadoutAndNeedleUseTheirSeparateSamples();
         ReadoutDrawingIsCachedBetweenNumericPublications();
-        DriftPulseChangesOnlyNumberOpacityInNativeAndWpfRendering();
+        DriftFlashChangesOnlyNumberColorInNativeAndWpfRendering();
         CustomPaletteHonorsAllStopsAndTheirOpacity();
         ColoredArcCacheIsFrozenReusedAndReplacedWhenItsPaletteChanges();
         ActiveArcClampsNegativeAndOverrangeOutput();
@@ -278,11 +279,12 @@ internal static class PowerTorqueGaugeVisualTests
         Assert.NotSame(tinted, field.GetValue(gauge));
     }
 
-    private static void DriftPulseChangesOnlyNumberOpacityInNativeAndWpfRendering()
+    private static void DriftFlashChangesOnlyNumberColorInNativeAndWpfRendering()
     {
         foreach (var torque in new[] { false, true })
             foreach (var colored in new[] { false, true })
             {
+                var flash = Color.FromArgb(32, 223, 159, 79);
                 var gauge = new PowerTorqueGaugeView
                 {
                     Width = 140,
@@ -290,6 +292,7 @@ internal static class PowerTorqueGaugeVisualTests
                     Maximum = 2_000,
                     IsTorque = torque,
                     ColorNumber = colored,
+                    DriftFlashBrush = new SolidColorBrush(flash),
                     LowBrush = new SolidColorBrush(Color.FromArgb(128, 32, 64, 96)),
                     MidBrush = new SolidColorBrush(Color.FromArgb(160, 96, 128, 160)),
                     HighBrush = new SolidColorBrush(Color.FromArgb(192, 160, 192, 224)),
@@ -305,39 +308,136 @@ internal static class PowerTorqueGaugeVisualTests
                 gauge.Arrange(new Rect(0, 0, 140, 140));
                 RenderMethod(gauge, "OnRender");
                 var readoutField = typeof(PowerTorqueGaugeView).GetField("_readoutDrawing", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var flashDrawingField = typeof(PowerTorqueGaugeView).GetField("_flashReadoutDrawing", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var flashBrushField = typeof(PowerTorqueGaugeView).GetField("_flashReadoutBrush", BindingFlags.Instance | BindingFlags.NonPublic)!;
                 var readout = Assert.IsType<DrawingGroup>(readoutField.GetValue(gauge));
+                var tintField = typeof(NativeAssetCache).GetField("TintedImages", BindingFlags.Static | BindingFlags.NonPublic)!;
+                var tintedImages = Assert.IsAssignableFrom<System.Collections.IDictionary>(tintField.GetValue(null));
+                var tintCount = tintedImages.Count;
                 var angle = gauge.CurrentNeedleAngle;
+                var nativeDisplay = gauge.Display;
                 var snapshot = PowerTorqueHudLayer.Capture(gauge, null);
                 var playback = snapshot.CreatePlayback();
                 var start = Stopwatch.Frequency;
                 playback.Update(snapshot, start);
-                var bright = playback.Build(start);
-                var dim = playback.Build(start + Stopwatch.Frequency * 4 / 10);
+                var baselineCommands = playback.Build(start);
                 var firstDigit = (torque ? 25_000u : 20_000u) + (colored ? 30u : 10u);
                 bool IsNumber(DirectCompositionDrawCommand command) => command.TextureId >= firstDigit && command.TextureId < firstDigit + 10;
-                var brightNumbers = bright.Where(IsNumber).ToArray();
-                var dimNumbers = dim.Where(IsNumber).ToArray();
-                Assert.Equal(4, brightNumbers.Length);
-                Assert.Equal(brightNumbers.Length, dimNumbers.Length);
-                for (var index = 0; index < brightNumbers.Length; index++)
+                var baselineNumbers = baselineCommands.Where(IsNumber).ToArray();
+                Assert.Equal(4, baselineNumbers.Length);
+                var baseline = colored ? gauge.PaletteColor(gauge.DisplayedReadout / gauge.Maximum) : Colors.White;
+                DrawingGroup? cachedFlashDrawing = null;
+                SolidColorBrush? cachedFlashBrush = null;
+                foreach (var (milliseconds, pulse) in new[] { (0, 0d), (200, .5), (400, 1d), (800, 0d) })
                 {
-                    Assert.Equal(brightNumbers[index].TintR, dimNumbers[index].TintR);
-                    Assert.Equal(brightNumbers[index].TintG, dimNumbers[index].TintG);
-                    Assert.Equal(brightNumbers[index].TintB, dimNumbers[index].TintB);
-                    Assert.Equal(brightNumbers[index].TintA * .55, dimNumbers[index].TintA, 6);
+                    var commands = playback.Build(start + Stopwatch.Frequency * milliseconds / 1_000);
+                    var numbers = commands.Where(IsNumber).ToArray();
+                    Assert.Equal(baselineNumbers.Select(command => command.TextureId), numbers.Select(command => command.TextureId));
+                    Assert.Equal(baselineCommands.Where(command => !IsNumber(command)), commands.Where(command => !IsNumber(command)));
+                    foreach (var command in numbers)
+                    {
+                        Assert.Equal(baseline.A / 255f, command.TintA);
+                        Assert.InRange(command.TintR * 255, baseline.R + (flash.R - baseline.R) * pulse - .501, baseline.R + (flash.R - baseline.R) * pulse + .501);
+                        Assert.InRange(command.TintG * 255, baseline.G + (flash.G - baseline.G) * pulse - .501, baseline.G + (flash.G - baseline.G) * pulse + .501);
+                        Assert.InRange(command.TintB * 255, baseline.B + (flash.B - baseline.B) * pulse - .501, baseline.B + (flash.B - baseline.B) * pulse + .501);
+                    }
+                    gauge.Display = gauge.Display with { DriftCutPulse = pulse };
+                    var drawing = RenderMethod(gauge, "OnRender");
+                    Assert.Same(readout, readoutField.GetValue(gauge));
+                    if (pulse > 0)
+                    {
+                        var flashDrawing = Assert.IsType<DrawingGroup>(flashDrawingField.GetValue(gauge));
+                        var flashBrush = Assert.IsType<SolidColorBrush>(flashBrushField.GetValue(gauge));
+                        if (cachedFlashDrawing is not null) Assert.Same(cachedFlashDrawing, flashDrawing);
+                        if (cachedFlashBrush is not null) Assert.Same(cachedFlashBrush, flashBrush);
+                        cachedFlashDrawing = flashDrawing;
+                        cachedFlashBrush = flashBrush;
+                        Assert.Equal(baseline.A, flashBrush.Color.A);
+                        Assert.Equal(flashBrush.Color.R / 255f, numbers[0].TintR);
+                        Assert.Equal(flashBrush.Color.G / 255f, numbers[0].TintG);
+                        Assert.Equal(flashBrush.Color.B / 255f, numbers[0].TintB);
+                        Assert.True(AssertNumberOpacity(drawing, flashDrawing));
+                        if (!colored && pulse == 1) AssertReadoutPixelCoverage(readout, flashDrawing);
+                    }
+                    else Assert.True(AssertNumberOpacity(drawing, readout));
+                    Assert.Equal(angle, gauge.CurrentNeedleAngle);
+                    var next = PowerTorqueHudLayer.Capture(gauge, null);
+                    Assert.Same(snapshot.Textures, next.Textures);
+                    Assert.Equal(snapshot.CompatibilityKey, next.CompatibilityKey);
+                    if (milliseconds == 200)
+                    {
+                        flash = Color.FromArgb(16, 47, 175, 231);
+                        gauge.DriftFlashBrush = new SolidColorBrush(flash);
+                        gauge.Display = nativeDisplay;
+                        var recolored = PowerTorqueHudLayer.Capture(gauge, null);
+                        Assert.Same(snapshot.Textures, recolored.Textures);
+                        Assert.Equal(snapshot.CompatibilityKey, recolored.CompatibilityKey);
+                        var timestamp = start + Stopwatch.Frequency / 5;
+                        playback.Update(recolored, timestamp);
+                        var recoloredNumbers = playback.Build(timestamp).Where(IsNumber).ToArray();
+                        Assert.Equal(numbers.Length, recoloredNumbers.Length);
+                        Assert.All(recoloredNumbers, command =>
+                        {
+                            Assert.Equal(baseline.A / 255f, command.TintA);
+                            Assert.InRange(command.TintR * 255, (baseline.R + flash.R) / 2d - .501, (baseline.R + flash.R) / 2d + .501);
+                            Assert.InRange(command.TintG * 255, (baseline.G + flash.G) / 2d - .501, (baseline.G + flash.G) / 2d + .501);
+                            Assert.InRange(command.TintB * 255, (baseline.B + flash.B) / 2d - .501, (baseline.B + flash.B) / 2d + .501);
+                        });
+                    }
                 }
-                Assert.Equal(bright.Where(command => !IsNumber(command)), dim.Where(command => !IsNumber(command)));
-
-                gauge.Display = gauge.Display with { DriftCutPulse = 1 };
-                var drawing = RenderMethod(gauge, "OnRender");
-                var numberOpacity = Assert.Single(Groups(drawing), group => Math.Abs(group.Opacity - .55) < .000001);
-                Assert.Contains(readout, Groups(numberOpacity));
-                Assert.Same(readout, readoutField.GetValue(gauge));
-                Assert.Equal(angle, gauge.CurrentNeedleAngle);
-                var next = PowerTorqueHudLayer.Capture(gauge, null);
-                Assert.Same(snapshot.Textures, next.Textures);
-                Assert.Equal(snapshot.CompatibilityKey, next.CompatibilityKey);
+                Assert.Equal(tintCount, tintedImages.Count);
             }
+    }
+
+    private static bool AssertNumberOpacity(Drawing drawing, DrawingGroup numbers)
+    {
+        if (ReferenceEquals(drawing, numbers))
+        {
+            Assert.All(Groups(numbers), group => Assert.Equal(1, group.Opacity));
+            return true;
+        }
+        if (drawing is not DrawingGroup parent) return false;
+        foreach (var child in parent.Children)
+        {
+            if (!AssertNumberOpacity(child, numbers)) continue;
+            Assert.Equal(1, parent.Opacity);
+            return true;
+        }
+        return false;
+    }
+
+    private static void AssertReadoutPixelCoverage(Drawing baseline, Drawing flashed)
+    {
+        static byte[] Pixels(Drawing drawing)
+        {
+            var visual = new DrawingVisual();
+            using (var context = visual.RenderOpen()) context.DrawDrawing(drawing);
+            var bitmap = new RenderTargetBitmap(140, 140, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(visual);
+            var pixels = new byte[140 * 140 * 4];
+            bitmap.CopyPixels(pixels, 140 * 4, 0);
+            return pixels;
+        }
+        var normal = Pixels(baseline);
+        var pulse = Pixels(flashed);
+        var normalBounds = Rect.Empty;
+        var pulseBounds = Rect.Empty;
+        var changedRgb = 0;
+        for (var offset = 0; offset < normal.Length; offset += 4)
+        {
+            Assert.InRange(Math.Abs(normal[offset + 3] - pulse[offset + 3]), 0, 1);
+            var pixel = offset / 4;
+            var point = new Point(pixel % 140, pixel / 140);
+            if (normal[offset + 3] > 4) normalBounds.Union(point);
+            if (pulse[offset + 3] > 4) pulseBounds.Union(point);
+            if (normal[offset + 3] > 32 &&
+                (Math.Abs(normal[offset] - pulse[offset]) > 4 ||
+                 Math.Abs(normal[offset + 1] - pulse[offset + 1]) > 4 ||
+                 Math.Abs(normal[offset + 2] - pulse[offset + 2]) > 4)) changedRgb++;
+        }
+        Assert.False(normalBounds.IsEmpty);
+        Assert.Equal(normalBounds, pulseBounds);
+        Assert.True(changedRgb > 50, "The number flash must visibly change RGB without reducing glyph coverage.");
     }
 
     private static void ColoredArcCacheIsFrozenReusedAndReplacedWhenItsPaletteChanges()

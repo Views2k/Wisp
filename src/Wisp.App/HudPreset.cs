@@ -45,6 +45,7 @@ public sealed class HudPreset
     public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
     public bool PowerTorqueShowNegative { get; set; }
     public bool PowerTorqueDriftMode { get; set; }
+    public string? PowerTorqueDriftFlashColor { get; set; }
     public bool PowerGaugeColorNumber { get; set; }
     public bool TorqueGaugeColorNumber { get; set; }
     public string? CustomPowerLowColor { get; set; }
@@ -143,6 +144,7 @@ public sealed class HudPreset
             PowerTorqueSmoothingMilliseconds = settings.PowerTorqueSmoothingMilliseconds,
             PowerTorqueShowNegative = settings.PowerTorqueShowNegative,
             PowerTorqueDriftMode = settings.PowerTorqueDriftMode,
+            PowerTorqueDriftFlashColor = settings.PowerTorqueDriftFlashColor,
             PowerGaugeColorNumber = settings.PowerGaugeColorNumber,
             TorqueGaugeColorNumber = settings.TorqueGaugeColorNumber,
             CustomPowerLowColor = settings.CustomPowerLowColor,
@@ -212,6 +214,7 @@ public sealed class HudPreset
         settings.PowerTorqueSmoothingMilliseconds = PowerTorqueSmoothingMilliseconds;
         settings.PowerTorqueShowNegative = PowerTorqueShowNegative;
         settings.PowerTorqueDriftMode = PowerTorqueDriftMode;
+        settings.PowerTorqueDriftFlashColor = PowerTorqueDriftFlashColor;
         settings.PowerGaugeColorNumber = PowerGaugeColorNumber;
         settings.TorqueGaugeColorNumber = TorqueGaugeColorNumber;
         settings.CustomPowerLowColor = CustomPowerLowColor;
@@ -271,6 +274,7 @@ public sealed class HudPreset
         PowerGaugeScale = NormalizeScale(PowerGaugeScale);
         TorqueGaugeScale = NormalizeScale(TorqueGaugeScale);
         PowerTorqueSmoothingMilliseconds = AppSettings.NormalizePowerTorqueSmoothing(PowerTorqueSmoothingMilliseconds);
+        PowerTorqueDriftFlashColor = ColorCustomization.NormalizePowerTorqueDriftFlash(PowerTorqueDriftFlashColor);
         CustomPowerLowColor = ColorCustomization.NormalizeGauge(CustomPowerLowColor);
         CustomPowerMidColor = ColorCustomization.NormalizeGauge(CustomPowerMidColor);
         CustomPowerHighColor = ColorCustomization.NormalizeGauge(CustomPowerHighColor);

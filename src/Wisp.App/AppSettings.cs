@@ -78,6 +78,7 @@ public sealed class AppSettings
     public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
     public bool PowerTorqueShowNegative { get; set; }
     public bool PowerTorqueDriftMode { get; set; }
+    public string? PowerTorqueDriftFlashColor { get; set; }
     public bool PowerGaugeColorNumber { get; set; }
     public bool TorqueGaugeColorNumber { get; set; }
     public string? CustomPowerLowColor { get; set; }
@@ -452,6 +453,7 @@ public sealed class AppSettings
     internal void NormalizePowerTorqueGaugeSettings()
     {
         PowerTorqueSmoothingMilliseconds = NormalizePowerTorqueSmoothing(PowerTorqueSmoothingMilliseconds);
+        PowerTorqueDriftFlashColor = ColorCustomization.NormalizePowerTorqueDriftFlash(PowerTorqueDriftFlashColor);
         CustomPowerLowColor = ColorCustomization.NormalizeGauge(CustomPowerLowColor);
         CustomPowerMidColor = ColorCustomization.NormalizeGauge(CustomPowerMidColor);
         CustomPowerHighColor = ColorCustomization.NormalizeGauge(CustomPowerHighColor);

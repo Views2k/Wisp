@@ -1809,6 +1809,7 @@
                                                     <ListBoxItem Content="G-force dot" />
                                                     <ListBoxItem Content="G-force trail" />
                                                     <ListBoxItem Content="Background particles" />
+                                                    <ListBoxItem Content="Drift cut flash" />
                                                 </ListBox>
                                             </DockPanel>
                                         </Border>
@@ -1836,6 +1837,21 @@
                                                 </WrapPanel>
                                                 <TextBlock Text="Particles leave your background color unchanged and do not react to the mouse. Animation pauses when Wisp is minimized." Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" />
                                             </StackPanel>
+                                        <StackPanel Margin="0,0,0,12">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="13">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+                                            <Button x:Name="ResetDriftFlashColorButton" Content="Reset flash color"
+                                                    Click="ResetDriftFlashColor_Click" HorizontalAlignment="Left"
+                                                    AutomationProperties.Name="Reset Drift cut flash color" />
+                                        </StackPanel>
                                         <local:ColorWheelEditor x:Name="ColorEditor"
                                                                 HorizontalAlignment="Stretch" MinHeight="350"
                                                                 SelectedColorChanged="ColorEditor_SelectedColorChanged" />

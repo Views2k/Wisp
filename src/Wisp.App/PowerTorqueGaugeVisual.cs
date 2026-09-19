@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace Wisp.App;
 
@@ -20,6 +22,10 @@ public sealed class PowerTorqueGaugeView : Grid
     private DrawingGroup? _dial;
     private DrawingGroup? _coloredArc;
     private DrawingGroup? _readoutDrawing;
+    private DrawingGroup? _flashReadoutDrawing;
+    private readonly SolidColorBrush _flashReadoutBrush = new(Colors.White);
+    private readonly SolidColorBrush _flashSignBrush = new(Colors.WhiteSmoke);
+    private static readonly ConditionalWeakTable<BitmapSource, ImageBrush> IntensityMasks = new();
     private double _dialPixelsPerDip;
     internal long NativeArtworkRevision { get; private set; }
 
@@ -55,6 +61,11 @@ public sealed class PowerTorqueGaugeView : Grid
     public static readonly DependencyProperty ColorNumberProperty = DependencyProperty.Register(
         nameof(ColorNumber), typeof(bool), typeof(PowerTorqueGaugeView),
         new FrameworkPropertyMetadata(false, OnPaletteChanged));
+
+    public static readonly DependencyProperty DriftFlashBrushProperty = DependencyProperty.Register(
+        nameof(DriftFlashBrush), typeof(Brush), typeof(PowerTorqueGaugeView),
+        new FrameworkPropertyMetadata(FrozenBrush(ColorCustomization.ResolvePowerTorqueDriftFlash(null)),
+            FrameworkPropertyMetadataOptions.AffectsRender));
 
     public PowerTorqueGaugeView()
     {
@@ -121,6 +132,8 @@ public sealed class PowerTorqueGaugeView : Grid
     public Brush MidBrush { get => (Brush)GetValue(MidBrushProperty); set => SetValue(MidBrushProperty, value); }
     public Brush HighBrush { get => (Brush)GetValue(HighBrushProperty); set => SetValue(HighBrushProperty, value); }
     public bool ColorNumber { get => (bool)GetValue(ColorNumberProperty); set => SetValue(ColorNumberProperty, value); }
+    public Brush DriftFlashBrush { get => (Brush)GetValue(DriftFlashBrushProperty); set => SetValue(DriftFlashBrushProperty, value); }
+    internal Color DriftFlashColor => (DriftFlashBrush as SolidColorBrush)?.Color ?? ColorCustomization.ResolvePowerTorqueDriftFlash(null);
     internal bool HasVisibleNeedle => _needleView.Visibility == Visibility.Visible;
     internal double DisplayedValue => Value(Display);
     internal double DisplayedPeak => Peak(Display);
@@ -143,7 +156,10 @@ public sealed class PowerTorqueGaugeView : Grid
         var old = (PowerTorqueDisplay)args.OldValue;
         var current = (PowerTorqueDisplay)args.NewValue;
         if (old.Available != current.Available || gauge.Readout(old) != gauge.Readout(current))
+        {
             gauge._readoutDrawing = null;
+            gauge._flashReadoutDrawing = null;
+        }
         if (old.Available != current.Available ||
             gauge.Value(old) != gauge.Value(current) ||
             old.DriftCutPulse != current.DriftCutPulse ||
@@ -158,6 +174,7 @@ public sealed class PowerTorqueGaugeView : Grid
         gauge.NativeArtworkRevision++;
         gauge._dial = null;
         gauge._readoutDrawing = null;
+        gauge._flashReadoutDrawing = null;
         gauge.UpdateNeedle();
         gauge.InvalidateVisual();
     }
@@ -171,6 +188,7 @@ public sealed class PowerTorqueGaugeView : Grid
         gauge.NativeArtworkRevision++;
         gauge._coloredArc = null;
         gauge._readoutDrawing = null;
+        gauge._flashReadoutDrawing = null;
         gauge.InvalidateVisual();
     }
 
@@ -204,6 +222,7 @@ public sealed class PowerTorqueGaugeView : Grid
             _dial = BuildDial();
             _dialPixelsPerDip = dpi;
             _readoutDrawing = null;
+            _flashReadoutDrawing = null;
         }
         dc.DrawDrawing(_dial);
         DrawActiveArc(dc);
@@ -219,10 +238,21 @@ public sealed class PowerTorqueGaugeView : Grid
             using (var numbers = _readoutDrawing.Open()) DrawValue(numbers);
             _readoutDrawing.Freeze();
         }
-        var pulse = Math.Clamp(Display.DriftCutPulse, 0, 1);
-        if (pulse > 0) dc.PushOpacity(1 - .45 * pulse);
-        dc.DrawDrawing(_readoutDrawing);
-        if (pulse > 0) dc.Pop();
+        var pulse = double.IsFinite(Display.DriftCutPulse) ? Math.Clamp(Display.DriftCutPulse, 0, 1) : 0;
+        if (pulse > 0 && HasReading)
+        {
+            var baseline = ColorNumber ? PaletteColor(Math.Clamp(DisplayedReadout / Maximum, 0, 1)) : Colors.White;
+            _flashReadoutBrush.Color = BlendDriftFlash(baseline, DriftFlashColor, pulse);
+            _flashSignBrush.Color = BlendDriftFlash(ColorNumber ? baseline : Colors.WhiteSmoke, DriftFlashColor, pulse);
+            if (_flashReadoutDrawing is null)
+            {
+                _flashReadoutDrawing = new DrawingGroup();
+                using var numbers = _flashReadoutDrawing.Open();
+                DrawFlashValue(numbers, _flashReadoutBrush, _flashSignBrush, preserveShading: !ColorNumber);
+            }
+            dc.DrawDrawing(_flashReadoutDrawing);
+        }
+        else dc.DrawDrawing(_readoutDrawing);
         var peakText = double.IsFinite(peak) && peak > 0
             ? $"PEAK {Whole(peak).ToString("0", CultureInfo.InvariantCulture)}" : "PEAK —";
         DrawCentered(dc, Text(peakText, 8.5, LabelBrush), 126);
@@ -270,7 +300,9 @@ public sealed class PowerTorqueGaugeView : Grid
         return drawing;
     }
 
-    private void DrawValue(DrawingContext dc)
+    private void DrawValue(DrawingContext dc) => DrawFlashValue(dc, null, null, false);
+
+    private void DrawFlashValue(DrawingContext dc, Brush? flashBrush, Brush? signBrush, bool preserveShading)
     {
         if (!HasReading)
         {
@@ -278,7 +310,7 @@ public sealed class PowerTorqueGaugeView : Grid
             return;
         }
         var number = Whole(DisplayedReadout).ToString("0", CultureInfo.InvariantCulture);
-        var numberBrush = ColorNumber ? FrozenBrush(PaletteColor(Math.Clamp(DisplayedReadout / Maximum, 0, 1))) : Brushes.WhiteSmoke;
+        var numberBrush = flashBrush ?? (ColorNumber ? FrozenBrush(PaletteColor(Math.Clamp(DisplayedReadout / Maximum, 0, 1))) : Brushes.WhiteSmoke);
         const double width = 18;
         const double height = 28;
         const double gap = -1;
@@ -290,24 +322,59 @@ public sealed class PowerTorqueGaugeView : Grid
         {
             if (digit == '-')
             {
-                dc.DrawLine(new Pen(numberBrush, 2), new Point(left + 1, Center.Y), new Point(left + 7, Center.Y));
+                dc.DrawLine(new Pen(signBrush ?? numberBrush, 2), new Point(left + 1, Center.Y), new Point(left + 7, Center.Y));
                 left += 8 + gap;
                 continue;
             }
             var image = NativeAssetCache.Get(NativeGaugeMode.Analogue, $"HUD_Dial_Speed_Analogue_{digit}.png");
             var rect = new Rect(left, Center.Y - height / 2, width, height);
-            if (ColorNumber)
+            if (ColorNumber || flashBrush is not null)
             {
-                // Reuse the native alpha instead of adding every changing tint to the asset cache.
+                // Keep glyph coverage constant while only the retained brush color changes.
                 var mask = new ImageBrush(image); mask.Freeze();
                 dc.PushOpacityMask(mask);
+                if (preserveShading)
+                {
+                    // Stock digits are grayscale. An opaque black base and cached
+                    // intensity mask preserve their shading without changing alpha.
+                    dc.DrawRectangle(Brushes.Black, null, rect);
+                    dc.PushOpacityMask(IntensityMasks.GetValue(image, CreateIntensityMask));
+                }
                 dc.DrawRectangle(numberBrush, null, rect);
+                if (preserveShading) dc.Pop();
                 dc.Pop();
             }
             else dc.DrawImage(image, rect);
             left += width + gap;
         }
         dc.Pop();
+    }
+
+    internal static Color BlendDriftFlash(Color baseline, Color flash, double pulse)
+    {
+        var amount = double.IsFinite(pulse) ? Math.Clamp(pulse, 0, 1) : 0;
+        byte Channel(byte start, byte end) => (byte)Math.Round(start + (end - start) * amount);
+        return Color.FromArgb(baseline.A, Channel(baseline.R, flash.R),
+            Channel(baseline.G, flash.G), Channel(baseline.B, flash.B));
+    }
+
+    private static ImageBrush CreateIntensityMask(BitmapSource source)
+    {
+        var image = source.Format == PixelFormats.Bgra32 ? source : new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+        var stride = checked(image.PixelWidth * 4);
+        var pixels = new byte[checked(stride * image.PixelHeight)];
+        image.CopyPixels(pixels, stride, 0);
+        for (var offset = 0; offset < pixels.Length; offset += 4)
+        {
+            var intensity = pixels[offset];
+            pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = pixels[offset + 3] = intensity;
+        }
+        var mask = BitmapSource.Create(image.PixelWidth, image.PixelHeight, image.DpiX, image.DpiY,
+            PixelFormats.Pbgra32, null, pixels, stride);
+        mask.Freeze();
+        var brush = new ImageBrush(mask);
+        brush.Freeze();
+        return brush;
     }
 
     private void DrawActiveArc(DrawingContext dc)

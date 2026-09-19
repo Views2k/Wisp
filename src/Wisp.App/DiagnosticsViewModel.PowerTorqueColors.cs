@@ -4,6 +4,20 @@ namespace Wisp.App;
 
 public sealed partial class DiagnosticsViewModel
 {
+    public Brush PowerTorqueDriftFlashBrush
+    {
+        get
+        {
+            var brush = new SolidColorBrush(ColorCustomization.ResolvePowerTorqueDriftFlash(
+                _powerTorqueSettings?.PowerTorqueDriftFlashColor));
+            brush.Freeze();
+            return brush;
+        }
+    }
+
+    internal void RefreshPowerTorqueDriftFlashColor() =>
+        OnPropertyChanged(nameof(PowerTorqueDriftFlashBrush));
+
     public Brush PowerGaugeLowBrush => PowerTorqueBrush(0);
     public Brush PowerGaugeMidBrush => PowerTorqueBrush(1);
     public Brush PowerGaugeHighBrush => PowerTorqueBrush(2);
@@ -13,6 +27,7 @@ public sealed partial class DiagnosticsViewModel
 
     internal void RefreshPowerTorquePalette()
     {
+        RefreshPowerTorqueDriftFlashColor();
         OnPropertyChanged(nameof(PowerGaugeLowBrush));
         OnPropertyChanged(nameof(PowerGaugeMidBrush));
         OnPropertyChanged(nameof(PowerGaugeHighBrush));

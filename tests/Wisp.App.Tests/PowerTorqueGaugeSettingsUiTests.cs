@@ -130,12 +130,62 @@ internal static class PowerTorqueGaugeSettingsUiTests
             Assert.False(settings.PowerGaugeEnabled);
             Assert.False(powerAttached.IsEnabled);
             Assert.True(settings.TorqueGaugeEnabled);
+            AssertDriftFlashPicker(controller, legacy: false);
+            AssertDriftFlashPicker(controller, legacy: true);
         }
         finally
         {
             host?.Close();
             controller.DisposeAsync().AsTask().GetAwaiter().GetResult();
             application.ShutdownMode = shutdownMode;
+        }
+    }
+
+    private static void AssertDriftFlashPicker(AppController controller, bool legacy)
+    {
+        var original = controller.Settings.PowerTorqueDriftFlashColor;
+        ControlPanelWindow window = legacy ? new LegacyMainWindow(controller) : new MainWindow(controller);
+        window.ShowActivated = false;
+        window.ShowInTaskbar = false;
+        window.Opacity = 0;
+        try
+        {
+            window.Show();
+            window.UpdateLayout();
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+            var selector = Assert.IsType<ListBox>(window.FindName("ColorTargetSelector"));
+            selector.SelectedItem = Assert.Single(selector.Items.OfType<ListBoxItem>(), item => Equals(item.Content, "Drift cut flash"));
+            var editor = Assert.IsType<ColorWheelEditor>(window.FindName("ColorEditor"));
+            var reset = Assert.IsType<Button>(window.FindName("ResetDriftFlashColorButton"));
+            Assert.Equal("Drift cut flash", editor.Title);
+            Assert.Equal(1, editor.MinimumOpacity);
+            Assert.Equal(Visibility.Visible, reset.Visibility);
+            var input = controller.ViewModel.NativePowerTorqueInput;
+            var palette = Assert.IsType<SolidColorBrush>(controller.ViewModel.PowerGaugeLowBrush).Color;
+            var selected = Color.FromRgb(36, 104, 172);
+            editor.SetCurrentValue(ColorWheelEditor.SelectedColorProperty, selected);
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            Assert.Equal("#FF2468AC", controller.Settings.PowerTorqueDriftFlashColor);
+            var flash = Assert.IsType<SolidColorBrush>(controller.ViewModel.PowerTorqueDriftFlashBrush);
+            Assert.Equal(selected, flash.Color);
+            Assert.True(flash.IsFrozen);
+            Assert.Equal(input, controller.ViewModel.NativePowerTorqueInput);
+            Assert.Equal(palette, Assert.IsType<SolidColorBrush>(controller.ViewModel.PowerGaugeLowBrush).Color);
+            var gauges = Descendants(window).OfType<PowerTorqueGaugeView>().ToArray();
+            Assert.NotEmpty(gauges);
+            Assert.All(gauges, gauge => Assert.Equal(selected, Assert.IsType<SolidColorBrush>(gauge.DriftFlashBrush).Color));
+            reset.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Null(controller.Settings.PowerTorqueDriftFlashColor);
+            Assert.Equal(Color.FromRgb(255, 0, 136), editor.SelectedColor);
+            Assert.Equal(editor.SelectedColor, Assert.IsType<SolidColorBrush>(controller.ViewModel.PowerTorqueDriftFlashBrush).Color);
+            Assert.Equal(input, controller.ViewModel.NativePowerTorqueInput);
+            selector.SelectedIndex = 0;
+            Assert.Equal(Visibility.Collapsed, reset.Visibility);
+        }
+        finally
+        {
+            window.Close();
+            controller.SetPowerTorqueDriftFlashColor(original);
         }
     }
 

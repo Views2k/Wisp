@@ -51,6 +51,7 @@ public sealed class PowerTorqueGaugeWindow : Window
         gauge.SetBinding(PowerTorqueGaugeView.MidBrushProperty, new Binding(prefix + "MidBrush"));
         gauge.SetBinding(PowerTorqueGaugeView.HighBrushProperty, new Binding(prefix + "HighBrush"));
         gauge.SetBinding(PowerTorqueGaugeView.ColorNumberProperty, new Binding(prefix + "ColorNumber"));
+        gauge.SetBinding(PowerTorqueGaugeView.DriftFlashBrushProperty, new Binding(nameof(DiagnosticsViewModel.PowerTorqueDriftFlashBrush)));
         gauge.SetResourceReference(PowerTorqueGaugeView.AccentBrushProperty, "AccentBrush");
         var panel = new Grid { Width = BaseSize, Height = BaseSize, Background = Brushes.Transparent };
         panel.Children.Add(gauge);

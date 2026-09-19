@@ -1260,6 +1260,15 @@ public sealed partial class AppController : IAsyncDisposable
         ScheduleSettingsSave();
     }
 
+    public void SetPowerTorqueDriftFlashColor(string? value)
+    {
+        var normalized = ColorCustomization.NormalizePowerTorqueDriftFlash(value);
+        if (Settings.PowerTorqueDriftFlashColor == normalized) return;
+        Settings.PowerTorqueDriftFlashColor = normalized;
+        ViewModel.RefreshPowerTorqueDriftFlashColor();
+        ScheduleSettingsSave();
+    }
+
     public void SetCustomGaugeColors(string? low, string? mid, string? high)
     {
         var normalizedLow = ColorCustomization.NormalizeGauge(low);
