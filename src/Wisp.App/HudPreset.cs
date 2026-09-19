@@ -44,6 +44,7 @@ public sealed class HudPreset
     public bool TorqueGaugeAttached { get; set; } = true;
     public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
     public bool PowerTorqueShowNegative { get; set; }
+    public bool PowerTorqueDriftMode { get; set; }
     public bool PowerGaugeColorNumber { get; set; }
     public bool TorqueGaugeColorNumber { get; set; }
     public string? CustomPowerLowColor { get; set; }
@@ -141,6 +142,7 @@ public sealed class HudPreset
             TorqueGaugeAttached = settings.TorqueGaugeAttached,
             PowerTorqueSmoothingMilliseconds = settings.PowerTorqueSmoothingMilliseconds,
             PowerTorqueShowNegative = settings.PowerTorqueShowNegative,
+            PowerTorqueDriftMode = settings.PowerTorqueDriftMode,
             PowerGaugeColorNumber = settings.PowerGaugeColorNumber,
             TorqueGaugeColorNumber = settings.TorqueGaugeColorNumber,
             CustomPowerLowColor = settings.CustomPowerLowColor,
@@ -209,6 +211,7 @@ public sealed class HudPreset
         settings.TorqueGaugeAttached = TorqueGaugeAttached;
         settings.PowerTorqueSmoothingMilliseconds = PowerTorqueSmoothingMilliseconds;
         settings.PowerTorqueShowNegative = PowerTorqueShowNegative;
+        settings.PowerTorqueDriftMode = PowerTorqueDriftMode;
         settings.PowerGaugeColorNumber = PowerGaugeColorNumber;
         settings.TorqueGaugeColorNumber = TorqueGaugeColorNumber;
         settings.CustomPowerLowColor = CustomPowerLowColor;

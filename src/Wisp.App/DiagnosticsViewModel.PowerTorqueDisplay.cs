@@ -51,6 +51,7 @@ public sealed partial class DiagnosticsViewModel
     {
         _powerTorqueDisplayModel.SmoothingMilliseconds = PowerTorqueSmoothingMilliseconds;
         _powerTorqueDisplayModel.ShowNegative = PowerTorqueShowNegative;
+        _powerTorqueDisplayModel.DriftModeEnabled = PowerTorqueDriftModeEnabled;
         if (state.CarOrdinal > 0 && state.CarOrdinal != _powerTorqueCarOrdinal)
         {
             _powerTorqueCarOrdinal = state.CarOrdinal;
@@ -58,7 +59,9 @@ public sealed partial class DiagnosticsViewModel
             OnPropertyChanged(nameof(PowerTorqueRangeCaption));
         }
         var display = _powerTorqueDisplayModel.Observe(
-            state.CarOrdinal, state.GameTimestampMilliseconds, state.PowerWatts, state.TorqueNm, state.ReceivedTimestamp);
+            state.CarOrdinal, state.GameTimestampMilliseconds, state.PowerWatts, state.TorqueNm, state.ReceivedTimestamp,
+            driftInput: new PowerTorqueDriftInput(state.IsRaceOn, state.Accelerator,
+                state.GroundSpeedMetersPerSecond, state.EngineRpm, state.Gear, state.IsElectric));
         PublishNativePowerTorque(display, state.CarOrdinal, state.GameTimestampMilliseconds, state.ReceivedTimestamp ?? 0);
         PowerTorqueDisplay = _powerTorqueNeedlePlayback.Observe(display, state.CarOrdinal,
             state.GameTimestampMilliseconds, Stopwatch.GetTimestamp(), state.ReceivedTimestamp);
@@ -94,9 +97,11 @@ public sealed partial class DiagnosticsViewModel
     internal void RefreshPowerTorqueDisplayOptions()
     {
         var changed = _powerTorqueDisplayModel.SmoothingMilliseconds != PowerTorqueSmoothingMilliseconds ||
-            _powerTorqueDisplayModel.ShowNegative != PowerTorqueShowNegative;
+            _powerTorqueDisplayModel.ShowNegative != PowerTorqueShowNegative ||
+            _powerTorqueDisplayModel.DriftModeEnabled != PowerTorqueDriftModeEnabled;
         _powerTorqueDisplayModel.SmoothingMilliseconds = PowerTorqueSmoothingMilliseconds;
         _powerTorqueDisplayModel.ShowNegative = PowerTorqueShowNegative;
+        _powerTorqueDisplayModel.DriftModeEnabled = PowerTorqueDriftModeEnabled;
         if (changed)
         {
             PublishNativePowerTorque(_powerTorqueDisplayModel.Current, NativePowerTorqueInput.CarOrdinal,

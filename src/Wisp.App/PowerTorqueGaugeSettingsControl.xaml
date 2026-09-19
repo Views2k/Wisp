@@ -71,6 +71,12 @@
                         TickFrequency="50" IsSnapToTickEnabled="True" SmallChange="50" LargeChange="250" ValueChanged="Scale_Changed"
                         Margin="0,6,0,8" AutomationProperties.Name="Power and torque smoothing in milliseconds" />
                 <TextBlock Text="Higher values steady the needle and number. Numbers refresh ten times per second." FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,14" />
+                <CheckBox x:Name="DriftModeToggle" Content="Drift mode" Style="{StaticResource GaugeSettingToggle}"
+                          IsChecked="{Binding PowerTorqueDriftModeEnabled, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                          Checked="Toggle_Changed" Unchecked="Toggle_Changed" AutomationProperties.Name="Drift mode"
+                          AutomationProperties.HelpText="Hold power and torque numbers and needles through brief power cuts. Numbers pulse to mark a cut." />
+                <TextBlock Text="Hold power and torque numbers and needles through brief power cuts. Numbers pulse to mark a cut."
+                           FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,14" />
                 <CheckBox x:Name="NegativeToggle" Content="Show negative power and torque" Style="{StaticResource GaugeSettingToggle}"
                           IsChecked="{Binding PowerTorqueShowNegative, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
                           Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,0,0,16" AutomationProperties.Name="Show negative power and torque" />

@@ -146,6 +146,7 @@ public sealed class PowerTorqueGaugeView : Grid
             gauge._readoutDrawing = null;
         if (old.Available != current.Available ||
             gauge.Value(old) != gauge.Value(current) ||
+            old.DriftCutPulse != current.DriftCutPulse ||
             Whole(gauge.Readout(old)) != Whole(gauge.Readout(current)) ||
             Whole(gauge.Peak(old)) != Whole(gauge.Peak(current)))
             gauge.InvalidateVisual();
@@ -218,7 +219,10 @@ public sealed class PowerTorqueGaugeView : Grid
             using (var numbers = _readoutDrawing.Open()) DrawValue(numbers);
             _readoutDrawing.Freeze();
         }
+        var pulse = Math.Clamp(Display.DriftCutPulse, 0, 1);
+        if (pulse > 0) dc.PushOpacity(1 - .45 * pulse);
         dc.DrawDrawing(_readoutDrawing);
+        if (pulse > 0) dc.Pop();
         var peakText = double.IsFinite(peak) && peak > 0
             ? $"PEAK {Whole(peak).ToString("0", CultureInfo.InvariantCulture)}" : "PEAK —";
         DrawCentered(dc, Text(peakText, 8.5, LabelBrush), 126);

@@ -83,6 +83,24 @@ internal static class PowerTorqueGaugeSettingsUiTests
             Assert.IsType<CheckBox>(control.FindName("PowerColorNumberToggle")).SetCurrentValue(ToggleButton.IsCheckedProperty, true);
             Assert.True(settings.PowerGaugeColorNumber);
             Assert.False(settings.TorqueGaugeColorNumber);
+            var driftMode = Assert.IsType<CheckBox>(control.FindName("DriftModeToggle"));
+            Assert.Equal(BindingStatus.Active, driftMode.GetBindingExpression(ToggleButton.IsCheckedProperty)!.Status);
+            Assert.False(driftMode.IsChecked);
+            Assert.False(settings.PowerTorqueDriftMode);
+            var revisionBeforeToggle = controller.ViewModel.NativePowerTorqueInput.Revision;
+            driftMode.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+            Assert.True(settings.PowerTorqueDriftMode);
+            Assert.True(controller.ViewModel.PowerTorqueDriftModeEnabled);
+            Assert.True(controller.ViewModel.NativePowerTorqueInput.Revision > revisionBeforeToggle);
+            var revisionWhileEnabled = controller.ViewModel.NativePowerTorqueInput.Revision;
+            driftMode.SetCurrentValue(ToggleButton.IsCheckedProperty, false);
+            Assert.False(settings.PowerTorqueDriftMode);
+            Assert.False(controller.ViewModel.PowerTorqueDriftModeEnabled);
+            Assert.True(controller.ViewModel.NativePowerTorqueInput.Revision > revisionWhileEnabled);
+            Assert.Equal(950, settings.PowerTorqueSmoothingMilliseconds);
+            Assert.True(settings.PowerTorqueShowNegative);
+            Assert.True(settings.PowerGaugeColorNumber);
+            Assert.False(settings.TorqueGaugeColorNumber);
 
             Assert.Empty(Descendants(control).OfType<ColorWheelEditor>());
             var changes = new List<string?>();

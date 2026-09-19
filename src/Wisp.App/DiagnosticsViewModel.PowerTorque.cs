@@ -9,6 +9,7 @@ public sealed partial class DiagnosticsViewModel
     private bool _torqueGaugeAttached = true;
     private double _powerTorqueSmoothingMilliseconds = 250;
     private bool _powerTorqueShowNegative;
+    private bool _powerTorqueDriftModeEnabled;
     private bool _powerGaugeColorNumber;
     private bool _torqueGaugeColorNumber;
     private string? _customPowerLowColor;
@@ -27,6 +28,15 @@ public sealed partial class DiagnosticsViewModel
     public bool PowerGaugeAttached { get => _powerGaugeAttached; set => Set(ref _powerGaugeAttached, value); }
     public bool TorqueGaugeAttached { get => _torqueGaugeAttached; set => Set(ref _torqueGaugeAttached, value); }
     public bool PowerTorqueShowNegative { get => _powerTorqueShowNegative; set => Set(ref _powerTorqueShowNegative, value); }
+    public bool PowerTorqueDriftModeEnabled
+    {
+        get => _powerTorqueDriftModeEnabled;
+        set
+        {
+            if (Set(ref _powerTorqueDriftModeEnabled, value))
+                RefreshPowerTorqueDisplayOptions();
+        }
+    }
     public bool PowerGaugeColorNumber { get => _powerGaugeColorNumber; set => Set(ref _powerGaugeColorNumber, value); }
     public bool TorqueGaugeColorNumber { get => _torqueGaugeColorNumber; set => Set(ref _torqueGaugeColorNumber, value); }
     public double PowerTorqueSmoothingMilliseconds
@@ -108,6 +118,7 @@ public sealed partial class DiagnosticsViewModel
         TorqueGaugeAttached = settings.TorqueGaugeAttached;
         PowerTorqueSmoothingMilliseconds = settings.PowerTorqueSmoothingMilliseconds;
         PowerTorqueShowNegative = settings.PowerTorqueShowNegative;
+        PowerTorqueDriftModeEnabled = settings.PowerTorqueDriftMode;
         PowerGaugeColorNumber = settings.PowerGaugeColorNumber;
         TorqueGaugeColorNumber = settings.TorqueGaugeColorNumber;
         CustomPowerLowColor = settings.CustomPowerLowColor;

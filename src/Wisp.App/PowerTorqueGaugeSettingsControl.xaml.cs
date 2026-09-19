@@ -22,6 +22,7 @@ public partial class PowerTorqueGaugeSettingsControl : UserControl
             nameof(PowerAttachedToggle) => model.PowerGaugeAttached,
             nameof(TorqueAttachedToggle) => model.TorqueGaugeAttached,
             nameof(NegativeToggle) => model.PowerTorqueShowNegative,
+            nameof(DriftModeToggle) => model.PowerTorqueDriftModeEnabled,
             nameof(PowerColorNumberToggle) => model.PowerGaugeColorNumber,
             nameof(TorqueColorNumberToggle) => model.TorqueGaugeColorNumber,
             _ => toggle.IsChecked == true

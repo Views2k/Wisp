@@ -194,7 +194,7 @@ internal static class PowerTorqueHudLayer
             if (double.IsFinite(peak) && peak > 0)
                 commands.Add(AnalogHudScene.Quad(art.FirstId + 2, new(124, 66, 16, 8),
                     PowerTorqueGaugeView.NeedleAngle(peak, options.Maximum), new(70, 70)));
-            if (available) AddReadout(commands, art, options, readout);
+            if (available) AddReadout(commands, art, options, readout, 1 - .45 * display.DriftCutPulse);
             else commands.Add(AnalogHudScene.Quad(art.FirstId + 4,
                 new(70 - art.UnavailableAdvance / 2 - 2, 48, art.UnavailableSize.X, art.UnavailableSize.Y)));
             AddPeakText(commands, art, double.IsFinite(peak) && peak > 0
@@ -225,7 +225,7 @@ internal static class PowerTorqueHudLayer
         }
     }
 
-    private static void AddReadout(List<DirectCompositionDrawCommand> commands, Artwork art, Options options, double value)
+    private static void AddReadout(List<DirectCompositionDrawCommand> commands, Artwork art, Options options, double value, double opacity)
     {
         var number = Whole(value).ToString("0", CultureInfo.InvariantCulture);
         var tint = options.ColorNumber ? Palette(options, Math.Clamp(value / options.Maximum, 0, 1)) : WhiteSmoke;
@@ -238,10 +238,10 @@ internal static class PowerTorqueHudLayer
             rectangle = new(70 + (rectangle.X - 70) * scale, 70 + (rectangle.Y - 70) * scale,
                 rectangle.Width * scale, rectangle.Height * scale);
             if (character == '-')
-                commands.Add(AnalogHudScene.Quad(0, rectangle, color: tint));
+                commands.Add(AnalogHudScene.Quad(0, rectangle, opacity: opacity, color: tint));
             else
                 commands.Add(AnalogHudScene.Quad(art.FirstId + (options.ColorNumber ? 30u : 10u) + (uint)(character - '0'),
-                    rectangle, color: options.ColorNumber ? tint : null));
+                    rectangle, opacity: opacity, color: options.ColorNumber ? tint : null));
             left += character == '-' ? 7 : 17;
         }
     }
