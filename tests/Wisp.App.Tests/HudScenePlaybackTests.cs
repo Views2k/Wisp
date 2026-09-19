@@ -99,6 +99,7 @@ public sealed class HudScenePlaybackTests
     {
         AssertNativeFreshness(electric: false);
         AssertNativeFreshness(electric: true);
+        AssertDigitalPowerBarLayoutRefreshesAfterRatioChanges();
         var control = new NativeElectricDigitalSpeedometer();
         BindingOperations.ClearBinding(control, NativeElectricDigitalSpeedometer.FrameProperty);
         foreach (var multi in new[] { false, true, false })
@@ -127,6 +128,35 @@ public sealed class HudScenePlaybackTests
                 var interim = MainHudLayer.Capture(control, null);
                 Assert.Equal(snapshot.CompatibilityKey, interim.CompatibilityKey);
             }
+    }
+
+    private static void AssertDigitalPowerBarLayoutRefreshesAfterRatioChanges()
+    {
+        foreach (var dpi in new[] { 96, 120, 144, 192 })
+        {
+            var control = new NativeElectricDigitalSpeedometer();
+            BindingOperations.ClearBinding(control, NativeElectricDigitalSpeedometer.FrameProperty);
+            VisualTreeHelper.SetRootDpi(control, new DpiScale(dpi / 96d, dpi / 96d));
+            object? previousLayout = null;
+            foreach (var ratio in new[] { .3, .37, .7, .3 })
+            {
+                control.Frame = Frame(true) with { NativeRegenPowerRatio = ratio };
+                Arrange(control);
+                var snapshot = MainHudLayer.Capture(control, null);
+                if (previousLayout is not null) Assert.NotEqual(previousLayout, snapshot.CompatibilityKey);
+                previousLayout = snapshot.CompatibilityKey;
+                var playback = snapshot.CreatePlayback();
+                var now = Stopwatch.GetTimestamp();
+                playback.Update(snapshot, now);
+                var commands = playback.Build(now);
+                var bar = commands.Where(command => command.TextureId == DigitalHudAssets.WhiteTextureId).ToArray();
+                Assert.Equal(4, bar.Length);
+                var powerBar = (Grid)control.FindName("PowerBarGrid");
+                Assert.Equal(powerBar.ColumnDefinitions[0].ActualWidth, bar[0].AxisXX, 4);
+                AssertImageQuad(control, "RegenIndicator", bar[1]);
+                AssertImageQuad(control, "PowerIndicator", bar[3]);
+            }
+        }
     }
 
     private static void AssertNativeFreshness(bool electric)

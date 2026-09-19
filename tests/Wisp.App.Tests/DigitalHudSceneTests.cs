@@ -96,10 +96,20 @@ public sealed class DigitalHudSceneTests
 
     internal static void AssertOnCurrentDispatcher()
     {
+        foreach (var dpi in new[] { 96, 120, 144, 192 }) AssertAtDpi(dpi);
+    }
+
+    private static void AssertAtDpi(int dpi)
+    {
         var combustion = new NativeDigitalSpeedometer();
         var electric = new NativeElectricDigitalSpeedometer();
         BindingOperations.ClearBinding(combustion, NativeDigitalSpeedometer.FrameProperty);
         BindingOperations.ClearBinding(electric, NativeElectricDigitalSpeedometer.FrameProperty);
+        var scale = new DpiScale(dpi / 96d, dpi / 96d);
+        VisualTreeHelper.SetRootDpi(combustion, scale);
+        VisualTreeHelper.SetRootDpi(electric, scale);
+        Assert.Equal(scale, VisualTreeHelper.GetDpi(combustion));
+        Assert.Equal(scale, VisualTreeHelper.GetDpi(electric));
         foreach (var isElectric in new[] { false, true })
             foreach (var multiGear in new[] { false, true })
                 foreach (var mask in new[] { 0, 1, 5, 10, 15 })
@@ -177,13 +187,27 @@ public sealed class DigitalHudSceneTests
         var origin = transform.Transform(new Point());
         var x = transform.Transform(new Point(element.RenderSize.Width, 0));
         var y = transform.Transform(new Point(0, element.RenderSize.Height));
-        Assert.InRange(Math.Abs(origin.X - command.OriginX), 0, .0001);
-        Assert.InRange(Math.Abs(origin.Y - command.OriginY), 0, .0001);
-        Assert.InRange(Math.Abs(x.X - origin.X - command.AxisXX), 0, .0001);
-        Assert.InRange(Math.Abs(x.Y - origin.Y - command.AxisXY), 0, .0001);
-        Assert.InRange(Math.Abs(y.X - origin.X - command.AxisYX), 0, .0001);
-        Assert.InRange(Math.Abs(y.Y - origin.Y - command.AxisYY), 0, .0001);
-        Assert.Equal((float)element.Opacity, command.TintA);
+        try
+        {
+            Assert.Equal(VisualTreeHelper.GetDpi(control), VisualTreeHelper.GetDpi(element));
+            Assert.InRange(Math.Abs(origin.X - command.OriginX), 0, .0001);
+            Assert.InRange(Math.Abs(origin.Y - command.OriginY), 0, .0001);
+            Assert.InRange(Math.Abs(x.X - origin.X - command.AxisXX), 0, .0001);
+            Assert.InRange(Math.Abs(x.Y - origin.Y - command.AxisXY), 0, .0001);
+            Assert.InRange(Math.Abs(y.X - origin.X - command.AxisYX), 0, .0001);
+            Assert.InRange(Math.Abs(y.Y - origin.Y - command.AxisYY), 0, .0001);
+            Assert.Equal((float)element.Opacity, command.TintA);
+        }
+        catch (Exception error)
+        {
+            var dpi = VisualTreeHelper.GetDpi(control);
+            var bar = control.FindName("PowerBarGrid") as Grid;
+            throw new InvalidOperationException(
+                $"{control.GetType().Name}.{name} at {dpi.PixelsPerInchX}x{dpi.PixelsPerInchY} DPI: " +
+                $"WPF origin=({origin.X},{origin.Y}), x=({x.X - origin.X},{x.Y - origin.Y}), y=({y.X - origin.X},{y.Y - origin.Y}); " +
+                $"native origin=({command.OriginX},{command.OriginY}), x=({command.AxisXX},{command.AxisXY}), y=({command.AxisYX},{command.AxisYY}); " +
+                $"bar width={bar?.RenderSize.Width}, regen column={bar?.ColumnDefinitions[0].ActualWidth}, power column={bar?.ColumnDefinitions[1].ActualWidth}.", error);
+        }
     }
 
     private static DigitalHudSample Sample(NativeGaugeFrame frame) => new(frame, frame.EngineRpm,
