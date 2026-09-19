@@ -159,7 +159,9 @@ internal static class PowerTorqueGaugeSettingsUiTests
             var reset = Assert.IsType<Button>(window.FindName("ResetDriftFlashColorButton"));
             Assert.Equal("Drift cut flash", editor.Title);
             Assert.Equal(1, editor.MinimumOpacity);
-            Assert.Equal(Visibility.Visible, reset.Visibility);
+            var resetContainer = Assert.IsType<StackPanel>(reset.Parent);
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            Assert.Equal(Visibility.Visible, resetContainer.Visibility);
             var input = controller.ViewModel.NativePowerTorqueInput;
             var palette = Assert.IsType<SolidColorBrush>(controller.ViewModel.PowerGaugeLowBrush).Color;
             var selected = Color.FromRgb(36, 104, 172);
@@ -180,7 +182,8 @@ internal static class PowerTorqueGaugeSettingsUiTests
             Assert.Equal(editor.SelectedColor, Assert.IsType<SolidColorBrush>(controller.ViewModel.PowerTorqueDriftFlashBrush).Color);
             Assert.Equal(input, controller.ViewModel.NativePowerTorqueInput);
             selector.SelectedIndex = 0;
-            Assert.Equal(Visibility.Collapsed, reset.Visibility);
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            Assert.Equal(Visibility.Collapsed, resetContainer.Visibility);
         }
         finally
         {
