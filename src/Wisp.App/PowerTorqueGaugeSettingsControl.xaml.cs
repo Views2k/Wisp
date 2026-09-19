@@ -22,6 +22,7 @@ public partial class PowerTorqueGaugeSettingsControl : UserControl
             nameof(PowerAttachedToggle) => model.PowerGaugeAttached,
             nameof(TorqueAttachedToggle) => model.TorqueGaugeAttached,
             nameof(NegativeToggle) => model.PowerTorqueShowNegative,
+            nameof(DriftModeToggle) => model.PowerTorqueDriftModeEnabled,
             nameof(PowerColorNumberToggle) => model.PowerGaugeColorNumber,
             nameof(TorqueColorNumberToggle) => model.TorqueGaugeColorNumber,
             _ => toggle.IsChecked == true
@@ -41,6 +42,7 @@ public partial class PowerTorqueGaugeSettingsControl : UserControl
             nameof(PowerMaximumSlider) => model.PowerGaugeMaximum,
             nameof(TorqueMaximumSlider) => model.TorqueGaugeMaximumNm,
             nameof(SmoothingSlider) => model.PowerTorqueSmoothingMilliseconds,
+            nameof(DriftFlashFrequencySlider) => model.PowerTorqueDriftFlashFrequencyHz,
             _ => slider.Value
         };
         if (current.Equals(slider.Value)) return;

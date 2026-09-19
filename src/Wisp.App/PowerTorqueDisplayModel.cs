@@ -12,6 +12,9 @@ public readonly record struct PowerTorqueDisplay(
     public static PowerTorqueDisplay Unavailable => default;
     public double? ReadoutPowerBhp { get; init; }
     public double? ReadoutTorqueNm { get; init; }
+    public bool IsDriftPowerCut { get; init; }
+    public bool DriftPulseAllowed { get; init; }
+    public double DriftCutPulse { get; init; }
 
     public static double ConvertTorque(double newtonMeters, TorqueUnit unit) =>
         unit == TorqueUnit.PoundFeet ? newtonMeters * 0.7375621492772656 : newtonMeters;
@@ -24,6 +27,8 @@ public sealed class PowerTorqueDisplayModel
     private const int MaximumContinuousGapMilliseconds = 2_000;
     private double _smoothingMilliseconds = 250;
     private bool _showNegative;
+    private bool _driftModeEnabled;
+    private readonly PowerTorqueDriftHold _driftHold = new();
     private int _carOrdinal;
     private uint _timestamp;
     private long? _receivedTimestamp;
@@ -37,7 +42,24 @@ public sealed class PowerTorqueDisplayModel
     public double SmoothingMilliseconds
     {
         get => _smoothingMilliseconds;
-        set => _smoothingMilliseconds = double.IsFinite(value) ? Math.Clamp(value, 0, 1_500) : 250;
+        set
+        {
+            var normalized = double.IsFinite(value) ? Math.Clamp(value, 0, 1_500) : 250;
+            if (_smoothingMilliseconds == normalized) return;
+            _smoothingMilliseconds = normalized;
+            CancelDriftHold();
+        }
+    }
+
+    public bool DriftModeEnabled
+    {
+        get => _driftModeEnabled;
+        set
+        {
+            if (_driftModeEnabled == value) return;
+            _driftModeEnabled = value;
+            CancelDriftHold();
+        }
     }
 
     public bool ShowNegative
@@ -47,6 +69,7 @@ public sealed class PowerTorqueDisplayModel
         {
             if (_showNegative == value) return;
             _showNegative = value;
+            CancelDriftHold();
             if (!value)
             {
                 Current = Current with
@@ -61,7 +84,7 @@ public sealed class PowerTorqueDisplayModel
     }
 
     public PowerTorqueDisplay Observe(int carOrdinal, uint timestamp, double powerWatts, double torqueNm,
-        long? receivedTimestamp = null)
+        long? receivedTimestamp = null, PowerTorqueDriftInput? driftInput = null)
     {
         if (receivedTimestamp <= 0) receivedTimestamp = null;
         if (carOrdinal <= 0)
@@ -103,7 +126,18 @@ public sealed class PowerTorqueDisplayModel
         }
         var continuous = _hasSample && elapsed > 0 && elapsed <= MaximumContinuousGapMilliseconds &&
             gameElapsed >= 0 && gameElapsed <= MaximumContinuousGapMilliseconds;
-        if (continuous && SmoothingMilliseconds > 0)
+        // A positive-only combustion gauge displays negative output as zero.
+        // Match that visible cut, while signed readings and EV regeneration stay unheld.
+        var driftPower = driftInput is { IsElectric: true } ? _lastRawHorsepower : horsepower;
+        var driftTorque = driftInput is { IsElectric: true } ? _lastRawTorqueNm : torqueNm;
+        var hold = DriftModeEnabled && _driftHold.Observe(driftPower, driftTorque,
+            driftInput, continuous && gameElapsed <= PowerTorqueDriftHold.MaximumSampleGapMilliseconds, elapsed);
+        if (hold)
+        {
+            horsepower = Current.PowerBhp;
+            torqueNm = Current.TorqueNm;
+        }
+        else if (continuous && SmoothingMilliseconds > 0)
         {
             var blend = 1 - Math.Exp(-elapsed / SmoothingMilliseconds);
             // A convex blend remains finite even for opposite signed finite samples.
@@ -113,9 +147,9 @@ public sealed class PowerTorqueDisplayModel
 
         var readoutPower = Current.ReadoutPowerBhp;
         var readoutTorque = Current.ReadoutTorqueNm;
-        _readoutElapsedMilliseconds = continuous ? _readoutElapsedMilliseconds + elapsed : 0;
-        if (!continuous || readoutPower is null || readoutTorque is null ||
-            _readoutElapsedMilliseconds >= ReadoutIntervalMilliseconds)
+        if (!hold) _readoutElapsedMilliseconds = continuous ? _readoutElapsedMilliseconds + elapsed : 0;
+        if (!hold && (!continuous || readoutPower is null || readoutTorque is null ||
+            _readoutElapsedMilliseconds >= ReadoutIntervalMilliseconds))
         {
             readoutPower = horsepower;
             readoutTorque = torqueNm;
@@ -130,7 +164,9 @@ public sealed class PowerTorqueDisplayModel
             Math.Max(Current.PeakTorqueNm, Math.Max(0, _lastRawTorqueNm)))
         {
             ReadoutPowerBhp = readoutPower,
-            ReadoutTorqueNm = readoutTorque
+            ReadoutTorqueNm = readoutTorque,
+            IsDriftPowerCut = hold,
+            DriftPulseAllowed = DriftModeEnabled && _driftHold.PulseAllowed
         };
         return Current;
     }
@@ -141,8 +177,30 @@ public sealed class PowerTorqueDisplayModel
         PeakTorqueNm = Current.Available ? Math.Max(0, _lastRawTorqueNm) : 0
     };
 
+    internal bool CancelDriftHold()
+    {
+        var changed = Current.IsDriftPowerCut || Current.DriftPulseAllowed || Current.DriftCutPulse != 0;
+        _driftHold.Reset();
+        if (Current.IsDriftPowerCut)
+        {
+            var power = ShowNegative ? _lastRawHorsepower : Math.Max(0, _lastRawHorsepower);
+            var torque = ShowNegative ? _lastRawTorqueNm : Math.Max(0, _lastRawTorqueNm);
+            Current = Current with
+            {
+                PowerBhp = power,
+                TorqueNm = torque,
+                ReadoutPowerBhp = power,
+                ReadoutTorqueNm = torque
+            };
+            _readoutElapsedMilliseconds = 0;
+        }
+        Current = Current with { IsDriftPowerCut = false, DriftPulseAllowed = false, DriftCutPulse = 0 };
+        return changed;
+    }
+
     public void ResetCurrent()
     {
+        _driftHold.Reset();
         _hasSample = false;
         _receivedTimestamp = null;
         _readoutElapsedMilliseconds = 0;
@@ -154,12 +212,16 @@ public sealed class PowerTorqueDisplayModel
             PowerBhp = 0,
             TorqueNm = 0,
             ReadoutPowerBhp = null,
-            ReadoutTorqueNm = null
+            ReadoutTorqueNm = null,
+            IsDriftPowerCut = false,
+            DriftPulseAllowed = false,
+            DriftCutPulse = 0
         };
     }
 
     public void Reset()
     {
+        _driftHold.Reset();
         _carOrdinal = 0;
         _timestamp = 0;
         _receivedTimestamp = null;

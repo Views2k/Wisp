@@ -758,6 +758,83 @@ public sealed class DiagnosticsViewModelTests
                 forzaWindowKnown));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PreservedHudOnTelemetryLossCancelsOnlyDriftSubstitution(bool driftEnabled)
+    {
+        var viewModel = new DiagnosticsViewModel(new AppSettings
+        {
+            PowerTorqueDriftMode = driftEnabled,
+            PowerTorqueSmoothingMilliseconds = 0,
+            PowerGaugeEnabled = true,
+            TorqueGaugeEnabled = true
+        });
+        void Update(VehicleState state) => viewModel.Update(
+            state,
+            new SpeedModel().CalculateVehicleSpeed(state, SpeedUnit.MilesPerHour),
+            new CalibrationResult(null, 0.3, 0.2, 0, true, string.Empty, false),
+            default,
+            TimeSpan.Zero,
+            SpeedUnit.MilesPerHour,
+            60,
+            refreshDiagnostics: true,
+            updateGForce: true);
+        var driving = DrivingState() with
+        {
+            Accelerator = 255,
+            EngineRpm = 6_000,
+            GameTimestampMilliseconds = 1_000,
+            PowerWatts = 1_000_000,
+            TorqueNm = 1_500,
+            BoostPressurePsi = 12,
+            LateralAccelerationMetersPerSecondSquared = 4
+        };
+        Update(driving);
+        Update(driving with { GameTimestampMilliseconds = 1_020, PowerWatts = 0, TorqueNm = 0 });
+        var before = viewModel.PowerTorqueDisplay;
+        var native = viewModel.NativeGaugeFrame;
+        var boost = viewModel.BoostDisplay;
+        var tires = viewModel.TireTemperatureDisplay;
+        var gForce = viewModel.GForceTrailPosition;
+        var input = viewModel.NativePowerTorqueInput;
+        Assert.Equal(driftEnabled, before.IsDriftPowerCut);
+
+        viewModel.UpdateWaiting(default, TelemetryConnectionState.Lost,
+            TimeSpan.FromMilliseconds(350), 60, preserveHudVisuals: true);
+
+        Assert.False(viewModel.HasLiveTelemetry);
+        Assert.Equal(native, viewModel.NativeGaugeFrame);
+        Assert.Equal(boost, viewModel.BoostDisplay);
+        Assert.Equal(tires, viewModel.TireTemperatureDisplay);
+        Assert.Equal(gForce, viewModel.GForceTrailPosition);
+        if (driftEnabled)
+        {
+            var cleared = viewModel.PowerTorqueDisplay;
+            Assert.True(cleared.Available);
+            Assert.False(cleared.IsDriftPowerCut);
+            Assert.False(cleared.DriftPulseAllowed);
+            Assert.Equal(0, cleared.DriftCutPulse);
+            Assert.Equal(0, cleared.PowerBhp);
+            Assert.Equal(0, cleared.TorqueNm);
+            Assert.Equal(0, cleared.ReadoutPowerBhp);
+            Assert.Equal(0, cleared.ReadoutTorqueNm);
+            Assert.Equal(before.PeakPowerBhp, cleared.PeakPowerBhp);
+            Assert.Equal(before.PeakTorqueNm, cleared.PeakTorqueNm);
+            Assert.Equal(input.Revision + 1, viewModel.NativePowerTorqueInput.Revision);
+            Assert.Equal(cleared, viewModel.NativePowerTorqueInput.Display);
+            var revision = viewModel.NativePowerTorqueInput.Revision;
+            viewModel.UpdateWaiting(default, TelemetryConnectionState.Lost,
+                TimeSpan.FromMilliseconds(600), 60, preserveHudVisuals: true);
+            Assert.Equal(revision, viewModel.NativePowerTorqueInput.Revision);
+        }
+        else
+        {
+            Assert.Equal(before, viewModel.PowerTorqueDisplay);
+            Assert.Equal(input, viewModel.NativePowerTorqueInput);
+        }
+    }
+
     private static VehicleState DrivingState() => new()
     {
         IsRaceOn = true,

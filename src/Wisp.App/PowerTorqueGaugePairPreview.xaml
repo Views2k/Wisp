@@ -25,6 +25,7 @@
                                    MidBrush="{Binding PowerGaugeMidBrush}"
                                    HighBrush="{Binding PowerGaugeHighBrush}"
                                    ColorNumber="{Binding PowerGaugeColorNumber}"
+                                   DriftFlashBrush="{Binding PowerTorqueDriftFlashBrush}"
                                    AccentBrush="{DynamicResource AccentBrush}">
             <local:PowerTorqueGaugeView.LayoutTransform>
                 <ScaleTransform ScaleX="{Binding PowerGaugeScale}" ScaleY="{Binding PowerGaugeScale}" />
@@ -49,6 +50,7 @@
                                    MidBrush="{Binding TorqueGaugeMidBrush}"
                                    HighBrush="{Binding TorqueGaugeHighBrush}"
                                    ColorNumber="{Binding TorqueGaugeColorNumber}"
+                                   DriftFlashBrush="{Binding PowerTorqueDriftFlashBrush}"
                                    AccentBrush="{DynamicResource AccentBrush}">
             <local:PowerTorqueGaugeView.LayoutTransform>
                 <ScaleTransform ScaleX="{Binding TorqueGaugeScale}" ScaleY="{Binding TorqueGaugeScale}" />

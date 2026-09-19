@@ -1004,6 +1004,10 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         {
             ClearHudVisuals();
         }
+        else
+        {
+            ClearPowerTorqueDriftHold();
+        }
         EngineRpm = "—";
         EngineMaximumRpm = "—";
         NativeTachScale = "—";

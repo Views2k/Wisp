@@ -262,6 +262,13 @@ public abstract partial class ControlPanelWindow : Window
                 ColorEditor.MaximumBrightness = 1;
                 color = ColorCustomization.ResolveParticle(settings);
                 break;
+            case 13:
+                ColorEditor.Title = "Drift cut flash";
+                ColorEditor.Description = "Power and torque numbers pulse with this color during a Drift mode cut.";
+                ColorEditor.MinimumOpacity = 1;
+                ColorEditor.MaximumBrightness = 1;
+                color = ColorCustomization.ResolvePowerTorqueDriftFlash(settings.PowerTorqueDriftFlashColor);
+                break;
             default:
                 ColorEditor.Title = "App accent";
                 ColorEditor.Description = "Highlights, selections, buttons, and status color";
@@ -351,6 +358,9 @@ public abstract partial class ControlPanelWindow : Window
                 _controller.SetCustomParticleColor(value);
                 ApplyAppColorResources(_controller.Settings.CustomAccentColor, _controller.Settings.CustomBackgroundColor);
                 break;
+            case 13:
+                _controller.SetPowerTorqueDriftFlashColor(value);
+                break;
             default:
                 ApplyAppColorResources(value, _controller.Settings.CustomBackgroundColor);
                 _controller.SetCustomAccentColor(value);
@@ -373,6 +383,12 @@ public abstract partial class ControlPanelWindow : Window
     {
         _controller.SetCustomParticleColor(null);
         ApplyAppColorResources(_controller.Settings.CustomAccentColor, _controller.Settings.CustomBackgroundColor);
+        LoadSelectedColorTarget();
+    }
+
+    protected void ResetDriftFlashColor_Click(object sender, RoutedEventArgs e)
+    {
+        _controller.SetPowerTorqueDriftFlashColor(null);
         LoadSelectedColorTarget();
     }
 

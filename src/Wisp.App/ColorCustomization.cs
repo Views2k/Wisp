@@ -5,6 +5,7 @@ namespace Wisp.App;
 
 public static class ColorCustomization
 {
+    public const string DefaultPowerTorqueDriftFlashColor = "#FFFF0088";
     public const double AccentMinimumOpacity = 0.35;
     public const double BackgroundMinimumOpacity = 0.82;
     public const double HudBorderMinimumOpacity = 0.0;
@@ -46,6 +47,12 @@ public static class ColorCustomization
 
     public static string? NormalizeGauge(string? value) =>
         Normalize(value, GaugeMinimumOpacity);
+
+    public static string? NormalizePowerTorqueDriftFlash(string? value) =>
+        Normalize(value, 1);
+
+    public static Color ResolvePowerTorqueDriftFlash(string? value) =>
+        Resolve(value, DefaultPowerTorqueDriftFlashColor);
 
     public static string? NormalizeTractionCue(string? value) =>
         Normalize(value, TractionCueMinimumOpacity);

@@ -911,6 +911,8 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.TorqueGaugeAttached = ViewModel.TorqueGaugeAttached;
             Settings.PowerTorqueSmoothingMilliseconds = ViewModel.PowerTorqueSmoothingMilliseconds;
             Settings.PowerTorqueShowNegative = ViewModel.PowerTorqueShowNegative;
+            Settings.PowerTorqueDriftMode = ViewModel.PowerTorqueDriftModeEnabled;
+            Settings.PowerTorqueDriftFlashFrequencyHz = ViewModel.PowerTorqueDriftFlashFrequencyHz;
             Settings.PowerGaugeColorNumber = ViewModel.PowerGaugeColorNumber;
             Settings.TorqueGaugeColorNumber = ViewModel.TorqueGaugeColorNumber;
             Settings.CustomPowerLowColor = ViewModel.CustomPowerLowColor;
@@ -1256,6 +1258,15 @@ public sealed partial class AppController : IAsyncDisposable
         Settings.CustomHudBorderColor = normalized;
         Overlay?.ApplyHudBorderCustomization(Settings.HudBorderTheme, normalized);
         GForceOverlay?.ApplyHudBorderCustomization(Settings.HudBorderTheme, normalized);
+        ScheduleSettingsSave();
+    }
+
+    public void SetPowerTorqueDriftFlashColor(string? value)
+    {
+        var normalized = ColorCustomization.NormalizePowerTorqueDriftFlash(value);
+        if (Settings.PowerTorqueDriftFlashColor == normalized) return;
+        Settings.PowerTorqueDriftFlashColor = normalized;
+        ViewModel.RefreshPowerTorqueDriftFlashColor();
         ScheduleSettingsSave();
     }
 

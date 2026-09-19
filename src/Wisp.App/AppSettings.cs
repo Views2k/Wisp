@@ -77,6 +77,9 @@ public sealed class AppSettings
     public bool TorqueGaugeAttached { get; set; } = true;
     public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
     public bool PowerTorqueShowNegative { get; set; }
+    public bool PowerTorqueDriftMode { get; set; }
+    public double PowerTorqueDriftFlashFrequencyHz { get; set; } = 1.25;
+    public string? PowerTorqueDriftFlashColor { get; set; }
     public bool PowerGaugeColorNumber { get; set; }
     public bool TorqueGaugeColorNumber { get; set; }
     public string? CustomPowerLowColor { get; set; }
@@ -451,6 +454,8 @@ public sealed class AppSettings
     internal void NormalizePowerTorqueGaugeSettings()
     {
         PowerTorqueSmoothingMilliseconds = NormalizePowerTorqueSmoothing(PowerTorqueSmoothingMilliseconds);
+        PowerTorqueDriftFlashFrequencyHz = NormalizePowerTorqueDriftFlashFrequency(PowerTorqueDriftFlashFrequencyHz);
+        PowerTorqueDriftFlashColor = ColorCustomization.NormalizePowerTorqueDriftFlash(PowerTorqueDriftFlashColor);
         CustomPowerLowColor = ColorCustomization.NormalizeGauge(CustomPowerLowColor);
         CustomPowerMidColor = ColorCustomization.NormalizeGauge(CustomPowerMidColor);
         CustomPowerHighColor = ColorCustomization.NormalizeGauge(CustomPowerHighColor);
@@ -485,6 +490,9 @@ public sealed class AppSettings
 
     internal static double NormalizePowerGaugeMaximum(double value) =>
         double.IsFinite(value) ? Math.Clamp(value, 100, 5000) : 1000;
+
+    internal static double NormalizePowerTorqueDriftFlashFrequency(double value) =>
+        double.IsFinite(value) ? Math.Clamp(value, 0.5, 3) : 1.25;
 
     internal static double NormalizePowerTorqueSmoothing(double value) =>
         double.IsFinite(value) ? Math.Clamp(value, 0, 1500) : 250;

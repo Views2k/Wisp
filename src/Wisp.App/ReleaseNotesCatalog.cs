@@ -15,11 +15,26 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.3",
+            "September 19, 2026",
+            "WISP 2.3",
+            "Drift mode for power and torque, with adjustable flash color and frequency.",
+            true,
+            [
+                Group("Drift mode",
+                    "Hold power and torque numbers and needles during brief combustion-engine power cuts. Enable Drift mode in Appearance → Gauges → Engine output → More options.",
+                    "Adjust Flash frequency from 0.5 to 3 Hz, starting at 1.25 Hz. Frequency changes keep the current pulse smooth.",
+                    "Choose Drift cut flash under Appearance → Colors. The numbers pulse in that color without changing their opacity."),
+                Group("Saved settings and readings",
+                    "Save Drift mode, flash frequency and flash color with HUD profiles. Drift mode is off by default.",
+                    "Keep original recorded telemetry and peaks. Signed-output mode and EV regeneration retain their existing behavior.")
+            ]),
+        new(
             "2.2",
             "September 18, 2026",
             "WISP 2.2",
             "Shared native HUD rendering, compact EV attachments, and consistent previews.",
-            true,
+            false,
             [
                 Group("HUD rendering",
                     "EV and Digital HUDs, supplementary gauges, G-force and text layouts now use the native renderer already used by the Analogue speedometer.",

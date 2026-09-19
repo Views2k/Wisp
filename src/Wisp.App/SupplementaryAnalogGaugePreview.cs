@@ -52,6 +52,7 @@ public sealed class SupplementaryAnalogGaugePreview : Grid
             Bind(gauge, PowerTorqueGaugeView.MidBrushProperty, prefix + "MidBrush");
             Bind(gauge, PowerTorqueGaugeView.HighBrushProperty, prefix + "HighBrush");
             Bind(gauge, PowerTorqueGaugeView.ColorNumberProperty, prefix + "ColorNumber");
+            Bind(gauge, PowerTorqueGaugeView.DriftFlashBrushProperty, nameof(DiagnosticsViewModel.PowerTorqueDriftFlashBrush));
             gauge.SetResourceReference(PowerTorqueGaugeView.AccentBrushProperty, "AccentBrush");
         }
         DataContextChanged += (_, _) => { SubscribeToModel(); RefreshLayout(); };
