@@ -31,7 +31,8 @@ internal sealed record DigitalHudLayout(
     DigitalHudQuad Hundreds, DigitalHudQuad Tens, DigitalHudQuad Ones, DigitalHudQuad Unit,
     DigitalHudQuad Stm, DigitalHudQuad Abs, DigitalHudQuad Lc, DigitalHudQuad Tcr,
     DigitalHudQuad Gauge, DigitalHudQuad PowerBar, DigitalHudQuad RegenLabel, DigitalHudQuad PowerLabel,
-    double DpiScaleX = 1, bool LayoutRounding = false, double ArrangedRegenWidth = double.NaN)
+    double DpiScaleX = 1, bool LayoutRounding = false,
+    DigitalHudQuad? RegenTrack = null, DigitalHudQuad? PowerTrack = null)
 {
     internal static DigitalHudLayout Capture(NativeDigitalSpeedometer control) => Capture(control, control.Frame);
     internal static DigitalHudLayout Capture(NativeElectricDigitalSpeedometer control) => Capture(control, control.Frame);
@@ -42,9 +43,10 @@ internal sealed record DigitalHudLayout(
         if (!control.IsArrangeValid)
             throw new InvalidOperationException("Arrange the digital gauge before capturing its layout.");
         var fallback = Authored(frame);
-        DigitalHudQuad Read(string name, DigitalHudQuad otherwise)
+        DigitalHudQuad Read(string name, DigitalHudQuad otherwise) => ReadElement(control.FindName(name) as FrameworkElement, otherwise);
+        DigitalHudQuad ReadElement(FrameworkElement? element, DigitalHudQuad otherwise)
         {
-            if (control.FindName(name) is not FrameworkElement element ||
+            if (element is null ||
                 element.Visibility == Visibility.Collapsed || element.RenderSize.Width <= 0 || element.RenderSize.Height <= 0)
                 return otherwise;
             for (DependencyObject? parent = VisualTreeHelper.GetParent(element); parent is not null && parent != control; parent = VisualTreeHelper.GetParent(parent))
@@ -55,13 +57,16 @@ internal sealed record DigitalHudLayout(
             var y = transform.Transform(new Point(0, element.RenderSize.Height));
             return new(new(origin.X, origin.Y), new(x.X - origin.X, x.Y - origin.Y), new(y.X - origin.X, y.Y - origin.Y));
         }
+        DigitalHudQuad? ReadTrack(string indicatorName) =>
+            control.FindName(indicatorName) is FrameworkElement indicator &&
+            VisualTreeHelper.GetParent(indicator) is FrameworkElement track ? ReadElement(track, default) : null;
         return new(Read("GearImage", fallback.Gear), Read("GearGaugeImage", fallback.GearGauge), Read("NextGearImage", fallback.NextGear),
             Read("HundredsImage", fallback.Hundreds), Read("TensImage", fallback.Tens), Read("OnesImage", fallback.Ones),
             Read("UnitImage", fallback.Unit), Read("StmImage", fallback.Stm), Read("AbsImage", fallback.Abs),
             Read("LcImage", fallback.Lc), Read("TcrImage", fallback.Tcr), Read("GaugeVisual", fallback.Gauge),
             Read("PowerBarGrid", fallback.PowerBar), Read("RegenLabelImage", fallback.RegenLabel), Read("PowerLabelImage", fallback.PowerLabel),
             VisualTreeHelper.GetDpi(control).DpiScaleX, control.UseLayoutRounding,
-            frame.IsElectric && control.FindName("RegenColumn") is ColumnDefinition column ? column.ActualWidth : double.NaN);
+            ReadTrack("RegenIndicator"), ReadTrack("PowerIndicator"));
     }
 
     internal double RoundX(double value) => LayoutRounding ? Math.Round(value * DpiScaleX) / DpiScaleX : value;

@@ -86,23 +86,29 @@ internal static class DigitalHudScene
         // Derive those widths from the authored 215/234-DIP bar, then clip to its arranged columns.
         var rawRegenWidth = authoredWidth * display.RegenRatio;
         var rawPowerWidth = authoredWidth - rawRegenWidth;
-        // Grid redistributes rounding remainder between its columns. Preserve its arranged boundary.
-        var regenWidth = double.IsFinite(layout.ArrangedRegenWidth)
-            ? Math.Clamp(layout.ArrangedRegenWidth, 0, width)
-            : layout.RoundX(rawRegenWidth);
-        var powerWidth = width - regenWidth;
+        var authoredBoundary = layout.RoundX(rawRegenWidth);
+        // Grid redistributes column rounding, then rounds each child during arrangement.
+        // Capture both track quads so the native bar matches those final visible bounds.
+        var regenTrack = layout.RegenTrack ?? bar with { XAxis = new(authoredBoundary, 0) };
+        var powerTrack = layout.PowerTrack ?? bar with
+        {
+            Origin = new(bar.Origin.X + authoredBoundary, bar.Origin.Y),
+            XAxis = new(width - authoredBoundary, 0)
+        };
+        var regenWidth = regenTrack.XAxis.X;
+        var powerWidth = powerTrack.XAxis.X;
         var regenFill = Math.Min(regenWidth, layout.RoundX(rawRegenWidth * display.RegenFill));
         var powerFill = Math.Min(powerWidth, layout.RoundX(rawPowerWidth * display.PowerFill));
-        Add(0, regenWidth, new(255, 255, 255, 77));
-        Add(regenWidth - regenFill, regenFill, new(255, 255, 255));
-        Add(regenWidth, powerWidth, new(255, 255, 255, 77));
-        Add(regenWidth, powerFill, new(66, 155, 165));
-        void Add(double left, double length, AnalogHudColor tint)
+        Add(regenTrack, 0, regenWidth, new(255, 255, 255, 77));
+        Add(regenTrack, regenWidth - regenFill, regenFill, new(255, 255, 255));
+        Add(powerTrack, 0, powerWidth, new(255, 255, 255, 77));
+        Add(powerTrack, 0, powerFill, new(66, 155, 165));
+        void Add(DigitalHudQuad track, double left, double length, AnalogHudColor tint)
         {
-            if (length <= 0) return;
-            var quad = bar with
+            if (length <= 0 || track.XAxis.X <= 0) return;
+            var quad = track with
             {
-                Origin = new(bar.Origin.X + left, bar.Origin.Y),
+                Origin = new(track.Origin.X + left, track.Origin.Y),
                 XAxis = new(length, 0)
             };
             commands.Add(quad.Command(DigitalHudAssets.WhiteTextureId, color: tint));
