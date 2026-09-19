@@ -154,6 +154,7 @@ internal static class PowerTorqueHudLayer
             var next = (Snapshot)snapshot;
             var input = next.Input;
             if (!_hasInput || input.Revision != _input.Revision) _playback.Reset();
+            _playback.SetDriftFlashFrequency(input.DriftFlashFrequencyHz, timestamp);
             if (!_hasInput || input != _input)
             {
                 var received = input.ReceivedTimestamp > 0 ? input.ReceivedTimestamp :

@@ -71,6 +71,7 @@ internal static class PowerTorqueGaugeVisualTests
         ReadoutAndNeedleUseTheirSeparateSamples();
         ReadoutDrawingIsCachedBetweenNumericPublications();
         DriftFlashChangesOnlyNumberColorInNativeAndWpfRendering();
+        NativeFlashFrequencyChangesPreservePhaseAndArtwork();
         CustomPaletteHonorsAllStopsAndTheirOpacity();
         ColoredArcCacheIsFrozenReusedAndReplacedWhenItsPaletteChanges();
         ActiveArcClampsNegativeAndOverrangeOutput();
@@ -416,6 +417,60 @@ internal static class PowerTorqueGaugeVisualTests
                 }
                 Assert.Equal(tintCount, tintedImages.Count);
             }
+    }
+
+    private static void NativeFlashFrequencyChangesPreservePhaseAndArtwork()
+    {
+        var model = new DiagnosticsViewModel(new AppSettings());
+        var gauge = new PowerTorqueGaugeView
+        {
+            Width = 140,
+            Height = 140,
+            Maximum = 2_000,
+            DriftFlashBrush = new SolidColorBrush(Color.FromRgb(31, 63, 95))
+        };
+        gauge.Measure(new Size(140, 140));
+        gauge.Arrange(new Rect(0, 0, 140, 140));
+        var display = new PowerTorqueDisplay(true, 500, 600, 900, 1_100)
+        {
+            ReadoutPowerBhp = 500,
+            ReadoutTorqueNm = 600,
+            IsDriftPowerCut = true,
+            DriftPulseAllowed = true
+        };
+        var start = Stopwatch.Frequency;
+        var input = new NativePowerTorqueInput(display, 1, 1_000, start, start, 0)
+        { DriftFlashFrequencyHz = .5 };
+        var inputProperty = typeof(DiagnosticsViewModel).GetProperty(nameof(DiagnosticsViewModel.NativePowerTorqueInput),
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        inputProperty.SetValue(model, input);
+        var snapshot = PowerTorqueHudLayer.Capture(gauge, model);
+        var playback = snapshot.CreatePlayback();
+        playback.Update(snapshot, start);
+        var changedAt = start + Stopwatch.Frequency / 2;
+        var before = playback.Build(changedAt);
+        bool IsNumber(DirectCompositionDrawCommand command) => command.TextureId is >= 20_010 and <= 20_019;
+        Assert.All(before.Where(IsNumber), command => Assert.Equal(143 / 255f, command.TintR));
+
+        inputProperty.SetValue(model, input with { DriftFlashFrequencyHz = 3 });
+        var faster = PowerTorqueHudLayer.Capture(gauge, model);
+        Assert.NotSame(snapshot, faster);
+        Assert.Same(snapshot.Textures, faster.Textures);
+        Assert.Equal(snapshot.CompatibilityKey, faster.CompatibilityKey);
+        playback.Update(faster, changedAt);
+        Assert.Equal(before, playback.Build(changedAt));
+        var period = (long)Math.Round(Stopwatch.Frequency / 3d);
+        var peak = playback.Build(changedAt + (long)Math.Round(period / 4d));
+        var numbers = peak.Where(IsNumber).ToArray();
+        Assert.Equal(3, numbers.Length);
+        Assert.All(numbers, command =>
+        {
+            Assert.Equal(31 / 255f, command.TintR);
+            Assert.Equal(63 / 255f, command.TintG);
+            Assert.Equal(95 / 255f, command.TintB);
+            Assert.Equal(1, command.TintA);
+        });
+        Assert.Equal(before.Where(command => !IsNumber(command)), peak.Where(command => !IsNumber(command)));
     }
 
     private static bool AssertNumberOpacity(Drawing drawing, DrawingGroup numbers)

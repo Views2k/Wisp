@@ -912,6 +912,7 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.PowerTorqueSmoothingMilliseconds = ViewModel.PowerTorqueSmoothingMilliseconds;
             Settings.PowerTorqueShowNegative = ViewModel.PowerTorqueShowNegative;
             Settings.PowerTorqueDriftMode = ViewModel.PowerTorqueDriftModeEnabled;
+            Settings.PowerTorqueDriftFlashFrequencyHz = ViewModel.PowerTorqueDriftFlashFrequencyHz;
             Settings.PowerGaugeColorNumber = ViewModel.PowerGaugeColorNumber;
             Settings.TorqueGaugeColorNumber = ViewModel.TorqueGaugeColorNumber;
             Settings.CustomPowerLowColor = ViewModel.CustomPowerLowColor;

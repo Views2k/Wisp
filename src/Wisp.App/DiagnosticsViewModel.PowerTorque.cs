@@ -10,6 +10,7 @@ public sealed partial class DiagnosticsViewModel
     private double _powerTorqueSmoothingMilliseconds = 250;
     private bool _powerTorqueShowNegative;
     private bool _powerTorqueDriftModeEnabled;
+    private double _powerTorqueDriftFlashFrequencyHz = 1.25;
     private bool _powerGaugeColorNumber;
     private bool _torqueGaugeColorNumber;
     private string? _customPowerLowColor;
@@ -36,6 +37,11 @@ public sealed partial class DiagnosticsViewModel
             if (Set(ref _powerTorqueDriftModeEnabled, value))
                 RefreshPowerTorqueDisplayOptions();
         }
+    }
+    public double PowerTorqueDriftFlashFrequencyHz
+    {
+        get => _powerTorqueDriftFlashFrequencyHz;
+        set => Set(ref _powerTorqueDriftFlashFrequencyHz, AppSettings.NormalizePowerTorqueDriftFlashFrequency(value));
     }
     public bool PowerGaugeColorNumber { get => _powerGaugeColorNumber; set => Set(ref _powerGaugeColorNumber, value); }
     public bool TorqueGaugeColorNumber { get => _torqueGaugeColorNumber; set => Set(ref _torqueGaugeColorNumber, value); }
@@ -119,6 +125,7 @@ public sealed partial class DiagnosticsViewModel
         PowerTorqueSmoothingMilliseconds = settings.PowerTorqueSmoothingMilliseconds;
         PowerTorqueShowNegative = settings.PowerTorqueShowNegative;
         PowerTorqueDriftModeEnabled = settings.PowerTorqueDriftMode;
+        PowerTorqueDriftFlashFrequencyHz = settings.PowerTorqueDriftFlashFrequencyHz;
         PowerGaugeColorNumber = settings.PowerGaugeColorNumber;
         TorqueGaugeColorNumber = settings.TorqueGaugeColorNumber;
         CustomPowerLowColor = settings.CustomPowerLowColor;

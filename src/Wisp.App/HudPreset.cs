@@ -45,6 +45,7 @@ public sealed class HudPreset
     public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
     public bool PowerTorqueShowNegative { get; set; }
     public bool PowerTorqueDriftMode { get; set; }
+    public double PowerTorqueDriftFlashFrequencyHz { get; set; } = 1.25;
     public string? PowerTorqueDriftFlashColor { get; set; }
     public bool PowerGaugeColorNumber { get; set; }
     public bool TorqueGaugeColorNumber { get; set; }
@@ -144,6 +145,7 @@ public sealed class HudPreset
             PowerTorqueSmoothingMilliseconds = settings.PowerTorqueSmoothingMilliseconds,
             PowerTorqueShowNegative = settings.PowerTorqueShowNegative,
             PowerTorqueDriftMode = settings.PowerTorqueDriftMode,
+            PowerTorqueDriftFlashFrequencyHz = settings.PowerTorqueDriftFlashFrequencyHz,
             PowerTorqueDriftFlashColor = settings.PowerTorqueDriftFlashColor,
             PowerGaugeColorNumber = settings.PowerGaugeColorNumber,
             TorqueGaugeColorNumber = settings.TorqueGaugeColorNumber,
@@ -214,6 +216,7 @@ public sealed class HudPreset
         settings.PowerTorqueSmoothingMilliseconds = PowerTorqueSmoothingMilliseconds;
         settings.PowerTorqueShowNegative = PowerTorqueShowNegative;
         settings.PowerTorqueDriftMode = PowerTorqueDriftMode;
+        settings.PowerTorqueDriftFlashFrequencyHz = PowerTorqueDriftFlashFrequencyHz;
         settings.PowerTorqueDriftFlashColor = PowerTorqueDriftFlashColor;
         settings.PowerGaugeColorNumber = PowerGaugeColorNumber;
         settings.TorqueGaugeColorNumber = TorqueGaugeColorNumber;
@@ -274,6 +277,7 @@ public sealed class HudPreset
         PowerGaugeScale = NormalizeScale(PowerGaugeScale);
         TorqueGaugeScale = NormalizeScale(TorqueGaugeScale);
         PowerTorqueSmoothingMilliseconds = AppSettings.NormalizePowerTorqueSmoothing(PowerTorqueSmoothingMilliseconds);
+        PowerTorqueDriftFlashFrequencyHz = AppSettings.NormalizePowerTorqueDriftFlashFrequency(PowerTorqueDriftFlashFrequencyHz);
         PowerTorqueDriftFlashColor = ColorCustomization.NormalizePowerTorqueDriftFlash(PowerTorqueDriftFlashColor);
         CustomPowerLowColor = ColorCustomization.NormalizeGauge(CustomPowerLowColor);
         CustomPowerMidColor = ColorCustomization.NormalizeGauge(CustomPowerMidColor);

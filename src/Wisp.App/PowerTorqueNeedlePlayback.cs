@@ -14,8 +14,23 @@ internal sealed class PowerTorqueNeedlePlayback
     private long _observedTimestamp;
     private long _pulseStart;
     private long _pulseEnd;
-    private static readonly long PulsePeriodTicks = Math.Max(1, Stopwatch.Frequency * 8 / 10);
+    private long _pulsePeriodTicks = Math.Max(1, Stopwatch.Frequency * 8 / 10);
     internal bool HasSamples => _display.Available;
+
+    internal void SetDriftFlashFrequency(double frequencyHz, long timestamp)
+    {
+        var period = Math.Max(1, (long)Math.Round(Stopwatch.Frequency /
+            AppSettings.NormalizePowerTorqueDriftFlashFrequency(frequencyHz)));
+        if (period == _pulsePeriodTicks) return;
+        if (_pulseEnd > timestamp && timestamp >= _pulseStart)
+        {
+            var phase = (timestamp - _pulseStart) % _pulsePeriodTicks / (double)_pulsePeriodTicks;
+            _pulseStart = timestamp - (long)Math.Round(phase * period);
+            _pulseEnd = _pulseStart + period;
+        }
+        else _pulseStart = _pulseEnd = 0;
+        _pulsePeriodTicks = period;
+    }
 
     internal void UpdatePeaks(PowerTorqueDisplay display) => _display = _display with
     {
@@ -69,12 +84,12 @@ internal sealed class PowerTorqueNeedlePlayback
             if (_pulseEnd <= nowTimestamp)
             {
                 _pulseStart = nowTimestamp;
-                _pulseEnd = nowTimestamp + PulsePeriodTicks;
+                _pulseEnd = nowTimestamp + _pulsePeriodTicks;
             }
             else
             {
-                var cycles = (nowTimestamp - _pulseStart) / PulsePeriodTicks + 1;
-                _pulseEnd = _pulseStart + cycles * PulsePeriodTicks;
+                var cycles = (nowTimestamp - _pulseStart) / _pulsePeriodTicks + 1;
+                _pulseEnd = _pulseStart + cycles * _pulsePeriodTicks;
             }
         }
         if (fresh)
@@ -89,7 +104,7 @@ internal sealed class PowerTorqueNeedlePlayback
     private double SamplePulse(long timestamp)
     {
         if (_pulseEnd == 0 || timestamp < _pulseStart || timestamp >= _pulseEnd) return 0;
-        var phase = (timestamp - _pulseStart) % PulsePeriodTicks / (double)PulsePeriodTicks;
+        var phase = (timestamp - _pulseStart) % _pulsePeriodTicks / (double)_pulsePeriodTicks;
         return (1 - Math.Cos(phase * 2 * Math.PI)) / 2;
     }
 

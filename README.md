@@ -3,7 +3,7 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.2.0/Wisp-Setup-2.2.0.zip"><strong>Download Wisp 2.2</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.3.0/Wisp-Setup-2.3.0.zip"><strong>Download Wisp 2.3</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -11,18 +11,21 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## New in Wisp 2.2
+## New in Wisp 2.3
 
-The EV and Digital HUDs, supplementary gauges, G-force meter, and text layouts now
-use the native renderer already used by the Analogue speedometer. Existing
-artwork, colors, needle behavior, and smoothing controls are preserved.
+**Drift mode** holds the power and torque numbers and needles through brief
+combustion-engine power cuts. The numbers pulse in a color you choose, with a
+**Flash frequency** slider from **0.5 to 3 Hz**. The default is **1.25 Hz**.
 
-Attached EV gauges use a smaller baseline and wrap closely around the
-speedometer's right side. The Appearance preview shares that layout and keeps
-enabled detached gauges visible through car and tune changes. G-force trails
-stay aligned as their display scale changes.
+Enable it in **Appearance > Gauges > Engine output > More options** and choose
+**Drift cut flash** under **Appearance > Colors**. Drift mode is off by default;
+its settings save with HUD profiles. Recorded telemetry and peak readings keep
+their original values.
 
-[Read the Wisp 2.2 release notes](docs/releases/Wisp-2.2.0-release-notes.md).
+[Read the Wisp 2.3 release notes](docs/releases/Wisp-2.3.0-release-notes.md).
+
+The shared native rendering, compact EV attachments, and Appearance preview
+fixes from [Wisp 2.2](docs/releases/Wisp-2.2.0-release-notes.md) are included.
 
 ### Gauge sizing from 2.1.1
 
@@ -143,8 +146,8 @@ An optional quick tour introduces the drift gauge, Display mode, Runs, and
 Appearance. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.2](https://github.com/Views2k/Wisp/releases/download/v2.2.0/Wisp-Setup-2.2.0.zip) ·
-[2.2 release notes](docs/releases/Wisp-2.2.0-release-notes.md) ·
+[Download Wisp 2.3](https://github.com/Views2k/Wisp/releases/download/v2.3.0/Wisp-Setup-2.3.0.zip) ·
+[2.3 release notes](docs/releases/Wisp-2.3.0-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Interface screenshots show the build used to develop Wisp 2.0. Their original
@@ -267,8 +270,8 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open the [Wisp 2.2 release](https://github.com/Views2k/Wisp/releases/tag/v2.2.0).
-2. Download and extract [Wisp-Setup-2.2.0.zip](https://github.com/Views2k/Wisp/releases/download/v2.2.0/Wisp-Setup-2.2.0.zip).
+1. Open the [Wisp 2.3 release](https://github.com/Views2k/Wisp/releases/tag/v2.3.0).
+2. Download and extract [Wisp-Setup-2.3.0.zip](https://github.com/Views2k/Wisp/releases/download/v2.3.0/Wisp-Setup-2.3.0.zip).
 3. Keep the installer and its `.sha256` file together.
 4. Verify the installer checksum, then run the installer.
 5. Complete the required setup wizard on first launch.
@@ -394,6 +397,7 @@ To build the self-contained installer:
 - [Boost Gauge](docs/BOOST-GAUGE.md)
 - [Tire Temperature](docs/TIRE-TEMPERATURE.md)
 - [Run files and library archives](docs/run-library-format.md)
+- [Wisp 2.3 release notes](docs/releases/Wisp-2.3.0-release-notes.md)
 - [Wisp 2.2 release notes](docs/releases/Wisp-2.2.0-release-notes.md)
 - [Wisp 2.1.1 release notes](docs/releases/Wisp-2.1.1-release-notes.md)
 - [Wisp 2.1 release notes](docs/releases/Wisp-2.1.0-release-notes.md)

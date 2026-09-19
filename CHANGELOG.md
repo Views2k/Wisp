@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.3.0 - 2026-09-19
+
+- Add optional Drift mode for the power and torque gauges. Hold both numbers and needles during brief combustion-engine power cuts, with a color pulse on the numbers.
+- Add a Flash frequency slider from 0.5 to 3 Hz, defaulting to 1.25 Hz. Preserve the pulse phase when its frequency changes.
+- Add a Drift cut flash color in Appearance > Colors. Preserve the numbers' opacity and save the selected color and frequency with HUD profiles.
+- Keep recorded telemetry, peaks, signed-output behavior, and EV regeneration unchanged. Drift mode is off by default.
+
 ## 2.2.0 - 2026-09-18
 
 - Extend the native renderer to the EV and Digital HUDs, supplementary gauges, G-force meter, and text layouts. Preserve artwork, colors, needle behavior, smoothing controls, and the WPF fallback.

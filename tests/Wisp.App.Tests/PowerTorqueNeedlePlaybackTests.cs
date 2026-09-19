@@ -10,6 +10,64 @@ public sealed class PowerTorqueNeedlePlaybackTests
     private static PowerTorqueDisplay Display(double power, double torque) => new(true, power, torque, 900, 1_100)
     { ReadoutPowerBhp = 100, ReadoutTorqueNm = 200 };
 
+    [Theory]
+    [InlineData(.5)]
+    [InlineData(1.25)]
+    [InlineData(3)]
+    public void FlashUsesSelectedPeriodAndDefaultRetainsEightHundredMilliseconds(double frequency)
+    {
+        var playback = new PowerTorqueNeedlePlayback();
+        var start = Ticks(1_000);
+        if (frequency != 1.25) playback.SetDriftFlashFrequency(frequency, start);
+        var display = Display(500, 600) with { IsDriftPowerCut = true, DriftPulseAllowed = true };
+        playback.Observe(display, 1, 1_000, start, start);
+        var period = (long)Math.Round(Stopwatch.Frequency / frequency);
+        foreach (var (phase, expected) in new[] { (0d, 0d), (.25, .5), (.5, 1d), (.75, .5), (1d, 0d) })
+        {
+            var actual = playback.Sample(start + (long)Math.Round(period * phase));
+            Assert.InRange(Math.Abs(actual.DriftCutPulse - expected), 0, .000001);
+            Assert.Equal(display, actual with { DriftCutPulse = 0 });
+        }
+    }
+
+    [Theory]
+    [InlineData(.25, .5)]
+    [InlineData(.25, 3)]
+    [InlineData(.75, .5)]
+    [InlineData(.75, 3)]
+    public void FrequencyEditPreservesPulsePhaseDirectionAndGaugeState(double phase, double frequency)
+    {
+        var playback = new PowerTorqueNeedlePlayback();
+        var start = Ticks(1_000);
+        var display = Display(500, 600) with { IsDriftPowerCut = true, DriftPulseAllowed = true };
+        playback.Observe(display, 1, 1_000, start, start);
+        var changedAt = start + Ticks(800 * phase);
+        var before = playback.Sample(changedAt);
+        playback.SetDriftFlashFrequency(frequency, changedAt);
+        var after = playback.Sample(changedAt);
+        Assert.InRange(Math.Abs(before.DriftCutPulse - after.DriftCutPulse), 0, .000001);
+        Assert.Equal(before with { DriftCutPulse = 0 }, after with { DriftCutPulse = 0 });
+        playback.SetDriftFlashFrequency(frequency, changedAt);
+        Assert.Equal(after, playback.Sample(changedAt));
+        var later = playback.Sample(changedAt + Ticks(20));
+        Assert.Equal(phase < .5, later.DriftCutPulse > after.DriftCutPulse);
+        Assert.Equal(before with { DriftCutPulse = 0 }, later with { DriftCutPulse = 0 });
+    }
+
+    [Fact]
+    public void FrequencyChangesCannotReviveExpiredPulsesAndResetKeepsTheSelection()
+    {
+        var playback = new PowerTorqueNeedlePlayback();
+        var display = Display(500, 600) with { IsDriftPowerCut = true, DriftPulseAllowed = true };
+        playback.Observe(display, 1, 1_000, Ticks(1_000), Ticks(1_000));
+        Assert.Equal(0, playback.Sample(Ticks(1_900)).DriftCutPulse);
+        playback.SetDriftFlashFrequency(.5, Ticks(1_900));
+        Assert.Equal(0, playback.Sample(Ticks(2_400)).DriftCutPulse);
+        playback.Reset();
+        playback.Observe(display, 2, 3_000, Ticks(3_000), Ticks(3_000));
+        Assert.Equal(1, playback.Sample(Ticks(4_000)).DriftCutPulse, 6);
+    }
+
     [Fact]
     public void BothNeedlesAdvanceBetweenPacketsWhileNumbersAndPeaksStayUntouched()
     {

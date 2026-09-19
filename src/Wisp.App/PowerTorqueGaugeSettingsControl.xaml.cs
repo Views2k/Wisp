@@ -42,6 +42,7 @@ public partial class PowerTorqueGaugeSettingsControl : UserControl
             nameof(PowerMaximumSlider) => model.PowerGaugeMaximum,
             nameof(TorqueMaximumSlider) => model.TorqueGaugeMaximumNm,
             nameof(SmoothingSlider) => model.PowerTorqueSmoothingMilliseconds,
+            nameof(DriftFlashFrequencySlider) => model.PowerTorqueDriftFlashFrequencyHz,
             _ => slider.Value
         };
         if (current.Equals(slider.Value)) return;
