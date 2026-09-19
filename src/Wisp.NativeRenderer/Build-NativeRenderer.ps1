@@ -30,6 +30,17 @@ foreach ($material in @('AnalogGauge','AnalogNeedle')) {
     $ported += "`nfloat4 main(VertexOutput input) : SV_TARGET { return TintPremultiplied(MaterialMain(input.uv)); }`n"
     [IO.File]::WriteAllText((Join-Path $buildDirectory "$material.hlsl"), $common + "`n" + $ported, $encoding)
 }
+$digital = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\Wisp.App\Shaders\DigitalGauge.hlsl'))
+if (($digital | Select-String -Pattern 'sampler2D InputSampler : register\(s0\);' -AllMatches).Matches.Count -ne 1 -or
+    ($digital | Select-String -Pattern 'float4 main\(float2 uv : TEXCOORD0\) : COLOR0' -AllMatches).Matches.Count -ne 1) {
+    throw 'The digital material interface changed; review the D3D11 port before building.'
+}
+$digital = $digital.Replace('sampler2D InputSampler : register(s0);', '')
+$digital = $digital.Replace('float2 GaugeParameters : register(c0);', '#define GaugeParameters MaterialParameters.xy')
+$digital = $digital.Replace('tex2D(InputSampler, uv)', 'InputTexture.Sample(InputSampler, uv)')
+$digital = $digital.Replace('float4 main(float2 uv : TEXCOORD0) : COLOR0', 'float4 MaterialMain(float2 uv : TEXCOORD0) : COLOR0')
+$digital += "`nfloat4 main(VertexOutput input) : SV_TARGET { return TintPremultiplied(MaterialMain(input.uv)); }`n"
+[IO.File]::WriteAllText((Join-Path $buildDirectory 'DigitalGauge.hlsl'), $common + "`n" + $digital, $encoding)
 $compilerBatch = Join-Path $buildDirectory 'build-native.cmd'
 $dll = Join-Path $buildDirectory 'Wisp.NativeRenderer.dll'
 $pdb = Join-Path $buildDirectory 'Wisp.NativeRenderer.pdb'
@@ -56,6 +67,12 @@ if errorlevel 1 exit /b 1
 "%FXC%" /nologo /O3 /T ps_5_0 /E main /Vn DialPixel /Fh "$buildDirectory\DialPixel.h" "$buildDirectory\AnalogGauge.hlsl"
 if errorlevel 1 exit /b 1
 "%FXC%" /nologo /O3 /T ps_5_0 /E main /Vn NeedlePixel /Fh "$buildDirectory\NeedlePixel.h" "$buildDirectory\AnalogNeedle.hlsl"
+if errorlevel 1 exit /b 1
+"%FXC%" /nologo /O3 /T ps_5_0 /E main /D ELECTRIC_NEEDLE=1 /Vn ElectricNeedlePixel /Fh "$buildDirectory\ElectricNeedlePixel.h" "$buildDirectory\AnalogNeedle.hlsl"
+if errorlevel 1 exit /b 1
+"%FXC%" /nologo /O3 /T ps_5_0 /E sector_main /Vn ImageSectorPixel /Fh "$buildDirectory\ImageSectorPixel.h" "$PSScriptRoot\ImageSector.hlsl"
+if errorlevel 1 exit /b 1
+"%FXC%" /nologo /O3 /T ps_5_0 /E main /Vn DigitalGaugePixel /Fh "$buildDirectory\DigitalGaugePixel.h" "$buildDirectory\DigitalGauge.hlsl"
 if errorlevel 1 exit /b 1
 cl.exe /nologo /std:c++17 /permissive- /EHsc /O2 /W4 /WX /MT /LD /Z7 /guard:cf /DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNOMINMAX /I"$buildDirectory" /Fo"$object" /Fe"$dll" "$PSScriptRoot\Wisp.NativeRenderer.cpp" /link /PDB:"$pdb" /PDBALTPATH:Wisp.NativeRenderer.pdb /DEBUG:FULL /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT d3d11.lib dxgi.lib dcomp.lib user32.lib ole32.lib
 $contractBuild

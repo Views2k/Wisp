@@ -15,11 +15,29 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.2",
+            "September 18, 2026",
+            "WISP 2.2",
+            "Shared native HUD rendering, compact EV attachments, and consistent previews.",
+            true,
+            [
+                Group("HUD rendering",
+                    "EV and Digital HUDs, supplementary gauges, G-force and text layouts now use the native renderer already used by the Analogue speedometer.",
+                    "Preserve existing artwork, colors, needle behavior and smoothing controls.",
+                    "Keep the G-force trail aligned when its display scale changes, and interpolate the displayed dot between telemetry samples."),
+                Group("EV layout and previews",
+                    "Wrap attached tire-temperature, power and torque gauges closely around the EV speedometer with a smaller attachment baseline. Individual size controls and detached placement remain available.",
+                    "Use the same EV attachment geometry in the HUD and Appearance preview.",
+                    "Keep enabled detached gauges visible in the preview through car and tune changes."),
+                Group("Existing settings",
+                    "Preserve saved settings, HUD profiles, tire calibration and recorded runs.")
+            ]),
+        new(
             "2.1.2",
             "September 16, 2026",
             "PERFORMANCE HOTFIX",
             "Bounded memory use for colored boost pressure numbers.",
-            true,
+            false,
             [
                 Group("Boost pressure numbers",
                     "Reuse digit images as boost colors and pulse opacity change, preventing cached images from accumulating throughout a session.",

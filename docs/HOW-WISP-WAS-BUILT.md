@@ -31,7 +31,7 @@ FH6 loopback UDP
 receiver. `Wisp.Core` contains the deterministic vehicle calculations and has
 no WPF dependency. `Wisp.App` owns startup, settings, application lifecycle,
 the setup gate, local run storage, and the Windows presentation layer. Its native
-rendering bridge sends analogue scenes to `Wisp.NativeRenderer`, which owns the
+rendering bridge sends HUD scenes to `Wisp.NativeRenderer`, which owns the
 Direct3D11 resources and DirectComposition surface. `Wisp.Update` owns release
 metadata, transport, and artifact verification. `Wisp.Updater` is a small
 separate executable that applies an already verified installer after Wisp has
@@ -143,8 +143,8 @@ state; no generated gear artwork is substituted.
 ## Rendering without unnecessary work
 
 Packet arrivals schedule a UI update using the newest available telemetry,
-independently of WPF compositor callbacks. The live combustion Analogue HUD has
-a separate render worker paced by the DXGI frame-latency wait handle. It consumes
+independently of WPF compositor callbacks. Live HUD surfaces use separate render
+workers paced by the DXGI frame-latency wait handle. Each worker consumes
 bounded input, builds a scene, and submits it through Direct3D11 and
 DirectComposition. A full input queue is discarded and playback resets so a
 stalled renderer cannot replay an old backlog. Busy submissions retry the pending
@@ -154,9 +154,9 @@ changes invalidate pending work.
 GPU rendering is the default. The optional **CPU rendering** setting in
 **Diagnostics** selects Direct3D11 WARP after restarting Wisp. CPU mode caches an
 unchanged dial background while continuing to update the needle and live
-readings. It can increase CPU usage and applies only to the live combustion
-Analogue HUD. Digital and electric HUDs, Appearance previews, and the analogue
-WPF fallback retain their WPF renderer.
+readings. It can increase CPU usage. Analogue, Digital, electric and supplementary
+gauges, G-force, and text layouts share the native renderer. Appearance previews
+and the WPF fallback retain their WPF renderer.
 
 RPM samples pass through a small receive-time interpolation buffer without
 predicting future RPM. When exact Native needle samples are available, bounded

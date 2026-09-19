@@ -92,7 +92,8 @@ public abstract class BoostVisualBase : Grid
 
     private void OnCompositionRendering(object? sender, EventArgs e)
     {
-        if (IsVisible && ColorNumber && Display.IsAvailable && Display.Fraction >= 0.88)
+        if (!NativeRendering.HudNativeHost.IsPresented(this) &&
+            IsVisible && ColorNumber && Display.IsAvailable && Display.Fraction >= 0.88)
         {
             InvalidateVisual();
         }
@@ -184,6 +185,11 @@ public sealed class DigitalBoostRailView : BoostVisualBase
 
     protected override void OnRender(DrawingContext dc)
     {
+        if (NativeRendering.HudNativeHost.IsPresented(this))
+        {
+            _stockGaugeMaterial.Visibility = Visibility.Hidden;
+            return;
+        }
         base.OnRender(dc);
         if (!Display.IsAvailable || ActualWidth <= 0 || ActualHeight <= 0)
         {
@@ -347,11 +353,22 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
 
     private static void OnIsElectricMaterialChanged(
         DependencyObject dependencyObject,
-        DependencyPropertyChangedEventArgs eventArgs) =>
-        ((AnalogBoostGaugeView)dependencyObject)._needleMaterial.IsElectricMaterial = (bool)eventArgs.NewValue;
+        DependencyPropertyChangedEventArgs eventArgs)
+    {
+        var control = (AnalogBoostGaugeView)dependencyObject;
+        if (!NativeRendering.HudNativeHost.IsPresented(control))
+            control._needleMaterial.IsElectricMaterial = (bool)eventArgs.NewValue;
+    }
 
     protected override void OnRender(DrawingContext dc)
     {
+        if (NativeRendering.HudNativeHost.IsPresented(this))
+        {
+            _needleMaterial.Visibility = Visibility.Hidden;
+            return;
+        }
+        _needleMaterial.Visibility = Visibility.Visible;
+        _needleMaterial.IsElectricMaterial = IsElectricMaterial;
         base.OnRender(dc);
         if (!Display.IsAvailable || ActualWidth <= 0 || ActualHeight <= 0) return;
 

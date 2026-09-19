@@ -7,20 +7,12 @@
         <Style TargetType="UserControl">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
-                <MultiDataTrigger>
-                    <MultiDataTrigger.Conditions>
-                        <Condition Binding="{Binding PowerGaugeEnabled}" Value="True" />
-                        <Condition Binding="{Binding PowerGaugeAttached}" Value="True" />
-                    </MultiDataTrigger.Conditions>
+                <DataTrigger Binding="{Binding PowerGaugeEnabled}" Value="True">
                     <Setter Property="Visibility" Value="Visible" />
-                </MultiDataTrigger>
-                <MultiDataTrigger>
-                    <MultiDataTrigger.Conditions>
-                        <Condition Binding="{Binding TorqueGaugeEnabled}" Value="True" />
-                        <Condition Binding="{Binding TorqueGaugeAttached}" Value="True" />
-                    </MultiDataTrigger.Conditions>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding TorqueGaugeEnabled}" Value="True">
                     <Setter Property="Visibility" Value="Visible" />
-                </MultiDataTrigger>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
     </UserControl.Style>
@@ -41,13 +33,9 @@
                 <Style TargetType="local:PowerTorqueGaugeView">
                     <Setter Property="Visibility" Value="Collapsed" />
                     <Style.Triggers>
-                        <MultiDataTrigger>
-                            <MultiDataTrigger.Conditions>
-                                <Condition Binding="{Binding PowerGaugeEnabled}" Value="True" />
-                                <Condition Binding="{Binding PowerGaugeAttached}" Value="True" />
-                            </MultiDataTrigger.Conditions>
+                        <DataTrigger Binding="{Binding PowerGaugeEnabled}" Value="True">
                             <Setter Property="Visibility" Value="Visible" />
-                        </MultiDataTrigger>
+                        </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </local:PowerTorqueGaugeView.Style>
@@ -69,20 +57,12 @@
                 <Style TargetType="local:PowerTorqueGaugeView">
                     <Setter Property="Visibility" Value="Collapsed" />
                     <Style.Triggers>
-                        <MultiDataTrigger>
-                            <MultiDataTrigger.Conditions>
-                                <Condition Binding="{Binding TorqueGaugeEnabled}" Value="True" />
-                                <Condition Binding="{Binding TorqueGaugeAttached}" Value="True" />
-                            </MultiDataTrigger.Conditions>
+                        <DataTrigger Binding="{Binding TorqueGaugeEnabled}" Value="True">
                             <Setter Property="Visibility" Value="Visible" />
-                        </MultiDataTrigger>
-                        <MultiDataTrigger>
-                            <MultiDataTrigger.Conditions>
-                                <Condition Binding="{Binding PowerGaugeEnabled}" Value="True" />
-                                <Condition Binding="{Binding PowerGaugeAttached}" Value="True" />
-                            </MultiDataTrigger.Conditions>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding PowerGaugeEnabled}" Value="True">
                             <Setter Property="Margin" Value="0,2,0,0" />
-                        </MultiDataTrigger>
+                        </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </local:PowerTorqueGaugeView.Style>

@@ -832,8 +832,9 @@ public sealed class XamlContractTests
         Assert.Equal("{Binding SelectedBoostPressureUnit}", digital.Attribute("PressureUnit")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeColorNumber}", digital.Attribute("ColorNumber")?.Value);
         Assert.Equal("{Binding DigitalBoostGaugeStockColors}", digital.Attribute("UseStockColors")?.Value);
-        Assert.Equal("{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='276,76,0,0'}",
-            analogue.Attribute("Margin")?.Value);
+        Assert.Null(analogue.Attribute("Margin"));
+        Assert.Equal("Left", analogue.Attribute("HorizontalAlignment")?.Value);
+        Assert.Equal("Top", analogue.Attribute("VerticalAlignment")?.Value);
         Assert.Contains("{Binding BoostGaugeEnabled}", digital.ToString(), StringComparison.Ordinal);
         Assert.Equal("{Binding PreviewTireTemperatureDisplay}", digitalTire.Attribute("Display")?.Value);
         Assert.Equal("{Binding SelectedTireTemperatureUnit}", digitalTire.Attribute("TemperatureUnit")?.Value);
@@ -842,10 +843,14 @@ public sealed class XamlContractTests
 
         var digitalMeter = digital.Parent!.Elements(Local + "NativeGForceMeterView").Single();
         Assert.Contains("176,0,0,0", digitalMeter.ToString(), StringComparison.Ordinal);
-        Assert.Contains("{Binding GForceAttached}", digitalMeter.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("{Binding GForceAttached}", digitalMeter.ToString(), StringComparison.Ordinal);
         var analogueMeter = analogue.Parent!.Elements(Local + "NativeGForceMeterView").Single();
         Assert.Contains("195,0,0,0", analogueMeter.ToString(), StringComparison.Ordinal);
-        Assert.Contains("{Binding GForceAttached}", analogueMeter.ToString(), StringComparison.Ordinal);
+        var electricMeterTrigger = analogueMeter.Descendants(Presentation + "DataTrigger").Single(trigger =>
+            trigger.Attribute("Binding")?.Value == "{Binding NativePreviewFrame.IsElectric}");
+        Assert.Equal("True", electricMeterTrigger.Attribute("Value")?.Value);
+        Assert.Contains("ConverterParameter=ev-analogue", electricMeterTrigger.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("{Binding GForceAttached}", analogueMeter.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

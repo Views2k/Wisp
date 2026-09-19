@@ -73,6 +73,29 @@ internal static class PowerTorqueGaugeVisualTests
         ChangingNumberColorsDoesNotGrowTheGlobalTintedTextureCache();
         SupplementaryRimsHaveMatchingRenderedDiameterAndCenter();
         SharedPreviewUsesActualGaugeBindingsAndIndependentSizes();
+        DetachedPairPreviewShowsEveryEnabledGauge();
+    }
+
+    private static void DetachedPairPreviewShowsEveryEnabledGauge()
+    {
+        var model = new DiagnosticsViewModel(new AppSettings { PowerGaugeAttached = false, TorqueGaugeAttached = false });
+        var preview = new PowerTorqueGaugePairPreview { DataContext = model };
+        var panel = Assert.IsType<System.Windows.Controls.StackPanel>(preview.Content);
+        var power = Assert.Single(panel.Children.OfType<PowerTorqueGaugeView>(), gauge => !gauge.IsTorque);
+        var torque = Assert.Single(panel.Children.OfType<PowerTorqueGaugeView>(), gauge => gauge.IsTorque);
+        foreach (var mask in new[] { 3, 2, 1, 0 })
+        {
+            model.PowerGaugeEnabled = (mask & 1) != 0;
+            model.TorqueGaugeEnabled = (mask & 2) != 0;
+            preview.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.DataBind);
+            Assert.Equal(mask == 0 ? Visibility.Collapsed : Visibility.Visible, preview.Visibility);
+            Assert.Equal((mask & 1) == 0 ? Visibility.Collapsed : Visibility.Visible, power.Visibility);
+            Assert.Equal((mask & 2) == 0 ? Visibility.Collapsed : Visibility.Visible, torque.Visibility);
+            Assert.Equal((mask & 1) == 0 ? 0 : 2, torque.Margin.Top);
+            Assert.False(model.PowerGaugeAttached);
+            Assert.False(model.TorqueGaugeAttached);
+        }
+        preview.DataContext = null;
     }
 
     private static void SharedPreviewUsesActualGaugeBindingsAndIndependentSizes()
@@ -80,11 +103,13 @@ internal static class PowerTorqueGaugeVisualTests
         var settings = new AppSettings
         {
             BoostGaugeEnabled = true,
+            BoostGaugeAttached = false,
             TireTemperatureGaugeEnabled = true,
+            TireTemperatureGaugeAttached = false,
             PowerGaugeEnabled = true,
             TorqueGaugeEnabled = true,
-            PowerGaugeAttached = true,
-            TorqueGaugeAttached = true,
+            PowerGaugeAttached = false,
+            TorqueGaugeAttached = false,
             BoostGaugeScale = .5,
             TireTemperatureGaugeScale = 1.25,
             PowerGaugeScale = 2,
@@ -95,6 +120,12 @@ internal static class PowerTorqueGaugeVisualTests
         var tire = Assert.Single(preview.Children.OfType<AnalogTireTemperatureGaugeView>());
         var power = Assert.Single(preview.Children.OfType<PowerTorqueGaugeView>(), gauge => !gauge.IsTorque);
         var torque = Assert.Single(preview.Children.OfType<PowerTorqueGaugeView>(), gauge => gauge.IsTorque);
+        Assert.All(new FrameworkElement[] { boost, tire, power, torque },
+            gauge => Assert.Equal(Visibility.Visible, gauge.Visibility));
+        Assert.False(settings.BoostGaugeAttached);
+        Assert.False(settings.TireTemperatureGaugeAttached);
+        Assert.False(settings.PowerGaugeAttached);
+        Assert.False(settings.TorqueGaugeAttached);
         Assert.Equal("PreviewBoostDisplay", BindingOperations.GetBinding(boost, BoostVisualBase.DisplayProperty)!.Path.Path);
         Assert.Equal("SelectedBoostPressureUnit", BindingOperations.GetBinding(boost, BoostVisualBase.PressureUnitProperty)!.Path.Path);
         Assert.Equal("PreviewTireTemperatureDisplay", BindingOperations.GetBinding(tire, TireTemperatureVisualBase.DisplayProperty)!.Path.Path);

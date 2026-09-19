@@ -674,9 +674,6 @@
                                                                                             <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
                                                                                                 <Setter Property="Visibility" Value="Collapsed" />
                                                                                             </DataTrigger>
-                                                                                            <DataTrigger Binding="{Binding GForceAttached}" Value="False">
-                                                                                                <Setter Property="Visibility" Value="Collapsed" />
-                                                                                            </DataTrigger>
                                                                                         </Style.Triggers>
                                                                                     </Style>
                                                                                 </local:NativeGForceMeterView.Style>
@@ -723,7 +720,7 @@
                                                                                 </local:NativeElectricAnalogSpeedometer.Style>
                                                                             </local:NativeElectricAnalogSpeedometer>
                                                                             <local:SupplementaryAnalogGaugePreview x:Name="NativeSupplementaryGaugePreview"
-                                                                                Margin="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='276,76,0,0'}" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                                                                HorizontalAlignment="Left" VerticalAlignment="Top" />
                                                                             <local:NativeGForceMeterView Width="144" Height="100"
                                                                                                          HorizontalAlignment="Left" VerticalAlignment="Top">
                                                                                 <local:NativeGForceMeterView.LayoutTransform>
@@ -733,10 +730,10 @@
                                                                                     <Style TargetType="local:NativeGForceMeterView">
                                                                                         <Setter Property="Margin" Value="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter='195,0,0,0'}" />
                                                                                         <Style.Triggers>
-                                                                                            <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
-                                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                                            <DataTrigger Binding="{Binding NativePreviewFrame.IsElectric}" Value="True">
+                                                                                                <Setter Property="Margin" Value="{Binding GForceGaugeScale, Converter={StaticResource GForceGaugeLayoutConverter}, ConverterParameter=ev-analogue}" />
                                                                                             </DataTrigger>
-                                                                                            <DataTrigger Binding="{Binding GForceAttached}" Value="False">
+                                                                                            <DataTrigger Binding="{Binding GForceEnabled}" Value="False">
                                                                                                 <Setter Property="Visibility" Value="Collapsed" />
                                                                                             </DataTrigger>
                                                                                         </Style.Triggers>

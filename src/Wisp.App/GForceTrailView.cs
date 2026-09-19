@@ -47,10 +47,42 @@ internal sealed class GForceTrailHistory
             }
         }
 
+        Append(sample);
+        return true;
+    }
+
+    internal bool TryAddUnscaled(Point sample, double fullScaleG)
+    {
+        if (!double.IsFinite(sample.X) || !double.IsFinite(sample.Y) ||
+            !double.IsFinite(fullScaleG) || fullScaleG <= 0) return false;
+        if (_count > 0)
+        {
+            var newest = _samples[(_next + Capacity - 1) % Capacity];
+            var delta = Project(sample, fullScaleG) - Project(newest, fullScaleG);
+            if (delta.LengthSquared < MinimumMovementSquared) return false;
+        }
+        Append(sample);
+        return true;
+    }
+
+    internal static Point Project(Point sample, double fullScaleG)
+    {
+        if (!double.IsFinite(sample.X) || !double.IsFinite(sample.Y) ||
+            !double.IsFinite(fullScaleG) || fullScaleG <= 0) return default;
+        var maximum = Math.Max(Math.Abs(sample.X), Math.Abs(sample.Y));
+        if (maximum == 0) return default;
+        var x = sample.X / maximum;
+        var y = sample.Y / maximum;
+        var length = Math.Sqrt(x * x + y * y);
+        var radius = Math.Min(1, maximum / fullScaleG * length) * 31;
+        return new(x / length * radius, y / length * radius);
+    }
+
+    private void Append(Point sample)
+    {
         _samples[_next] = sample;
         _next = (_next + 1) % Capacity;
         _count = Math.Min(_count + 1, Capacity);
-        return true;
     }
 
     internal void Clear()
@@ -109,6 +141,7 @@ public sealed class GForceTrailView : FrameworkElement
     protected override void OnRender(DrawingContext drawingContext)
     {
         base.OnRender(drawingContext);
+        if (NativeRendering.HudNativeHost.IsPresented(this)) return;
         var sampleCount = _history.Count;
         if (sampleCount < 2 || TrailBrush is null || RenderSize.Width <= 0 || RenderSize.Height <= 0)
         {

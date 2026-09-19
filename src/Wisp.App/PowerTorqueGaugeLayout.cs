@@ -102,6 +102,104 @@ internal readonly record struct AnalogSupplementaryGaugeLayout(
         visible ? new Rect(left + (width - diameter) / 2, top + (height - diameter) / 2, diameter, diameter) : Rect.Empty;
 }
 
+internal static class ElectricSupplementaryGaugeLayout
+{
+    internal const double DialCenterX = 182.5;
+    internal const double DialCenterOffsetY = 200.5;
+    internal const double DialRadius = 144.5;
+    internal const double AttachedScale = .75;
+    private const double Gap = 4;
+    private const double DefaultRimRadius = PowerTorqueGaugeLayout.GaugeDiameter * AttachedScale * .43;
+
+    internal static Rect GForceBounds(double scale)
+    {
+        var bounds = GForceGaugeLayout.NativeBounds(NativeGaugeMode.Analogue, scale);
+        bounds.Offset(-17, 34);
+        return bounds;
+    }
+
+    internal static AnalogSupplementaryGaugeLayout Calculate(
+        Size existingSize, double nativeTop,
+        bool showTire, bool showPower, bool showTorque,
+        double tireScale, double powerScale, double torqueScale,
+        double gForceScale = 1, double dpiScale = 1)
+    {
+        if (!showTire && !showPower && !showTorque)
+            return new(existingSize, Rect.Empty, Rect.Empty, Rect.Empty, Rect.Empty);
+
+        dpiScale = double.IsFinite(dpiScale) && dpiScale > 0 ? dpiScale : 1;
+        var tireSize = PowerTorqueGaugeLayout.Diameter(tireScale) * AttachedScale;
+        var powerSize = PowerTorqueGaugeLayout.Diameter(powerScale) * AttachedScale;
+        var torqueSize = PowerTorqueGaugeLayout.Diameter(torqueScale) * AttachedScale;
+        var tireRadius = tireSize * .43;
+        var powerRadius = powerSize * .43;
+        var torqueRadius = torqueSize * .43;
+        var centerY = nativeTop + DialCenterOffsetY;
+        // SpeedDial includes transparent padding. Clear the visible rim and its
+        // antialiased stroke, not the enclosing image rectangle.
+        var dialRadius = Math.Ceiling((DialRadius + 1) * dpiScale) / dpiScale;
+        var tireY = RoundCenter(Math.Max(tireSize / 2 + Gap, centerY - 134.5), tireSize);
+        var powerY = RoundCenter(Math.Max(centerY - 41.5, tireY + tireRadius + powerRadius +
+            (tireSize + powerSize) / PowerTorqueGaugeLayout.GaugeDiameter * 1.1 + Gap), powerSize);
+        var torqueY = RoundCenter(Math.Max(centerY + 54.5, powerY + powerRadius + torqueRadius +
+            (powerSize + torqueSize) / PowerTorqueGaugeLayout.GaugeDiameter * 1.1 + Gap), torqueSize);
+        var scale = GForceGaugeLayout.NormalizeScale(gForceScale);
+        var meter = GForceBounds(scale);
+        var meterX = meter.Left + meter.Width / 2;
+        var meterY = meter.Top + meter.Height / 2;
+        var tire = Place(showTire, tireSize, tireY, 159);
+        var power = Place(showPower, powerSize, powerY, 190.5);
+        var torque = Place(showTorque, torqueSize, torqueY, 195);
+        var width = existingSize.Width;
+        var height = existingSize.Height;
+        foreach (var bounds in new[] { tire, power, torque })
+        {
+            if (bounds.IsEmpty) continue;
+            width = Math.Max(width, bounds.Right + Gap);
+            height = Math.Max(height, bounds.Bottom + Gap);
+        }
+        return new(new Size(width, height), Rect.Empty, tire, power, torque);
+
+        double RoundCenter(double y, double size) =>
+            Math.Ceiling((y - size / 2) * dpiScale) / dpiScale + size / 2;
+
+        Rect Place(bool visible, double size, double requestedY, double referenceX)
+        {
+            if (!visible) return Rect.Empty;
+            var top = requestedY - size / 2;
+            var y = requestedY;
+            var radius = size * .43;
+            var stroke = size / PowerTorqueGaugeLayout.GaugeDiameter * 1.1;
+            var x = DialCenterX + referenceX + radius - DefaultRimRadius;
+            ClearCircle(DialCenterX, centerY, dialRadius);
+            ClearCircle(meterX, meterY, 39 * scale);
+            // The meter's axis and labels occupy a cross, leaving the lower-right
+            // corner free for the tyre dial. Reserve the actual ink separately.
+            ClearBox(new Rect(meterX - 60 * scale, meterY - 5 * scale, 120 * scale, 10 * scale));
+            ClearBox(new Rect(meterX - 14 * scale, meterY - 46 * scale, 28 * scale, 10 * scale));
+            ClearBox(new Rect(meterX - 14 * scale, meterY + 36 * scale, 28 * scale, 10 * scale));
+            var left = Math.Ceiling((x - size / 2) * dpiScale) / dpiScale;
+            return new Rect(left, top, size, size);
+
+            void ClearCircle(double otherX, double otherY, double otherRadius)
+            {
+                var distanceY = y - otherY;
+                var clearance = otherRadius + radius + stroke + Gap;
+                if (Math.Abs(distanceY) < clearance)
+                    x = Math.Max(x, otherX + Math.Sqrt(clearance * clearance - distanceY * distanceY));
+            }
+
+            void ClearBox(Rect box)
+            {
+                var distanceY = Math.Max(box.Top - y, Math.Max(0, y - box.Bottom));
+                var clearance = radius + stroke + Gap;
+                if (distanceY < clearance)
+                    x = Math.Max(x, box.Right + Math.Sqrt(clearance * clearance - distanceY * distanceY));
+            }
+        }
+    }
+}
+
 internal static class DetachedSupplementaryGaugeLayout
 {
     // Slot order retains boost's default lower-right position. The remaining

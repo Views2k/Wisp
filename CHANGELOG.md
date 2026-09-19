@@ -2,6 +2,14 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.2.0 - 2026-09-18
+
+- Extend the native renderer to the EV and Digital HUDs, supplementary gauges, G-force meter, and text layouts. Preserve artwork, colors, needle behavior, smoothing controls, and the WPF fallback.
+- Store G-force trails in force space so scale changes reproject the whole trail together, and interpolate the displayed dot between telemetry samples.
+- Wrap attached EV tire-temperature, power, and torque gauges closely around the speedometer's right side with a smaller attachment baseline. Retain individual size controls and detached placement.
+- Share the EV attachment geometry between the live HUD and Appearance preview, and retain enabled detached gauges in the preview through car and tune changes.
+- Preserve settings, HUD profiles, tire calibration, and recorded runs.
+
 ## 2.1.2 - 2026-09-16
 
 - Bound memory use for colored boost pressure numbers by reusing digit images as colors and pulse opacity change. Preserve their rendered appearance and existing needle behavior.

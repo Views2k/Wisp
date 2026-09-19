@@ -3,7 +3,7 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.1.2/Wisp-Setup-2.1.2.zip"><strong>Download Wisp 2.1.2</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.2.0/Wisp-Setup-2.2.0.zip"><strong>Download Wisp 2.2</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -11,17 +11,22 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## New in Wisp 2.1.2
+## New in Wisp 2.2
 
-A small performance hotfix bounds memory use for colored boost pressure numbers
-by reusing digit images as colors and pulse opacity change. Their appearance and
-existing needle behavior are preserved.
+The EV and Digital HUDs, supplementary gauges, G-force meter, and text layouts now
+use the native renderer already used by the Analogue speedometer. Existing
+artwork, colors, needle behavior, and smoothing controls are preserved.
 
-[Read the Wisp 2.1.2 release notes](docs/releases/Wisp-2.1.2-release-notes.md).
+Attached EV gauges use a smaller baseline and wrap closely around the
+speedometer's right side. The Appearance preview shares that layout and keeps
+enabled detached gauges visible through car and tune changes. G-force trails
+stay aligned as their display scale changes.
+
+[Read the Wisp 2.2 release notes](docs/releases/Wisp-2.2.0-release-notes.md).
 
 ### Gauge sizing from 2.1.1
 
-The four supplementary analogue dials match at 100% and stay aligned when resized.
+The four supplementary combustion analogue dials match at 100% and stay aligned when resized.
 Power and torque have separate size sliders, boost and tire sizing works while
 attached, and a **50–200% G-force meter size** control applies across attached,
 detached, and Combined layouts. Previews follow these settings; existing sizes,
@@ -138,8 +143,8 @@ An optional quick tour introduces the drift gauge, Display mode, Runs, and
 Appearance. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.1.2](https://github.com/Views2k/Wisp/releases/download/v2.1.2/Wisp-Setup-2.1.2.zip) ·
-[2.1.2 release notes](docs/releases/Wisp-2.1.2-release-notes.md) ·
+[Download Wisp 2.2](https://github.com/Views2k/Wisp/releases/download/v2.2.0/Wisp-Setup-2.2.0.zip) ·
+[2.2 release notes](docs/releases/Wisp-2.2.0-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Interface screenshots show the build used to develop Wisp 2.0. Their original
@@ -230,17 +235,17 @@ version labels.
   </tr>
 </table>
 
-## Analogue CPU rendering
+## HUD rendering
 
-If the Analogue tachometer lags or hitches, enable **CPU rendering** in
+To try software rendering for the live HUD, enable **CPU rendering** in
 **Diagnostics**. Right-click Wisp's tray icon, choose **Exit Wisp**, then reopen
 it to apply the change. CPU mode reuses unchanged dial-background pixels while
 the needle and live readings continue updating.
 
 GPU rendering remains the default. CPU mode can increase CPU usage, and Windows
-still uses the GPU to compose the overlay. Other gauges keep their existing
-renderers. This option does not guarantee that every rendering-lag report is
-resolved.
+still uses the GPU to compose the overlay. Live HUD gauges share the native
+renderer; Appearance previews and the fallback retain WPF rendering. This option
+does not guarantee that every rendering-lag report is resolved.
 
 ## Requirements
 
@@ -262,8 +267,8 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open the [Wisp 2.1.2 release](https://github.com/Views2k/Wisp/releases/tag/v2.1.2).
-2. Download and extract [Wisp-Setup-2.1.2.zip](https://github.com/Views2k/Wisp/releases/download/v2.1.2/Wisp-Setup-2.1.2.zip).
+1. Open the [Wisp 2.2 release](https://github.com/Views2k/Wisp/releases/tag/v2.2.0).
+2. Download and extract [Wisp-Setup-2.2.0.zip](https://github.com/Views2k/Wisp/releases/download/v2.2.0/Wisp-Setup-2.2.0.zip).
 3. Keep the installer and its `.sha256` file together.
 4. Verify the installer checksum, then run the installer.
 5. Complete the required setup wizard on first launch.
@@ -389,7 +394,7 @@ To build the self-contained installer:
 - [Boost Gauge](docs/BOOST-GAUGE.md)
 - [Tire Temperature](docs/TIRE-TEMPERATURE.md)
 - [Run files and library archives](docs/run-library-format.md)
-- [Wisp 2.1.2 release notes](docs/releases/Wisp-2.1.2-release-notes.md)
+- [Wisp 2.2 release notes](docs/releases/Wisp-2.2.0-release-notes.md)
 - [Wisp 2.1.1 release notes](docs/releases/Wisp-2.1.1-release-notes.md)
 - [Wisp 2.1 release notes](docs/releases/Wisp-2.1.0-release-notes.md)
 - [Wisp 2.0 release notes](docs/releases/Wisp-2.0.0-release-notes.md)

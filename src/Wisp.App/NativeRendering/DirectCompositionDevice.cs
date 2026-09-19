@@ -8,7 +8,10 @@ internal enum DirectCompositionShader : uint
 {
     Image = 0,
     Dial = 1,
-    Needle = 2
+    Needle = 2,
+    ElectricNeedle = 3,
+    ImageSector = 4,
+    DigitalGauge = 5
 }
 
 internal enum DirectCompositionWaitResult : uint

@@ -66,9 +66,36 @@ public sealed class WpfStyleRuntimeTests
                 var application = new ResourceOnlyApplication();
                 application.Resources = LoadApplicationResources();
                 AnalogHudSceneTests.AssertOnCurrentDispatcher();
+                var hudChecks = new Action[]
+                {
+                    ElectricHudSceneTests.AssertOnCurrentDispatcher,
+                    DigitalHudSceneTests.AssertOnCurrentDispatcher,
+                    PowerTorqueHudLayerTests.AssertOnCurrentDispatcher,
+                    GForceHudLayerTests.AssertOnCurrentDispatcher,
+                    SupplementaryHudLayerTests.AssertOnCurrentDispatcher,
+                    HudScenePlaybackTests.AssertOnCurrentDispatcher,
+                    HudNativeHostTests.AssertOnCurrentDispatcher,
+                    TextHudLayerTests.AssertOnCurrentDispatcher
+                };
+                var hudFailures = new List<Exception>();
+                foreach (var check in hudChecks)
+                {
+                    try
+                    {
+                        check();
+                    }
+                    catch (Exception exception)
+                    {
+                        hudFailures.Add(new InvalidOperationException(
+                            check.Method.DeclaringType?.Name, exception));
+                    }
+                }
+                if (hudFailures.Count != 0)
+                    throw new AggregateException(hudFailures);
                 TachNeedleDiagnosticsTests.AssertOnCurrentDispatcher();
                 OverlayPresentationTests.AssertOnCurrentDispatcher();
                 OverlayGForcePlacementTests.AssertOnCurrentDispatcher();
+                OverlayElectricGaugePlacementTests.AssertOnCurrentDispatcher();
                 NativeRendererIntegrationTests.AssertOnCurrentDispatcher();
                 NativeRendererIntegrationTests.AssertOnCurrentDispatcher(cpuRendering: true);
                 CpuRenderingSettingsTests.AssertControllerPersistenceOnCurrentDispatcher();

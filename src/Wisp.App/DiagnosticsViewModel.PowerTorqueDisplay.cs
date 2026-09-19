@@ -9,6 +9,15 @@ public sealed partial class DiagnosticsViewModel
     private readonly PowerTorqueNeedlePlayback _powerTorqueNeedlePlayback = new();
     private PowerTorqueDisplay _powerTorqueDisplay = PowerTorqueDisplay.Unavailable;
     private int _powerTorqueCarOrdinal;
+    internal NativePowerTorqueInput NativePowerTorqueInput { get; private set; }
+
+    private void PublishNativePowerTorque(PowerTorqueDisplay display, int car, uint gameTime,
+        long received, bool reset = false)
+    {
+        NativePowerTorqueInput = new(display, car, gameTime, received, Stopwatch.GetTimestamp(),
+            NativePowerTorqueInput.Revision + (reset ? 1 : 0));
+        OnPropertyChanged(nameof(NativePowerTorqueInput));
+    }
 
     public PowerTorqueDisplay PowerTorqueDisplay
     {
@@ -50,6 +59,7 @@ public sealed partial class DiagnosticsViewModel
         }
         var display = _powerTorqueDisplayModel.Observe(
             state.CarOrdinal, state.GameTimestampMilliseconds, state.PowerWatts, state.TorqueNm, state.ReceivedTimestamp);
+        PublishNativePowerTorque(display, state.CarOrdinal, state.GameTimestampMilliseconds, state.ReceivedTimestamp ?? 0);
         PowerTorqueDisplay = _powerTorqueNeedlePlayback.Observe(display, state.CarOrdinal,
             state.GameTimestampMilliseconds, Stopwatch.GetTimestamp(), state.ReceivedTimestamp);
     }
@@ -63,6 +73,7 @@ public sealed partial class DiagnosticsViewModel
     private void ClearPowerTorqueDisplay()
     {
         _powerTorqueDisplayModel.ResetCurrent();
+        PublishNativePowerTorque(_powerTorqueDisplayModel.Current, _powerTorqueCarOrdinal, 0, 0, reset: true);
         _powerTorqueNeedlePlayback.Reset();
         PowerTorqueDisplay = _powerTorqueDisplayModel.Current;
     }
@@ -70,6 +81,8 @@ public sealed partial class DiagnosticsViewModel
     private void ResetPowerTorquePeaks()
     {
         _powerTorqueDisplayModel.ResetPeaks();
+        PublishNativePowerTorque(_powerTorqueDisplayModel.Current, NativePowerTorqueInput.CarOrdinal,
+            NativePowerTorqueInput.GameTimestampMilliseconds, NativePowerTorqueInput.ReceivedTimestamp);
         _powerTorqueNeedlePlayback.UpdatePeaks(_powerTorqueDisplayModel.Current);
         PowerTorqueDisplay = PowerTorqueDisplay with
         {
@@ -86,6 +99,8 @@ public sealed partial class DiagnosticsViewModel
         _powerTorqueDisplayModel.ShowNegative = PowerTorqueShowNegative;
         if (changed)
         {
+            PublishNativePowerTorque(_powerTorqueDisplayModel.Current, NativePowerTorqueInput.CarOrdinal,
+                NativePowerTorqueInput.GameTimestampMilliseconds, NativePowerTorqueInput.ReceivedTimestamp, reset: true);
             _powerTorqueNeedlePlayback.Reset();
             PowerTorqueDisplay = _powerTorqueDisplayModel.Current;
         }

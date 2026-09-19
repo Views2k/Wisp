@@ -39,6 +39,11 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--ev-wrap-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return ElectricLayoutReview.Run(output, () => LoadApplicationResources(output, out _), DetachSurface, SetOffscreenDpi);
+            }
             if (args.Length == 3 && args[0] == "--power-torque-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);
@@ -107,6 +112,7 @@ internal static class Program
             {
                 Console.WriteLine("Wisp.UiReview --output <new workspace directory> [--fixture <name>] [--scope matrix|dashboard|appearance|wizard] [--dashboard-mode normal|monitor|resizable] [--telemetry sample|waiting|lost] [--dpi 96|144] [--present] [--step welcome|connection|display|appearance] [--scroll-check] [--native-lifetime-check]");
                 Console.WriteLine("Fixtures: " + string.Join(", ", Fixture.All.Select(fixture => fixture.Name)));
+                Console.WriteLine("--ev-wrap-check --output <new workspace directory> captures actual EV overlay and modern/legacy Appearance previews at 100%/75% gauge scale and 96 DPI. Synthetic sample only; no displayed window or live services.");
                 Console.WriteLine("Main-window --present requires one --fixture, omits --scope/--dpi, and shows display-only Appearance at monitor DPI with a 120-second auto-close timer.");
                 Console.WriteLine("--scope wizard captures all four unconfirmed steps at four sizes and 96/144 DPI by default. --present --scope wizard shows one display-only step; --step selects it. Wizard mode never tests or completes setup.");
                 Console.WriteLine("--scroll-check compares direct Viewbox versus a temporary Decorator on Diagnostics, Profiles, and Release Notes at 720x440 and 980x750. --scope and --step are rejected; no PNGs are produced.");
