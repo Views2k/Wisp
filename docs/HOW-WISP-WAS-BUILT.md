@@ -22,7 +22,7 @@ FH6 loopback UDP
     -> Wisp.App       -> setup, settings, diagnostics, run recording and views
         |             -> guarded read-only Native capability
         |             -> WPF views and overlays
-        |             -> Wisp.NativeRenderer -> live combustion Analogue HUD
+        |             -> Wisp.NativeRenderer -> live HUD surfaces
         `-> Wisp.Update -> release validation and verified download
                          -> Wisp.Updater -> apply after Wisp exits
 ```
@@ -94,8 +94,8 @@ SHA-256, role, and rendering treatment.
 The asset cache loads each image once, corrects the exported alpha
 representation before WPF composition, freezes the result, and reuses tinted
 variants. Digital, Analogue, Electric Digital, and Electric Analogue controls
-then select the appropriate elements for the current state. The native analogue
-scene uses the same stock assets and gauge geometry. Shaders provide the digital
+then select the appropriate elements for the current state. Native HUD scenes
+use the same stock assets and gauge geometry. Shaders provide the digital
 RPM material, analogue dial treatment, and tachometer needle trail in their
 respective renderers.
 
