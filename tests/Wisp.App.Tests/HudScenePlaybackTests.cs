@@ -121,7 +121,7 @@ public sealed class HudScenePlaybackTests
                 var bar = commands.Where(command => command.TextureId == DigitalHudAssets.WhiteTextureId).ToArray();
                 var powerBar = (FrameworkElement)control.FindName("PowerBarGrid");
                 Assert.Equal(multi ? 234 : 215, powerBar.Width);
-                Assert.Equal(powerBar.RenderSize.Width, bar[0].AxisXX + bar[2].AxisXX, 4);
+                DigitalHudSceneTests.AssertPowerBarTracks(control, bar);
                 // Invalidated layout must keep the last arranged geometry until layout completes.
                 control.InvalidateArrange();
                 Assert.False(control.IsArrangeValid);
@@ -150,8 +150,7 @@ public sealed class HudScenePlaybackTests
                 var commands = playback.Build(now);
                 var bar = commands.Where(command => command.TextureId == DigitalHudAssets.WhiteTextureId).ToArray();
                 Assert.Equal(4, bar.Length);
-                var powerBar = (Grid)control.FindName("PowerBarGrid");
-                Assert.Equal(powerBar.ColumnDefinitions[0].ActualWidth, bar[0].AxisXX, 4);
+                DigitalHudSceneTests.AssertPowerBarTracks(control, bar);
                 AssertImageQuad(control, "RegenIndicator", bar[1]);
                 AssertImageQuad(control, "PowerIndicator", bar[3]);
             }

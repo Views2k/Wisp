@@ -157,7 +157,7 @@ public sealed class DigitalHudSceneTests
                             AssertQuad(control, "PowerIndicator", bar[3]);
                             var powerBar = (FrameworkElement)control.FindName("PowerBarGrid");
                             Assert.Equal(multiGear ? 234 : 215, powerBar.Width);
-                            Assert.Equal(powerBar.RenderSize.Width, bar[0].AxisXX + bar[2].AxisXX, 4);
+                            AssertPowerBarTracks(control, bar);
                         }
                     }
         electric.Frame = Frame() with { IsElectric = true, NativePowerFillAmount = .6007 };
@@ -165,6 +165,7 @@ public sealed class DigitalHudSceneTests
         var boundaryCommands = DigitalHudScene.Build(Sample(electric.Frame), false, default, DigitalHudLayout.Capture(electric));
         var boundaryBar = boundaryCommands.Where(command => command.TextureId == DigitalHudAssets.WhiteTextureId).ToArray();
         AssertQuad(electric, "PowerIndicator", boundaryBar[3]);
+        AssertPowerBarTracks(electric, boundaryBar);
         var textures = DigitalHudAssets.LoadOnUiThread();
         Assert.Same(textures, DigitalHudAssets.LoadOnUiThread());
         Assert.Equal(DigitalHudAssets.Definitions.Count + 1, textures.Count);
@@ -219,9 +220,28 @@ public sealed class DigitalHudSceneTests
         }
     }
 
+    internal static void AssertPowerBarTracks(UserControl control, DirectCompositionDrawCommand[] bar)
+    {
+        Assert.Equal(4, bar.Length);
+        foreach (var (name, index) in new[] { ("RegenIndicator", 0), ("PowerIndicator", 2) })
+        {
+            var indicator = (FrameworkElement)control.FindName(name);
+            var track = Assert.IsType<Grid>(VisualTreeHelper.GetParent(indicator));
+            var background = Assert.IsType<SolidColorBrush>(track.Background);
+            AssertQuad(control, track, name + " track", bar[index],
+                (float)(track.Opacity * background.Opacity * background.Color.A / 255));
+        }
+    }
+
     private static void AssertQuad(UserControl control, string name, DirectCompositionDrawCommand command)
     {
         var element = (FrameworkElement)control.FindName(name);
+        AssertQuad(control, element, name, command, (float)element.Opacity);
+    }
+
+    private static void AssertQuad(UserControl control, FrameworkElement element, string name,
+        DirectCompositionDrawCommand command, float opacity)
+    {
         var transform = element.TransformToAncestor(control);
         var origin = transform.Transform(new Point());
         var x = transform.Transform(new Point(element.RenderSize.Width, 0));
@@ -235,7 +255,7 @@ public sealed class DigitalHudSceneTests
             Assert.InRange(Math.Abs(x.Y - origin.Y - command.AxisXY), 0, .0001);
             Assert.InRange(Math.Abs(y.X - origin.X - command.AxisYX), 0, .0001);
             Assert.InRange(Math.Abs(y.Y - origin.Y - command.AxisYY), 0, .0001);
-            Assert.Equal((float)element.Opacity, command.TintA);
+            Assert.Equal(opacity, command.TintA);
         }
         catch (Exception error)
         {
