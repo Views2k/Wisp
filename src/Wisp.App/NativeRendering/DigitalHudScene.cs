@@ -86,7 +86,10 @@ internal static class DigitalHudScene
         // Derive those widths from the authored 215/234-DIP bar, then clip to its arranged columns.
         var rawRegenWidth = authoredWidth * display.RegenRatio;
         var rawPowerWidth = authoredWidth - rawRegenWidth;
-        var regenWidth = layout.RoundX(rawRegenWidth);
+        // Grid redistributes rounding remainder between its columns. Preserve its arranged boundary.
+        var regenWidth = double.IsFinite(layout.ArrangedRegenWidth)
+            ? Math.Clamp(layout.ArrangedRegenWidth, 0, width)
+            : layout.RoundX(rawRegenWidth);
         var powerWidth = width - regenWidth;
         var regenFill = Math.Min(regenWidth, layout.RoundX(rawRegenWidth * display.RegenFill));
         var powerFill = Math.Min(powerWidth, layout.RoundX(rawPowerWidth * display.PowerFill));

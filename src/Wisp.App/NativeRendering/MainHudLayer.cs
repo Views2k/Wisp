@@ -18,7 +18,7 @@ internal static class MainHudLayer
         var a = frame.NativeAssists;
         var key = (control.RenderSize, VisualTreeHelper.GetDpi(control), control.UseLayoutRounding, frame.Unit,
             a.Available, a.IsSTMAvailable, a.IsABSAvailable, a.IsLCAvailable, a.IsTCRAvailable,
-            NativeElectricGearModel.IsMultiGear(frame.ElectricGearState), frame.GearDisplayMode,
+            NativeElectricGearModel.IsMultiGear(frame.ElectricGearState), frame.NativeRegenPowerRatio, frame.GearDisplayMode,
             NativeElectricGearModel.CurrentToken(frame.ElectricGearState, NativeGaugeMode.Analogue, frame.Gear) is not null,
             NativeElectricGearModel.CurrentToken(frame.ElectricGearState, NativeGaugeMode.Digital, frame.Gear) is not null,
             NativeElectricGearModel.AdjacentToken(frame.ElectricGearState, false) is not null,

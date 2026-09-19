@@ -31,7 +31,7 @@ internal sealed record DigitalHudLayout(
     DigitalHudQuad Hundreds, DigitalHudQuad Tens, DigitalHudQuad Ones, DigitalHudQuad Unit,
     DigitalHudQuad Stm, DigitalHudQuad Abs, DigitalHudQuad Lc, DigitalHudQuad Tcr,
     DigitalHudQuad Gauge, DigitalHudQuad PowerBar, DigitalHudQuad RegenLabel, DigitalHudQuad PowerLabel,
-    double DpiScaleX = 1, bool LayoutRounding = false)
+    double DpiScaleX = 1, bool LayoutRounding = false, double ArrangedRegenWidth = double.NaN)
 {
     internal static DigitalHudLayout Capture(NativeDigitalSpeedometer control) => Capture(control, control.Frame);
     internal static DigitalHudLayout Capture(NativeElectricDigitalSpeedometer control) => Capture(control, control.Frame);
@@ -60,7 +60,8 @@ internal sealed record DigitalHudLayout(
             Read("UnitImage", fallback.Unit), Read("StmImage", fallback.Stm), Read("AbsImage", fallback.Abs),
             Read("LcImage", fallback.Lc), Read("TcrImage", fallback.Tcr), Read("GaugeVisual", fallback.Gauge),
             Read("PowerBarGrid", fallback.PowerBar), Read("RegenLabelImage", fallback.RegenLabel), Read("PowerLabelImage", fallback.PowerLabel),
-            VisualTreeHelper.GetDpi(control).DpiScaleX, control.UseLayoutRounding);
+            VisualTreeHelper.GetDpi(control).DpiScaleX, control.UseLayoutRounding,
+            frame.IsElectric && control.FindName("RegenColumn") is ColumnDefinition column ? column.ActualWidth : double.NaN);
     }
 
     internal double RoundX(double value) => LayoutRounding ? Math.Round(value * DpiScaleX) / DpiScaleX : value;
