@@ -34,6 +34,7 @@ public partial class GForceWindow : Window
             controller.Settings.CustomHudBorderColor);
         _windowDrag = new NonActivatingWindowDrag(this, controller.SaveGForcePlacement);
         DataContext = controller.ViewModel;
+        NativeRendering.HudNativeHost.Attach(this);
         ApplyAppearance(
             controller.Settings.GForceWidthScale,
             controller.Settings.GForceHeightScale,

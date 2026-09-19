@@ -32,6 +32,7 @@ public sealed class PowerTorqueGaugeWindow : Window
         ShowInTaskbar = false;
         ShowActivated = false;
         DataContext = controller.ViewModel;
+        NativeRendering.HudNativeHost.Attach(this);
 
         var gauge = new PowerTorqueGaugeView
         {

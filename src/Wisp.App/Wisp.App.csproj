@@ -11,9 +11,9 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp</AssemblyTitle>
     <Description>Wheel-indicated speed and G-force display for Forza Horizon 6.</Description>
-    <Version>2.1.2</Version>
-    <FileVersion>2.1.2.0</FileVersion>
-    <AssemblyVersion>2.1.2.0</AssemblyVersion>
+    <Version>2.2.0</Version>
+    <FileVersion>2.2.0.0</FileVersion>
+    <AssemblyVersion>2.2.0.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Wisp.Core\Wisp.Core.csproj" />
@@ -25,7 +25,7 @@
     <NativeRendererDll>$(NativeRendererOutputDirectory)\Wisp.NativeRenderer.dll</NativeRendererDll>
   </PropertyGroup>
   <ItemGroup>
-    <NativeRendererInputs Include="..\Wisp.NativeRenderer\*.cpp;..\Wisp.NativeRenderer\*.h;..\Wisp.NativeRenderer\*.hlsl;..\Wisp.NativeRenderer\*.ps1;Shaders\AnalogGauge.hlsl;Shaders\AnalogNeedle.hlsl" />
+    <NativeRendererInputs Include="..\Wisp.NativeRenderer\*.cpp;..\Wisp.NativeRenderer\*.h;..\Wisp.NativeRenderer\*.hlsl;..\Wisp.NativeRenderer\*.ps1;Shaders\AnalogGauge.hlsl;Shaders\AnalogNeedle.hlsl;Shaders\DigitalGauge.hlsl" />
     <Content Include="$(NativeRendererDll)" Link="Wisp.NativeRenderer.dll"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
              ExcludeFromSingleFile="true" />

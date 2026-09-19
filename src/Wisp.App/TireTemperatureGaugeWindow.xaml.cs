@@ -25,6 +25,7 @@ public partial class TireTemperatureGaugeWindow : Window
         InitializeComponent();
         _controller = controller;
         DataContext = controller.ViewModel;
+        NativeRendering.HudNativeHost.Attach(this);
         BoostGaugeThemeResources.Apply(
             Resources,
             controller.Settings.BoostGaugeTheme,

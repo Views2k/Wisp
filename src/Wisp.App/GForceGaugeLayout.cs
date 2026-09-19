@@ -37,6 +37,11 @@ public sealed class GForceGaugeLayoutConverter : IValueConverter
     {
         var scale = GForceGaugeLayout.NormalizeScale(value is double number ? number : 1);
         var option = parameter as string ?? string.Empty;
+        if (option == "ev-analogue")
+        {
+            var electric = ElectricSupplementaryGaugeLayout.GForceBounds(scale);
+            return new Thickness(electric.Left, electric.Top, 0, 0);
+        }
         if (option == "combined-width") return GForceGaugeLayout.CombinedSize(scale).Width;
         if (option == "combined-height") return GForceGaugeLayout.CombinedSize(scale).Height;
         var margin = (Thickness)new ThicknessConverter().ConvertFromInvariantString(option)!;

@@ -293,6 +293,7 @@ public partial class NativeElectricAnalogSpeedometer : UserControl
 
     private void OnCompositionRendering(object? sender, EventArgs eventArgs)
     {
+        if (NativeRendering.HudNativeHost.IsPresented(this)) return;
         if (!_hasFrame || !_renderLifetime.IsLive)
         {
             return;

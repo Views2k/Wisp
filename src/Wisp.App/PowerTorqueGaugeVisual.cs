@@ -21,6 +21,7 @@ public sealed class PowerTorqueGaugeView : Grid
     private DrawingGroup? _coloredArc;
     private DrawingGroup? _readoutDrawing;
     private double _dialPixelsPerDip;
+    internal long NativeArtworkRevision { get; private set; }
 
     public static readonly DependencyProperty DisplayProperty = DependencyProperty.Register(
         nameof(Display), typeof(PowerTorqueDisplay), typeof(PowerTorqueGaugeView),
@@ -38,7 +39,7 @@ public sealed class PowerTorqueGaugeView : Grid
     public static readonly DependencyProperty AccentBrushProperty = DependencyProperty.Register(
         nameof(AccentBrush), typeof(Brush), typeof(PowerTorqueGaugeView),
         new FrameworkPropertyMetadata(FrozenBrush(Color.FromRgb(162, 221, 245)),
-            FrameworkPropertyMetadataOptions.AffectsRender));
+            FrameworkPropertyMetadataOptions.AffectsRender, OnAccentChanged));
     public static readonly DependencyProperty IsElectricMaterialProperty = DependencyProperty.Register(
         nameof(IsElectricMaterial), typeof(bool), typeof(PowerTorqueGaugeView),
         new FrameworkPropertyMetadata(false, OnMaterialChanged));
@@ -153,6 +154,7 @@ public sealed class PowerTorqueGaugeView : Grid
     private static void OnDialChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         var gauge = (PowerTorqueGaugeView)sender;
+        gauge.NativeArtworkRevision++;
         gauge._dial = null;
         gauge._readoutDrawing = null;
         gauge.UpdateNeedle();
@@ -165,13 +167,22 @@ public sealed class PowerTorqueGaugeView : Grid
     private static void OnPaletteChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         var gauge = (PowerTorqueGaugeView)sender;
+        gauge.NativeArtworkRevision++;
         gauge._coloredArc = null;
         gauge._readoutDrawing = null;
         gauge.InvalidateVisual();
     }
 
+    private static void OnAccentChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args) =>
+        ((PowerTorqueGaugeView)sender).NativeArtworkRevision++;
+
+    internal DrawingGroup CaptureNativeDial() => BuildDial();
+    internal DrawingGroup CaptureNativeColoredArc() => BuildColoredArc();
+    internal FormattedText CaptureNativeText(string text, double size, Brush brush) => Text(text, size, brush);
+
     private void UpdateNeedle()
     {
+        if (NativeRendering.HudNativeHost.IsPresented(this)) return;
         _needleView.Visibility = HasReading ? Visibility.Visible : Visibility.Hidden;
         _needleRotation.Angle = NeedleAngle(DisplayedValue, Maximum);
     }
@@ -182,6 +193,7 @@ public sealed class PowerTorqueGaugeView : Grid
 
     protected override void OnRender(DrawingContext dc)
     {
+        if (NativeRendering.HudNativeHost.IsPresented(this)) return;
         base.OnRender(dc);
         if (ActualWidth <= 0 || ActualHeight <= 0) return;
         dc.PushTransform(new ScaleTransform(ActualWidth / DesignSize, ActualHeight / DesignSize));

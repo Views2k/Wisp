@@ -12,6 +12,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
 {
     private readonly DashboardPowerDisplayModel _dashboardPowerDisplayModel = new();
     private readonly GForceDisplayModel _gForceDisplayModel = new();
+    internal NativeGForceInput NativeGForceInput { get; private set; }
     private readonly BoostDisplayModel _boostDisplayModel = new();
     private readonly TireTemperatureDisplayModel _tireTemperatureDisplayModel = new();
     private string _statusText = "Waiting for FH6";
@@ -848,6 +849,10 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             GForceOffsetX = offsetX;
             GForceOffsetY = offsetY;
             GForceTrailPosition = new Point(offsetX, offsetY);
+            NativeGForceInput = new(true, offsetX / displayRadius * gForce.Value.FullScaleG,
+                offsetY / displayRadius * gForce.Value.FullScaleG, gForce.Value.FullScaleG,
+                state.CarOrdinal, state.GameTimestampMilliseconds, state.ReceivedTimestamp ?? 0);
+            OnPropertyChanged(nameof(NativeGForceInput));
         }
 
         if (!refreshDiagnostics)
@@ -1017,6 +1022,8 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         GForceOffsetY = 0;
         GForceTrailPosition = default;
         _gForceDisplayModel.Reset();
+        NativeGForceInput = default;
+        OnPropertyChanged(nameof(NativeGForceInput));
         _boostDisplayModel.Reset();
         BoostDisplay = BoostDisplay.Unavailable;
         TireTemperatureDisplay = TireTemperatureDisplay.Unavailable;

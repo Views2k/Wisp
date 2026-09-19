@@ -16,9 +16,9 @@ internal static class NativeRendererIntegrationTests
     internal static void AssertOnCurrentDispatcher(bool cpuRendering = false)
     {
         var hardwareAvailable = cpuRendering || ProbeHardwareSupport();
-        var expectedStatus = cpuRendering ? "Analogue renderer: CPU (WARP) / DirectComposition" : hardwareAvailable
-            ? "Analogue renderer: Direct3D 11 / DirectComposition"
-            : "Analogue renderer: WPF fallback (0x887A0004)";
+        var expectedStatus = cpuRendering ? "HUD renderer: CPU (WARP) / DirectComposition" : hardwareAvailable
+            ? "HUD renderer: Direct3D 11 / DirectComposition"
+            : "HUD renderer: WPF fallback (0x887A0004)";
         var expectedContentVisibility = hardwareAvailable ? Visibility.Hidden : Visibility.Visible;
         var settings = new AppSettings
         {

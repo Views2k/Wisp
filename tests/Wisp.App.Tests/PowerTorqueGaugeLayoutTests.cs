@@ -8,6 +8,109 @@ namespace Wisp.App.Tests;
 public sealed class PowerTorqueGaugeLayoutTests
 {
     [Fact]
+    public void ElectricDefaultsMatchTheMeasuredReferenceComposition()
+    {
+        var layout = ElectricSupplementaryGaugeLayout.Calculate(new Size(345, 417), 72,
+            true, true, true, 1, 1, 1);
+        var bounds = new[] { layout.TireBounds, layout.PowerBounds, layout.TorqueBounds };
+        var expectedCenters = new[] { new Point(342.5, 138.5), new Point(373.5, 231.5), new Point(378.5, 327.5) };
+        Assert.True(layout.BoostBounds.IsEmpty);
+        for (var index = 0; index < bounds.Length; index++)
+        {
+            Assert.Equal(102, bounds[index].Width);
+            Assert.Equal(102, bounds[index].Height);
+            Assert.InRange(Math.Abs(Center(bounds[index]).X - expectedCenters[index].X), 0, 1);
+            Assert.InRange(Math.Abs(Center(bounds[index]).Y - expectedCenters[index].Y), 0, 1);
+        }
+        Assert.Equal(new Rect(178, 34, 144, 100), ElectricSupplementaryGaugeLayout.GForceBounds(1));
+    }
+
+    [Fact]
+    public void ElectricSatellitesKeepIndependentSizesAndClearVisibleArtwork()
+    {
+        foreach (var mask in Enumerable.Range(1, 7))
+            foreach (var scales in new[] { (.5, .5, .5), (.75, .75, .75), (1d, 1d, 1d), (2d, 2d, 2d), (2d, .5, 1.25) })
+                foreach (var gForceScale in new[] { .5, 1, 2 })
+                    foreach (var dpi in new[] { 1d, 1.25, 1.5 })
+                    {
+                        var top = GForceGaugeLayout.NativeTopPadding(gForceScale);
+                        var layout = ElectricSupplementaryGaugeLayout.Calculate(new Size(345, 345 + top), top,
+                            (mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0,
+                            scales.Item1, scales.Item2, scales.Item3, gForceScale, dpi);
+                        var bounds = new[] { layout.TireBounds, layout.PowerBounds, layout.TorqueBounds };
+                        var expectedScales = new[] { scales.Item1, scales.Item2, scales.Item3 };
+                        var dialCenter = new Point(182.5, top + 200.5);
+                        // SpeedDial's visible rim is about 289 source pixels from its
+                        // center, rendered at half scale; the image has clear edges.
+                        var dialRadius = Math.Ceiling(145.5 * dpi) / dpi;
+                        var meter = ElectricSupplementaryGaugeLayout.GForceBounds(gForceScale);
+                        var meterCenter = Center(meter);
+                        var meterInk = new[]
+                        {
+                            new Rect(meterCenter.X - 60 * gForceScale, meterCenter.Y - 5 * gForceScale, 120 * gForceScale, 10 * gForceScale),
+                            new Rect(meterCenter.X - 14 * gForceScale, meterCenter.Y - 46 * gForceScale, 28 * gForceScale, 10 * gForceScale),
+                            new Rect(meterCenter.X - 14 * gForceScale, meterCenter.Y + 36 * gForceScale, 28 * gForceScale, 10 * gForceScale)
+                        };
+                        for (var index = 0; index < bounds.Length; index++)
+                        {
+                            var enabled = (mask & (1 << index)) != 0;
+                            Assert.Equal(!enabled, bounds[index].IsEmpty);
+                            if (!enabled) continue;
+                            var gauge = bounds[index];
+                            var center = Center(gauge);
+                            var radius = RimRadius(gauge);
+                            var context = $"mask={mask}, scales={scales}, gForce={gForceScale}, dpi={dpi}, gauge={index}, bounds={gauge}";
+                            Assert.Equal(102 * expectedScales[index], gauge.Width);
+                            Assert.Equal(gauge.Width, gauge.Height);
+                            Assert.True(new Rect(layout.Size).Contains(gauge), context);
+                            Assert.True((center - dialCenter).Length >= dialRadius + radius + 4, context);
+                            Assert.True((center - meterCenter).Length >= 39 * gForceScale + radius + 4, context);
+                            foreach (var ink in meterInk)
+                            {
+                                var nearest = new Point(Math.Clamp(center.X, ink.Left, ink.Right),
+                                    Math.Clamp(center.Y, ink.Top, ink.Bottom));
+                                Assert.True((center - nearest).Length >= radius + 4, context);
+                            }
+                            foreach (var lower in bounds.Skip(index + 1).Where(value => !value.IsEmpty))
+                            {
+                                Assert.True(Center(lower).Y > center.Y, context);
+                                Assert.True((Center(lower) - center).Length >= radius + RimRadius(lower) + 4, context);
+                            }
+                        }
+                    }
+    }
+
+    [Theory]
+    [InlineData(double.NaN, 102)]
+    [InlineData(double.PositiveInfinity, 102)]
+    [InlineData(0, 51)]
+    [InlineData(5, 204)]
+    public void ElectricAttachedScaleIsAppliedAfterSavedScaleNormalization(double savedScale, double diameter)
+    {
+        var layout = ElectricSupplementaryGaugeLayout.Calculate(new Size(345, 417), 72,
+            true, true, true, savedScale, savedScale, savedScale);
+        Assert.Equal(diameter, layout.TireBounds.Width);
+        Assert.Equal(diameter, layout.PowerBounds.Width);
+        Assert.Equal(diameter, layout.TorqueBounds.Width);
+    }
+
+    private static double RimRadius(Rect bounds) => bounds.Width * .43 + bounds.Width / 136 * 1.1;
+
+    [Fact]
+    public void DisabledElectricSatellitesLeaveTheExistingSurfaceUnchanged()
+    {
+        var size = new Size(345, 417);
+        var layout = ElectricSupplementaryGaugeLayout.Calculate(size, 72, false, false, false, 2, .5, 1);
+        Assert.Equal(size, layout.Size);
+        Assert.True(layout.BoostBounds.IsEmpty);
+        Assert.True(layout.TireBounds.IsEmpty);
+        Assert.True(layout.PowerBounds.IsEmpty);
+        Assert.True(layout.TorqueBounds.IsEmpty);
+    }
+
+    private static Point Center(Rect bounds) => new(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+
+    [Fact]
     public void DefaultAnalogGridAlignsEveryRowAndColumn()
     {
         var layout = AnalogSupplementaryGaugeLayout.Calculate(new Size(416, 365.5), 76,

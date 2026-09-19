@@ -7,12 +7,14 @@ namespace Wisp.App.NativeRendering;
 internal sealed record AnalogHudPresentation(
     int Width, int Height, float OriginX, float OriginY,
     float AxisXX, float AxisXY, float AxisYX, float AxisYY, float Opacity,
-    bool Active, bool TractionActive, AnalogHudColor TractionColor, AnalogHudLayout? Layout);
+    bool Active, bool TractionActive, AnalogHudColor TractionColor, AnalogHudLayout? Layout, HudWindowSnapshot? Hud = null);
 
 internal sealed class AnalogHudRenderWorker : IDisposable
 {
     private readonly object _gate = new();
     private readonly Queue<(NativeGaugeFrame Frame, long Timestamp)> _frames = new(64);
+    private readonly Queue<(HudWindowSnapshot Snapshot, long Timestamp)> _hudFrames = new(64);
+    internal event Action<HudWindowSnapshot>? HudPresented;
     private readonly ManualResetEvent _stop = new(false);
     private readonly AutoResetEvent _changed = new(false);
     private readonly IntPtr _window;
@@ -56,6 +58,25 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         }
     }
 
+    internal void UpdateHud(HudWindowSnapshot snapshot, long timestamp)
+    {
+        lock (_gate)
+        {
+            if (_disposed) return;
+            if (_hudFrames.Count == 64)
+            {
+                _queueDropped += _hudFrames.Count;
+                _hudFrames.Clear();
+                _reset = true;
+            }
+            if (!snapshot.Active || snapshot.Active != _presentation.Active) _reset = true;
+            _presentation = new(snapshot.Width, snapshot.Height, 0, 0, 1, 0, 0, 1, snapshot.Opacity,
+                snapshot.Active, false, default, null, snapshot);
+            _hudFrames.Enqueue((snapshot, timestamp));
+            _changed.Set();
+        }
+    }
+
     internal void UpdatePresentation(AnalogHudPresentation presentation)
     {
         lock (_gate)
@@ -85,6 +106,10 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         var nativeThreadId = GetCurrentThreadId();
         DirectCompositionDevice? device = null;
         var playback = new AnalogHudPlayback();
+        var hudPlayback = new HudScenePlayback();
+        var hudBatch = new (HudWindowSnapshot Snapshot, long Timestamp)[64];
+        var uploaded = new Dictionary<uint, AnalogHudTexture>();
+        HudWindowSnapshot? announcedHud = null;
         var batch = new (NativeGaugeFrame Frame, long Timestamp)[64];
         var waitHandles = new WaitHandle[] { _stop, _changed };
         bool announced = false, hasFrame = false, wasActive = false, frameReady = false;
@@ -100,7 +125,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             while (!_stop.WaitOne(0))
             {
                 AnalogHudPresentation presentation;
-                int count = 0, queueDropped;
+                int count = 0, hudCount = 0, queueDropped;
                 bool measure = TachDiagnostics.IsEnabled;
                 lock (_gate)
                 {
@@ -108,6 +133,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     if (_reset)
                     {
                         playback.Reset();
+                        hudPlayback.Reset();
                         hasFrame = false;
                         pending = null;
                         _reset = false;
@@ -115,6 +141,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     queueDropped = _queueDropped;
                     _queueDropped = 0;
                     while (_frames.Count > 0) batch[count++] = _frames.Dequeue();
+                    while (_hudFrames.Count > 0) hudBatch[hudCount++] = _hudFrames.Dequeue();
                 }
                 if (queueDropped > 0)
                     RecordStage("state", "discarded", Stopwatch.GetTimestamp(), dropped: queueDropped);
@@ -131,6 +158,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     wasActive = false;
                     pending = null;
                     playback.Reset();
+                    hudPlayback.Reset();
                     hasFrame = false;
                     WaitHandle.WaitAny(waitHandles);
                     continue;
@@ -138,6 +166,13 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 for (int i = 0; i < count; i++)
                 {
                     Observe(batch[i]);
+                    hasFrame = true;
+                }
+                for (int i = 0; i < hudCount; i++)
+                {
+                    hudPlayback.Update(hudBatch[i].Snapshot, hudBatch[i].Timestamp);
+                    latestFrame = hudBatch[i].Snapshot.Frame;
+                    queuedTimestamp = hudBatch[i].Timestamp;
                     hasFrame = true;
                 }
                 if (!hasFrame)
@@ -208,12 +243,21 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     if (_reset || !_presentation.Active) continue;
                     presentation = _presentation;
                     count = 0;
+                    hudCount = 0;
                     while (_frames.Count > 0) batch[count++] = _frames.Dequeue();
+                    while (_hudFrames.Count > 0) hudBatch[hudCount++] = _hudFrames.Dequeue();
                 }
                 for (int i = 0; i < count; i++) Observe(batch[i]);
+                for (int i = 0; i < hudCount; i++)
+                {
+                    hudPlayback.Update(hudBatch[i].Snapshot, hudBatch[i].Timestamp);
+                    latestFrame = hudBatch[i].Snapshot.Frame;
+                    queuedTimestamp = hudBatch[i].Timestamp;
+                }
                 if (width != presentation.Width || height != presentation.Height) continue;
-                if (pending is { } old && !old.CanReuse(presentation, latestFrame,
-                    playback.HasNativeNeedle(Stopwatch.GetTimestamp())))
+                if (pending is { } old && (!old.CanReuse(presentation, latestFrame,
+                    playback.HasNativeNeedle(Stopwatch.GetTimestamp())) ||
+                    (presentation.Hud is not null && !hudPlayback.CanReuse(Stopwatch.GetTimestamp()))))
                 {
                     RecordStage("state", "discarded", Stopwatch.GetTimestamp());
                     pending = null;
@@ -221,11 +265,37 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 if (pending is null)
                 {
                     BeginOperation("draw");
-                    var sample = playback.Sample(Stopwatch.GetTimestamp());
-                    var commands = AnalogHudScene.Build(sample.Frame, sample.Angle, sample.Blur,
-                        sample.NeedleVisible, presentation.TractionActive, presentation.TractionColor,
-                        presentation.Layout, sample.AppliedRpm);
-                    Transform(commands, presentation);
+                    var now = Stopwatch.GetTimestamp();
+                    var sample = presentation.Hud is null ? playback.Sample(now) :
+                        default(AnalogHudSample) with { Frame = presentation.Hud.Frame, Timestamp = now };
+                    DirectCompositionDrawCommand[] commands;
+                    if (presentation.Hud is not null)
+                    {
+                        if (hudPlayback.ConsumeTextureChanges())
+                        {
+                            var retained = new HashSet<uint>();
+                            foreach (var texture in hudPlayback.Textures)
+                            {
+                                retained.Add(texture.Id);
+                                if (uploaded.TryGetValue(texture.Id, out var previous) && previous == texture) continue;
+                                device.UploadTexture(texture.Id, texture.Width, texture.Height, texture.Stride, texture.Pixels.ToArray());
+                                uploaded[texture.Id] = texture;
+                            }
+                            foreach (var id in uploaded.Keys.Where(id => !retained.Contains(id)).ToArray())
+                            {
+                                device.RemoveTexture(id);
+                                uploaded.Remove(id);
+                            }
+                        }
+                        commands = hudPlayback.Build(now);
+                    }
+                    else
+                    {
+                        commands = AnalogHudScene.Build(sample.Frame, sample.Angle, sample.Blur,
+                            sample.NeedleVisible, presentation.TractionActive, presentation.TractionColor,
+                            presentation.Layout, sample.AppliedRpm);
+                        Transform(commands, presentation);
+                    }
                     var sceneTicks = measure ? Stopwatch.GetTimestamp() - operationStarted : 0;
                     pending = new(sample, presentation, queuedTimestamp, ++sequence);
                     device.DrawForPresentation(commands, commands.Length, measure, out var drawMetrics);
@@ -260,7 +330,17 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 }
                 frameReady = false;
                 AnnounceReady();
-                Record(pending.Value.Sample);
+                if (pending.Value.Presentation.Hud is { } submittedHud)
+                {
+                    if (TachDiagnostics.IsEnabled)
+                        foreach (var diagnostic in hudPlayback.NeedleDiagnostics) Record(diagnostic.Sample, diagnostic.Kind);
+                    if (announcedHud is null || !submittedHud.CompatibleWith(announcedHud))
+                    {
+                        announcedHud = submittedHud;
+                        HudPresented?.Invoke(submittedHud);
+                    }
+                }
+                else Record(pending.Value.Sample);
                 pending = null;
 
                 void BeginOperation(string stage)
@@ -290,6 +370,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             {
                 _disposed = true;
                 _frames.Clear();
+                _hudFrames.Clear();
                 _changed.Dispose();
                 _stop.Dispose();
             }
@@ -371,13 +452,13 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         }
     }
 
-    private void Record(AnalogHudSample sample)
+    private void Record(AnalogHudSample sample, string kind = "analogue")
     {
         if (!TachDiagnostics.IsEnabled) return;
         var diagnostic = new TachNeedleDiagnostic
         {
             ControlId = _controlId,
-            ControlKind = "analogue",
+            ControlKind = kind,
             HostKind = nameof(OverlayWindow),
             HostWindowHandle = _window.ToInt64(),
             Route = "directcomposition",
@@ -410,7 +491,9 @@ internal readonly record struct AnalogHudPendingFrame(
     AnalogHudSample Sample, AnalogHudPresentation Presentation, long QueuedTimestamp, long Sequence)
 {
     internal bool CanReuse(AnalogHudPresentation presentation, NativeGaugeFrame frame, bool nativeNeedle) =>
-        presentation.Active &&
+        presentation.Hud is { } hud
+            ? Presentation.Hud is { } previousHud && hud.CompatibleWith(previousHud)
+            : Presentation.Hud is null && presentation.Active &&
         presentation.Width == Presentation.Width && presentation.Height == Presentation.Height &&
         presentation.OriginX == Presentation.OriginX && presentation.OriginY == Presentation.OriginY &&
         presentation.AxisXX == Presentation.AxisXX && presentation.AxisXY == Presentation.AxisXY &&

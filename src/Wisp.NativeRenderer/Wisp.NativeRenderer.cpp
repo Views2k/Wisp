@@ -13,6 +13,9 @@
 #include "ImagePixel.h"
 #include "DialPixel.h"
 #include "NeedlePixel.h"
+#include "ElectricNeedlePixel.h"
+#include "ImageSectorPixel.h"
+#include "DigitalGaugePixel.h"
 
 using Microsoft::WRL::ComPtr;
 #define CHECK_HR(expression) do { const HRESULT checkedResult = (expression); if (FAILED(checkedResult)) return checkedResult; } while (false)
@@ -111,7 +114,7 @@ namespace
         ComPtr<ID3D11RenderTargetView> renderTarget;
         ComPtr<ID3D11Buffer> vertices, constants;
         ComPtr<ID3D11VertexShader> vertexShader;
-        std::array<ComPtr<ID3D11PixelShader>, 3> pixelShaders;
+        std::array<ComPtr<ID3D11PixelShader>, 6> pixelShaders;
         ComPtr<ID3D11InputLayout> inputLayout;
         ComPtr<ID3D11SamplerState> sampler;
         ComPtr<ID3D11BlendState> blend;
@@ -222,6 +225,9 @@ namespace
             CHECK_HR(device->CreatePixelShader(ImagePixel, sizeof(ImagePixel), nullptr, &pixelShaders[0]));
             CHECK_HR(device->CreatePixelShader(DialPixel, sizeof(DialPixel), nullptr, &pixelShaders[1]));
             CHECK_HR(device->CreatePixelShader(NeedlePixel, sizeof(NeedlePixel), nullptr, &pixelShaders[2]));
+            CHECK_HR(device->CreatePixelShader(ElectricNeedlePixel, sizeof(ElectricNeedlePixel), nullptr, &pixelShaders[3]));
+            CHECK_HR(device->CreatePixelShader(ImageSectorPixel, sizeof(ImageSectorPixel), nullptr, &pixelShaders[4]));
+            CHECK_HR(device->CreatePixelShader(DigitalGaugePixel, sizeof(DigitalGaugePixel), nullptr, &pixelShaders[5]));
             D3D11_SAMPLER_DESC sample{};
             sample.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
             sample.AddressU = sample.AddressV = sample.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -352,7 +358,7 @@ namespace
                 const auto& command = commands[index];
                 float values[18]; std::memcpy(values, &command.originX, sizeof(values));
                 for (float value : values) if (!std::isfinite(value)) return E_INVALIDARG;
-                if (command.shader > 2 || textures.find(command.textureId) == textures.end()
+                if (command.shader >= pixelShaders.size() || textures.find(command.textureId) == textures.end()
                     || command.tintA < 0 || command.tintA > 1 || command.tintR < 0 || command.tintR > 1
                     || command.tintG < 0 || command.tintG > 1 || command.tintB < 0 || command.tintB > 1
                     || (command.shader == 1 && command.parameterY <= 0)) return E_INVALIDARG;

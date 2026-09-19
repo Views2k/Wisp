@@ -120,6 +120,7 @@ public sealed class DigitalTireTemperatureGaugeView : TireTemperatureVisualBase
 
     protected override void OnRender(DrawingContext dc)
     {
+        if (NativeRendering.HudNativeHost.IsPresented(this)) return;
         base.OnRender(dc);
         if (!Display.IsAvailable || ActualWidth <= 0 || ActualHeight <= 0)
         {
@@ -245,11 +246,14 @@ public sealed class AnalogTireTemperatureGaugeView : TireTemperatureVisualBase
         DependencyObject dependencyObject,
         DependencyPropertyChangedEventArgs eventArgs)
     {
-        ((AnalogTireTemperatureGaugeView)dependencyObject).InvalidateVisual();
+        var control = (AnalogTireTemperatureGaugeView)dependencyObject;
+        if (!NativeRendering.HudNativeHost.IsPresented(control))
+            control.InvalidateVisual();
     }
 
     protected override void OnRender(DrawingContext dc)
     {
+        if (NativeRendering.HudNativeHost.IsPresented(this)) return;
         base.OnRender(dc);
         if (!Display.IsAvailable || ActualWidth <= 0 || ActualHeight <= 0)
         {

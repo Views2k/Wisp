@@ -72,6 +72,7 @@ public partial class NativeAnalogSpeedometer : UserControl
 
     private void RefreshFrame()
     {
+        if (NativeRendering.HudNativeHost.IsPresented(this)) { _framePending = false; return; }
         if (_directCompositionHost is not null)
         {
             _directCompositionHost.UpdateFrame(_latestFrame);
@@ -320,6 +321,7 @@ public partial class NativeAnalogSpeedometer : UserControl
 
     private void OnCompositionRendering(object? sender, EventArgs eventArgs)
     {
+        if (NativeRendering.HudNativeHost.IsPresented(this)) return;
         if (_directCompositionHost is not null)
         {
             _directCompositionHost.RefreshPresentation();
@@ -353,6 +355,7 @@ public partial class NativeAnalogSpeedometer : UserControl
 
     private void TryStartDirectComposition()
     {
+        if (Window.GetWindow(this) is { } window && HudNativeHost.IsAttached(window)) return;
         if (_directCompositionHost is not null || _directCompositionFailed || !IsLoaded || !IsVisible ||
             Window.GetWindow(this) is not OverlayWindow overlay)
             return;

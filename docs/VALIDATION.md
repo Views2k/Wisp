@@ -108,8 +108,8 @@ are layout evidence rather than proof of live shader output. Synthetic WPF
 hosts also do not establish live FH6 offsets, GPU frame time, or exact visual
 parity.
 
-The live combustion Analogue HUD uses Direct3D11 and DirectComposition; its
-Appearance preview remains WPF. Compare the existing WPF gauge's hardware
+The live HUD uses Direct3D11 and DirectComposition across Analogue, Digital, EV,
+supplementary gauges, G-force, and text layouts. Appearance previews remain WPF. Compare the existing WPF gauge's hardware
 output with native GPU readback for matching frames, signed blur, gear/assist
 states, units, traction color, opacity, and DPI/scale. Check the real overlay
 separately for focus behavior and smoothness: successful `Present` submissions

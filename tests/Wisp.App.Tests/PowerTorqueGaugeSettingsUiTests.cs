@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Xunit;
@@ -31,14 +32,32 @@ internal static class PowerTorqueGaugeSettingsUiTests
         SetupCompletion.Save(settings, preferences,
             new SetupTelemetryEvidence(settings.UdpPort, 12, 12, TimeSpan.FromMilliseconds(550), now), _ => { }, now);
         var controller = new AppController(settings, _ => { }, new NoStartupRegistration());
+        var application = Application.Current;
+        var shutdownMode = application.ShutdownMode;
+        Window? host = null;
         try
         {
+            application.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Assert.Equal(250, controller.ViewModel.PowerTorqueSmoothingMilliseconds);
             var control = new PowerTorqueGaugeSettingsControl { DataContext = controller.ViewModel };
             control.Initialize(controller);
-            control.Measure(new Size(500, 1800));
-            control.Arrange(new Rect(0, 0, 500, 1800));
-            control.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            Assert.Single(Descendants(control).OfType<Expander>()).SetCurrentValue(Expander.IsExpandedProperty, true);
+            host = new Window
+            {
+                Content = control,
+                Width = 500,
+                Height = 1000,
+                ShowActivated = false,
+                ShowInTaskbar = false,
+                Opacity = 0
+            };
+            host.Show();
+            host.UpdateLayout();
+            host.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+            host.UpdateLayout();
+            Assert.True(control.IsLoaded);
             var smoothing = Assert.IsType<Slider>(control.FindName("SmoothingSlider"));
+            Assert.Equal(BindingStatus.Active, smoothing.GetBindingExpression(RangeBase.ValueProperty)!.Status);
             Assert.Equal(250, smoothing.Value);
             Assert.NotNull(smoothing.FocusVisualStyle);
             smoothing.SetCurrentValue(RangeBase.ValueProperty, 950d);
@@ -94,7 +113,12 @@ internal static class PowerTorqueGaugeSettingsUiTests
             Assert.False(powerAttached.IsEnabled);
             Assert.True(settings.TorqueGaugeEnabled);
         }
-        finally { controller.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+        finally
+        {
+            host?.Close();
+            controller.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            application.ShutdownMode = shutdownMode;
+        }
     }
 
     private static void AssertSharedPalette(AppController controller, AppSettings settings)

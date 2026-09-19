@@ -59,6 +59,12 @@ public sealed class SupplementaryAnalogGaugePreview : Grid
         Unloaded += (_, _) => UnsubscribeFromModel();
     }
 
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        RefreshLayout();
+    }
+
     private static void Bind(FrameworkElement target, DependencyProperty property, string path) =>
         target.SetBinding(property, new Binding(path));
 
@@ -84,7 +90,7 @@ public sealed class SupplementaryAnalogGaugePreview : Grid
             or nameof(DiagnosticsViewModel.PowerGaugeScale) or nameof(DiagnosticsViewModel.TorqueGaugeScale)
             or nameof(DiagnosticsViewModel.BoostGaugeEnabled) or nameof(DiagnosticsViewModel.TireTemperatureGaugeEnabled)
             or nameof(DiagnosticsViewModel.PowerGaugeEnabled) or nameof(DiagnosticsViewModel.TorqueGaugeEnabled)
-            or nameof(DiagnosticsViewModel.PowerGaugeAttached) or nameof(DiagnosticsViewModel.TorqueGaugeAttached)
+            or nameof(DiagnosticsViewModel.GForceGaugeScale)
             or nameof(DiagnosticsViewModel.NativePreviewFrame)) RefreshLayout();
     }
 
@@ -92,13 +98,21 @@ public sealed class SupplementaryAnalogGaugePreview : Grid
     {
         if (DataContext is not DiagnosticsViewModel model) return;
         _lastElectric = model.NativePreviewFrame.IsElectric;
-        var layout = AnalogSupplementaryGaugeLayout.Calculate(new Size(), 0,
-            model.BoostGaugeEnabled && !model.NativePreviewFrame.IsElectric,
-            model.TireTemperatureGaugeEnabled,
-            model.PowerGaugeEnabled && model.PowerGaugeAttached,
-            model.TorqueGaugeEnabled && model.TorqueGaugeAttached,
-            model.BoostGaugeScale, model.TireTemperatureGaugeScale,
-            model.PowerGaugeScale, model.TorqueGaugeScale, firstColumnLeft: 0);
+        var nativeTop = GForceGaugeLayout.NativeTopPadding(model.GForceGaugeScale);
+        // Detached gauges still need to be visible while editing their appearance.
+        var tire = model.TireTemperatureGaugeEnabled;
+        var power = model.PowerGaugeEnabled;
+        var torque = model.TorqueGaugeEnabled;
+        var layout = _lastElectric
+            ? ElectricSupplementaryGaugeLayout.Calculate(
+                new Size(Math.Max(345, GForceGaugeLayout.NativeBounds(NativeGaugeMode.Analogue, model.GForceGaugeScale).Right), nativeTop + 345),
+                nativeTop, tire, power, torque,
+                model.TireTemperatureGaugeScale, model.PowerGaugeScale, model.TorqueGaugeScale,
+                model.GForceGaugeScale, VisualTreeHelper.GetDpi(this).DpiScaleX)
+            : AnalogSupplementaryGaugeLayout.Calculate(new Size(), nativeTop + 4,
+                model.BoostGaugeEnabled, tire, power, torque,
+                model.BoostGaugeScale, model.TireTemperatureGaugeScale,
+                model.PowerGaugeScale, model.TorqueGaugeScale);
         if (Width == layout.Size.Width && Height == layout.Size.Height &&
             _lastLayout == layout) return;
         _lastLayout = layout;

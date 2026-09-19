@@ -39,6 +39,110 @@ static WispDrawCommand Sprite(float x, float y, float width, float height, uint3
     return command;
 }
 
+static void CheckElectricNeedle(void* renderer)
+{
+    constexpr uint32_t targetWidth = 288, targetHeight = 288;
+    std::vector<uint8_t> pixels(targetWidth * targetHeight * 4), unblurred, combustion;
+    auto capture = [&](const WispDrawCommand& needle)
+    {
+        Require(SUCCEEDED(WispRendererRender(renderer, &needle, 1, 0)), "electric needle material draw");
+        Require(SUCCEEDED(WispRendererCapture(renderer, pixels.data(), static_cast<uint32_t>(pixels.size()), targetWidth * 4)),
+            "electric needle material readback");
+    };
+    // The EV speedometer uses 94 DIPs; supplementary gauges retain their
+    // existing 110-DIP quad while selecting the same electric material.
+    for (const float width : {94.0f, 110.0f})
+    {
+        auto needle = Sprite(0, 0, width, 180);
+        needle.shader = 3;
+        for (const float blur : {0.0f, .35f, -.35f})
+        {
+            needle.parameterX = blur;
+            capture(needle);
+            size_t visible = 0;
+            bool outsideTransparent = true;
+            for (uint32_t y = 0; y < targetHeight; ++y)
+                for (uint32_t x = 0; x < targetWidth; ++x)
+                {
+                    const auto alpha = pixels[(static_cast<size_t>(y) * targetWidth + x) * 4 + 3];
+                    if (alpha) ++visible;
+                    if ((x >= static_cast<uint32_t>(width) || y >= 180) && alpha) outsideTransparent = false;
+                }
+            Require(visible > 100 && visible < static_cast<size_t>(width * 180),
+                "electric needle retains bounded material coverage");
+            Require(outsideTransparent, "electric needle leaves pixels outside its quad transparent");
+            if (blur == 0) unblurred = pixels;
+            else Require(pixels != unblurred, "both electric blur directions change the rendered material");
+        }
+        needle.parameterX = 0;
+        needle.shader = 2;
+        capture(needle);
+        combustion = pixels;
+        Require(combustion != unblurred, "electric needle uses its distinct authored aspect ratio");
+        needle.shader = 3;
+        capture(needle);
+        Require(pixels == unblurred, "switching needle materials restores exact electric pixels");
+        needle.shader = 2;
+        capture(needle);
+        Require(pixels == combustion, "electric drawing does not change combustion material pixels");
+    }
+    auto invalid = Sprite(0, 0, 94, 180);
+    invalid.shader = 6;
+    Require(WispRendererRender(renderer, &invalid, 1, 0) == E_INVALIDARG, "unknown needle shader rejected");
+}
+
+static void CheckAdditionalGaugeMaterials(void* renderer)
+{
+    constexpr uint32_t size = 288;
+    std::vector<uint8_t> pixels(size * size * 4), full, previous;
+    auto capture = [&](const WispDrawCommand& command)
+    {
+        Require(SUCCEEDED(WispRendererRender(renderer, &command, 1, 0)), "additional gauge material draw");
+        Require(SUCCEEDED(WispRendererCapture(renderer, pixels.data(), static_cast<uint32_t>(pixels.size()), size * 4)),
+            "additional gauge material readback");
+    };
+    auto sector = Sprite(0, 0, 128, 128);
+    capture(sector);
+    full = pixels;
+    sector.shader = 4;
+    sector.parameterY = 6.283186f;
+    capture(sector);
+    Require(pixels == full, "full sector preserves exact image pixels");
+    sector.parameterY = 0;
+    capture(sector);
+    Require(std::all_of(pixels.begin(), pixels.end(), [](uint8_t value) { return value == 0; }),
+        "empty sector is transparent");
+    sector.parameterY = 1.5707963f;
+    capture(sector);
+    auto alpha = [&](uint32_t x, uint32_t y) { return pixels[(static_cast<size_t>(y) * size + x) * 4 + 3]; };
+    Require(alpha(96, 96) == 255 && alpha(32, 96) == 0 && alpha(96, 32) == 0,
+        "sector clips in clockwise image coordinates");
+    sector.parameterY = 4.712389f;
+    capture(sector);
+    Require(alpha(96, 96) == 255 && alpha(32, 96) == 255 && alpha(32, 32) == 255 && alpha(96, 32) == 0,
+        "sector supports sweeps larger than a semicircle");
+    sector.parameterX = .31f;
+    sector.parameterY = 1.2f;
+    capture(sector);
+    size_t antialiased = 0;
+    for (size_t index = 3; index < pixels.size(); index += 4)
+        if (pixels[index] > 0 && pixels[index] < 255) ++antialiased;
+    Require(antialiased > 10, "sector boundaries use derivative antialiasing");
+    auto digital = Sprite(0, 0, 256, 24);
+    digital.shader = 5;
+    digital.parameterY = .8f;
+    for (const float amount : {.2f, .7f, 1.0f})
+    {
+        digital.parameterX = amount;
+        capture(digital);
+        size_t visible = 0;
+        for (size_t index = 3; index < pixels.size(); index += 4) if (pixels[index]) ++visible;
+        Require(visible > 100 && visible < 256 * 24, "digital material retains bounded rail coverage");
+        Require(previous.empty() || pixels != previous, "digital material responds to its amount parameter");
+        previous = pixels;
+    }
+}
+
 static void CheckDialCache(void* renderer, bool cpuRendering)
 {
     uint32_t width = 288, height = 288;
@@ -304,6 +408,8 @@ int main(int argc, char** argv)
     visible = 0; for (size_t index = 3; index < pixels.size(); index += 4) if (pixels[index]) ++visible;
     std::printf("needleVisible=%zu\n", visible);
     Require(visible > 100 && visible < 110*180, "needle blur has bounded coverage");
+    CheckElectricNeedle(renderer);
+    CheckAdditionalGaugeMaterials(renderer);
     CheckDialCache(renderer, cpuRendering);
     HRESULT wrongThread = S_OK;
     std::thread other([&] { wrongThread = WispRendererRender(renderer, nullptr, 0, 0); }); other.join();

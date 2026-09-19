@@ -75,6 +75,7 @@ public partial class OverlayWindow : Window
         TractionCueThemeResources.Apply(Resources, ColorCustomization.ResolveTractionCue(controller.Settings));
         _windowDrag = new NonActivatingWindowDrag(this, controller.SaveOverlayPlacement);
         DataContext = controller.ViewModel;
+        NativeRendering.HudNativeHost.Attach(this);
         controller.ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         Closed += (_, _) => controller.ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         ApplyLayout(
@@ -370,7 +371,9 @@ public partial class OverlayWindow : Window
             0,
             0);
         AttachedNativeGForce.Visibility = attachedGForceVisible ? Visibility.Visible : Visibility.Collapsed;
-        var gForceBounds = GForceGaugeLayout.NativeBounds(nativeGaugeMode, _gForceScale);
+        var gForceBounds = _isElectricPowertrain && nativeGaugeMode == NativeGaugeMode.Analogue
+            ? ElectricSupplementaryGaugeLayout.GForceBounds(_gForceScale)
+            : GForceGaugeLayout.NativeBounds(nativeGaugeMode, _gForceScale);
         AttachedNativeGForce.Margin = new Thickness(gForceBounds.Left, gForceBounds.Top, 0, 0);
         AttachedNativeGForce.LayoutTransform = new ScaleTransform(_gForceScale, _gForceScale);
         _attachedBoostVisible = digitalBoostVisible || analogBoostVisible;
@@ -382,8 +385,7 @@ public partial class OverlayWindow : Window
             HudLayoutMode.Combined => _combinedGForceVisible ? (combinedSize.Width, combinedSize.Height) : (BoxedWidth, BoxedHeight),
             HudLayoutMode.SeparateBoxes => (BoxedWidth, BoxedHeight),
             HudLayoutMode.Native when _isElectricPowertrain && nativeGaugeMode == NativeGaugeMode.Analogue =>
-                (analogTireTemperatureVisible ? NativeAnalogBoostWidth : NativeElectricAnalogWidth,
-                    NativeElectricAnalogHeight),
+                (NativeElectricAnalogWidth, NativeElectricAnalogHeight),
             HudLayoutMode.Native when _isElectricPowertrain =>
                 (NativeElectricDigitalWidth,
                     digitalTireTemperatureVisible ? NativeDigitalTireHeight : NativeElectricDigitalHeight),
@@ -412,11 +414,17 @@ public partial class OverlayWindow : Window
         Size size;
         if (layoutMode == HudLayoutMode.Native && nativeGaugeMode == NativeGaugeMode.Analogue)
         {
-            var gauges = AnalogSupplementaryGaugeLayout.Calculate(
-                new Size(baseWidth, baseHeight), nativeTop + 4,
-                analogBoostVisible, analogTireTemperatureVisible,
-                _attachedPowerVisible, _attachedTorqueVisible,
-                _boostScale, _tireScale, _powerScale, _torqueScale);
+            var gauges = _isElectricPowertrain
+                ? ElectricSupplementaryGaugeLayout.Calculate(
+                    new Size(baseWidth, baseHeight), nativeTop,
+                    analogTireTemperatureVisible, _attachedPowerVisible, _attachedTorqueVisible,
+                    _tireScale, _powerScale, _torqueScale, _gForceScale,
+                    VisualTreeHelper.GetDpi(NativeElectricAnalogPanel).DpiScaleX)
+                : AnalogSupplementaryGaugeLayout.Calculate(
+                    new Size(baseWidth, baseHeight), nativeTop + 4,
+                    analogBoostVisible, analogTireTemperatureVisible,
+                    _attachedPowerVisible, _attachedTorqueVisible,
+                    _boostScale, _tireScale, _powerScale, _torqueScale);
             ApplyAnalogGaugeBounds(AttachedAnalogBoost, gauges.BoostBounds);
             ApplyAnalogGaugeBounds(AttachedAnalogTireTemperature, gauges.TireBounds);
             ApplyPowerTorqueBounds(AttachedPowerGauge, gauges.PowerBounds);
