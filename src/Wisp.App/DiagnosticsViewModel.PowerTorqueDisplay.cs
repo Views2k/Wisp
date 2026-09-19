@@ -73,6 +73,17 @@ public sealed partial class DiagnosticsViewModel
             PowerTorqueDisplay = _powerTorqueNeedlePlayback.Sample(timestamp);
     }
 
+    private void ClearPowerTorqueDriftHold()
+    {
+        if (!_powerTorqueDisplayModel.CancelDriftHold()) return;
+        // A retained HUD frame can outlive Data Out while the game stays open.
+        // Keep its artwork, but never preserve a substituted output after data stops.
+        PublishNativePowerTorque(_powerTorqueDisplayModel.Current, NativePowerTorqueInput.CarOrdinal,
+            NativePowerTorqueInput.GameTimestampMilliseconds, NativePowerTorqueInput.ReceivedTimestamp, reset: true);
+        _powerTorqueNeedlePlayback.Reset();
+        PowerTorqueDisplay = _powerTorqueDisplayModel.Current;
+    }
+
     private void ClearPowerTorqueDisplay()
     {
         _powerTorqueDisplayModel.ResetCurrent();

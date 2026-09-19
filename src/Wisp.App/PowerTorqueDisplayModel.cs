@@ -173,8 +173,9 @@ public sealed class PowerTorqueDisplayModel
         PeakTorqueNm = Current.Available ? Math.Max(0, _lastRawTorqueNm) : 0
     };
 
-    private void CancelDriftHold()
+    internal bool CancelDriftHold()
     {
+        var changed = Current.IsDriftPowerCut || Current.DriftPulseAllowed || Current.DriftCutPulse != 0;
         _driftHold.Reset();
         if (Current.IsDriftPowerCut)
         {
@@ -190,6 +191,7 @@ public sealed class PowerTorqueDisplayModel
             _readoutElapsedMilliseconds = 0;
         }
         Current = Current with { IsDriftPowerCut = false, DriftPulseAllowed = false, DriftCutPulse = 0 };
+        return changed;
     }
 
     public void ResetCurrent()

@@ -281,63 +281,63 @@ internal static class PowerTorqueGaugeVisualTests
     private static void DriftPulseChangesOnlyNumberOpacityInNativeAndWpfRendering()
     {
         foreach (var torque in new[] { false, true })
-        foreach (var colored in new[] { false, true })
-        {
-            var gauge = new PowerTorqueGaugeView
+            foreach (var colored in new[] { false, true })
             {
-                Width = 140,
-                Height = 140,
-                Maximum = 2_000,
-                IsTorque = torque,
-                ColorNumber = colored,
-                LowBrush = new SolidColorBrush(Color.FromArgb(128, 32, 64, 96)),
-                MidBrush = new SolidColorBrush(Color.FromArgb(160, 96, 128, 160)),
-                HighBrush = new SolidColorBrush(Color.FromArgb(192, 160, 192, 224)),
-                Display = new PowerTorqueDisplay(true, 1_500, 1_600, 1_500, 1_600)
+                var gauge = new PowerTorqueGaugeView
                 {
-                    ReadoutPowerBhp = 1_400,
-                    ReadoutTorqueNm = 1_450,
-                    IsDriftPowerCut = true,
-                    DriftPulseAllowed = true
+                    Width = 140,
+                    Height = 140,
+                    Maximum = 2_000,
+                    IsTorque = torque,
+                    ColorNumber = colored,
+                    LowBrush = new SolidColorBrush(Color.FromArgb(128, 32, 64, 96)),
+                    MidBrush = new SolidColorBrush(Color.FromArgb(160, 96, 128, 160)),
+                    HighBrush = new SolidColorBrush(Color.FromArgb(192, 160, 192, 224)),
+                    Display = new PowerTorqueDisplay(true, 1_500, 1_600, 1_500, 1_600)
+                    {
+                        ReadoutPowerBhp = 1_400,
+                        ReadoutTorqueNm = 1_450,
+                        IsDriftPowerCut = true,
+                        DriftPulseAllowed = true
+                    }
+                };
+                gauge.Measure(new Size(140, 140));
+                gauge.Arrange(new Rect(0, 0, 140, 140));
+                RenderMethod(gauge, "OnRender");
+                var readoutField = typeof(PowerTorqueGaugeView).GetField("_readoutDrawing", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var readout = Assert.IsType<DrawingGroup>(readoutField.GetValue(gauge));
+                var angle = gauge.CurrentNeedleAngle;
+                var snapshot = PowerTorqueHudLayer.Capture(gauge, null);
+                var playback = snapshot.CreatePlayback();
+                var start = Stopwatch.Frequency;
+                playback.Update(snapshot, start);
+                var bright = playback.Build(start);
+                var dim = playback.Build(start + Stopwatch.Frequency * 4 / 10);
+                var firstDigit = (torque ? 25_000u : 20_000u) + (colored ? 30u : 10u);
+                bool IsNumber(DirectCompositionDrawCommand command) => command.TextureId >= firstDigit && command.TextureId < firstDigit + 10;
+                var brightNumbers = bright.Where(IsNumber).ToArray();
+                var dimNumbers = dim.Where(IsNumber).ToArray();
+                Assert.Equal(4, brightNumbers.Length);
+                Assert.Equal(brightNumbers.Length, dimNumbers.Length);
+                for (var index = 0; index < brightNumbers.Length; index++)
+                {
+                    Assert.Equal(brightNumbers[index].TintR, dimNumbers[index].TintR);
+                    Assert.Equal(brightNumbers[index].TintG, dimNumbers[index].TintG);
+                    Assert.Equal(brightNumbers[index].TintB, dimNumbers[index].TintB);
+                    Assert.Equal(brightNumbers[index].TintA * .55, dimNumbers[index].TintA, 6);
                 }
-            };
-            gauge.Measure(new Size(140, 140));
-            gauge.Arrange(new Rect(0, 0, 140, 140));
-            RenderMethod(gauge, "OnRender");
-            var readoutField = typeof(PowerTorqueGaugeView).GetField("_readoutDrawing", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            var readout = Assert.IsType<DrawingGroup>(readoutField.GetValue(gauge));
-            var angle = gauge.CurrentNeedleAngle;
-            var snapshot = PowerTorqueHudLayer.Capture(gauge, null);
-            var playback = snapshot.CreatePlayback();
-            var start = Stopwatch.Frequency;
-            playback.Update(snapshot, start);
-            var bright = playback.Build(start);
-            var dim = playback.Build(start + Stopwatch.Frequency * 4 / 10);
-            var firstDigit = (torque ? 25_000u : 20_000u) + (colored ? 30u : 10u);
-            bool IsNumber(DirectCompositionDrawCommand command) => command.TextureId >= firstDigit && command.TextureId < firstDigit + 10;
-            var brightNumbers = bright.Where(IsNumber).ToArray();
-            var dimNumbers = dim.Where(IsNumber).ToArray();
-            Assert.Equal(4, brightNumbers.Length);
-            Assert.Equal(brightNumbers.Length, dimNumbers.Length);
-            for (var index = 0; index < brightNumbers.Length; index++)
-            {
-                Assert.Equal(brightNumbers[index].TintR, dimNumbers[index].TintR);
-                Assert.Equal(brightNumbers[index].TintG, dimNumbers[index].TintG);
-                Assert.Equal(brightNumbers[index].TintB, dimNumbers[index].TintB);
-                Assert.Equal(brightNumbers[index].TintA * .55, dimNumbers[index].TintA, 6);
-            }
-            Assert.Equal(bright.Where(command => !IsNumber(command)), dim.Where(command => !IsNumber(command)));
+                Assert.Equal(bright.Where(command => !IsNumber(command)), dim.Where(command => !IsNumber(command)));
 
-            gauge.Display = gauge.Display with { DriftCutPulse = 1 };
-            var drawing = RenderMethod(gauge, "OnRender");
-            var numberOpacity = Assert.Single(Groups(drawing), group => Math.Abs(group.Opacity - .55) < .000001);
-            Assert.Contains(readout, Groups(numberOpacity));
-            Assert.Same(readout, readoutField.GetValue(gauge));
-            Assert.Equal(angle, gauge.CurrentNeedleAngle);
-            var next = PowerTorqueHudLayer.Capture(gauge, null);
-            Assert.Same(snapshot.Textures, next.Textures);
-            Assert.Equal(snapshot.CompatibilityKey, next.CompatibilityKey);
-        }
+                gauge.Display = gauge.Display with { DriftCutPulse = 1 };
+                var drawing = RenderMethod(gauge, "OnRender");
+                var numberOpacity = Assert.Single(Groups(drawing), group => Math.Abs(group.Opacity - .55) < .000001);
+                Assert.Contains(readout, Groups(numberOpacity));
+                Assert.Same(readout, readoutField.GetValue(gauge));
+                Assert.Equal(angle, gauge.CurrentNeedleAngle);
+                var next = PowerTorqueHudLayer.Capture(gauge, null);
+                Assert.Same(snapshot.Textures, next.Textures);
+                Assert.Equal(snapshot.CompatibilityKey, next.CompatibilityKey);
+            }
     }
 
     private static void ColoredArcCacheIsFrozenReusedAndReplacedWhenItsPaletteChanges()
