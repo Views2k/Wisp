@@ -105,11 +105,6 @@ public sealed class DigitalHudSceneTests
         var electric = new NativeElectricDigitalSpeedometer();
         BindingOperations.ClearBinding(combustion, NativeDigitalSpeedometer.FrameProperty);
         BindingOperations.ClearBinding(electric, NativeElectricDigitalSpeedometer.FrameProperty);
-        var scale = new DpiScale(dpi / 96d, dpi / 96d);
-        VisualTreeHelper.SetRootDpi(combustion, scale);
-        VisualTreeHelper.SetRootDpi(electric, scale);
-        Assert.Equal(scale, VisualTreeHelper.GetDpi(combustion));
-        Assert.Equal(scale, VisualTreeHelper.GetDpi(electric));
         foreach (var isElectric in new[] { false, true })
             foreach (var multiGear in new[] { false, true })
                 foreach (var mask in new[] { 0, 1, 5, 10, 15 })
@@ -131,9 +126,7 @@ public sealed class DigitalHudSceneTests
                         UserControl control;
                         if (isElectric) { electric.Frame = frame; control = electric; }
                         else { combustion.Frame = frame; control = combustion; }
-                        control.Measure(new Size(320, 160));
-                        control.Arrange(new Rect(0, 0, 320, 160));
-                        control.UpdateLayout();
+                        ArrangeAtDpi(control, dpi);
                         var layout = isElectric ? DigitalHudLayout.Capture(electric) : DigitalHudLayout.Capture(combustion);
                         var commands = DigitalHudScene.Build(Sample(frame), false, default, layout);
                         AssertQuad(control, "GearImage", Assert.Single(commands, command => Name(command).StartsWith("HUD_Dial_Digital_Gear_", StringComparison.Ordinal)));
@@ -168,9 +161,7 @@ public sealed class DigitalHudSceneTests
                         }
                     }
         electric.Frame = Frame() with { IsElectric = true, NativePowerFillAmount = .6007 };
-        electric.Measure(new Size(320, 160));
-        electric.Arrange(new Rect(0, 0, 320, 160));
-        electric.UpdateLayout();
+        ArrangeAtDpi(electric, dpi);
         var boundaryCommands = DigitalHudScene.Build(Sample(electric.Frame), false, default, DigitalHudLayout.Capture(electric));
         var boundaryBar = boundaryCommands.Where(command => command.TextureId == DigitalHudAssets.WhiteTextureId).ToArray();
         AssertQuad(electric, "PowerIndicator", boundaryBar[3]);
@@ -178,6 +169,54 @@ public sealed class DigitalHudSceneTests
         Assert.Same(textures, DigitalHudAssets.LoadOnUiThread());
         Assert.Equal(DigitalHudAssets.Definitions.Count + 1, textures.Count);
         Assert.All(textures, texture => Assert.Equal(texture.Stride * texture.Height, texture.Pixels.Length));
+    }
+
+    internal static void ArrangeAtDpi(FrameworkElement control, int dpi)
+    {
+        var size = new Size(control.Width, control.Height);
+        // Materialize the detached control's templates before propagating DPI.
+        Arrange();
+        var scale = new DpiScale(dpi / 96d, dpi / 96d);
+        for (var pass = 0; pass < 2; pass++)
+        {
+            VisualTreeHelper.SetRootDpi(control, scale);
+            var elements = VisualElements();
+            // SetRootDpi does not invalidate cached descendant measurements.
+            for (var index = elements.Count - 1; index >= 0; index--) elements[index].InvalidateMeasure();
+            Arrange();
+        }
+        foreach (var element in VisualElements())
+        {
+            var actual = VisualTreeHelper.GetDpi(element);
+            var name = element is FrameworkElement framework ? framework.Name : string.Empty;
+            Assert.True(actual.DpiScaleX == scale.DpiScaleX && actual.DpiScaleY == scale.DpiScaleY,
+                $"{control.GetType().Name}/{element.GetType().Name}.{name}: expected {dpi}x{dpi} DPI, " +
+                $"actual {actual.PixelsPerInchX}x{actual.PixelsPerInchY} DPI.");
+        }
+
+        void Arrange()
+        {
+            control.Measure(size);
+            control.Arrange(new Rect(size));
+            control.UpdateLayout();
+        }
+
+        List<UIElement> VisualElements()
+        {
+            var result = new List<UIElement>();
+            var pending = new Queue<DependencyObject>();
+            pending.Enqueue(control);
+            var visited = 0;
+            while (pending.Count > 0)
+            {
+                Assert.True(++visited <= 4096, "The detached digital gauge exceeds the bounded visual-tree limit.");
+                var current = pending.Dequeue();
+                if (current is UIElement element) result.Add(element);
+                for (var index = 0; index < VisualTreeHelper.GetChildrenCount(current); index++)
+                    pending.Enqueue(VisualTreeHelper.GetChild(current, index));
+            }
+            return result;
+        }
     }
 
     private static void AssertQuad(UserControl control, string name, DirectCompositionDrawCommand command)

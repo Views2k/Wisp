@@ -136,12 +136,11 @@ public sealed class HudScenePlaybackTests
         {
             var control = new NativeElectricDigitalSpeedometer();
             BindingOperations.ClearBinding(control, NativeElectricDigitalSpeedometer.FrameProperty);
-            VisualTreeHelper.SetRootDpi(control, new DpiScale(dpi / 96d, dpi / 96d));
             object? previousLayout = null;
             foreach (var ratio in new[] { .3, .37, .7, .3 })
             {
                 control.Frame = Frame(true) with { NativeRegenPowerRatio = ratio };
-                Arrange(control);
+                DigitalHudSceneTests.ArrangeAtDpi(control, dpi);
                 var snapshot = MainHudLayer.Capture(control, null);
                 if (previousLayout is not null) Assert.NotEqual(previousLayout, snapshot.CompatibilityKey);
                 previousLayout = snapshot.CompatibilityKey;
