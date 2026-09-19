@@ -311,6 +311,12 @@ internal static class PowerTorqueGaugeVisualTests
                 var flashDrawingField = typeof(PowerTorqueGaugeView).GetField("_flashReadoutDrawing", BindingFlags.Instance | BindingFlags.NonPublic)!;
                 var flashBrushField = typeof(PowerTorqueGaugeView).GetField("_flashReadoutBrush", BindingFlags.Instance | BindingFlags.NonPublic)!;
                 var readout = Assert.IsType<DrawingGroup>(readoutField.GetValue(gauge));
+                var digitCacheField = typeof(PowerTorqueGaugeView).GetField("_flashDigitImages", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var activeDigitsField = typeof(PowerTorqueGaugeView).GetField("_activeFlashDigitImages", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var digitCache = Assert.IsType<Dictionary<char, NativeTintedBitmap>>(digitCacheField.GetValue(gauge));
+                var activeDigits = Assert.IsType<HashSet<NativeTintedBitmap>>(activeDigitsField.GetValue(gauge));
+                Assert.Empty(digitCache);
+                Assert.Empty(activeDigits);
                 var tintField = typeof(NativeAssetCache).GetField("TintedImages", BindingFlags.Static | BindingFlags.NonPublic)!;
                 var tintedImages = Assert.IsAssignableFrom<System.Collections.IDictionary>(tintField.GetValue(null));
                 var tintCount = tintedImages.Count;
@@ -328,6 +334,8 @@ internal static class PowerTorqueGaugeVisualTests
                 var baseline = colored ? gauge.PaletteColor(gauge.DisplayedReadout / gauge.Maximum) : Colors.White;
                 DrawingGroup? cachedFlashDrawing = null;
                 SolidColorBrush? cachedFlashBrush = null;
+                ImageSource[]? cachedDigitImages = null;
+                Dictionary<char, NativeTintedBitmap>? cachedDigits = null;
                 foreach (var (milliseconds, pulse) in new[] { (0, 0d), (200, .5), (400, 1d), (800, 0d) })
                 {
                     var commands = playback.Build(start + Stopwatch.Frequency * milliseconds / 1_000);
@@ -357,9 +365,30 @@ internal static class PowerTorqueGaugeVisualTests
                         Assert.Equal(flashBrush.Color.G / 255f, numbers[0].TintG);
                         Assert.Equal(flashBrush.Color.B / 255f, numbers[0].TintB);
                         Assert.True(AssertNumberOpacity(drawing, flashDrawing));
-                        if (!colored && pulse == 1) AssertReadoutPixelCoverage(readout, flashDrawing);
+                        if (!colored)
+                        {
+                            var images = Flatten(flashDrawing).OfType<ImageDrawing>().Select(image => image.ImageSource).ToArray();
+                            Assert.Equal(4, images.Length);
+                            if (cachedDigitImages is not null)
+                                for (var index = 0; index < images.Length; index++) Assert.Same(cachedDigitImages[index], images[index]);
+                            cachedDigitImages ??= images;
+                            cachedDigits ??= new Dictionary<char, NativeTintedBitmap>(digitCache);
+                            Assert.Equal(images.Distinct().Count(), digitCache.Count);
+                            Assert.True(activeDigits.SetEquals(digitCache.Values));
+                            Assert.Equal(activeDigits.Count, images.Distinct().Count());
+                        }
+                        if (pulse == 1) AssertReadoutPixelCoverage(readout, flashDrawing);
                     }
                     else Assert.True(AssertNumberOpacity(drawing, readout));
+                    Assert.Same(digitCache, digitCacheField.GetValue(gauge));
+                    Assert.Same(activeDigits, activeDigitsField.GetValue(gauge));
+                    Assert.InRange(digitCache.Count, 0, 10);
+                    if (cachedDigits is not null)
+                    {
+                        Assert.Equal(cachedDigits.Count, digitCache.Count);
+                        foreach (var (digit, image) in cachedDigits) Assert.Same(image, digitCache[digit]);
+                    }
+                    if (colored) Assert.Empty(digitCache);
                     Assert.Equal(angle, gauge.CurrentNeedleAngle);
                     var next = PowerTorqueHudLayer.Capture(gauge, null);
                     Assert.Same(snapshot.Textures, next.Textures);

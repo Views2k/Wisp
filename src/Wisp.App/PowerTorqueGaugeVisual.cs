@@ -1,9 +1,7 @@
 using System.Globalization;
-using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace Wisp.App;
 
@@ -25,7 +23,8 @@ public sealed class PowerTorqueGaugeView : Grid
     private DrawingGroup? _flashReadoutDrawing;
     private readonly SolidColorBrush _flashReadoutBrush = new(Colors.White);
     private readonly SolidColorBrush _flashSignBrush = new(Colors.WhiteSmoke);
-    private static readonly ConditionalWeakTable<BitmapSource, ImageBrush> IntensityMasks = new();
+    private readonly Dictionary<char, NativeTintedBitmap> _flashDigitImages = new();
+    private readonly HashSet<NativeTintedBitmap> _activeFlashDigitImages = new();
     private double _dialPixelsPerDip;
     internal long NativeArtworkRevision { get; private set; }
 
@@ -246,10 +245,12 @@ public sealed class PowerTorqueGaugeView : Grid
             _flashSignBrush.Color = BlendDriftFlash(ColorNumber ? baseline : Colors.WhiteSmoke, DriftFlashColor, pulse);
             if (_flashReadoutDrawing is null)
             {
+                _activeFlashDigitImages.Clear();
                 _flashReadoutDrawing = new DrawingGroup();
                 using var numbers = _flashReadoutDrawing.Open();
                 DrawFlashValue(numbers, _flashReadoutBrush, _flashSignBrush, preserveShading: !ColorNumber);
             }
+            foreach (var image in _activeFlashDigitImages) image.GetImage(_flashReadoutBrush.Color);
             dc.DrawDrawing(_flashReadoutDrawing);
         }
         else dc.DrawDrawing(_readoutDrawing);
@@ -328,20 +329,21 @@ public sealed class PowerTorqueGaugeView : Grid
             }
             var image = NativeAssetCache.Get(NativeGaugeMode.Analogue, $"HUD_Dial_Speed_Analogue_{digit}.png");
             var rect = new Rect(left, Center.Y - height / 2, width, height);
-            if (ColorNumber || flashBrush is not null)
+            if (preserveShading)
             {
-                // Keep glyph coverage constant while only the retained brush color changes.
+                if (!_flashDigitImages.TryGetValue(digit, out var tinted))
+                {
+                    tinted = new NativeTintedBitmap(image);
+                    _flashDigitImages.Add(digit, tinted);
+                }
+                _activeFlashDigitImages.Add(tinted);
+                dc.DrawImage(tinted.GetImage(_flashReadoutBrush.Color), rect);
+            }
+            else if (ColorNumber)
+            {
                 var mask = new ImageBrush(image); mask.Freeze();
                 dc.PushOpacityMask(mask);
-                if (preserveShading)
-                {
-                    // Stock digits are grayscale. An opaque black base and cached
-                    // intensity mask preserve their shading without changing alpha.
-                    dc.DrawRectangle(Brushes.Black, null, rect);
-                    dc.PushOpacityMask(IntensityMasks.GetValue(image, CreateIntensityMask));
-                }
                 dc.DrawRectangle(numberBrush, null, rect);
-                if (preserveShading) dc.Pop();
                 dc.Pop();
             }
             else dc.DrawImage(image, rect);
@@ -356,25 +358,6 @@ public sealed class PowerTorqueGaugeView : Grid
         byte Channel(byte start, byte end) => (byte)Math.Round(start + (end - start) * amount);
         return Color.FromArgb(baseline.A, Channel(baseline.R, flash.R),
             Channel(baseline.G, flash.G), Channel(baseline.B, flash.B));
-    }
-
-    private static ImageBrush CreateIntensityMask(BitmapSource source)
-    {
-        var image = source.Format == PixelFormats.Bgra32 ? source : new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
-        var stride = checked(image.PixelWidth * 4);
-        var pixels = new byte[checked(stride * image.PixelHeight)];
-        image.CopyPixels(pixels, stride, 0);
-        for (var offset = 0; offset < pixels.Length; offset += 4)
-        {
-            var intensity = pixels[offset];
-            pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = pixels[offset + 3] = intensity;
-        }
-        var mask = BitmapSource.Create(image.PixelWidth, image.PixelHeight, image.DpiX, image.DpiY,
-            PixelFormats.Pbgra32, null, pixels, stride);
-        mask.Freeze();
-        var brush = new ImageBrush(mask);
-        brush.Freeze();
-        return brush;
     }
 
     private void DrawActiveArc(DrawingContext dc)
