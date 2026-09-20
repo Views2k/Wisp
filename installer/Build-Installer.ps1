@@ -411,7 +411,8 @@ function Invoke-UpdaterGuardSmoke {
 function Assert-SinglePassedTestResult {
     param(
         [string]$TrxPath,
-        [string]$ValidationLabel
+        [string]$ValidationLabel,
+        [string]$ExpectedTestName
     )
 
     if (-not (Test-Path -LiteralPath $TrxPath -PathType Leaf)) {
@@ -438,7 +439,8 @@ function Assert-SinglePassedTestResult {
         [int]$counters.GetAttribute('aborted') -ne 0 -or
         [int]$counters.GetAttribute('notExecuted') -ne 0 -or
         $results.Count -ne 1 -or
-        $results[0].GetAttribute('outcome') -cne 'Passed') {
+        $results[0].GetAttribute('outcome') -cne 'Passed' -or
+        ($ExpectedTestName -and $results[0].GetAttribute('testName') -cne $ExpectedTestName)) {
         throw "$ValidationLabel must execute and pass exactly one test."
     }
 }
@@ -1226,13 +1228,17 @@ try {
         throw "Source formatting verification failed with exit code $LASTEXITCODE. The installer was not built."
     }
 
-    # Keep the allocation measurement in a fresh test process, isolated from the
-    # other UI fixtures. Both invocations are mandatory; the assertion is unchanged.
-    $allocationTest = 'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'
+    # Keep each allocation measurement in a fresh test process, isolated from
+    # other fixtures. All invocations and both zero-allocation assertions remain mandatory.
+    $allocationTests = @(
+        'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations',
+        'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold'
+    )
+    $nonAllocationFilter = ($allocationTests | ForEach-Object { "FullyQualifiedName!=$_" }) -join '&'
     & $dotnetExecutable test $solution --configuration Release `
         --no-restore `
         --nologo `
-        --filter "FullyQualifiedName!=$allocationTest" `
+        --filter $nonAllocationFilter `
         -p:ContinuousIntegrationBuild=true `
         -m:1 `
         -nodeReuse:false `
@@ -1241,21 +1247,23 @@ try {
         throw "Release tests failed with exit code $LASTEXITCODE. The installer was not built."
     }
 
-    $allocationResults = Join-Path $stageDirectory 'allocation-validation-results'
-    & $dotnetExecutable test $appTestsProject --configuration Release `
-        --no-build `
-        --no-restore `
-        --nologo `
-        --filter "FullyQualifiedName=$allocationTest" `
-        --logger 'trx;LogFileName=renderer-allocation.trx' `
-        --results-directory $allocationResults `
-        --disable-build-servers `
-        -m:1 `
-        -p:UseSharedCompilation=false
-    if ($LASTEXITCODE -ne 0) {
-        throw "Isolated renderer allocation validation failed with exit code $LASTEXITCODE. The installer was not built."
+    foreach ($allocationTest in $allocationTests) {
+        $allocationResults = Join-Path $stageDirectory ('allocation-validation-' + $allocationTest.Split('.')[-1])
+        & $dotnetExecutable test $appTestsProject --configuration Release `
+            --no-build `
+            --no-restore `
+            --nologo `
+            --filter "FullyQualifiedName=$allocationTest" `
+            --logger 'trx;LogFileName=diagnostic-allocation.trx' `
+            --results-directory $allocationResults `
+            --disable-build-servers `
+            -m:1 `
+            -p:UseSharedCompilation=false
+        if ($LASTEXITCODE -ne 0) {
+            throw "Isolated diagnostic allocation validation failed with exit code $LASTEXITCODE. The installer was not built."
+        }
+        Assert-SinglePassedTestResult (Join-Path $allocationResults 'diagnostic-allocation.trx') 'Diagnostic allocation validation' $allocationTest
     }
-    Assert-SinglePassedTestResult (Join-Path $allocationResults 'renderer-allocation.trx') 'Renderer allocation validation'
 
     & $dotnetExecutable build $uiReviewProject --configuration Release `
         --no-restore `

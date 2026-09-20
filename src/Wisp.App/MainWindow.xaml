@@ -1116,11 +1116,11 @@
                                                           Style="{StaticResource ToggleSwitchStyle}"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" />
                                                 <CheckBox Content="Attach analogue boost gauge"
-                                                          IsChecked="{Binding BoostGaugeAttached}"
+                                                          IsChecked="{Binding BoostGaugeAttached}" IsEnabled="{Binding CanAttachAnalogueBoostGauge}"
                                                           AutomationProperties.Name="Attach analogue boost gauge"
                                                           Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" />
-                                                <TextBlock Text="The digital rail stays fixed. Turn this off to move the analogue gauge separately."
+                                                <TextBlock Text="Attachment applies only to Native Analogue. Other layouts show the gauge separately; the Native Digital rail stays fixed."
                                                            TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
                                                            FontSize="11" Margin="54,4,0,0" />
                                                 <CheckBox Content="Show vacuum pressure"
@@ -1199,11 +1199,11 @@
                                                           Style="{StaticResource ToggleSwitchStyle}"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" />
                                                 <CheckBox Content="Attach tire temperature gauge"
-                                                          IsChecked="{Binding TireTemperatureGaugeAttached}"
+                                                          IsChecked="{Binding TireTemperatureGaugeAttached}" IsEnabled="{Binding IsNativeLayout}"
                                                           AutomationProperties.Name="Attach tire temperature gauge"
                                                           Style="{StaticResource ToggleSwitchStyle}" Margin="0,14,0,0"
                                                           Checked="Option_Changed" Unchecked="Option_Changed" />
-                                                <TextBlock Text="Attached mode places it below boost. With no boost gauge, it closes the gap below the speedometer."
+                                                <TextBlock Text="Attachment applies only to Native. Other layouts show the gauge separately and retain your saved Native attachment setting."
                                                            TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}"
                                                            FontSize="11" Margin="54,4,0,0" />
                                                 <CheckBox Content="Display tire temperatures in Celsius"

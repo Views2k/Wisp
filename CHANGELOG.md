@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.3.1 - 2026-09-20
+
+- Allow standalone boost and tire-temperature gauges in Minimal, Combined and Box layouts, including when the saved Native attachment setting is on.
+- Disable attachment controls where attachment is unsupported. Preserve the preference when switching back to Native, and keep the Native Digital boost rail unchanged.
+- Preserve existing gauge rendering, sizes, colors, smoothing and saved positions.
+
 ## 2.3.0 - 2026-09-19
 
 - Add optional Drift mode for the power and torque gauges. Hold both numbers and needles during brief combustion-engine power cuts, with a color pulse on the numbers.

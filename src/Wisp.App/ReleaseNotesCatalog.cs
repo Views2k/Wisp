@@ -15,11 +15,23 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.3.1",
+            "September 20, 2026",
+            "GAUGE LAYOUT HOTFIX",
+            "Standalone boost and tire-temperature gauges in every HUD layout.",
+            true,
+            [
+                Group("Gauge availability",
+                    "Show boost and tire-temperature gauges separately alongside Minimal, Combined and Box layouts.",
+                    "Attachment remains available only in compatible Native layouts. Your saved attachment preference returns when you switch back.",
+                    "Keep the Native Digital boost rail, gauge artwork, sizes, colors and saved positions unchanged.")
+            ]),
+        new(
             "2.3",
             "September 19, 2026",
             "WISP 2.3",
             "Drift mode for power and torque, with adjustable flash color and frequency.",
-            true,
+            false,
             [
                 Group("Drift mode",
                     "Hold power and torque numbers and needles during brief combustion-engine power cuts. Enable Drift mode in Appearance → Gauges → Engine output → More options.",
