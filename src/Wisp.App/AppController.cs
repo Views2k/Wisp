@@ -203,14 +203,14 @@ public sealed partial class AppController : IAsyncDisposable
         Settings.GForceEnabled && Settings.LayoutMode != HudLayoutMode.Combined &&
         !IsAttachedGForceMeterEnabled;
     public bool IsDetachedBoostGaugeEnabled =>
-        Settings.BoostGaugeEnabled && !Settings.BoostGaugeAttached &&
-        Settings.LayoutMode == HudLayoutMode.Native &&
-        Settings.NativeGaugeMode == NativeGaugeMode.Analogue &&
+        Settings.BoostGaugeEnabled &&
+        (Settings.LayoutMode != HudLayoutMode.Native ||
+         !Settings.BoostGaugeAttached && Settings.NativeGaugeMode == NativeGaugeMode.Analogue) &&
         !ViewModel.NativeGaugeFrame.IsElectric &&
         ViewModel.BoostDisplay.IsAvailable;
     public bool IsDetachedTireTemperatureGaugeEnabled =>
-        Settings.TireTemperatureGaugeEnabled && !Settings.TireTemperatureGaugeAttached &&
-        Settings.LayoutMode == HudLayoutMode.Native &&
+        Settings.TireTemperatureGaugeEnabled &&
+        (Settings.LayoutMode != HudLayoutMode.Native || !Settings.TireTemperatureGaugeAttached) &&
         ViewModel.TireTemperatureDisplay.IsAvailable;
 
     internal void SetOverlayHotkeyRegistration(

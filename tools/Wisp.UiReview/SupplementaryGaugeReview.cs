@@ -94,7 +94,7 @@ internal static class SupplementaryGaugeReview
             }
     }
 
-    private static void ApplySample(DiagnosticsViewModel model)
+    internal static void ApplySample(DiagnosticsViewModel model)
     {
         var state = new VehicleState
         {

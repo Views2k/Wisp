@@ -638,10 +638,19 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             _layoutSelectionIndex = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LayoutSelectionIndex)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsNativeLayout)));
+            OnPropertyChanged(nameof(CanAttachAnalogueBoostGauge));
         }
     }
 
-    public int NativeGaugeSelectionIndex { get => _nativeGaugeSelectionIndex; set => Set(ref _nativeGaugeSelectionIndex, value); }
+    public int NativeGaugeSelectionIndex
+    {
+        get => _nativeGaugeSelectionIndex;
+        set
+        {
+            if (Set(ref _nativeGaugeSelectionIndex, value))
+                OnPropertyChanged(nameof(CanAttachAnalogueBoostGauge));
+        }
+    }
     public int GearDisplaySelectionIndex
     {
         get => _gearDisplaySelectionIndex;
@@ -656,6 +665,8 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     public bool InvertLateralG { get => _invertLateralG; set => Set(ref _invertLateralG, value); }
     public bool InvertLongitudinalG { get => _invertLongitudinalG; set => Set(ref _invertLongitudinalG, value); }
     public bool IsNativeLayout => LayoutSelectionIndex == (int)HudLayoutMode.Native;
+    public bool CanAttachAnalogueBoostGauge => IsNativeLayout &&
+        NativeGaugeSelectionIndex == (int)NativeGaugeMode.Analogue;
 
     public bool GameAwareVisibility { get => _gameAwareVisibility; set => Set(ref _gameAwareVisibility, value); }
     public bool OverlayHotkeyEnabled { get => _overlayHotkeyEnabled; set => Set(ref _overlayHotkeyEnabled, value); }

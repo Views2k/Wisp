@@ -39,6 +39,8 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--standalone-gauges-check" && args[1] == "--output")
+                return StandaloneGaugeReview.Run(PrepareOutput(args[2]), () => LoadApplicationResources(args[2], out _), DetachSurface, SetOffscreenDpi);
             if (args.Length == 3 && args[0] == "--ev-wrap-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);
