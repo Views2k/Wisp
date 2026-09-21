@@ -15,11 +15,23 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.3.2",
+            "September 20, 2026",
+            "GAUGE PREVIEW HOTFIX",
+            "Standalone boost and tire-temperature gauges now appear in every layout preview.",
+            true,
+            [
+                Group("Appearance preview",
+                    "Show enabled boost and tire-temperature gauges alongside Minimal, Combined and Box previews in both app interfaces.",
+                    "Use your selected gauge colors, individual sizes and tire-gauge style. Fit the preview to the available space.",
+                    "Preserve in-game gauge behavior, Native previews, attachment preferences and saved data.")
+            ]),
+        new(
             "2.3.1",
             "September 20, 2026",
             "GAUGE LAYOUT HOTFIX",
             "Standalone boost and tire-temperature gauges in every HUD layout.",
-            true,
+            false,
             [
                 Group("Gauge availability",
                     "Show boost and tire-temperature gauges separately alongside Minimal, Combined and Box layouts.",

@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.3.2 - 2026-09-20
+
+- Show enabled standalone boost and tire-temperature gauges in the Minimal, Combined and Box Appearance previews, in both app interfaces.
+- Match the selected gauge colors, independent sizes and tire-gauge style; fit the preview to the available space and keep speed text visible when scaled down.
+- Preserve in-game gauge behavior, Native previews, attachment preferences and saved data.
+
 ## 2.3.1 - 2026-09-20
 
 - Allow standalone boost and tire-temperature gauges in Minimal, Combined and Box layouts, including when the saved Native attachment setting is on.
