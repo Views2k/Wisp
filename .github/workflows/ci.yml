@@ -54,10 +54,11 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           # Match canonical packaging: measure allocations in a fresh test host.
-          # Every invocation is required; both zero-allocation assertions are unchanged.
+          # Every invocation is required; all zero-allocation assertions are unchanged.
           $allocationTests = @(
             'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations',
-            'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold'
+            'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold',
+            'Wisp.App.Tests.TachDiagnosticsTests.DisabledRecordCallsCreateNoHistoryOrPerCallAllocations'
           )
           $nonAllocationFilter = ($allocationTests | ForEach-Object { "FullyQualifiedName!=$_" }) -join '&'
           dotnet test Wisp.sln --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false --filter $nonAllocationFilter

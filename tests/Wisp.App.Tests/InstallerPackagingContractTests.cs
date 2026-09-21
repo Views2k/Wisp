@@ -104,6 +104,7 @@ public sealed class InstallerPackagingContractTests
         var script = InstallerScript();
         Assert.Contains("'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'", script, StringComparison.Ordinal);
         Assert.Contains("'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold'", script, StringComparison.Ordinal);
+        Assert.Contains("'Wisp.App.Tests.TachDiagnosticsTests.DisabledRecordCallsCreateNoHistoryOrPerCallAllocations'", script, StringComparison.Ordinal);
         Assert.Contains("foreach ($allocationTest in $allocationTests)", script, StringComparison.Ordinal);
         Assert.Contains("($allocationTests | ForEach-Object { \"FullyQualifiedName!=$_\" }) -join '&'", script, StringComparison.Ordinal);
         Assert.Contains("--filter $nonAllocationFilter", script, StringComparison.Ordinal);
@@ -125,6 +126,7 @@ public sealed class InstallerPackagingContractTests
         var step = workflow[start..end];
         Assert.Contains("'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'", step, StringComparison.Ordinal);
         Assert.Contains("'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold'", step, StringComparison.Ordinal);
+        Assert.Contains("'Wisp.App.Tests.TachDiagnosticsTests.DisabledRecordCallsCreateNoHistoryOrPerCallAllocations'", step, StringComparison.Ordinal);
         Assert.Contains("foreach ($allocationTest in $allocationTests)", step, StringComparison.Ordinal);
         Assert.Contains("($allocationTests | ForEach-Object { \"FullyQualifiedName!=$_\" }) -join '&'", step, StringComparison.Ordinal);
         Assert.Contains("--filter $nonAllocationFilter", step, StringComparison.Ordinal);

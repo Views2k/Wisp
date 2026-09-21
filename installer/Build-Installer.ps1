@@ -1229,10 +1229,11 @@ try {
     }
 
     # Keep each allocation measurement in a fresh test process, isolated from
-    # other fixtures. All invocations and both zero-allocation assertions remain mandatory.
+    # other fixtures. All invocations and zero-allocation assertions remain mandatory.
     $allocationTests = @(
         'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations',
-        'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold'
+        'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold',
+        'Wisp.App.Tests.TachDiagnosticsTests.DisabledRecordCallsCreateNoHistoryOrPerCallAllocations'
     )
     $nonAllocationFilter = ($allocationTests | ForEach-Object { "FullyQualifiedName!=$_" }) -join '&'
     & $dotnetExecutable test $solution --configuration Release `
