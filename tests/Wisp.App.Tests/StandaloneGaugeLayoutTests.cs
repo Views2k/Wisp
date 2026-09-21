@@ -176,8 +176,76 @@ internal static class StandaloneGaugeLayoutTests
                     Assert.NotNull(boost.Template);
                     Assert.NotNull(tire.Template);
                 }
+            AssertAppearancePreview(window, controller.ViewModel, root);
         }
         finally { window.Close(); }
+    }
+
+    private static void AssertAppearancePreview(Window window, DiagnosticsViewModel model, FrameworkElement root)
+    {
+        var surface = Assert.IsType<Border>(window.FindName("HudPreviewSurface"));
+        var preview = Assert.IsType<StandaloneGaugePreview>(window.FindName("StandaloneSupplementaryGaugePreview"));
+        var layoutPreview = Assert.IsType<Viewbox>(window.FindName("StandaloneLayoutPreview"));
+        UpdateTelemetry(model, false);
+        foreach (var layout in new[] { HudLayoutMode.Minimal, HudLayoutMode.Combined, HudLayoutMode.SeparateBoxes, HudLayoutMode.Native })
+            foreach (var mode in Enum.GetValues<NativeGaugeMode>())
+                foreach (var mask in new[] { 15, 3, 1, 2, 12, 0 })
+                {
+                    model.LayoutSelectionIndex = (int)layout;
+                    model.NativeGaugeSelectionIndex = (int)mode;
+                    model.BoostGaugeEnabled = (mask & 1) != 0;
+                    model.TireTemperatureGaugeEnabled = (mask & 2) != 0;
+                    model.PowerGaugeEnabled = (mask & 4) != 0;
+                    model.TorqueGaugeEnabled = (mask & 8) != 0;
+                    model.BoostGaugeAttached = model.TireTemperatureGaugeAttached = true;
+                    model.BoostGaugeScale = .5;
+                    model.TireTemperatureGaugeScale = 2;
+                    model.PowerGaugeScale = 1.25;
+                    model.TorqueGaugeScale = 1;
+                    window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+                    root.Measure(new Size(1464, 994));
+                    root.Arrange(new Rect(0, 0, 1464, 994));
+                    root.UpdateLayout();
+                    var native = layout == HudLayoutMode.Native;
+                    Assert.Equal(native ? Visibility.Collapsed : Visibility.Visible, layoutPreview.Visibility);
+                    if (native) continue;
+                    var visible = Descendants(preview).OfType<FrameworkElement>()
+                        .Where(element => IsVisibleWithin(element, surface)).ToArray();
+                    Assert.Equal((mask & 1) != 0, visible.OfType<AnalogBoostGaugeView>().Any());
+                    Assert.Equal((mask & 2) != 0 && mode == NativeGaugeMode.Analogue, visible.OfType<AnalogTireTemperatureGaugeView>().Any());
+                    Assert.Equal((mask & 2) != 0 && mode == NativeGaugeMode.Digital, visible.OfType<DigitalTireTemperatureGaugeView>().Any());
+                    Assert.Equal((mask & 4) != 0, visible.OfType<PowerTorqueGaugeView>().Any(g => !g.IsTorque));
+                    Assert.Equal((mask & 8) != 0, visible.OfType<PowerTorqueGaugeView>().Any(g => g.IsTorque));
+                    Assert.Equal(mask == 0 ? Visibility.Collapsed : Visibility.Visible, preview.Visibility);
+                    foreach (var gauge in visible.Where(g => g is AnalogBoostGaugeView or TireTemperatureVisualBase or PowerTorqueGaugeView))
+                    {
+                        var drawing = VisualTreeHelper.GetDrawing(gauge);
+                        Assert.NotNull(drawing);
+                        var bounds = gauge.TransformToAncestor(surface).TransformBounds(drawing.Bounds);
+                        Assert.True(bounds.Left >= -.1 && bounds.Top >= -.1 && bounds.Right <= surface.ActualWidth + .1 &&
+                            bounds.Bottom <= surface.ActualHeight + .1, $"{layout}/{mode}: {gauge.GetType().Name} outside preview: {bounds}");
+                        if (gauge is BoostVisualBase boost) Assert.Equal(model.PreviewBoostDisplay, boost.Display);
+                        if (gauge is TireTemperatureVisualBase tire)
+                        {
+                            Assert.Equal(model.PreviewTireTemperatureDisplay, tire.Display);
+                            Assert.False(tire.IsAttached);
+                        }
+                    }
+                    Assert.True(model.BoostGaugeAttached);
+                    Assert.True(model.TireTemperatureGaugeAttached);
+                }
+        model.LayoutSelectionIndex = (int)HudLayoutMode.Minimal;
+        model.BoostGaugeEnabled = true;
+        UpdateTelemetry(model, true);
+        window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+        Assert.Equal(Visibility.Collapsed, preview.Visibility);
+    }
+
+    private static bool IsVisibleWithin(DependencyObject element, DependencyObject root)
+    {
+        for (var current = element; current != root; current = VisualTreeHelper.GetParent(current))
+            if (current is null || current is UIElement { Visibility: not Visibility.Visible }) return false;
+        return true;
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)

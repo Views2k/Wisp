@@ -448,27 +448,18 @@
                                                             <ColumnDefinition Width="*" />
                                                             <ColumnDefinition Width="Auto" />
                                                         </Grid.ColumnDefinitions>
-                                                        <Viewbox Grid.Column="1" Margin="8,0,0,0" MaxWidth="240"
-                                                                 Stretch="Uniform" StretchDirection="DownOnly"
-                                                                 VerticalAlignment="Center">
+                                                        <Viewbox x:Name="StandaloneLayoutPreview" Grid.ColumnSpan="2" Stretch="Uniform" StretchDirection="DownOnly" TextOptions.TextRenderingMode="Grayscale"
+                                                                 HorizontalAlignment="Center" VerticalAlignment="Center">
                                                             <Viewbox.Style>
                                                                 <Style TargetType="Viewbox">
                                                                     <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="3">
-                                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                                        </DataTrigger>
-                                                                        <MultiDataTrigger>
-                                                                            <MultiDataTrigger.Conditions>
-                                                                                <Condition Binding="{Binding PowerGaugeEnabled}" Value="False" />
-                                                                                <Condition Binding="{Binding TorqueGaugeEnabled}" Value="False" />
-                                                                            </MultiDataTrigger.Conditions>
-                                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                                        </MultiDataTrigger>
+                                                                        <DataTrigger Binding="{Binding LayoutSelectionIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
                                                                     </Style.Triggers>
                                                                 </Style>
                                                             </Viewbox.Style>
-                                                            <local:PowerTorqueGaugePairPreview />
-                                                        </Viewbox>
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                                <local:StandaloneGaugePreview x:Name="StandaloneSupplementaryGaugePreview" Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" />
                                                         <Grid x:Name="MinimalLayoutPreview">
                                                             <Grid.Style>
                                                                 <Style TargetType="Grid">
@@ -606,6 +597,9 @@
                                                                 <local:GForceMeterView Margin="13,10,13,11" />
                                                             </Border>
                                                         </Grid>
+
+                                                            </Grid>
+                                                        </Viewbox>
 
                                                         <Grid x:Name="NativeLayoutPreview" Grid.ColumnSpan="2">
                                                             <Grid.Style>
