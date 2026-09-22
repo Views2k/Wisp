@@ -118,35 +118,38 @@ public sealed class InstallerPackagingContractTests
     }
 
     [Fact]
-    public void CiAlsoRequiresTheIsolatedAllocationMeasurementBeforeContinuing()
+    public void CiRunsCanonicalValidationOnceBeforeInstallerLifecycleAndPublication()
     {
         var workflow = File.ReadAllText(Path.Combine(RepositoryRoot(), ".github", "workflows", "ci.yml"));
-        var start = workflow.IndexOf("- name: Test .NET projects", StringComparison.Ordinal);
-        var end = workflow.IndexOf("- name: Build UI review harness", start, StringComparison.Ordinal);
-        var step = workflow[start..end];
-        Assert.Contains("'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'", step, StringComparison.Ordinal);
-        Assert.Contains("'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold'", step, StringComparison.Ordinal);
-        Assert.Contains("'Wisp.App.Tests.TachDiagnosticsTests.DisabledRecordCallsCreateNoHistoryOrPerCallAllocations'", step, StringComparison.Ordinal);
-        Assert.Contains("foreach ($allocationTest in $allocationTests)", step, StringComparison.Ordinal);
-        Assert.Contains("($allocationTests | ForEach-Object { \"FullyQualifiedName!=$_\" }) -join '&'", step, StringComparison.Ordinal);
-        Assert.Contains("--filter $nonAllocationFilter", step, StringComparison.Ordinal);
-        Assert.Contains("--filter \"FullyQualifiedName=$allocationTest\"", step, StringComparison.Ordinal);
-        Assert.Contains("$env:RUNNER_TEMP ('wisp-allocation-' + [guid]::NewGuid())", step, StringComparison.Ordinal);
-        Assert.Contains("--no-build --no-restore", step, StringComparison.Ordinal);
-        Assert.Contains("if ($LASTEXITCODE -ne 0) { throw \"Release tests failed", step, StringComparison.Ordinal);
-        Assert.Contains("if ($LASTEXITCODE -ne 0) { throw \"Isolated diagnostic allocation validation failed", step, StringComparison.Ordinal);
+        const string canonical = "run: ./installer/Build-Installer.ps1 -InnoCompiler";
+        Assert.Equal(1, workflow.Split(canonical, StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("dotnet test Wisp.sln", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("continue-on-error", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("-SkipTests", workflow, StringComparison.Ordinal);
+        var package = workflow.IndexOf("  package-review:", StringComparison.Ordinal);
+        var publish = workflow.IndexOf("  publish-release:", StringComparison.Ordinal);
+        Assert.True(package > workflow.IndexOf(canonical, StringComparison.Ordinal) && publish > package);
+        Assert.Contains("needs:", workflow[package..publish], StringComparison.Ordinal);
+        Assert.Contains("test", workflow[package..publish], StringComparison.Ordinal);
+        Assert.Contains("wisp-candidate-${{ github.sha }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("Test-InstallerLifecycle.ps1", workflow[package..publish], StringComparison.Ordinal);
+        Assert.Contains("needs: [test, package-review]", workflow[publish..], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CanonicalValidationRequiresExactlyOnePassedResultForEachIsolatedMeasurement()
+    {
+        var script = InstallerScript();
+        var start = script.IndexOf("function Assert-SinglePassedTestResult", StringComparison.Ordinal);
+        var end = script.IndexOf("function Invoke-InstallerRuntimeValidation", start, StringComparison.Ordinal);
+        var resultValidation = script[start..end];
         foreach (var counter in new[] { "total", "executed", "passed" })
-        {
-            Assert.Contains($"$counters.GetAttribute('{counter}') -ne 1", step, StringComparison.Ordinal);
-        }
+            Assert.Contains($"$counters.GetAttribute('{counter}') -ne 1", resultValidation, StringComparison.Ordinal);
         foreach (var counter in new[] { "failed", "error", "aborted", "notExecuted" })
-        {
-            Assert.Contains($"$counters.GetAttribute('{counter}') -ne 0", step, StringComparison.Ordinal);
-        }
-        Assert.Contains("$results.Count -ne 1", step, StringComparison.Ordinal);
-        Assert.Contains("$results[0].GetAttribute('outcome') -cne 'Passed'", step, StringComparison.Ordinal);
-        Assert.Contains("$results[0].GetAttribute('testName') -cne $allocationTest", step, StringComparison.Ordinal);
-        Assert.DoesNotContain("continue-on-error", step, StringComparison.Ordinal);
+            Assert.Contains($"$counters.GetAttribute('{counter}') -ne 0", resultValidation, StringComparison.Ordinal);
+        Assert.Contains("$results.Count -ne 1", resultValidation, StringComparison.Ordinal);
+        Assert.Contains("$results[0].GetAttribute('outcome') -cne 'Passed'", resultValidation, StringComparison.Ordinal);
+        Assert.Contains("$results[0].GetAttribute('testName') -cne $ExpectedTestName", resultValidation, StringComparison.Ordinal);
     }
 
     [Fact]

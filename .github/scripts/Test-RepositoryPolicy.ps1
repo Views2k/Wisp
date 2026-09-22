@@ -141,4 +141,5 @@ Assert-Policy ($tagRuleTypes -notcontains 'creation') 'Release-tag creation must
 $ownerRules = @($codeOwners | Where-Object { $_.Trim() -eq '* @Views2k' })
 Assert-Policy ($ownerRules.Count -eq 1) 'CODEOWNERS must retain the repository-wide owner rule.'
 
-Write-Host 'Repository policy definitions are internally consistent.'
+& (Join-Path $PSScriptRoot 'Test-ReleaseTag.ps1') -Tag $applicationVersion -ContentOnly
+Write-Host 'Repository policy definitions and release content are internally consistent.'
