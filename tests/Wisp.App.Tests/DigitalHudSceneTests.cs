@@ -168,7 +168,8 @@ public sealed class DigitalHudSceneTests
         AssertPowerBarTracks(electric, boundaryBar);
         var textures = DigitalHudAssets.LoadOnUiThread();
         Assert.Same(textures, DigitalHudAssets.LoadOnUiThread());
-        Assert.Equal(DigitalHudAssets.Definitions.Count + 1, textures.Count);
+        Assert.Equal(DigitalHudAssets.Definitions.Count + 2, textures.Count);
+        Assert.Single(textures, texture => texture.Id == ShiftCueArtwork.DigitalTextureId);
         Assert.All(textures, texture => Assert.Equal(texture.Stride * texture.Height, texture.Pixels.Length));
     }
 

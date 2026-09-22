@@ -101,6 +101,7 @@ public sealed class PowerTorqueGaugeWindow : Window
 
     public void ResetPosition(Rect anchorBounds, Rect workArea)
     {
+        anchorBounds = _controller.DefaultSupplementaryGaugeAnchor(anchorBounds, workArea);
         var position = DetachedSupplementaryGaugeLayout.Place(workArea, anchorBounds,
             new Size(Width, Height), _controller.DetachedSupplementaryGaugeCellSize, IsTorque ? 3 : 2);
         Left = position.X;

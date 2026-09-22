@@ -82,7 +82,9 @@ public partial class NativeDigitalSpeedometer : UserControl
                 : "HUD_Dial_Unit_Digital_KPH.png");
 
         var gear = NativeGaugeGeometry.GearToken(frame.Gear, frame.GearDisplayMode);
-        var shift = NativeGaugeGeometry.IsShiftLightActive(frame.EngineRpm, frame.ExactRedline);
+        ShiftCueRing.Update(gear is not null && frame.ShiftCue.CanRender(frame) ? frame.ShiftCue : default);
+        var shift = !frame.ShiftCue.ReplacesRedlineCue(frame) &&
+            NativeGaugeGeometry.IsShiftLightActive(frame.EngineRpm, frame.ExactRedline);
         GearImage.Visibility = gear is null ? Visibility.Collapsed : Visibility.Visible;
         if (gear is not null)
         {

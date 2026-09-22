@@ -129,34 +129,9 @@ internal static class ApplicationUpdateLauncher
             throw new InvalidOperationException("The downloaded installer is not newer than this Wisp installation.");
         }
 
+        var helperPath = ApplicationUpdateStaging.StageUpdater(attemptDirectory);
         var readyToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
         var readyEventName = UpdateApplyContract.CreateReadyEventName(readyToken);
-        var readyEvent = new EventWaitHandle(
-            initialState: false,
-            EventResetMode.ManualReset,
-            readyEventName,
-            out var createdNew);
-        if (!createdNew)
-        {
-            readyEvent.Dispose();
-            throw new InvalidOperationException("Wisp could not create a private update handoff.");
-        }
-
-        var helperPath = ApplicationUpdateStaging.StageUpdater(attemptDirectory);
-        var requestPath = Path.Combine(attemptDirectory, "apply-request.json");
-        if (File.Exists(requestPath))
-        {
-            var attributes = File.GetAttributes(requestPath);
-            if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
-            {
-                readyEvent.Dispose();
-                throw new IOException("The staged update request is invalid.");
-            }
-            File.Delete(requestPath);
-        }
-        var temporaryRequestPath = Path.Combine(
-            attemptDirectory,
-            $".apply-request.{Guid.NewGuid():N}.tmp");
         var request = new UpdateApplyRequest(
             installerPath,
             installer.Version.ToString(),
@@ -167,8 +142,45 @@ internal static class ApplicationUpdateLauncher
             installer.Size,
             readyEventName);
 
+        return StartHelper(helperPath, request);
+    }
+
+    internal static string DescribeStartFailure(Exception exception) =>
+        exception is ApplicationUpdateHelperUnavailableException
+            ? "This copy of Wisp is missing a usable update helper. Download and run the full installer from wispoverlay.com to repair it. Wisp stayed open and no files were installed."
+            : "Wisp could not start the verified update. Try again, or download and run the full installer from wispoverlay.com. Wisp stayed open and no files were installed.";
+
+    internal static ApplicationUpdateHandoff StartHelper(string helperPath, UpdateApplyRequest request)
+    {
+        var attemptDirectory = Path.GetDirectoryName(request.StagedInstallerPath)!;
+        var requestPath = Path.Combine(attemptDirectory, "apply-request.json");
+        var temporaryRequestPath = Path.Combine(
+            attemptDirectory,
+            $".apply-request.{Guid.NewGuid():N}.tmp");
+        var readyEvent = new EventWaitHandle(
+            initialState: false,
+            EventResetMode.ManualReset,
+            request.ReadyEventName,
+            out var createdNew);
+        if (!createdNew)
+        {
+            readyEvent.Dispose();
+            throw new InvalidOperationException("Wisp could not create a private update handoff.");
+        }
+
+        var requestCreated = false;
         try
         {
+            if (File.Exists(requestPath) || Directory.Exists(requestPath))
+            {
+                var attributes = File.GetAttributes(requestPath);
+                if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+                {
+                    throw new IOException("The staged update request is invalid.");
+                }
+                File.Delete(requestPath);
+            }
+
             using (var stream = new FileStream(temporaryRequestPath, new FileStreamOptions
             {
                 Mode = FileMode.CreateNew,
@@ -183,6 +195,7 @@ internal static class ApplicationUpdateLauncher
             }
 
             File.Move(temporaryRequestPath, requestPath, overwrite: false);
+            requestCreated = true;
             var startInfo = new ProcessStartInfo
             {
                 FileName = helperPath,
@@ -201,7 +214,10 @@ internal static class ApplicationUpdateLauncher
         {
             readyEvent.Dispose();
             TryDelete(temporaryRequestPath);
-            TryDelete(requestPath);
+            if (requestCreated)
+            {
+                TryDelete(requestPath);
+            }
             TryDelete(helperPath);
             throw;
         }

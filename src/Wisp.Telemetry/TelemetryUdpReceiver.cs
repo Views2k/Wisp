@@ -34,6 +34,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     private string? _listenerError;
     private int _disposed;
     private RunDatagramCapture? _runCapture;
+    private Action<VehicleState?>? _validatedStateObserver;
 
     public TelemetryUdpReceiver(Fh6PacketParser? parser = null)
     {
@@ -44,6 +45,16 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
 
     // Optional diagnostic observer. It must never block reception or retain the reused buffer.
     public Action<TelemetryPacketDiagnostic>? DiagnosticObserver { get; set; }
+
+    // Runs on the receive worker for each datagram, including those superseded
+    // while draining. Null marks a rejected packet and invalidates prior event
+    // evidence. The callback must be short and nonblocking.
+    // This does not change latest-only UI notifications or packet statistics.
+    public Action<VehicleState?>? ValidatedStateObserver
+    {
+        get => Volatile.Read(ref _validatedStateObserver);
+        set => Volatile.Write(ref _validatedStateObserver, value);
+    }
 
     public VehicleState? Latest => Volatile.Read(ref _latest);
 
@@ -298,10 +309,12 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                     result.ReceivedBytes,
                     ref remoteEndpoint);
                 var receivedAt = DateTimeOffset.UtcNow;
-                var receivedTimestamp = Stopwatch.GetTimestamp();
+                var stateObserver = Volatile.Read(ref _validatedStateObserver);
+                var receivedTimestamp = stateObserver is null ? Stopwatch.GetTimestamp() : LastDatagramTimestamp;
                 if (_parser.TryParse(buffer.AsSpan(0, receivedBytes), receivedAt, out var state, out var error,
                         receivedTimestamp))
                 {
+                    if (stateObserver is not null) ObserveValidatedState(stateObserver, state!);
                     Volatile.Write(ref _latest, state);
                     Interlocked.Increment(ref _acceptedPackets);
                     ObserveParsed(state!, PacketParseError.None, receivedTimestamp);
@@ -309,6 +322,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                 }
                 else
                 {
+                    if (stateObserver is not null) ObserveValidatedState(stateObserver, null);
                     Volatile.Write(ref _lastParseError, (int)error);
                     Interlocked.Increment(ref _rejectedPackets);
                     ObserveParsed(null, error, receivedTimestamp);
@@ -342,6 +356,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     {
         for (var drained = 0; drained < MaximumDrainDatagrams && socket.Available > 0; drained++)
         {
+            ObserveSupersededDatagram(buffer.AsSpan(0, receivedBytes));
             receivedBytes = socket.ReceiveFrom(
                 buffer,
                 0,
@@ -354,6 +369,20 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
         }
 
         return receivedBytes;
+    }
+
+    private void ObserveSupersededDatagram(ReadOnlySpan<byte> bytes)
+    {
+        var observer = Volatile.Read(ref _validatedStateObserver);
+        if (observer is null) return;
+        _parser.TryParse(bytes, DateTimeOffset.UtcNow, out var state, out _, LastDatagramTimestamp);
+        ObserveValidatedState(observer, state);
+    }
+
+    private static void ObserveValidatedState(Action<VehicleState?> observer, VehicleState? state)
+    {
+        try { observer(state); }
+        catch { /* An optional consumer must not terminate the telemetry listener. */ }
     }
 
     private void RecordDatagram(bool drained)

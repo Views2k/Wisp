@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -124,10 +125,16 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _canCheckApplicationUpdate = true;
     private bool _isApplicationUpdateAvailable;
 
-    public DiagnosticsViewModel(AppSettings settings)
+    public DiagnosticsViewModel(AppSettings settings) : this(settings, Stopwatch.GetTimestamp)
     {
+    }
+
+    internal DiagnosticsViewModel(AppSettings settings, Func<long> shiftTimestamp)
+    {
+        _shiftTimestamp = shiftTimestamp ?? throw new ArgumentNullException(nameof(shiftTimestamp));
         UpdateGForceColors(settings);
         InitializePowerTorqueSettings(settings);
+        InitializeShiftCueSettings(settings);
         _udpPort = settings.UdpPort;
         _udpPortText = settings.UdpPort.ToString(CultureInfo.InvariantCulture);
         _unitSelectionIndex = settings.SpeedUnit == SpeedUnit.MilesPerHour ? 0 : 1;
@@ -639,6 +646,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LayoutSelectionIndex)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsNativeLayout)));
             OnPropertyChanged(nameof(CanAttachAnalogueBoostGauge));
+            NotifyPowerTorqueAttachmentAvailability();
         }
     }
 
@@ -648,7 +656,10 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         set
         {
             if (Set(ref _nativeGaugeSelectionIndex, value))
+            {
                 OnPropertyChanged(nameof(CanAttachAnalogueBoostGauge));
+                NotifyPowerTorqueAttachmentAvailability();
+            }
         }
     }
     public int GearDisplaySelectionIndex
@@ -790,7 +801,8 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         double renderRate,
         bool refreshDiagnostics,
         bool updateGForce,
-        SpeedSourceMode speedSource = SpeedSourceMode.WheelIndicated)
+        SpeedSourceMode speedSource = SpeedSourceMode.WheelIndicated,
+        VehicleState? rawShiftState = null)
     {
         var exactRedline = nativeHud.ExactRedline;
         var nativeAssists = nativeHud.Assists;
@@ -843,8 +855,10 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             IsNativeGaugeSourceInvalidated(nativeHud),
             nativeHud.ElectricGearState,
             nativeHud.DisplayedSpeedState,
-            speedSource);
+            speedSource,
+            CalculateShiftCue(rawShiftState ?? state, nativeHud, packetAge));
         NativeGaugeFrame = nextNativeGaugeFrame.PreserveStableTachometerState(NativeGaugeFrame);
+        RecordShiftTestSample(rawShiftState ?? state, CalibratedShiftPerformance(nativeHud.ShiftPerformance), NativeGaugeFrame.ShiftCue, nativeHud, packetAge);
         HasLiveTelemetry = true;
         GForceDisplay? gForce = null;
         if (updateGForce)
@@ -965,6 +979,18 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             return false;
         }
 
+        if (_captureCanaryState is { ReceivedTimestamp: { } capturedReceipt } captureState && CaptureCanary(captureState, nativeHud,
+                System.Diagnostics.Stopwatch.GetElapsedTime(capturedReceipt)) is { } canary)
+            frame = frame with { ShiftCue = canary };
+        else if (AccelerationShiftCueEnabled &&
+            (!HasFreshShiftMetadata(nativeHud, frame.CarOrdinal, _shiftTimestamp()) ||
+                !HasStableShiftGear(nativeHud, (int)frame.Gear) ||
+                nativeHud.ShiftPerformance?.Fingerprint != _shiftIdentity))
+        {
+            InvalidateShiftCue("Waiting for fresh supported car data");
+            frame = NativeGaugeFrame;
+        }
+
         var nextNativeGaugeFrame = frame with
         {
             TachometerMaximumRpm = nativeHud.TachometerMaximumRpm,
@@ -999,6 +1025,9 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         double renderRate,
         bool preserveHudVisuals = false)
     {
+        ResetShiftCue();
+        NativeGaugeFrame = NativeGaugeFrame with { ShiftCue = default };
+        ShiftCueStatus = AccelerationShiftCueEnabled ? "Waiting for driving data" : "Off";
         HasLiveTelemetry = false;
         CanRelearnCurrentTires = false;
         StatusText = connectionState == TelemetryConnectionState.Lost ? "Telemetry Lost" : "Waiting for FH6";
@@ -1031,6 +1060,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
 
     public void ClearHudVisuals()
     {
+        ResetShiftCue();
         HasLiveTelemetry = false;
         GameplayHudVisibility = "Unavailable";
         GForceOffsetX = 0;

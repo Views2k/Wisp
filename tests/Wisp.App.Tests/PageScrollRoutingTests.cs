@@ -24,9 +24,10 @@ public sealed class PageScrollRoutingTests
         Assert.Equal(0, outer.VerticalOffset);
 
         PageScrollRouting.SetIsEnabled(host, true);
-        Wheel(content, -120);
+        string? wheelContext = null;
+        Wheel(content, -120, context => wheelContext = context);
         Layout(host);
-        Assert.True(outer.VerticalOffset > 0);
+        Assert.True(outer.VerticalOffset > 0, HandoffContext(wheelContext, inner, outer));
         Assert.Equal(0, inner.VerticalOffset);
 
         outer.ScrollToTop();
@@ -53,10 +54,11 @@ public sealed class PageScrollRoutingTests
         inner.ScrollToBottom();
         Layout(host);
         var end = inner.VerticalOffset;
-        Wheel(content, -120);
+        string? wheelContext = null;
+        Wheel(content, -120, context => wheelContext = context);
         Layout(host);
         Assert.Equal(end, inner.VerticalOffset);
-        Assert.True(outer.VerticalOffset > 0);
+        Assert.True(outer.VerticalOffset > 0, HandoffContext(wheelContext, inner, outer));
 
         outer.ScrollToVerticalOffset(200);
         inner.ScrollToTop();
@@ -83,7 +85,9 @@ public sealed class PageScrollRoutingTests
         PageScrollRouting.SetIsEnabled(host, true);
         var item = Assert.IsType<ListBoxItem>(list.ItemContainerGenerator.ContainerFromIndex(0));
 
-        Assert.True(Wheel(item, -120));
+        string? wheelContext = null;
+        var handled = Wheel(item, -120, context => wheelContext = context);
+        Assert.True(handled, HandoffContext(wheelContext, Descendants(host).OfType<ScrollViewer>().ToArray()));
         Layout(host);
         Assert.True(outer.VerticalOffset > 0);
         Assert.Equal(1, list.SelectedIndex);
@@ -142,9 +146,10 @@ public sealed class PageScrollRoutingTests
         inner.ScrollToEnd();
         Layout(host);
         var last = Assert.IsType<ListBoxItem>(list.ItemContainerGenerator.ContainerFromIndex(199));
-        Wheel(last, -120);
+        string? wheelContext = null;
+        Wheel(last, -120, context => wheelContext = context);
         Layout(host);
-        Assert.True(outer.VerticalOffset > 0);
+        Assert.True(outer.VerticalOffset > 0, HandoffContext(wheelContext, inner, outer));
         Assert.Equal(0, list.SelectedIndex);
         Assert.InRange(panel.Children.Count, 1, 199);
     });
@@ -193,7 +198,9 @@ public sealed class PageScrollRoutingTests
         PageScrollRouting.SetIsEnabled(host, true);
         var events = new List<int>();
         outer.AddHandler(Mouse.MouseWheelEvent, new MouseWheelEventHandler((_, args) => events.Add(args.Delta)), true);
-        Assert.True(Wheel(content, -30));
+        string? wheelContext = null;
+        var handled = Wheel(content, -30, context => wheelContext = context);
+        Assert.True(handled, HandoffContext(wheelContext, inner, middle, outer));
         Layout(host);
         var routedOffset = outer.VerticalOffset;
         Assert.Equal(new[] { -30 }, events);
@@ -222,8 +229,10 @@ public sealed class PageScrollRoutingTests
         return (host, outer);
     }
 
-    private static bool Wheel(UIElement source, int delta)
+    private static bool Wheel(UIElement source, int delta, Action<string>? recordContext = null)
     {
+        var inputBefore = recordContext is null ? null :
+            $"ModifiersBefore={Keyboard.Modifiers}; CapturedTypeBefore={Mouse.Captured?.GetType().FullName ?? "none"}";
         var args = new MouseWheelEventArgs(Mouse.PrimaryDevice, 1, delta) { RoutedEvent = Mouse.PreviewMouseWheelEvent };
         source.RaiseEvent(args);
         var handledDuringPreview = args.Handled;
@@ -232,8 +241,16 @@ public sealed class PageScrollRoutingTests
             args.RoutedEvent = Mouse.MouseWheelEvent;
             source.RaiseEvent(args);
         }
+        recordContext?.Invoke($"{inputBefore}; PreviewHandled={handledDuringPreview}; FinalHandled={args.Handled}; " +
+            $"ModifiersAfter={Keyboard.Modifiers}; CapturedTypeAfter={Mouse.Captured?.GetType().FullName ?? "none"}");
         return handledDuringPreview;
     }
+
+    private static string HandoffContext(string? input, params ScrollViewer[] viewers) =>
+        $"{input}; " + string.Join("; ", viewers.Select((viewer, index) =>
+            $"Viewer{index}: Offset={viewer.VerticalOffset}, Scrollable={viewer.ScrollableHeight}, " +
+            $"Extent={viewer.ExtentHeight}, Viewport={viewer.ViewportHeight}, Enabled={viewer.IsEnabled}, " +
+            $"Bar={viewer.VerticalScrollBarVisibility}"));
 
     private static void Layout(FrameworkElement host)
     {

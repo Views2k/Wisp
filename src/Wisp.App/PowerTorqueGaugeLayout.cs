@@ -210,6 +210,18 @@ internal static class DetachedSupplementaryGaugeLayout
         var gap = OverlayPlacementGeometry.DefaultGap;
         var groupSize = new Size(cell.Width * 2 + gap, cell.Height * 2 + gap);
         var group = OverlayPlacementGeometry.PlaceAbove(workArea, anchor, groupSize);
+        if (new Rect(group, groupSize).IntersectsWith(anchor))
+        {
+            foreach (var left in new[] { anchor.Left - gap - groupSize.Width, anchor.Right + gap })
+            {
+                var beside = OverlayPlacementGeometry.ClampInside(workArea, groupSize, new Point(left, anchor.Top));
+                if (!new Rect(beside, groupSize).IntersectsWith(anchor))
+                {
+                    group = beside;
+                    break;
+                }
+            }
+        }
         var right = slot is 0 or 3;
         var lower = slot is 0 or 1;
         var position = new Point(group.X + (right ? cell.Width + gap : 0) + cell.Width - subject.Width,

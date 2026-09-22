@@ -45,6 +45,8 @@
             <Image x:Name="GearImage" Width="100" Height="100"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    Stretch="Fill" />
+            <local:ShiftCueVisual x:Name="ShiftCueRing" Width="100" Height="100"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
 
             <!-- FH6's custom renderer permits its needle material to overflow a
                  zero-sized anchor. WPF culls ShaderEffect content beneath that

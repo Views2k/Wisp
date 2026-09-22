@@ -1,5 +1,5 @@
 #define MyAppName "Wisp"
-#define MyAppVersion "2.3.2"
+#define MyAppVersion "2.3.4"
 #define MyAppDisplayVersion MyAppVersion
 #define MyAppOutputVersion MyAppVersion
 #define MyAppPublisher "Wisp"
@@ -11,6 +11,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppDisplayVersion}
 AppPublisher={#MyAppPublisher}
+AppMutex=Local\Wisp.SingleInstance
 DefaultDirName={localappdata}\Programs\Wisp
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes

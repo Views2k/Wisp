@@ -32,7 +32,7 @@
         <CheckBox x:Name="TorqueToggle" Content="Torque gauge" Style="{StaticResource GaugeSettingToggle}" Margin="0,12,0,0"
                   IsChecked="{Binding TorqueGaugeEnabled, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
                   Checked="Toggle_Changed" Unchecked="Toggle_Changed" AutomationProperties.Name="Torque gauge" />
-        <TextBlock Text="Attach each gauge to the speedometer or place it separately." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
+        <TextBlock Text="Attach these gauges in Native Analogue, or place them separately. Other layouts always keep them separate." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
         <Grid Margin="0,14,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <TextBlock Text="Power gauge size" />
@@ -55,10 +55,10 @@
                   AutomationProperties.Name="Power and torque gauge options">
             <StackPanel>
                 <CheckBox x:Name="PowerAttachedToggle" Content="Attach power gauge to speedometer" Style="{StaticResource GaugeSettingToggle}"
-                          IsChecked="{Binding PowerGaugeAttached, Mode=TwoWay, UpdateSourceTrigger=Explicit}" IsEnabled="{Binding PowerGaugeEnabled}"
+                          IsChecked="{Binding PowerGaugeAttached, Mode=TwoWay, UpdateSourceTrigger=Explicit}" IsEnabled="{Binding CanAttachPowerGauge}"
                           Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,0,0,12" AutomationProperties.Name="Attach power gauge to speedometer" />
                 <CheckBox x:Name="TorqueAttachedToggle" Content="Attach torque gauge to speedometer" Style="{StaticResource GaugeSettingToggle}"
-                          IsChecked="{Binding TorqueGaugeAttached, Mode=TwoWay, UpdateSourceTrigger=Explicit}" IsEnabled="{Binding TorqueGaugeEnabled}"
+                          IsChecked="{Binding TorqueGaugeAttached, Mode=TwoWay, UpdateSourceTrigger=Explicit}" IsEnabled="{Binding CanAttachTorqueGauge}"
                           Checked="Toggle_Changed" Unchecked="Toggle_Changed" Margin="0,0,0,12" AutomationProperties.Name="Attach torque gauge to speedometer" />
                 <TextBlock Text="Use Edit HUD layout to move detached gauges." FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,16" />
                 <Grid>

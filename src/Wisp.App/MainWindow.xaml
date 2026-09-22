@@ -971,6 +971,7 @@
                 <local:OrbitSurface Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                     <local:PowerTorqueGaugeSettingsControl x:Name="PowerTorqueGaugeSettings" />
                 </local:OrbitSurface>
+<local:OrbitSurface Style="{StaticResource CardStyle}" Margin="0,14,0,0"><local:ShiftCueSettingsControl x:Name="ShiftCueSettings" /></local:OrbitSurface>
 <local:OrbitSurface x:Name="GForceSettingsCard" Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                                             <StackPanel><Grid><StackPanel><TextBlock Text="G-FORCE METER" Style="{StaticResource EyebrowTextStyle}" />
                                                         <TextBlock Text="Show the G-force meter" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" />
@@ -1384,6 +1385,9 @@
                                                     <ListBoxItem Content="G-force trail" />
                                                     <ListBoxItem Content="Background particles" />
                                                     <ListBoxItem Content="Drift cut flash" />
+<ListBoxItem Content="Shift cue · approach (beta)" />
+<ListBoxItem Content="Shift cue · prepare (beta)" />
+<ListBoxItem Content="Shift cue · shift (beta)" />
                                                 </ListBox>
                                             </DockPanel>
                                         </local:OrbitSurface>

@@ -23,9 +23,10 @@ internal static class DigitalHudAssets
         if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
             throw new InvalidOperationException("Native HUD assets must be decoded on the UI thread.");
         if (_textures is not null) return _textures;
-        var textures = new List<AnalogHudTexture>(Catalog.Count + 1)
+        var textures = new List<AnalogHudTexture>(Catalog.Count + 2)
         {
-            new(WhiteTextureId, 1, 1, 4, new byte[] { 255, 255, 255, 255 })
+            new(WhiteTextureId, 1, 1, 4, new byte[] { 255, 255, 255, 255 }),
+            ShiftCueArtwork.Texture(digital: true)
         };
         foreach (var asset in Catalog)
         {

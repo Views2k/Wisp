@@ -1,0 +1,71 @@
+Wisp 2.3.2 Shift Cue Test10 - private test installer
+
+Install and verify
+Exit Wisp from its system-tray icon before running this installer. Closing
+its dashboard may leave an older portable copy running. Open Wisp from
+Start afterward; the footer must say "2.3.2 Shift Cue Test10 (private)".
+Do not reopen an older portable executable. The installer includes the
+update helper and preserves settings, profiles, calibration and saved runs.
+It includes the public 2.3.2 changes and the candidate HUD/update fixes.
+
+Use the cue
+In Appearance > Behaviour, enable Performance shift guidance. Use manual
+shifting with a supported combustion car on Steam build 6.440.853.0.
+Naturally aspirated and supported forced-induction curves are read
+without a calibration pull. Colors remain configurable in Colors.
+No recording, tune edit or parked input check is required to use the cue.
+
+What changed
+The measured RPM-rise predictor now uses the existing validated incoming
+packet stream. Skipping an intermediate packet in the normal HUD refresh
+no longer discards that measured history. UI/native eligibility, freshness,
+gear/configuration boundaries and conservative slope checks still apply.
+Observed crossings and predicted crossings remain separately identified.
+An isolated native RPM spike no longer triggers red without a telemetry
+crossing or bounded prediction; confirmed native limiter activity remains.
+
+The recorder keeps an earlier successful parked ring check in its report,
+while separately reporting later loss of qualification after the overlay
+hides or its target changes. Later unqualified pixels are not counted as
+verified. Valid race-off packets are counted without being labelled corrupt
+or joined into driving comparisons.
+
+The Test9 continuous engine formula and per-gear solver are preserved.
+Other engine-modifier paths retain the configured-export research model;
+this update does not claim their transient behavior is solved.
+
+Limits of this private test
+The target is a steady-state acceleration model, not a universally proven
+optimal shift-command time. The game-code audit also identified stateful
+power-feedback and timed modifier paths; their graphs alone do not
+establish delivered torque. This build does not solve transient boost
+recovery, traction or transmission/driver delay. A secondary engine limit is used
+as an intervention observation only while its state is active: a stale
+stored threshold is never treated as a predictive shift target. That
+conditional path can therefore still activate red only after limiting
+starts. Unsupported modes, stale data and inconsistent configuration
+withdraw guidance. This installer does not claim to eliminate that
+remaining timing limitation or prove every car/tune.
+
+Optional evidence export
+Export shift test data saves the recent per-gear targets, live limiter
+and gear state, applied inertia factors, and reason each red cue started.
+The optional Session recorder is still available for longer evidence:
+Start session checks recorder logic and ZIP storage, then runs the parked
+ring check. Use B upshift and X downshift only if those are your bindings.
+Drive normally and Stop & save ZIP when finished. The older comparison,
+boost and tune-refresh coverage checks remain optional; missing coverage
+does not stop the cue. No additional driving protocol is required here.
+
+Safeguards
+No input injection or writes to game files/process memory. No network
+upload. Recording remains opt-in, bounded to 30 minutes/1 GiB; raw screen
+images and unrelated buttons are not stored. Desktop pixel checks are
+not physical display timing. A passing replay/unit test does not establish
+live gameplay accuracy.
+
+HUD regression check
+Minimal, Combined and Box: enabled boost, tire temperature, power and
+torque appear in the preview and as separate movable in-game gauges.
+Attachment is available only with Native analogue. Existing positions
+are preserved. No position reset is needed to test the shift cue.

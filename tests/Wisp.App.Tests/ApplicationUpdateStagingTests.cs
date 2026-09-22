@@ -12,6 +12,48 @@ public sealed class ApplicationUpdateStagingTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public void MissingHelperProducesActionableFailureWithoutCreatingFiles()
+    {
+        Directory.CreateDirectory(_root);
+
+        var error = Assert.Throws<ApplicationUpdateHelperUnavailableException>(
+            () => ApplicationUpdateStaging.RequireUpdaterPath(_root));
+
+        Assert.Empty(Directory.GetFileSystemEntries(_root));
+        Assert.Contains("full installer from wispoverlay.com", ApplicationUpdateLauncher.DescribeStartFailure(error));
+        Assert.DoesNotContain(_root, ApplicationUpdateLauncher.DescribeStartFailure(error));
+    }
+
+    [Fact]
+    public void MissingApplicationDirectoryReportsUnavailableHelper()
+    {
+        Assert.Throws<ApplicationUpdateHelperUnavailableException>(
+            () => ApplicationUpdateStaging.RequireUpdaterPath(_root));
+
+        Assert.False(Directory.Exists(_root));
+    }
+
+    [Fact]
+    public void DirectoryCannotBeUsedAsUpdater()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "Wisp.Updater.exe"));
+
+        Assert.Throws<ApplicationUpdateHelperUnavailableException>(
+            () => ApplicationUpdateStaging.RequireUpdaterPath(_root));
+    }
+
+    [Fact]
+    public void RegularHelperIsResolvedWithoutChangingIt()
+    {
+        Directory.CreateDirectory(_root);
+        var source = Path.Combine(_root, "Wisp.Updater.exe");
+        File.WriteAllBytes(source, [1, 2, 3]);
+
+        Assert.Equal(source, ApplicationUpdateStaging.RequireUpdaterPath(_root));
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(source));
+    }
+
+    [Fact]
     public void PruneRetainsPendingAttemptAndIgnoresUnexpectedEntries()
     {
         var now = new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero);

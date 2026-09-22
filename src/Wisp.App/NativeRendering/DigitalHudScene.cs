@@ -25,8 +25,14 @@ internal static class DigitalHudScene
             ? NativeElectricGearModel.CurrentToken(frame.ElectricGearState, NativeGaugeMode.Digital, frame.Gear)
             : NativeGaugeGeometry.GearToken(frame.Gear, frame.GearDisplayMode);
         if (gear is not null)
+        {
             commands.Add(Image(NativeAssetFamily.Digital, NativeGearAssetSelector.FileName(NativeGaugeMode.Digital, gear,
-                !frame.IsElectric && NativeGaugeGeometry.IsShiftLightActive(frame.EngineRpm, frame.ExactRedline), assists), layout.Gear));
+                !frame.IsElectric && !frame.ShiftCue.ReplacesRedlineCue(frame) &&
+                NativeGaugeGeometry.IsShiftLightActive(frame.EngineRpm, frame.ExactRedline), assists), layout.Gear));
+            if (frame.ShiftCue.CanRender(frame))
+                commands.Add(layout.Gear.Command(ShiftCueArtwork.DigitalTextureId,
+                    color: ShiftCueArtwork.Tint(frame.ShiftCue.ColorArgb)));
+        }
         var digits = sample.SpeedDisplay;
         var opacity = frame.SpeedAvailable ? 1d : .30;
         AddDigit(commands, digits.Hundreds, layout.Hundreds, opacity * (digits.SpeedLessHundred ? .30 : .80), tractionActive, color);

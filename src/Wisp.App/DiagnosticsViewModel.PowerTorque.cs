@@ -24,8 +24,31 @@ public sealed partial class DiagnosticsViewModel
     private double _powerGaugeMaximum = 1000;
     private double _torqueGaugeMaximumNm = 1200;
 
-    public bool PowerGaugeEnabled { get => _powerGaugeEnabled; set => Set(ref _powerGaugeEnabled, value); }
-    public bool TorqueGaugeEnabled { get => _torqueGaugeEnabled; set => Set(ref _torqueGaugeEnabled, value); }
+    public bool PowerGaugeEnabled
+    {
+        get => _powerGaugeEnabled;
+        set
+        {
+            if (Set(ref _powerGaugeEnabled, value))
+                OnPropertyChanged(nameof(CanAttachPowerGauge));
+        }
+    }
+    public bool TorqueGaugeEnabled
+    {
+        get => _torqueGaugeEnabled;
+        set
+        {
+            if (Set(ref _torqueGaugeEnabled, value))
+                OnPropertyChanged(nameof(CanAttachTorqueGauge));
+        }
+    }
+    public bool CanAttachPowerGauge => PowerGaugeEnabled && CanAttachAnalogueBoostGauge;
+    public bool CanAttachTorqueGauge => TorqueGaugeEnabled && CanAttachAnalogueBoostGauge;
+    private void NotifyPowerTorqueAttachmentAvailability()
+    {
+        OnPropertyChanged(nameof(CanAttachPowerGauge));
+        OnPropertyChanged(nameof(CanAttachTorqueGauge));
+    }
     public bool PowerGaugeAttached { get => _powerGaugeAttached; set => Set(ref _powerGaugeAttached, value); }
     public bool TorqueGaugeAttached { get => _torqueGaugeAttached; set => Set(ref _torqueGaugeAttached, value); }
     public bool PowerTorqueShowNegative { get => _powerTorqueShowNegative; set => Set(ref _powerTorqueShowNegative, value); }

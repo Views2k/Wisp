@@ -77,6 +77,10 @@ public sealed class AppSettings
     public bool TorqueGaugeAttached { get; set; } = true;
     public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
     public bool PowerTorqueShowNegative { get; set; }
+    public bool AccelerationShiftCueEnabled { get; set; }
+    public string? ShiftCueGreenColor { get; set; }
+    public string? ShiftCueYellowColor { get; set; }
+    public string? ShiftCueRedColor { get; set; }
     public bool PowerTorqueDriftMode { get; set; }
     public double PowerTorqueDriftFlashFrequencyHz { get; set; } = 1.25;
     public string? PowerTorqueDriftFlashColor { get; set; }

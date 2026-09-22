@@ -30,7 +30,8 @@ public readonly record struct NativeGaugeFrame(
     bool NativeGaugeSourceInvalidated = false,
     NativeElectricGearState ElectricGearState = default,
     NativeDisplayedSpeedState DisplayedSpeedState = default,
-    SpeedSourceMode SpeedSource = SpeedSourceMode.WheelIndicated)
+    SpeedSourceMode SpeedSource = SpeedSourceMode.WheelIndicated,
+    ShiftCueVisualState ShiftCue = default)
 {
     public NativeAssistSnapshot NativeAssists => Assists ?? NativeAssistSnapshot.Unavailable();
 

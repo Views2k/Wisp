@@ -160,6 +160,7 @@ public sealed class HudPresetTests
             "PowerGaugeAttached", "TorqueGaugeAttached", "PowerTorqueSmoothingMilliseconds", "PowerTorqueShowNegative", "PowerTorqueDriftMode", "PowerTorqueDriftFlashFrequencyHz", "PowerTorqueDriftFlashColor",
             "PowerGaugeColorNumber", "TorqueGaugeColorNumber", "CustomPowerLowColor", "CustomPowerMidColor", "CustomPowerHighColor",
             "CustomTorqueLowColor", "CustomTorqueMidColor", "CustomTorqueHighColor",
+            "AccelerationShiftCueEnabled", "ShiftCueGreenColor", "ShiftCueYellowColor", "ShiftCueRedColor",
             "TractionCueEnabled", "ColorTheme", "BackgroundTheme", "HudBorderTheme", "BoostGaugeTheme",
             "CustomAccentColor", "CustomBackgroundColor", "CustomHudBorderColor",
             "CustomBoostLowColor", "CustomBoostMidColor", "CustomBoostHighColor", "CustomTractionCueColor",

@@ -15,11 +15,47 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.3.4",
+            "September 21, 2026",
+            "ACCENT COLOR HOTFIX",
+            "Fix the app accent-color crash, gauge attachment and update recovery; add optional beta shift guidance.",
+            true,
+            [
+                Group("App appearance",
+                    "Safely update accent colors while the dashboard is on an inactive tab.",
+                    "Restore the dashboard oval effect in the selected color when returning to the dashboard."),
+                Group("Included improvements",
+                    "Keep supplementary gauges separate in digital layouts and retain update recovery improvements."),
+                Group("Shift guidance (beta)",
+                    "Optional calibrated full-load shift guidance is off by default. Calibrate each car and tune before use; shift targets are still being validated.",
+                    "Requires the supported Steam build and a combustion-car configuration. This beta does not promise ideal shift timing for every car, tune or racing condition.")
+            ]),
+        new(
+            "2.3.3",
+            "September 21, 2026",
+            "WISP 2.3.3",
+            "Beta calibrated shift guidance, separate gauges in digital layouts, and clearer update recovery.",
+            false,
+            [
+                Group("Calibrated shift guidance (beta)",
+                    "Calibrate a supported combustion car and tune with a rolling full-throttle pull and a confirming upshift.",
+                    "Compare measured full-load output in adjacent gears. The gear ring progresses through configurable green, yellow and flashing red stages.",
+                    "Use matching calibration data only. Missing RPM coverage or a changed configuration requires calibration before guidance is available.",
+                    "An upper-range target is identified separately from an acceleration crossover. Driver reaction, changing grip and boost recovery can affect the best time to shift."),
+                Group("Gauge placement",
+                    "Power and torque gauges attach only to Native Analogue. Minimal, Combined, Box and Native Digital show them as separate movable gauges.",
+                    "Disable incompatible attachment controls without changing your saved preference. Switching back to Native Analogue restores attachment.",
+                    "Consider the separate G-force meter when placing supplementary gauges by default, with a side placement when there is no clear space above."),
+                Group("Installer and update recovery",
+                    "Explain how to repair a missing update helper with the full installer. Keep Wisp open if the update cannot start.",
+                    "Ask you to exit a running Wisp copy before installation. Preserve settings, profiles, tire calibration and saved runs.")
+            ]),
+        new(
             "2.3.2",
             "September 20, 2026",
             "GAUGE PREVIEW HOTFIX",
             "Standalone boost and tire-temperature gauges now appear in every layout preview.",
-            true,
+            false,
             [
                 Group("Appearance preview",
                     "Show enabled boost and tire-temperature gauges alongside Minimal, Combined and Box previews in both app interfaces.",

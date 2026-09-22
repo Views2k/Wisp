@@ -308,13 +308,31 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("$artifactVersion = $projectVersion", packaging, StringComparison.Ordinal);
         Assert.Contains("& $innoExecutable \"/O$stageDirectory\" $innoScript", packaging, StringComparison.Ordinal);
         Assert.Contains("Write-BuildProvenance $repository $publishFullPath", packaging, StringComparison.Ordinal);
-        Assert.Contains("#define MyAppVersion \"2.3.2\"", inno, StringComparison.Ordinal);
+        Assert.Contains("#define MyAppVersion \"2.3.4\"", inno, StringComparison.Ordinal);
         Assert.Contains("#define MyAppOutputVersion MyAppVersion", inno, StringComparison.Ordinal);
         Assert.Contains("UpdatingExistingInstallation := UpdateSwitchPresent() and ExistingInstallationPresent();", inno,
             StringComparison.Ordinal);
         Assert.DoesNotContain("WispDiagnostics", inno, StringComparison.Ordinal);
         Assert.DoesNotContain("diagnostics.4", packaging, StringComparison.Ordinal);
         Assert.DoesNotContain("DeleteFile(SetupRequiredMarkerPath()", inno, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InstallerAndUninstallerCheckTheApplicationsExistingInstanceMutex()
+    {
+        var mutexField = typeof(global::Wisp.App.App).GetField("InstanceMutexName",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(mutexField);
+        var mutexName = Assert.IsType<string>(mutexField.GetRawConstantValue());
+        Assert.Equal(@"Local\Wisp.SingleInstance", mutexName);
+
+        var setup = InnoScript().Split('\n').Select(line => line.Trim())
+            .SkipWhile(line => line != "[Setup]").Skip(1)
+            .TakeWhile(line => !line.StartsWith('[')).ToArray();
+        Assert.Equal($"AppMutex={mutexName}",
+            Assert.Single(setup, line => line.StartsWith("AppMutex=", StringComparison.Ordinal)));
+        Assert.Contains("CloseApplications=yes", setup);
+        Assert.Contains("RestartApplications=no", setup);
     }
 
     [Theory]

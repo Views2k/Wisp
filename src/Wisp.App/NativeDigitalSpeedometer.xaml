@@ -12,6 +12,7 @@
             <Grid Width="68" Height="68" VerticalAlignment="Bottom"
                   Margin="0.5,0,7.5,30">
                 <Image x:Name="GearImage" Width="68" Height="68" Stretch="Fill" />
+                <local:ShiftCueVisual x:Name="ShiftCueRing" Width="68" Height="68" Digital="True" />
             </Grid>
 
             <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom"

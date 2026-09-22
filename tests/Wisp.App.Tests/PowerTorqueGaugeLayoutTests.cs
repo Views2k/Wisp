@@ -294,6 +294,33 @@ public sealed class PowerTorqueGaugeLayoutTests
         Assert.Equal(OverlayPlacementGeometry.PlaceAbove(area, anchor, subjects[0]), bounds[0].TopLeft);
     }
 
+    [Theory]
+    [InlineData(1920, 1080)]
+    [InlineData(1280, 720)]
+    [InlineData(960, 540)]
+    public void DefaultDetachedSlotsClearTheEnlargedMinimalSpeedAndGForcePanels(int width, int height)
+    {
+        var area = new Rect(0, 0, width, height);
+        var speedSize = new Size(160 * 1.3333333, 120 * 1.328845956);
+        var speed = new Rect(OverlayPlacementGeometry.PlaceTopRight(area, speedSize), speedSize);
+        var meterSize = new Size(210 * 1.396121869, 150 * 1.404362499);
+        var meter = new Rect(OverlayPlacementGeometry.PlaceBelow(area, speed, meterSize), meterSize);
+        var anchor = Rect.Union(speed, meter);
+        var cell = new Size(144, 144);
+        var sizes = new[] { cell, cell, new Size(144 * .95, 144 * .95), new Size(144 * .95, 144 * .95) };
+        var bounds = sizes.Select((size, slot) => new Rect(
+            DetachedSupplementaryGaugeLayout.Place(area, anchor, size, cell, slot), size)).ToArray();
+        foreach (var rectangle in bounds)
+        {
+            Assert.True(area.Contains(rectangle));
+            Assert.False(rectangle.IntersectsWith(speed));
+            Assert.False(rectangle.IntersectsWith(meter));
+        }
+        for (var a = 0; a < bounds.Length; a++)
+            for (var b = a + 1; b < bounds.Length; b++)
+                Assert.False(bounds[a].IntersectsWith(bounds[b]));
+    }
+
     private static Rect DialInk(Rect bounds, double scale)
     {
         var inset = bounds.Width * .07 - 4 * scale;

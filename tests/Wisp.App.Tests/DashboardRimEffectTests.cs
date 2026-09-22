@@ -314,6 +314,75 @@ public sealed class DashboardRimEffectTests
             .Sum(y => Enumerable.Range(280, 40).Sum(x => (int)Alpha(pixels, x, y)));
     });
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void AccentResourceChangesSurviveDetachedDashboardVisuals(bool reparentTarget, bool hideEffect) => OnSta(() =>
+    {
+        var target = new Border { Width = 400, Height = 100 };
+        var content = new Canvas { Height = 600 };
+        Canvas.SetLeft(target, 100); Canvas.SetTop(target, 100);
+        content.Children.Add(target);
+        var scroll = new ScrollViewer
+        {
+            Content = content,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        var effect = CreateEffect();
+        effect.TargetElement = target;
+        var surface = new Grid();
+        surface.Resources["AccentBrush"] = Brushes.Cyan;
+        effect.SetResourceReference(DashboardRimEffect.AccentProperty, "AccentBrush");
+        surface.Children.Add(scroll); surface.Children.Add(effect);
+        try
+        {
+            ArrangeSurface();
+            effect.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            effect.RefreshTarget();
+            var original = Pixels(effect);
+            Assert.Contains(original, value => value != 0);
+
+            if (hideEffect) effect.Visibility = Visibility.Collapsed;
+            if (reparentTarget) content.Children.Remove(target);
+            else surface.Children.Remove(scroll);
+
+            // Resource invalidation can precede the detached tab's next layout event.
+            surface.Resources["AccentBrush"] = Brushes.Magenta;
+            Assert.Same(Brushes.Magenta, effect.Accent);
+            Assert.All(Pixels(effect), value => Assert.Equal(0, value));
+            Assert.False(effect.HasRenderingSubscription);
+            if (!hideEffect) effect.RefreshTarget();
+
+            if (reparentTarget) content.Children.Add(target);
+            else surface.Children.Insert(0, scroll);
+            if (hideEffect) effect.Visibility = Visibility.Visible;
+            ArrangeSurface();
+            effect.RefreshTarget();
+            var restored = Pixels(effect);
+            Assert.Contains(restored, value => value != 0);
+            Assert.False(original.SequenceEqual(restored));
+            Assert.Same(Brushes.Magenta, effect.Accent);
+        }
+        finally
+        {
+            effect.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+            effect.TargetElement = null;
+            scroll.Content = null;
+            surface.Children.Clear();
+        }
+
+        void ArrangeSurface()
+        {
+            var size = new Size(1024, 344);
+            surface.Measure(size); surface.Arrange(new Rect(size)); surface.UpdateLayout();
+            Dispatcher.CurrentDispatcher.Invoke(static () => { }, DispatcherPriority.ContextIdle);
+            surface.UpdateLayout();
+        }
+    });
+
     private static DashboardRimEffect CreateEffect() => new()
     {
         Accent = Brushes.Cyan,

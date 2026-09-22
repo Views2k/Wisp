@@ -3,7 +3,7 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.3.2/Wisp-Setup-2.3.2.zip"><strong>Download Wisp 2.3.2</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.3.4/Wisp-Setup-2.3.4.zip"><strong>Download Wisp 2.3.4</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -11,11 +11,13 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## New in Wisp 2.3.2
+## Wisp 2.3.4 hotfix
 
-The **Appearance preview** now shows enabled boost and tire-temperature gauges with **Minimal, Combined and Box** layouts, matching their colors, sizes and selected tire-gauge style. The preview scales to fit its available space.
+Fix a crash when changing the app accent color on another tab. The dashboard oval returns in the selected color when you switch back. Supplementary gauges stay separate in digital layouts, and failed update handoffs keep Wisp open with repair instructions when needed.
 
-The standalone gauge support from Wisp 2.3.1 is included. In-game gauge behavior and Native attachment preferences are unchanged.
+**Shift guidance is beta and off by default.** Calibrate each supported combustion car and tune with a rolling full-throttle pull and a confirming upshift. Green, yellow and flashing red stages show the approach to a calibrated RPM target. Targets are still being validated; universal ideal shift timing has not been verified. The beta currently requires Steam FH6 build **6.440.853.0** and excludes EVs.
+
+The boost and tire-temperature Appearance preview fixes from 2.3.2 remain included. Existing settings, profiles, tire calibration and saved runs are preserved.
 
 ### Included from Wisp 2.3
 
@@ -28,7 +30,7 @@ Enable it in **Appearance > Gauges > Engine output > More options** and choose
 its settings save with HUD profiles. Recorded telemetry and peak readings keep
 their original values.
 
-[Read the Wisp 2.3.2 release notes](docs/releases/Wisp-2.3.2-release-notes.md).
+[Read the Wisp 2.3.4 hotfix release notes](docs/releases/Wisp-2.3.4-release-notes.md).
 
 The shared native rendering, compact EV attachments, and Appearance preview
 fixes from [Wisp 2.2](docs/releases/Wisp-2.2.0-release-notes.md) are included.

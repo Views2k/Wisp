@@ -115,7 +115,8 @@ public sealed record NativeHudSnapshot(
     double NativeElectricMaximumSpeed = double.NaN,
     long NativeGaugeObservedTimestamp = 0L,
     NativeElectricGearState ElectricGearState = default,
-    NativeDisplayedSpeedState DisplayedSpeedState = default)
+    NativeDisplayedSpeedState DisplayedSpeedState = default,
+    ShiftCuePerformance? ShiftPerformance = null)
 {
     public bool HasNativeNeedleState =>
         double.IsFinite(NativeNeedleAngleDegrees) &&

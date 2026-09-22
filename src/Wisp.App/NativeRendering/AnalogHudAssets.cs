@@ -40,7 +40,10 @@ internal static class AnalogHudAssets
         if (_textures is not null)
             return _textures;
 
-        var textures = new List<AnalogHudTexture>(Catalog.Count);
+        var textures = new List<AnalogHudTexture>(Catalog.Count + 1)
+        {
+            ShiftCueArtwork.Texture(digital: false)
+        };
         foreach (var asset in Catalog)
         {
             var source = asset.Tint is { } tint

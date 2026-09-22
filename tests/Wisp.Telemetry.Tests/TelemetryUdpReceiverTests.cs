@@ -74,13 +74,15 @@ public sealed class TelemetryUdpReceiverTests
     public async Task SuccessfulRestartClearsSessionStateAndReleasesOldPort()
     {
         var originalPort = GetAvailablePort();
-        var replacementPort = GetAvailablePortExcept(originalPort);
         await using var receiver = new TelemetryUdpReceiver();
         await receiver.StartAsync(originalPort, TestContext.Current.CancellationToken);
         using var sender = new UdpClient(AddressFamily.InterNetwork);
         await sender.SendAsync(Fh6PacketFixture.Create(), new IPEndPoint(IPAddress.Loopback, originalPort), TestContext.Current.CancellationToken);
         await WaitForCarAsync(receiver, 2468);
 
+        // Probe after the sender has auto-bound, so its ephemeral source port
+        // cannot claim our released replacement port before the restart.
+        var replacementPort = GetAvailablePortExcept(originalPort);
         await receiver.RestartAsync(replacementPort, TestContext.Current.CancellationToken);
 
         Assert.Null(receiver.Latest);
