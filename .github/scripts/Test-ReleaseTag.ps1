@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory)]
     [string]$Tag,
-    [string]$MainRef = 'refs/remotes/origin/main'
+    [string]$MainRef = 'refs/remotes/origin/main',
+    [switch]$ContentOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,6 +93,11 @@ $changelog = [System.IO.File]::ReadAllText((Join-Path $repository 'CHANGELOG.md'
 $escapedVersion = [System.Text.RegularExpressions.Regex]::Escape($version)
 if ($changelog -notmatch "(?m)^## $escapedVersion - \d{4}-\d{2}-\d{2}$") {
     throw "CHANGELOG.md must contain a dated $version release before tagging."
+}
+
+if ($ContentOnly) {
+    Write-Output "Validated release content for $version; tag provenance was not requested."
+    return
 }
 
 $head = @(& git -C $repository rev-parse --verify 'HEAD^{commit}' 2>$null)
