@@ -3,7 +3,7 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.3.4/Wisp-Setup-2.3.4.zip"><strong>Download Wisp 2.3.4</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.3.4-stable/Wisp-Setup-2.3.4.zip"><strong>Download Wisp 2.3.4</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>

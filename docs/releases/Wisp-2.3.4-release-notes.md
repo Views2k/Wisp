@@ -1,4 +1,4 @@
-# Wisp 2.3.4 hotfix
+# Wisp 2.3.4
 
 Wisp 2.3.4 fixes the app accent-color crash, supplementary-gauge attachment and update recovery. It also includes optional **beta shift guidance**, off by default.
 
