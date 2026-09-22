@@ -47,8 +47,12 @@ internal static class AnalogHudScene
             var drive = gear == "Drive";
             var mode = drive ? NativeGaugeMode.Digital : NativeGaugeMode.Analogue;
             var file = NativeGearAssetSelector.FileName(mode, gear,
+                !frame.ShiftCue.ReplacesRedlineCue(frame) &&
                 NativeGaugeGeometry.IsShiftLightActive(frame.EngineRpm, frame.ExactRedline), assists);
             commands.Add(Quad(AnalogHudAssets.Id(drive ? NativeAssetFamily.Digital : NativeAssetFamily.Analogue, file), layout.Gear(drive)));
+            if (frame.ShiftCue.CanRender(frame))
+                commands.Add(Quad(ShiftCueArtwork.AnalogTextureId, layout.Gear(drive: false),
+                    color: ShiftCueArtwork.Tint(frame.ShiftCue.ColorArgb)));
         }
 
         if (needleVisible && double.IsFinite(angle) && double.IsFinite(blur))

@@ -379,7 +379,8 @@ public sealed class XamlContractTests
         {
             "App accent", "Background and surfaces", "HUD border",
             "Gauge start", "Gauge middle", "Gauge end", "Traction hook cue",
-            "App borders", "Main text", "Secondary text", "G-force dot", "G-force trail", "Background particles", "Drift cut flash"
+            "App borders", "Main text", "Secondary text", "G-force dot", "G-force trail", "Background particles", "Drift cut flash",
+            "Shift cue · approach (beta)", "Shift cue · prepare (beta)", "Shift cue · shift (beta)"
         }, targets);
         Assert.Empty(layout.Descendants(Presentation + "ComboBox"));
         Assert.DoesNotContain(extras.Descendants(Presentation + "ListBox"), element =>

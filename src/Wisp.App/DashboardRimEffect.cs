@@ -41,6 +41,7 @@ public sealed class DashboardRimEffect : FrameworkElement
     private ScrollViewer? _scroll;
     private bool _attached;
     private bool _rendering;
+    private bool _redrawPending;
     private Rect _instrumentBounds;
     private double _targetScale = 1;
     private bool _targetAttached;
@@ -175,6 +176,8 @@ public sealed class DashboardRimEffect : FrameworkElement
     {
         if (_scroll is null) return true;
         var element = TargetElement ?? this;
+        // Accent resources can change after the dashboard tab leaves the visual tree.
+        if (_scroll.FindCommonVisualAncestor(this) is null || !_scroll.IsAncestorOf(element)) return false;
         var bounds = element.TransformToAncestor(_scroll).TransformBounds(new Rect(element.RenderSize));
         return bounds.IntersectsWith(new Rect(_scroll.RenderSize));
     }
@@ -206,7 +209,11 @@ public sealed class DashboardRimEffect : FrameworkElement
     {
         using var context = _visual.RenderOpen();
         if (bounds.Width <= 0 || bounds.Height <= 0 || GlowOpacity <= 0 || Accent is not SolidColorBrush accent) return;
-        if (TargetElement is not null && (_scroll is not null && !IsInViewport())) return;
+        if (_scroll is not null && !IsInViewport())
+        {
+            _redrawPending = true;
+            return;
+        }
         if (_scroll is not null)
         {
             var viewport = _scroll.TransformToVisual(this).TransformBounds(new Rect(_scroll.RenderSize));
@@ -229,6 +236,7 @@ public sealed class DashboardRimEffect : FrameworkElement
             EffectiveRimWidth);
         context.Pop();
         if (_scroll is not null) context.Pop();
+        _redrawPending = false;
     }
     private static void TargetChanged(DependencyObject sender, DependencyPropertyChangedEventArgs e)
     {
@@ -265,7 +273,7 @@ public sealed class DashboardRimEffect : FrameworkElement
         }
         var bounds = target.TransformToVisual(this).TransformBounds(new Rect(target.RenderSize));
         var scale = bounds.Width / target.RenderSize.Width;
-        if (bounds == _instrumentBounds && Math.Abs(scale - _targetScale) < 0.0001) return;
+        if (bounds == _instrumentBounds && Math.Abs(scale - _targetScale) < 0.0001 && !_redrawPending) return;
         _instrumentBounds = bounds;
         _targetScale = scale;
         Draw(bounds);

@@ -44,6 +44,10 @@ public sealed class HudPreset
     public bool TorqueGaugeAttached { get; set; } = true;
     public double PowerTorqueSmoothingMilliseconds { get; set; } = 250;
     public bool PowerTorqueShowNegative { get; set; }
+    public bool AccelerationShiftCueEnabled { get; set; }
+    public string? ShiftCueGreenColor { get; set; }
+    public string? ShiftCueYellowColor { get; set; }
+    public string? ShiftCueRedColor { get; set; }
     public bool PowerTorqueDriftMode { get; set; }
     public double PowerTorqueDriftFlashFrequencyHz { get; set; } = 1.25;
     public string? PowerTorqueDriftFlashColor { get; set; }
@@ -144,6 +148,10 @@ public sealed class HudPreset
             TorqueGaugeAttached = settings.TorqueGaugeAttached,
             PowerTorqueSmoothingMilliseconds = settings.PowerTorqueSmoothingMilliseconds,
             PowerTorqueShowNegative = settings.PowerTorqueShowNegative,
+            AccelerationShiftCueEnabled = settings.AccelerationShiftCueEnabled,
+            ShiftCueGreenColor = settings.ShiftCueGreenColor,
+            ShiftCueYellowColor = settings.ShiftCueYellowColor,
+            ShiftCueRedColor = settings.ShiftCueRedColor,
             PowerTorqueDriftMode = settings.PowerTorqueDriftMode,
             PowerTorqueDriftFlashFrequencyHz = settings.PowerTorqueDriftFlashFrequencyHz,
             PowerTorqueDriftFlashColor = settings.PowerTorqueDriftFlashColor,
@@ -215,6 +223,10 @@ public sealed class HudPreset
         settings.TorqueGaugeAttached = TorqueGaugeAttached;
         settings.PowerTorqueSmoothingMilliseconds = PowerTorqueSmoothingMilliseconds;
         settings.PowerTorqueShowNegative = PowerTorqueShowNegative;
+        settings.AccelerationShiftCueEnabled = AccelerationShiftCueEnabled;
+        settings.ShiftCueGreenColor = ShiftCueGreenColor;
+        settings.ShiftCueYellowColor = ShiftCueYellowColor;
+        settings.ShiftCueRedColor = ShiftCueRedColor;
         settings.PowerTorqueDriftMode = PowerTorqueDriftMode;
         settings.PowerTorqueDriftFlashFrequencyHz = PowerTorqueDriftFlashFrequencyHz;
         settings.PowerTorqueDriftFlashColor = PowerTorqueDriftFlashColor;

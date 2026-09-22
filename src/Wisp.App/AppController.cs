@@ -104,7 +104,8 @@ public sealed partial class AppController : IAsyncDisposable
             settingsService.Save,
             new StartupRegistrationService(),
             settingsService.SaveCompletedSetup,
-            runsDirectory: Path.Combine(settingsService.DataDirectory, "Runs"))
+            runsDirectory: Path.Combine(settingsService.DataDirectory, "Runs"),
+            shiftCalibrationDirectory: Path.Combine(settingsService.DataDirectory, "ShiftCalibrations"))
     {
     }
 
@@ -114,9 +115,11 @@ public sealed partial class AppController : IAsyncDisposable
         IStartupRegistrationService startupRegistrationService,
         Action<AppSettings>? saveCompletedSetup = null,
         Func<Version, CancellationToken, Task<UpdateRelease?>>? checkForApplicationUpdate = null,
-        string? runsDirectory = null)
+        string? runsDirectory = null,
+        string? shiftCalibrationDirectory = null)
     {
         Settings = settings;
+        _nativeHudProcessService.ShiftCueEnabled = settings.AccelerationShiftCueEnabled;
         _saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
         _saveCompletedSetup = saveCompletedSetup ?? _saveSettings;
         _startupRegistrationService = startupRegistrationService;
@@ -146,6 +149,8 @@ public sealed partial class AppController : IAsyncDisposable
 
         SetTachDiagnosticsEnabled(_debugLog.IsEnabled);
         ViewModel = new DiagnosticsViewModel(settings);
+        ViewModel.InitializeShiftCalibration(new ShiftCalibrationManager(shiftCalibrationDirectory));
+        UpdateShiftCueObservation();
         _dispatcher = Dispatcher.CurrentDispatcher;
         InitializeRuns(runsDirectory);
         _debugHealthMonitor = new DebugHealthMonitor(
@@ -340,6 +345,7 @@ public sealed partial class AppController : IAsyncDisposable
 
         InitializeStartupRegistration();
         _runtimeSuspended = false;
+        UpdateShiftCueObservation();
         _manualOverlayHidden = false;
 
         await RestartListenerAsync(Settings.UdpPort);
@@ -398,6 +404,9 @@ public sealed partial class AppController : IAsyncDisposable
         // Closing to the opt-in companion releases UDP and native demand.
         // Queued packet/compositor callbacks cannot restart a suspended session.
         _runtimeSuspended = true;
+        var calibrationStopped = ViewModel.SuspendShiftCalibration();
+        await StopShiftCaptureAsync();
+        UpdateShiftCueObservation();
         SuspendRunShortcut();
         var stoppedRun = _runRecording.StopAsync("Forza session ended");
         _manualOverlayHidden = false;
@@ -427,6 +436,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         await _receiver.StopAsync().ConfigureAwait(false);
         await stoppedRun.ConfigureAwait(false);
+        await calibrationStopped.ConfigureAwait(false);
     }
 
     public void CompleteSetup(SetupPreferences preferences)
@@ -852,6 +862,7 @@ public sealed partial class AppController : IAsyncDisposable
         try
         {
             await _runRecording.StopAsync("Telemetry listener restarted");
+            ViewModel.ResetShiftCueObservations();
             await _receiver.RestartAsync(port);
         }
         catch
@@ -911,6 +922,9 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.TorqueGaugeAttached = ViewModel.TorqueGaugeAttached;
             Settings.PowerTorqueSmoothingMilliseconds = ViewModel.PowerTorqueSmoothingMilliseconds;
             Settings.PowerTorqueShowNegative = ViewModel.PowerTorqueShowNegative;
+            Settings.AccelerationShiftCueEnabled = ViewModel.AccelerationShiftCueEnabled;
+            _nativeHudProcessService.ShiftCueEnabled = Settings.AccelerationShiftCueEnabled || ShiftCaptureActive;
+            UpdateShiftCueObservation();
             Settings.PowerTorqueDriftMode = ViewModel.PowerTorqueDriftModeEnabled;
             Settings.PowerTorqueDriftFlashFrequencyHz = ViewModel.PowerTorqueDriftFlashFrequencyHz;
             Settings.PowerGaugeColorNumber = ViewModel.PowerGaugeColorNumber;
@@ -1462,6 +1476,9 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.InvertLongitudinalG = Settings.InvertLongitudinalG;
         ViewModel.BoostGaugeEnabled = Settings.BoostGaugeEnabled;
         ViewModel.InitializePowerTorqueSettings(Settings);
+        ViewModel.InitializeShiftCueSettings(Settings);
+        _nativeHudProcessService.ShiftCueEnabled = Settings.AccelerationShiftCueEnabled || ShiftCaptureActive;
+        UpdateShiftCueObservation();
         ViewModel.RefreshPowerTorquePalette();
         ViewModel.RefreshPowerTorqueDisplayOptions();
         ViewModel.BoostGaugeAttached = Settings.BoostGaugeAttached;
@@ -1910,6 +1927,9 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         _disposed = true;
+        var calibrationStopped = ViewModel.SuspendShiftCalibration();
+        await StopShiftCaptureAsync();
+        UpdateShiftCueObservation();
         _ = _runRecording.StopAsync("Wisp closed before the run finished");
         SuspendRunShortcut();
         Runs.Dispose();
@@ -1972,6 +1992,7 @@ public sealed partial class AppController : IAsyncDisposable
         await _runRecording.DisposeAsync().ConfigureAwait(false);
         await _nativeHudProcessService.DisposeAsync().ConfigureAwait(false);
         await _receiver.DisposeAsync().ConfigureAwait(false);
+        await calibrationStopped.ConfigureAwait(false);
         _compatibilityLifetime.Dispose();
         _applicationUpdateLifetime.Dispose();
     }
@@ -2136,6 +2157,12 @@ public sealed partial class AppController : IAsyncDisposable
         var nowTimestamp = Stopwatch.GetTimestamp();
         var connectionState = _freshness.GetState(nowTimestamp);
         var age = _freshness.GetAge(nowTimestamp);
+        ViewModel.RefreshShiftCalibration(latest,
+            _nativeHudProcessService.SnapshotFor(latest?.CarOrdinal ?? 0),
+            _nativeHudProcessService.AttachedCompatibilityPack?.ExecutableSha256 ?? "", nowTimestamp);
+        if (ViewModel.AccelerationShiftCueEnabled)
+            ViewModel.InvalidateStaleShiftCue(latest,
+                _nativeHudProcessService.SnapshotFor(latest?.CarOrdinal ?? 0), age, nowTimestamp);
         CaptureDebugSample(now, latest, connectionState, age);
         var hasFreshTelemetry = latest is not null &&
                                 connectionState == TelemetryConnectionState.Connected &&
@@ -2293,7 +2320,8 @@ public sealed partial class AppController : IAsyncDisposable
             _renderRate,
             refreshDiagnostics,
             gForceVisible,
-            Settings.SpeedSource);
+            Settings.SpeedSource,
+            rawShiftState: current);
         var detachedBoostEnabled = IsDetachedBoostGaugeEnabled;
         var detachedTireTemperatureEnabled = IsDetachedTireTemperatureGaugeEnabled;
         if (detachedBoostEnabled != detachedBoostWasEnabled ||

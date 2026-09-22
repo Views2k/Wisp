@@ -28,6 +28,8 @@ internal static class StandaloneGaugeLayoutTests
             AutomaticApplicationUpdateChecks = false,
             BoostGaugeEnabled = true,
             TireTemperatureGaugeEnabled = true,
+            PowerGaugeEnabled = true,
+            TorqueGaugeEnabled = true,
             BoostGaugeAttached = true,
             TireTemperatureGaugeAttached = true
         };
@@ -37,6 +39,7 @@ internal static class StandaloneGaugeLayoutTests
         var tire = new TireTemperatureGaugeWindow(controller);
         try
         {
+            AssertDefaultSupplementaryAnchor(controller);
             UpdateTelemetry(controller.ViewModel, false);
             foreach (var mode in new[] { NativeGaugeMode.Analogue, NativeGaugeMode.Digital })
                 foreach (var attached in new[] { true, false })
@@ -48,10 +51,18 @@ internal static class StandaloneGaugeLayoutTests
                         settings.NativeGaugeMode = mode;
                         settings.BoostGaugeAttached = model.BoostGaugeAttached = attached;
                         settings.TireTemperatureGaugeAttached = model.TireTemperatureGaugeAttached = attached;
+                        settings.PowerGaugeAttached = model.PowerGaugeAttached = attached;
+                        settings.TorqueGaugeAttached = model.TorqueGaugeAttached = attached;
                         model.LayoutSelectionIndex = (int)layout;
                         model.NativeGaugeSelectionIndex = (int)mode;
                         overlay.ApplyLayout(layout, mode, 1, 1, 1);
                         var native = layout == HudLayoutMode.Native;
+                        var analogueNative = native && mode == NativeGaugeMode.Analogue;
+                        Assert.True(model.PowerTorqueDisplay.Available);
+                        Assert.Equal(!analogueNative || !attached, controller.IsDetachedPowerGaugeEnabled);
+                        Assert.Equal(!analogueNative || !attached, controller.IsDetachedTorqueGaugeEnabled);
+                        Assert.Equal(analogueNative && attached, Visible("AttachedPowerGauge"));
+                        Assert.Equal(analogueNative && attached, Visible("AttachedTorqueGauge"));
                         Assert.Equal(!native || !attached && mode == NativeGaugeMode.Analogue,
                             controller.IsDetachedBoostGaugeEnabled);
                         Assert.Equal(!native || !attached, controller.IsDetachedTireTemperatureGaugeEnabled);
@@ -70,6 +81,18 @@ internal static class StandaloneGaugeLayoutTests
                         }
                         Assert.Equal(attached, settings.BoostGaugeAttached);
                         Assert.Equal(attached, settings.TireTemperatureGaugeAttached);
+                        Assert.Equal(attached, settings.PowerGaugeAttached);
+                        Assert.Equal(attached, settings.TorqueGaugeAttached);
+                        if (!analogueNative)
+                        {
+                            // Compare authored HUD bounds, before the desktop rounds window pixels for DPI.
+                            var root = Assert.IsType<Grid>(overlay.FindName("RootPanel"));
+                            var size = new Size(root.Width, root.Height);
+                            model.PowerGaugeEnabled = model.TorqueGaugeEnabled = false;
+                            overlay.ApplyLayout(layout, mode, 1, 1, 1);
+                            Assert.Equal(size, new Size(root.Width, root.Height));
+                            model.PowerGaugeEnabled = model.TorqueGaugeEnabled = true;
+                        }
                         foreach (var scale in new[] { .5, 1, 2 })
                         {
                             boost.ApplyAppearance(scale, 1);
@@ -94,6 +117,12 @@ internal static class StandaloneGaugeLayoutTests
                         settings.TireTemperatureGaugeEnabled = false;
                         Assert.False(controller.IsDetachedTireTemperatureGaugeEnabled);
                         settings.TireTemperatureGaugeEnabled = true;
+                        settings.PowerGaugeEnabled = false;
+                        Assert.False(controller.IsDetachedPowerGaugeEnabled);
+                        settings.PowerGaugeEnabled = true;
+                        settings.TorqueGaugeEnabled = false;
+                        Assert.False(controller.IsDetachedTorqueGaugeEnabled);
+                        settings.TorqueGaugeEnabled = true;
                     }
             foreach (var layout in Enum.GetValues<HudLayoutMode>())
             {
@@ -122,6 +151,43 @@ internal static class StandaloneGaugeLayoutTests
         }
 
         bool Visible(string name) => Assert.IsAssignableFrom<FrameworkElement>(overlay.FindName(name)).Visibility == Visibility.Visible;
+    }
+
+    private static void AssertDefaultSupplementaryAnchor(AppController controller)
+    {
+        var settings = controller.Settings;
+        var layout = settings.LayoutMode;
+        var enabled = settings.GForceEnabled;
+        var meter = new GForceWindow(controller) { Left = 1000, Top = 170, Width = 256, Height = 190 };
+        controller.GForceOverlay = meter;
+        var area = new Rect(0, 0, 1280, 720);
+        var speed = new Rect(1066, 24, 190, 134);
+        try
+        {
+            settings.LayoutMode = HudLayoutMode.Minimal;
+            settings.GForceEnabled = true;
+            Assert.Equal(Rect.Union(speed, new Rect(1000, 170, 256, 190)),
+                controller.DefaultSupplementaryGaugeAnchor(speed, area));
+            settings.GForceEnabled = false;
+            Assert.Equal(speed, controller.DefaultSupplementaryGaugeAnchor(speed, area));
+            settings.GForceEnabled = true;
+            settings.LayoutMode = HudLayoutMode.Combined;
+            Assert.Equal(speed, controller.DefaultSupplementaryGaugeAnchor(speed, area));
+            settings.LayoutMode = HudLayoutMode.Minimal;
+            meter.Left = 1500;
+            Assert.Equal(speed, controller.DefaultSupplementaryGaugeAnchor(speed, area));
+            Assert.Empty(settings.PowerGaugePlacements);
+            Assert.Empty(settings.TorqueGaugePlacements);
+            Assert.Empty(settings.BoostGaugePlacements);
+            Assert.Empty(settings.TireTemperatureGaugePlacements);
+        }
+        finally
+        {
+            controller.GForceOverlay = null;
+            meter.Close();
+            settings.LayoutMode = layout;
+            settings.GForceEnabled = enabled;
+        }
     }
 
     private static void AssertArtworkFits(Window window)
@@ -165,6 +231,11 @@ internal static class StandaloneGaugeLayoutTests
             var checks = Descendants(root).OfType<CheckBox>().ToArray();
             var boost = Assert.Single(checks, c => BindingOperations.GetBinding(c, ToggleButton.IsCheckedProperty)?.Path.Path == nameof(DiagnosticsViewModel.BoostGaugeAttached));
             var tire = Assert.Single(checks, c => BindingOperations.GetBinding(c, ToggleButton.IsCheckedProperty)?.Path.Path == nameof(DiagnosticsViewModel.TireTemperatureGaugeAttached));
+            var powerTorque = Assert.IsType<PowerTorqueGaugeSettingsControl>(window.FindName("PowerTorqueGaugeSettings"));
+            var power = Assert.IsType<CheckBox>(powerTorque.FindName("PowerAttachedToggle"));
+            var torque = Assert.IsType<CheckBox>(powerTorque.FindName("TorqueAttachedToggle"));
+            controller.ViewModel.PowerGaugeEnabled = controller.ViewModel.TorqueGaugeEnabled = true;
+            controller.ViewModel.PowerGaugeAttached = controller.ViewModel.TorqueGaugeAttached = true;
             foreach (var layout in Enum.GetValues<HudLayoutMode>())
                 foreach (var mode in Enum.GetValues<NativeGaugeMode>())
                 {
@@ -173,9 +244,27 @@ internal static class StandaloneGaugeLayoutTests
                     window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
                     Assert.Equal(layout == HudLayoutMode.Native && mode == NativeGaugeMode.Analogue, boost.IsEnabled);
                     Assert.Equal(layout == HudLayoutMode.Native, tire.IsEnabled);
+                    var analogueNative = layout == HudLayoutMode.Native && mode == NativeGaugeMode.Analogue;
+                    Assert.Equal(analogueNative, power.IsEnabled);
+                    Assert.Equal(analogueNative, torque.IsEnabled);
+                    Assert.True(controller.ViewModel.PowerGaugeAttached);
+                    Assert.True(controller.ViewModel.TorqueGaugeAttached);
                     Assert.NotNull(boost.Template);
                     Assert.NotNull(tire.Template);
+                    Assert.NotNull(power.Template);
+                    Assert.NotNull(torque.Template);
                 }
+            controller.ViewModel.LayoutSelectionIndex = (int)HudLayoutMode.Native;
+            controller.ViewModel.NativeGaugeSelectionIndex = (int)NativeGaugeMode.Analogue;
+            controller.ViewModel.PowerGaugeEnabled = false;
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            Assert.False(power.IsEnabled);
+            Assert.True(torque.IsEnabled);
+            controller.ViewModel.PowerGaugeEnabled = true;
+            controller.ViewModel.TorqueGaugeEnabled = false;
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            Assert.True(power.IsEnabled);
+            Assert.False(torque.IsEnabled);
             AssertAppearancePreview(window, controller.ViewModel, root);
         }
         finally { window.Close(); }

@@ -2,6 +2,21 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.3.4 - 2026-09-21
+
+- Fix a crash when changing the app accent color while the dashboard is on an inactive tab.
+- Restore the dashboard oval effect in the selected color when returning to the dashboard.
+- Include supplementary-gauge placement and update recovery improvements, preserving settings, profiles and saved runs.
+- Add optional **beta** calibrated shift guidance, off by default. Calibration is required for each car and tune; shift targets are still being validated.
+
+## 2.3.3 - 2026-09-21
+
+- Add beta calibration-based full-load shift guidance for supported combustion cars and tunes, using a rolling full-throttle pull and a confirming upshift.
+- Compare measured output in adjacent gears and show configurable approach, prepare and flashing shift colors. Require matching calibration and sufficient RPM coverage; distinguish an upper-range target from an acceleration crossover.
+- Keep power and torque gauges separate in Minimal, Combined, Box and Native Digital, preserving attachment preferences for Native Analogue.
+- Account for the separate G-force meter when placing supplementary gauges by default, and try a side placement when the space above overlaps.
+- Give repair instructions for a missing update helper, clean up failed update handoffs without closing Wisp, and ask users to exit a running copy before installation.
+
 ## 2.3.2 - 2026-09-20
 
 - Show enabled standalone boost and tire-temperature gauges in the Minimal, Combined and Box Appearance previews, in both app interfaces.

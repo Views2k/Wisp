@@ -1,0 +1,41 @@
+<UserControl x:Class="Wisp.App.ShiftCueSettingsControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel>
+        <TextBlock Text="SHIFT GUIDANCE · BETA" Style="{StaticResource EyebrowTextStyle}" />
+        <TextBlock Text="Performance shift guidance" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,12" />
+        <CheckBox x:Name="EnabledToggle" Content="Show the performance shift cue (beta)"
+                  Style="{StaticResource ToggleSwitchStyle}"
+                  IsChecked="{Binding AccelerationShiftCueEnabled, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                  Checked="Enabled_Changed" Unchecked="Enabled_Changed"
+                  AutomationProperties.Name="Show the performance shift cue (beta)" />
+        <TextBlock Text="Beta feature: calibrate each car and tune before use. Shift targets are still being validated."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,12,0,0" />
+        <TextBlock Text="Green prepares you, yellow means the shift is approaching, and red flashes at the calibrated target. Change the three colors in Colors."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,12,0,8" />
+        <TextBlock Text="{Binding ShiftCueStatus}" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}" />
+        <TextBlock Text="Calibrate this car and tune" FontSize="16" FontWeight="SemiBold" Margin="0,18,0,8" />
+        <TextBlock Text="On a straight, make a rolling full-throttle pull from low revs in a gear with good grip. Hold through one brief limiter pulse, then upshift and keep accelerating for two seconds. Wisp saves automatically when the measured curve and confirming shift are complete."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
+        <WrapPanel Margin="0,12,0,0">
+            <Button x:Name="CalibrationStart" Content="Calibrate car / tune" Click="Calibrate_Click"
+                    IsEnabled="{Binding CanStartShiftCalibration}" Margin="0,0,8,8"
+                    AutomationProperties.Name="Calibrate shift guidance for this car and tune" />
+            <Button x:Name="CalibrationCancel" Content="Cancel" Click="Cancel_Click"
+                    IsEnabled="{Binding CanCancelShiftCalibration}" Margin="0,0,0,8"
+                    AutomationProperties.Name="Cancel shift calibration" />
+        </WrapPanel>
+        <TextBlock Text="{Binding ShiftCalibrationStatus}" TextWrapping="Wrap"
+                   Foreground="{DynamicResource AccentBrush}" AutomationProperties.LiveSetting="Polite" />
+        <Expander Header="About beta guidance" Style="{StaticResource MoreOptionsStyle}" Margin="0,12,0,0">
+            <StackPanel>
+                <TextBlock Text="Wisp measures this tune's full-throttle torque curve and compares acceleration in adjacent gears. Saved calibrations load automatically for the matching configuration. If the tune changes or the required RPM range is missing, Wisp asks for calibration instead of using an old target."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
+                <TextBlock Text="Red marks a measured full-load RPM target, not an optimized button-press time. An upper-range target is identified separately when holding the gear remains stronger. Driver reaction and shift recovery time are not added. Grip, throttle changes and boost recovery can change acceleration during a shift. Calibration checks overlapping output after an upshift, but does not predict every racing condition."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
+                <TextBlock Text="Requires Forza Horizon 6 Steam build 6.440.853.0 and a supported combustion-car configuration. Electric vehicles do not use this feature."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
+            </StackPanel>
+        </Expander>
+    </StackPanel>
+</UserControl>

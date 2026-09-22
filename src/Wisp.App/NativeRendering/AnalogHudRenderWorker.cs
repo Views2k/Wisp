@@ -298,6 +298,13 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     }
                     var sceneTicks = measure ? Stopwatch.GetTimestamp() - operationStarted : 0;
                     pending = new(sample, presentation, queuedTimestamp, ++sequence);
+                    if (ShiftCaptureHub.Current is not null)
+                        pending = pending.Value with
+                        {
+                            CaptureFrame = presentation.Hud is null ? sample.Frame :
+                            hudPlayback.NeedleDiagnostics.Where(item => item.Kind == "analogue")
+                                .Select(item => (NativeGaugeFrame?)item.Sample.Frame).FirstOrDefault()
+                        };
                     device.DrawForPresentation(commands, commands.Length, measure, out var drawMetrics);
                     RecordStage(operation, "ready", operationStarted, sceneTicks: sceneTicks,
                         drawCommands: commands.Length, drawMetrics: drawMetrics);
@@ -307,7 +314,12 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 // for frames that were never submitted. New input still enters
                 // playback above, ready for the next frame after success.
                 BeginOperation("present");
+                var shiftCapture = ShiftCaptureHub.Current;
+                var captureStarted = shiftCapture is null ? 0 : Stopwatch.GetTimestamp();
                 var submitted = device.TryPresent(measure, out var presentMetrics);
+                if (pending.Value.CaptureFrame is { } drawnFrame)
+                    shiftCapture?.RecordSubmission(_window, drawnFrame,
+                        pending.Value.Sequence, pending.Value.QueuedTimestamp, captureStarted, submitted);
                 RecordStage(operation, submitted ? "submitted" : device.LastRenderWasOccluded ? "occluded" : "busy",
                     operationStarted, presentMetrics: presentMetrics);
                 if (!submitted)
@@ -490,6 +502,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
 internal readonly record struct AnalogHudPendingFrame(
     AnalogHudSample Sample, AnalogHudPresentation Presentation, long QueuedTimestamp, long Sequence)
 {
+    internal NativeGaugeFrame? CaptureFrame { get; init; }
     internal bool CanReuse(AnalogHudPresentation presentation, NativeGaugeFrame frame, bool nativeNeedle) =>
         presentation.Hud is { } hud
             ? Presentation.Hud is { } previousHud && hud.CompatibleWith(previousHud)
@@ -505,5 +518,6 @@ internal readonly record struct AnalogHudPendingFrame(
         nativeNeedle == Sample.Native &&
         frame.ExactRedline == Sample.Frame.ExactRedline &&
         frame.TachometerMaximumRpm.Equals(Sample.Frame.TachometerMaximumRpm) &&
+        frame.ShiftCue.Appearance == Sample.Frame.ShiftCue.Appearance &&
         frame.NativeGaugeSourceInvalidated == Sample.Frame.NativeGaugeSourceInvalidated;
 }

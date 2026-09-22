@@ -4,6 +4,14 @@ using Wisp.Update;
 
 namespace Wisp.App;
 
+internal sealed class ApplicationUpdateHelperUnavailableException : IOException
+{
+    internal ApplicationUpdateHelperUnavailableException()
+        : base("This copy of Wisp is missing a usable update helper.")
+    {
+    }
+}
+
 internal static class ApplicationUpdateStaging
 {
     private const int MaximumRetainedAttempts = 3;
@@ -156,9 +164,8 @@ internal static class ApplicationUpdateStaging
 
     internal static string StageUpdater(string attemptDirectory)
     {
-        var source = Path.Combine(AppContext.BaseDirectory, "Wisp.Updater.exe");
+        var source = RequireUpdaterPath(AppContext.BaseDirectory);
         var destination = Path.Combine(RequireAttemptDirectory(attemptDirectory), "Wisp.Updater.exe");
-        RequireRegularFile(source, "The installed update helper is unavailable.");
         if (File.Exists(destination))
         {
             RequireRegularFile(destination, "The staged update helper is invalid.");
@@ -167,6 +174,26 @@ internal static class ApplicationUpdateStaging
         File.Copy(source, destination, overwrite: false);
         RequireRegularFile(destination, "The staged update helper is unavailable.");
         return destination;
+    }
+
+    internal static string RequireUpdaterPath(string applicationDirectory)
+    {
+        var source = Path.Combine(applicationDirectory, "Wisp.Updater.exe");
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(source);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new ApplicationUpdateHelperUnavailableException();
+        }
+
+        if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+        {
+            throw new ApplicationUpdateHelperUnavailableException();
+        }
+        return source;
     }
 
     internal static string RequireAttemptDirectory(string path)

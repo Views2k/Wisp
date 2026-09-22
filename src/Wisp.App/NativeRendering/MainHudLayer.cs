@@ -31,7 +31,9 @@ internal static class MainHudLayer
     internal static HudLayerSnapshot Capture(NativeAnalogSpeedometer control, DiagnosticsViewModel? vm)
     {
         var frame = control.Frame;
-        return new AnalogSnapshot(frame, Layout(control, frame, () => AnalogHudLayout.Capture(control)),
+        var layout = Layout(control, frame, () => AnalogHudLayout.Capture(control));
+        ShiftCaptureHub.ObserveLayout(control, layout);
+        return new AnalogSnapshot(frame, layout,
             vm?.IsTractionCueActive == true, Color(control));
     }
     internal static HudLayerSnapshot Capture(NativeElectricAnalogSpeedometer control, DiagnosticsViewModel? vm)
@@ -63,7 +65,7 @@ internal static class MainHudLayer
         internal override IReadOnlyList<AnalogHudTexture> Textures { get; } = DigitalHudAssets.LoadOnUiThread();
         internal override HudLayerPlayback CreatePlayback() => new DigitalPlayback();
         internal override object CompatibilityKey => (Frame.CarOrdinal, Frame.Unit, Frame.GearDisplayMode,
-            Frame.NativeGaugeSourceInvalidated, Layout, Traction, Color);
+            Frame.NativeGaugeSourceInvalidated, Layout, Traction, Color, Frame.ShiftCue.Appearance);
     }
     private sealed class DigitalPlayback : HudLayerPlayback
     {
@@ -92,7 +94,8 @@ internal static class MainHudLayer
         internal override IReadOnlyList<AnalogHudTexture> Textures { get; } = AnalogHudAssets.LoadOnUiThread();
         internal override HudLayerPlayback CreatePlayback() => new AnalogPlayback();
         internal override object CompatibilityKey => (Frame.CarOrdinal, Frame.Unit, Frame.ExactRedline,
-            Frame.TachometerMaximumRpm, Frame.GearDisplayMode, Frame.NativeGaugeSourceInvalidated, Layout, Traction, Color);
+            Frame.TachometerMaximumRpm, Frame.GearDisplayMode, Frame.NativeGaugeSourceInvalidated, Layout, Traction, Color,
+            Frame.ShiftCue.Appearance);
     }
     private sealed class AnalogPlayback : HudLayerPlayback
     {

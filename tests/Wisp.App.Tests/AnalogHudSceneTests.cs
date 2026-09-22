@@ -153,7 +153,8 @@ public sealed class AnalogHudSceneTests
 
         var textures = AnalogHudAssets.LoadOnUiThread();
         Assert.Same(textures, AnalogHudAssets.LoadOnUiThread());
-        Assert.Equal(AnalogHudAssets.Definitions.Count, textures.Count);
+        Assert.Equal(AnalogHudAssets.Definitions.Count + 1, textures.Count);
+        Assert.Single(textures, texture => texture.Id == ShiftCueArtwork.AnalogTextureId);
         Assert.All(textures, texture => Assert.Equal(texture.Stride * texture.Height, texture.Pixels.Length));
 
         var startup = new NativeAnalogSpeedometer();

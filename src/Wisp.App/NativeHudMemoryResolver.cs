@@ -17,7 +17,7 @@ public interface IReadOnlyProcessMemory
     }
 }
 
-public sealed class NativeHudMemoryResolver
+public sealed partial class NativeHudMemoryResolver
 {
     private const int MaximumSourceCount = 128;
     private ulong SourceProviderOffset => _pack.Fields.SourceProvider;
@@ -55,6 +55,12 @@ public sealed class NativeHudMemoryResolver
     {
         _pack = pack ?? NativeHudBuildContract.BuiltIn;
         _nativeGaugeResolver = new NativeGaugeDirectResolver(_pack);
+    }
+
+    internal NativeHudMemoryResolver(NativeHudCompatibilityPack pack, NativeShiftPerformanceReader shiftReader)
+        : this(pack)
+    {
+        _shiftReader = shiftReader ?? throw new ArgumentNullException(nameof(shiftReader));
     }
 
     public NativeHudSnapshot Resolve(
@@ -201,6 +207,7 @@ public sealed class NativeHudMemoryResolver
     {
         _cachedSource = 0;
         _nativeGaugeResolver.Reset();
+        ResetShiftPerformance();
     }
 
     /// <summary>
@@ -477,6 +484,12 @@ public sealed class NativeHudMemoryResolver
             exactRedline,
             tachometerAvailable ? tachometerMaximumRpm : 0,
             assists);
+
+        snapshot = snapshot with
+        {
+            ShiftPerformance = ReadShiftPerformance(memory, moduleBase, source, provider,
+                carOrdinal, currentEngineRpm, maximumEngineRpm, isElectric)
+        };
 
         var nativeGauge = ReadNativeGaugeWithDiagnostics(
             memory, moduleBase, source, isElectric, forceStructuralValidation,

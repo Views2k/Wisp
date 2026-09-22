@@ -121,6 +121,7 @@ public abstract partial class ControlPanelWindow : Window
         DataContext = controller.ViewModel;
         FindControl<DriftGaugeSettingsControl>("DriftGaugeSettings").Initialize(controller);
         FindControl<PowerTorqueGaugeSettingsControl>("PowerTorqueGaugeSettings").Initialize(controller);
+        FindControl<ShiftCueSettingsControl>("ShiftCueSettings").Initialize(controller);
         RunsSurface.DataContext = controller.Runs;
         DashboardRunPanel.DataContext = controller.Runs;
         MphRadio.IsChecked = controller.Settings.SpeedUnit == SpeedUnit.MilesPerHour;
@@ -269,6 +270,17 @@ public abstract partial class ControlPanelWindow : Window
                 ColorEditor.MaximumBrightness = 1;
                 color = ColorCustomization.ResolvePowerTorqueDriftFlash(settings.PowerTorqueDriftFlashColor);
                 break;
+            case 14:
+            case 15:
+            case 16:
+                var stage = ColorTargetSelector.SelectedIndex - 13;
+                ColorEditor.Title = stage == 1 ? "Shift cue · approach (beta)" : stage == 2 ? "Shift cue · prepare (beta)" : "Shift cue · shift (beta)";
+                ColorEditor.Description = "Beta performance shift cue color. The shift stage flashes.";
+                ColorEditor.MinimumOpacity = 1;
+                ColorEditor.MaximumBrightness = 1;
+                var argb = DiagnosticsViewModel.ResolveShiftCueColor(settings, stage);
+                color = Color.FromArgb(255, (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
+                break;
             default:
                 ColorEditor.Title = "App accent";
                 ColorEditor.Description = "Highlights, selections, buttons, and status color";
@@ -360,6 +372,11 @@ public abstract partial class ControlPanelWindow : Window
                 break;
             case 13:
                 _controller.SetPowerTorqueDriftFlashColor(value);
+                break;
+            case 14:
+            case 15:
+            case 16:
+                _controller.SetShiftCueColor(ColorTargetSelector.SelectedIndex - 13, value);
                 break;
             default:
                 ApplyAppColorResources(value, _controller.Settings.CustomBackgroundColor);

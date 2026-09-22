@@ -39,10 +39,19 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 4 && args[0] == "--shift-session-audit" && args[2] == "--output")
+                return ShiftSessionReview.Run(args[1], PrepareOutput(args[3]));
             if (args.Length == 3 && args[0] == "--standalone-preview-check" && args[1] == "--output")
                 return StandalonePreviewReview.Run(PrepareOutput(args[2]), () => LoadApplicationResources(args[2], out _), DetachSurface);
             if (args.Length == 3 && args[0] == "--standalone-gauges-check" && args[1] == "--output")
                 return StandaloneGaugeReview.Run(PrepareOutput(args[2]), () => LoadApplicationResources(args[2], out _), DetachSurface, SetOffscreenDpi);
+            if (args.Length == 3 && args[0] == "--shift-capture-probe-check" && args[1] == "--output")
+                return ShiftCaptureProbeReview.Run(PrepareOutput(args[2]));
+            if (args.Length == 3 && args[0] == "--shift-cue-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return ShiftCueReview.Run(output, () => LoadApplicationResources(output, out _), SetOffscreenDpi);
+            }
             if (args.Length == 3 && args[0] == "--ev-wrap-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);

@@ -494,7 +494,7 @@ public partial class App : Application
                                            InvalidOperationException or ArgumentException or Win32Exception or
                                            System.Security.SecurityException)
         {
-            var error = "Wisp could not start the verified update. No files were installed.";
+            var error = ApplicationUpdateLauncher.DescribeStartFailure(exception);
             _applicationUpdateHandoffActive = false;
             _controller.Runs.CancelMetadataClosePreparation();
             _controller.ViewModel.UpdateApplicationUpdateStatus(error, "Try again", canCheck: true);

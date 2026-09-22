@@ -139,10 +139,12 @@ public partial class OverlayWindow : Window
             var shouldShowGForce = _layoutMode == HudLayoutMode.Native &&
                                    _controller.ViewModel.GForceEnabled &&
                                    _controller.ViewModel.GForceAttached;
-            var showPower = _controller.ViewModel.PowerGaugeEnabled &&
+            var powerTorqueCanAttach = _layoutMode == HudLayoutMode.Native &&
+                                       _nativeGaugeMode == NativeGaugeMode.Analogue;
+            var showPower = powerTorqueCanAttach && _controller.ViewModel.PowerGaugeEnabled &&
                             _controller.ViewModel.PowerGaugeAttached &&
                             _controller.ViewModel.PowerTorqueDisplay.Available;
-            var showTorque = _controller.ViewModel.TorqueGaugeEnabled &&
+            var showTorque = powerTorqueCanAttach && _controller.ViewModel.TorqueGaugeEnabled &&
                              _controller.ViewModel.TorqueGaugeAttached &&
                              _controller.ViewModel.PowerTorqueDisplay.Available;
             if (shouldShow == _attachedBoostVisible &&
@@ -401,10 +403,12 @@ public partial class OverlayWindow : Window
         baseHeight += nativeTop;
         if (layoutMode == HudLayoutMode.Native)
             baseWidth = Math.Max(baseWidth, gForceBounds.Right);
-        _attachedPowerVisible = _controller.ViewModel.PowerGaugeEnabled &&
+        var powerTorqueCanAttach = layoutMode == HudLayoutMode.Native &&
+                                   nativeGaugeMode == NativeGaugeMode.Analogue;
+        _attachedPowerVisible = powerTorqueCanAttach && _controller.ViewModel.PowerGaugeEnabled &&
                                 _controller.ViewModel.PowerGaugeAttached &&
                                 _controller.ViewModel.PowerTorqueDisplay.Available;
-        _attachedTorqueVisible = _controller.ViewModel.TorqueGaugeEnabled &&
+        _attachedTorqueVisible = powerTorqueCanAttach && _controller.ViewModel.TorqueGaugeEnabled &&
                                  _controller.ViewModel.TorqueGaugeAttached &&
                                  _controller.ViewModel.PowerTorqueDisplay.Available;
         _powerScale = _controller.ViewModel.PowerGaugeScale;

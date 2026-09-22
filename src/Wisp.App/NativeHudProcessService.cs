@@ -32,6 +32,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
     private long _diagnosticReadFailures;
     private bool _fullResolvePending;
     private bool _disposed;
+    internal volatile bool ShiftCueEnabled;
     private Task? _disposeTask;
     private AttachmentIdentity? _attachmentIdentity;
 
@@ -290,6 +291,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             NativeHudSnapshot result;
             if (performFullResolve)
             {
+                _resolver.ShiftCueEnabled = ShiftCueEnabled;
                 if (TachDiagnostics.IsEnabled) TachDiagnostics.RecordNativeContext(memory.CompatibilityPack);
                 result = _resolver.Resolve(
                     memory,
@@ -307,7 +309,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
                 var observedTimestamp = visibility is NativeGameplayVisibility.Visible or NativeGameplayVisibility.Hidden
                     ? Stopwatch.GetTimestamp()
                     : 0L;
-                result = result with
+                result = _resolver.ApplyShiftGameplayVisibility(result, visibility) with
                 {
                     GameplayVisibility = observedTimestamp > 0 ? visibility : NativeGameplayVisibility.Unknown,
                     VisibilityObservedTimestamp = Math.Max(0L, observedTimestamp)

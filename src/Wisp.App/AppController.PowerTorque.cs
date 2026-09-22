@@ -4,10 +4,12 @@ public sealed partial class AppController
 {
     public PowerTorqueGaugeWindow? PowerGaugeOverlay { get; private set; }
     public PowerTorqueGaugeWindow? TorqueGaugeOverlay { get; private set; }
+    private bool PowerTorqueGaugesCanAttach => Settings.LayoutMode == HudLayoutMode.Native &&
+        Settings.NativeGaugeMode == NativeGaugeMode.Analogue;
     public bool IsDetachedPowerGaugeEnabled => Settings.PowerGaugeEnabled &&
-        !Settings.PowerGaugeAttached && ViewModel.PowerTorqueDisplay.Available;
+        (!PowerTorqueGaugesCanAttach || !Settings.PowerGaugeAttached) && ViewModel.PowerTorqueDisplay.Available;
     public bool IsDetachedTorqueGaugeEnabled => Settings.TorqueGaugeEnabled &&
-        !Settings.TorqueGaugeAttached && ViewModel.PowerTorqueDisplay.Available;
+        (!PowerTorqueGaugesCanAttach || !Settings.TorqueGaugeAttached) && ViewModel.PowerTorqueDisplay.Available;
     private bool _powerGaugeDetached;
     private bool _torqueGaugeDetached;
 
@@ -22,6 +24,18 @@ public sealed partial class AppController
             var tireHeight = (Settings.NativeGaugeMode == NativeGaugeMode.Digital ? 92 : analogSize) * Settings.TireTemperatureGaugeScale;
             return new(Math.Max(power, Math.Max(boost, tireWidth)), Math.Max(power, Math.Max(boost, tireHeight)));
         }
+    }
+
+    internal System.Windows.Rect DefaultSupplementaryGaugeAnchor(System.Windows.Rect speedBounds, System.Windows.Rect workArea)
+    {
+        if (!IsStandaloneGForceWindowEnabled || GForceOverlay is not { } meter ||
+            !double.IsFinite(meter.Left) || !double.IsFinite(meter.Top) ||
+            !double.IsFinite(meter.Width) || !double.IsFinite(meter.Height))
+            return speedBounds;
+
+        var meterBounds = new System.Windows.Rect(meter.Left, meter.Top, meter.Width, meter.Height);
+        meterBounds.Intersect(workArea);
+        return meterBounds.IsEmpty ? speedBounds : System.Windows.Rect.Union(speedBounds, meterBounds);
     }
 
     internal void InitializePowerTorqueGaugeWindows()
@@ -46,8 +60,8 @@ public sealed partial class AppController
 
     internal void ApplyPowerTorqueGaugeWindowSettings(bool restorePlacement = false)
     {
-        var powerDetached = Settings.PowerGaugeEnabled && !Settings.PowerGaugeAttached;
-        var torqueDetached = Settings.TorqueGaugeEnabled && !Settings.TorqueGaugeAttached;
+        var powerDetached = Settings.PowerGaugeEnabled && (!PowerTorqueGaugesCanAttach || !Settings.PowerGaugeAttached);
+        var torqueDetached = Settings.TorqueGaugeEnabled && (!PowerTorqueGaugesCanAttach || !Settings.TorqueGaugeAttached);
         PowerGaugeOverlay?.ApplyAppearance(Settings.PowerGaugeScale, Settings.OverlayOpacity);
         TorqueGaugeOverlay?.ApplyAppearance(Settings.TorqueGaugeScale, Settings.OverlayOpacity);
         PowerGaugeOverlay?.SetEditMode(!Settings.OverlayLocked);
