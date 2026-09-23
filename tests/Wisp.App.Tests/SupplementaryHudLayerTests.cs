@@ -97,23 +97,88 @@ public sealed class SupplementaryHudLayerTests
     [Fact]
     public void BoostMotionContinuesBetweenPacketsAndResetsForDifferentCarOrUnits()
     {
-        var playback = new BoostHudLayer.Playback();
         var origin = Ticks(1000);
+        var now = origin;
+        var playback = new BoostHudLayer.Playback(() => now);
         for (var i = 0; i <= 5; i++)
         {
             var time = origin + Ticks(i * 16);
+            now = time;
             playback.Update(Boost(pressure: i * 10, received: time, game: (uint)(i * 16)), time);
         }
         var first = Angle(playback.Build(origin + Ticks(80))[^1]);
         var between = Angle(playback.Build(origin + Ticks(88))[^1]);
         Assert.True(between > first);
         Assert.InRange(between - first, 1, 30);
-        playback.Update(Boost(pressure: 0, car: 2, received: origin + Ticks(96)), origin + Ticks(96));
+        now = origin + Ticks(96);
+        playback.Update(Boost(pressure: 0, car: 2, received: now), now);
         Assert.InRange(Angle(playback.Build(origin + Ticks(96))[^1]), 109.999, 110.001);
+        now = origin + Ticks(112);
         playback.Update(Boost(pressure: 0, config: BoostConfig() with { Unit = BoostPressureUnit.Bar, Vacuum = true },
-            received: origin + Ticks(112)), origin + Ticks(112));
+            received: now), now);
         Assert.InRange(Angle(playback.Build(origin + Ticks(112))[^1]), 153.32, 153.35);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void QueuedBoostSnapshotKeepsItsTimelineWhenPublishedBeforeThePreviousRender(bool hasReceivedTimestamp)
+    {
+        var origin = Ticks(1000);
+        var now = origin;
+        var playback = new BoostHudLayer.Playback(() => now);
+        for (var ms = 0; ms <= 40; ms += 10)
+        {
+            now = origin + Ticks(ms);
+            playback.Update(Boost(pressure: 10 + ms * .5, game: (uint)ms, received: now), now);
+        }
+        AssertNeedleAngle(playback.Build(origin + Ticks(50))[^1], 110 + 260 * 15 / 70d);
+
+        var published = origin + Ticks(49);
+        now = origin + Ticks(52);
+        playback.Update(Boost(pressure: 34.5, game: 49, received: hasReceivedTimestamp ? published : 0), published);
+
+        AssertNeedleAngle(playback.Build(now)[^1], 110 + 260 * 16 / 70d);
+        AssertNeedleAngle(playback.Build(origin + Ticks(85))[^1], 110 + 260 * 32.5 / 70d);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void QueuedTireSnapshotKeepsBothTimelinesWhenPublishedBeforeThePreviousRender(bool hasReceivedTimestamp)
+    {
+        var origin = Ticks(1000);
+        var now = origin;
+        var playback = new TireHudLayer.Playback(() => now);
+        for (var ms = 0; ms <= 40; ms += 10)
+        {
+            now = origin + Ticks(ms);
+            playback.Update(Snapshot(ms, now), now);
+        }
+        AssertTireAngles(playback.Build(origin + Ticks(50)), .2, .7);
+
+        var published = origin + Ticks(49);
+        now = origin + Ticks(52);
+        playback.Update(Snapshot(49, hasReceivedTimestamp ? published : 0), published);
+
+        AssertTireAngles(playback.Build(now), .22, .68);
+        AssertTireAngles(playback.Build(origin + Ticks(85)), .55, .35);
+
+        static TireHudLayer.Snapshot Snapshot(int ms, long received) => new(TireConfig(),
+            new(Array.Empty<AnalogHudTexture>(), DummyGlyphs()),
+            new(true, 200, 220, .1 + ms * .01, .8 - ms * .01), 1, (uint)ms, received);
+    }
+
+    private static void AssertTireAngles(DirectCompositionDrawCommand[] commands, double front, double rear)
+    {
+        var needles = commands.Where(command => command.TextureId == 40002).ToArray();
+        Assert.Equal(2, needles.Length);
+        AssertNeedleAngle(needles[0], 110 + 260 * rear);
+        AssertNeedleAngle(needles[1], 110 + 260 * front);
+    }
+
+    private static void AssertNeedleAngle(DirectCompositionDrawCommand command, double degrees) =>
+        Assert.InRange(Angle(command), degrees - .001, degrees + .001);
 
     [Fact]
     public void CompatibilityIgnoresLiveValuesButInvalidatesThePendingSceneForConfigurationAndAvailability()
@@ -169,11 +234,13 @@ public sealed class SupplementaryHudLayerTests
         Assert.Empty(BoostHudLayer.Build(Boost(), double.NaN, .5, 0));
         Assert.Empty(TireHudLayer.Build(Tire(available: false), .4, .5));
         Assert.Empty(TireHudLayer.Build(Tire(), double.NaN, .5));
-        var playback = new TireHudLayer.Playback();
-        playback.Update(Tire(), Ticks(1000));
-        Assert.NotEmpty(playback.Build(Ticks(1000)));
-        playback.Update(Tire(available: false), Ticks(1016));
-        Assert.Empty(playback.Build(Ticks(1016)));
+        var now = Ticks(1000);
+        var playback = new TireHudLayer.Playback(() => now);
+        playback.Update(Tire(), now);
+        Assert.NotEmpty(playback.Build(now));
+        now = Ticks(1016);
+        playback.Update(Tire(available: false), now);
+        Assert.Empty(playback.Build(now));
     }
 
     internal static void AssertOnCurrentDispatcher()

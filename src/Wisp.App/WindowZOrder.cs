@@ -44,6 +44,7 @@ internal static class WindowZOrder
         if (helper.Owner != gameWindow)
         {
             helper.Owner = gameWindow;
+            NativeRendering.HudNativeHost.SynchronizeWindow(window);
         }
 
         if (raise)
@@ -72,6 +73,7 @@ internal static class WindowZOrder
         if (helper.Handle != IntPtr.Zero && helper.Owner != IntPtr.Zero)
         {
             helper.Owner = IntPtr.Zero;
+            NativeRendering.HudNativeHost.SynchronizeWindow(window);
         }
     }
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -144,6 +145,10 @@ internal static class PowerTorqueHudLayer
 
     private sealed class Playback : HudLayerPlayback
     {
+        private readonly Func<long> _clock;
+
+        internal Playback(Func<long>? clock = null) => _clock = clock ?? Stopwatch.GetTimestamp;
+
         private readonly PowerTorqueNeedlePlayback _playback = new();
         private Snapshot? _snapshot;
         private NativePowerTorqueInput _input;
@@ -154,13 +159,14 @@ internal static class PowerTorqueHudLayer
             var next = (Snapshot)snapshot;
             var input = next.Input;
             if (!_hasInput || input.Revision != _input.Revision) _playback.Reset();
-            _playback.SetDriftFlashFrequency(input.DriftFlashFrequencyHz, timestamp);
+            var consumed = _clock();
+            _playback.SetDriftFlashFrequency(input.DriftFlashFrequencyHz, consumed);
             if (!_hasInput || input != _input)
             {
                 var received = input.ReceivedTimestamp > 0 ? input.ReceivedTimestamp :
                     input.ObservedTimestamp > 0 ? input.ObservedTimestamp : timestamp;
                 _playback.Observe(input.Display, input.CarOrdinal, input.GameTimestampMilliseconds,
-                    Math.Max(timestamp, received), received);
+                    Math.Max(consumed, received), received);
             }
             // A peak reset carries the original sample identity and must not
             // reset the needle timeline or resurrect the previous peak.
@@ -170,9 +176,10 @@ internal static class PowerTorqueHudLayer
             _snapshot = next;
         }
 
-        internal override DirectCompositionDrawCommand[] Build(long timestamp)
+        internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
         {
-            if (_snapshot is not { } snapshot) return [];
+            if (_snapshot is not { } snapshot) return;
+            var start = commands.Count;
             var options = snapshot.Options;
             var art = snapshot.Artwork;
             var display = _playback.Sample(timestamp);
@@ -181,10 +188,7 @@ internal static class PowerTorqueHudLayer
             var peak = Convert(options.IsTorque ? display.PeakTorqueNm : display.PeakPowerBhp);
             var readout = Convert(options.IsTorque ? display.ReadoutTorqueNm ?? display.TorqueNm : display.ReadoutPowerBhp ?? display.PowerBhp);
             var available = display.Available && double.IsFinite(value);
-            var commands = new List<DirectCompositionDrawCommand>(24)
-            {
-                AnalogHudScene.Quad(art.FirstId, new(0, 0, DesignSize, DesignSize))
-            };
+            commands.Add(AnalogHudScene.Quad(art.FirstId, new(0, 0, DesignSize, DesignSize)));
             if (available && value > 0)
             {
                 var fraction = Math.Clamp(value / options.Maximum, 0, 1);
@@ -216,7 +220,7 @@ internal static class PowerTorqueHudLayer
             }
             var xScale = (float)(options.Width / DesignSize);
             var yScale = (float)(options.Height / DesignSize);
-            for (var index = 0; index < commands.Count; index++)
+            for (var index = start; index < commands.Count; index++)
             {
                 var command = commands[index];
                 command.OriginX *= xScale; command.OriginY *= yScale;
@@ -224,7 +228,6 @@ internal static class PowerTorqueHudLayer
                 command.AxisYX *= xScale; command.AxisYY *= yScale;
                 commands[index] = command;
             }
-            return commands.ToArray();
         }
     }
 

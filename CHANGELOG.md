@@ -2,6 +2,17 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.4.0 - 2026-09-23
+
+- Fix the focused-game G-SYNC/VRR needle issue with a monitor-sized native host for the contained main HUD and passive-update requests on overlay windows.
+- Animate the analogue needle through an independent DirectComposition worker and device, reusing unchanged needle pixels while preserving blur and layer order.
+- Deliver accepted RPM and native-angle history independently of UI publication, with car, scale and session guards. Reduce the minimum analogue playback buffer to 20 ms while retaining adaptive protection.
+- Consume queued history before advancing playback after waits, and use the consumption clock for supplementary-gauge updates.
+- Fix fractional-timeout reader spinning, startup and replacement-swapchain readiness, occlusion recovery and hidden-window deactivation.
+- Reuse render command storage, reduce process-memory diagnostic overhead, and apply opacity handling appropriate to each composition layout.
+- Expand motion, wait, build-provenance and passive-update diagnostics. Preserve settings, HUD profiles, tire calibration and saved runs.
+- Credit fredemmott for sharing Microsoft's Direct3D-team guidance; include the investigation, earlier CPU-rendering context and troubleshooting in the [2.4 release notes](docs/releases/Wisp-2.4.0-release-notes.md).
+
 ## 2.3.4 - 2026-09-21
 
 - Fix a crash when changing the app accent color while the dashboard is on an inactive tab.

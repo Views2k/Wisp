@@ -1,9 +1,11 @@
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Wisp.App.DebugLogging;
 using Wisp.Core;
 using Xunit;
 
@@ -80,6 +82,7 @@ internal static class OverlayPresentationTests
             }
 
             Assert.Equal(0, savedPlacements);
+            AssertPassiveManifest(handle);
             drag.Dispose();
             SetWindowLong(handle, ExtendedStyleIndex,
                 GetWindowLong(handle, ExtendedStyleIndex) | LayeredStyle);
@@ -89,6 +92,7 @@ internal static class OverlayPresentationTests
             Assert.Equal(disposedStyle, GetWindowLong(handle, ExtendedStyleIndex));
             window.Close();
             Assert.False(IsWindow(handle));
+            Assert.DoesNotContain(OverlayPassiveUpdate.Snapshot(), state => state.WindowHandle == handle.ToInt64());
         }
         finally
         {
@@ -105,6 +109,7 @@ internal static class OverlayPresentationTests
 
     private static void AssertPresentation(IntPtr handle, bool interactive)
     {
+        AssertPassiveRequest(handle, native: false);
         var style = GetWindowLong(handle, ExtendedStyleIndex);
         Assert.NotEqual(0, style & LayeredStyle);
         Assert.NotEqual(0, style & OverlayActivationPolicy.NoActivateExtendedStyle);
@@ -115,6 +120,36 @@ internal static class OverlayPresentationTests
         Assert.Equal(2U, flags);
         Assert.Equal(new IntPtr(OverlayActivationPolicy.MouseActivateNoActivateResult),
             SendMessage(handle, OverlayActivationPolicy.MouseActivateMessage, IntPtr.Zero, IntPtr.Zero));
+    }
+
+    internal static void AssertPassiveRequest(IntPtr handle, bool native)
+    {
+        var state = Assert.Single(OverlayPassiveUpdate.Snapshot(), value => value.WindowHandle == handle.ToInt64());
+        Assert.Equal(native ? "native_composition" : "wpf_overlay", state.WindowKind);
+        Assert.True(state.RequestedEnabled);
+        Assert.Equal(0, state.SetHResult);
+        Assert.True(state.StartedTimestamp > 0);
+        Assert.True(state.CompletedTimestamp >= state.StartedTimestamp);
+    }
+
+    private static void AssertPassiveManifest(IntPtr handle)
+    {
+        // Export with no capture: HWND initialization state must still be available
+        // when logging starts after the overlay was created.
+        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+        using var manifest = JsonDocument.Parse(JsonSerializer.Serialize(
+            TachDiagnosticReport.CreateManifest([], null, 0, 0), options));
+        var root = manifest.RootElement;
+        Assert.Contains("not capture history", root.GetProperty("passive_update_policy").GetString());
+        Assert.Contains("set-only", root.GetProperty("passive_update_policy").GetString());
+        var entry = Assert.Single(root.GetProperty("passive_update_windows").EnumerateArray(),
+            value => value.GetProperty("window_handle").GetInt64() == handle.ToInt64());
+        Assert.Equal("wpf_overlay", entry.GetProperty("window_kind").GetString());
+        Assert.Equal(0, entry.GetProperty("set_h_result").GetInt32());
+        Assert.True(entry.GetProperty("requested_enabled").GetBoolean());
+        Assert.True(root.GetProperty("passive_update_stopwatch_frequency").GetInt64() > 0);
+        Assert.True(root.GetProperty("passive_update_snapshot_timestamp").GetInt64() >=
+            entry.GetProperty("completed_timestamp").GetInt64());
     }
 
     [DllImport("user32.dll")]

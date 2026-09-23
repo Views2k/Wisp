@@ -226,7 +226,7 @@ public sealed class HudScenePlaybackTests
         internal DirectCompositionDrawCommand Original { get; } = AnalogHudScene.Quad(textureId, new(4, 5, 6, 7), opacity: .5);
         internal int Updates { get; private set; }
         internal override void Update(HudLayerSnapshot snapshot, long timestamp) => Updates++;
-        internal override DirectCompositionDrawCommand[] Build(long timestamp) => [Original];
+        internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp) => commands.Add(Original);
     }
     private sealed class OtherSnapshot : HudLayerSnapshot
     {

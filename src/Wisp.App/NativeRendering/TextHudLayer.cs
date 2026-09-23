@@ -137,9 +137,9 @@ internal static class TextHudLayer
     {
         private Snapshot? _snapshot;
         internal override void Update(HudLayerSnapshot snapshot, long timestamp) => _snapshot = (Snapshot)snapshot;
-        internal override DirectCompositionDrawCommand[] Build(long timestamp)
+        internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
         {
-            if (_snapshot is not { } s) return [];
+            if (_snapshot is not { } s) return;
             var a = s.Artwork;
             var indices = s.Text.Select(c => Glyphs.IndexOf(c) is var index && index >= 0 ? index : Glyphs.Length - 1).ToArray();
             double width = 6;
@@ -151,8 +151,7 @@ internal static class TextHudLayer
             var scale = Math.Min(s.Placement.Width / Math.Max(1, width), s.Placement.Height / a.Height);
             var x = s.Placement.X + (s.Placement.Width - width * scale) / 2 + 3 * scale;
             var y = s.Placement.Y + (s.Placement.Height - a.Height * scale) / 2;
-            var commands = new List<DirectCompositionDrawCommand>(indices.Length + 1)
-            { AnalogHudScene.Quad(a.BaseId, new(0, 0, a.Width, a.ControlHeight)) };
+            commands.Add(AnalogHudScene.Quad(a.BaseId, new(0, 0, a.Width, a.ControlHeight)));
             for (var i = 0; i < indices.Length; i++)
             {
                 var index = indices[i];
@@ -161,7 +160,6 @@ internal static class TextHudLayer
                     new(x - Padding * scale, y - Padding * scale, CellWidth * scale, CellHeight * scale), color: s.Color));
                 x += a.Advances[index] * scale;
             }
-            return commands.ToArray();
         }
     }
 }

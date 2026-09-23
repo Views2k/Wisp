@@ -6,6 +6,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Wisp.App.DebugLogging;
+using Wisp.App.NativeRendering;
 using Wisp.Core;
 using Xunit;
 
@@ -18,8 +19,8 @@ internal static class NativeRendererIntegrationTests
         var hardwareAvailable = cpuRendering || ProbeHardwareSupport();
         var expectedStatus = cpuRendering ? "HUD renderer: CPU (WARP) / DirectComposition" : hardwareAvailable
             ? "HUD renderer: Direct3D 11 / DirectComposition"
-            : "HUD renderer: WPF fallback (0x887A0004)";
-        var expectedContentVisibility = hardwareAvailable ? Visibility.Hidden : Visibility.Visible;
+            : "HUD renderer: unavailable (0x887A0004)";
+        var expectedContentVisibility = Visibility.Hidden;
         var settings = new AppSettings
         {
             StartWithWindows = false,
@@ -40,6 +41,7 @@ internal static class NativeRendererIntegrationTests
         OverlayWindow? window = null;
         try
         {
+            if (!cpuRendering && hardwareAvailable) CompositorNeedleWorkerTests.AssertOnCurrentDispatcher();
             window = new OverlayWindow(controller)
             {
                 // Successful Present requires an unoccluded surface. An off-screen
@@ -53,10 +55,10 @@ internal static class NativeRendererIntegrationTests
             SetFrame(gauge, 314, 4500);
             window.SetTelemetryVisible(true, 1);
             PumpUntil(() => controller.ViewModel.NativeRendererStatus.Contains("/ DirectComposition", StringComparison.Ordinal) ||
-                controller.ViewModel.NativeRendererStatus.Contains("fallback", StringComparison.Ordinal), 8000);
+                controller.ViewModel.NativeRendererStatus.Contains("unavailable", StringComparison.Ordinal), 8000);
             Assert.Equal(expectedStatus, controller.ViewModel.NativeRendererStatus);
             Assert.Equal(expectedContentVisibility, Assert.IsAssignableFrom<UIElement>(gauge.Content).Visibility);
-            if (!hardwareAvailable) AssertFallbackNeedle(gauge, 4500);
+            if (!hardwareAvailable) Assert.True(HudNativeHost.IsWpfContentSuppressed(gauge));
             var hwnd = new WindowInteropHelper(window).Handle;
             Assert.NotEqual(hwnd, GetForegroundWindow());
             Assert.False(window.IsActive);
@@ -81,8 +83,8 @@ internal static class NativeRendererIntegrationTests
             SetFrame(gauge, 315, 7200);
             PumpUntil(() => window.IsVisible && gauge.IsVisible, 1000);
             Assert.Equal(expectedStatus, controller.ViewModel.NativeRendererStatus);
-            Assert.Equal(expectedContentVisibility, Assert.IsAssignableFrom<UIElement>(gauge.Content).Visibility);
-            if (!hardwareAvailable) AssertFallbackNeedle(gauge, 7200);
+            PumpUntil(() => Assert.IsAssignableFrom<UIElement>(gauge.Content).Visibility == expectedContentVisibility, 4000);
+            if (!hardwareAvailable) Assert.True(HudNativeHost.IsWpfContentSuppressed(gauge));
             Assert.NotEqual(hwnd, GetForegroundWindow());
 
             AssertAttachedGForceToggleKeepsRendering(controller, window, gauge, hardwareAvailable);
@@ -160,17 +162,20 @@ internal static class NativeRendererIntegrationTests
                     var snapshot = TachDiagnostics.Snapshot();
                     if (snapshot is null) return false;
                     var fresh = snapshot.NeedleStartup.Concat(snapshot.NeedleRecent)
-                        .Where(row => row.Route == "directcomposition" && row.HostKind == nameof(OverlayWindow) &&
-                            row.HostWindowHandle == hwnd.ToInt64() && row.RawRpm == rpm &&
+                        .Where(row => row.Route == (controller.ViewModel.ActiveCpuRendering ? "directcomposition" : "compositor_snapshot") && row.HostKind == nameof(OverlayWindow) &&
+                            row.Source == "fallback" &&
+                            row.HostWindowHandle == HudNativeHost.PresentationHandle(window).ToInt64() && row.RawRpm == rpm &&
                             row.AppliedTimestamp >= started && row.ReceivedTimestamp is long received && received >= started)
                         .DistinctBy(row => (row.ControlId, row.AppliedTimestamp)).ToArray();
                     return fresh.Length >= 4 && fresh.Select(row => row.ReceivedTimestamp).Distinct().Count() >= 2;
                 }, 2000);
                 var renderer = TachDiagnostics.Snapshot()!.RendererRecent
-                    .Where(row => row.HostWindowHandle == hwnd.ToInt64() && row.StartedTimestamp >= started)
+                    .Where(row => row.HostWindowHandle == HudNativeHost.PresentationHandle(window).ToInt64() && row.StartedTimestamp >= started)
                     .ToArray();
                 var presented = renderer.Where(row => row.Stage == "present" && row.Result == "submitted").ToArray();
                 Assert.NotEmpty(presented);
+                if (!controller.ViewModel.ActiveCpuRendering)
+                    Assert.Contains(renderer, row => row.Stage == "compositor_update" && row.Result == "ready");
                 Assert.All(renderer, row => Assert.True(row.NativeThreadId is > 0));
                 Assert.All(renderer, row => Assert.Equal(controller.ViewModel.ActiveCpuRendering, row.CpuRendering));
                 Assert.All(presented, row =>
@@ -193,20 +198,28 @@ internal static class NativeRendererIntegrationTests
                 Assert.Contains(renderer, row => row.Stage == "frame_wait" && row.Result == "ready" &&
                     row.NativeWaitTicks is > 0 && row.WaitPrecheckTicks is >= 0 &&
                     row.WaitCallTicks is >= 0 && row.WaitPostcheckTicks is >= 0 &&
+                    row.PacingWaitTicks is >= 0 && row.PresentationSyncInterval is 0 or 1 &&
+                    row.PresentationRefreshRate is not null && row.PacingHResult is not null && row.PacingWaitReturnCode is not null &&
                     row.SwapChainGeneration is > 0 && row.WaitReturnCode == 1 &&
-                    row.NativeWaitTicks >= row.WaitPrecheckTicks + row.WaitCallTicks + row.WaitPostcheckTicks &&
+                    row.NativeWaitTicks >= row.WaitPrecheckTicks + row.WaitCallTicks + row.WaitPostcheckTicks + row.PacingWaitTicks &&
                     row.CompletedTimestamp >= row.StartedTimestamp + row.NativeWaitTicks);
                 Assert.All(renderer.Where(row => row.Stage != "frame_wait"), row =>
                 {
                     Assert.Null(row.NativeWaitTicks);
                     Assert.Null(row.WaitCallTicks);
+                    Assert.Null(row.PacingWaitTicks);
+                    Assert.Null(row.PresentationSyncInterval);
+                    Assert.Null(row.PresentationRefreshRate);
+                    Assert.Null(row.PacingHResult);
+                    Assert.Null(row.PacingWaitReturnCode);
                     Assert.Null(row.CpuThreadTicks);
                 });
             }
             else
             {
                 SetFrame(gauge, 315, rpm);
-                AssertFallbackNeedle(gauge, rpm);
+                Assert.True(HudNativeHost.IsWpfContentSuppressed(gauge));
+                Assert.Equal(Visibility.Hidden, Assert.IsAssignableFrom<UIElement>(gauge.Content).Visibility);
             }
             Assert.NotEqual(hwnd, GetForegroundWindow());
             Assert.False(window.IsActive);
@@ -216,7 +229,7 @@ internal static class NativeRendererIntegrationTests
     private static bool ProbeHardwareSupport()
     {
         // Match the production device request, independently of the native DLL.
-        // Only an unsupported hardware device permits the WPF fallback branch.
+        // An unsupported hardware device must leave the live WPF HUD suppressed.
         const int unsupported = unchecked((int)0x887A0004);
         const uint featureLevel11 = 0xB000;
         var result = D3D11CreateDevice(IntPtr.Zero, 1, IntPtr.Zero, 0x20,
@@ -239,13 +252,6 @@ internal static class NativeRendererIntegrationTests
         }
     }
 
-    private static void AssertFallbackNeedle(NativeAnalogSpeedometer gauge, double rpm)
-    {
-        var rotation = Assert.IsType<RotateTransform>(gauge.FindName("NeedleRotation"));
-        PumpUntil(() => Math.Abs(rotation.Angle - rpm / 10000 * 240) < .01, 2000);
-        Assert.Equal(Visibility.Visible, Assert.IsAssignableFrom<UIElement>(gauge.FindName("Needle")).Visibility);
-    }
-
     private static void SetFrame(NativeAnalogSpeedometer gauge, int car, double rpm)
     {
         var now = Stopwatch.GetTimestamp();
@@ -253,8 +259,7 @@ internal static class NativeRendererIntegrationTests
             true, 123, rpm, 10000, TransmissionGear.Fourth, SpeedUnit.MilesPerHour,
             ExactRedlineResult.Exact(8500 * Math.PI / 30), CarOrdinal: car,
             GameTimestampMilliseconds: unchecked((uint)Environment.TickCount), ReceivedTimestamp: now,
-            NativeNeedleAngleDegrees: rpm / 10000 * 240, NativeNeedleBlurAmount: .04,
-            NativeGaugeObservedTimestamp: now));
+            NativeNeedleAngleDegrees: double.NaN, NativeNeedleBlurAmount: double.NaN));
     }
 
     private static void PumpUntil(Func<bool> predicate, int milliseconds)

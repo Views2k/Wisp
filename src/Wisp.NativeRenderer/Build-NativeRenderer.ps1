@@ -50,7 +50,7 @@ foreach ($argumentPath in @($developerCommand,$PSScriptRoot,$buildDirectory,$dll
 }
 $contractBuild = if ($RunContractTests) { @"
 if errorlevel 1 exit /b 1
-cl.exe /nologo /std:c++17 /permissive- /EHsc /O2 /W4 /WX /MT /DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNOMINMAX /Fo"$buildDirectory\NativeContractTests.obj" /Fe"$buildDirectory\NativeContractTests.exe" "$PSScriptRoot\NativeContractTests.cpp" /link "$buildDirectory\Wisp.NativeRenderer.lib" user32.lib
+cl.exe /nologo /std:c++17 /permissive- /EHsc /O2 /W4 /WX /MT /DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNOMINMAX /Fo"$buildDirectory\NativeContractTests.obj" /Fe"$buildDirectory\NativeContractTests.exe" "$PSScriptRoot\NativeContractTests.cpp" /link "$buildDirectory\Wisp.NativeRenderer.lib" user32.lib gdi32.lib
 if errorlevel 1 exit /b 1
 "$buildDirectory\NativeContractTests.exe"
 "@ } else { '' }
@@ -74,7 +74,7 @@ if errorlevel 1 exit /b 1
 if errorlevel 1 exit /b 1
 "%FXC%" /nologo /O3 /T ps_5_0 /E main /Vn DigitalGaugePixel /Fh "$buildDirectory\DigitalGaugePixel.h" "$buildDirectory\DigitalGauge.hlsl"
 if errorlevel 1 exit /b 1
-cl.exe /nologo /std:c++17 /permissive- /EHsc /O2 /W4 /WX /MT /LD /Z7 /guard:cf /DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNOMINMAX /I"$buildDirectory" /Fo"$object" /Fe"$dll" "$PSScriptRoot\Wisp.NativeRenderer.cpp" /link /PDB:"$pdb" /PDBALTPATH:Wisp.NativeRenderer.pdb /DEBUG:FULL /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT d3d11.lib dxgi.lib dcomp.lib user32.lib ole32.lib
+cl.exe /nologo /std:c++17 /permissive- /EHsc /O2 /W4 /WX /MT /LD /Z7 /guard:cf /DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNOMINMAX /I"$buildDirectory" /Fo"$object" /Fe"$dll" "$PSScriptRoot\Wisp.NativeRenderer.cpp" /link /PDB:"$pdb" /PDBALTPATH:Wisp.NativeRenderer.pdb /DEBUG:FULL /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT d3d11.lib dxgi.lib dcomp.lib user32.lib ole32.lib gdi32.lib
 $contractBuild
 exit /b %errorlevel%
 "@

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
+using Wisp.App.DebugLogging;
 
 namespace Wisp.App.NativeRendering;
 
@@ -54,10 +55,34 @@ internal struct DirectCompositionWaitMetrics
 {
     public long TotalTicks, PrecheckTicks, WaitCallTicks, PostcheckTicks, CpuTime100ns;
     public uint SwapChainGeneration, WaitResult;
+    public long PacingTicks;
+    public uint SyncInterval, RefreshRate;
+    public int PacingHResult;
+    public uint PacingWaitResult;
 
     // GetThreadTimes uses coarse 100 ns execution accounting, not elapsed QPC time.
     public readonly long? CpuThreadStopwatchTicks => CpuTime100ns < 0 ? null :
         (long)(CpuTime100ns * (Stopwatch.Frequency / (double)TimeSpan.TicksPerSecond));
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+internal struct DirectCompositionGpuPriorityStatus
+{
+    public uint Attempted;
+    public int RequestedProcessClass, ProcessSetStatus, ProcessReadStatus, EffectiveProcessClass;
+    public int RequestedDevicePriority, DeviceSetHResult, DeviceReadHResult, EffectiveDevicePriority;
+
+    internal readonly TachGpuPriorityDiagnostic ToDiagnostic() => new(
+        Attempted != 0, RequestedProcessClass, ProcessSetStatus, ProcessReadStatus, EffectiveProcessClass,
+        RequestedDevicePriority, DeviceSetHResult, DeviceReadHResult, EffectiveDevicePriority);
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct CompositorMotionStatus
+{
+    public long BeginTimestamp, EndTimestamp, FreshUntilTimestamp, CommitTimestamp;
+    public ulong Commits, BitmapDraws;
+    public uint PointCount, GeometryAccepted;
 }
 
 // The render worker owns this device. The HWND remains owned by WPF's UI thread.
@@ -73,17 +98,92 @@ internal sealed class DirectCompositionDevice : IDisposable
         _handle = handle;
         _width = width;
         _height = height;
+        Marshal.ThrowExceptionForHR(Native.GetGpuPriorityStatus(handle, out var priority));
+        GpuPriority = priority.ToDiagnostic();
     }
 
-    public static DirectCompositionDevice Create(IntPtr hwnd, int width, int height, bool cpuRendering = false)
+    // Immutable initialization results also remain available if logging starts later.
+    internal TachGpuPriorityDiagnostic GpuPriority { get; }
+
+    public static DirectCompositionDevice Create(IntPtr hwnd, int width, int height, bool cpuRendering = false,
+        bool compositorNeedle = false)
     {
         ValidateSize(width, height);
         if (hwnd == IntPtr.Zero) throw new ArgumentException("A live overlay window is required.", nameof(hwnd));
-        Marshal.ThrowExceptionForHR(Native.CreateWithMode(hwnd, (uint)width, (uint)height, cpuRendering ? 1u : 0u, out var handle));
-        return new DirectCompositionDevice(handle, width, height);
+        RendererHandle handle;
+        var result = compositorNeedle
+            ? Native.CreateWithCompositorNeedle(hwnd, (uint)width, (uint)height, cpuRendering ? 1u : 0u, out handle)
+            : Native.CreateWithMode(hwnd, (uint)width, (uint)height, cpuRendering ? 1u : 0u, out handle);
+        Marshal.ThrowExceptionForHR(result);
+        try { return new DirectCompositionDevice(handle, width, height); }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
     }
 
     public bool LastRenderWasOccluded { get; private set; }
+
+    internal MotionChannel CreateMotionChannel()
+    {
+        ThrowIfDisposed();
+        var result = Native.CreateMotionChannel(_handle, out var handle);
+        Marshal.ThrowExceptionForHR(result);
+        if (result != 0 || handle.IsInvalid)
+        {
+            handle.Dispose();
+            throw new NotSupportedException("The native renderer does not support independent needle motion.");
+        }
+        return new(handle);
+    }
+
+    internal bool PrepareCompositorNeedleMotion(in CompositorNeedleGeometry geometry, CompositorNeedleCurve curve,
+        CompositorNeedlePoint[] points, long generation)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(points);
+        if (curve.Count < 1 || curve.Count > points.Length) throw new ArgumentOutOfRangeException(nameof(curve));
+        var result = Native.PrepareCompositorNeedleMotion(_handle, in geometry, curve.StartTimestamp,
+            curve.FreshUntilTimestamp, points, (uint)curve.Count, checked((ulong)generation));
+        Marshal.ThrowExceptionForHR(result);
+        return result == 0;
+    }
+
+    internal sealed class MotionChannel : IDisposable
+    {
+        private readonly MotionHandle _handle;
+        internal MotionChannel(MotionHandle handle) => _handle = handle;
+        internal bool Update(in CompositorNeedleGeometry geometry, CompositorNeedleCurve curve,
+            CompositorNeedlePoint[] points, long generation, out CompositorMotionStatus status)
+        {
+            ArgumentNullException.ThrowIfNull(points);
+            if (curve.Count < 1 || curve.Count > points.Length) throw new ArgumentOutOfRangeException(nameof(curve));
+            var result = Native.UpdateMotion(_handle, in geometry, curve.StartTimestamp,
+                curve.FreshUntilTimestamp, points, (uint)curve.Count, checked((ulong)generation), out status);
+            Marshal.ThrowExceptionForHR(result);
+            return result == 0;
+        }
+        internal void Clear() => Marshal.ThrowExceptionForHR(Native.ClearMotion(_handle));
+        public void Dispose() => _handle.Dispose();
+    }
+
+    internal bool UpdateCompositorNeedle(in CompositorNeedleGeometry geometry, CompositorNeedleCurve curve,
+        CompositorNeedlePoint[] points)
+    {
+        ThrowIfDisposed();
+        if (curve.Count < 1 || curve.Count > points.Length) throw new ArgumentOutOfRangeException(nameof(curve));
+        var result = Native.UpdateCompositorNeedle(_handle, in geometry, curve.StartTimestamp,
+            curve.FreshUntilTimestamp, points, (uint)curve.Count);
+        Marshal.ThrowExceptionForHR(result);
+        return result == 0;
+    }
+
+    internal void ClearCompositorNeedle()
+    {
+        ThrowIfDisposed();
+        Marshal.ThrowExceptionForHR(Native.ClearCompositorNeedle(_handle, IntPtr.Zero, 0, 0, IntPtr.Zero, 0));
+    }
 
     // Only a replaced swapchain requires a new frame-readiness wait.
     public bool PrepareForResume()
@@ -105,6 +205,13 @@ internal sealed class DirectCompositionDevice : IDisposable
     {
         ThrowIfDisposed();
         Marshal.ThrowExceptionForHR(Native.SetVisible(_handle, visible ? 1 : 0));
+    }
+
+    public void SetOffset(float offsetX, float offsetY)
+    {
+        ThrowIfDisposed();
+        if (!float.IsFinite(offsetX) || !float.IsFinite(offsetY)) throw new ArgumentOutOfRangeException(nameof(offsetX));
+        Marshal.ThrowExceptionForHR(Native.SetOffset(_handle, offsetX, offsetY));
     }
 
     public void Resize(int width, int height, float offsetX = 0, float offsetY = 0)
@@ -244,11 +351,45 @@ internal sealed class DirectCompositionDevice : IDisposable
         }
     }
 
+    internal sealed class MotionHandle : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        public MotionHandle() : base(true) { }
+        protected override bool ReleaseHandle()
+        {
+            Native.DestroyMotion(handle);
+            return true;
+        }
+    }
+
     private static class Native
     {
         private const string Library = "Wisp.NativeRenderer.dll";
+        [DllImport(Library, EntryPoint = "WispRendererCreateMotionChannel", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CreateMotionChannel(RendererHandle renderer, out MotionHandle channel);
+        [DllImport(Library, EntryPoint = "WispRendererPrepareCompositorNeedleMotion", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int PrepareCompositorNeedleMotion(RendererHandle renderer, in CompositorNeedleGeometry geometry,
+            long begin, long freshUntil, [In] CompositorNeedlePoint[] points, uint count, ulong generation);
+        [DllImport(Library, EntryPoint = "WispMotionChannelUpdate", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int UpdateMotion(MotionHandle channel, in CompositorNeedleGeometry geometry,
+            long begin, long freshUntil, [In] CompositorNeedlePoint[] points, uint count, ulong generation,
+            out CompositorMotionStatus status);
+        [DllImport(Library, EntryPoint = "WispMotionChannelClear", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ClearMotion(MotionHandle channel);
+        [DllImport(Library, EntryPoint = "WispMotionChannelDestroy", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void DestroyMotion(IntPtr channel);
         [DllImport(Library, EntryPoint = "WispRendererCreateWithMode", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int CreateWithMode(IntPtr hwnd, uint width, uint height, uint cpuRendering, out RendererHandle renderer);
+        [DllImport(Library, EntryPoint = "WispRendererCreateWithCompositorNeedle", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CreateWithCompositorNeedle(IntPtr hwnd, uint width, uint height, uint cpuRendering, out RendererHandle renderer);
+        [DllImport(Library, EntryPoint = "WispRendererUpdateCompositorNeedle", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int UpdateCompositorNeedle(RendererHandle renderer, in CompositorNeedleGeometry geometry,
+            long absoluteStartQpc, long freshUntilQpc, [In] CompositorNeedlePoint[] points, uint count);
+        [DllImport(Library, EntryPoint = "WispRendererUpdateCompositorNeedle", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ClearCompositorNeedle(RendererHandle renderer, IntPtr geometry,
+            long absoluteStartQpc, long freshUntilQpc, IntPtr points, uint count);
+
+        [DllImport(Library, EntryPoint = "WispRendererGetGpuPriorityStatus", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int GetGpuPriorityStatus(RendererHandle renderer, out DirectCompositionGpuPriorityStatus status);
 
         [DllImport(Library, EntryPoint = "WispRendererCreate", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Create(IntPtr hwnd, uint width, uint height, out RendererHandle renderer);
@@ -260,6 +401,8 @@ internal sealed class DirectCompositionDevice : IDisposable
         internal static extern int SetOpacity(RendererHandle renderer, float opacity);
         [DllImport(Library, EntryPoint = "WispRendererSetVisible", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int SetVisible(RendererHandle renderer, int visible);
+        [DllImport(Library, EntryPoint = "WispRendererSetOffset", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetOffset(RendererHandle renderer, float offsetX, float offsetY);
         [DllImport(Library, EntryPoint = "WispRendererResize", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Resize(RendererHandle renderer, uint width, uint height, float offsetX, float offsetY);
         [DllImport(Library, EntryPoint = "WispRendererUploadTexture", CallingConvention = CallingConvention.Cdecl)]
@@ -277,7 +420,7 @@ internal sealed class DirectCompositionDevice : IDisposable
         [DllImport(Library, EntryPoint = "WispRendererWaitForFrame", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int WaitForFrame(RendererHandle renderer, uint timeoutMilliseconds, IntPtr cancellation,
             out DirectCompositionWaitResult result);
-        [DllImport(Library, EntryPoint = "WispRendererWaitForFrameMeasured", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Library, EntryPoint = "WispRendererWaitForFrameMeasuredV2", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int WaitForFrameMeasured(RendererHandle renderer, uint timeoutMilliseconds, IntPtr cancellation,
             int measure, out DirectCompositionWaitResult result, out DirectCompositionWaitMetrics metrics);
         [DllImport(Library, EntryPoint = "WispRendererCapture", CallingConvention = CallingConvention.Cdecl)]

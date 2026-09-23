@@ -3,9 +3,9 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
-  <br><strong> There is a bug present in all versions that could cause delayed or choppy tachometer needle movement. Disabling G-Sync/VRR and/or using CPU rendering is the appropriate remedy until the next hotfix is released. </strong>
+  <br><strong>Wisp 2.4 is a performance hotfix addressing the G-SYNC/VRR issue and several rendering, playback and CPU-efficiency bugs.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.3.4-stable/Wisp-Setup-2.3.4.zip"><strong>Download Wisp 2.3.4</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.4.0/Wisp-Setup-2.4.0.zip"><strong>Download Wisp 2.4</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -13,7 +13,13 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.3.4 hotfix
+## Wisp 2.4 performance hotfix
+
+Wisp 2.4 improves the focus-dependent analogue needle choppiness seen with G-SYNC. It combines a monitor-sized native window host, passive composition updates, independent compositor needle animation and direct telemetry delivery. The release also fixes queued playback, readiness and worker-wait bugs, and reuses render command storage and unchanged needle pixels.
+
+[Read the investigation, fixes, troubleshooting and credits](docs/releases/Wisp-2.4.0-release-notes.md). Thanks to [fredemmott for sharing Microsoft's Direct3D-team guidance](https://github.com/OpenKneeboard/OpenKneeboard/issues/677#issuecomment-3250237599) on transparent overlays and variable refresh rate.
+
+### Included from Wisp 2.3.4
 
 Fix a crash when changing the app accent color on another tab. The dashboard oval returns in the selected color when you switch back. Supplementary gauges stay separate in digital layouts, and failed update handoffs keep Wisp open with repair instructions when needed.
 
@@ -156,8 +162,8 @@ An optional quick tour introduces the drift gauge, Display mode, Runs, and
 Appearance. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.3.4](https://github.com/Views2k/Wisp/releases/download/v2.3.4-stable/Wisp-Setup-2.3.4.zip) ·
-[2.3.4 release notes](docs/releases/Wisp-2.3.4-release-notes.md) ·
+[Download Wisp 2.4](https://github.com/Views2k/Wisp/releases/download/v2.4.0/Wisp-Setup-2.4.0.zip) ·
+[2.4 release notes](docs/releases/Wisp-2.4.0-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Interface screenshots show the build used to develop Wisp 2.0. Their original
@@ -280,8 +286,8 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open the [Wisp 2.3.4 release](https://github.com/Views2k/Wisp/releases/tag/v2.3.4-stable).
-2. Download and extract [Wisp-Setup-2.3.4.zip](https://github.com/Views2k/Wisp/releases/download/v2.3.4-stable/Wisp-Setup-2.3.4.zip).
+1. Open the [Wisp 2.4 release](https://github.com/Views2k/Wisp/releases/tag/v2.4.0).
+2. Download and extract [Wisp-Setup-2.4.0.zip](https://github.com/Views2k/Wisp/releases/download/v2.4.0/Wisp-Setup-2.4.0.zip).
 3. Keep the installer and its `.sha256` file together.
 4. Verify the installer checksum, then run the installer.
 5. Complete the required setup wizard on first launch.
@@ -407,6 +413,7 @@ To build the self-contained installer:
 - [Boost Gauge](docs/BOOST-GAUGE.md)
 - [Tire Temperature](docs/TIRE-TEMPERATURE.md)
 - [Run files and library archives](docs/run-library-format.md)
+- [Wisp 2.4 release notes](docs/releases/Wisp-2.4.0-release-notes.md)
 - [Wisp 2.3.4 release notes](docs/releases/Wisp-2.3.4-release-notes.md)
 - [Wisp 2.3.2 release notes](docs/releases/Wisp-2.3.2-release-notes.md)
 - [Wisp 2.2 release notes](docs/releases/Wisp-2.2.0-release-notes.md)

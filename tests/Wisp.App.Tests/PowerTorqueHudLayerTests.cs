@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
 using Wisp.App.NativeRendering;
@@ -13,7 +14,28 @@ internal static class PowerTorqueHudLayerTests
     {
         ArtworkIsReusedWhileValuesChangeAndRebuiltForStyles();
         PowerAndTorqueKeepTheirArtworkGeometryAndUnits();
+        AppendedCommandsDoNotScaleEarlierLayers();
         NativeFramesAdvanceWithoutUiRenderingOrAdditionalSmoothing();
+    }
+
+    private static void AppendedCommandsDoNotScaleEarlierLayers()
+    {
+        var gauge = Gauge();
+        gauge.Width = 210;
+        gauge.Height = 70;
+        gauge.Measure(new(210, 70));
+        gauge.Arrange(new(0, 0, 210, 70));
+        gauge.UpdateLayout();
+        gauge.Display = new(true, 500, 1000, 600, 1100);
+        var snapshot = PowerTorqueHudLayer.Capture(gauge, null);
+        var playback = snapshot.CreatePlayback();
+        playback.Update(snapshot, Ticks(1000));
+        var expected = playback.Build(Ticks(1000));
+        var sentinel = AnalogHudScene.Quad(999, new(13, 17, 19, 23), opacity: .3);
+        var commands = new List<DirectCompositionDrawCommand> { sentinel };
+        playback.AppendCommands(commands, Ticks(1000));
+        Assert.Equal(sentinel, commands[0]);
+        Assert.Equal(expected, commands.Skip(1));
     }
 
     private static void ArtworkIsReusedWhileValuesChangeAndRebuiltForStyles()
@@ -92,14 +114,20 @@ internal static class PowerTorqueHudLayerTests
         });
         var gauge = Gauge();
         var start = Stopwatch.GetTimestamp() - Ticks(500);
+        var now = start;
         Update(model, 1_000, start, 0);
         var initial = PowerTorqueHudLayer.Capture(gauge, model);
-        var playback = initial.CreatePlayback();
+        var playback = (HudLayerPlayback)Activator.CreateInstance(
+            typeof(PowerTorqueHudLayer).GetNestedType("Playback", BindingFlags.NonPublic)!,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null, args: new object[] { (Func<long>)(() => now) }, culture: null)!;
         playback.Update(initial, start);
-        Update(model, 1_000, start + Ticks(16), 100);
-        playback.Update(PowerTorqueHudLayer.Capture(gauge, model), start + Ticks(16));
-        Update(model, 1_016, start + Ticks(32), 200);
-        playback.Update(PowerTorqueHudLayer.Capture(gauge, model), start + Ticks(32));
+        now = start + Ticks(16);
+        Update(model, 1_000, now, 100);
+        playback.Update(PowerTorqueHudLayer.Capture(gauge, model), now);
+        now = start + Ticks(32);
+        Update(model, 1_016, now, 200);
+        playback.Update(PowerTorqueHudLayer.Capture(gauge, model), now);
         Assert.InRange(model.NativePowerTorqueInput.Display.PowerBhp, 199.99, 200.01);
         // Scene sampling occurs on a worker with no WPF rendering callback.
         var samples = Task.Run(() => (playback.Build(start + Ticks(44)), playback.Build(start + Ticks(48))))

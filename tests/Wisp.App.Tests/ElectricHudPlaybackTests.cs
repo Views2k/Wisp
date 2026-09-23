@@ -13,13 +13,13 @@ public sealed class ElectricHudPlaybackTests
         var playback = new ElectricHudPlayback();
         playback.Observe(Frame(0, 20) with { NativeNeedleAngleDegrees = 180, NativeNeedleBlurAmount = -.2 }, Timestamp(0));
         playback.Observe(Frame(20, 60) with { NativeNeedleAngleDegrees = 220, NativeNeedleBlurAmount = -.4 }, Timestamp(20));
-        var sample = playback.Sample(Timestamp(50));
+        var sample = playback.Sample(Timestamp(35));
         Assert.True(sample.Native);
         Assert.Equal(200, sample.Angle, 6);
         Assert.Equal(-.3, sample.Blur, 6);
         Assert.Null(sample.AppliedSpeed);
         Assert.Equal(60, sample.Frame.Speed);
-        Assert.Equal(40, sample.PlaybackTargetDelayMilliseconds, 6);
+        Assert.Equal(25, sample.PlaybackTargetDelayMilliseconds, 6);
     }
 
     [Fact]

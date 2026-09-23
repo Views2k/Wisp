@@ -18,6 +18,37 @@ public sealed class TachDiagnosticExportTests
     };
 
     [Fact]
+    public async Task IndependentMotionClockAndGenerationFieldsSurviveArchiveExport()
+    {
+        var root = TemporaryDirectory();
+        try
+        {
+            var motion = RendererEvent() with
+            {
+                Stage = "compositor_motion",
+                Result = "ready",
+                CurveEndTimestamp = 40,
+                CompositorCommitTimestamp = 45,
+                MotionGeneration = 7,
+                MotionGeometryAccepted = false
+            };
+            var capture = Capture() with { RendererRecent = [motion] };
+            await using var service = new DebugLogService(Path.Combine(root, "logs"), () => Now, tachSnapshot: () => capture);
+            Assert.True(service.TryEnable(Now + DebugLogService.EnableDuration));
+            var destination = Path.Combine(root, "capture.zip");
+            Assert.True(await service.ExportAsync(destination, ApplicationVersionInfo.MachineVersion));
+            using var archive = ZipFile.OpenRead(destination);
+            using var row = JsonDocument.Parse(Read(archive, "tach-renderer-recent.ndjson"));
+            Assert.Equal("compositor_motion", row.RootElement.GetProperty("stage").GetString());
+            Assert.Equal(40, row.RootElement.GetProperty("curve_end_timestamp").GetInt64());
+            Assert.Equal(45, row.RootElement.GetProperty("compositor_commit_timestamp").GetInt64());
+            Assert.Equal(7, row.RootElement.GetProperty("motion_generation").GetInt64());
+            Assert.False(row.RootElement.GetProperty("motion_geometry_accepted").GetBoolean());
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
     public async Task CurrentCaptureExportsRawHistoryCoverageAndOnlyItsOwnReportTotals()
     {
         var root = TemporaryDirectory();
@@ -80,12 +111,18 @@ public sealed class TachDiagnosticExportTests
             Assert.Equal("busy", renderer.RootElement.GetProperty("result").GetString());
             Assert.Equal(25, renderer.RootElement.GetProperty("queued_timestamp").GetInt64());
             Assert.Equal(-123, renderer.RootElement.GetProperty("h_result").GetInt32());
+            var priority = renderer.RootElement.GetProperty("gpu_priority");
+            Assert.True(priority.GetProperty("attempted").GetBoolean());
+            Assert.Equal(4, priority.GetProperty("requested_process_class").GetInt32());
+            Assert.Equal(unchecked((int)0xC0000022), priority.GetProperty("process_set_status").GetInt32());
+            Assert.Equal(2, priority.GetProperty("effective_process_class").GetInt32());
+            Assert.Equal(unchecked((int)0x80070005), priority.GetProperty("device_set_h_result").GetInt32());
             using var manifest = JsonDocument.Parse(Read(archive, "tach-manifest.json"));
             Assert.Equal(CurrentCaptureId, manifest.RootElement.GetProperty("selected_capture_id").GetString());
             Assert.True(manifest.RootElement.GetProperty("raw_lost_after_process_restart").GetBoolean());
             Assert.False(manifest.RootElement.GetProperty("gpu_presentation_measured").GetBoolean());
             Assert.False(manifest.RootElement.GetProperty("physical_display_measured").GetBoolean());
-            Assert.Equal(2, manifest.RootElement.GetProperty("renderer_schema_version").GetInt32());
+            Assert.Equal(3, manifest.RootElement.GetProperty("renderer_schema_version").GetInt32());
             Assert.Equal(5, manifest.RootElement.GetProperty("renderer").GetProperty("recent_overwritten").GetInt64());
             Assert.Equal(1, manifest.RootElement.GetProperty("renderer").GetProperty("startup_recent_duplicate_records").GetInt32());
             Assert.Contains("not displayed", manifest.RootElement.GetProperty("renderer_policy").GetString());
@@ -212,12 +249,18 @@ public sealed class TachDiagnosticExportTests
             {
                 Stage = "frame_wait",
                 Result = "ready",
+                CompletedTimestamp = 124,
                 HResult = 0,
                 NativeThreadId = 120,
-                NativeWaitTicks = 18,
+                NativeWaitTicks = 22,
                 WaitPrecheckTicks = 1,
                 WaitCallTicks = 16,
                 WaitPostcheckTicks = 0,
+                PacingWaitTicks = 4,
+                PresentationSyncInterval = 0,
+                PresentationRefreshRate = 240,
+                PacingHResult = 0,
+                PacingWaitReturnCode = 0,
                 CpuThreadTicks = 5,
                 SwapChainGeneration = 1,
                 WaitReturnCode = 1
@@ -228,10 +271,12 @@ public sealed class TachDiagnosticExportTests
             {
                 Stage = "frame_wait",
                 Result = "ready",
+                MeanMilliseconds = 24,
+                MaximumMilliseconds = 24,
                 TotalNativePresentMilliseconds = 0,
                 NativeThreadId = 120,
                 NativeWaitSamples = 2,
-                TotalNativeWaitMilliseconds = 36,
+                TotalNativeWaitMilliseconds = 44,
                 WaitPrecheckSamples = 2,
                 TotalWaitPrecheckMilliseconds = 2,
                 WaitCallSamples = 2,
@@ -239,6 +284,13 @@ public sealed class TachDiagnosticExportTests
                 MaximumWaitCallMilliseconds = 16,
                 WaitPostcheckSamples = 2,
                 TotalWaitPostcheckMilliseconds = 0,
+                PacingWaitSamples = 2,
+                TotalPacingWaitMilliseconds = 8,
+                MaximumPacingWaitMilliseconds = 4,
+                PresentationSyncInterval = 0,
+                PresentationRefreshRate = 240,
+                PacingHResult = 0,
+                PacingWaitReturnCode = 0,
                 CpuThreadSamples = 1,
                 TotalCpuThreadMilliseconds = 5,
                 SwapChainGenerationSamples = 2,
@@ -261,14 +313,18 @@ public sealed class TachDiagnosticExportTests
                 Assert.Equal(wait, JsonSerializer.Deserialize<TachRendererDiagnostic>(Read(archive, "tach-renderer-startup.ndjson"), JsonOptions));
                 Assert.Equal(counts, Assert.Single(JsonSerializer.Deserialize<TachIntervalDiagnostic>(Read(archive, "tach-intervals.ndjson"), JsonOptions)!.Renderer));
                 using var manifest = JsonDocument.Parse(Read(archive, "tach-manifest.json"));
-                Assert.Equal(2, manifest.RootElement.GetProperty("renderer_schema_version").GetInt32());
+                Assert.Equal(3, manifest.RootElement.GetProperty("renderer_schema_version").GetInt32());
                 var policy = manifest.RootElement.GetProperty("renderer_policy").GetString()!;
                 Assert.Contains("full managed wrapper", policy);
                 Assert.Contains("coarse GetThreadTimes CPU accounting", policy);
                 Assert.Contains("error before the wait was reached", policy);
                 Assert.Contains("Missing split fields mean unavailable", policy);
+                Assert.Contains("intentional software pacing before DXGI readiness", policy);
+                Assert.Contains("including both software pacing and DXGI readiness", policy);
                 var report = Read(archive, "tach-report.txt");
-                Assert.Contains("Native wait total: 36 ms (2 observations)", report);
+                Assert.Contains("Native wait total: 44 ms (2 observations)", report);
+                Assert.Contains("Intentional software pacing: 8 ms (2 observations); maximum: 4 ms", report);
+                Assert.Contains("Effective presentation sync interval: 0; refresh rate: 240 Hz", report);
                 Assert.Contains("wait call: 32 ms (2 observations)", report);
                 Assert.Contains("postcheck: 0 ms (2 observations)", report);
                 Assert.Contains("Maximum wait call: 16 ms", report);
@@ -284,7 +340,63 @@ public sealed class TachDiagnosticExportTests
             using var persisted = ZipFile.OpenRead(restartedPath);
             Assert.Null(persisted.GetEntry("tach-renderer-recent.ndjson"));
             Assert.Equal(counts, Assert.Single(JsonSerializer.Deserialize<TachIntervalDiagnostic>(Read(persisted, "tach-intervals.ndjson"), JsonOptions)!.Renderer));
-            Assert.Contains("Native wait total: 36 ms (2 observations)", Read(persisted, "tach-report.txt"));
+            Assert.Contains("Native wait total: 44 ms (2 observations)", Read(persisted, "tach-report.txt"));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public async Task PacingFallbackExportsSignedFailureUnknownRefreshAndMeasuredZero()
+    {
+        var root = TemporaryDirectory();
+        try
+        {
+            const int failure = unchecked((int)0x80070005);
+            var wait = RendererEvent() with
+            {
+                Stage = "frame_wait",
+                Result = "ready",
+                HResult = 0,
+                PacingWaitTicks = 0,
+                PresentationSyncInterval = 1,
+                PresentationRefreshRate = 0,
+                PacingHResult = failure,
+                PacingWaitReturnCode = uint.MaxValue
+            };
+            var counts = RendererCounts() with
+            {
+                Stage = "frame_wait",
+                Result = "ready",
+                HResult = 0,
+                PacingWaitSamples = 2,
+                TotalPacingWaitMilliseconds = 0,
+                MaximumPacingWaitMilliseconds = 0,
+                PresentationSyncInterval = 1,
+                PresentationRefreshRate = 0,
+                PacingHResult = failure,
+                PacingWaitReturnCode = uint.MaxValue
+            };
+            var capture = Capture() with { RendererRecent = [wait, wait with { Sequence = 2 }] };
+            await using var service = new DebugLogService(Path.Combine(root, "logs"), () => Now, tachSnapshot: () => capture);
+            Assert.True(service.TryEnable(Now + DebugLogService.EnableDuration));
+            service.TryLogTachInterval(Interval(CurrentCaptureId, Now, 1) with { Renderer = [counts] });
+            var destination = Path.Combine(root, "pacing.zip");
+            Assert.True(await service.ExportAsync(destination, ApplicationVersionInfo.MachineVersion));
+
+            using var archive = ZipFile.OpenRead(destination);
+            var raw = Read(archive, "tach-renderer-recent.ndjson").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(wait, JsonSerializer.Deserialize<TachRendererDiagnostic>(raw[0], JsonOptions));
+            using var values = JsonDocument.Parse(raw[0]);
+            Assert.Equal(0, values.RootElement.GetProperty("pacing_wait_ticks").GetInt64());
+            Assert.Equal(1u, values.RootElement.GetProperty("presentation_sync_interval").GetUInt32());
+            Assert.Equal(0u, values.RootElement.GetProperty("presentation_refresh_rate").GetUInt32());
+            Assert.Equal(failure, values.RootElement.GetProperty("pacing_h_result").GetInt32());
+            Assert.Equal(uint.MaxValue, values.RootElement.GetProperty("pacing_wait_return_code").GetUInt32());
+            Assert.Equal(counts, Assert.Single(JsonSerializer.Deserialize<TachIntervalDiagnostic>(Read(archive, "tach-intervals.ndjson"), JsonOptions)!.Renderer));
+            var report = Read(archive, "tach-report.txt");
+            Assert.Contains("Intentional software pacing: 0 ms (2 observations)", report);
+            Assert.Contains("pacing HRESULT: 0x80070005", report);
+            Assert.Contains("synchronized presentation fallback is active", report);
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -307,10 +419,19 @@ public sealed class TachDiagnosticExportTests
         Assert.Null(counts.MinimumSwapChainGeneration);
         Assert.Null(counts.WaitReturnCode);
         Assert.Null(counts.NativeThreadId);
+        Assert.Equal(0, counts.PacingWaitSamples);
+        Assert.Null(counts.TotalPacingWaitMilliseconds);
+        Assert.Null(counts.MaximumPacingWaitMilliseconds);
+        Assert.Null(counts.PresentationSyncInterval);
+        Assert.Null(counts.PresentationRefreshRate);
+        Assert.Null(counts.PacingHResult);
+        Assert.Null(counts.PacingWaitReturnCode);
         var report = TachDiagnosticReport.Build([safe], null);
         Assert.Contains("Native wait total: unavailable (0 observations)", report);
         Assert.Contains("Maximum wait call: unavailable", report);
         Assert.Contains("Coarse thread CPU accounting: unavailable (0 observations)", report);
+        Assert.Contains("Intentional software pacing: unavailable (0 observations)", report);
+        Assert.DoesNotContain("synchronized presentation fallback is active", report);
         var raw = JsonSerializer.Deserialize<TachRendererDiagnostic>("""{"stage":"frame_wait","result":"ready","started_timestamp":100,"completed_timestamp":120}""", JsonOptions);
         Assert.Null(raw.NativeWaitTicks);
         Assert.Null(raw.WaitPrecheckTicks);
@@ -320,6 +441,11 @@ public sealed class TachDiagnosticExportTests
         Assert.Null(raw.SwapChainGeneration);
         Assert.Null(raw.WaitReturnCode);
         Assert.Null(raw.NativeThreadId);
+        Assert.Null(raw.PacingWaitTicks);
+        Assert.Null(raw.PresentationSyncInterval);
+        Assert.Null(raw.PresentationRefreshRate);
+        Assert.Null(raw.PacingHResult);
+        Assert.Null(raw.PacingWaitReturnCode);
     }
 
     [Fact]
@@ -336,6 +462,10 @@ public sealed class TachDiagnosticExportTests
             MaximumWaitCallMilliseconds = 8,
             WaitPostcheckSamples = 1,
             TotalWaitPostcheckMilliseconds = 0,
+            PacingWaitSamples = 1,
+            TotalPacingWaitMilliseconds = 4,
+            MaximumPacingWaitMilliseconds = 4,
+            PresentationSyncInterval = 0,
             SwapChainGenerationSamples = 1,
             MinimumSwapChainGeneration = 1,
             MaximumSwapChainGeneration = 2
@@ -354,6 +484,16 @@ public sealed class TachDiagnosticExportTests
             valid with { MaximumWaitCallMilliseconds = 9 },
             valid with { MaximumWaitCallMilliseconds = null },
             valid with { TotalWaitPostcheckMilliseconds = -1 },
+            valid with { PacingWaitSamples = -1 },
+            valid with { PacingWaitSamples = 3 },
+            valid with { PacingWaitSamples = 0 },
+            valid with { TotalPacingWaitMilliseconds = -1 },
+            valid with { TotalPacingWaitMilliseconds = double.NaN },
+            valid with { TotalPacingWaitMilliseconds = null },
+            valid with { MaximumPacingWaitMilliseconds = double.PositiveInfinity },
+            valid with { MaximumPacingWaitMilliseconds = 5 },
+            valid with { MaximumPacingWaitMilliseconds = null },
+            valid with { PresentationSyncInterval = 5 },
             valid with { SwapChainGenerationSamples = -1 },
             valid with { SwapChainGenerationSamples = 3 },
             valid with { SwapChainGenerationSamples = 0 },
@@ -464,6 +604,14 @@ public sealed class TachDiagnosticExportTests
                 File.WriteAllText(path, privateText);
                 Assert.Null(TachDiagnosticReport.ReadPackagedBuild(path));
             }
+            var matchingPrivate = text.Replace("\"build_kind\":\"release\"",
+                "\"build_kind\":\"private\",\"private_build_id\":\"" + ApplicationVersionInfo.DiagnosticBuildId + "\"",
+                StringComparison.Ordinal);
+            File.WriteAllText(path, matchingPrivate);
+            var privateProvenance = TachDiagnosticReport.ReadPackagedBuild(path);
+            Assert.NotNull(privateProvenance);
+            using var privateParsed = JsonDocument.Parse(JsonSerializer.Serialize(privateProvenance, JsonOptions));
+            Assert.Equal("private", privateParsed.RootElement.GetProperty("build_kind").GetString());
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -489,6 +637,7 @@ public sealed class TachDiagnosticExportTests
 
     private static TachRendererDiagnostic RendererEvent() => new()
     {
+        GpuPriority = new(true, 4, unchecked((int)0xC0000022), 0, 2, 1, unchecked((int)0x80070005), 0, 0),
         ControlId = 1,
         HostWindowHandle = 123,
         Sequence = 1,

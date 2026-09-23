@@ -6,6 +6,8 @@ internal static class AnalogHudScene
 {
     internal const double Width = 293;
     internal const double Height = 293.5;
+    private static readonly string[] DigitFiles = Enumerable.Range(0, 10).Select(digit => $"HUD_Dial_Speed_Analogue_{digit}.png").ToArray();
+    private static readonly string[] NumberFiles = Enumerable.Range(0, 31).Select(value => $"HUD_Dial_RevNumbers_{value}.png").ToArray();
 
     // All inputs are detached value snapshots. No WPF object, asset decode,
     // process read, or playback clock is accessed by the render worker here.
@@ -19,10 +21,18 @@ internal static class AnalogHudScene
         AnalogHudLayout? layout = null,
         double? numberRpm = null)
     {
-        if (frame.IsElectric)
-            return [];
-        layout ??= AnalogHudLayout.Authored;
         var commands = new List<DirectCompositionDrawCommand>(48);
+        AppendCommands(commands, frame, angle, blur, needleVisible, tractionActive, color, layout, numberRpm);
+        return commands.ToArray();
+    }
+
+    internal static void AppendCommands(List<DirectCompositionDrawCommand> commands,
+        NativeGaugeFrame frame, double angle, double blur, bool needleVisible, bool tractionActive,
+        AnalogHudColor color, AnalogHudLayout? layout = null, double? numberRpm = null)
+    {
+        if (frame.IsElectric)
+            return;
+        layout ??= AnalogHudLayout.Authored;
         if (NativeGaugeGeometry.HasExactTachometerState(frame.ExactRedline, frame.TachometerMaximumRpm))
         {
             var material = Quad(0, layout.Material, shader: DirectCompositionShader.Dial);
@@ -60,6 +70,9 @@ internal static class AnalogHudScene
             var needle = Quad(0, layout.Needle, angle, layout.NeedlePivot, shader: DirectCompositionShader.Needle);
             // Sampled native blur is already the game's shader parameter.
             needle.ParameterX = (float)blur;
+            // The shader uses only X. W identifies this main tach needle to
+            // the split compositor; auxiliary gauge needles remain in the HUD.
+            needle.ParameterW = 1;
             commands.Add(needle);
         }
 
@@ -71,7 +84,6 @@ internal static class AnalogHudScene
         AddDigit(commands, digits.Hundreds, layout.Hundreds, availableOpacity * (frame.Speed < 100 ? 0.16 : 1), tractionActive, color);
         AddDigit(commands, digits.Tens, layout.Tens, availableOpacity * (frame.Speed < 10 ? 0.16 : 1), tractionActive, color);
         AddDigit(commands, digits.Ones, layout.Ones, availableOpacity * (frame.Speed <= 1 ? 0.16 : 1), tractionActive, color);
-        return commands.ToArray();
     }
 
     private static void AddNumbers(List<DirectCompositionDrawCommand> commands, NativeGaugeFrame frame)
@@ -85,7 +97,7 @@ internal static class AnalogHudScene
                 ? AnalogHudAssets.NumberTint
                 : NativeGaugeGeometry.IsAnalogRpmNumberLit(value, frame.EngineRpm)
                     ? AnalogHudAssets.LitRedlineNumberTint : AnalogHudAssets.RedlineNumberTint;
-            commands.Add(Quad(AnalogHudAssets.Id(NativeAssetFamily.Analogue, $"HUD_Dial_RevNumbers_{value}.png", tint), bounds));
+            commands.Add(Quad(AnalogHudAssets.Id(NativeAssetFamily.Analogue, NumberFiles[value], tint), bounds));
         }
     }
 
@@ -101,7 +113,7 @@ internal static class AnalogHudScene
     private static void AddDigit(List<DirectCompositionDrawCommand> commands, int digit, AnalogHudRect bounds,
         double opacity, bool tractionActive, AnalogHudColor color)
     {
-        var file = $"HUD_Dial_Speed_Analogue_{digit}.png";
+        var file = DigitFiles[digit];
         commands.Add(Quad(AnalogHudAssets.Id(NativeAssetFamily.Analogue, file), bounds, opacity: opacity));
         if (tractionActive)
             commands.Add(Quad(AnalogHudAssets.Id(NativeAssetFamily.Analogue, file, alphaMask: true), bounds, opacity: opacity, color: color));

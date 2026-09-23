@@ -72,7 +72,7 @@ public partial class NativeAnalogSpeedometer : UserControl
 
     private void RefreshFrame()
     {
-        if (NativeRendering.HudNativeHost.IsPresented(this)) { _framePending = false; return; }
+        if (HudNativeHost.IsWpfContentSuppressed(this) || _directCompositionFailed) { _framePending = false; return; }
         if (_directCompositionHost is not null)
         {
             _directCompositionHost.UpdateFrame(_latestFrame);
@@ -297,7 +297,8 @@ public partial class NativeAnalogSpeedometer : UserControl
     {
         _directCompositionHost?.Dispose();
         _directCompositionHost = null;
-        if (Content is UIElement content) content.Visibility = Visibility.Visible;
+        if (!HudNativeHost.IsWpfContentSuppressed(this) && Content is UIElement content)
+            content.Visibility = Visibility.Visible;
         ResetTachometerPlayback();
         _renderLifetime.Unloaded();
         RecordDiagnosticLifecycle();
@@ -323,7 +324,7 @@ public partial class NativeAnalogSpeedometer : UserControl
 
     private void OnCompositionRendering(object? sender, EventArgs eventArgs)
     {
-        if (NativeRendering.HudNativeHost.IsPresented(this)) return;
+        if (HudNativeHost.IsWpfContentSuppressed(this) || _directCompositionFailed) return;
         if (_directCompositionHost is not null)
         {
             _directCompositionHost.RefreshPresentation();
@@ -363,6 +364,7 @@ public partial class NativeAnalogSpeedometer : UserControl
             return;
         try
         {
+            if (Content is UIElement content) content.Visibility = Visibility.Hidden;
             _directCompositionHost = new DirectCompositionAnalogHost(this, overlay, _diagnosticControlId,
                 OnDirectCompositionStatus);
             if (_hasFrame) _directCompositionHost.UpdateFrame(_latestFrame);
@@ -387,11 +389,11 @@ public partial class NativeAnalogSpeedometer : UserControl
         _directCompositionFailed = true;
         _directCompositionHost?.Dispose();
         _directCompositionHost = null;
-        if (Content is UIElement fallback) fallback.Visibility = Visibility.Visible;
+        if (Content is UIElement failedContent) failedContent.Visibility = Visibility.Hidden;
         ResetTachometerPlayback();
         _framePending = _hasFrame;
         RefreshFrame();
-        SetRendererStatus($"Analogue renderer: WPF fallback (0x{hresult:X8})");
+        SetRendererStatus($"Analogue renderer: unavailable (0x{hresult:X8})");
     }
 
     private void SetRendererStatus(string status)
