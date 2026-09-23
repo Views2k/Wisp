@@ -609,9 +609,16 @@ public sealed class TachDiagnosticExportTests
                 StringComparison.Ordinal);
             File.WriteAllText(path, matchingPrivate);
             var privateProvenance = TachDiagnosticReport.ReadPackagedBuild(path);
-            Assert.NotNull(privateProvenance);
-            using var privateParsed = JsonDocument.Parse(JsonSerializer.Serialize(privateProvenance, JsonOptions));
-            Assert.Equal("private", privateParsed.RootElement.GetProperty("build_kind").GetString());
+            if (ApplicationVersionInfo.DiagnosticBuildId is { Length: > 0 })
+            {
+                Assert.NotNull(privateProvenance);
+                using var privateParsed = JsonDocument.Parse(JsonSerializer.Serialize(privateProvenance, JsonOptions));
+                Assert.Equal("private", privateParsed.RootElement.GetProperty("build_kind").GetString());
+            }
+            else
+            {
+                Assert.Null(privateProvenance);
+            }
         }
         finally { Directory.Delete(root, recursive: true); }
     }
