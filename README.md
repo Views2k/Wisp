@@ -19,6 +19,8 @@ Fix a crash when changing the app accent color on another tab. The dashboard ova
 
 The boost and tire-temperature Appearance preview fixes from 2.3.2 remain included. Existing settings, profiles, tire calibration and saved runs are preserved.
 
+There is a bug present in all versions that could cause delayed or choppy tachometer needle movement. **Disabling G-Sync/VRR** is the appropriate remedy until the next hotfix is released.
+
 ### Included from Wisp 2.3
 
 **Drift mode** holds the power and torque numbers and needles through brief
