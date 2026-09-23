@@ -3,6 +3,8 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
+  <br><strong> There is a bug present in all versions that could cause delayed or choppy tachometer needle movement. Disabling G-Sync/VRR is the appropriate remedy until the next hotfix is released. </strong>
+  
   <a href="https://github.com/Views2k/Wisp/releases/download/v2.3.4-stable/Wisp-Setup-2.3.4.zip"><strong>Download Wisp 2.3.4</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
@@ -18,8 +20,6 @@ Fix a crash when changing the app accent color on another tab. The dashboard ova
 **Shift guidance is beta and off by default.** Calibrate each supported combustion car and tune with a rolling full-throttle pull and a confirming upshift. Green, yellow and flashing red stages show the approach to a calibrated RPM target. Targets are still being validated; universal ideal shift timing has not been verified. The beta currently requires Steam FH6 build **6.440.853.0** and excludes EVs.
 
 The boost and tire-temperature Appearance preview fixes from 2.3.2 remain included. Existing settings, profiles, tire calibration and saved runs are preserved.
-
-There is a bug present in all versions that could cause delayed or choppy tachometer needle movement. **Disabling G-Sync/VRR** is the appropriate remedy until the next hotfix is released.
 
 ### Included from Wisp 2.3
 
