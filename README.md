@@ -3,7 +3,7 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br><br>
-  <br><strong> There is a bug present in all versions that could cause delayed or choppy tachometer needle movement. Disabling G-Sync/VRR is the appropriate remedy until the next hotfix is released. </strong>
+  <br><strong> There is a bug present in all versions that could cause delayed or choppy tachometer needle movement. Disabling G-Sync/VRR and/or using CPU rendering is the appropriate remedy until the next hotfix is released. </strong>
   
   <a href="https://github.com/Views2k/Wisp/releases/download/v2.3.4-stable/Wisp-Setup-2.3.4.zip"><strong>Download Wisp 2.3.4</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
