@@ -19,8 +19,7 @@ Recordings stay on your PC and can include a run name, tune label and notes.
 - Export a report image, raw telemetry CSV, or a Wisp recording that another
   person can import and compare. Removed runs can be restored.
 
-Runs are limited to ten minutes. Tune names are your own labels; Forza does not
-provide a tune identifier. This records telemetry, not gameplay video. Existing
-HUD rendering, profiles and tire calibration are preserved.
+Record up to ten minutes of local telemetry and add your own tune labels.
+Existing HUD rendering, profiles and tire calibration are preserved.
 
 The installer is `Wisp-Setup-1.2.0.exe`. Install over your current Wisp version.

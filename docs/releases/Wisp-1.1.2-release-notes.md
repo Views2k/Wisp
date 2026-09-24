@@ -9,7 +9,7 @@ compatibility-map channel for future reviewed game updates.
 - Enables background and manual checks for signed maps, including bundles
   covering multiple game builds. Accepted maps remain available offline.
 - Preserves exact executable/package checks, bounded read-only access, and
-  menu visibility validation. Unknown layouts are never guessed.
+  menu visibility validation.
 
 Some future game changes will still require an application update when they
 change the reader's supported data structures or semantics.

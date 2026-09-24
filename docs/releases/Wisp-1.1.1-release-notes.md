@@ -17,11 +17,9 @@ Forza Horizon 6, alongside Steam.
   permission changes, or game modifications are required.
 
 Steam FH6 build `6.430.771.0` remains supported through its existing compatibility
-path. Both storefronts require their matching reviewed build; an unfamiliar game
-build is not treated as compatible automatically.
+path. Both storefronts require their matching reviewed build.
 
-This support is for FH6 installed locally on a Windows PC, not Xbox consoles or
-Xbox Cloud Gaming.
+This support is for FH6 installed locally on a Windows PC.
 
 ## Updating
 

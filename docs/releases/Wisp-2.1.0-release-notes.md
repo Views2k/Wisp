@@ -17,6 +17,6 @@ Includes the 2.0.1 interface hotfixes and optional quick tour. The bundled runti
 
 The power and torque needles now retain fresh telemetry readings that share the same game timestamp, and advance between received samples. Playback stays within the available readings and resets after a data gap instead of extrapolating missing output.
 
-These gauges display the game's reported engine output. **Set from this run** uses observed peaks, not a rated engine or tune maximum. The gauges do not calculate an optimal shift point or replace a controlled tuning comparison.
+These gauges display the game's reported engine output. **Set from this run** uses the peaks observed during your drive.
 
 [See the Wisp 2.1 gauges in gameplay](../images/wisp-2.1-power-torque-gameplay.webp).

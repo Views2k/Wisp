@@ -22,9 +22,8 @@ Also included:
   playback when the render thread catches up.
 - Reuses the already drawn HUD when Windows is busy accepting a frame, avoiding
   repeated drawing work during presentation retries.
-- Expands bounded local debug exports with the active rendering mode, detailed
-  frame waits, drawing and presentation timings. These measurements help
-  investigate hitching; they are not displayed frame rates.
+- Expands bounded local debug exports with the active rendering mode and CPU-side
+  timings for frame waits, drawing and presentation to help investigate hitching.
 
 The installer is `Wisp-Setup-1.2.1.exe`. Install over your current Wisp version
 to keep your HUD settings, profiles, tire calibration and saved runs. Record

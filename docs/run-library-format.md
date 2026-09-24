@@ -1,6 +1,6 @@
 # Wisp run files and library archives
 
-Wisp exports recorded telemetry, not rendered graphs. Names, tune descriptions, notes, markers, timestamps, recording status, packet counters, calibration values, and every serialized telemetry field stay with the run. Nothing is uploaded.
+Wisp run files and library archives preserve recorded telemetry and its metadata. Names, tune descriptions, notes, markers, timestamps, recording status, packet counters, calibration values, and every serialized telemetry field stay with the run. Exports stay on your PC.
 
 ## Single run: `.wisprun`
 

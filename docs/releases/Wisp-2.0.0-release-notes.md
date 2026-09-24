@@ -31,16 +31,15 @@ on a slope or spinning its wheels.
 **Drift Zone angle bonus** uses a verified scoring profile for Steam FH6
 **6.440.853.0**. The scoring-angle range starts at **10°** and the angle bonus
 reaches its maximum at **59.4°**. At **20–40°**, you are already using roughly
-**80–90%** of that maximum angle bonus. More angle beyond the ceiling adds no
-angle bonus, so the upper accepted angle is not presented as the goal.
+**80–90%** of that maximum angle bonus. Balance your angle with speed and line
+while the game is awarding points.
 
-The percentage describes the angle bonus alone. It does not predict a total
-score, detect whether you are inside a Drift Zone, or confirm that the game is
-awarding points. Speed, line, and scoring eligibility still matter.
+The percentage shows your share of the maximum angle bonus. Final Drift Zone
+scores also depend on speed, line, zone activity and scoring eligibility.
 
 **Custom target** lets you choose your own angle and tolerance. Use it on builds
 without a verified scoring profile, including Xbox app / Microsoft Store PC.
-Native HUD compatibility alone does not enable verified Drift Zone guidance.
+Drift Zone guidance uses its own verified scoring profile.
 
 ## Arrange Runs around what you want to review
 
@@ -75,7 +74,7 @@ duplicates without replacing existing data.
 Recording shortcuts, countdowns, timed stops, markers, names, tune labels, notes,
 report images, CSV, and individual run exports are retained. The documented
 [library archive format](https://github.com/Views2k/Wisp/blob/v2.0.0/docs/run-library-format.md) contains the existing run-file
-format. Recordings remain local and are limited to ten minutes.
+format. Save telemetry recordings of up to ten minutes locally.
 
 ## Appearance and everyday controls
 
@@ -88,8 +87,8 @@ format. Recordings remain local and are limited to ten minutes.
 - Set border color and width, glow, surface opacity, corner rounding, spacing,
   text colors, and background colors.
 - Show, pause, or hide background particles. Use the accent color or choose a
-  separate particle color. They do not react to the mouse or change the background
-  color. The dashboard rim adds accent lighting and outward-moving particles.
+  separate particle color while preserving your background color. The dashboard
+  rim adds accent lighting and outward-moving particles.
 - Set G-force dot and trail colors independently. Disable the meter in any
   layout, including Minimal and **Box**.
 - Use the previous interface through **Appearance > Layout > Use legacy
@@ -110,8 +109,6 @@ format. Recordings remain local and are limited to ten minutes.
 Install over your existing Wisp installation. Your settings, profiles, tire
 calibration, and saved runs are retained. The existing Native HUD artwork,
 needle behavior, Analogue renderer, and optional CPU rendering mode are preserved.
-This release does not claim a universal fix for every remaining rendering-lag
-report.
 
 Windows 10 and 11, 64-bit, with the Steam or Xbox app / Microsoft Store edition of
 FH6 on the same PC are supported. Native HUD support and the Drift Zone scoring

@@ -94,7 +94,7 @@ Notable changes to Wisp are recorded here.
 - Add borderless Display mode for a second monitor, with fill-screen and resizable options. F11 switches modes from Dashboard; Escape exits Display mode.
 - Group Appearance into Layout, Gauges, Colors, and Behaviour, and enlarge the live HUD preview to use its available space.
 - Add application controls for borders, glow, surface opacity, corner rounding, spacing, and text colors. Fresh installations use the wizard palette; existing colors remain unchanged on update.
-- Add optional background particles with independent visibility, animation, and color controls. They follow the accent by default, preserve the chosen background color, and do not react to the mouse. Add accent lighting and outward-moving particles along the dashboard rim.
+- Add optional background particles with independent visibility, animation, and color controls. They follow the accent by default and preserve the chosen background color. Add accent lighting and outward-moving particles along the dashboard rim.
 - Keep the original interface available through Appearance > Layout > Use legacy interface after restarting Wisp.
 - Restore the three colored window controls and move the accent-colored Wisp logo and name to the right of the header. Preserve the connection status position.
 - Correct assist labels to Disabled, Enabled, and Active; align RPM ticks; and fix clipped controls, card outlines, Extras spacing, and the disabled saved-run list theme.
@@ -108,9 +108,9 @@ Notable changes to Wisp are recorded here.
 ### Drift guidance
 
 - Add a separate, movable drift angle gauge with native-style ticks, readable angle and percentage text, and no outer frame.
-- Add Drift Zone angle-bonus guidance for the verified Steam FH6 6.440.853.0 executable. The scoring-angle range begins at 10 degrees and its angle bonus saturates at 59.4 degrees; the display includes ordinary 20–40 degree drifts rather than treating the upper accepted limit as a target.
-- Show the share of maximum angle bonus, not a score prediction. Wisp does not detect zone entry or establish whether points are being awarded.
-- Add Custom target guidance with adjustable angle and tolerance for other builds, including Xbox app / Microsoft Store PC. Unverified builds do not inherit scoring guidance from a native HUD compatibility map.
+- Add Drift Zone angle-bonus guidance for the verified Steam FH6 6.440.853.0 executable. The scoring-angle range begins at 10 degrees and its angle bonus saturates at 59.4 degrees; the display includes ordinary 20–40 degree drifts.
+- Show the share of maximum angle bonus. Final Drift Zone scores also depend on speed, line, zone activity and scoring eligibility.
+- Add Custom target guidance with adjustable angle and tolerance for other builds, including Xbox app / Microsoft Store PC. Drift Zone guidance uses its own verified scoring profile.
 - Add dark shading, an optional black background with adjustable opacity, size controls, and position reset.
 - Hide the angle, marker, and bonus below 5 mph ground speed (about 8 km/h) in both guidance modes, avoiding misleading angles when stationary on a slope or spinning the wheels.
 
@@ -139,7 +139,7 @@ The existing Native HUD artwork, Analogue renderer and optional CPU mode, gauge 
 - Reuse unchanged dial-background pixels in CPU mode to reduce repeated drawing work while the needle and live readings continue updating.
 - Separate queued telemetry publication time from consumption time so a sample queued during rendering cannot falsely trigger the needle's clock-rewind reset.
 - Draw the Analogue HUD once per pending frame, then retry only Present while the queue is busy. Continue consuming telemetry; discard pending pixels when their layout or source becomes invalid, or after occlusion.
-- Add bounded, nonblocking debug capture for frame waits, scene building, drawing, buffer mapping, presentation results and retry delays. Exports identify the active rendering mode and separate the native wait from its surrounding checks. These measure CPU-side operations, not displayed FPS.
+- Add bounded, nonblocking debug capture for frame waits, scene building, drawing, buffer mapping, presentation results and retry delays. Exports identify the active rendering mode and separate the native wait from its surrounding checks, with timings for each CPU-side operation.
 - Preserve the existing artwork, needle interpolation, HUD settings and Record and Compare Runs features.
 
 ## 1.2.0 - 2026-09-09
@@ -164,7 +164,7 @@ The existing Native HUD artwork, Analogue renderer and optional CPU mode, gauge 
 - Add the reviewed native HUD map for Xbox app / Microsoft Store FH6 `3.440.853.0` on Windows PC, retaining Store `3.430.771.0` and the existing Steam maps.
 - Retain the signed compatibility-map update path from 1.1.2, including exact Store identity checks, atomic installation, and offline reuse for reviewed maps within the supported reader.
 - Add an optional **Show vacuum pressure** toggle in Appearance > Boost, using negative pressure reported by FH6.
-- Let the existing boost-gauge visibility toggle show a stationary zero gauge on naturally aspirated cars. Electric vehicles never show it. Require positive boost before enabling pressure readings, so vacuum alone does not identify forced induction; after detection, the option follows negative telemetry at idle and cruise.
+- Let the existing boost-gauge visibility toggle show a stationary zero gauge on naturally aspirated cars. The gauge is for combustion cars. Require positive boost before enabling pressure readings; after detection, the option follows negative telemetry at idle and cruise.
 - Support vacuum in Digital and Analogue gauges, attached and detached layouts, and the Appearance preview in PSI or bar.
 - Extend the enabled gauge range to -20 through 70 PSI or -1 through 5 bar, with a zero marker on the Digital rail.
 - Keep the option off by default and save it with settings and HUD profiles. Existing settings and profiles leave vacuum disabled.

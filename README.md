@@ -23,7 +23,7 @@ Wisp 2.4 improves the focus-dependent analogue needle choppiness seen with G-SYN
 
 Fix a crash when changing the app accent color on another tab. The dashboard oval returns in the selected color when you switch back. Supplementary gauges stay separate in digital layouts, and failed update handoffs keep Wisp open with repair instructions when needed.
 
-**Shift guidance is beta and off by default.** Calibrate each supported combustion car and tune with a rolling full-throttle pull and a confirming upshift. Green, yellow and flashing red stages show the approach to a calibrated RPM target. Targets are still being validated; universal ideal shift timing has not been verified. The beta currently requires Steam FH6 build **6.440.853.0** and excludes EVs.
+**Shift guidance is beta and off by default.** Calibrate each supported combustion car and tune with a rolling full-throttle pull and a confirming upshift. Green, yellow and flashing red stages show the approach to a calibrated RPM target. The beta supports combustion cars on Steam FH6 build **6.440.853.0**.
 
 The boost and tire-temperature Appearance preview fixes from 2.3.2 remain included. Existing settings, profiles, tire calibration and saved runs are preserved.
 
@@ -68,9 +68,8 @@ your **Nm** or **lb-ft** preference. [See the gauges in gameplay](#gallery).
 Use the separate **Power gauge size** and **Torque gauge size** sliders to resize
 each dial. Under **More options**, adjust smoothing and a fixed range for each
 car. **Set from this run** uses the peaks Wisp has observed plus 10%; the scale
-then stays fixed while driving. These are observed readings, not the car's rated
-maximum output. After retuning, reset the peaks and make another pull before
-setting the range again.
+then stays fixed while driving. After retuning, reset the peaks and make another
+pull before setting the range again.
 
 The **Gauge start**, **Gauge middle**, and **Gauge end** colors apply across boost,
 tire temperature, power, and torque. Optional colored numbers follow the same
@@ -98,9 +97,8 @@ Driver assists distinguish **Disabled**, **Enabled**, and **Active**.
 Add a drift gauge above the action to see your angle and the share of the
 verified Drift Zone angle bonus you are using. The scoring-angle range starts
 at **10°** and the angle bonus reaches its ceiling at **59.4°**. A **20–40°** drift
-already corresponds to roughly **80–90%** of that maximum angle bonus; more angle is not
-automatically a better run. Speed, your line, and whether the game awards points
-still matter.
+already corresponds to roughly **80–90%** of that maximum angle bonus. Balance
+your angle with speed and line while the game is awarding points.
 
 
 Choose the guidance in **Appearance > Gauges**. Adjust its size and position,
@@ -137,8 +135,7 @@ Use **Import runs** for individual `.wisprun` files or a Wisp library ZIP.
 **Export all** backs up the library, and **Delete all** has confirmation and Undo.
 Use the **Export** menu for a shareable run file or raw CSV, and **Save image**
 for a graph report. Imports skip identical runs and reject conflicting duplicates
-without overwriting existing data. Wisp does not identify tunes automatically
-or record gameplay video.
+without overwriting existing data. Telemetry recordings include the tune labels you add.
 
 ### Make the interface yours
 
@@ -147,10 +144,9 @@ a larger live HUD preview. Set your accent, backgrounds, text, borders, glow,
 surface opacity, corner rounding, and spacing. G-force dot and trail colors are
 independent, and the G-force meter can be disabled in every layout.
 
-Optional background particles follow your accent or a separate color. They do
-not react to the mouse or change your selected background color, and can be
-paused or hidden. The dashboard adds accent lighting and particles along its
-rim. Fresh installations use the setup wizard's palette; updates retain your
+Optional background particles follow your accent or a separate color. Pause or
+hide them at any time. The dashboard adds accent lighting and particles along
+its rim. Fresh installations use the setup wizard's palette; updates retain your
 colors and saved data. Prefer the previous interface? Enable **Use legacy
 interface** in **Appearance > Layout**, then restart Wisp.
 
@@ -263,8 +259,7 @@ the needle and live readings continue updating.
 
 GPU rendering remains the default. CPU mode can increase CPU usage, and Windows
 still uses the GPU to compose the overlay. Live HUD gauges share the native
-renderer; Appearance previews and the fallback retain WPF rendering. This option
-does not guarantee that every rendering-lag report is resolved.
+renderer; Appearance previews and the fallback retain WPF rendering.
 
 ## Requirements
 
@@ -278,8 +273,8 @@ Xbox app / Microsoft Store PC build `3.440.853.0`. Previous bundled maps remain
 available for installations that have not updated FH6. See
 [Compatibility and Update Safety](docs/COMPATIBILITY.md#current-support) for the
 complete bundled-build list and validation rules. Data Out reception and dashboard
-calculations remain independent of those contracts. Wisp runs on Windows alongside
-the game, not on Xbox consoles or a cloud-gaming session.
+calculations remain independent of those contracts. Wisp runs alongside a local
+Windows PC installation of the game.
 
 The installer is self-contained and installs for the current user. It does not
 require administrator access or a separate .NET runtime.
@@ -343,12 +338,12 @@ the dashboard or driving overlays.
 
 ## Speed sources
 
-**Wheel-indicated** is the default. FH6 does not report tire size, so Wisp learns
-effective rolling radius from clean, straight driving with grip. The value stays
-unavailable until the current tire profile is trustworthy.
+**Wheel-indicated** is the default. Wisp learns effective rolling radius from
+clean, straight driving with grip, then enables wheel-indicated speed once the
+current tire profile passes calibration.
 
-**FH6 speed** uses the packet's vehicle-speed value directly and does not require
-tire learning. See [Wheel-Speed Model](docs/WHEEL-SPEED-MODEL.md) for the complete
+**FH6 speed** uses the packet's vehicle-speed value directly.
+See [Wheel-Speed Model](docs/WHEEL-SPEED-MODEL.md) for the complete
 calibration and drivetrain rules.
 
 ## Native HUD compatibility
@@ -365,16 +360,16 @@ affected process-derived state rather than reusing data from another build.
 See [Compatibility and Update Safety](docs/COMPATIBILITY.md) for the supported
 builds, validation boundary, and update behavior.
 
-## Privacy and limitations
+<a id="privacy-and-limitations"></a>
+
+## Privacy and compatibility
 
 - Telemetry is accepted only from `127.0.0.1`.
 - Settings and tire profiles remain in the current user's local application data.
 - The installer is not code-signed.
 - A changed FH6 build identity requires a reviewed compatibility map and may
   require an application update.
-- FH6 exposes no tune identifier. Relearn the current tires after changing wheel
-  or tire diameter.
-- Software-only WPF captures do not reproduce the live Native HUD shaders.
+- Relearn the current tires after changing wheel or tire diameter.
 
 ## Build from source
 
