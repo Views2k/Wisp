@@ -3,7 +3,7 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
-  <br><strong> There is a bug present in all versions prior to 2.4 that may cause delayed or choppy tachometer needle movement for NVIDIA users. Updating to hotfix 2.4 as soon as possible is recommended. On previous versions, G-Sync/VRR may conflict with the overlay leading to poor needle performance. </strong>
+  <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to 2.4.</strong>
   
   <a href="https://github.com/Views2k/Wisp/releases/download/v2.4.0/Wisp-Setup-2.4.0.zip"><strong>Download Wisp 2.4</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
@@ -15,17 +15,17 @@
 
 ## Wisp 2.4 performance hotfix
 
-Wisp 2.4 improves the focus-dependent analogue needle choppiness seen with G-SYNC. It combines a monitor-sized native window host, passive composition updates, independent compositor needle animation and direct telemetry delivery. The release also fixes queued playback, readiness and worker-wait bugs, and reuses render command storage and unchanged needle pixels.
+Wisp 2.4 improves analogue needle motion with G-SYNC while Forza has focus. When the main HUD fits on one monitor, it uses a monitor-sized native window. The overlay requests passive composition updates, and needle animation receives telemetry independently of the interface. The update also fixes queued playback, readiness checks, and worker waits, and reuses render command storage and unchanged needle pixels.
 
 [Read the investigation, fixes, troubleshooting and credits](docs/releases/Wisp-2.4.0-release-notes.md). Thanks to [fredemmott for sharing Microsoft's Direct3D-team guidance](https://github.com/OpenKneeboard/OpenKneeboard/issues/677#issuecomment-3250237599) on transparent overlays and variable refresh rate.
 
 ### Included from Wisp 2.3.4
 
-Fix a crash when changing the app accent color on another tab. The dashboard oval returns in the selected color when you switch back. Supplementary gauges stay separate in digital layouts, and failed update handoffs keep Wisp open with repair instructions when needed.
+Changing the app accent color on another tab no longer crashes Wisp. The dashboard oval returns in the selected color when you switch back. Supplementary gauges stay separate in digital layouts. If an update cannot start, Wisp stays open and shows repair instructions.
 
 **Shift guidance is beta and off by default.** Calibrate each supported combustion car and tune with a rolling full-throttle pull and a confirming upshift. Green, yellow and flashing red stages show the approach to a calibrated RPM target. The beta supports combustion cars on Steam FH6 build **6.440.853.0**.
 
-The boost and tire-temperature Appearance preview fixes from 2.3.2 remain included. Existing settings, profiles, tire calibration and saved runs are preserved.
+The boost and tire-temperature Appearance preview fixes from 2.3.2 are included.
 
 ### Included from Wisp 2.3
 
@@ -40,7 +40,7 @@ their original values.
 
 [Read the Wisp 2.3.4 hotfix release notes](docs/releases/Wisp-2.3.4-release-notes.md).
 
-The shared native rendering, compact EV attachments, and Appearance preview
+The shared native renderer, smaller attached EV gauges, and Appearance preview
 fixes from [Wisp 2.2](docs/releases/Wisp-2.2.0-release-notes.md) are included.
 
 ### Gauge sizing from 2.1.1
@@ -48,10 +48,10 @@ fixes from [Wisp 2.2](docs/releases/Wisp-2.2.0-release-notes.md) are included.
 The four supplementary combustion analogue dials match at 100% and stay aligned when resized.
 Power and torque have separate size sliders, boost and tire sizing works while
 attached, and a **50–200% G-force meter size** control applies across attached,
-detached, and Combined layouts. Previews follow these settings; existing sizes,
-profiles, and positions are preserved.
+detached, and Combined layouts. Previews follow these settings, including saved
+gauge sizes and positions.
 
-The power and torque features introduced in 2.1 are described below.
+Wisp 2.1 introduced the power and torque gauges described below.
 
 [Power & torque](#power-and-torque-gauges) · [Dashboard](#dashboard-and-interface) · [Drift gauge](#drift-angle-guidance) ·
 [Runs](#a-more-useful-runs-workspace) · [Appearance](#make-the-interface-yours) ·
@@ -84,7 +84,7 @@ settings, profiles, tire calibration, and saved runs.
 
 ## Dashboard and interface
 
-The dashboard has a new layout built around a curved tachometer, large speed
+The dashboard shows a curved tachometer, large speed
 and gear readings, and live power and torque. Use **Display mode** as a borderless
 dashboard on a second monitor. Fill the screen or resize it to share the monitor
 with something else. Press **F11** from Dashboard to switch modes, or **Esc** to leave.
@@ -94,7 +94,7 @@ Driver assists distinguish **Disabled**, **Enabled**, and **Active**.
 
 ### Drift angle guidance
 
-Add a drift gauge above the action to see your angle and the share of the
+Add a drift gauge to see your angle and the share of the
 verified Drift Zone angle bonus you are using. The scoring-angle range starts
 at **10°** and the angle bonus reaches its ceiling at **59.4°**. A **20–40°** drift
 already corresponds to roughly **80–90%** of that maximum angle bonus. Balance
@@ -110,17 +110,19 @@ misleading drift guidance.
 
 ![Wisp drift gauge showing 43.7 degrees and 92 percent of maximum angle bonus above Forza Horizon 6 gameplay](docs/images/wisp-2.0-drift-gameplay.jpg)
 
-### A more useful Runs workspace
+<a id="a-more-useful-runs-workspace"></a>
+
+### Record and compare runs
 
 Record a drive from Dashboard or Runs, or use a recording shortcut. Set a
 countdown or timed stop, mark moments while driving, then add a name, tune label,
 and notes. Recordings stay on your PC and can last up to ten minutes.
 
 Search saved runs by name or tune label. Names, tune labels, and notes save
-automatically, with a quiet **Saving… / Saved** indicator. Switching runs keeps
+automatically, with a **Saving… / Saved** indicator. Switching runs keeps
 your pending edits; if saving fails, **Retry** lets you try again.
 
-One **Show graphs** button opens the workspace. **Overview**, **Engine**, and
+Select **Show graphs** to open the workspace. **Overview**, **Engine**, and
 **Tires & handling** group related measurements. Show or hide graphs, reorder
 them, and choose their width. Review statistics as cards or a table. A shared
 cursor and selectable time range make it easier to inspect the same moment
@@ -135,12 +137,14 @@ Use **Import runs** for individual `.wisprun` files or a Wisp library ZIP.
 **Export all** backs up the library, and **Delete all** has confirmation and Undo.
 Use the **Export** menu for a shareable run file or raw CSV, and **Save image**
 for a graph report. Imports skip identical runs and reject conflicting duplicates
-without overwriting existing data. Telemetry recordings include the tune labels you add.
+without overwriting existing data.
 
-### Make the interface yours
+<a id="make-the-interface-yours"></a>
 
-Appearance now groups **Layout**, **Gauges**, **Colors**, and **Behaviour** with
-a larger live HUD preview. Set your accent, backgrounds, text, borders, glow,
+### Appearance
+
+Appearance groups **Layout**, **Gauges**, **Colors**, and **Behaviour** beside
+the live HUD preview. Set your accent, backgrounds, text, borders, glow,
 surface opacity, corner rounding, and spacing. G-force dot and trail colors are
 independent, and the G-force meter can be disabled in every layout.
 
@@ -151,8 +155,8 @@ colors and saved data. Prefer the previous interface? Enable **Use legacy
 interface** in **Appearance > Layout**, then restart Wisp.
 
 Common settings stay visible, with detailed adjustments under **More options**.
-Click the existing connection status to see whether Forza is detected, whether
-telemetry is arriving, and why the overlay is hidden, with the relevant next step.
+Click the connection status to check game detection, incoming telemetry, and
+HUD visibility. The panel includes help for the current connection state.
 
 An optional quick tour introduces the drift gauge, Display mode, Runs, and
 Appearance. Start from the welcome banner or choose **Replay the quick tour**
@@ -172,8 +176,8 @@ ground speed. The difference becomes visible during wheelspin, burnouts,
 drifting, lockup, and loss of grip.
 
 FH6 Data Out supplies the local telemetry stream. Wisp learns the effective
-rolling radius of the current tires, applies the correct driven-wheel model for
-FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
+rolling radius of the current tires and calculates speed from the driven wheels
+for FWD, RWD, or AWD. The result appears in the Windows overlay.
 
 ## Features
 
@@ -189,7 +193,7 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
 - Front and rear tire-temperature gauges for both Native layouts. Digital mode
   uses two markers in one neutral rail with no colored fill, while Analogue mode
   uses two solid-color needles in one dial. Values support Fahrenheit and Celsius.
-- Independently optional power and torque dials with live BHP, Nm or lb-ft,
+- Separate power and torque dials with live BHP, Nm or lb-ft,
   peak markers, attached or detached placement, adjustable smoothing, and fixed
   ranges saved per car.
 - Live RPM, gear, driver assists, electric power, regeneration, and redline
@@ -201,9 +205,9 @@ FWD, RWD, or AWD, and presents the result in a lightweight Windows overlay.
   profiles for layouts and gauge colors.
 - Local run recording, configurable graphs, overlaid or side-by-side comparisons,
   report images, CSV, shareable run files, and whole-library backup and import.
-- Optional update discovery on every open and daily while running, a customizable
-  HUD visibility shortcut, and bounded local debug logging with ZIP export for
-  issue reports.
+- Optional update checks whenever Wisp opens and daily while running, a
+  customizable HUD visibility shortcut, and local debug logging with storage
+  limits and ZIP export for issue reports.
 
 ## Gallery
 

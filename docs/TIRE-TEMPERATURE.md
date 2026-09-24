@@ -49,5 +49,3 @@ Open **Appearance > Gauges**, then **Tire temperature**, to change:
 
 The tire-temperature and boost gauges share the gradient configured in
 **Appearance > Colors** using **Gauge start**, **Gauge middle**, and **Gauge end**.
-This keeps the stacked Native layout coordinated without adding a second
-competing color setting.

@@ -9,11 +9,11 @@ setup background and more flexible release-version support.
   even when tire radii remain unchanged.
 - Windows clock changes no longer affect the telemetry connection timeout.
 - Release details remain available when retrying a downloaded update.
-- Setup uses the website's particle material and depth styling, with smoother
-  faint gradients and a new particle distribution.
+- Setup now uses the website's particle background, with a different particle
+  layout and smoother gradients.
 - Wheel-indicated speed smoothing now honors the selected amount during large
   wheel-speed changes, instead of staying within 1.5 mph of the raw reading.
-- Includes the previously merged expired-log cleanup before debug export.
+- Expired debug logs are cleaned up before export.
 - Release-history version labels have room to display without clipping.
 - Update checks recognize shortened version numbers and stable release labels.
   Installer hashes, sizes, embedded versions, and downgrade protection are still checked.

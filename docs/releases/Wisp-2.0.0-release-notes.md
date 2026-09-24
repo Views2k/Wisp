@@ -54,8 +54,8 @@ inspect a moment across graphs, select a section for its own statistics, or matc
 an acceleration speed range. Power and torque by RPM, G-force plots, and tire
 temperature changes remain available alongside the time graphs.
 
-Switching Run A keeps the graph workspace open. The customization panel, nested
-scrolling, and disabled library styling are corrected.
+Switching Run A keeps the graph workspace open. The graph controls, nested
+scrolling, and the saved-run list's appearance while disabled are fixed.
 
 Search the saved-run list by name or tune label. Names, tune labels, and notes
 save automatically, with **Saving… / Saved** feedback and **Retry** if a save
@@ -78,8 +78,8 @@ format. Save telemetry recordings of up to ten minutes locally.
 
 ## Appearance and everyday controls
 
-- Click the existing connection status for game detection, telemetry, and HUD
-  visibility details with the relevant next step. The status stays in place.
+- Click the connection status for game detection, telemetry, and HUD visibility
+  details, with help for the current connection state. The status stays in place.
 - Common controls stay visible; detailed explanations and fine adjustments
   use themed **More options** sections.
 - **Layout**, **Gauges**, **Colors**, and **Behaviour** organize Appearance beside

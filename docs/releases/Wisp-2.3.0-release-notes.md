@@ -6,6 +6,6 @@ Drift mode keeps the power and torque gauges readable during brief power cuts.
 - Set **Flash frequency** from **0.5 to 3 Hz**. The default is **1.25 Hz**; changing it keeps the current pulse smooth.
 - Choose **Drift cut flash** under **Appearance > Colors** to set the flash color. The numbers keep their normal opacity.
 - Save Drift mode, frequency, and flash color with HUD profiles. Drift mode is off by default.
-- Keep the original telemetry in saved runs and peak readings. Signed-output mode and EV regeneration retain their existing behavior.
+- Saved runs and peak readings keep the original telemetry. Signed-output mode and EV regeneration retain their existing behavior.
 
 [Wisp 2.2 release notes](https://github.com/Views2k/Wisp/blob/v2.2.0/docs/releases/Wisp-2.2.0-release-notes.md).

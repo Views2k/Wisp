@@ -37,9 +37,8 @@ metadata, transport, and artifact verification. `Wisp.Updater` is a small
 separate executable that applies an already verified installer after Wisp has
 closed.
 
-Keeping the projects separate makes the important rules independently testable.
-A packet parser test does not need a window, and a wheel-speed test does not
-need a live game process.
+This separation lets packet-parser and wheel-speed tests run without a window
+or a live game process.
 
 ## From packets to wheel speed
 
@@ -77,8 +76,8 @@ Recordings stop at the selected limit, with a maximum of ten minutes. The local
 recording and file work do not run in the HUD render loop.
 
 `Wisp.Core.Runs` holds the recording model and deterministic analysis for selected
-intervals, whole runs, and matched acceleration ranges. It preserves gaps and
-unavailable evidence when calculating statistics and comparison findings.
+intervals, whole runs, and matched acceleration ranges. Statistics and comparisons
+account for gaps and unavailable measurements.
 `Wisp.App.Runs` provides the graphs, selection controls, and explicit exports to
 report images, CSV, or a shareable Wisp run file. Recordings contain telemetry,
 with tune labels supplied by you.
@@ -145,12 +144,16 @@ state; no generated gear artwork is substituted.
 
 Packet arrivals schedule a UI update using the newest available telemetry,
 independently of WPF compositor callbacks. Live HUD surfaces use separate render
-workers paced by the DXGI frame-latency wait handle. Each worker consumes
-bounded input, builds a scene, and submits it through Direct3D11 and
+workers. Native presentation normally waits for a display-rate pacing timer,
+then checks DXGI frame-latency readiness within the same finite timeout. Each
+worker consumes bounded input, builds a scene, and submits it through Direct3D11 and
 DirectComposition. A full input queue is discarded and playback resets so a
 stalled renderer cannot replay an old backlog. Busy submissions retry the pending
 frame without repeatedly drawing it, while visibility or incompatible state
 changes invalidate pending work.
+
+On the hardware path, needle animation runs on a separate compositor worker
+that receives RPM samples directly from the telemetry receiver.
 
 GPU rendering is the default. The optional **CPU rendering** setting in
 **Diagnostics** selects Direct3D11 WARP after restarting Wisp. CPU mode caches an
@@ -179,9 +182,9 @@ without discarding the user's saved placement.
 
 ## Setup and design
 
-The setup wizard is a startup boundary. It validates a live Data Out stream and
-the required display confirmations before the dashboard or overlay windows are
-created. A fresh install creates a one-time setup marker. Completing and saving
+The setup wizard validates a live Data Out stream and the required display
+confirmations before the dashboard or overlay windows are created. A fresh
+install creates a one-time setup marker. Completing and saving
 the wizard clears it; closing early leaves it in place for the next launch. A
 verified in-place update preserves an already completed setup, but it cannot
 bypass the wizard for a new installation.
