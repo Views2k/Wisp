@@ -6,7 +6,7 @@ Local debug logging now records telemetry reception and processing separately, d
 
 Exports include a readable summary: what was observed and when, which measurements support it, the likely affected component, what remains uncertain, and the next useful diagnostic step. Normal menus, hidden overlays, and ordinary telemetry disconnection are distinguished from rendering faults.
 
-Logging is still opt-in, local, limited to 24 hours per activation, and bounded in storage. You decide whether to attach the ZIP to an issue. Game FPS and GPU presentation latency are not measured, and a report cannot guarantee the exact cause of a Windows or driver problem.
+Logging is opt-in, local, limited to 24 hours per activation, and bounded in storage. You decide whether to attach the ZIP to an issue. Reports cover Wisp's recorded telemetry and application timing, with observations and measurements to guide troubleshooting.
 
 ## Fixes
 

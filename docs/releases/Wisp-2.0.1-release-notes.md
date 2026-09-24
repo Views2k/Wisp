@@ -8,5 +8,3 @@ This update adds a quick tour of Wisp 2.0 and addresses recurring interface paus
 - The dashboard top-speed label stays inside the oval in wide windows, including after returning from Display mode.
 
 HUD artwork, saved settings, profiles, tire calibration and recorded runs are preserved. The bundled runtime remains .NET 8.0.31.
-
-These fixes address specific measured defects; they are not a guarantee of zero frame-rate impact on every computer.

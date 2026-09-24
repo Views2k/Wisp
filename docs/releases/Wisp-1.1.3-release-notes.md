@@ -11,11 +11,11 @@ optional vacuum pressure for boost gauges, and fixes automatic update checks.
   changes to native layouts can still require an application update.
 
 - Enable **Show vacuum pressure** in Appearance > Boost to show negative pressure
-  reported by FH6. The option is off by default. Pressure readings first require
-  positive boost from the current car/session; vacuum alone does not enable them.
+  reported by FH6. The option is off by default. Pressure readings activate after
+  positive boost is detected in the current car/session.
 - Keep the boost gauge enabled even if you do not know whether a tune has forced
-  induction. Naturally aspirated cars show a stationary zero gauge. Electric
-  vehicles never show the boost gauge.
+  induction. Naturally aspirated cars show a stationary zero gauge. The boost
+  gauge is for combustion cars.
 - Supports Digital and Analogue gauges, attached and detached layouts, and the
   Appearance preview in PSI or bar.
 - Uses a -20 to 70 PSI or -1 to 5 bar scale when enabled. The Digital rail marks

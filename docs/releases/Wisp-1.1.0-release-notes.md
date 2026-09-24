@@ -23,4 +23,4 @@ filename remain `v1.1.0` and `Wisp-Setup-1.1.0.exe` so existing installations
 can discover this update. Newer clients also understand shortened release tags.
 
 HUD layouts, colors, tire-learning rules, and the settings
-format are unchanged. These changes do not address intermittent tachometer lag.
+format are unchanged.

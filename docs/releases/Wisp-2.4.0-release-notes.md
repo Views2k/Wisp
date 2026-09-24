@@ -48,7 +48,9 @@ Debug exports identify the exact build and rendering path and include more detai
 
 The added timing details help follow accepted input through the needle worker and into Windows composition, alongside the visible in-game result.
 
-## Why the earlier CPU-rendering fix was only part of the answer
+<a id="why-the-earlier-cpu-rendering-fix-was-only-part-of-the-answer"></a>
+
+## How this builds on the earlier CPU-rendering fix
 
 The earlier [tachometer investigation in #30](https://github.com/Views2k/Wisp/issues/30) already included G-SYNC as a possible factor. It found real timing and drawing problems, and the CPU-rendering option helped the people who reported back. That was a useful result and remains part of the history of this fix.
 
@@ -60,7 +62,9 @@ The later investigation separated four parts of the problem: receiving needle da
 
 For other overlay developers, the useful lesson is to check the actual window and presentation setup alongside drawing cost. Microsoft's [flip-model guidance](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/for-best-performance--use-dxgi-flip-model) explains how overlapping desktop content can affect composition and hardware overlay paths. Its [DirectComposition documentation](https://learn.microsoft.com/en-us/windows/win32/directcomp/basic-concepts#cross-device-visual-trees) also describes how independently updated visuals can share a composition tree.
 
-## If you still see a difference
+<a id="if-you-still-see-a-difference"></a>
+
+## Troubleshooting
 
 1. **Check the version and restart after renderer changes.** Confirm Wisp 2.4 is installed. Changes to the CPU-rendering option take effect after exiting Wisp from the tray and reopening it. The hardware path uses the new independent compositor needle.
 2. **Keep the main HUD inside one monitor.** This is the arrangement that uses the monitor-sized presentation host. Include detached gauges and a HUD spanning monitor boundaries when describing your setup.

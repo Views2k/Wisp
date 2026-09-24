@@ -64,7 +64,7 @@ public sealed class ReleaseNotesCatalogTests
         var text = string.Join(' ', entry.Groups.SelectMany(group => group.Items));
         Assert.Contains("3.430.771.0", text, StringComparison.Ordinal);
         Assert.Contains("Xbox app and Microsoft Store", text, StringComparison.Ordinal);
-        Assert.Contains("Other Store builds remain unsupported", text, StringComparison.Ordinal);
+        Assert.Contains("Requires an exact match to the reviewed Store build", text, StringComparison.Ordinal);
         Assert.Contains("on Windows", entry.Summary, StringComparison.Ordinal);
         Assert.Contains("Steam compatibility path is preserved", text, StringComparison.Ordinal);
     }

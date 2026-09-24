@@ -80,8 +80,8 @@ recording and file work do not run in the HUD render loop.
 intervals, whole runs, and matched acceleration ranges. It preserves gaps and
 unavailable evidence when calculating statistics and comparison findings.
 `Wisp.App.Runs` provides the graphs, selection controls, and explicit exports to
-report images, CSV, or a shareable Wisp run file. No gameplay video is recorded,
-and tune labels come from the user.
+report images, CSV, or a shareable Wisp run file. Recordings contain telemetry,
+with tune labels supplied by you.
 
 ## Reconstructing the Native HUD
 
@@ -109,13 +109,14 @@ license. Public circulation does not itself grant rights, and Wisp does not
 claim that Microsoft authorized their extraction or redistribution. The
 manifest and bundled third-party notice preserve that boundary.
 
-## Exact state that Data Out does not provide
+<a id="exact-state-that-data-out-does-not-provide"></a>
 
-Data Out includes current RPM but not FH6's tune-aware redline or compact
-local-player assist state. It also does not expose the final Native EV gauge
-digits, fade decisions, power/regeneration presentation, or electric needle
-state. Wisp reads that limited state through guarded Windows query/read process
-access only.
+## Exact Native HUD state
+
+Data Out supplies current RPM. Wisp reads FH6's tune-aware redline, compact
+local-player assist state, final Native EV gauge digits, fade decisions,
+power/regeneration presentation, and electric needle state through guarded
+Windows query/read process access only.
 
 Before a value is accepted, the provider validates the storefront-specific build
 identity, image bounds, compatibility contract, process generation, vtable guards,

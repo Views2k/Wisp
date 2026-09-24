@@ -8,8 +8,7 @@ FH6 Data Out.
 
 Wisp averages the front-left and front-right temperatures for the Front value,
 then averages the rear-left and rear-right temperatures for the Rear value. The
-calculation is performed on each accepted telemetry sample. No tire temperature
-is inferred from slip, speed, brake input, or ambient conditions.
+calculation uses the temperatures supplied by each accepted telemetry sample.
 
 The display range is 50°F to 350°F. A value above 350°F is held at the end of
 the gauge and shown as 350°F. The marker remains at that endpoint until the

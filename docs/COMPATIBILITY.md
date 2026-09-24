@@ -11,9 +11,9 @@ Wisp bundles separate Native HUD compatibility contracts for:
 - Xbox app / Microsoft Store Windows PC build `3.430.771.0`, identified by its
   Store package and bounded loaded-image checks.
 
-Support is build-specific; Wisp does not reuse one storefront's contract for
-another binary with a similar version. Wisp runs alongside a local Windows
-installation, not on Xbox consoles or inside cloud gaming.
+Support is build-specific, with an exact compatibility contract for each
+supported storefront and build. Wisp runs alongside a local Windows PC
+installation of FH6.
 
 Data Out speed and G-force use the local 324-byte UDP packet. Exact Native
 redline, assist, and electric-gauge state use a separate guarded read-only path

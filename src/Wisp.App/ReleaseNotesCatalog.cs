@@ -49,8 +49,8 @@ public static class ReleaseNotesCatalog
                 Group("Included improvements",
                     "Keep supplementary gauges separate in digital layouts and retain update recovery improvements."),
                 Group("Shift guidance (beta)",
-                    "Optional calibrated full-load shift guidance is off by default. Calibrate each car and tune before use; shift targets are still being validated.",
-                    "Requires the supported Steam build and a combustion-car configuration. This beta does not promise ideal shift timing for every car, tune or racing condition.")
+                    "Optional calibrated full-load shift guidance is off by default. Calibrate each car and tune before use.",
+                    "Requires the supported Steam build and a combustion-car configuration. The red stage marks your calibrated RPM target; driver reaction, grip and boost recovery also influence shift timing.")
             ]),
         new(
             "2.3.3",
@@ -219,7 +219,7 @@ public static class ReleaseNotesCatalog
                     "Adds application border, text color, glow, surface fill, corner and spacing controls. Setup instructions are in Diagnostics."),
                 Group("Gauges",
                     "Adds a borderless drift angle gauge with a dark visibility option. Verified Drift Zone mode marks the scoring-angle threshold around 10 degrees and shows the angle bonus increasing through ordinary 20–40 degree drifts.",
-                    "The angle bonus reaches its ceiling near 59.4 degrees; more angle earns no extra angle bonus. Speed, distance and scoring eligibility still affect points. Unsupported builds retain measured angle and a custom target without claiming verified scoring guidance.",
+                    "The angle bonus reaches its ceiling near 59.4 degrees. Speed, distance and scoring eligibility also affect points. Use Custom target for measured angle and an adjustable target on builds outside the verified scoring profile.",
                     "Allows the G-force meter to be disabled in every layout and gives its dot and trail independent color controls. Two boxes is now named Box."),
                 Group("Existing settings",
                     "Preserves saved settings, HUD profiles, tire calibration and recorded runs.",
@@ -255,7 +255,7 @@ public static class ReleaseNotesCatalog
                 Group("Fixes and diagnostics",
                     "Keeps queued telemetry arrival times separate from the render clock, preventing a late-consumed sample from falsely resetting needle playback.",
                     "Retries a busy frame submission using the already drawn HUD, avoiding repeated drawing work while Windows cannot accept the frame.",
-                    "Bounded local debug exports identify the active rendering mode and separate native frame waits from their surrounding checks, along with drawing and presentation attempts. These are CPU-side timings, not displayed FPS.",
+                    "Bounded local debug exports identify the active rendering mode and report CPU-side timings for native frame waits, their surrounding checks, drawing and presentation attempts.",
                     "Preserves the existing needle interpolation, artwork, HUD settings and Record and Compare Runs features.")
             ]),
         new(
@@ -301,7 +301,7 @@ public static class ReleaseNotesCatalog
                     "Retains signed compatibility-map updates introduced in 1.1.2, with exact identity checks, atomic installation, and offline reuse. Future reviewed maps within the supported reader can be delivered without reinstalling Wisp; changed native layouts may still require an application update."),
                 Group("Boost gauges",
                     "Adds Show vacuum pressure in Appearance > Boost. It displays negative pressure reported by FH6 and is off by default.",
-                    "The existing boost-gauge toggle can show a stationary zero gauge on naturally aspirated cars, so you can leave it enabled without knowing a tune's induction setup. Electric vehicles never show the gauge.",
+                    "The existing boost-gauge toggle can show a stationary zero gauge on naturally aspirated cars, so you can leave it enabled without knowing a tune's induction setup. The gauge is for combustion cars.",
                     "Requires positive boost before enabling pressure readings for a car. After detection, the vacuum option follows negative pressure at idle and cruise.",
                     "Supports PSI and bar in attached and detached Digital and Analogue gauges and the Appearance preview. Enabled scales run from -20 to 70 PSI or -1 to 5 bar, with a zero marker on the Digital rail.",
                     "Saves the option with settings and HUD profiles. Existing settings and profiles leave vacuum disabled."),
@@ -329,7 +329,7 @@ public static class ReleaseNotesCatalog
             false,
             [
                 Group("Compatibility",
-                    "Adds a separate Native HUD compatibility path for Xbox app and Microsoft Store FH6 build 3.430.771.0. Other Store builds remain unsupported.",
+                    "Adds a separate Native HUD compatibility path for Xbox app and Microsoft Store FH6 build 3.430.771.0. Requires an exact match to the reviewed Store build.",
                     "Checks the Store package and targeted code guards, including Windows executable-path aliases, without opening protected executable contents as a file.",
                     "Restores Native HUD attachment, gameplay visibility, exact redline, driver-assist data, and stock needle data on the supported Store build."),
                 Group("Unchanged",
@@ -363,7 +363,7 @@ public static class ReleaseNotesCatalog
                 Group("Diagnostics",
                     "Collects telemetry reception, UI processing, native-data freshness, composition callbacks, focus transitions, and Wisp CPU and memory usage on a background sampler.",
                     "Exported reports show sustained findings with timestamps, supporting measurements, the likely affected component, remaining uncertainty, and a useful next step.",
-                    "Logging stays local, opt-in, time-limited, and size-limited. Game FPS and GPU presentation latency are not measured; the report does not claim an exact driver diagnosis."),
+                    "Logging stays local, opt-in, time-limited, and size-limited. Reports cover Wisp's recorded telemetry and application timing, with observations and measurements to guide troubleshooting."),
                 Group("Fixed",
                     "Allows Native HUD data to recover when a race provider clears its secondary local-provider flag. Recovery still requires a validated provider and a unique live car, RPM, and maximum-RPM match.",
                     "Removed the outer outline from the update confirmation dialog.")
@@ -372,11 +372,11 @@ public static class ReleaseNotesCatalog
             "1.0.11",
             "September 4, 2026",
             "MAINTENANCE",
-            "Corrects the repository's build-author alias. Application behavior is unchanged from 1.0.10.",
+            "Corrects my repository author metadata. Application behavior is unchanged from 1.0.10.",
             false,
             [
                 Group("Maintenance",
-                    "Maps the temporary build-author identity to Views2k in repository tools that support author aliases.",
+                    "Maps my previous build-author alias to Views2k in repository tools that support author aliases.",
                     "Updates the application and installer version to 1.0.11. All 1.0.10 features, settings, and telemetry behavior are retained.")
             ]),
         new(

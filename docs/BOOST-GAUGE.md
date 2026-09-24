@@ -1,19 +1,16 @@
 # Boost Gauge
 
 Wisp displays boost pressure in the Native Digital and Native Analogue HUDs.
-The gauge reads the boost channel already present in the FH6 Data Out packet.
-It does not estimate pressure from throttle, RPM, speed, or gear.
+The gauge reads pressure directly from the boost channel in the FH6 Data Out packet.
 
 ## Availability
 
 The existing gauge visibility toggle controls the gauge on combustion cars.
 Naturally aspirated cars show a stationary zero gauge, so you can leave it
-enabled without knowing whether a tune has forced induction. Electric cars
-never show the boost gauge.
+enabled without knowing whether a tune has forced induction.
 
 Pressure readings begin once the current car produces at least 0.5 PSI of
-positive boost. Vacuum alone does not identify forced induction. Detection
-resets when the car changes or the HUD session resets.
+positive boost. Detection resets when the car changes or the HUD session resets.
 
 Enable **Show vacuum pressure** to display negative telemetry after positive
 boost is detected. The option is off by default and saves with settings and HUD
