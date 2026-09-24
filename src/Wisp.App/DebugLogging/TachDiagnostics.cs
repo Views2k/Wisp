@@ -47,8 +47,16 @@ internal readonly record struct TachLifecycleDiagnostic(
     long Timestamp, int ControlId, string ControlKind, string HostKind, long HostWindowHandle,
     bool IsLoaded, bool IsVisible, bool IsLive);
 
+// Stored initialization requests/readbacks, not a live scheduling or display measurement.
+// Process status values are NTSTATUS; device results are HRESULT. Preserve signed bits.
+internal sealed record TachGpuPriorityDiagnostic(
+    bool Attempted, int RequestedProcessClass, int ProcessSetStatus, int ProcessReadStatus,
+    int EffectiveProcessClass, int RequestedDevicePriority, int DeviceSetHResult,
+    int DeviceReadHResult, int EffectiveDevicePriority);
+
 internal readonly record struct TachRendererDiagnostic
 {
+    public TachGpuPriorityDiagnostic? GpuPriority { get; init; }
     public bool? CpuRendering { get; init; }
     public int ControlId { get; init; }
     public uint? NativeThreadId { get; init; }
@@ -61,6 +69,10 @@ internal readonly record struct TachRendererDiagnostic
     public long? SampleTimestamp { get; init; }
     public long? ReceivedTimestamp { get; init; }
     public long? QueuedTimestamp { get; init; }
+    public long? CurveEndTimestamp { get; init; }
+    public long? CompositorCommitTimestamp { get; init; }
+    public long? MotionGeneration { get; init; }
+    public bool? MotionGeometryAccepted { get; init; }
     public int DrawCommands { get; init; }
     public int MapCount { get; init; }
     public long MapTicks { get; init; }
@@ -76,6 +88,11 @@ internal readonly record struct TachRendererDiagnostic
     public long? WaitPrecheckTicks { get; init; }
     public long? WaitCallTicks { get; init; }
     public long? WaitPostcheckTicks { get; init; }
+    public long? PacingWaitTicks { get; init; }
+    public uint? PresentationSyncInterval { get; init; }
+    public uint? PresentationRefreshRate { get; init; }
+    public int? PacingHResult { get; init; }
+    public uint? PacingWaitReturnCode { get; init; }
     public uint? SwapChainGeneration { get; init; }
     public uint? WaitReturnCode { get; init; }
 }
@@ -101,6 +118,13 @@ internal sealed record TachRendererCounts(
     public double? MaximumWaitCallMilliseconds { get; init; }
     public long WaitPostcheckSamples { get; init; }
     public double? TotalWaitPostcheckMilliseconds { get; init; }
+    public long PacingWaitSamples { get; init; }
+    public double? TotalPacingWaitMilliseconds { get; init; }
+    public double? MaximumPacingWaitMilliseconds { get; init; }
+    public uint? PresentationSyncInterval { get; init; }
+    public uint? PresentationRefreshRate { get; init; }
+    public int? PacingHResult { get; init; }
+    public uint? PacingWaitReturnCode { get; init; }
     public long SwapChainGenerationSamples { get; init; }
     public uint? MinimumSwapChainGeneration { get; init; }
     public uint? MaximumSwapChainGeneration { get; init; }
@@ -382,12 +406,17 @@ internal static class TachDiagnostics
                 NativeDrawTicks = Math.Max(0, sample.NativeDrawTicks),
                 NativePresentTicks = Math.Max(0, sample.NativePresentTicks),
                 QueueDropped = Math.Max(0, sample.QueueDropped),
+                CurveEndTimestamp = sample.CurveEndTimestamp is > 0 ? sample.CurveEndTimestamp : null,
+                CompositorCommitTimestamp = sample.CompositorCommitTimestamp is > 0 ? sample.CompositorCommitTimestamp : null,
+                MotionGeneration = sample.MotionGeneration is > 0 ? sample.MotionGeneration : null,
                 CpuThreadTicks = sample.CpuThreadTicks is >= 0 ? sample.CpuThreadTicks : null,
                 NativeThreadId = sample.NativeThreadId is > 0 ? sample.NativeThreadId : null,
                 NativeWaitTicks = sample.NativeWaitTicks is >= 0 ? sample.NativeWaitTicks : null,
                 WaitPrecheckTicks = sample.WaitPrecheckTicks is >= 0 ? sample.WaitPrecheckTicks : null,
                 WaitCallTicks = sample.WaitCallTicks is >= 0 ? sample.WaitCallTicks : null,
                 WaitPostcheckTicks = sample.WaitPostcheckTicks is >= 0 ? sample.WaitPostcheckTicks : null,
+                PacingWaitTicks = sample.PacingWaitTicks is >= 0 ? sample.PacingWaitTicks : null,
+                PresentationSyncInterval = sample.PresentationSyncInterval is <= 4 ? sample.PresentationSyncInterval : null,
                 SwapChainGeneration = sample.SwapChainGeneration is > 0 ? sample.SwapChainGeneration : null
             };
             capture.Renderer.Add(clean, clean.CompletedTimestamp);
@@ -408,8 +437,8 @@ internal static class TachDiagnostics
         finally { Monitor.Exit(capture.Gate); }
     }
 
-    internal static string RendererStage(string? value) => value is "frame_wait" or "draw" or "present" or "retry_wait" or "state" ? value : "unknown";
-    internal static string RendererResult(string? value) => value is "ready" or "timeout" or "cancelled" or "submitted" or "busy" or "occluded" or "error" or "discarded" or "created" or "resized" or "resumed" ? value : "unknown";
+    internal static string RendererStage(string? value) => value is "frame_wait" or "draw" or "present" or "retry_wait" or "state" or "compositor_update" or "compositor_motion" ? value : "unknown";
+    internal static string RendererResult(string? value) => value is "ready" or "timeout" or "cancelled" or "submitted" or "busy" or "occluded" or "error" or "discarded" or "created" or "resized" or "resumed" or "positioned" ? value : "unknown";
 
     internal static TachIntervalDiagnostic? CollectInterval(DateTimeOffset utcNow)
     {
@@ -517,11 +546,17 @@ internal static class TachDiagnostics
         private double _nativeWaitTicks, _precheckTicks, _waitCallTicks, _postcheckTicks;
         private long _maxWaitCallTicks;
         private uint? _minimumGeneration, _maximumGeneration, _waitReturnCode, _nativeThreadId;
+        private long _pacingSamples, _maximumPacingTicks;
+        private double _pacingTicks;
+        private uint? _syncInterval, _refreshRate, _pacingWaitReturnCode;
+        private int? _pacingHResult;
 
         internal readonly bool Matches(in TachRendererDiagnostic value) =>
             _controlId == value.ControlId && _window == value.HostWindowHandle && _stage == value.Stage &&
             _result == value.Result && _hResult == value.HResult && _waitReturnCode == value.WaitReturnCode &&
-            _nativeThreadId == value.NativeThreadId;
+            _nativeThreadId == value.NativeThreadId && _syncInterval == value.PresentationSyncInterval &&
+            _refreshRate == value.PresentationRefreshRate && _pacingHResult == value.PacingHResult &&
+            _pacingWaitReturnCode == value.PacingWaitReturnCode;
 
         internal void Observe(in TachRendererDiagnostic value)
         {
@@ -529,6 +564,10 @@ internal static class TachDiagnostics
             _hResult = value.HResult;
             _waitReturnCode = value.WaitReturnCode;
             _nativeThreadId = value.NativeThreadId;
+            _syncInterval = value.PresentationSyncInterval;
+            _refreshRate = value.PresentationRefreshRate;
+            _pacingHResult = value.PacingHResult;
+            _pacingWaitReturnCode = value.PacingWaitReturnCode;
             _count++;
             var elapsed = value.CompletedTimestamp - value.StartedTimestamp;
             _ticks += elapsed; _maximum = Math.Max(_maximum, elapsed);
@@ -548,6 +587,11 @@ internal static class TachDiagnostics
                 _maxWaitCallTicks = Math.Max(_maxWaitCallTicks, waitCall);
             }
             if (value.WaitPostcheckTicks is { } postcheck) { _postcheckSamples++; _postcheckTicks += postcheck; }
+            if (value.PacingWaitTicks is { } pacing)
+            {
+                _pacingSamples++; _pacingTicks += pacing;
+                _maximumPacingTicks = Math.Max(_maximumPacingTicks, pacing);
+            }
             if (value.SwapChainGeneration is { } generation)
             {
                 _generationSamples++;
@@ -581,6 +625,13 @@ internal static class TachDiagnostics
             MaximumWaitCallMilliseconds = _waitCallSamples > 0 ? Milliseconds(_maxWaitCallTicks) : null,
             WaitPostcheckSamples = _postcheckSamples,
             TotalWaitPostcheckMilliseconds = _postcheckSamples > 0 ? Ms(_postcheckTicks) : null,
+            PacingWaitSamples = _pacingSamples,
+            TotalPacingWaitMilliseconds = _pacingSamples > 0 ? Ms(_pacingTicks) : null,
+            MaximumPacingWaitMilliseconds = _pacingSamples > 0 ? Milliseconds(_maximumPacingTicks) : null,
+            PresentationSyncInterval = _syncInterval,
+            PresentationRefreshRate = _refreshRate,
+            PacingHResult = _pacingHResult,
+            PacingWaitReturnCode = _pacingWaitReturnCode,
             SwapChainGenerationSamples = _generationSamples,
             MinimumSwapChainGeneration = _minimumGeneration,
             MaximumSwapChainGeneration = _maximumGeneration,

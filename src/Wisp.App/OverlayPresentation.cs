@@ -21,10 +21,17 @@ internal static class OverlayPresentation
         SetWindowLong(source.Handle, ExtendedStyleIndex,
             GetWindowLong(source.Handle, ExtendedStyleIndex) | LayeredExtendedStyle);
         ApplyComposition(source.Handle);
+        var handle = source.Handle;
+        source.Disposed += (_, _) => OverlayPassiveUpdate.Forget(handle);
     }
 
     public static bool TryHandleWindowMessage(IntPtr handle, int message, IntPtr wordParameter, IntPtr longParameter)
     {
+        if (message == 0x0082) // WM_NCDESTROY
+        {
+            OverlayPassiveUpdate.Forget(handle);
+        }
+
         if (message == StyleChangingMessage && wordParameter.ToInt64() == ExtendedStyleIndex)
         {
             // System-managed layering preserves cross-process click-through. WPF
@@ -51,6 +58,7 @@ internal static class OverlayPresentation
         {
             throw new Win32Exception(Marshal.GetLastWin32Error());
         }
+        _ = OverlayPassiveUpdate.Apply(handle, native: false);
     }
 
     [StructLayout(LayoutKind.Sequential)]

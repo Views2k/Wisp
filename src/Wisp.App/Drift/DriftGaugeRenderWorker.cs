@@ -173,6 +173,7 @@ internal sealed class DriftGaugeRenderWorker : IDisposable
                 {
                     if (device.LastRenderWasOccluded)
                     {
+                        ready = false;
                         pending = false; displayedReading = null;
                         _interrupted.WaitOne(100);
                     }

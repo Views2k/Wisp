@@ -101,7 +101,7 @@ internal sealed class DirectCompositionAnalogHost : IDisposable
         {
             var textures = AnalogHudAssets.LoadOnUiThread();
             _worker = new AnalogHudRenderWorker(source.Handle, _controlId, textures, _presentation, ReportStatus,
-                (_owner.DataContext as DiagnosticsViewModel)?.ActiveCpuRendering == true);
+                (_owner.DataContext as DiagnosticsViewModel)?.ActiveCpuRendering == true, _window.NativeNeedleSource);
         }
         else _worker.UpdatePresentation(_presentation);
     }

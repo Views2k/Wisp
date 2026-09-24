@@ -324,8 +324,9 @@ internal static class PowerTorqueGaugeVisualTests
                 var angle = gauge.CurrentNeedleAngle;
                 var nativeDisplay = gauge.Display;
                 var snapshot = PowerTorqueHudLayer.Capture(gauge, null);
-                var playback = snapshot.CreatePlayback();
                 var start = Stopwatch.Frequency;
+                var now = start;
+                var playback = PowerTorquePlayback(() => now);
                 playback.Update(snapshot, start);
                 var baselineCommands = playback.Build(start);
                 var firstDigit = (torque ? 25_000u : 20_000u) + (colored ? 30u : 10u);
@@ -339,7 +340,8 @@ internal static class PowerTorqueGaugeVisualTests
                 Dictionary<char, NativeTintedBitmap>? cachedDigits = null;
                 foreach (var (milliseconds, pulse) in new[] { (0, 0d), (200, .5), (400, 1d), (800, 0d) })
                 {
-                    var commands = playback.Build(start + Stopwatch.Frequency * milliseconds / 1_000);
+                    now = start + Stopwatch.Frequency * milliseconds / 1_000;
+                    var commands = playback.Build(now);
                     var numbers = commands.Where(IsNumber).ToArray();
                     Assert.Equal(baselineNumbers.Select(command => command.TextureId), numbers.Select(command => command.TextureId));
                     Assert.Equal(baselineCommands.Where(command => !IsNumber(command)), commands.Where(command => !IsNumber(command)));
@@ -445,9 +447,11 @@ internal static class PowerTorqueGaugeVisualTests
             BindingFlags.Instance | BindingFlags.NonPublic)!;
         inputProperty.SetValue(model, input);
         var snapshot = PowerTorqueHudLayer.Capture(gauge, model);
-        var playback = snapshot.CreatePlayback();
+        var now = start;
+        var playback = PowerTorquePlayback(() => now);
         playback.Update(snapshot, start);
         var changedAt = start + Stopwatch.Frequency / 2;
+        now = changedAt;
         var before = playback.Build(changedAt);
         bool IsNumber(DirectCompositionDrawCommand command) => command.TextureId is >= 20_010 and <= 20_019;
         Assert.All(before.Where(IsNumber), command => Assert.Equal(143 / 255f, command.TintR));
@@ -472,6 +476,12 @@ internal static class PowerTorqueGaugeVisualTests
         });
         Assert.Equal(before.Where(command => !IsNumber(command)), peak.Where(command => !IsNumber(command)));
     }
+
+    private static HudLayerPlayback PowerTorquePlayback(Func<long> clock) =>
+        (HudLayerPlayback)Activator.CreateInstance(
+            typeof(PowerTorqueHudLayer).GetNestedType("Playback", BindingFlags.NonPublic)!,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null, args: new object[] { clock }, culture: null)!;
 
     private static bool AssertNumberOpacity(Drawing drawing, DrawingGroup numbers)
     {

@@ -13,8 +13,8 @@ internal sealed class NativeNeedlePlayback
         NativeTachometerInterpolator.MaximumPlaybackDelayMilliseconds;
     private static readonly long NativeSampleFreshnessTicks =
         (long)Math.Round(Stopwatch.Frequency * NativeSampleFreshnessMilliseconds / 1_000d);
-    private readonly NativeTachometerInterpolator _angle = new();
-    private readonly NativeTachometerInterpolator _blur = new(allowNegativeValues: true);
+    private readonly NativeTachometerInterpolator _angle = new(minimumDelayMilliseconds: 20);
+    private readonly NativeTachometerInterpolator _blur = new(allowNegativeValues: true, minimumDelayMilliseconds: 20);
     private long _lastExactObservationTimestamp;
     private bool _hasNativeState;
 
@@ -28,6 +28,17 @@ internal sealed class NativeNeedlePlayback
     internal long StarvationReseedCount => _angle.StarvationReseedCount;
     internal bool HasFreshState(long timestamp) => _hasNativeState && IsFresh(timestamp);
 
+    internal bool TryCopyCompositorCurve(long nowTimestamp, Span<CompositorNeedlePoint> points,
+        out CompositorNeedleCurve curve)
+    {
+        curve = default;
+        if (!_hasNativeState || !IsFresh(nowTimestamp)) return false;
+        var freshUntil = _lastExactObservationTimestamp > long.MaxValue - NativeSampleFreshnessTicks
+            ? long.MaxValue : _lastExactObservationTimestamp + NativeSampleFreshnessTicks;
+        return CompositorNeedleCurveBuilder.TryCopy(_angle, _blur, nowTimestamp,
+            _lastExactObservationTimestamp, freshUntil, points, out curve);
+    }
+
     public bool Observe(
         int carOrdinal,
         uint gameTimestampMilliseconds,
@@ -36,8 +47,39 @@ internal sealed class NativeNeedlePlayback
         long nowTimestamp,
         long? receivedTimestamp,
         bool sourceInvalidated,
+        out NativeNeedleRenderState state) =>
+        ObserveCore(carOrdinal, gameTimestampMilliseconds, nativeAngle, nativeBlur, nowTimestamp,
+            receivedTimestamp, sourceInvalidated, deferSample: false, out state);
+
+    internal bool ObserveQueued(
+        int carOrdinal,
+        uint gameTimestampMilliseconds,
+        double? nativeAngle,
+        double? nativeBlur,
+        long nowTimestamp,
+        long? receivedTimestamp,
+        bool sourceInvalidated) =>
+        ObserveCore(carOrdinal, gameTimestampMilliseconds, nativeAngle, nativeBlur, nowTimestamp,
+            receivedTimestamp, sourceInvalidated, deferSample: true, out _);
+
+    private bool ObserveCore(
+        int carOrdinal,
+        uint gameTimestampMilliseconds,
+        double? nativeAngle,
+        double? nativeBlur,
+        long nowTimestamp,
+        long? receivedTimestamp,
+        bool sourceInvalidated,
+        bool deferSample,
         out NativeNeedleRenderState state)
     {
+        if (deferSample)
+        {
+            // Rejected pairs still observe the consumer clock, but cannot
+            // advance playback or refresh the last exact native observation.
+            _angle.RecordQueuedConsumptionClock(nowTimestamp);
+            _blur.RecordQueuedConsumptionClock(nowTimestamp);
+        }
         if (sourceInvalidated || carOrdinal <= 0)
         {
             Reset();
@@ -60,6 +102,7 @@ internal sealed class NativeNeedlePlayback
         {
             if (_hasNativeState && IsFresh(nowTimestamp))
             {
+                if (deferSample) { state = default; return true; }
                 return Sample(nowTimestamp, out state);
             }
 
@@ -77,6 +120,7 @@ internal sealed class NativeNeedlePlayback
         {
             if (_hasNativeState && IsFresh(nowTimestamp))
             {
+                if (deferSample) { state = default; return true; }
                 return Sample(nowTimestamp, out state);
             }
 
@@ -88,18 +132,12 @@ internal sealed class NativeNeedlePlayback
         var acceptedObservation = receivedAt <= nowTimestamp &&
                                   (!_hasNativeState || receivedAt > _lastExactObservationTimestamp ||
                                    nowTimestamp < _lastExactObservationTimestamp);
-        var angle = _angle.Observe(
-            carOrdinal,
-            gameTimestampMilliseconds,
-            angleValue,
-            nowTimestamp,
-            receivedTimestamp);
-        var blur = _blur.Observe(
-            carOrdinal,
-            gameTimestampMilliseconds,
-            blurValue,
-            nowTimestamp,
-            receivedTimestamp);
+        var angle = deferSample
+            ? _angle.ObserveQueued(carOrdinal, gameTimestampMilliseconds, angleValue, nowTimestamp, receivedTimestamp)
+            : _angle.Observe(carOrdinal, gameTimestampMilliseconds, angleValue, nowTimestamp, receivedTimestamp);
+        var blur = deferSample
+            ? _blur.ObserveQueued(carOrdinal, gameTimestampMilliseconds, blurValue, nowTimestamp, receivedTimestamp)
+            : _blur.Observe(carOrdinal, gameTimestampMilliseconds, blurValue, nowTimestamp, receivedTimestamp);
         _hasNativeState = _angle.AcceptedCarOrdinal is not null &&
                           _angle.AcceptedCarOrdinal == _blur.AcceptedCarOrdinal;
         if (_hasNativeState && acceptedObservation)

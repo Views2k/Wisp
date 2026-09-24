@@ -16,7 +16,8 @@ public sealed class NativeNeedlePlaybackTests
         Assert.True(playback.Observe(314, 1_020, 240, 0.40, Timestamp(20), Timestamp(20), false, out var observed));
         Assert.Equal(first, observed);
 
-        Assert.True(playback.Sample(Timestamp(50), out var sampled));
+        Assert.Equal(25, playback.PlaybackTargetDelayMilliseconds, 6);
+        Assert.True(playback.Sample(Timestamp(35), out var sampled));
         Assert.Equal(180, sampled.Angle, 6);
         Assert.Equal(0.10, sampled.Blur, 6);
     }

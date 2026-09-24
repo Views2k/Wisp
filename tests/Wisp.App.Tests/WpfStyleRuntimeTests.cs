@@ -59,13 +59,27 @@ public sealed class WpfStyleRuntimeTests
         Color decodedAnalogActiveAssistText = default;
         Exception? failure = null;
         using var completed = new ManualResetEventSlim();
+        using var stop = new CancellationTokenSource();
+        var activeStage = "Create application resources";
+        void Check(string name, Action action)
+        {
+            stop.Token.ThrowIfCancellationRequested();
+            Volatile.Write(ref activeStage, name);
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            _output.WriteLine($"WPF runtime stage started: {name}");
+            try { action(); }
+            finally { _output.WriteLine($"WPF runtime stage finished: {name}; elapsed={elapsed.Elapsed.TotalSeconds:F2}s"); }
+            stop.Token.ThrowIfCancellationRequested();
+        }
         var thread = new Thread(() =>
         {
+            ResourceOnlyApplication? application = null;
+            AppController? controller = null;
             try
             {
-                var application = new ResourceOnlyApplication();
+                application = new ResourceOnlyApplication { ShutdownMode = ShutdownMode.OnExplicitShutdown };
                 application.Resources = LoadApplicationResources();
-                AnalogHudSceneTests.AssertOnCurrentDispatcher();
+                Check(nameof(AnalogHudSceneTests), AnalogHudSceneTests.AssertOnCurrentDispatcher);
                 var hudChecks = new Action[]
                 {
                     ElectricHudSceneTests.AssertOnCurrentDispatcher,
@@ -82,9 +96,9 @@ public sealed class WpfStyleRuntimeTests
                 {
                     try
                     {
-                        check();
+                        Check(check.Method.DeclaringType!.Name, check);
                     }
-                    catch (Exception exception)
+                    catch (Exception exception) when (exception is not OperationCanceledException)
                     {
                         hudFailures.Add(new InvalidOperationException(
                             check.Method.DeclaringType?.Name, exception));
@@ -92,26 +106,27 @@ public sealed class WpfStyleRuntimeTests
                 }
                 if (hudFailures.Count != 0)
                     throw new AggregateException(hudFailures);
-                TachNeedleDiagnosticsTests.AssertOnCurrentDispatcher();
-                OverlayPresentationTests.AssertOnCurrentDispatcher();
-                OverlayGForcePlacementTests.AssertOnCurrentDispatcher();
-                OverlayElectricGaugePlacementTests.AssertOnCurrentDispatcher();
-                NativeRendererIntegrationTests.AssertOnCurrentDispatcher();
-                NativeRendererIntegrationTests.AssertOnCurrentDispatcher(cpuRendering: true);
-                CpuRenderingSettingsTests.AssertControllerPersistenceOnCurrentDispatcher();
-                NativeTintedBitmapTests.AssertOnCurrentDispatcher();
-                BoostGaugeVisualsTests.AssertOnCurrentDispatcher();
-                PowerTorqueGaugeVisualTests.AssertOnCurrentDispatcher();
-                PowerTorqueGaugeSettingsUiTests.AssertOnCurrentDispatcher();
-                BoostVacuumUiTests.AssertOnCurrentDispatcher();
-                StandaloneGaugeLayoutTests.AssertOnCurrentDispatcher();
-                GForceGaugeSizingUiTests.AssertOnCurrentDispatcher();
-                DriftGaugeTargetRangeTests.AssertOnCurrentDispatcher();
-                DriftGaugeZoneVisualTests.AssertOnCurrentDispatcher();
-                DriftGaugeSettingsUiTests.AssertOnCurrentDispatcher();
-                ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher();
-                NativeGaugeLifecycleTests.AssertConsumersOnCurrentDispatcher();
-                NativeRenderLifetimeTests.AssertConsumersOnCurrentDispatcher(_output.WriteLine);
+                Check(nameof(TachNeedleDiagnosticsTests), TachNeedleDiagnosticsTests.AssertOnCurrentDispatcher);
+                Check(nameof(OverlayPresentationTests), OverlayPresentationTests.AssertOnCurrentDispatcher);
+                Check(nameof(OverlayGForcePlacementTests), OverlayGForcePlacementTests.AssertOnCurrentDispatcher);
+                Check(nameof(OverlayElectricGaugePlacementTests), OverlayElectricGaugePlacementTests.AssertOnCurrentDispatcher);
+                Check("NativeRendererIntegrationTests hardware", () => NativeRendererIntegrationTests.AssertOnCurrentDispatcher());
+                Check("NativeRendererIntegrationTests WARP", () => NativeRendererIntegrationTests.AssertOnCurrentDispatcher(cpuRendering: true));
+                Check(nameof(CpuRenderingSettingsTests), CpuRenderingSettingsTests.AssertControllerPersistenceOnCurrentDispatcher);
+                Check(nameof(NativeTintedBitmapTests), NativeTintedBitmapTests.AssertOnCurrentDispatcher);
+                Check(nameof(BoostGaugeVisualsTests), BoostGaugeVisualsTests.AssertOnCurrentDispatcher);
+                Check(nameof(PowerTorqueGaugeVisualTests), PowerTorqueGaugeVisualTests.AssertOnCurrentDispatcher);
+                Check(nameof(PowerTorqueGaugeSettingsUiTests), PowerTorqueGaugeSettingsUiTests.AssertOnCurrentDispatcher);
+                Check(nameof(BoostVacuumUiTests), BoostVacuumUiTests.AssertOnCurrentDispatcher);
+                Check(nameof(StandaloneGaugeLayoutTests), StandaloneGaugeLayoutTests.AssertOnCurrentDispatcher);
+                Check(nameof(GForceGaugeSizingUiTests), GForceGaugeSizingUiTests.AssertOnCurrentDispatcher);
+                Check(nameof(DriftGaugeTargetRangeTests), DriftGaugeTargetRangeTests.AssertOnCurrentDispatcher);
+                Check(nameof(DriftGaugeZoneVisualTests), DriftGaugeZoneVisualTests.AssertOnCurrentDispatcher);
+                Check(nameof(DriftGaugeSettingsUiTests), DriftGaugeSettingsUiTests.AssertOnCurrentDispatcher);
+                Check(nameof(ApplicationUpdateCheckPolicyTests), ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher);
+                Check(nameof(NativeGaugeLifecycleTests), NativeGaugeLifecycleTests.AssertConsumersOnCurrentDispatcher);
+                Check(nameof(NativeRenderLifetimeTests), () => NativeRenderLifetimeTests.AssertConsumersOnCurrentDispatcher(_output.WriteLine));
+                Check("Begin rendered-control and window-style assertions", () => { });
                 decodedGearBackplate = ColorAt(
                     NativeAssetCache.Get(NativeGaugeMode.Digital, "HUD_Dial_Digital_Gear_1.png"),
                     75,
@@ -360,7 +375,7 @@ public sealed class WpfStyleRuntimeTests
                     GForceEnabled = true,
                     StartWithWindows = false
                 };
-                var controller = new AppController(
+                controller = new AppController(
                     nativeSettings,
                     new SettingsService(Path.Combine(Path.GetTempPath(), $"wisp-style-{Guid.NewGuid():N}.json")));
                 var gForceWindow = new GForceWindow(controller);
@@ -448,8 +463,6 @@ public sealed class WpfStyleRuntimeTests
                 Assert.True(Assert.IsType<Button>(mainWindow.FindName("CompatibilityImportButton")).IsEnabled);
                 mainWindow.Close();
                 gForceWindow.Close();
-                controller.DisposeAsync().AsTask().GetAwaiter().GetResult();
-                application.Shutdown();
             }
             catch (Exception exception)
             {
@@ -457,7 +470,23 @@ public sealed class WpfStyleRuntimeTests
             }
             finally
             {
-                completed.Set();
+                // Even a failed assertion must retire the windows/controllers.
+                // Otherwise native workers can publish into the next test's
+                // process-wide diagnostics capture after this collection ends.
+                void Cleanup(Action action)
+                {
+                    try { action(); }
+                    catch (Exception error) { failure = failure is null ? error : new AggregateException(failure, error); }
+                }
+                try
+                {
+                    Volatile.Write(ref activeStage, "Close windows and dispose application");
+                    if (application is not null)
+                        foreach (Window window in application.Windows.Cast<Window>().ToArray()) Cleanup(window.Close);
+                    if (controller is not null) Cleanup(() => controller.DisposeAsync().AsTask().GetAwaiter().GetResult());
+                    if (application is not null) Cleanup(application.Shutdown);
+                }
+                finally { completed.Set(); }
             }
         })
         {
@@ -466,10 +495,27 @@ public sealed class WpfStyleRuntimeTests
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
 
-        Assert.True(
-            completed.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken),
-            "WPF style/runtime STA verification did not finish within 30 seconds.");
-        thread.Join();
+        // This is the budget for the complete scene/host/UI matrix, not one
+        // renderer operation. Each individual readiness assertion keeps its
+        // existing bound. Slower CI WARP rendering needs a larger total budget.
+        var finished = false;
+        var stalledStage = string.Empty;
+        try
+        {
+            finished = completed.Wait(TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
+            if (!finished) stalledStage = Volatile.Read(ref activeStage);
+        }
+        finally
+        {
+            if (!finished) stop.Cancel();
+            // Never release the diagnostics collection while its STA is alive.
+            // Cancellation stops at the next stage boundary and runs cleanup.
+            // A genuinely wedged STA must fail this test process, not contaminate
+            // unrelated tests with live background renderer threads.
+            if (!thread.Join(TimeSpan.FromSeconds(30)))
+                Environment.FailFast($"WPF runtime STA failed to retire; stage={Volatile.Read(ref activeStage)}.");
+        }
+        Assert.True(finished, $"WPF style/runtime matrix exceeded 120 seconds in stage {stalledStage}.");
         Assert.Null(failure);
         Assert.Equal(Color.FromRgb(0x09, 0x0C, 0x11), resolvedColor);
         Assert.True(nativeDigitalPixels > 500);

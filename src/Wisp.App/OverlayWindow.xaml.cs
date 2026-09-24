@@ -10,6 +10,7 @@ namespace Wisp.App;
 
 public partial class OverlayWindow : Window
 {
+    internal INativeNeedleHistorySource NativeNeedleSource => _controller.NativeNeedleSource;
     private const uint DefaultToNearestMonitor = 2;
     private const double MinimalWidth = 160;
     private const double MinimalHeight = 120;
@@ -75,7 +76,7 @@ public partial class OverlayWindow : Window
         TractionCueThemeResources.Apply(Resources, ColorCustomization.ResolveTractionCue(controller.Settings));
         _windowDrag = new NonActivatingWindowDrag(this, controller.SaveOverlayPlacement);
         DataContext = controller.ViewModel;
-        NativeRendering.HudNativeHost.Attach(this);
+        NativeRendering.HudNativeHost.Attach(this, NativeNeedleSource);
         controller.ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         Closed += (_, _) => controller.ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         ApplyLayout(

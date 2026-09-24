@@ -53,6 +53,7 @@ internal sealed class NonActivatingWindowDrag : IDisposable
         }
 
         _interactive = interactive;
+        NativeRendering.HudNativeHost.SetInteractive(_window, interactive);
         if (!interactive)
         {
             EndDrag(savePlacement: true);

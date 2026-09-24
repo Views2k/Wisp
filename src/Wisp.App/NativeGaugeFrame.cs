@@ -31,7 +31,8 @@ public readonly record struct NativeGaugeFrame(
     NativeElectricGearState ElectricGearState = default,
     NativeDisplayedSpeedState DisplayedSpeedState = default,
     SpeedSourceMode SpeedSource = SpeedSourceMode.WheelIndicated,
-    ShiftCueVisualState ShiftCue = default)
+    ShiftCueVisualState ShiftCue = default,
+    long NativeSourceIdentity = 0)
 {
     public NativeAssistSnapshot NativeAssists => Assists ?? NativeAssistSnapshot.Unavailable();
 
@@ -39,6 +40,7 @@ public readonly record struct NativeGaugeFrame(
     {
         if (NativeGaugeGeometry.HasExactTachometerState(ExactRedline, TachometerMaximumRpm) ||
             NativeGaugeSourceInvalidated || CarOrdinal <= 0 || previous.CarOrdinal != CarOrdinal ||
+            NativeSourceIdentity != previous.NativeSourceIdentity ||
             !NativeGaugeGeometry.HasExactTachometerState(
                 previous.ExactRedline,
                 previous.TachometerMaximumRpm))

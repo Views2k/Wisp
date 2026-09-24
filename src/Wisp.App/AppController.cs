@@ -35,6 +35,7 @@ public sealed partial class AppController : IAsyncDisposable
     private readonly ForzaFocusService _forzaFocusService = new();
     private readonly IStartupRegistrationService _startupRegistrationService;
     private readonly NativeHudProcessService _nativeHudProcessService = new();
+    internal INativeNeedleHistorySource NativeNeedleSource => _nativeHudProcessService;
     private readonly NativeCompatibilityUpdateClient _compatibilityUpdates = NativeCompatibilityRuntime.CreateUpdateClient();
     private readonly CancellationTokenSource _compatibilityLifetime = new();
     private readonly WispUpdateClient _applicationUpdates = WispUpdateClient.CreateDefault();
@@ -2005,6 +2006,10 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void OnPacketAvailable(object? sender, EventArgs eventArgs)
     {
+        if (_disposed || _runtimeSuspended || Settings.RequiresSetup) return;
+        // This event runs on the receiver thread. Copy only accepted immutable
+        // telemetry; layout, calibration and controls remain owned by the UI.
+        if (_receiver.Latest is { } accepted) _nativeHudProcessService.PublishNeedleTelemetry(accepted);
         // Keep live telemetry independent from WPF's presentation cadence. Some
         // systems throttle CompositionTarget.Rendering while Wisp is in the
         // background, but packet delivery must still advance the HUD promptly.
@@ -3019,6 +3024,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void ResetControllerSession()
     {
+        _nativeHudProcessService.ResetNeedleTelemetry();
         if (_wasDrivingConnected)
         {
             _calibration.EndTelemetrySession();
@@ -3144,14 +3150,16 @@ public sealed partial class AppController : IAsyncDisposable
         int CarOrdinal,
         NativeAssistProviderStatus Status,
         bool HasAvailableCapabilities,
-        long NativeGaugeObservedTimestamp)
+        long NativeGaugeObservedTimestamp,
+        long NativeSourceIdentity)
     {
         public static NativeHudPublicationKey From(NativeHudSnapshot snapshot) => new(
             snapshot.Generation,
             snapshot.CarOrdinal,
             snapshot.Status,
             snapshot.HasAvailableCapabilities,
-            snapshot.NativeGaugeObservedTimestamp);
+            snapshot.NativeGaugeObservedTimestamp,
+            snapshot.NativeSourceIdentity);
     }
 
 }

@@ -24,22 +24,22 @@ public sealed class AnalogHudPlaybackTests
     }
 
     [Fact]
-    public void FallbackUsesTheExistingFortyMillisecondTimelineAndKeepsRawRpm()
+    public void LiveFallbackUsesTwentyMillisecondMinimumAndKeepsRawRpm()
     {
         var playback = new AnalogHudPlayback();
         playback.Observe(Frame(0, 1_000), Timestamp(0));
-        var latest = Frame(20, 5_000);
-        playback.Observe(latest, Timestamp(20));
+        var latest = Frame(10, 5_000);
+        playback.Observe(latest, Timestamp(10));
 
-        var middle = playback.Sample(Timestamp(50));
+        var middle = playback.Sample(Timestamp(25));
         Assert.False(middle.Native);
         Assert.Equal(3_000, middle.AppliedRpm!.Value, 6);
         Assert.Equal(210, middle.Angle, 6);
         Assert.Equal(latest, middle.Frame);
         Assert.Equal(5_000, middle.Frame.EngineRpm);
-        Assert.Equal(40, middle.PlaybackTargetDelayMilliseconds, 6);
+        Assert.Equal(20, middle.PlaybackTargetDelayMilliseconds, 6);
 
-        var endpoint = playback.Sample(Timestamp(60));
+        var endpoint = playback.Sample(Timestamp(30));
         Assert.Equal(5_000, endpoint.AppliedRpm!.Value, 6);
         Assert.Equal(270, endpoint.Angle, 6);
     }
@@ -49,9 +49,9 @@ public sealed class AnalogHudPlaybackTests
     {
         var playback = new AnalogHudPlayback();
         playback.Observe(Frame(0, 1_000), Timestamp(0));
-        playback.Observe(Frame(20, 5_000), Timestamp(20));
-        var before = playback.Sample(Timestamp(40));
-        var after = playback.Sample(Timestamp(50));
+        playback.Observe(Frame(10, 5_000), Timestamp(10));
+        var before = playback.Sample(Timestamp(20));
+        var after = playback.Sample(Timestamp(30));
 
         Assert.Equal(0, before.Blur);
         Assert.Equal(NativeGaugeGeometry.CombustionNeedleBlurRadians(after.Angle - before.Angle, .01), after.Blur, 12);
@@ -75,10 +75,10 @@ public sealed class AnalogHudPlaybackTests
 
         Assert.Equal(before.ReseedCount, after.ReseedCount);
         Assert.Equal(before.StarvationReseedCount, after.StarvationReseedCount);
-        Assert.Equal(2_200, after.AppliedRpm!.Value, 6);
+        Assert.Equal(4_200, after.AppliedRpm!.Value, 6);
         Assert.Equal(5_900, after.Frame.EngineRpm);
-        Assert.Equal(40, after.PlaybackTargetDelayMilliseconds, 6);
-        Assert.Equal(5_500, playback.Sample(Timestamp(85)).AppliedRpm!.Value, 6);
+        Assert.Equal(20, after.PlaybackTargetDelayMilliseconds, 6);
+        Assert.Equal(5_500, playback.Sample(Timestamp(65)).AppliedRpm!.Value, 6);
     }
 
     [Theory]
@@ -106,9 +106,9 @@ public sealed class AnalogHudPlaybackTests
 
         Assert.True(after.Native);
         Assert.Equal(before.ReseedCount, after.ReseedCount);
-        Assert.Equal(132, after.Angle, 6);
-        Assert.Equal(-.14, after.Blur, 6);
-        var later = playback.Sample(Timestamp(85));
+        Assert.Equal(152, after.Angle, 6);
+        Assert.Equal(-.04, after.Blur, 6);
+        var later = playback.Sample(Timestamp(65));
         Assert.True(later.Native);
         Assert.Equal(165, later.Angle, 6);
         Assert.Equal(.025, later.Blur, 6);
@@ -148,7 +148,7 @@ public sealed class AnalogHudPlaybackTests
         var after = playback.Sample(Timestamp(52));
 
         Assert.Equal(before.ReseedCount, after.ReseedCount);
-        Assert.Equal(2_200, after.AppliedRpm!.Value, 6);
+        Assert.Equal(4_200, after.AppliedRpm!.Value, 6);
         Assert.Equal(5_000, playback.Sample(Timestamp(85)).AppliedRpm!.Value, 6);
     }
 
@@ -199,14 +199,14 @@ public sealed class AnalogHudPlaybackTests
         playback.Observe(Frame(0, 1_000) with { NativeNeedleAngleDegrees = 120, NativeNeedleBlurAmount = -.20 }, Timestamp(0));
         playback.Observe(Frame(20, 5_000) with { NativeNeedleAngleDegrees = 240, NativeNeedleBlurAmount = .40 }, Timestamp(20));
 
-        var sample = playback.Sample(Timestamp(50));
+        var sample = playback.Sample(Timestamp(35));
         Assert.True(sample.Native);
         Assert.True(sample.NeedleVisible);
         Assert.Null(sample.AppliedRpm);
         Assert.Equal(180, sample.Angle, 6);
         Assert.Equal(.10, sample.Blur, 6);
         Assert.Equal(5_000, sample.Frame.EngineRpm);
-        Assert.Equal(40, sample.PlaybackTargetDelayMilliseconds, 6);
+        Assert.Equal(25, sample.PlaybackTargetDelayMilliseconds, 6);
     }
 
     [Fact]
@@ -218,15 +218,15 @@ public sealed class AnalogHudPlaybackTests
         {
             playback.Observe(Frame(0, 1_000) with { NativeNeedleAngleDegrees = 120, NativeNeedleBlurAmount = -.2 }, Timestamp(0));
             playback.Observe(Frame(20, 5_000) with { NativeNeedleAngleDegrees = 240, NativeNeedleBlurAmount = .4 }, Timestamp(20));
-            Assert.True(playback.Sample(Timestamp(50)).Native);
+            Assert.True(playback.Sample(Timestamp(35)).Native);
         }
 
         Assert.True(actual.HasNativeNeedle(Timestamp(60)));
         Assert.False(actual.HasNativeNeedle(Timestamp(200)));
         Assert.True(actual.HasNativeNeedle(Timestamp(50)));
 
-        var afterChecks = actual.Sample(Timestamp(55));
-        Assert.Equal(reference.Sample(Timestamp(55)), afterChecks);
+        var afterChecks = actual.Sample(Timestamp(40));
+        Assert.Equal(reference.Sample(Timestamp(40)), afterChecks);
         Assert.Equal(210, afterChecks.Angle, 6);
         Assert.Equal(.25, afterChecks.Blur, 6);
     }

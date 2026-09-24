@@ -856,7 +856,8 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             nativeHud.ElectricGearState,
             nativeHud.DisplayedSpeedState,
             speedSource,
-            CalculateShiftCue(rawShiftState ?? state, nativeHud, packetAge));
+            CalculateShiftCue(rawShiftState ?? state, nativeHud, packetAge),
+            nativeHud.NativeSourceIdentity);
         NativeGaugeFrame = nextNativeGaugeFrame.PreserveStableTachometerState(NativeGaugeFrame);
         RecordShiftTestSample(rawShiftState ?? state, CalibratedShiftPerformance(nativeHud.ShiftPerformance), NativeGaugeFrame.ShiftCue, nativeHud, packetAge);
         HasLiveTelemetry = true;
@@ -1004,6 +1005,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             NativeElectricMaximumSpeed = nativeHud.NativeElectricMaximumSpeed,
             NativeGaugeObservedTimestamp = nativeHud.NativeGaugeObservedTimestamp,
             NativeGaugeSourceInvalidated = IsNativeGaugeSourceInvalidated(nativeHud),
+            NativeSourceIdentity = nativeHud.NativeSourceIdentity,
             ElectricGearState = nativeHud.ElectricGearState,
             DisplayedSpeedState = nativeHud.DisplayedSpeedState
         };
@@ -1012,11 +1014,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     }
 
     internal static bool IsNativeGaugeSourceInvalidated(NativeHudSnapshot nativeHud) =>
-        !nativeHud.HasAvailableCapabilities &&
-        nativeHud.Status is NativeAssistProviderStatus.Unavailable or
-            NativeAssistProviderStatus.GameNotRunning or
-            NativeAssistProviderStatus.UnsupportedBuild or
-            NativeAssistProviderStatus.AccessDenied;
+        nativeHud.NativeGaugeSourceInvalidated;
 
     public void UpdateWaiting(
         ReceiverStatistics statistics,

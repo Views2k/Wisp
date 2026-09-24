@@ -9,10 +9,17 @@ internal static class DigitalHudScene
     internal static DirectCompositionDrawCommand[] Build(DigitalHudSample sample,
         bool tractionActive, AnalogHudColor color, DigitalHudLayout? layout = null)
     {
-        if (!sample.Available) return [];
+        var commands = new List<DirectCompositionDrawCommand>(24);
+        AppendCommands(commands, sample, tractionActive, color, layout);
+        return commands.ToArray();
+    }
+
+    internal static void AppendCommands(List<DirectCompositionDrawCommand> commands, DigitalHudSample sample,
+        bool tractionActive, AnalogHudColor color, DigitalHudLayout? layout = null)
+    {
+        if (!sample.Available) return;
         var frame = sample.Frame;
         layout ??= DigitalHudLayout.Authored(frame);
-        var commands = new List<DirectCompositionDrawCommand>(24);
         if (frame.IsElectric)
         {
             var gauge = NativeElectricGearModel.GaugeAsset(frame.ElectricGearState, digital: true);
@@ -62,7 +69,6 @@ internal static class DigitalHudScene
                 NativeElectricGearModel.IsMultiGear(frame.ElectricGearState) ? 234 : 215);
             commands.Add(Image(NativeAssetFamily.Electric, "HUD_EV_PWR.png", layout.PowerLabel, .67));
         }
-        return commands.ToArray();
     }
 
     private static DirectCompositionDrawCommand Image(NativeAssetFamily family, string file, DigitalHudQuad quad, double opacity = 1) =>

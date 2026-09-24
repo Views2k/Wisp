@@ -21,10 +21,17 @@ internal static class ElectricHudScene
     internal static DirectCompositionDrawCommand[] Build(ElectricHudSample sample,
         bool tractionActive, AnalogHudColor color, ElectricHudLayout? layout = null)
     {
-        var frame = sample.Frame;
-        if (!frame.IsElectric) return [];
-        layout ??= ElectricHudLayout.Authored;
         var commands = new List<DirectCompositionDrawCommand>(40);
+        AppendCommands(commands, sample, tractionActive, color, layout);
+        return commands.ToArray();
+    }
+
+    internal static void AppendCommands(List<DirectCompositionDrawCommand> commands, ElectricHudSample sample,
+        bool tractionActive, AnalogHudColor color, ElectricHudLayout? layout = null)
+    {
+        var frame = sample.Frame;
+        if (!frame.IsElectric) return;
+        layout ??= ElectricHudLayout.Authored;
         commands.Add(Image("SpeedDial.png", layout.Dial));
         var gaugeAsset = NativeElectricGearModel.GaugeAsset(frame.ElectricGearState, digital: false);
         if (gaugeAsset is not null) commands.Add(Image(gaugeAsset, layout.Dial));
@@ -72,7 +79,6 @@ internal static class ElectricHudScene
             AddPowerBar(commands, layout, sample.PowerBar);
             commands.Add(Image("HUD_EV_PWR.png", layout.PowerLabel, .67));
         }
-        return commands.ToArray();
     }
 
     private static DirectCompositionDrawCommand Image(string file, AnalogHudRect bounds, double opacity = 1) =>

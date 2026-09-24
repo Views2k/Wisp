@@ -76,8 +76,11 @@ internal static class MainHudLayer
             _snapshot = (DigitalSnapshot)snapshot;
             _playback.ObserveQueued(_snapshot.Frame, timestamp, System.Diagnostics.Stopwatch.GetTimestamp());
         }
-        internal override DirectCompositionDrawCommand[] Build(long timestamp) => _snapshot is null ? [] :
-            DigitalHudScene.Build(_playback.Sample(timestamp), _snapshot.Traction, _snapshot.Color, _snapshot.Layout);
+        internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
+        {
+            if (_snapshot is not null)
+                DigitalHudScene.AppendCommands(commands, _playback.Sample(timestamp), _snapshot.Traction, _snapshot.Color, _snapshot.Layout);
+        }
     }
     private static AnalogHudColor Color(System.Windows.FrameworkElement control)
     {
@@ -95,28 +98,41 @@ internal static class MainHudLayer
         internal override HudLayerPlayback CreatePlayback() => new AnalogPlayback();
         internal override object CompatibilityKey => (Frame.CarOrdinal, Frame.Unit, Frame.ExactRedline,
             Frame.TachometerMaximumRpm, Frame.GearDisplayMode, Frame.NativeGaugeSourceInvalidated, Layout, Traction, Color,
-            Frame.ShiftCue.Appearance);
+            Frame.ShiftCue.Appearance, Frame.NativeSourceIdentity);
     }
     private sealed class AnalogPlayback : HudLayerPlayback
     {
         private readonly AnalogHudPlayback _playback = new();
+        internal override void SetNativeSource(INativeNeedleHistorySource? source) => _playback.SetNativeSource(source);
+        internal override bool RefreshNativeHistory(long timestamp) => _playback.RefreshNativeHistory(timestamp);
         private AnalogHudSample _sample;
         internal override (string Kind, AnalogHudSample Sample)? NeedleDiagnostic => ("analogue", _sample);
         private bool _builtNative;
         internal override bool CanReuse(long timestamp) => _builtNative == _playback.HasNativeNeedle(timestamp);
         private AnalogSnapshot? _snapshot;
+        internal override bool SupportsCompositorNeedle => true;
+        internal override bool TryCopyCompositorNeedle(long timestamp, Span<CompositorNeedlePoint> points,
+            out CompositorNeedleCurve curve, out CompositorNeedleGeometry geometry)
+        {
+            curve = default;
+            geometry = default;
+            if (_snapshot is null || _snapshot.Frame.IsElectric ||
+                !_playback.TryCopyCompositorCurve(timestamp, points, out curve)) return false;
+            geometry = CompositorNeedleGeometry.Create(_snapshot.Layout);
+            return true;
+        }
         internal override void Update(HudLayerSnapshot snapshot, long timestamp)
         {
             _snapshot = (AnalogSnapshot)snapshot;
             _playback.ObserveQueued(_snapshot.Frame, timestamp, System.Diagnostics.Stopwatch.GetTimestamp());
         }
-        internal override DirectCompositionDrawCommand[] Build(long timestamp)
+        internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
         {
-            if (_snapshot is null) return [];
+            if (_snapshot is null) return;
             var sample = _playback.Sample(timestamp);
             _builtNative = sample.Native;
             _sample = sample;
-            return AnalogHudScene.Build(sample.Frame, sample.Angle, sample.Blur, sample.NeedleVisible,
+            AnalogHudScene.AppendCommands(commands, sample.Frame, sample.Angle, sample.Blur, sample.NeedleVisible,
                 _snapshot.Traction, _snapshot.Color, _snapshot.Layout, sample.AppliedRpm);
         }
     }
@@ -148,13 +164,13 @@ internal static class MainHudLayer
             _snapshot = (ElectricSnapshot)snapshot;
             _playback.ObserveQueued(_snapshot.Frame, timestamp, System.Diagnostics.Stopwatch.GetTimestamp());
         }
-        internal override DirectCompositionDrawCommand[] Build(long timestamp)
+        internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
         {
-            if (_snapshot is null) return [];
+            if (_snapshot is null) return;
             var sample = _playback.Sample(timestamp);
             _builtNative = sample.Native;
             _sample = sample;
-            return ElectricHudScene.Build(sample, _snapshot.Traction, _snapshot.Color, _snapshot.Layout);
+            ElectricHudScene.AppendCommands(commands, sample, _snapshot.Traction, _snapshot.Color, _snapshot.Layout);
         }
     }
 }

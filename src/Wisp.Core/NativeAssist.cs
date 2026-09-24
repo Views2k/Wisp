@@ -116,8 +116,13 @@ public sealed record NativeHudSnapshot(
     long NativeGaugeObservedTimestamp = 0L,
     NativeElectricGearState ElectricGearState = default,
     NativeDisplayedSpeedState DisplayedSpeedState = default,
-    ShiftCuePerformance? ShiftPerformance = null)
+    ShiftCuePerformance? ShiftPerformance = null,
+    long NativeSourceIdentity = 0)
 {
+    public bool NativeGaugeSourceInvalidated => !HasAvailableCapabilities &&
+        Status is NativeAssistProviderStatus.Unavailable or NativeAssistProviderStatus.GameNotRunning or
+            NativeAssistProviderStatus.UnsupportedBuild or NativeAssistProviderStatus.AccessDenied;
+
     public bool HasNativeNeedleState =>
         double.IsFinite(NativeNeedleAngleDegrees) &&
         double.IsFinite(NativeNeedleBlurAmount);
@@ -138,7 +143,8 @@ public sealed record NativeHudSnapshot(
     public static NativeHudSnapshot Unavailable(
         NativeAssistProviderStatus status = NativeAssistProviderStatus.Unavailable,
         ulong generation = 0,
-        int carOrdinal = 0) =>
+        int carOrdinal = 0,
+        long nativeSourceIdentity = 0) =>
         new(
             false,
             generation,
@@ -146,7 +152,8 @@ public sealed record NativeHudSnapshot(
             status,
             ExactRedlineResult.Unavailable(ToExactRedlineStatus(status)),
             0,
-            NativeAssistSnapshot.Unavailable(status, generation, carOrdinal));
+            NativeAssistSnapshot.Unavailable(status, generation, carOrdinal),
+            NativeSourceIdentity: nativeSourceIdentity);
 
     private static bool IsUnitRatio(double value) =>
         double.IsFinite(value) && value is >= 0 and <= 1;
