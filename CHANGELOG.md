@@ -51,7 +51,7 @@ Notable changes to Wisp are recorded here.
 
 - Extend the native renderer to the EV and Digital HUDs, supplementary gauges, G-force meter, and text layouts. Preserve artwork, colors, needle behavior, smoothing controls, and the WPF fallback.
 - Store G-force trails in force space so scale changes reproject the whole trail together, and interpolate the displayed dot between telemetry samples.
-- Wrap attached EV tire-temperature, power, and torque gauges closely around the speedometer's right side with a smaller attachment baseline. Retain individual size controls and detached placement.
+- Move attached EV tire-temperature, power, and torque gauges closer to the speedometer's right side and reduce their default size. Retain individual size controls and detached placement.
 - Share the EV attachment geometry between the live HUD and Appearance preview, and retain enabled detached gauges in the preview through car and tune changes.
 - Preserve settings, HUD profiles, tire calibration, and recorded runs.
 
@@ -102,7 +102,7 @@ Notable changes to Wisp are recorded here.
 - Add soft fades at overflowing scroll viewport edges and improve nested scrolling without fading the scrollbars.
 - Allow the G-force meter to be disabled in every layout, rename Two boxes to Box, and add independent dot and trail colors that carry with HUD profiles.
 - Remove the redundant Setup page. Keep connection help in Diagnostics and use Fullscreen in FH6 setup instructions.
-- Make the existing connection status open a panel explaining game detection, telemetry, and HUD visibility with a relevant next step, without moving the status.
+- Add a panel to the connection status with game detection, telemetry, and HUD visibility details and help for the current connection state. Keep the status in place.
 - Keep common controls visible and group detailed explanations and fine adjustments under themed More options sections.
 
 ### Drift guidance
@@ -208,7 +208,7 @@ Wisp 1.1 maintenance release.
 
 - Bring update, retention, boost, and developer documentation into line with the application; clarify older screenshots and link current downloads.
 - Organize detailed release notes and document shader regeneration.
-- Match setup's particle material and depth styling to the website without low-opacity gradient banding.
+- Match setup's particle background to the website and smooth out banding in faint gradients.
 - Accept shortened stable release versions while preserving numeric installer identity and verification.
 
 ## 1.0.12 - 2026-09-04

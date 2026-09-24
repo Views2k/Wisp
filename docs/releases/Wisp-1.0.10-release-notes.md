@@ -11,7 +11,7 @@ These notes cover the changes since 1.0.8.
 - Added session top speed, peak power, and peak torque, with one reset action and automatic reset when the car changes.
 - Added an update-available Dashboard banner and an optional startup check limited to once every 24 hours. Downloads and installation still require confirmation.
 - Added a customizable global shortcut for showing or hiding the overlay.
-- Added bounded local debug logging with 24-hour automatic expiry, seven-day retention, and an issue-ready ZIP export.
+- Added local debug logging with storage limits, 24-hour automatic expiry, seven-day retention, and a ZIP export for issue reports.
 - Added one continuous color editor for the app accent, background surfaces, HUD border, three gauge-gradient colors, and traction hook cue.
 - Added named HUD profiles that save complete visual combinations while keeping tire calibration, overlay positions, telemetry, startup, update, and debug settings separate.
 - Profiles support Apply, Update, Rename, and Delete, with saving available from Appearance. Hotkey settings also stay separate from profiles.

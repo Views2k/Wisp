@@ -1,6 +1,6 @@
 # Wisp 2.4
 
-Wisp 2.4 is a performance hotfix that fixes the G-SYNC/VRR needle issue and improves rendering efficiency. It improves how Wisp delivers the overlay to Windows, separates needle motion from ordinary HUD drawing and UI work, and fixes unnecessary wakeups, allocations and rendering-state transitions found during the investigation.
+Wisp 2.4 fixes the G-SYNC/VRR needle issue and improves rendering efficiency. It changes how Wisp delivers the overlay to Windows, separates needle motion from ordinary HUD drawing and UI work, and fixes unnecessary wakeups, allocations and rendering-state transitions found during the investigation.
 
 The symptom was unusually misleading: the game could remain smooth while Wisp's needle looked as though it was running at a lower frame rate. Switching away from Forza, or disabling G-SYNC, made the needle smoother immediately. That made the stock tachometer in the same focused game the most useful comparison.
 
@@ -12,7 +12,7 @@ When the main HUD fits entirely on one monitor, its native presentation window n
 
 Wisp also requests **passive updates** on its native presentation windows and the shared WPF overlay windows. This tells Windows to update those windows when desktop composition is already running for other reasons. The request is applied when the window is configured, and its result is included in debug exports.
 
-I reviewed how transparent overlays coexist with variable refresh rate, including window bounds, flip presentation and hardware overlay availability. Thanks to **[fredemmott](https://github.com/OpenKneeboard/OpenKneeboard/issues/677#issuecomment-3250237599)** for sharing guidance from Microsoft's Direct3D team in the OpenKneeboard investigation. His explanation gave me a concrete basis for these changes and a much better direction for the diagnosis.
+I reviewed how transparent overlays coexist with variable refresh rate, including window bounds, flip presentation and hardware overlay availability. Thanks to **[fredemmott](https://github.com/OpenKneeboard/OpenKneeboard/issues/677#issuecomment-3250237599)** for sharing guidance from Microsoft's Direct3D team in the OpenKneeboard investigation. His explanation helped me choose what to test next.
 
 ### Needle motion gets its own update path
 
@@ -28,7 +28,7 @@ The direct path keeps native-angle input priority and handles car changes, RPM-s
 
 Live RPM playback now starts with a **20 ms minimum buffer**, with adaptive protection up to 75 ms when the input needs more buffering. Needle curves use accepted observations and stop when the input becomes stale.
 
-The audit also produced several smaller fixes that matter together:
+The investigation also led to these fixes:
 
 - **Consume waiting input before advancing playback.** After a render wait, queued needle history is read before playback moves forward. This avoids processing fresh observations against a playback clock that has already advanced past them.
 - **Fix repeated wakeups from tiny waits.** A positive wait shorter than a millisecond is rounded up instead of becoming a zero-length poll. This removes unnecessary wakeups and gauge refresh attempts near timing boundaries.
@@ -44,7 +44,7 @@ Hardware rendering also requests a higher GPU scheduling class and device priori
 
 ### Better evidence when something goes wrong
 
-Debug exports identify the exact build and rendering path and include more detail about needle input, authored motion, presentation waits and passive-update requests. This makes it easier to distinguish old input, a delayed worker, a rejected native operation and a presentation problem.
+Debug exports identify the exact build and rendering path and include more detail about needle input, animation curves, presentation waits and passive-update requests. This makes it easier to distinguish old input, a delayed worker, a rejected native operation and a presentation problem.
 
 The added timing details help follow accepted input through the needle worker and into Windows composition, alongside the visible in-game result.
 
@@ -52,13 +52,13 @@ The added timing details help follow accepted input through the needle worker an
 
 ## How this builds on the earlier CPU-rendering fix
 
-The earlier [tachometer investigation in #30](https://github.com/Views2k/Wisp/issues/30) already included G-SYNC as a possible factor. It found real timing and drawing problems, and the CPU-rendering option helped the people who reported back. That was a useful result and remains part of the history of this fix.
+The earlier [tachometer investigation in #30](https://github.com/Views2k/Wisp/issues/30) already included G-SYNC as a possible factor. It found real timing and drawing problems, and the CPU-rendering option helped the people who reported back.
 
 CPU rendering changes where Wisp rasterizes its pixels. Windows still composes the overlay afterward. I [noted that distinction in the earlier issue](https://github.com/Views2k/Wisp/issues/30#issuecomment-5617134893), but the available evidence had not isolated which part of that delivery path caused the remaining focused-game symptom.
 
 My earlier diagnostics concentrated on telemetry reception, CPU drawing and update submission. Those stages could look healthy while the needle still looked uneven. I then expanded the investigation to the actual overlay window and composition path, and used the stock needle in the same focused scene as the visual reference. I set aside capture-based experiments that changed the behavior being investigated.
 
-The later investigation separated four parts of the problem: receiving needle data, publishing it from the UI, drawing the HUD, and handing its windows and motion to Windows composition. That exposed an avoidable UI dependency and led to the independent needle path. The external-overlay guidance then provided a concrete reason to test monitor-sized hosting and passive updates. Those changes address a different boundary from the earlier CPU-rendering option.
+The later investigation separated four parts of the problem: receiving needle data, publishing it from the UI, drawing the HUD, and handing its windows and motion to Windows composition. That exposed an avoidable UI dependency and led to the independent needle path. The external-overlay guidance then provided a concrete reason to test monitor-sized hosting and passive updates. These changes affect how Windows displays the HUD; the earlier CPU option changed how Wisp draws it.
 
 For other overlay developers, the useful lesson is to check the actual window and presentation setup alongside drawing cost. Microsoft's [flip-model guidance](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/for-best-performance--use-dxgi-flip-model) explains how overlapping desktop content can affect composition and hardware overlay paths. Its [DirectComposition documentation](https://learn.microsoft.com/en-us/windows/win32/directcomp/basic-concepts#cross-device-visual-trees) also describes how independently updated visuals can share a composition tree.
 

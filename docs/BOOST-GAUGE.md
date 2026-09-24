@@ -5,7 +5,7 @@ The gauge reads pressure directly from the boost channel in the FH6 Data Out pac
 
 ## Availability
 
-The existing gauge visibility toggle controls the gauge on combustion cars.
+The gauge visibility toggle controls the gauge on combustion cars.
 Naturally aspirated cars show a stationary zero gauge, so you can leave it
 enabled without knowing whether a tune has forced induction.
 
@@ -19,7 +19,7 @@ both layouts and the Appearance preview; FH6 telemetry remains in PSI internally
 
 ## Digital layout
 
-Digital mode adds one slim rail beneath the existing tachometer rail. The rail
+Digital mode adds one slim rail beneath the tachometer rail. The rail
 uses the same slanted geometry and marker treatment as the Native HUD. A short
 connector joins the two rails. Digital placement stays fixed to the HUD.
 
@@ -34,8 +34,9 @@ positive pressure.
 
 Analogue mode uses a circular 0 to 70 PSI gauge with numbered 10 PSI intervals
 and intermediate 5 PSI ticks, or a 0 to 5 bar scale with numbered 1 bar intervals.
-The center readout shows whole PSI or bar to one decimal place. The needle and
-readout use the Native HUD's existing typography, materials, and motion style.
+The center readout shows whole PSI or bar to one decimal place. The readout
+matches the Native HUD's typography and shading, and the needle uses the same
+motion style.
 With vacuum enabled, the scale extends to -20 PSI or -1 bar.
 
 The readout color can follow the needle position or remain white. The Analogue
@@ -51,7 +52,7 @@ gradient without changing the displayed pressure value.
 
 The gradient start, middle, and end colors are independently adjustable. The
 Stock choice keeps the Digital gauge neutral. Tire-temperature markers use
-neighboring colors from the same gradient so attached gauges remain coordinated.
+neighboring colors from the same gradient.
 
 ## Controls
 

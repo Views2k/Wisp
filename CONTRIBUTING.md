@@ -30,9 +30,10 @@ remain subject to the same review, validation, and merge-approval rules.
 
 - Preserve Wisp's loopback-only telemetry, read-only FH6 access, and
   fail-closed compatibility checks.
-- Keep each live HUD attached to its renderer's lifecycle. The native analogue
-  renderer uses the DXGI frame-latency wait handle; WPF views use their existing
-  compositor lifecycle. Do not add polling timers or duplicate gauge updates.
+- Keep each live HUD attached to its renderer's lifecycle. Native presentation
+  uses a display-rate pacing timer and DXGI frame-latency readiness checks; WPF
+  views use their existing compositor lifecycle. Reuse these mechanisms rather
+  than adding polling timers or duplicate gauge updates.
 - Add regression coverage for behavior changes and update existing contracts
   when an intentional interface changes.
 - Keep settings backward-compatible. New settings require defaults,

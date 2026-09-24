@@ -93,8 +93,8 @@ km/h = m/s * 3.6
 
 A missing, incompatible, or implausible profile makes wheel-indicated speed
 unavailable. Wisp does not substitute ground speed, a non-driven axle, or a
-generic tire radius. A brief impossible wheel sample can retain the last valid
-same-car value instead of presenting a believable but fabricated replacement.
+generic tire radius. A brief invalid wheel sample can retain the last valid
+same-car value.
 
 The default smoothing value is zero. Optional smoothing is applied after the
 physical calculation using an exponential filter. The slider sets its time
