@@ -19,6 +19,58 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
     }
     public void Dispose() => Reset();
 
+    [Fact]
+    public void IndependentMotionPreservesExpiredCurveAndContentRejectionEvidence()
+    {
+        TachDiagnostics.SetEnabled(true);
+        var sample = Sample() with
+        {
+            Stage = "compositor_motion",
+            Result = "ready",
+            CurveEndTimestamp = Ticks(102),
+            CompositorCommitTimestamp = Ticks(105),
+            MotionGeneration = 7,
+            MotionGeometryAccepted = false
+        };
+        TachDiagnostics.RecordRenderer(in sample);
+        var row = Assert.Single(Snapshot().RendererRecent);
+        Assert.Equal(sample.CurveEndTimestamp, row.CurveEndTimestamp);
+        Assert.Equal(sample.CompositorCommitTimestamp, row.CompositorCommitTimestamp);
+        Assert.Equal(7, row.MotionGeneration);
+        Assert.False(row.MotionGeometryAccepted);
+        Assert.Equal("compositor_motion", Assert.Single(Interval().Renderer).Stage);
+        var legacy = JsonSerializer.Deserialize<TachRendererDiagnostic>("{}");
+        Assert.Null(legacy.CurveEndTimestamp);
+        Assert.Null(legacy.CompositorCommitTimestamp);
+        Assert.Null(legacy.MotionGeneration);
+        Assert.Null(legacy.MotionGeometryAccepted);
+    }
+
+    [Theory]
+    [InlineData(true, 0, 0, 4, 1)]
+    [InlineData(true, -1073741790, -2147024891, 2, 0)]
+    [InlineData(false, int.MinValue, 1, -1, int.MinValue)]
+    public void CachedPriorityResultsSurviveLoggingStartAndRestart(
+        bool attempted, int processStatus, int deviceStatus, int processClass, int devicePriority)
+    {
+        var priority = new TachGpuPriorityDiagnostic(attempted, 4, processStatus, processStatus,
+            processClass, 1, deviceStatus, deviceStatus, devicePriority);
+        var sample = Sample() with { GpuPriority = priority };
+        TachDiagnostics.RecordRenderer(in sample);
+        Assert.Null(TachDiagnostics.Snapshot());
+        for (var capture = 0; capture < 2; capture++)
+        {
+            TachDiagnostics.SetEnabled(true);
+            TachDiagnostics.RecordRenderer(in sample);
+            var row = Assert.Single(TachDiagnostics.Snapshot()!.RendererRecent);
+            Assert.Same(priority, row.GpuPriority);
+            var restored = JsonSerializer.Deserialize<TachRendererDiagnostic>(JsonSerializer.Serialize(row));
+            Assert.Equal(priority, restored.GpuPriority);
+            TachDiagnostics.SetEnabled(false);
+        }
+        Assert.Null(JsonSerializer.Deserialize<TachRendererDiagnostic>("{}").GpuPriority);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -172,6 +224,62 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
     }
 
     [Fact]
+    public void PacingDurationKeepsMeasuredZeroAndMissingCoverageDistinct()
+    {
+        TachDiagnostics.SetEnabled(true);
+        var sample = WaitSample() with { PacingWaitTicks = Ticks(4) };
+        TachDiagnostics.RecordRenderer(in sample);
+        var zero = sample with { PacingWaitTicks = 0 };
+        TachDiagnostics.RecordRenderer(in zero);
+        var missing = sample with { PacingWaitTicks = null };
+        TachDiagnostics.RecordRenderer(in missing);
+        var invalid = sample with { PacingWaitTicks = -1 };
+        TachDiagnostics.RecordRenderer(in invalid);
+
+        Assert.Equal(new long?[] { Ticks(4), 0, null, null }, Snapshot().RendererRecent.Select(value => value.PacingWaitTicks));
+        var interval = Interval();
+        var count = Assert.Single(interval.Renderer);
+        Assert.Equal(4, count.Count);
+        Assert.Equal(2, count.PacingWaitSamples);
+        Assert.Equal(4, count.TotalPacingWaitMilliseconds!.Value, 6);
+        Assert.Equal(4, count.MaximumPacingWaitMilliseconds!.Value, 6);
+        Assert.NotNull(TachDiagnosticReport.SanitizeInterval(interval));
+    }
+
+    [Fact]
+    public void PacingPolicyAndFailureOutcomesRemainDistinct()
+    {
+        TachDiagnostics.SetEnabled(true);
+        var sample = WaitSample();
+        var samples = new[]
+        {
+            sample,
+            sample with { PresentationRefreshRate = 144 },
+            sample with { PacingWaitReturnCode = 258 },
+            sample with { PresentationSyncInterval = 1, PresentationRefreshRate = 0,
+                PacingHResult = unchecked((int)0x80070005), PacingWaitReturnCode = uint.MaxValue },
+            sample with { PresentationSyncInterval = null, PresentationRefreshRate = null,
+                PacingHResult = null, PacingWaitReturnCode = null, PacingWaitTicks = null }
+        };
+        foreach (var value in samples) TachDiagnostics.RecordRenderer(in value);
+
+        Assert.Equal(samples, Snapshot().RendererRecent);
+        var interval = Interval();
+        Assert.Equal(samples.Length, interval.Renderer.Length);
+        for (var index = 0; index < samples.Length; index++)
+        {
+            var count = interval.Renderer[index];
+            Assert.Equal(1, count.Count);
+            Assert.Equal(samples[index].PresentationSyncInterval, count.PresentationSyncInterval);
+            Assert.Equal(samples[index].PresentationRefreshRate, count.PresentationRefreshRate);
+            Assert.Equal(samples[index].PacingHResult, count.PacingHResult);
+            Assert.Equal(samples[index].PacingWaitReturnCode, count.PacingWaitReturnCode);
+        }
+        Assert.NotNull(TachDiagnosticReport.SanitizeInterval(interval));
+        Assert.Contains("synchronized presentation fallback is active", TachDiagnosticReport.Build([interval], Snapshot()));
+    }
+
+    [Fact]
     public void DifferentWin32WaitOutcomesRemainDistinctInPersistedCounts()
     {
         TachDiagnostics.SetEnabled(true);
@@ -217,6 +325,8 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
             WaitPrecheckTicks = -2,
             WaitCallTicks = -3,
             WaitPostcheckTicks = -4,
+            PacingWaitTicks = -6,
+            PresentationSyncInterval = 5,
             CpuThreadTicks = -5,
             SwapChainGeneration = 0
         };
@@ -226,6 +336,8 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         Assert.Null(clean.WaitPrecheckTicks);
         Assert.Null(clean.WaitCallTicks);
         Assert.Null(clean.WaitPostcheckTicks);
+        Assert.Null(clean.PacingWaitTicks);
+        Assert.Null(clean.PresentationSyncInterval);
         Assert.Null(clean.CpuThreadTicks);
         Assert.Null(clean.SwapChainGeneration);
         var missing = Assert.Single(Interval().Renderer);
@@ -235,6 +347,9 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         Assert.Null(missing.TotalWaitCallMilliseconds);
         Assert.Null(missing.MaximumWaitCallMilliseconds);
         Assert.Null(missing.TotalWaitPostcheckMilliseconds);
+        Assert.Equal(0, missing.PacingWaitSamples);
+        Assert.Null(missing.TotalPacingWaitMilliseconds);
+        Assert.Null(missing.MaximumPacingWaitMilliseconds);
         Assert.Equal(0, missing.SwapChainGenerationSamples);
         Assert.Null(missing.MinimumSwapChainGeneration);
         Assert.Null(missing.MaximumSwapChainGeneration);
@@ -247,6 +362,9 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         Assert.Equal(1, measured.WaitCallSamples);
         Assert.Equal(0d, measured.TotalWaitCallMilliseconds);
         Assert.Equal(0d, measured.MaximumWaitCallMilliseconds);
+        Assert.Equal(1, measured.PacingWaitSamples);
+        Assert.Equal(0d, measured.TotalPacingWaitMilliseconds);
+        Assert.Equal(0d, measured.MaximumPacingWaitMilliseconds);
         Assert.Equal(1, measured.CpuThreadSamples);
         Assert.Equal(0, measured.TotalCpuThreadMilliseconds);
     }
@@ -417,6 +535,11 @@ public sealed class TachRendererDiagnosticsTests : IDisposable
         WaitPrecheckTicks = 0,
         WaitCallTicks = 0,
         WaitPostcheckTicks = 0,
+        PacingWaitTicks = 0,
+        PresentationSyncInterval = 0,
+        PresentationRefreshRate = 240,
+        PacingHResult = 0,
+        PacingWaitReturnCode = 0,
         CpuThreadTicks = 0,
         SwapChainGeneration = 1,
         WaitReturnCode = 1

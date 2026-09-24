@@ -4,7 +4,7 @@ using Wisp.Core;
 
 namespace Wisp.App;
 
-public sealed class NativeHudProcessService : IAsyncDisposable
+public sealed class NativeHudProcessService : IAsyncDisposable, INativeNeedleHistorySource, ITelemetryNeedleHistorySource
 {
     private static readonly TimeSpan AttachRetryInterval = TimeSpan.FromSeconds(2);
     private static readonly long FullResolveAuditTicks =
@@ -18,6 +18,8 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             1_000d);
 
     private readonly object _stateGate = new();
+    private readonly NativeNeedleHistory _needleHistory = new();
+    private readonly TelemetryNeedleHistory _telemetryNeedleHistory = new();
     private readonly CancellationTokenSource _cancellation = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly INativeHudProcessMemoryFactory _memoryFactory;
@@ -62,6 +64,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
     {
         _memoryFactory = memoryFactory ?? throw new ArgumentNullException(nameof(memoryFactory));
         _visibilityResolverFactory = visibilityResolverFactory ?? throw new ArgumentNullException(nameof(visibilityResolverFactory));
+        _snapshot = NativeHudSnapshot.Unavailable(nativeSourceIdentity: _needleHistory.SourceIdentity);
         _worker = Task.Run(() => RunAsync(_cancellation.Token));
     }
 
@@ -87,20 +90,45 @@ public sealed class NativeHudProcessService : IAsyncDisposable
     {
         lock (_stateGate)
         {
-            var compatibilityGeneration = _memoryFactory.CompatibilityGeneration;
-            if (_snapshotCompatibilityGeneration != compatibilityGeneration)
-            {
-                _snapshot = NativeHudSnapshot.Unavailable(
-                    NativeAssistProviderStatus.Unavailable,
-                    _snapshot.Generation,
-                    carOrdinal);
-                _snapshotCompatibilityGeneration = compatibilityGeneration;
-            }
+            EnsureCompatibilityIdentity();
 
             return _snapshot.CarOrdinal == carOrdinal
                 ? _snapshot
-                : NativeHudSnapshot.Unavailable(_snapshot.Status, _snapshot.Generation, carOrdinal);
+                : NativeHudSnapshot.Unavailable(_snapshot.Status, _snapshot.Generation, carOrdinal,
+                    _needleHistory.SourceIdentity);
         }
+    }
+
+    NativeNeedleHistoryRead INativeNeedleHistorySource.CopySince(int carOrdinal, long sourceIdentity,
+        ref NativeNeedleHistoryCursor cursor, Span<NativeNeedleObservation> destination)
+    {
+        lock (_stateGate)
+        {
+            EnsureCompatibilityIdentity();
+            var read = _needleHistory.CopySince(carOrdinal, sourceIdentity, ref cursor, destination);
+            return read with { CopiedTimestamp = Stopwatch.GetTimestamp() };
+        }
+    }
+
+    internal void PublishNeedleTelemetry(VehicleState state) => _telemetryNeedleHistory.Publish(state);
+    internal void ResetNeedleTelemetry() => _telemetryNeedleHistory.Reset(Stopwatch.GetTimestamp());
+
+    TelemetryNeedleHistoryRead ITelemetryNeedleHistorySource.CopyTelemetrySince(int carOrdinal,
+        long frameReceivedTimestamp, ref NativeNeedleHistoryCursor cursor, Span<TelemetryNeedleObservation> destination) =>
+        _telemetryNeedleHistory.CopySince(carOrdinal, frameReceivedTimestamp, ref cursor, destination)
+            with
+        { CopiedTimestamp = Stopwatch.GetTimestamp() };
+
+    // Called only under _stateGate, including by readers: a compatibility change
+    // invalidates delivery even while the UI and the memory worker are delayed.
+    private void EnsureCompatibilityIdentity()
+    {
+        var generation = _memoryFactory.CompatibilityGeneration;
+        if (_snapshotCompatibilityGeneration == generation) return;
+        _needleHistory.Reset(_telemetry?.CarOrdinal ?? 0);
+        _snapshot = NativeHudSnapshot.Unavailable(NativeAssistProviderStatus.Unavailable,
+            _snapshot.Generation, _telemetry?.CarOrdinal ?? 0, _needleHistory.SourceIdentity);
+        _snapshotCompatibilityGeneration = generation;
     }
 
     public void UpdateTelemetry(VehicleState? state, bool nativeLayoutActive)
@@ -124,11 +152,15 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             var sessionChanged = SessionChanged(_telemetry, next);
             if (sessionChanged)
             {
+                // Race-off reaches here after the controller's visibility
+                // hysteresis; the receive callback deliberately retains it.
+                if (next is null) _telemetryNeedleHistory.Reset(Stopwatch.GetTimestamp(), onlyIfActive: true);
                 _sessionEpoch++;
+                _needleHistory.Reset(next?.CarOrdinal ?? 0);
                 _snapshot = NativeHudSnapshot.Unavailable(
                     NativeAssistProviderStatus.Unavailable,
                     (ulong)Math.Max(0, Interlocked.Read(ref _generation)),
-                    next?.CarOrdinal ?? 0);
+                    next?.CarOrdinal ?? 0, _needleHistory.SourceIdentity);
             }
 
             _telemetry = next;
@@ -164,9 +196,11 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             }
 
             _disposed = true;
+            _telemetryNeedleHistory.Reset(Stopwatch.GetTimestamp(), close: true);
             _sessionEpoch++;
             _telemetry = null;
-            _snapshot = NativeHudSnapshot.Unavailable();
+            _needleHistory.Reset(0);
+            _snapshot = NativeHudSnapshot.Unavailable(nativeSourceIdentity: _needleHistory.SourceIdentity);
             Volatile.Write(ref _attachmentIdentity, null);
             _cancellation.Cancel();
             _disposeTask = CompleteDisposalAsync();
@@ -204,6 +238,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             NativeHudSnapshot baseline;
             bool fullResolveRequested;
             long epoch;
+            long sourceIdentity;
             lock (_stateGate)
             {
                 if (_disposed)
@@ -211,6 +246,8 @@ public sealed class NativeHudProcessService : IAsyncDisposable
                     return;
                 }
 
+                EnsureCompatibilityIdentity();
+                sourceIdentity = _needleHistory.SourceIdentity;
                 telemetry = _telemetry;
                 baseline = _snapshot;
                 fullResolveRequested = _fullResolvePending;
@@ -253,7 +290,8 @@ public sealed class NativeHudProcessService : IAsyncDisposable
                 if (!_memoryFactory.TryOpen(out _memory, out var status))
                 {
                     TryPublish(epoch, compatibilityGeneration, NativeHudSnapshot.Unavailable(
-                        status, (ulong)Math.Max(0, Interlocked.Read(ref _generation)), telemetry.CarOrdinal));
+                        status, (ulong)Math.Max(0, Interlocked.Read(ref _generation)), telemetry.CarOrdinal,
+                        sourceIdentity), telemetry.GameTimestampMilliseconds);
                     _nextAttachAtUtc = now + AttachRetryInterval;
                     continue;
                 }
@@ -262,7 +300,8 @@ public sealed class NativeHudProcessService : IAsyncDisposable
                 {
                     TryPublish(epoch, compatibilityGeneration, NativeHudSnapshot.Unavailable(
                         NativeAssistProviderStatus.ReadFailure,
-                        (ulong)Math.Max(0, Interlocked.Read(ref _generation)), telemetry.CarOrdinal));
+                        (ulong)Math.Max(0, Interlocked.Read(ref _generation)), telemetry.CarOrdinal,
+                        sourceIdentity), telemetry.GameTimestampMilliseconds);
                     _nextAttachAtUtc = now + AttachRetryInterval;
                     continue;
                 }
@@ -312,7 +351,8 @@ public sealed class NativeHudProcessService : IAsyncDisposable
                 result = _resolver.ApplyShiftGameplayVisibility(result, visibility) with
                 {
                     GameplayVisibility = observedTimestamp > 0 ? visibility : NativeGameplayVisibility.Unknown,
-                    VisibilityObservedTimestamp = Math.Max(0L, observedTimestamp)
+                    VisibilityObservedTimestamp = Math.Max(0L, observedTimestamp),
+                    NativeSourceIdentity = sourceIdentity
                 };
                 if (telemetry.IsElectric)
                 {
@@ -345,7 +385,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
 
             // Invalidation and publication share the same lock. A -> menu -> A and
             // A -> B -> A cannot republish an old read merely because the car ID matches again.
-            if (!TryPublish(epoch, compatibilityGeneration, result))
+            if (!TryPublish(epoch, compatibilityGeneration, result, telemetry.GameTimestampMilliseconds))
             {
                 continue;
             }
@@ -373,12 +413,15 @@ public sealed class NativeHudProcessService : IAsyncDisposable
         }
     }
 
-    private bool TryPublish(long epoch, long compatibilityGeneration, NativeHudSnapshot snapshot)
+    private bool TryPublish(long epoch, long compatibilityGeneration, NativeHudSnapshot snapshot,
+        uint gameTimestampMilliseconds)
     {
         lock (_stateGate)
         {
             if (_disposed || _sessionEpoch != epoch || _telemetry is null ||
                 compatibilityGeneration != _memoryFactory.CompatibilityGeneration ||
+                snapshot.NativeSourceIdentity != _needleHistory.SourceIdentity ||
+                compatibilityGeneration != _snapshotCompatibilityGeneration ||
                 _telemetry.CarOrdinal != snapshot.CarOrdinal)
             {
                 return false;
@@ -386,6 +429,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable
 
             _snapshot = snapshot;
             _snapshotCompatibilityGeneration = compatibilityGeneration;
+            _needleHistory.Publish(snapshot, gameTimestampMilliseconds);
             if (_memory is { } attached && (_attachmentIdentity is not { } identity ||
                 identity.Epoch != epoch || identity.CompatibilityGeneration != compatibilityGeneration ||
                 !ReferenceEquals(identity.Pack, attached.CompatibilityPack)))
@@ -413,22 +457,25 @@ public sealed class NativeHudProcessService : IAsyncDisposable
             return;
         }
 
-        var remainingTicks = deadline - Stopwatch.GetTimestamp();
-        if (remainingTicks <= 0)
+        while (true)
         {
-            if (TachDiagnostics.IsEnabled) TachDiagnostics.RecordWorkerWait(remainingTicks, 0, false);
-            return;
-        }
+            var remainingTicks = deadline - Stopwatch.GetTimestamp();
+            if (remainingTicks <= 0)
+            {
+                if (TachDiagnostics.IsEnabled) TachDiagnostics.RecordWorkerWait(remainingTicks, 0, false);
+                return;
+            }
 
-        var timeout = TimeSpan.FromSeconds((double)remainingTicks / Stopwatch.Frequency);
-        if (!TachDiagnostics.IsEnabled)
-        {
-            await _wake.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
-            return;
+            // SemaphoreSlim truncates fractional milliseconds to zero. Round up,
+            // then recheck the monotonic deadline if the timer wakes early.
+            var timeoutMilliseconds = (int)Math.Ceiling(remainingTicks * 1_000d / Stopwatch.Frequency);
+            var measure = TachDiagnostics.IsEnabled;
+            var waitStarted = measure ? Stopwatch.GetTimestamp() : 0;
+            var signaled = await _wake.WaitAsync(timeoutMilliseconds, cancellationToken).ConfigureAwait(false);
+            if (measure)
+                TachDiagnostics.RecordWorkerWait(remainingTicks, Stopwatch.GetTimestamp() - waitStarted, signaled);
+            if (signaled) return;
         }
-        var waitStarted = Stopwatch.GetTimestamp();
-        var signaled = await _wake.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
-        TachDiagnostics.RecordWorkerWait(remainingTicks, Stopwatch.GetTimestamp() - waitStarted, signaled);
     }
 
     private void ResetAuditDeadlines()

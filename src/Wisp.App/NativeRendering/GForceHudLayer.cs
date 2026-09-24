@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -24,7 +25,7 @@ internal sealed class GForceHudMotion
     internal GForceTrailHistory Trail { get; } = new();
     internal bool Active => _hasInput;
 
-    internal void Observe(NativeGForceInput input, long timestamp)
+    internal void Observe(NativeGForceInput input, long timestamp, long? publishedTimestamp = null)
     {
         if (!input.Active || !double.IsFinite(input.XG) || !double.IsFinite(input.YG) ||
             !double.IsFinite(input.FullScaleG) || input.FullScaleG <= 0)
@@ -33,7 +34,7 @@ internal sealed class GForceHudMotion
             return;
         }
         if (_hasInput && input.CarOrdinal != _input.CarOrdinal) Reset();
-        var received = input.ReceivedTimestamp > 0 ? input.ReceivedTimestamp : timestamp;
+        var received = input.ReceivedTimestamp > 0 ? input.ReceivedTimestamp : publishedTimestamp ?? timestamp;
         if (_hasInput && (input == _input || input.ReceivedTimestamp > 0 && received <= _received)) return;
         if (!_hasInput) _origin = received;
         _input = input;
@@ -310,6 +311,10 @@ internal static class GForceHudLayer
 
     private sealed class Playback : HudLayerPlayback
     {
+        private readonly Func<long> _clock;
+
+        internal Playback(Func<long>? clock = null) => _clock = clock ?? Stopwatch.GetTimestamp;
+
         private readonly GForceHudMotion _motion = new();
         private Snapshot? _snapshot;
         internal override void Update(HudLayerSnapshot snapshot, long timestamp)
@@ -317,18 +322,15 @@ internal static class GForceHudLayer
             var next = (Snapshot)snapshot;
             if (_snapshot is { } previous && (previous.InvertedX != next.InvertedX || previous.InvertedY != next.InvertedY))
                 _motion.Reset();
-            _motion.Observe(next.Input, timestamp);
+            _motion.Observe(next.Input, _clock(), timestamp);
             _snapshot = next;
         }
 
-        internal override DirectCompositionDrawCommand[] Build(long timestamp)
+        internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
         {
-            if (_snapshot is not { } snapshot) return [];
+            if (_snapshot is not { } snapshot) return;
             var art = snapshot.Artwork;
-            var commands = new List<DirectCompositionDrawCommand>(180)
-            {
-                AnalogHudScene.Quad(FirstId, new(0, 0, art.Width, art.Height))
-            };
+            commands.Add(AnalogHudScene.Quad(FirstId, new(0, 0, art.Width, art.Height)));
             var sample = _motion.Sample(timestamp);
             if (_motion.Active)
             {
@@ -353,7 +355,6 @@ internal static class GForceHudLayer
             commands.Add(AnalogHudScene.Quad(FirstId + 1,
                 new(art.Center.X + sample.Offset.X - DotSize / 2, art.Center.Y + sample.Offset.Y - DotSize / 2, DotSize, DotSize)));
             for (var index = 0; index < art.Text.Count; index++) AddText(commands, art.Text[index], snapshot.Text[index]);
-            return commands.ToArray();
         }
     }
 

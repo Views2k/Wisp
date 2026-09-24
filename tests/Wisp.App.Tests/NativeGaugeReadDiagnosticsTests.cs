@@ -6,6 +6,10 @@ namespace Wisp.App.Tests;
 
 public sealed class NativeGaugeReadDiagnosticsTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public NativeGaugeReadDiagnosticsTests(ITestOutputHelper output) => _output = output;
+
     private const ulong Module = 0x140000000;
     private const ulong Hud = 0x260000010;
     private const ulong TypeVector = 0x270000000;
@@ -153,15 +157,60 @@ public sealed class NativeGaugeReadDiagnosticsTests
     [Fact]
     public void EnabledCachedDiagnosticsDoNotAllocate()
     {
-        var memory = Memory.FromExistingFixture();
-        memory.RecordCalls = false;
-        var reader = new NativeGaugeDirectResolver { DiagnosticsEnabled = true };
-        for (var index = 0; index < 64; index++) reader.Read(memory, Module, Source, false, false);
-        var started = GC.GetAllocatedBytesForCurrentThread();
-        for (var index = 0; index < 1_000; index++) reader.Read(memory, Module, Source, false, false);
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - started;
+        long allocated = -1;
+        long readAllocated = 0;
+        var readAllocations = new long[1_000];
+        var collectionsBefore = new int[3];
+        var collectionsAfter = new int[3];
+        var cacheHits = 0;
+        NativeGaugeReadDiagnostics lastDiagnostics = default;
+        Exception? failure = null;
+        using var evidence = new AllocationMeasurementEvidence();
+        var producer = new Thread(() =>
+        {
+            try
+            {
+                var memory = Memory.FromExistingFixture();
+                memory.RecordCalls = false;
+                var reader = new NativeGaugeDirectResolver { DiagnosticsEnabled = true };
+                for (var index = 0; index < 64; index++) reader.Read(memory, Module, Source, false, false);
+                evidence.Start();
+                try
+                {
+                    for (var generation = 0; generation < 3; generation++)
+                        collectionsBefore[generation] = GC.CollectionCount(generation);
+                    var started = GC.GetAllocatedBytesForCurrentThread();
+                    for (var index = 0; index < 1_000; index++)
+                    {
+                        var readStarted = GC.GetAllocatedBytesForCurrentThread();
+                        reader.Read(memory, Module, Source, false, false);
+                        var readBytes = GC.GetAllocatedBytesForCurrentThread() - readStarted;
+                        readAllocations[index] = readBytes;
+                        readAllocated += readBytes;
+                        if (reader.LastDiagnostics.CacheOutcome == NativeGaugeCacheOutcome.Hit) cacheHits++;
+                    }
+                    allocated = GC.GetAllocatedBytesForCurrentThread() - started;
+                    for (var generation = 0; generation < 3; generation++)
+                        collectionsAfter[generation] = GC.CollectionCount(generation);
+                }
+                finally { evidence.Stop(); }
+                lastDiagnostics = reader.LastDiagnostics;
+            }
+            catch (Exception exception) { failure = exception; }
+        })
+        { IsBackground = true };
+        using (ExecutionContext.SuppressFlow()) producer.Start();
+        Assert.True(producer.Join(TimeSpan.FromSeconds(10)), "The isolated native-read measurement did not finish.");
+        _output.WriteLine(evidence.Summary());
+        _output.WriteLine($"Allocated bytes: total={allocated}, reads={readAllocated}, outside reads={allocated - readAllocated}.");
+        _output.WriteLine($"GC collection changes: gen0={collectionsAfter[0] - collectionsBefore[0]}, gen1={collectionsAfter[1] - collectionsBefore[1]}, gen2={collectionsAfter[2] - collectionsBefore[2]}.");
+        for (var index = 0; index < readAllocations.Length; index++)
+            if (readAllocations[index] != 0)
+                _output.WriteLine($"Read index={index}, allocated bytes={readAllocations[index]}.");
+        Assert.Null(failure);
+        Assert.Equal(1_000, cacheHits);
         Assert.Equal(0, allocated);
-        Assert.Equal(NativeGaugeCacheOutcome.Hit, reader.LastDiagnostics.CacheOutcome);
+        Assert.Equal(NativeGaugeCacheOutcome.Hit, lastDiagnostics.CacheOutcome);
     }
 
     private static void Mutate(Memory memory, string name)

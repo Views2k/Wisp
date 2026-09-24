@@ -66,6 +66,11 @@ internal static class BoostHudLayer
 
     internal sealed class Playback : HudLayerPlayback
     {
+        private static readonly Func<long> DefaultClock = Stopwatch.GetTimestamp;
+        private Func<long> Clock { get; }
+
+        internal Playback(Func<long>? clock = null) => Clock = clock ?? DefaultClock;
+
         private readonly NativeTachometerInterpolator _pressure = new(allowNegativeValues: true);
         private readonly NativeTachometerInterpolator _fraction = new();
         private Snapshot? _snapshot;
@@ -82,26 +87,34 @@ internal static class BoostHudLayer
             if (!next.Display.IsAvailable)
                 return;
             var received = next.Received > 0 ? next.Received : timestamp;
-            _pressure.Observe(next.Car, next.GameTime, next.Display.PressurePsi, timestamp, received);
-            _fraction.Observe(next.Car, next.GameTime, next.Display.Fraction, timestamp, received);
+            var consumed = Clock();
+            _pressure.Observe(next.Car, next.GameTime, next.Display.PressurePsi, consumed, received);
+            _fraction.Observe(next.Car, next.GameTime, next.Display.Fraction, consumed, received);
         }
 
-        internal override DirectCompositionDrawCommand[] Build(long timestamp)
+        internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
         {
             if (_snapshot is not { Display.IsAvailable: true } snapshot)
-                return [];
+                return;
             var pressure = _pressure.Sample(timestamp);
             var fraction = Math.Clamp(_fraction.Sample(timestamp), 0, 1);
-            return BoostHudLayer.Build(snapshot, pressure, fraction, timestamp);
+            BoostHudLayer.AppendCommands(commands, snapshot, pressure, fraction, timestamp);
         }
     }
 
     internal static DirectCompositionDrawCommand[] Build(Snapshot snapshot, double pressure, double fraction, long timestamp)
     {
+        var commands = new List<DirectCompositionDrawCommand>(110);
+        AppendCommands(commands, snapshot, pressure, fraction, timestamp);
+        return commands.ToArray();
+    }
+
+    internal static void AppendCommands(List<DirectCompositionDrawCommand> commands,
+        Snapshot snapshot, double pressure, double fraction, long timestamp)
+    {
         var c = snapshot.Config;
         if (!snapshot.Display.IsAvailable || c.Width <= 0 || c.Height <= 0 || !double.IsFinite(pressure) || !double.IsFinite(fraction))
-            return [];
-        var commands = new List<DirectCompositionDrawCommand>(110);
+            return;
         var full = new AnalogHudRect(0, 0, c.Width, c.Height);
         commands.Add(AnalogHudScene.Quad(30000, full));
         // Numeric readouts retain their received display value; only the
@@ -182,7 +195,6 @@ internal static class BoostHudLayer
                 shader: c.Electric ? DirectCompositionShader.ElectricNeedle : DirectCompositionShader.Needle);
             commands.Add(needle);
         }
-        return commands.ToArray();
     }
 
     internal static AnalogHudColor NumberColor(Configuration c, double pressure, double fraction, long timestamp)

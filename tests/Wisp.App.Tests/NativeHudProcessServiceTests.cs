@@ -230,6 +230,156 @@ public sealed class NativeHudProcessServiceTests
         Assert.Equal(1, factory.OpenCount);
     }
 
+    [Fact]
+    public async Task AuditDeadlineDoesNotTriggerUnrequestedGaugeRefreshes()
+    {
+        var memory = ValidMemory(314, Provider, tcrOn: true);
+        var visibility = new CountingVisibilityResolver();
+        await using var service = new NativeHudProcessService(new FakeFactory(memory), _ => visibility);
+
+        service.UpdateTelemetry(State(314), nativeLayoutActive: true);
+        await WaitForAsync(() => visibility.ReadCount, count => count >= 3);
+        await Task.Delay(750, TestContext.Current.CancellationToken);
+        await service.DisposeAsync();
+
+        // After the initial signal, only audit deadlines can request work.
+        // Compare final counters so an in-progress read cannot skew the result.
+        Assert.Equal((long)visibility.ReadCount, service.DiagnosticReadAttempts);
+    }
+
+    [Fact]
+    public async Task QueuedNativeGaugeRequestProducesOneRefreshWithoutAnotherTelemetryPacket()
+    {
+        var memory = ValidMemory(314, Provider, tcrOn: true);
+        NativeHudProcessService? requestedService = null;
+        var visibility = new CountingVisibilityResolver(() => requestedService!.RequestNativeGaugeSample());
+        await using var service = new NativeHudProcessService(new FakeFactory(memory), _ => visibility);
+        requestedService = service;
+
+        service.UpdateTelemetry(State(314), nativeLayoutActive: true);
+        await WaitForAsync(() => visibility.ReadCount, count => count >= 3);
+        await service.DisposeAsync();
+
+        Assert.Equal((long)visibility.ReadCount + 1, service.DiagnosticReadAttempts);
+    }
+
+    [Fact]
+    public async Task DisposalCancelsInitiallyIdleWorkerWithoutOpeningMemory()
+    {
+        var memory = ValidMemory(314, Provider, tcrOn: true);
+        var factory = new FakeFactory(memory);
+        var service = new NativeHudProcessService(factory);
+
+        await service.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        await service.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, factory.OpenCount);
+        Assert.Equal(0L, service.DiagnosticReadAttempts);
+        Assert.Null(service.AttachedCompatibilityPack);
+    }
+
+    [Theory]
+    [InlineData("car")]
+    [InlineData("inactive")]
+    [InlineData("powertrain")]
+    [InlineData("maximum")]
+    [InlineData("rewind")]
+    public async Task NativeDeliveryIdentityNeverSurvivesASessionRoundTrip(string change)
+    {
+        await using var service = new NativeHudProcessService(new RejectingFactory());
+        var initial = State(314) with { GameTimestampMilliseconds = 100, NumCylinders = 4 };
+        service.UpdateTelemetry(initial, nativeLayoutActive: true);
+        var first = service.SnapshotFor(314);
+        var source = (INativeNeedleHistorySource)service;
+        var cursor = default(NativeNeedleHistoryCursor);
+        var batch = new NativeNeedleObservation[NativeNeedleHistory.Capacity];
+        Assert.True(source.CopySince(314, first.NativeSourceIdentity, ref cursor, batch).MatchesSource);
+
+        var changed = change switch
+        {
+            "car" => initial with { CarOrdinal = 3766 },
+            "inactive" => null,
+            "powertrain" => initial with { NumCylinders = 0 },
+            "maximum" => initial with { EngineMaximumRpm = float.BitIncrement(initial.EngineMaximumRpm) },
+            _ => initial with { GameTimestampMilliseconds = 99 }
+        };
+        service.UpdateTelemetry(changed, nativeLayoutActive: true);
+        var intermediateIdentity = service.SnapshotFor(changed?.CarOrdinal ?? 0).NativeSourceIdentity;
+        Assert.NotEqual(first.NativeSourceIdentity, intermediateIdentity);
+        service.UpdateTelemetry(initial, nativeLayoutActive: true);
+        var current = service.SnapshotFor(314);
+        Assert.NotEqual(first.NativeSourceIdentity, current.NativeSourceIdentity);
+        Assert.False(source.CopySince(314, first.NativeSourceIdentity, ref cursor, batch).MatchesSource);
+        Assert.True(source.CopySince(314, current.NativeSourceIdentity, ref cursor, batch).MatchesSource);
+
+        await service.DisposeAsync();
+        Assert.False(source.CopySince(314, current.NativeSourceIdentity, ref cursor, batch).MatchesSource);
+    }
+
+    [Fact]
+    public async Task NativeHistoryInvalidatesCompatibilityBeforeTheUiRequestsAnotherSnapshot()
+    {
+        var factory = new FakeFactory(ValidMemory(314, Provider, tcrOn: true));
+        await using var service = new NativeHudProcessService(factory);
+        service.UpdateTelemetry(State(314), nativeLayoutActive: true);
+        var snapshot = await WaitForAsync(() => service.SnapshotFor(314), value => value.Available);
+        var source = (INativeNeedleHistorySource)service;
+        var cursor = default(NativeNeedleHistoryCursor);
+        var batch = new NativeNeedleObservation[NativeNeedleHistory.Capacity];
+        var first = source.CopySince(314, snapshot.NativeSourceIdentity, ref cursor, batch);
+        Assert.True(first.MatchesSource);
+        Assert.True(first.Count > 0);
+        Assert.True(first.CopiedTimestamp > 0);
+
+        factory.AdvanceCompatibilityGeneration();
+        var invalidated = source.CopySince(314, snapshot.NativeSourceIdentity, ref cursor, batch);
+        Assert.False(invalidated.MatchesSource);
+        Assert.True(invalidated.Reset);
+        Assert.Equal(0, invalidated.Count);
+        Assert.NotEqual(snapshot.NativeSourceIdentity, service.SnapshotFor(314).NativeSourceIdentity);
+    }
+
+    [Fact]
+    public async Task RejectedInFlightSessionReadCannotEnterAcceptedNativeHistory()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var visibility = new CountingVisibilityResolver(() =>
+        {
+            entered.Set();
+            release.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        });
+        await using var service = new NativeHudProcessService(
+            new FakeFactory(ValidMemory(314, Provider, tcrOn: true)), _ => visibility);
+        try
+        {
+            service.UpdateTelemetry(State(314) with { GameTimestampMilliseconds = 100 }, nativeLayoutActive: true);
+            await WaitForAsync(() => entered.IsSet, value => value);
+            var oldIdentity = service.SnapshotFor(314).NativeSourceIdentity;
+            service.UpdateTelemetry(State(3766) with { GameTimestampMilliseconds = 200 }, nativeLayoutActive: true);
+            service.UpdateTelemetry(State(314) with { GameTimestampMilliseconds = 300 }, nativeLayoutActive: true);
+            var newIdentity = service.SnapshotFor(314).NativeSourceIdentity;
+            Assert.NotEqual(oldIdentity, newIdentity);
+            release.Set();
+            var accepted = await WaitForAsync(() => service.SnapshotFor(314), value => value.Available);
+            Assert.Equal(newIdentity, accepted.NativeSourceIdentity);
+
+            var source = (INativeNeedleHistorySource)service;
+            var cursor = default(NativeNeedleHistoryCursor);
+            var batch = new NativeNeedleObservation[NativeNeedleHistory.Capacity];
+            Assert.False(source.CopySince(314, oldIdentity, ref cursor, batch).MatchesSource);
+            var read = source.CopySince(314, newIdentity, ref cursor, batch);
+            Assert.True(read.MatchesSource);
+            Assert.True(read.Count > 0);
+            Assert.All(batch.Take(read.Count), item =>
+            {
+                Assert.Equal(314, item.CarOrdinal);
+                Assert.Equal(300u, item.GameTimestampMilliseconds);
+            });
+        }
+        finally { release.Set(); }
+    }
+
     private static VehicleState State(int carOrdinal) => new()
     {
         IsRaceOn = true,
@@ -343,6 +493,9 @@ public sealed class NativeHudProcessServiceTests
     private sealed class FakeFactory(FakeProcessMemory memory) : INativeHudProcessMemoryFactory
     {
         public int OpenCount { get; private set; }
+        private long _compatibilityGeneration;
+        public long CompatibilityGeneration => Interlocked.Read(ref _compatibilityGeneration);
+        public void AdvanceCompatibilityGeneration() => Interlocked.Increment(ref _compatibilityGeneration);
 
         public bool TryOpen(
             out INativeHudProcessMemory? opened,
@@ -368,7 +521,7 @@ public sealed class NativeHudProcessServiceTests
         }
     }
 
-    private sealed class CountingVisibilityResolver : INativeGameplayVisibilityResolver
+    private sealed class CountingVisibilityResolver(Action? onFirstRead = null) : INativeGameplayVisibilityResolver
     {
         private int _readCount;
         private long _lastReadTimestamp;
@@ -385,7 +538,10 @@ public sealed class NativeHudProcessServiceTests
                 UpdateMinimum(ref _minimumGapTicks, now - previous);
             }
 
-            Interlocked.Increment(ref _readCount);
+            if (Interlocked.Increment(ref _readCount) == 1)
+            {
+                onFirstRead?.Invoke();
+            }
             return NativeGameplayVisibility.Visible;
         }
 

@@ -265,7 +265,7 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                     NativeVisibilityAgeMilliseconds = AgeMilliseconds(now, native.VisibilityObservedTimestamp),
                     GameplayVisibility = native.GameplayVisibility.ToString(),
                     WispCpuPercent = cpuPercent,
-                    WorkingSetBytes = process.WorkingSet64,
+                    WorkingSetBytes = Environment.WorkingSet,
                     ManagedHeapBytes = GC.GetTotalMemory(false),
                     Gen2Collections = GC.CollectionCount(2),
                     DroppedRecords = _log.DroppedRecords,

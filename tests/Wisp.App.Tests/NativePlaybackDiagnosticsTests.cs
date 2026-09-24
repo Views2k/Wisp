@@ -103,13 +103,13 @@ public sealed class NativePlaybackDiagnosticsTests
         Assert.Equal(2, playback.BufferedSamples);
         Assert.Equal(1, playback.ReseedCount);
         Assert.Equal(0, playback.StarvationReseedCount);
-        Assert.Equal(40, playback.PlaybackTargetDelayMilliseconds, 6);
+        Assert.Equal(25, playback.PlaybackTargetDelayMilliseconds, 6);
         Assert.False(playback.PlaybackAtNewest);
-        Assert.Equal(50, playback.PlaybackDelayMilliseconds(Timestamp(30)), 6);
-        Assert.True(playback.Sample(Timestamp(50), out var midpoint));
+        Assert.Equal(35, playback.PlaybackDelayMilliseconds(Timestamp(30)), 6);
+        Assert.True(playback.Sample(Timestamp(35), out var midpoint));
         Assert.Equal(180, midpoint.Angle, 6);
         Assert.Equal(0.1, midpoint.Blur, 6);
-        Assert.True(playback.Sample(Timestamp(60), out var endpoint));
+        Assert.True(playback.Sample(Timestamp(45), out var endpoint));
         Assert.Equal(new NativeNeedleRenderState(240, 0.4), endpoint);
         Assert.True(playback.PlaybackAtNewest);
 

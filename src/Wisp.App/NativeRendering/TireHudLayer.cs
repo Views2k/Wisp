@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -65,6 +66,11 @@ internal static class TireHudLayer
 
     internal sealed class Playback : HudLayerPlayback
     {
+        private static readonly Func<long> DefaultClock = Stopwatch.GetTimestamp;
+        private Func<long> Clock { get; }
+
+        internal Playback(Func<long>? clock = null) => Clock = clock ?? DefaultClock;
+
         private readonly NativeTachometerInterpolator _front = new();
         private readonly NativeTachometerInterpolator _rear = new();
         private Snapshot? _snapshot;
@@ -80,25 +86,33 @@ internal static class TireHudLayer
             _snapshot = next;
             if (!next.Display.IsAvailable) return;
             var received = next.Received > 0 ? next.Received : timestamp;
-            _front.Observe(next.Car, next.GameTime, next.Display.FrontFraction, timestamp, received);
-            _rear.Observe(next.Car, next.GameTime, next.Display.RearFraction, timestamp, received);
+            var consumed = Clock();
+            _front.Observe(next.Car, next.GameTime, next.Display.FrontFraction, consumed, received);
+            _rear.Observe(next.Car, next.GameTime, next.Display.RearFraction, consumed, received);
         }
 
-        internal override DirectCompositionDrawCommand[] Build(long timestamp)
+        internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
         {
-            if (_snapshot is not { Display.IsAvailable: true } snapshot) return [];
-            return TireHudLayer.Build(snapshot, _front.Sample(timestamp), _rear.Sample(timestamp));
+            if (_snapshot is not { Display.IsAvailable: true } snapshot) return;
+            TireHudLayer.AppendCommands(commands, snapshot, _front.Sample(timestamp), _rear.Sample(timestamp));
         }
     }
 
     internal static DirectCompositionDrawCommand[] Build(Snapshot snapshot, double front, double rear)
     {
+        var commands = new List<DirectCompositionDrawCommand>(32);
+        AppendCommands(commands, snapshot, front, rear);
+        return commands.ToArray();
+    }
+
+    internal static void AppendCommands(List<DirectCompositionDrawCommand> commands,
+        Snapshot snapshot, double front, double rear)
+    {
         var c = snapshot.Config;
         if (!snapshot.Display.IsAvailable || c.Width <= 0 || c.Height <= 0 ||
-            !double.IsFinite(front) || !double.IsFinite(rear)) return [];
+            !double.IsFinite(front) || !double.IsFinite(rear)) return;
         front = Math.Clamp(front, 0, 1);
         rear = Math.Clamp(rear, 0, 1);
-        var commands = new List<DirectCompositionDrawCommand>(32);
         var full = new AnalogHudRect(0, 0, c.Width, c.Height);
         commands.Add(AnalogHudScene.Quad(40000, full));
         var frontColor = NeedleColor(c, c.Low, c.Digital ? (byte)255 : (byte)242);
@@ -131,7 +145,6 @@ internal static class TireHudLayer
             AddDigits(commands, Temperature(snapshot.Display.FrontFahrenheit, c.Unit), center.X + 8, center.Y - 11);
             AddDigits(commands, Temperature(snapshot.Display.RearFahrenheit, c.Unit), center.X + 8, center.Y + 12);
         }
-        return commands.ToArray();
     }
 
     internal static AnalogHudColor NeedleColor(Configuration c, AnalogHudColor palette, byte alpha)

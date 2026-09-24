@@ -20,11 +20,11 @@ public sealed class AnalogHudPendingFrameTests
         playback.ObserveQueued(queued, Timestamp(49), Timestamp(52));
 
         Assert.True(pending.CanReuse(presentation, queued, false));
-        Assert.Equal(2_000, pending.Sample.AppliedRpm);
+        Assert.Equal(4_000, pending.Sample.AppliedRpm);
         Assert.Equal(Timestamp(50), pending.Sample.Timestamp);
         Assert.Equal(Timestamp(40), pending.QueuedTimestamp);
         Assert.Equal(7, pending.Sequence);
-        var next = playback.Sample(Timestamp(85));
+        var next = playback.Sample(Timestamp(65));
         Assert.Equal(5_500, next.AppliedRpm!.Value, 6);
         Assert.Equal(queued, next.Frame);
         Assert.Equal(Timestamp(49), next.Frame.ReceivedTimestamp);

@@ -15,11 +15,33 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.4",
+            "September 23, 2026",
+            "PERFORMANCE HOTFIX",
+            "Address the G-SYNC/VRR needle issue, correct playback and rendering bugs, and reduce unnecessary drawing, allocation and CPU work.",
+            true,
+            [
+                Group("Window composition",
+                    "Use a monitor-sized native host when the main HUD fits within one monitor, retaining the artwork's size and position.",
+                    "Request passive updates for overlay windows so Windows can incorporate their changes when composition runs for other reasons."),
+                Group("Needle delivery",
+                    "Feed accepted RPM samples directly to bounded needle history before UI publication, and animate the needle on an independent compositor worker.",
+                    "Reduce minimum analogue needle playback buffering to 20 ms while retaining adaptive protection for uneven input.",
+                    "Preserve needle blur, layer order and validated native-angle priority through car, scale and session changes."),
+                Group("Rendering fixes and efficiency",
+                    "Correct queued-history playback, startup and occlusion readiness, and hidden-window resource handling.",
+                    "Reuse command storage and unchanged needle pixels, and prevent fractional-timeout reader spinning.",
+                    "Expand diagnostics for motion curves, presentation waits, build identity and passive-update acceptance."),
+                Group("Troubleshooting and thanks",
+                    "Keep the main HUD within one monitor and compare it with the stock needle while Forza is focused. Export a debug ZIP if uneven motion remains.",
+                    "Thanks to fredemmott for sharing the Direct3D team's overlay and variable-refresh guidance. Full release notes link his post and explain the investigation.")
+            ]),
+        new(
             "2.3.4",
             "September 21, 2026",
             "ACCENT COLOR HOTFIX",
             "Fix the app accent-color crash, gauge attachment and update recovery; add optional beta shift guidance.",
-            true,
+            false,
             [
                 Group("App appearance",
                     "Safely update accent colors while the dashboard is on an inactive tab.",

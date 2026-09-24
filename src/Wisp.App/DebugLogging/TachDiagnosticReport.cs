@@ -10,16 +10,23 @@ internal static class TachDiagnosticReport
 {
     private const string NeedleRoutePolicy =
         "Raw needle routes: immediate/composition record WPF transform application; directcomposition records successful Present submissions only, excluding queue-busy and occluded attempts. " +
+        "compositor_snapshot records native or RPM playback accompanying a HUD submission. In independent-motion builds, compositor_motion records separate-device motion commits and compositor_update records render-thread needle content work; older compositor builds used compositor_update for combined content and curve work. Source fallback means RPM-derived input, not WPF rendering. " +
         "AppliedTimestamp is the sampling time, not presentation completion. Neither route proves physical display. Interval applied counts combine routes; inspect raw routes before comparing rates.";
     private const string RendererPolicy =
         "Renderer events record completed CPU-side operations, including failed and queue-busy attempts. All timestamps and duration ticks use the process Stopwatch clock. " +
         "Stage durations can contain waits; native setup/map timings are included in native draw, which is included in draw-stage time. Do not add nested durations. " +
-        "The frame_wait stage measures the full managed wrapper. Nullable native_wait_ticks measures the native wrapper; wait_precheck_ticks covers cancellation/device checks, wait_call_ticks covers WaitForMultipleObjects, and wait_postcheck_ticks covers the checks/outcome handling after it. " +
+        "The frame_wait stage measures the full managed wrapper. Nullable native_wait_ticks measures the native wrapper including both software pacing and DXGI readiness; wait_precheck_ticks covers cancellation/device checks, wait_call_ticks covers the DXGI WaitForMultipleObjects call, and wait_postcheck_ticks covers the checks/outcome handling after it. " +
+        "Timeout alone does not identify a GPU stall. compositor_motion records independent motion-device updates; sample_timestamp is curve start, received_timestamp is the latest source observation, curve_end_timestamp is the end of available motion, and compositor_commit_timestamp is CPU-side commit completion. " +
+        "Curve end minus commit completion measures remaining authored motion and can be negative; a successful commit does not establish compositor adoption or physical display. motion_generation and motion_geometry_accepted identify whether the curve matches accepted HUD content. Missing fields mean unavailable. Blur content is held between render-thread updates while rotation is animated. " +
+        "Nullable pacing_wait_ticks measures intentional software pacing before DXGI readiness, not a DXGI wait or an additional playback delay. These durations are included in native_wait_ticks and must not be added to it. " +
+        "Nullable presentation_sync_interval and presentation_refresh_rate record the effective presentation policy at that wait; refresh rate zero means unknown. pacing_h_result preserves the signed pacing setup/wait HRESULT. Effective sync interval 1 with a failed pacing HRESULT identifies fallback to synchronized presentation after a pacing query/timer failure. " +
+        "Nullable pacing_wait_return_code is the software gate's Win32 wait outcome; 0xffffffff means the gate was not reached or failed. Missing pacing fields are unavailable, not measured zero. " +
         "Wait call elapsed time includes delayed thread resumption and is not an exact blocked-time measurement. Missing split fields mean unavailable, not zero cost; measured zero can mean that an early return skipped a later portion. " +
         "Nullable wait_return_code is the Win32 wait outcome, including a cancellation precheck; 0xffffffff also marks an error before the wait was reached. Nullable swap_chain_generation starts at 1 and increments on replacement within that renderer lifetime, not ordinary resizing. " +
         "Optional cpu_thread_ticks is coarse GetThreadTimes CPU accounting normalized from 100-nanosecond units to Stopwatch frequency; null means unavailable. It is not GPU execution time or a precise measure of blocked time or scheduler delay. " +
         "Present submitted means accepted by the presentation API, not displayed. Sequence correlates a prepared frame and its retry operations; use completion timestamps to order operations. Sample/received/queued timestamps can repeat across attempts. " +
         "Input ages are measured at operation start, exclude missing/future origins, and do not measure physical display latency. " +
+        "Optional gpu_priority contains cached initialization requests and readbacks, not per-frame queries. Process result codes are signed NTSTATUS; device result codes are signed HRESULT. attempted=false marks skipped requests; check readback result codes before using effective values. " +
         "Thrown draw/present operations retain stage elapsed time and HRESULT, but nested native durations are unavailable and recorded as zero for those error events.";
 
     internal static string? SafeCaptureId(string? value) =>
@@ -84,10 +91,14 @@ internal static class TachDiagnosticReport
             native_value_fields = "top-level nullable angle/blur are validated values; nested read.angle/read.blur are zero sanitization placeholders",
             native_changed_policy = "validated native angle changes counted across all observed reads; this is not displayed FPS",
             needle_route_policy = NeedleRoutePolicy,
-            renderer_schema_version = 2,
+            renderer_schema_version = 3,
             renderer_policy = RendererPolicy,
+            passive_update_policy = "Current process windows tracked at manifest export, not capture history; at most 128 live HWNDs. Entries retain each window's last passive-update request and signed setter HRESULT, even when logging was enabled later. Hidden windows can remain live. Timestamps are process-local Stopwatch ticks. Attribute 16 is set-only: S_OK records request acceptance, not a state readback, compositor adoption, G-SYNC engagement or physical display. Destroyed/disposed windows are removed; absent entries are unavailable, not disabled.",
+            passive_update_snapshot_timestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+            passive_update_stopwatch_frequency = System.Diagnostics.Stopwatch.Frequency,
+            passive_update_windows = OverlayPassiveUpdate.Snapshot(),
             renderer_detail_policy = "every observed completed operation, bounded startup/recent rings; no sampling. In-progress operations at export have no completion record",
-            renderer_aggregate_policy = "at most 256 control/window/stage/result/HRESULT/wait-return-code groups per collected interval; excess groups retain raw detail but omit aggregates. Counters reset each interval. Split timing sample counts describe measured coverage; nullable totals and generation bounds stay null when unavailable",
+            renderer_aggregate_policy = "at most 256 control/window/thread/stage/result/HRESULT/wait-return-code/presentation-policy/pacing-outcome groups per collected interval; excess groups retain raw detail but omit aggregates. Counters reset each interval. Split timing sample counts describe measured coverage; nullable totals and generation bounds stay null when unavailable",
             renderer_omission_counters = "cumulative within each capture; use the latest or maximum, do not sum intervals",
             renderer_contention_omissions = capture?.RendererContentionOmissions,
             renderer_aggregate_omissions = capture?.RendererAggregateOmissions,
@@ -203,7 +214,8 @@ internal static class TachDiagnosticReport
         if (longest is not null)
             text.AppendLine($"Longest observed renderer operation: {longest.Stage}/{longest.Result}, {Number(longest.MaximumMilliseconds)} ms (control {longest.ControlId}, window handle {longest.HostWindowHandle}). This identifies where time was observed, not why the operation waited.");
         text.AppendLine("Renderer stages by control and outcome (CPU-side elapsed time, including waits):");
-        foreach (var group in observations.GroupBy(value => (value.ControlId, value.HostWindowHandle, value.NativeThreadId, value.Stage, value.Result, value.HResult, value.WaitReturnCode)).Take(256))
+        foreach (var group in observations.GroupBy(value => (value.ControlId, value.HostWindowHandle, value.NativeThreadId, value.Stage, value.Result, value.HResult, value.WaitReturnCode,
+            value.PresentationSyncInterval, value.PresentationRefreshRate, value.PacingHResult, value.PacingWaitReturnCode)).Take(256))
         {
             var count = group.Sum(value => (double)value.Count);
             var mean = group.Sum(value => value.MeanMilliseconds * value.Count) / Math.Max(1, count);
@@ -216,6 +228,11 @@ internal static class TachDiagnosticReport
             if (group.Key.Stage == "frame_wait")
             {
                 text.AppendLine($"    Native wait total: {DurationCoverage(group, value => value.NativeWaitSamples, value => value.TotalNativeWaitMilliseconds)}; precheck: {DurationCoverage(group, value => value.WaitPrecheckSamples, value => value.TotalWaitPrecheckMilliseconds)}; wait call: {DurationCoverage(group, value => value.WaitCallSamples, value => value.TotalWaitCallMilliseconds)}; postcheck: {DurationCoverage(group, value => value.WaitPostcheckSamples, value => value.TotalWaitPostcheckMilliseconds)}.");
+                var maximumPacing = group.Max(value => value.MaximumPacingWaitMilliseconds);
+                text.AppendLine($"    Intentional software pacing: {DurationCoverage(group, value => value.PacingWaitSamples, value => value.TotalPacingWaitMilliseconds)}; maximum: {(maximumPacing is { } pacingMaximum ? Number(pacingMaximum) + " ms" : "unavailable")}.");
+                text.AppendLine($"    Effective presentation sync interval: {(group.Key.PresentationSyncInterval is { } sync ? sync.ToString(CultureInfo.InvariantCulture) : "unavailable")}; refresh rate: {(group.Key.PresentationRefreshRate is { } refresh ? refresh.ToString(CultureInfo.InvariantCulture) + " Hz" : "unavailable")}; pacing HRESULT: {(group.Key.PacingHResult is { } pacingResult ? $"0x{pacingResult:X8}" : "unavailable")}; pacing wait outcome: {(group.Key.PacingWaitReturnCode is { } pacingCode ? $"0x{pacingCode:X8}" : "unavailable")}.");
+                if (group.Key.PresentationSyncInterval == 1 && group.Key.PacingHResult is < 0)
+                    text.AppendLine("    Software pacing unavailable: synchronized presentation fallback is active for these observations.");
                 var maximumCall = group.Max(value => value.MaximumWaitCallMilliseconds);
                 var firstGeneration = group.Min(value => value.MinimumSwapChainGeneration);
                 var lastGeneration = group.Max(value => value.MaximumSwapChainGeneration);
@@ -238,6 +255,7 @@ internal static class TachDiagnosticReport
 
     private static bool ValidRendererCounts(TachRendererCounts value) =>
         value.NativeThreadId is not 0 &&
+        value.PresentationSyncInterval is null or <= 4 &&
         value.Count >= 0 && value.DrawCommands >= 0 && value.MapCount >= 0 && value.QueueDropped >= 0 &&
         value.QueueAgeSamples >= 0 && value.ReceiveAgeSamples >= 0 && value.SampleAgeSamples >= 0 && value.CpuThreadSamples >= 0 &&
         ValidOptionalDuration(value.NativeWaitSamples, value.TotalNativeWaitMilliseconds, value.Count) &&
@@ -245,6 +263,9 @@ internal static class TachDiagnosticReport
         ValidOptionalDuration(value.WaitCallSamples, value.TotalWaitCallMilliseconds, value.Count) &&
         ValidOptionalDuration(value.WaitCallSamples, value.MaximumWaitCallMilliseconds, value.Count) &&
         ValidOptionalDuration(value.WaitPostcheckSamples, value.TotalWaitPostcheckMilliseconds, value.Count) &&
+        ValidOptionalDuration(value.PacingWaitSamples, value.TotalPacingWaitMilliseconds, value.Count) &&
+        ValidOptionalDuration(value.PacingWaitSamples, value.MaximumPacingWaitMilliseconds, value.Count) &&
+        (value.PacingWaitSamples == 0 || value.MaximumPacingWaitMilliseconds <= value.TotalPacingWaitMilliseconds) &&
         (value.WaitCallSamples == 0 || value.MaximumWaitCallMilliseconds <= value.TotalWaitCallMilliseconds) &&
         value.SwapChainGenerationSamples >= 0 && value.SwapChainGenerationSamples <= value.Count &&
         (value.SwapChainGenerationSamples == 0
