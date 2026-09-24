@@ -19,7 +19,7 @@ this directory.
 
 - blocks deletion, force pushes, and merge commits;
 - requires pull requests and resolution of review conversations;
-- permits the solo maintainer to merge a green pull request without a second
+- permits me to merge a green pull request without a second
   reviewer; and
 - requires the `Build and test` and `Build installer` status checks against the
   latest `main`.

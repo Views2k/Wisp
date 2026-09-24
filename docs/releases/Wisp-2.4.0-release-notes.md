@@ -12,7 +12,7 @@ When the main HUD fits entirely on one monitor, its native presentation window n
 
 Wisp also requests **passive updates** on its native presentation windows and the shared WPF overlay windows. This tells Windows to update those windows when desktop composition is already running for other reasons. The request is applied when the window is configured, and its result is included in debug exports.
 
-These changes came from reviewing how transparent overlays coexist with variable refresh rate, including window bounds, flip presentation and hardware overlay availability. Thanks to **[fredemmott](https://github.com/OpenKneeboard/OpenKneeboard/issues/677#issuecomment-3250237599)** for sharing guidance from Microsoft's Direct3D team in the OpenKneeboard investigation. His explanation gave us a concrete basis for these changes and a much better direction for the diagnosis.
+I reviewed how transparent overlays coexist with variable refresh rate, including window bounds, flip presentation and hardware overlay availability. Thanks to **[fredemmott](https://github.com/OpenKneeboard/OpenKneeboard/issues/677#issuecomment-3250237599)** for sharing guidance from Microsoft's Direct3D team in the OpenKneeboard investigation. His explanation gave me a concrete basis for these changes and a much better direction for the diagnosis.
 
 ### Needle motion gets its own update path
 
@@ -52,9 +52,9 @@ The added timing details help follow accepted input through the needle worker an
 
 The earlier [tachometer investigation in #30](https://github.com/Views2k/Wisp/issues/30) already included G-SYNC as a possible factor. It found real timing and drawing problems, and the CPU-rendering option helped the people who reported back. That was a useful result and remains part of the history of this fix.
 
-CPU rendering changes where Wisp rasterizes its pixels. Windows still composes the overlay afterward. We [noted that distinction in the earlier issue](https://github.com/Views2k/Wisp/issues/30#issuecomment-5617134893), but the available evidence had not isolated which part of that delivery path caused the remaining focused-game symptom.
+CPU rendering changes where Wisp rasterizes its pixels. Windows still composes the overlay afterward. I [noted that distinction in the earlier issue](https://github.com/Views2k/Wisp/issues/30#issuecomment-5617134893), but the available evidence had not isolated which part of that delivery path caused the remaining focused-game symptom.
 
-Our earlier diagnostics concentrated on telemetry reception, CPU drawing and update submission. Those stages could look healthy while the needle still looked uneven. We therefore expanded the investigation to the actual overlay window and composition path, and used the stock needle in the same focused scene as the visual reference. Capture-based experiments that changed the behavior being investigated were set aside.
+My earlier diagnostics concentrated on telemetry reception, CPU drawing and update submission. Those stages could look healthy while the needle still looked uneven. I then expanded the investigation to the actual overlay window and composition path, and used the stock needle in the same focused scene as the visual reference. I set aside capture-based experiments that changed the behavior being investigated.
 
 The later investigation separated four parts of the problem: receiving needle data, publishing it from the UI, drawing the HUD, and handing its windows and motion to Windows composition. That exposed an avoidable UI dependency and led to the independent needle path. The external-overlay guidance then provided a concrete reason to test monitor-sized hosting and passive updates. Those changes address a different boundary from the earlier CPU-rendering option.
 
@@ -68,12 +68,12 @@ For other overlay developers, the useful lesson is to check the actual window an
 4. **Change one thing at a time if the problem remains.** A brief G-SYNC on/off comparison or focus change can help identify the symptom. Restore the original setting afterward and note what changed. Keep the rest of the display setup consistent.
 5. **Export a fresh debug report after the problem happens.** Include the build, rendering mode, resolution and refresh rate, whether G-SYNC was enabled, which application was focused, and approximate times of any changes. A brief description of how Wisp compared with the stock needle is particularly useful.
 
-Hardware-accelerated GPU scheduling performed better enabled on the machine used for this investigation. Keep a known-good baseline and judge settings changes individually. If other overlays are running, mention them in the report so their interaction can be tested deliberately.
+I had better results with hardware-accelerated GPU scheduling enabled on my PC. Keep a known-good baseline and judge settings changes individually. If other overlays are running, mention them in the report so their interaction can be tested deliberately.
 
 ## Validation
 
 The private candidate passed 4,814 managed tests, 100 support-tool tests, native GPU and CPU/WARP checks, and real-window checks covering artwork, transparency, movement, locking, click-through and passive-update requests. Regression checks also exercise fresh RPM delivery while UI publication is stalled and the resets needed when car or session data changes.
 
-On the affected setup, the combined candidate was substantially smoother with G-SYNC enabled. The matching debug capture covered about 86 seconds with Forza focused and confirmed the hardware rendering path. All 63,000 retained renderer records reported successful native operations, and the direct RPM path was observed receiving fresher input than the UI layout snapshot. The captured motion-update stream remained consistent through the later part of the recording.
+The combined candidate looked substantially smoother on my setup with G-SYNC enabled. The matching debug capture covered about 86 seconds with Forza focused and confirmed the hardware rendering path. All 63,000 retained renderer records reported successful native operations, and the direct RPM path was observed receiving fresher input than the UI layout snapshot. The captured motion-update stream remained consistent through the later part of the recording.
 
 [Download Wisp 2.4](https://github.com/Views2k/Wisp/releases/tag/v2.4.0)

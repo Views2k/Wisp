@@ -31,7 +31,7 @@ Wisp is distributed free of charge for personal, non-commercial use.
 Forza Horizon 6 © Microsoft Corporation. Wisp is an unofficial community
 project and is not endorsed by or affiliated with Microsoft.
 
-Views2k claims no ownership of or license to Microsoft Game Content. Public
+I claim no ownership of or license to Microsoft Game Content. Public
 circulation does not itself grant rights, and Wisp does not claim that Microsoft
 authorized the extraction or redistribution of these assets. Their identities
 and rendering roles are recorded in the
