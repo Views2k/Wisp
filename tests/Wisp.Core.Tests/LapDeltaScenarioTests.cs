@@ -390,7 +390,8 @@ public sealed class LapDeltaScenarioTests
         // that is abandoned has its own test.
         private void Abandon()
         {
-            if (Best is null || _start is null || _now.Fraction is < .2 or > .9) return;
+            // Turning back from well into the lap; from near the end the way back is just a corner cut to the line.
+            if (Best is null || _start is null || _now.Fraction is < .2 or > .7) return;
             Begin("abandon and drive back to the start");
             var from = _now.Position;
             var to = Position(-.03);

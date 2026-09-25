@@ -334,10 +334,14 @@ public sealed class LapDeltaTracker
             lap.CurrentLapSeconds < _current[0].Time) return false;
         var i = RecordedIndexAt(lap.CurrentLapSeconds);
         var at = _current[i];
-        var expected = i + 1 < _current.Count && _current[i + 1].Time > at.Time
-            ? Vector3.Lerp(at.Position, _current[i + 1].Position, (lap.CurrentLapSeconds - at.Time) / (_current[i + 1].Time - at.Time))
-            : at.Position;
-        return Vector3.Distance(expected, lap.Position.ToVector()) <= 25;
+        var position = lap.Position.ToVector();
+        if (Vector3.Distance(at.Position, position) <= 25) return true;
+        if (i + 1 >= _current.Count || _current[i + 1].Time <= at.Time) return false;
+        // A kept break (a reset) can lie between two recorded samples; either side, or the line
+        // between them, is where the car was at that lap time.
+        var next = _current[i + 1];
+        var expected = Vector3.Lerp(at.Position, next.Position, (lap.CurrentLapSeconds - at.Time) / (next.Time - at.Time));
+        return Vector3.Distance(expected, position) <= 25 || Vector3.Distance(next.Position, position) <= 25;
     }
 
     // Keep the recording up to the rewind point; the rest of the lap is driven again.
