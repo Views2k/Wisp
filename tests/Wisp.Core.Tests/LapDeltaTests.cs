@@ -195,7 +195,7 @@ public sealed class LapDeltaTests
         tracker.Interrupt();
         for (var i = 0; i < 50; i++) tracker.Update(State(21 + i / 10d, 21 + i / 10d, 0,
             Circle((21 + i / 10d) / 60)), LapDeltaReference.SessionBest);
-        Assert.Same(outline, tracker.ReadMap(2)!.Outline);
+        Assert.True(tracker.ReadMap(2)!.Outline.Points.Count > outline.Points.Count);
     }
 
     private static VehicleState At(VehicleState state, double wall) => state with
@@ -465,7 +465,7 @@ public sealed class LapDeltaTests
         Assert.False(idle.IsRecording);
         var resume = tracker.Update(State(12.1, 12.1, 0, Circle(12.1 / 60)), LapDeltaReference.SessionBest);
         Assert.True(tracker.ReadMap(3)!.IsRecording);
-        Assert.Same(outline, tracker.ReadMap(4)!.Outline);
+        Assert.True(tracker.ReadMap(4)!.Outline.Points.Count >= outline.Points.Count);
     }
 
     [Fact]

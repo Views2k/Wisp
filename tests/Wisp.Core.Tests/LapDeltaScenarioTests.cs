@@ -40,7 +40,9 @@ public sealed class LapDeltaScenarioTests
         private readonly Queue<string> _packets = new();
         protected double Wall = 100, Pace = 60;
         protected double? Best, Previous;
-        protected bool Valid = true;
+        // Lap time of the last sample before a break in this lap; a rewind to before it repairs it.
+        protected double? BrokenAt;
+        protected bool Valid => BrokenAt is null;
         private int _settle;
         private bool _quiet;
 
@@ -141,7 +143,7 @@ public sealed class LapDeltaScenarioTests
                 }
                 _lastLap = duration;
                 _number++;
-                Valid = true;
+                BrokenAt = null;
                 next = next with { Lap = past, Fraction = past / pace };
                 _history.Clear();
             }
@@ -180,6 +182,7 @@ public sealed class LapDeltaScenarioTests
             {
                 _history.RemoveAt(_history.Count - 1);
                 _now = _history[^1];
+                if (BrokenAt is { } broken && _now.Lap <= broken) BrokenAt = null;
                 Wall += .1;
                 Send();
             }
@@ -187,16 +190,17 @@ public sealed class LapDeltaScenarioTests
         }
 
         // The game keeps running but no packets arrive. A stretch the recording cannot see
-        // means the lap cannot become a reference.
+        // means the lap cannot become a reference, unless a rewind goes back before it.
         private void LosePackets(double seconds)
         {
             var steps = (int)(seconds * 10);
             if (steps < 2 || _now.Fraction + steps * .1 / Pace >= .97) return;
             Begin($"lost {steps / 10d:F1}s");
             var from = Position(_now.Fraction);
+            var before = _now.Lap;
             for (var i = 1; i < steps; i++) Step(send: false);
             Step(send: false);
-            if (steps > 10 && Vector3.Distance(from, Position(_now.Fraction)) > 25) Valid = false;
+            if (steps > 10 && Vector3.Distance(from, Position(_now.Fraction)) > 25) BrokenAt ??= before;
             Send();
             End();
         }
@@ -207,10 +211,10 @@ public sealed class LapDeltaScenarioTests
             var back = meters / (Math.Tau * 150);
             if (_now.Fraction - back < .02) return;
             Begin($"reset {meters:F0}m back");
+            BrokenAt ??= _now.Lap;
             Wall += .1;
             _now = _now with { Game = _now.Game + .1, Race = _now.Race + .1, Lap = _now.Lap + .1, Fraction = _now.Fraction - back };
             _history.Add(_now);
-            Valid = false;
             Send();
             End();
         }
@@ -223,7 +227,7 @@ public sealed class LapDeltaScenarioTests
             _now = new(_now.Game + .1, 0, 0, 0);
             _number = 0;
             _lastLap = 0;
-            Valid = true;
+            BrokenAt = null;
             NextPace();
             _history.Clear();
             _history.Add(_now);
@@ -281,7 +285,7 @@ public sealed class LapDeltaScenarioTests
             if (_now.Fraction < 0 && fraction >= 0)
             {
                 _start = _now.Game - _now.Fraction * Pace;
-                Valid = true;
+                BrokenAt = null;
                 _history.Clear();
             }
             else if (fraction >= 1)
@@ -293,7 +297,7 @@ public sealed class LapDeltaScenarioTests
                     Previous = crossing - start;
                 }
                 _start = crossing;
-                Valid = true;
+                BrokenAt = null;
                 fraction = (fraction - 1) * Pace / NextPace();
                 _history.Clear();
             }
@@ -331,6 +335,7 @@ public sealed class LapDeltaScenarioTests
             {
                 _history.RemoveAt(_history.Count - 1);
                 _now = _history[^1];
+                if (BrokenAt is { } broken && _now.Game - _start <= broken) BrokenAt = null;
                 Wall += .1;
                 Send();
             }
@@ -343,9 +348,10 @@ public sealed class LapDeltaScenarioTests
             if (steps < 2 || _now.Fraction < .02 || _now.Fraction + steps * .1 / Pace >= .97) return;
             Begin($"lost {steps / 10d:F1}s");
             var from = _now.Position;
+            var before = _now.Game - _start;
             for (var i = 1; i < steps; i++) Step(send: false);
             Step(send: false);
-            if (steps > 10 && Vector3.Distance(from, _now.Position) > 25) Valid = false;
+            if (steps > 10 && before is { } time && Vector3.Distance(from, _now.Position) > 25) BrokenAt ??= time;
             Send();
             End();
         }
@@ -361,7 +367,6 @@ public sealed class LapDeltaScenarioTests
             _history.Clear();
             _history.Add(_now);
             _start = null;
-            Valid = false;
             Send();
             End();
         }
@@ -376,7 +381,6 @@ public sealed class LapDeltaScenarioTests
             _history.Clear();
             _history.Add(_now);
             _start = null;
-            Valid = false;
             Send();
             End();
         }
@@ -399,7 +403,6 @@ public sealed class LapDeltaScenarioTests
             }
             _history.Clear();
             _start = null;
-            Valid = false;
             // Wisp can only tell the attempt was abandoned at the line; check from the new attempt on.
             while (_now.Fraction < 0) Step();
             End();

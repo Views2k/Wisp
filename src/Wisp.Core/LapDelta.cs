@@ -43,7 +43,11 @@ public sealed class LapDeltaTracker
     private uint _lastTimestamp;
     private DateTimeOffset _lastReceived;
     private int _car;
-    private bool _completeStart;
+    // A lap can become a reference when it started at the line and nothing broke its recording.
+    // A rewind to before the break removes it, as it does in the game.
+    private bool _startedAtLine;
+    private float? _brokenAt;
+    private bool Eligible => _startedAtLine && _brokenAt is null;
     private float _distance;
     private Vector3 _direction;
     private LapTrackOutline? _map;
@@ -96,7 +100,8 @@ public sealed class LapDeltaTracker
         _best = _previous = _challenger = null;
         _last = null;
         _current.Clear();
-        _completeStart = false;
+        _startedAtLine = false;
+        _brokenAt = null;
         _distance = 0;
         _direction = default;
         _map = null;
@@ -104,18 +109,14 @@ public sealed class LapDeltaTracker
         _nextMapTime = 0;
     }
 
-    // A pause keeps the active recording; the first resumed sample decides whether the
-    // same lap continues. Any other interruption invalidates only the active recording.
+    // A pause keeps the active recording; the first resumed sample decides whether the same lap
+    // continues. Any other interruption breaks the recording at its last usable sample.
     // Completed references and their cached artwork belong to the circuit, not a packet stream.
     public void Interrupt(bool paused = false)
     {
         _isRecording = false;
         _paused = paused && (_paused || !_interrupted);
-        if (!_paused)
-        {
-            _retainLearningMap = _map is not null;
-            _completeStart = false;
-        }
+        if (!_paused && _last is { } last) _brokenAt ??= last.CurrentLapSeconds;
         _interrupted = true;
     }
 
@@ -136,17 +137,27 @@ public sealed class LapDeltaTracker
         _nextMapTime = 0;
         _last = null;
         _current.Clear();
-        _completeStart = false;
+        _startedAtLine = false;
+        _brokenAt = null;
         _distance = 0;
         _direction = default;
     }
 
-    private void Reacquire()
+    // A break that keeps this lap's clock going (a reset, missing samples) is remembered, and a
+    // rewind to before it removes it. A lap clock that went back without a rewind cannot be
+    // matched to this recording, which starts again from here.
+    private void Reacquire(LapTelemetry last, LapTelemetry lap)
     {
-        _retainLearningMap = _map is not null;
-        _completeStart = false;
-        _current.Clear();
-        _distance = 0;
+        if (lap.LapNumber == last.LapNumber && lap.CurrentLapSeconds + .01f >= last.CurrentLapSeconds && _current.Count > 0)
+            _brokenAt ??= last.CurrentLapSeconds;
+        else
+        {
+            _retainLearningMap = _map is not null;
+            _startedAtLine = false;
+            _brokenAt = null;
+            _current.Clear();
+            _distance = 0;
+        }
         _direction = default;
         _best?.Restart(reacquire: true);
         _previous?.Restart(reacquire: true);
@@ -222,19 +233,20 @@ public sealed class LapDeltaTracker
             var gap = _interrupted || elapsed > 1 || state.ReceivedAtUtc - _lastReceived > TimeSpan.FromSeconds(1);
             // After a pause, or a pause in the packet stream, the game's lap clocks and the
             // car's position decide whether the same lap continues. Wall time is not lap time.
-            var resumed = gap && (_paused || !_interrupted) && ContinuesLap(last, lap, moved);
+            var resumed = gap && ContinuesLap(last, lap, moved);
             var continuous = !(gap && !resumed ||
                 lap.RaceSeconds + .01f < last.RaceSeconds || lap.LapNumber < last.LapNumber ||
                 lap.LapNumber > last.LapNumber + 1 || !resumed && moved > Math.Max(25, elapsed * 180) ||
                 (!boundary && lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds));
             if (!continuous)
             {
-                // A rewind returns to a moment of this recording. Otherwise a lap clock back at the
-                // start (a restart, reset or new attempt) begins a new lap, and the references
-                // restart at their own start rather than being searched.
-                if ((_paused || !_interrupted) && RewindsTo(last, lap)) Rewind(lap);
+                // Only a rewind runs the game's clock backwards; it returns to a moment of this
+                // recording. Otherwise a lap clock back at the start (a restart, reset or new
+                // attempt) begins a new lap, and the references restart at their own start
+                // rather than being searched.
+                if (unchecked((int)(state.GameTimestampMilliseconds - _lastTimestamp)) < 0 && RewindsTo(last, lap)) Rewind(lap);
                 else if (lap.CurrentLapSeconds <= .25f) StartLap(lap);
-                else Reacquire();
+                else Reacquire(last, lap);
             }
             else if (elapsed == 0 && !resumed)
             {
@@ -249,14 +261,14 @@ public sealed class LapDeltaTracker
                 StartLap(lap);
                 if (crossing is { } start) _current.Add(new(start, 0, 0));
             }
-            else if (lap.LapNumber != last.LapNumber) Reacquire();
+            else if (lap.LapNumber != last.LapNumber) Reacquire(last, lap);
             else
             {
                 _distance += moved;
                 // The game kept running and the car kept driving while no samples arrived. Keep
                 // tracking this lap, but its recorded line skips that stretch, so it cannot
-                // become a reference.
-                if (resumed && lap.CurrentLapSeconds - last.CurrentLapSeconds > 1 && moved > 25) _completeStart = false;
+                // become a reference unless a rewind goes back before it.
+                if (resumed && lap.CurrentLapSeconds - last.CurrentLapSeconds > 1 && moved > 25) _brokenAt ??= last.CurrentLapSeconds;
             }
             // A teleport, rewind or restart is not a heading.
             if (continuous && direction.LengthSquared() > .0001f) _direction = direction;
@@ -334,8 +346,7 @@ public sealed class LapDeltaTracker
         var i = RecordedIndexAt(lap.CurrentLapSeconds);
         _current.RemoveRange(i + 1, _current.Count - i - 1);
         _distance = _current[i].Distance + Vector3.Distance(_current[i].Position, lap.Position.ToVector());
-        // Rewinding to the line redoes the whole lap from its start.
-        if (lap.CurrentLapSeconds <= .25f) _completeStart = true;
+        if (_brokenAt is { } broken && lap.CurrentLapSeconds <= broken) _brokenAt = null;
         _direction = default;
         _nextMapTime = 0;
         _best?.Restart(reacquire: true);
@@ -361,7 +372,8 @@ public sealed class LapDeltaTracker
         _nextMapTime = 0;
         _current.Clear();
         _distance = 0;
-        _completeStart = lap.CurrentLapSeconds <= .25f;
+        _startedAtLine = lap.CurrentLapSeconds <= .25f;
+        _brokenAt = null;
         _direction = default;
         _best?.Restart();
         _previous?.Restart();
@@ -371,7 +383,7 @@ public sealed class LapDeltaTracker
     private void Record(LapTelemetry lap)
     {
         var position = lap.Position.ToVector();
-        if (_current.Count >= MaximumPoints) { _completeStart = false; return; }
+        if (_current.Count >= MaximumPoints) { _brokenAt ??= lap.CurrentLapSeconds; return; }
         if (_current.Count == 0) { _current.Add(new(position, lap.CurrentLapSeconds, _distance)); return; }
         var last = _current[^1];
         if (lap.CurrentLapSeconds - last.Time < .1f && Vector3.DistanceSquared(last.Position, position) < SampleDistance * SampleDistance) return;
@@ -389,7 +401,7 @@ public sealed class LapDeltaTracker
         var span = duration - last.CurrentLapSeconds + next.CurrentLapSeconds;
         if (duration < 5 || duration < last.CurrentLapSeconds || span <= 0 || span > 1) return null;
         var finish = Vector3.Lerp(last.Position.ToVector(), next.Position.ToVector(), (duration - last.CurrentLapSeconds) / span);
-        if (!_completeStart || _current.Count < 20 || _distance < 100 ||
+        if (!Eligible || _current.Count < 20 || _distance < 100 ||
             Vector3.Distance(_current[0].Position, next.Position.ToVector()) > 35) return finish;
         _current.Add(new(finish, duration, _distance + Vector3.Distance(last.Position.ToVector(), finish)));
         var trace = new Trace(_current.ToArray(), duration);
@@ -424,6 +436,10 @@ public sealed class LapDeltaTracker
         return mode == LapDeltaReference.PreviousLap ? previous : best;
     }
 
+    // A reference can begin one sample after its line; its first segment extends back to lap time zero.
+    private static float Earliest(Point[] points, int i) =>
+        i == 0 && points[1].Time > points[0].Time ? -points[0].Time / (points[1].Time - points[0].Time) : 0;
+
     private LapDeltaReading ReacquireReference(Trace trace, LapTelemetry lap, long received)
     {
         var points = trace.Points;
@@ -433,7 +449,7 @@ public sealed class LapDeltaTracker
         {
             var edge = points[i + 1].Position - points[i].Position;
             if (edge.LengthSquared() < .0001f || _direction.LengthSquared() > .0001f && Vector3.Dot(_direction, edge) < 0) continue;
-            var f = Math.Clamp(Vector3.Dot(trace.SearchPosition - points[i].Position, edge) / edge.LengthSquared(), 0, 1);
+            var f = Math.Clamp(Vector3.Dot(trace.SearchPosition - points[i].Position, edge) / edge.LengthSquared(), Earliest(points, i), 1);
             var distance = Vector3.DistanceSquared(trace.SearchPosition, points[i].Position + f * edge);
             if (distance >= 400) continue;
             // The start and finish, or crossing roads, pass the same place at different lap
@@ -454,7 +470,7 @@ public sealed class LapDeltaTracker
                 // The car may move while the bounded search finishes. Reproject
                 // against its current position before accepting the chosen segment.
                 var edge = points[i + 1].Position - points[i].Position;
-                var f = Math.Clamp(Vector3.Dot(lap.Position.ToVector() - points[i].Position, edge) / edge.LengthSquared(), 0, 1);
+                var f = Math.Clamp(Vector3.Dot(lap.Position.ToVector() - points[i].Position, edge) / edge.LengthSquared(), Earliest(points, i), 1);
                 if (Vector3.DistanceSquared(lap.Position.ToVector(), points[i].Position + f * edge) < 400 &&
                     (_direction.LengthSquared() < .0001f || Vector3.Dot(_direction, edge) >= 0))
                 {
@@ -472,7 +488,7 @@ public sealed class LapDeltaTracker
     private LapDeltaReading Match(Trace? trace, LapTelemetry lap, long received)
     {
         if (trace is null)
-            return new(_completeStart ? LapDeltaStatus.RecordingLap : LapDeltaStatus.WaitingForLap, ReceivedTimestamp: received);
+            return new(Eligible ? LapDeltaStatus.RecordingLap : LapDeltaStatus.WaitingForLap, ReceivedTimestamp: received);
         if (trace.Reacquiring) return ReacquireReference(trace, lap, received);
         var position = lap.Position.ToVector();
         var points = trace.Points;
@@ -496,10 +512,7 @@ public sealed class LapDeltaTracker
             var length = edge.LengthSquared();
             if (length < .0001f) continue;
             if (directionLength > .0001f && Vector3.Dot(_direction, edge) < .1f * MathF.Sqrt(directionLength * length)) continue;
-            // A reference can begin one sample after its line; its first segment extends back to
-            // lap time zero.
-            var earliest = i == 0 && points[1].Time > points[0].Time ? -points[0].Time / (points[1].Time - points[0].Time) : 0;
-            var fraction = Math.Clamp(Vector3.Dot(position - points[i].Position, edge) / length, earliest, 1);
+            var fraction = Math.Clamp(Vector3.Dot(position - points[i].Position, edge) / length, Earliest(points, i), 1);
             var candidateTime = points[i].Time + fraction * (points[i + 1].Time - points[i].Time);
             if (candidateTime + .05 < trace.MatchedTime) continue;
             var progress = points[i].Distance + fraction * (points[i + 1].Distance - points[i].Distance);
