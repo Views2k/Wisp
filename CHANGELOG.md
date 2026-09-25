@@ -2,6 +2,11 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.4.1 - 2026-09-25
+
+- Enable Drift Zone angle-bonus guidance on Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC. Keep native compatibility checks and the existing Steam profile.
+- Mark beta shift guidance as unavailable on the Xbox app / Microsoft Store (Game Pass) edition.
+
 ## 2.4.0 - 2026-09-23
 
 - Fix the focused-game G-SYNC/VRR needle issue with a monitor-sized native host for the contained main HUD and passive-update requests on overlay windows.

@@ -95,7 +95,7 @@
             <Expander Header="More options" Style="{StaticResource MoreOptionsStyle}" Margin="0,8,0,0"
                       AutomationProperties.Name="More about drift guidance">
                 <StackPanel>
-                    <TextBlock Text="The verified scoring-angle range starts around 10°. Ordinary 20–40° drifts already receive about 80–90% of the maximum angle bonus. The ticks change from yellow toward green as that bonus grows; it reaches its ceiling at 59.4°."
+                    <TextBlock Text="The scoring-angle guide starts around 10°. Ordinary 20–40° drifts already receive about 80–90% of the maximum angle bonus. The ticks change from yellow toward green as that bonus grows; it reaches its ceiling at 59.4°."
                                TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
                     <TextBlock Text="Keep your speed and line. You do not need to hold 60° to score. Beyond the green ceiling marker, yellow means more angle adds no bonus; red means outside the verified angle range. The percentage compares the angle multiplier with its maximum, not your total points."
                                TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,8,0,0" />

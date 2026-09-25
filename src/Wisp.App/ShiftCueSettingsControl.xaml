@@ -33,7 +33,7 @@
                            TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
                 <TextBlock Text="Red marks a measured full-load RPM target, not an optimized button-press time. An upper-range target is identified separately when holding the gear remains stronger. Driver reaction and shift recovery time are not added. Grip, throttle changes and boost recovery can change acceleration during a shift. Calibration checks overlapping output after an upshift, but does not predict every racing condition."
                            TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
-                <TextBlock Text="Requires Forza Horizon 6 Steam build 6.440.853.0 and a supported combustion-car configuration. Electric vehicles do not use this feature."
+                <TextBlock Text="Requires the Steam edition of Forza Horizon 6, build 6.440.853.0, and a supported combustion-car configuration. Not available on the Xbox app / Microsoft Store (Game Pass) edition. Electric vehicles do not use this feature."
                            TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
             </StackPanel>
         </Expander>
