@@ -8,10 +8,10 @@ public sealed class ReleaseNotesCatalogTests
     public void CurrentReleaseAndEarlierVersionsAppearInDescendingOrder()
     {
         Assert.Equal(
-            ["2.4", "2.3.4", "2.3.3", "2.3.2", "2.3.1", "2.3", "2.2", "2.1.2", "2.1.1", "2.1", "2.0.1", "2.0", "1.2.2", "1.2.1", "1.2", "1.1.4", "1.1.3", "1.1.2", "1.1.1", "1.1", "1.0.12", "1.0.11", "1.0.10", "1.0.8", "1.0.7", "1.0.6", "1.0.5", "1.0.4", "1.0.3", "1.0.2", "1.0.1"],
+            ["2.4.1", "2.4", "2.3.4", "2.3.3", "2.3.2", "2.3.1", "2.3", "2.2", "2.1.2", "2.1.1", "2.1", "2.0.1", "2.0", "1.2.2", "1.2.1", "1.2", "1.1.4", "1.1.3", "1.1.2", "1.1.1", "1.1", "1.0.12", "1.0.11", "1.0.10", "1.0.8", "1.0.7", "1.0.6", "1.0.5", "1.0.4", "1.0.3", "1.0.2", "1.0.1"],
             ReleaseNotesCatalog.Entries.Select(entry => entry.Version));
         Assert.True(ReleaseNotesCatalog.Entries[0].IsCurrent);
-        Assert.Equal("PERFORMANCE HOTFIX", ReleaseNotesCatalog.Entries[0].Label);
+        Assert.Equal("GAME PASS HOTFIX", ReleaseNotesCatalog.Entries[0].Label);
         var publicChanges = Assert.Single(ReleaseNotesCatalog.Entries.Single(entry => entry.Version == "2.3.2").Groups,
             group => group.Heading == "Appearance preview");
         Assert.Equal(3, publicChanges.Items.Count);

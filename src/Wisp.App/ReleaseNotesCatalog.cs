@@ -15,11 +15,22 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.4.1",
+            "September 25, 2026",
+            "GAME PASS HOTFIX",
+            "Enable Drift Zone angle-bonus guidance on the supported Xbox app and Microsoft Store PC build.",
+            true,
+            [
+                Group("Drift gauge",
+                    "Recognize FH6 3.440.853.0 for Drift Zone angle-bonus guidance instead of showing UNVERIFIED BUILD.",
+                    "Retain storefront-specific native compatibility checks and the existing Steam guidance.")
+            ]),
+        new(
             "2.4",
             "September 23, 2026",
             "PERFORMANCE HOTFIX",
             "Address the G-SYNC/VRR needle issue, correct playback and rendering bugs, and reduce unnecessary drawing, allocation and CPU work.",
-            true,
+            false,
             [
                 Group("Window composition",
                     "Use a monitor-sized native host when the main HUD fits within one monitor, retaining the artwork's size and position.",

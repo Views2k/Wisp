@@ -21,11 +21,42 @@ public sealed class DriftZoneProfileCatalogTests
     }
 
     [Fact]
-    public void MissingPreviousAndStoreBuildsCannotClaimVerifiedGuidance()
+    public void MissingAndPreviousBuildsHaveNoAngleGuidance()
     {
         Assert.Null(DriftZoneProfileCatalog.ForBuild(null));
-        foreach (var pack in NativeHudBuildContract.AdditionalBuiltIns)
+        foreach (var pack in new[] { NativeHudBuildContract.PreviousSteamBuiltIn, NativeHudBuildContract.PreviousStoreBuiltIn })
             Assert.Null(DriftZoneProfileCatalog.ForBuild(pack));
+    }
+
+    [Fact]
+    public void CurrentStoreBuildReceivesTheAngleGuide()
+    {
+        var profile = DriftZoneProfileCatalog.ForBuild(NativeHudBuildContract.StoreBuiltIn);
+        Assert.NotNull(profile);
+        Assert.Equal(DriftZoneProfileCatalog.ForBuild(NativeHudBuildContract.BuiltIn), profile);
+        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.Store.json")!;
+        var document = JsonNode.Parse(stream)!.AsObject();
+        var restored = NativeHudCompatibilityPack.Parse(Encoding.UTF8.GetBytes(document.ToJsonString()));
+        Assert.Equal(profile, DriftZoneProfileCatalog.ForBuild(restored));
+    }
+
+    [Theory]
+    [InlineData("gameVersion")]
+    [InlineData("imageSize")]
+    [InlineData("timeDateStamp")]
+    public void ChangedStoreBuildIdentityHasNoAngleGuide(string field)
+    {
+        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.Store.json")!;
+        var document = JsonNode.Parse(stream)!.AsObject();
+        if (field == "gameVersion")
+        {
+            document["gameVersion"] = "3.440.854.0";
+            document["storeIdentity"]!["packageFullName"] = "Microsoft.ForteBaseGame_3.440.854.0_x64__8wekyb3d8bbwe";
+        }
+        else if (field == "imageSize") document[field] = document[field]!.GetValue<uint>() + 4096;
+        else document["storeIdentity"]![field] = document["storeIdentity"]![field]!.GetValue<uint>() + 1;
+        var pack = NativeHudCompatibilityPack.Parse(Encoding.UTF8.GetBytes(document.ToJsonString()));
+        Assert.Null(DriftZoneProfileCatalog.ForBuild(pack));
     }
 
     [Theory]
