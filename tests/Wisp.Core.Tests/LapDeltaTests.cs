@@ -327,7 +327,7 @@ public sealed class LapDeltaTests
         for (var i = 0; i <= 300; i++)
         {
             var t = i / 10d;
-            reading = tracker.Update(State(60 + t, t, 1, Circle(t / 60)) with { ReceivedAtUtc = Epoch.AddSeconds(95 + t) }, LapDeltaReference.SessionBest);
+            reading = tracker.Update(State(60 + t, t, 1, Circle(t / 60)) with { ReceivedAtUtc = Epoch.AddSeconds(70 + t) }, LapDeltaReference.SessionBest);
         }
         Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
         Assert.Equal(60, reading.ReferenceSeconds);

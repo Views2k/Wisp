@@ -91,9 +91,16 @@ public sealed class TimeAttackTests
         {
             for (var i = 1; i <= 20; i++) Update(tracker, 65 - i / 10d, 65 - i / 10d);
         }
-        else tracker.Update(State(65, 65) with { IsRaceOn = false }, LapDeltaReference.SessionBest, LapTimingMode.TimeAttack);
+        // A paused game freezes its timestamp while wall time passes.
+        else tracker.Update(State(65, 65) with { IsRaceOn = false, ReceivedAtUtc = State(66, 0).ReceivedAtUtc },
+            LapDeltaReference.SessionBest, LapTimingMode.TimeAttack);
         LapDeltaReading reading = LapDeltaReading.Waiting;
-        for (var i = 1; i <= 10; i++) reading = Update(tracker, (rewind ? 63 : 67) + i / 10d, (rewind ? 63 : 65) + i / 10d);
+        for (var i = 1; i <= 10; i++)
+        {
+            var time = (rewind ? 63 : 65) + i / 10d;
+            reading = tracker.Update(State(time, time) with { ReceivedAtUtc = State(time + 2, 0).ReceivedAtUtc },
+                LapDeltaReference.SessionBest, LapTimingMode.TimeAttack);
+        }
         Assert.Same(outline, tracker.ReadMap(2)!.Outline);
         Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
         Assert.InRange(reading.Seconds!.Value, -.15, .15);
@@ -172,13 +179,15 @@ public sealed class TimeAttackTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void GenericGapKeepsGameTimeButObservedPauseFreezesClock(bool paused)
+    public void ClockFollowsTheGameClockAcrossAPause(bool gameKeptRunning)
     {
         var clock = new TimeAttackClock();
         for (var i = -1; i <= 100; i++) clock.Update(State(i / 10d, i / 10d));
-        clock.Interrupt(paused);
-        var sample = clock.Update(State(15, 10));
-        Assert.InRange(sample!.CurrentLapSeconds, (paused ? 10 : 15) - .01, (paused ? 10 : 15) + .01);
+        // Five seconds of wall time pass. A paused game freezes its timestamp; a game that
+        // kept running (online) advances it, and so does its own timer.
+        var resumed = State(gameKeptRunning ? 15 : 10, 10) with { ReceivedAtUtc = State(15, 0).ReceivedAtUtc };
+        var sample = clock.Update(resumed);
+        Assert.InRange(sample!.CurrentLapSeconds, (gameKeptRunning ? 15 : 10) - .01, (gameKeptRunning ? 15 : 10) + .01);
     }
 
     [Fact]

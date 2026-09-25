@@ -35,15 +35,13 @@ internal sealed class TimeAttackClock
     private double _clock, _start = double.NaN;
     private float _distance, _lastLap;
     private ushort _lap;
-    private bool _interrupted, _paused;
     internal bool CircuitChanged { get; private set; }
 
     internal void Reset()
     {
         _lastState = null; _gate = -1; _clock = 0; _start = double.NaN;
-        _distance = _lastLap = 0; _lap = 0; _interrupted = _paused = false; _history.Clear();
+        _distance = _lastLap = 0; _lap = 0; _history.Clear();
     }
-    internal void Interrupt(bool paused = false) { _interrupted = true; _paused |= paused; }
 
     internal LapTelemetry? Update(VehicleState state)
     {
@@ -57,36 +55,44 @@ internal sealed class TimeAttackClock
         var previous = _lastState;
         _lastState = state;
         if (previous is null || _gate < 0) return null;
-        var delta = unchecked(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds) / 1000d;
+        // The game's timestamp is its simulation clock: it stands still while the game is paused
+        // and runs backwards on rewind, like the game's own timer. Wall time is not lap time.
+        var delta = unchecked((int)(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds)) / 1000d;
         var oldPosition = previous.Lap!.Position.ToVector();
-        var movement = position - oldPosition;
-        var moved = movement.Length();
-        var discontinuity = _interrupted || delta > 1 || state.ReceivedAtUtc - previous.ReceivedAtUtc > TimeSpan.FromSeconds(1) || moved > Math.Max(25, delta * 180);
-        var paused = _paused;
-        _interrupted = _paused = false;
+        var moved = Vector3.Distance(position, oldPosition);
+        var clockReversed = delta < 0;
+        // Movement faster than any car is a reset, restart or fast travel. It ends the attempt;
+        // the next start-line crossing begins a new one.
+        var teleported = !clockReversed && moved > Math.Max(25, delta * 180);
 
         // Position alone cannot distinguish rewind from a spin or rolling back.
         // Only a backwards game clock permits restoring a recorded timing point.
-        var clockReversed = unchecked((int)(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds)) < 0;
         if (clockReversed && !double.IsNaN(_start) &&
             (_history.Count == 0 || _history[^1].GameTimestamp != previous.GameTimestampMilliseconds))
             _history.Add(new(oldPosition, previous.GameTimestampMilliseconds, _clock, _start, _lap, _lastLap, _distance));
         var restored = clockReversed && TryRestore(position, state.GameTimestampMilliseconds);
         if (!restored)
         {
-            if (clockReversed || discontinuity && moved > 25) _start = double.NaN;
+            if (clockReversed || teleported) _start = double.NaN;
             else
             {
-                if (!paused) _clock += delta;
-                if (!discontinuity) _distance += moved;
+                _clock += delta;
+                _distance += moved;
             }
         }
-        if (!discontinuity && !restored && Gates[_gate].Cross(oldPosition, position, out var fraction))
+        if (!clockReversed && !teleported && Gates[_gate].Cross(oldPosition, position, out var fraction))
         {
-            var crossing = _clock - delta * (1 - fraction);
-            if (double.IsNaN(_start) || crossing - _start >= 15 && _distance >= 500)
+            if (delta > 1) _start = double.NaN; // No samples near the line: its crossing time is unknown.
+            else
             {
-                if (!double.IsNaN(_start)) { _lastLap = (float)(crossing - _start); _lap++; }
+                // Every forward crossing starts a new attempt. The previous one counts as a lap only
+                // if it was long enough to be one; otherwise it was abandoned at the line.
+                var crossing = _clock - delta * (1 - fraction);
+                if (!double.IsNaN(_start) && crossing - _start >= 15 && _distance >= 500)
+                {
+                    _lastLap = (float)(crossing - _start);
+                    _lap++;
+                }
                 _start = crossing;
                 _distance = moved * (1 - fraction);
             }
