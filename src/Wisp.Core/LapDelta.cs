@@ -432,7 +432,6 @@ public sealed class LapDeltaTracker
         return finish;
     }
 
-
     private LapDeltaReading Read(LapTelemetry lap, LapDeltaReference mode, long received)
     {
         // Advance both references together so changing the selector mid-lap is immediate.
