@@ -39,6 +39,12 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--lap-delta-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                try { return LapDeltaReview.Run(output, () => LoadApplicationResources(output, out _)); }
+                catch (Exception error) { Console.Error.WriteLine(error); return 1; }
+            }
             if (args.Length == 4 && args[0] == "--shift-session-audit" && args[2] == "--output")
                 return ShiftSessionReview.Run(args[1], PrepareOutput(args[3]));
             if (args.Length == 3 && args[0] == "--standalone-preview-check" && args[1] == "--output")

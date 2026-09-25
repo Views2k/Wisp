@@ -16,6 +16,10 @@
     <AssemblyVersion>2.4.0.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyMetadata Include="WispDiagnosticBuildId" Value="lap-delta-20260924-4" />
+    <AssemblyMetadata Include="WispDiagnosticBuildLabel" Value="2.4 Lap Delta Test 4" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Wisp.Core\Wisp.Core.csproj" />
     <ProjectReference Include="..\Wisp.Telemetry\Wisp.Telemetry.csproj" />
     <ProjectReference Include="..\Wisp.Update\Wisp.Update.csproj" />
@@ -47,6 +51,7 @@
     <Content Include="Assets\Native\ASSET-MANIFEST.csv" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Native\THIRD-PARTY-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\fh6-time-attack-tracker-LICENSE.txt" Link="Licenses\fh6-time-attack-tracker-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\dotnet-runtime-8.0.31-LICENSE.txt" Link="Licenses\dotnet-runtime-8.0.31-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt" Link="Licenses\dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

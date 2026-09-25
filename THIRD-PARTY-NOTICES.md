@@ -40,3 +40,11 @@ and rendering roles are recorded in the
 remain with every copy.
 
 [Microsoft Game Content Usage Rules](https://www.xbox.com/en-us/developers/rules)
+
+## FH6 Time Attack circuit coordinates
+
+The start/finish coordinates for Legend Island, Hokubu, Soni and Sekibe come from
+[t1moleh's FH6 Time Attack Tracker](https://github.com/t1moleh/Forza-Horizon-6-Time-Attack-Tracker/blob/9b41bf4f2994e9919568437dd4a3f9316385dad0/circuits.csv).
+The original MIT license is included in `LICENSES/fh6-time-attack-tracker-LICENSE.txt`
+and in the installer's `Licenses` directory. Wisp uses these coordinates with its
+own lap tracking and native HUD.

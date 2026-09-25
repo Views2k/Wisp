@@ -150,6 +150,9 @@ public sealed class HudPresetTests
         [
             "Id", "Name", "SpeedUnit", "TorqueUnit", "LayoutMode", "NativeGaugeMode", "GearDisplayMode",
             "OverlayWidthScale", "OverlayHeightScale", "OverlayOpacity",
+            "LapTimingMode", "LapDeltaEnabled", "LapDeltaReference", "LapDeltaShowBar", "LapDeltaScale",
+            "LapDeltaAheadColor", "LapDeltaBehindColor", "LapMapEnabled", "LapMapScale",
+            "LapMapTrackColor", "LapMapCarColor", "LapMapBackgroundColor",
             "GForceEnabled", "GForceAttached", "GForceGaugeScale", "GForceWidthScale", "GForceHeightScale",
             "InvertLateralG", "InvertLongitudinalG",
             "BoostGaugeEnabled", "BoostGaugeAttached", "BoostGaugeColorNumber",

@@ -23,10 +23,10 @@ public sealed class ApplicationVersionInfoTests
     {
         Assert.Equal("2.4.0", ApplicationVersionInfo.MachineVersion);
         Assert.Equal("2.4", ApplicationVersionInfo.DisplayVersion);
-        Assert.Null(ApplicationVersionInfo.DiagnosticBuildId);
-        Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
-        Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.4", ApplicationVersionInfo.FooterText);
-        Assert.Contains("current 2.4 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+        Assert.Equal("lap-delta-20260924-4", ApplicationVersionInfo.DiagnosticBuildId);
+        Assert.Equal("2.4 Lap Delta Test 4", ApplicationVersionInfo.DiagnosticBuildLabel);
+        Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.4 Lap Delta Test 4 (private)", ApplicationVersionInfo.FooterText);
+        Assert.Contains("You are testing 2.4 Lap Delta Test 4", ApplicationVersionInfo.ReleaseHistoryIntroduction);
         Assert.Equal(ApplicationVersionInfo.DisplayVersion, ReleaseNotesCatalog.Entries[0].Version);
     }
 }

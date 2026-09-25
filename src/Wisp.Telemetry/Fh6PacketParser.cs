@@ -91,6 +91,7 @@ public sealed class Fh6PacketParser
             ReceivedAtUtc = receivedAtUtc,
             ReceivedTimestamp = receivedTimestamp,
             CarOrdinal = ReadInt32(packet, Fh6PacketLayout.CarOrdinal),
+            Lap = ReadLap(packet),
             Drivetrain = (DrivetrainType)drivetrainValue,
             NumCylinders = numCylinders,
             PowerWatts = powerWatts,
@@ -123,6 +124,20 @@ public sealed class Fh6PacketParser
     {
         var value = ReadSingle(packet, offset);
         return float.IsFinite(value) && MathF.Abs(value) <= 500 ? value : null;
+    }
+
+    private static LapTelemetry? ReadLap(ReadOnlySpan<byte> packet)
+    {
+        var position = new System.Numerics.Vector3(ReadSingle(packet, Fh6PacketLayout.Position),
+            ReadSingle(packet, Fh6PacketLayout.Position + 4), ReadSingle(packet, Fh6PacketLayout.Position + 8));
+        var current = ReadSingle(packet, Fh6PacketLayout.CurrentLap);
+        var last = ReadSingle(packet, Fh6PacketLayout.LastLap);
+        var race = ReadSingle(packet, Fh6PacketLayout.CurrentRaceTime);
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z) ||
+            position.LengthSquared() > 1e12f || !float.IsFinite(current) || !float.IsFinite(last) || !float.IsFinite(race) ||
+            current is < 0 or > 86_400 || last is < 0 or > 86_400 || race is < 0 or > 604_800) return null;
+        return new(position, current, last, race,
+            BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(Fh6PacketLayout.LapNumber, 2)), packet[Fh6PacketLayout.RacePosition]);
     }
 
     private static WheelValues ReadWheels(ReadOnlySpan<byte> packet, int offset) => new(

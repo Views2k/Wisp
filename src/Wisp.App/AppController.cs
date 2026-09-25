@@ -428,6 +428,8 @@ public sealed partial class AppController : IAsyncDisposable
         WindowZOrder.DetachFromGame(BoostGaugeOverlay);
         WindowZOrder.DetachFromGame(TireTemperatureGaugeOverlay);
         WindowZOrder.DetachFromGame(DriftGaugeOverlay);
+        WindowZOrder.DetachFromGame(LapDeltaOverlay);
+        WindowZOrder.DetachFromGame(LapMapOverlay);
         WindowZOrder.DetachFromGame(PowerGaugeOverlay);
         WindowZOrder.DetachFromGame(TorqueGaugeOverlay);
         if (!Settings.RequiresSetup)
@@ -1055,6 +1057,7 @@ public sealed partial class AppController : IAsyncDisposable
                 Settings.OverlayOpacity);
             GForceOverlay?.SetEnabled(IsStandaloneGForceWindowEnabled);
             DriftGaugeOverlay?.ApplyAppearance(Settings.DriftGaugeScale, Settings.OverlayOpacity);
+            ApplyLapDeltaSettings();
             GForceOverlay?.ApplyAppearance(
                 Settings.GForceWidthScale,
                 Settings.GForceHeightScale,
@@ -1542,6 +1545,8 @@ public sealed partial class AppController : IAsyncDisposable
         BoostGaugeOverlay?.SetEditMode(!locked);
         TireTemperatureGaugeOverlay?.SetEditMode(!locked);
         DriftGaugeOverlay?.SetEditMode(!locked);
+        LapDeltaOverlay?.SetEditMode(!locked);
+        LapMapOverlay?.SetEditMode(!locked);
         PowerGaugeOverlay?.SetEditMode(!locked);
         TorqueGaugeOverlay?.SetEditMode(!locked);
         UpdateOverlayVisibility(DateTimeOffset.UtcNow, force: true);
@@ -1937,8 +1942,15 @@ public sealed partial class AppController : IAsyncDisposable
         PowerGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         TorqueGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         DriftGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+        LapDeltaOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+        LapMapOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         WindowZOrder.DetachFromGame(DriftGaugeOverlay);
+        WindowZOrder.DetachFromGame(LapDeltaOverlay);
+        WindowZOrder.DetachFromGame(LapMapOverlay);
         DriftGaugeOverlay?.Dispose();
+        LapDeltaOverlay?.Close();
+        LapMapOverlay?.Close();
+        _lapDelta.Dispose();
         WindowZOrder.DetachFromGame(PowerGaugeOverlay);
         WindowZOrder.DetachFromGame(TorqueGaugeOverlay);
         PowerGaugeOverlay?.Close();
@@ -1983,6 +1995,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         try
         {
+            await _lapDelta.Completion.ConfigureAwait(false);
             await _debugHealthMonitor.DisposeAsync().ConfigureAwait(false);
             await _debugLog.DisposeAsync().ConfigureAwait(false);
         }
@@ -2740,6 +2753,8 @@ public sealed partial class AppController : IAsyncDisposable
             PowerGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
             TorqueGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
             DriftGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+            LapDeltaOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+            LapMapOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
             Overlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
             GForceOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
             BoostGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
@@ -2775,6 +2790,8 @@ public sealed partial class AppController : IAsyncDisposable
         BoostGaugeOverlay?.SetEnabled(detachedBoostEnabled);
         TireTemperatureGaugeOverlay?.SetEnabled(detachedTireTemperatureEnabled);
         var driftEnabled = IsDriftGaugeWindowEnabled;
+        var lapEnabled = Settings.LapDeltaEnabled;
+        var mapEnabled = Settings.LapMapEnabled;
         var overlayForeground =
             !Settings.OverlayLocked &&
             ((Overlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
@@ -2785,6 +2802,8 @@ public sealed partial class AppController : IAsyncDisposable
              detachedTireTemperatureEnabled &&
              (TireTemperatureGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
              driftEnabled && (DriftGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
+             lapEnabled && (LapDeltaOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
+             mapEnabled && (LapMapOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
              detachedPowerEnabled && (PowerGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
              detachedTorqueEnabled && (TorqueGaugeOverlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false));
         if (_lastConfirmedForzaWindow != IntPtr.Zero &&
@@ -2798,6 +2817,7 @@ public sealed partial class AppController : IAsyncDisposable
             : _lastConfirmedForzaWindow;
         var forzaWindowKnown = WindowZOrder.IsWindowAvailable(confirmedForzaWindow);
         if (driftEnabled && focus.IsForzaForeground) RefreshDriftGaugeDisplay(confirmedForzaWindow, now);
+        if ((lapEnabled || mapEnabled) && focus.IsForzaForeground) RefreshLapDeltaDisplay(confirmedForzaWindow, now);
         var telemetryFresh = _freshness.GetState(Stopwatch.GetTimestamp()) == TelemetryConnectionState.Connected;
         var nativeVisibility = EvaluateNativeGameplayVisibility(
             _nativeHudProcessService.SnapshotFor(_receiver.Latest?.CarOrdinal ?? 0),
@@ -2825,6 +2845,8 @@ public sealed partial class AppController : IAsyncDisposable
         _overlayVisibleRequested = overlayVisible;
         Overlay?.SetTelemetryVisible(overlayVisible, Settings.OverlayOpacity, hideImmediately);
         DriftGaugeOverlay?.SetTelemetryVisible(overlayVisible && driftEnabled, Settings.OverlayOpacity, hideImmediately || !driftEnabled);
+        LapDeltaOverlay?.SetTelemetryVisible(overlayVisible && lapEnabled, Settings.OverlayOpacity, hideImmediately || !lapEnabled);
+        LapMapOverlay?.SetTelemetryVisible(overlayVisible && mapEnabled, Settings.OverlayOpacity, hideImmediately || !mapEnabled);
         PowerGaugeOverlay?.SetTelemetryVisible(overlayVisible && detachedPowerEnabled, Settings.OverlayOpacity, hideImmediately || !detachedPowerEnabled);
         TorqueGaugeOverlay?.SetTelemetryVisible(overlayVisible && detachedTorqueEnabled, Settings.OverlayOpacity, hideImmediately || !detachedTorqueEnabled);
         GForceOverlay?.SetTelemetryVisible(
@@ -2866,6 +2888,8 @@ public sealed partial class AppController : IAsyncDisposable
                                            TireTemperatureGaugeOverlay,
                                            confirmedForzaWindow) ||
                                        driftEnabled && !WindowZOrder.IsAttachedToGame(DriftGaugeOverlay, confirmedForzaWindow) ||
+                                       lapEnabled && !WindowZOrder.IsAttachedToGame(LapDeltaOverlay, confirmedForzaWindow) ||
+                                       mapEnabled && !WindowZOrder.IsAttachedToGame(LapMapOverlay, confirmedForzaWindow) ||
                                        detachedPowerEnabled && !WindowZOrder.IsAttachedToGame(PowerGaugeOverlay, confirmedForzaWindow) ||
                                        detachedTorqueEnabled && !WindowZOrder.IsAttachedToGame(TorqueGaugeOverlay, confirmedForzaWindow));
         if (overlayVisible && confirmedForzaWindow != IntPtr.Zero &&
@@ -2901,6 +2925,8 @@ public sealed partial class AppController : IAsyncDisposable
                 ? now + TimeSpan.FromSeconds(1)
                 : DateTimeOffset.MaxValue;
             if (driftEnabled) _ = WindowZOrder.AttachAboveGame(DriftGaugeOverlay, confirmedForzaWindow, raise: focus.IsForzaForeground);
+            if (lapEnabled) _ = WindowZOrder.AttachAboveGame(LapDeltaOverlay, confirmedForzaWindow, raise: focus.IsForzaForeground);
+            if (mapEnabled) _ = WindowZOrder.AttachAboveGame(LapMapOverlay, confirmedForzaWindow, raise: focus.IsForzaForeground);
             if (detachedPowerEnabled) _ = WindowZOrder.AttachAboveGame(PowerGaugeOverlay, confirmedForzaWindow, raise: focus.IsForzaForeground);
             if (detachedTorqueEnabled) _ = WindowZOrder.AttachAboveGame(TorqueGaugeOverlay, confirmedForzaWindow, raise: focus.IsForzaForeground);
         }
@@ -2912,6 +2938,8 @@ public sealed partial class AppController : IAsyncDisposable
             WindowZOrder.DetachFromGame(BoostGaugeOverlay);
             WindowZOrder.DetachFromGame(TireTemperatureGaugeOverlay);
             WindowZOrder.DetachFromGame(DriftGaugeOverlay);
+            WindowZOrder.DetachFromGame(LapDeltaOverlay);
+            WindowZOrder.DetachFromGame(LapMapOverlay);
             WindowZOrder.DetachFromGame(PowerGaugeOverlay);
             WindowZOrder.DetachFromGame(TorqueGaugeOverlay);
         }
@@ -2929,6 +2957,8 @@ public sealed partial class AppController : IAsyncDisposable
             WindowZOrder.DetachFromGame(TireTemperatureGaugeOverlay);
         }
         if (!driftEnabled) WindowZOrder.DetachFromGame(DriftGaugeOverlay);
+        if (!lapEnabled) WindowZOrder.DetachFromGame(LapDeltaOverlay);
+        if (!mapEnabled) WindowZOrder.DetachFromGame(LapMapOverlay);
         if (!detachedPowerEnabled) WindowZOrder.DetachFromGame(PowerGaugeOverlay);
         if (!detachedTorqueEnabled) WindowZOrder.DetachFromGame(TorqueGaugeOverlay);
 
@@ -3056,12 +3086,17 @@ public sealed partial class AppController : IAsyncDisposable
         _overlayVisibleRequested = false;
         _lastConfirmedForzaWindow = IntPtr.Zero;
         _lastForzaFullscreen = false;
+        _lapDelta.Reset();
+        _lapGameDisplayKey = null;
+        _nextLapMonitorCheckUtc = DateTimeOffset.MinValue;
         _driftGameDisplayKey = null;
         _nextDriftMonitorCheckUtc = DateTimeOffset.MinValue;
         SetCompositionRenderingEnabled(false);
         PowerGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         TorqueGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         DriftGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+        LapDeltaOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
+        LapMapOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         Overlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         GForceOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);
         BoostGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true);

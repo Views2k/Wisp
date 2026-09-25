@@ -43,6 +43,7 @@ public sealed record VehicleState
     // Optional local Stopwatch ticks, not a field from the FH6 packet.
     public long? ReceivedTimestamp { get; init; }
     public required int CarOrdinal { get; init; }
+    public LapTelemetry? Lap { get; init; }
     public required DrivetrainType Drivetrain { get; init; }
     public int NumCylinders { get; init; } = -1;
     public float PowerWatts { get; init; }

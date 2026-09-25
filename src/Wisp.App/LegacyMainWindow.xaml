@@ -817,6 +817,7 @@
                                         <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                                             <local:DriftGaugeSettingsControl x:Name="DriftGaugeSettings" />
                                         </Border>
+<Border Style="{StaticResource CardStyle}" Margin="0,14,0,0"><local:LapDeltaSettingsControl x:Name="LapDeltaSettings" /></Border>
                                         <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                                             <local:PowerTorqueGaugeSettingsControl x:Name="PowerTorqueGaugeSettings" />
                                         </Border>
@@ -1808,6 +1809,11 @@
 <ListBoxItem Content="Shift cue · approach (beta)" />
 <ListBoxItem Content="Shift cue · prepare (beta)" />
 <ListBoxItem Content="Shift cue · shift (beta)" />
+<ListBoxItem Content="Lap delta · ahead" />
+<ListBoxItem Content="Lap delta · behind" />
+<ListBoxItem Content="Track map · track" />
+<ListBoxItem Content="Track map · car" />
+<ListBoxItem Content="Track map · background" />
                                                 </ListBox>
                                             </DockPanel>
                                         </Border>
@@ -1850,7 +1856,32 @@
                                                     Click="ResetDriftFlashColor_Click" HorizontalAlignment="Left"
                                                     AutomationProperties.Name="Reset Drift cut flash color" />
                                         </StackPanel>
-                                        <local:ColorWheelEditor x:Name="ColorEditor"
+                                        <Button x:Name="ResetLapColorButton" Content="Reset selected color" Click="ResetLapColor_Click"
+        HorizontalAlignment="Left" Margin="0,0,0,12" AutomationProperties.Name="Reset selected lap delta or track map color">
+    <Button.Style>
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="17">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="18">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="19">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="20">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="21">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Button.Style>
+</Button>
+<local:ColorWheelEditor x:Name="ColorEditor"
                                                                 HorizontalAlignment="Stretch" MinHeight="350"
                                                                 SelectedColorChanged="ColorEditor_SelectedColorChanged" />
                                         </StackPanel>
