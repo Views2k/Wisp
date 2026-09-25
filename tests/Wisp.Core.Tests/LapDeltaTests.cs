@@ -334,6 +334,33 @@ public sealed class LapDeltaTests
         Assert.InRange(reading.Seconds!.Value, -.02, .02);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BeingMovedFarFromTheCircuitForgetsItsLapsAndMap(bool far)
+    {
+        var tracker = new LapDeltaTracker();
+        Drive(tracker, 0, 60, 0, 59.9);
+        Drive(tracker, 60, 60, 1, 20);
+        // A livery change in the menus, then the car is placed at the festival (or back on the circuit).
+        for (var i = 1; i <= 50; i++)
+            tracker.Update(State(80, 20, 1, Circle(20d / 60)) with { IsRaceOn = false, ReceivedAtUtc = Epoch.AddSeconds(80 + i / 10d) },
+                LapDeltaReference.SessionBest);
+        var place = far ? new Vector3(3000, 0, -2000) : Circle(.9);
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 1; i <= 20; i++)
+        {
+            var state = State(80 + i / 10d, 20 + i / 10d, 1, place + new Vector3(i * 1.5f, 0, 0)) with { ReceivedAtUtc = Epoch.AddSeconds(85 + i / 10d) };
+            reading = tracker.Update(state, LapDeltaReference.SessionBest);
+        }
+        if (far)
+        {
+            Assert.Null(reading.ReferenceSeconds);
+            Assert.Empty(tracker.ReadMap(1)!.Outline.Points.Where(point => Vector3.Distance(point.ToVector(), Circle(.5)) < 200));
+        }
+        else Assert.Equal(60, reading.ReferenceSeconds);
+    }
+
     [Fact]
     public void MapProjectsNorthThenEastAsARightTurn()
     {
