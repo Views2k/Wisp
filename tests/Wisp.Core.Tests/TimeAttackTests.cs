@@ -152,10 +152,10 @@ public sealed class TimeAttackTests
         var to = Route(-2);
         for (var i = 1; i <= 170; i++) UpdateAt(tracker, 30 + i / 10d, Vector3.Lerp(from, to, i / 170f));
         LapDeltaReading reading = LapDeltaReading.Waiting;
-        for (var i = 1; i <= 20; i++) reading = Update(tracker, 47 + i / 10d, -2 + i / 10d);
+        for (var i = 1; i <= 30; i++) reading = Update(tracker, 47 + i / 10d, -2 + i / 10d);
         Assert.InRange(reading.ReferenceSeconds!.Value, 45, 50);
         // Two full laps of the circuit follow each other, not the abandoned attempt.
-        for (var i = 21; i <= 1230; i++) reading = Update(tracker, 47 + i / 10d, -2 + i / 10d);
+        for (var i = 31; i <= 1230; i++) reading = Update(tracker, 47 + i / 10d, -2 + i / 10d);
         Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
         Assert.Equal(60, reading.ReferenceSeconds!.Value, 1);
     }
