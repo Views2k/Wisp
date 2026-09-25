@@ -139,7 +139,6 @@ public sealed class LapDeltaTests
     [InlineData("car")]
     [InlineData("teleport")]
     [InlineData("race-off")]
-    [InlineData("restart")]
     public void SessionDiscontinuitiesFenceReference(string cause)
     {
         var tracker = new LapDeltaTracker();
@@ -285,6 +284,54 @@ public sealed class LapDeltaTests
         var learning = tracker.ReadMap(3)!;
         Assert.NotSame(frozen, learning.Outline);
         Assert.True(learning.IsRecording);
+    }
+
+    [Fact]
+    public void RestartingTheRaceBeginsANewLapComparedFromTheStart()
+    {
+        var tracker = new LapDeltaTracker();
+        Drive(tracker, 0, 60, 0, 59.9);
+        Drive(tracker, 60, 60, 1, 10);
+        // Restart: every game clock returns to zero at the start line.
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 0; i <= 100; i++)
+        {
+            var t = i / 10d;
+            var state = At(State(t, t, 0, Circle(t / 60)), 80 + t);
+            reading = tracker.Update(state with { Lap = state.Lap! with { LastLapSeconds = 0 } }, LapDeltaReference.SessionBest);
+        }
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.InRange(reading.Seconds!.Value, -.02, .02);
+    }
+
+    [Fact]
+    public void RewindingMidLapKeepsTheLapAndItsLearningMap()
+    {
+        var tracker = new LapDeltaTracker();
+        DriveLap(tracker, 0, 0, 0, 30);
+        var before = tracker.ReadMap(1)!.Outline;
+        // Rewind five seconds: the game clocks and the car return to an earlier moment of the lap.
+        for (var i = 1; i <= 50; i++)
+        {
+            var t = 30 - i / 10d;
+            tracker.Update(State(t, t, 0, Circle(t / 60)) with { ReceivedAtUtc = Epoch.AddSeconds(30 + i / 10d) }, LapDeltaReference.SessionBest);
+        }
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 1; i <= 349; i++)
+        {
+            var t = 25 + i / 10d;
+            reading = tracker.Update(State(t, t, 0, Circle(t / 60)) with { ReceivedAtUtc = Epoch.AddSeconds(35 + i / 10d) }, LapDeltaReference.SessionBest);
+        }
+        Assert.Equal(LapDeltaStatus.RecordingLap, reading.Status);
+        Assert.True(tracker.ReadMap(2)!.Outline.Points.Count > before.Points.Count);
+        for (var i = 0; i <= 300; i++)
+        {
+            var t = i / 10d;
+            reading = tracker.Update(State(60 + t, t, 1, Circle(t / 60)) with { ReceivedAtUtc = Epoch.AddSeconds(95 + t) }, LapDeltaReference.SessionBest);
+        }
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.Equal(60, reading.ReferenceSeconds);
+        Assert.InRange(reading.Seconds!.Value, -.02, .02);
     }
 
     [Fact]

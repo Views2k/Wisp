@@ -99,6 +99,55 @@ public sealed class TimeAttackTests
         Assert.InRange(reading.Seconds!.Value, -.15, .15);
     }
 
+    private static LapDeltaReading UpdateAt(LapDeltaTracker tracker, double time, Vector3 position) =>
+        tracker.Update(LapDeltaTests.State(time + 100, 0, 0, position) with { Lap = new(position, 0, 0, 0, 0, 0) },
+            LapDeltaReference.SessionBest, LapTimingMode.TimeAttack);
+
+    [Fact]
+    public void NewAttemptAfterAResetComparesFromTheStartInsteadOfRejoining()
+    {
+        var tracker = new LapDeltaTracker();
+        Reference(tracker);
+        for (var i = 651; i <= 800; i++) Update(tracker, i / 10d, i / 10d);
+        // A crash: the car is reset behind the start gate and a new attempt begins.
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 0; i <= 50; i++) reading = Update(tracker, 85 + i / 10d, -3 + i / 10d);
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.InRange(reading.Seconds!.Value, -.15, .15);
+        for (var i = 51; i <= 700; i++) reading = Update(tracker, 85 + i / 10d, -3 + i / 10d);
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.Equal(60, reading.ReferenceSeconds!.Value, 1);
+    }
+
+    [Fact]
+    public void AbandonedAttemptThatReturnsThroughTheGateIsNotALap()
+    {
+        var tracker = new LapDeltaTracker();
+        Reference(tracker);
+        for (var i = 651; i <= 800; i++) Update(tracker, i / 10d, i / 10d);
+        // Abandon the attempt: drive straight back to behind the gate, then through it.
+        var from = Route(80);
+        var to = Route(-2);
+        for (var i = 1; i <= 150; i++) UpdateAt(tracker, 80 + i / 10d, Vector3.Lerp(from, to, i / 150f));
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 1; i <= 70; i++) reading = Update(tracker, 95 + i / 10d, -2 + i / 10d);
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.Equal(60, reading.ReferenceSeconds!.Value, 1);
+    }
+
+    [Fact]
+    public void RewindDuringTheFirstTimeAttackLapStillLearnsIt()
+    {
+        var tracker = new LapDeltaTracker();
+        for (var i = -1; i <= 300; i++) Update(tracker, i / 10d, i / 10d);
+        for (var i = 1; i <= 30; i++) Update(tracker, 30 - i / 10d, 30 - i / 10d);
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 271; i <= 650; i++) reading = Update(tracker, i / 10d, i / 10d);
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.Equal(60, reading.ReferenceSeconds!.Value, 1);
+        Assert.InRange(reading.Seconds!.Value, -.15, .15);
+    }
+
     [Fact]
     public void RollingBackInForwardGearKeepsElapsedTimeAdvancing()
     {
