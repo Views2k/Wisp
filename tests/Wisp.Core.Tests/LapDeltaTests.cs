@@ -356,7 +356,7 @@ public sealed class LapDeltaTests
         if (far)
         {
             Assert.Null(reading.ReferenceSeconds);
-            Assert.Empty(tracker.ReadMap(1)!.Outline.Points.Where(point => Vector3.Distance(point.ToVector(), Circle(.5)) < 200));
+            Assert.DoesNotContain(tracker.ReadMap(1)!.Outline.Points, point => Vector3.Distance(point.ToVector(), Circle(.5)) < 200);
         }
         else Assert.Equal(60, reading.ReferenceSeconds);
     }
