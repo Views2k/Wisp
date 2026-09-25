@@ -199,6 +199,94 @@ public sealed class LapDeltaTests
         Assert.Same(outline, tracker.ReadMap(2)!.Outline);
     }
 
+    private static VehicleState At(VehicleState state, double wall) => state with
+    {
+        GameTimestampMilliseconds = (uint)Math.Round(wall * 1000),
+        ReceivedAtUtc = Epoch.AddSeconds(wall)
+    };
+
+    // Drives lap `number` from lap time `from` to `until`; the race clock starts at `raceStart`
+    // and the wall clock runs `wallOffset` seconds ahead of it (time spent paused).
+    private static LapDeltaReading DriveLap(LapDeltaTracker tracker, double raceStart, int number, double from,
+        double until, double wallOffset = 0, double duration = 60, double last = 60, byte position = 1)
+    {
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = (int)Math.Round(from * 10); i <= (int)Math.Round(until * 10); i++)
+        {
+            var t = i / 10d;
+            var state = At(State(raceStart + t, t, number, Circle(t / duration), last), raceStart + t + wallOffset);
+            reading = tracker.Update(state with { Lap = state.Lap! with { RacePosition = position } }, LapDeltaReference.SessionBest);
+        }
+        return reading;
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PausingMidLapKeepsRecordingTheSameLap(bool raceOffPackets)
+    {
+        var tracker = new LapDeltaTracker();
+        DriveLap(tracker, 0, 0, 0, 30);
+        var before = tracker.ReadMap(1)!.Outline;
+        // Thirty seconds paused: the lap clocks stop while the wall clock continues,
+        // either with race-off packets or with no packets at all.
+        if (raceOffPackets)
+            for (var i = 1; i <= 300; i++)
+                tracker.Update(At(State(30, 30, 0, Circle(.5)) with { IsRaceOn = false }, 30 + i / 10d), LapDeltaReference.SessionBest);
+        var resumed = DriveLap(tracker, 0, 0, 30.1, 45, wallOffset: 30);
+        Assert.Equal(LapDeltaStatus.RecordingLap, resumed.Status);
+        var map = tracker.ReadMap(2)!;
+        Assert.True(map.IsRecording);
+        Assert.True(map.Outline.Points.Count > before.Points.Count);
+        DriveLap(tracker, 0, 0, 45.1, 59.9, wallOffset: 30);
+        var next = DriveLap(tracker, 60, 1, 0, 30, wallOffset: 30);
+        Assert.Equal(LapDeltaStatus.Comparing, next.Status);
+        Assert.Equal(60, next.ReferenceSeconds);
+        Assert.InRange(next.Seconds!.Value, -.02, .02);
+    }
+
+    [Fact]
+    public void PausedZeroPositionRivalsLapResumesOnceItsTimerAdvances()
+    {
+        var tracker = new LapDeltaTracker();
+        DriveLap(tracker, 0, 0, 0, 30, position: 0);
+        tracker.Update(At(State(30, 30, 0, Circle(.5)) with { IsRaceOn = false }, 40), LapDeltaReference.SessionBest);
+        Assert.Equal(LapDeltaStatus.RecordingLap, DriveLap(tracker, 0, 0, 30.1, 59.9, wallOffset: 10, position: 0).Status);
+        var next = DriveLap(tracker, 60, 1, 0, 30, wallOffset: 10, position: 0);
+        Assert.Equal(LapDeltaStatus.Comparing, next.Status);
+        Assert.Equal(60, next.ReferenceSeconds);
+    }
+
+    [Fact]
+    public void LapThatKeptRunningWithoutSamplesIsComparedButNotAReference()
+    {
+        var tracker = new LapDeltaTracker();
+        DriveLap(tracker, 0, 0, 0, 59.9);
+        DriveLap(tracker, 60, 1, 0, 30, duration: 56);
+        // Five seconds without samples while the game kept running and the car kept driving.
+        var resumed = DriveLap(tracker, 60, 1, 35, 45, duration: 56);
+        Assert.Equal(LapDeltaStatus.Comparing, resumed.Status);
+        DriveLap(tracker, 60, 1, 45.1, 55.9, duration: 56);
+        var next = DriveLap(tracker, 116, 2, 0, 10, last: 56);
+        Assert.Equal(LapDeltaStatus.Comparing, next.Status);
+        Assert.Equal(60, next.ReferenceSeconds);
+    }
+
+    [Fact]
+    public void LearningMapRedrawsOnTheLapAfterAnInterruption()
+    {
+        var tracker = new LapDeltaTracker();
+        DriveLap(tracker, 0, 0, 0, 20);
+        tracker.ReadMap(1);
+        tracker.Interrupt();
+        DriveLap(tracker, 0, 0, 20.1, 59.9);
+        var frozen = tracker.ReadMap(2)!.Outline;
+        DriveLap(tracker, 60, 1, 0, 5);
+        var learning = tracker.ReadMap(3)!;
+        Assert.NotSame(frozen, learning.Outline);
+        Assert.True(learning.IsRecording);
+    }
+
     [Fact]
     public void MapProjectsNorthThenEastAsARightTurn()
     {

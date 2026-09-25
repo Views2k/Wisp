@@ -28,7 +28,7 @@ public sealed class LapDeltaTracker
 {
     private readonly TimeAttackClock _timeAttack = new();
     private LapTimingMode _timingMode;
-    private bool _interrupted, _retainLearningMap, _isRecording;
+    private bool _interrupted, _paused, _hasGap, _retainLearningMap, _isRecording;
     private LapTelemetry? _gameLapProbe;
     private uint _gameLapProbeTimestamp, _gameLapValueTimestamp, _lastLapAdvanceTimestamp;
     private bool _gameLapActive;
@@ -66,7 +66,7 @@ public sealed class LapDeltaTracker
     {
         _timeAttack.Reset();
         _mapPosition = null;
-        _interrupted = _retainLearningMap = _isRecording = _gameLapActive = false;
+        _interrupted = _paused = _hasGap = _retainLearningMap = _isRecording = _gameLapActive = false;
         _gameLapProbe = null;
         _best = _previous = null;
         _last = null;
@@ -79,21 +79,26 @@ public sealed class LapDeltaTracker
         _nextMapTime = 0;
     }
 
-    // A pause or dropped sample invalidates only the active recording. Completed
-    // references and their cached artwork belong to the circuit, not a packet stream.
+    // A pause keeps the active recording; the first resumed sample decides whether the
+    // same lap continues. Any other interruption invalidates only the active recording.
+    // Completed references and their cached artwork belong to the circuit, not a packet stream.
     public void Interrupt(bool paused = false)
     {
         _isRecording = false;
-        _retainLearningMap = _map is not null;
+        _paused = paused && (_paused || !_interrupted);
+        if (!_paused)
+        {
+            _retainLearningMap = _map is not null;
+            _completeStart = false;
+        }
         _interrupted = true;
-        _completeStart = false;
         _timeAttack.Interrupt(paused);
     }
 
     private void Reacquire()
     {
         _retainLearningMap = _map is not null;
-        _completeStart = false;
+        _completeStart = _hasGap = false;
         _current.Clear();
         _distance = 0;
         _direction = default;
@@ -151,7 +156,9 @@ public sealed class LapDeltaTracker
         }
         else if (!HasGameLapTiming(state, lap))
         {
-            Interrupt();
+            // A zero-position Rivals timer needs a second advancing sample after a
+            // pause. Keep the paused recording until that sample can be checked.
+            if (!_paused) Interrupt();
             return LapDeltaReading.Waiting;
         }
         _isRecording = true;
@@ -161,14 +168,18 @@ public sealed class LapDeltaTracker
             var moved = Vector3.Distance(last.Position.ToVector(), lap.Position.ToVector());
             var direction = lap.Position.ToVector() - last.Position.ToVector();
             var boundary = lap.LapNumber == last.LapNumber + 1 && lap.CurrentLapSeconds < last.CurrentLapSeconds;
-            if (_interrupted || elapsed > 1 || state.ReceivedAtUtc - _lastReceived > TimeSpan.FromSeconds(1) ||
+            var gap = _interrupted || elapsed > 1 || state.ReceivedAtUtc - _lastReceived > TimeSpan.FromSeconds(1);
+            // After a pause, or a pause in the packet stream, the game's lap clocks and the
+            // car's position decide whether the same lap continues. Wall time is not lap time.
+            var resumed = gap && (_paused || !_interrupted) && ContinuesLap(last, lap, moved);
+            if (gap && !resumed ||
                 lap.RaceSeconds + .01f < last.RaceSeconds || lap.LapNumber < last.LapNumber ||
-                lap.LapNumber > last.LapNumber + 1 || moved > Math.Max(25, elapsed * 180) ||
+                lap.LapNumber > last.LapNumber + 1 || !resumed && moved > Math.Max(25, elapsed * 180) ||
                 (!boundary && lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds))
             {
                 Reacquire();
             }
-            else if (elapsed == 0)
+            else if (elapsed == 0 && !resumed)
             {
                 return Read(lap, reference, state.ReceivedTimestamp ?? 0);
             }
@@ -182,11 +193,17 @@ public sealed class LapDeltaTracker
                 if (crossing is { } start) _current.Add(new(start, 0, 0));
             }
             else if (lap.LapNumber != last.LapNumber) Reacquire();
-            else _distance += moved;
-            if (direction.LengthSquared() > .0001f && !_interrupted) _direction = direction;
+            else
+            {
+                _distance += moved;
+                // The game kept running while no samples arrived. Keep tracking this lap, but its
+                // recorded line is missing that stretch, so it cannot become a reference.
+                if (resumed && lap.CurrentLapSeconds - last.CurrentLapSeconds > 1) _hasGap = true;
+            }
+            if (direction.LengthSquared() > .0001f && (!_interrupted || resumed)) _direction = direction;
         }
         if (_last is null) StartLap(lap);
-        _interrupted = false;
+        _interrupted = _paused = false;
         _last = lap;
         _car = state.CarOrdinal;
         _lastTimestamp = state.GameTimestampMilliseconds;
@@ -226,8 +243,18 @@ public sealed class LapDeltaTracker
             unchecked(state.GameTimestampMilliseconds - _lastLapAdvanceTimestamp) <= 250;
     }
 
+    private static bool ContinuesLap(LapTelemetry last, LapTelemetry lap, float moved)
+    {
+        var lapStep = lap.CurrentLapSeconds - last.CurrentLapSeconds;
+        return lap.LapNumber == last.LapNumber && Math.Abs(lap.LastLapSeconds - last.LastLapSeconds) <= .01f &&
+            lapStep >= -.01f && lap.RaceSeconds + .01f >= last.RaceSeconds && moved <= Math.Max(25, lapStep * 180);
+    }
+
     private void StartLap(LapTelemetry lap)
     {
+        // A new lap redraws the learning map, including after an interrupted one.
+        _retainLearningMap = _hasGap = false;
+        _nextMapTime = 0;
         _current.Clear();
         _distance = 0;
         _completeStart = lap.CurrentLapSeconds <= .25f;
@@ -257,7 +284,7 @@ public sealed class LapDeltaTracker
         var span = duration - last.CurrentLapSeconds + next.CurrentLapSeconds;
         if (duration < 5 || duration < last.CurrentLapSeconds || span <= 0 || span > 1) return null;
         var finish = Vector3.Lerp(last.Position.ToVector(), next.Position.ToVector(), (duration - last.CurrentLapSeconds) / span);
-        if (!_completeStart || _current.Count < 20 || _distance < 100 ||
+        if (!_completeStart || _hasGap || _current.Count < 20 || _distance < 100 ||
             Vector3.Distance(_current[0].Position, next.Position.ToVector()) > 35) return finish;
         _current.Add(new(finish, duration, _distance + Vector3.Distance(last.Position.ToVector(), finish)));
         var trace = new Trace(_current.ToArray(), duration);
