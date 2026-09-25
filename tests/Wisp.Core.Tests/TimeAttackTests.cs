@@ -143,6 +143,46 @@ public sealed class TimeAttackTests
     }
 
     [Fact]
+    public void TwoFullLapsReplaceAReferenceThatWasAnAbandonedAttempt()
+    {
+        var tracker = new LapDeltaTracker();
+        // The first attempt is abandoned halfway and driven straight back through the start.
+        for (var i = -1; i <= 300; i++) Update(tracker, i / 10d, i / 10d);
+        var from = Route(30);
+        var to = Route(-2);
+        for (var i = 1; i <= 170; i++) UpdateAt(tracker, 30 + i / 10d, Vector3.Lerp(from, to, i / 170f));
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 1; i <= 20; i++) reading = Update(tracker, 47 + i / 10d, -2 + i / 10d);
+        Assert.InRange(reading.ReferenceSeconds!.Value, 45, 50);
+        // Two full laps of the circuit follow each other, not the abandoned attempt.
+        for (var i = 21; i <= 1230; i++) reading = Update(tracker, 47 + i / 10d, -2 + i / 10d);
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.Equal(60, reading.ReferenceSeconds!.Value, 1);
+    }
+
+    [Fact]
+    public void TwoSimilarAbandonedAttemptsDoNotReplaceTheReference()
+    {
+        var tracker = new LapDeltaTracker();
+        Reference(tracker);
+        var time = 65d;
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var start = time;
+            for (; time < start + 25; time += .1) Update(tracker, time, time - start + 5);
+            var from = Route(time - start + 5);
+            var to = Route(-2);
+            for (var i = 1; i <= 150; i++) UpdateAt(tracker, time + i / 10d, Vector3.Lerp(from, to, i / 150f));
+            time += 15;
+            for (var i = 1; i <= 70; i++) reading = Update(tracker, time + i / 10d, -2 + i / 10d);
+            time += 7.1;
+        }
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.Equal(60, reading.ReferenceSeconds!.Value, 1);
+    }
+
+    [Fact]
     public void RewindDuringTheFirstTimeAttackLapStillLearnsIt()
     {
         var tracker = new LapDeltaTracker();

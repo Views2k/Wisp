@@ -411,10 +411,13 @@ public sealed class LapDeltaTracker
         var trace = new Trace(_current.ToArray(), duration);
         // Time Attack laps are inferred from start-line crossings, so a lap must also follow the
         // reference. One that does not is an abandoned attempt, unless the reference came from
-        // one: two laps that follow each other then replace it.
+        // one. An abandoned attempt returns to the line by a shorter way than the circuit, so two
+        // laps that follow each other and are both clearly longer than the reference replace it.
         if (_timingMode == LapTimingMode.TimeAttack && _best is { } reference && !reference.Followed)
         {
-            if (_challenger is { } challenger && challenger.Followed)
+            var longer = reference.Points[^1].Distance * 1.05f;
+            if (_challenger is { } challenger && challenger.Followed &&
+                challenger.Points[^1].Distance > longer && trace.Points[^1].Distance > longer)
             {
                 _best = duration < challenger.Duration ? trace : challenger;
                 _previous = trace;
