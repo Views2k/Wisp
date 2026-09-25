@@ -175,7 +175,7 @@ public sealed partial class DiagnosticsViewModel
                     ? "Calibrating — follow the calibration status below."
                     : "Calibrate this car and tune to enable shift guidance.",
                 "UnsupportedModifiers" => "This car's output curve is not supported",
-                "UnsupportedBuild" => "Shift guidance is unavailable for this game build",
+                "UnsupportedBuild" => "Shift guidance requires Steam FH6 6.440.853.0 and is unavailable on Game Pass",
                 "UnsupportedTransmission" => "Shift guidance is unavailable for this transmission",
                 "UnsupportedPowertrain" => "Shift guidance is unavailable for this powertrain",
                 "CurveMismatch" => "Car output data did not pass validation — shift guidance unavailable",

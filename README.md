@@ -15,7 +15,7 @@
 
 ## Wisp 2.4.1
 
-Fixes Drift Zone angle-bonus guidance showing **UNVERIFIED BUILD** on Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC. [Release notes](docs/releases/Wisp-2.4.1-release-notes.md).
+Fixes Drift Zone angle-bonus guidance showing **UNVERIFIED BUILD** on Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC. Beta shift guidance remains Steam-only and is now marked unavailable on Game Pass. [Release notes](docs/releases/Wisp-2.4.1-release-notes.md).
 
 ## Wisp 2.4 performance hotfix
 
@@ -27,7 +27,7 @@ Wisp 2.4 improves analogue needle motion with G-SYNC while Forza has focus. When
 
 Changing the app accent color on another tab no longer crashes Wisp. The dashboard oval returns in the selected color when you switch back. Supplementary gauges stay separate in digital layouts. If an update cannot start, Wisp stays open and shows repair instructions.
 
-**Shift guidance is beta and off by default.** Calibrate each supported combustion car and tune with a rolling full-throttle pull and a confirming upshift. Green, yellow and flashing red stages show the approach to a calibrated RPM target. The beta supports combustion cars on Steam FH6 build **6.440.853.0**.
+**Shift guidance is beta and off by default.** Calibrate each supported combustion car and tune with a rolling full-throttle pull and a confirming upshift. Green, yellow and flashing red stages show the approach to a calibrated RPM target. The beta supports combustion cars on Steam FH6 build **6.440.853.0**. It is not available on the Xbox app / Microsoft Store (Game Pass) edition.
 
 The boost and tire-temperature Appearance preview fixes from 2.3.2 are included.
 

@@ -23,7 +23,9 @@ public static class ReleaseNotesCatalog
             [
                 Group("Drift gauge",
                     "Recognize FH6 3.440.853.0 for Drift Zone angle-bonus guidance instead of showing UNVERIFIED BUILD.",
-                    "Retain storefront-specific native compatibility checks and the existing Steam guidance.")
+                    "Retain storefront-specific native compatibility checks and the existing Steam guidance."),
+                Group("Shift guidance",
+                    "Show that beta shift guidance is not available on the Xbox app / Microsoft Store (Game Pass) edition.")
             ]),
         new(
             "2.4",
