@@ -37,6 +37,7 @@ public sealed class LapDeltaScenarioTests
         protected readonly LapDeltaTracker Tracker = new();
         protected readonly LapDeltaReference Mode = mode;
         private readonly List<string> _events = [];
+        private readonly Queue<string> _packets = new();
         protected double Wall = 100, Pace = 60;
         protected double? Best, Previous;
         protected bool Valid = true;
@@ -59,6 +60,8 @@ public sealed class LapDeltaScenarioTests
 
         protected void Observe(LapDeltaReading reading, bool raceOn, double? lapTime, double fraction)
         {
+            _packets.Enqueue($"[{(raceOn ? "" : "off ")}t={lapTime:F2} f={fraction:F4} {reading.Status} {reading.Seconds:F3}/{reading.ReferenceSeconds:F2}{(_quiet ? " q" : "")}]");
+            if (_packets.Count > 40) _packets.Dequeue();
             if (!raceOn || _quiet) return;
             if (_settle > 0) { _settle--; return; }
             if (lapTime is not { } time)
@@ -84,7 +87,7 @@ public sealed class LapDeltaScenarioTests
 
         private void Require(bool condition, string message, double fraction) =>
             Assert.True(condition, $"{GetType().Name} seed {seed}, {Mode}, at {fraction:P1} of the lap: {message}. " +
-                $"Recent events: {string.Join(", ", _events.TakeLast(6))}");
+                $"Recent events: {string.Join(", ", _events.TakeLast(6))}. Packets: {string.Join(" ", _packets)}");
     }
 
     // A lapped race: the game reports lap number, lap time, last lap and race time.
@@ -130,6 +133,7 @@ public sealed class LapDeltaScenarioTests
             {
                 var past = (next.Fraction - 1) * Pace;
                 var duration = next.Lap - past;
+                var pace = NextPace();
                 if (Valid)
                 {
                     Best = Best is { } best ? Math.Min(best, duration) : duration;
@@ -138,8 +142,7 @@ public sealed class LapDeltaScenarioTests
                 _lastLap = duration;
                 _number++;
                 Valid = true;
-                next = next with { Lap = past, Fraction = next.Fraction - 1 };
-                NextPace();
+                next = next with { Lap = past, Fraction = past / pace };
                 _history.Clear();
             }
             _now = next;
@@ -291,8 +294,7 @@ public sealed class LapDeltaScenarioTests
                 }
                 _start = crossing;
                 Valid = true;
-                fraction -= 1;
-                NextPace();
+                fraction = (fraction - 1) * Pace / NextPace();
                 _history.Clear();
             }
             _now = new(_now.Game + .1, fraction, Position(fraction));
@@ -398,8 +400,8 @@ public sealed class LapDeltaScenarioTests
             _history.Clear();
             _start = null;
             Valid = false;
-            // The crossing itself is checked after the usual second of driving.
-            Drive(.5);
+            // Wisp can only tell the attempt was abandoned at the line; check from the new attempt on.
+            while (_now.Fraction < 0) Step();
             End();
         }
     }

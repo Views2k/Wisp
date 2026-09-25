@@ -34,6 +34,7 @@ public sealed class LapDeltaTracker
     private bool _gameLapActive;
     private LapPosition? _mapPosition;
     private const int MaximumPoints = 40_000;
+    private const int CoverageParts = 200;
     private const float SampleDistance = 2;
     private readonly List<Point> _current = new();
     private Trace? _best, _previous, _challenger;
@@ -59,15 +60,26 @@ public sealed class LapDeltaTracker
         internal float CandidateScore = float.MaxValue;
         internal double MatchedTime;
         internal float MatchedDistance, DrivenAtMatch;
-        // Furthest distance along this trace matched during the current lap. A rewind or rejoin
-        // keeps it; only a new lap clears it.
-        internal float Progress;
-        internal float Length => Points[^1].Distance;
+        // Which parts of this trace the current lap drove along it, in order. Rejoining further
+        // on, rewinding and driving a stretch again add nothing; only a new lap clears it.
+        private readonly bool[] _covered = new bool[CoverageParts];
+        private int _coveredParts;
+        internal bool Followed => _coveredParts >= CoverageParts * 97 / 100;
+        internal void Cover(float from, float to, float driven)
+        {
+            var length = Points[^1].Distance;
+            if (to <= from || to - from > driven * 1.5f + 5 || length <= 0) return;
+            var last = Math.Min(CoverageParts - 1, (int)(to / length * CoverageParts));
+            for (var i = Math.Max(0, (int)(from / length * CoverageParts)); i <= last; i++)
+                if (!_covered[i]) { _covered[i] = true; _coveredParts++; }
+        }
         internal void Restart(bool reacquire = false)
         {
             Cursor = Search = 0; Candidate = -1; CandidateScore = float.MaxValue; MatchedTime = 0; MatchedDistance = DrivenAtMatch = 0;
             Reacquiring = reacquire;
-            if (!reacquire) Progress = 0;
+            if (reacquire) return;
+            Array.Clear(_covered);
+            _coveredParts = 0;
         }
     }
     private readonly record struct Point(Vector3 Position, float Time, float Distance);
@@ -352,9 +364,9 @@ public sealed class LapDeltaTracker
         // Time Attack laps are inferred from start-line crossings, so a lap must also follow the
         // reference. One that does not is an abandoned attempt, unless the reference came from
         // one: two laps that follow each other then replace it.
-        if (_timingMode == LapTimingMode.TimeAttack && _best is { } reference && !Follows(reference))
+        if (_timingMode == LapTimingMode.TimeAttack && _best is { } reference && !reference.Followed)
         {
-            if (_challenger is { } challenger && Follows(challenger))
+            if (_challenger is { } challenger && challenger.Followed)
             {
                 _best = duration < challenger.Duration ? trace : challenger;
                 _previous = trace;
@@ -369,7 +381,6 @@ public sealed class LapDeltaTracker
         return finish;
     }
 
-    private static bool Follows(Trace trace) => trace.Progress >= trace.Length * .95f;
 
     private LapDeltaReading Read(LapTelemetry lap, LapDeltaReference mode, long received)
     {
@@ -419,7 +430,6 @@ public sealed class LapDeltaTracker
                     trace.MatchedTime = points[i].Time + f * (points[i + 1].Time - points[i].Time);
                     trace.MatchedDistance = points[i].Distance + f * (points[i + 1].Distance - points[i].Distance);
                     trace.DrivenAtMatch = _distance;
-                    trace.Progress = Math.Max(trace.Progress, trace.MatchedDistance);
                     return new(LapDeltaStatus.Comparing, lap.CurrentLapSeconds - trace.MatchedTime, trace.Duration, received);
                 }
             }
@@ -475,8 +485,8 @@ public sealed class LapDeltaTracker
         trace.Cursor = Math.Max(trace.Cursor, index);
         trace.Search = Math.Max(0, trace.Cursor - 2);
         trace.MatchedTime = Math.Max(trace.MatchedTime, time);
+        trace.Cover(trace.MatchedDistance, matchedDistance, _distance - trace.DrivenAtMatch);
         trace.MatchedDistance = Math.Max(trace.MatchedDistance, matchedDistance);
-        trace.Progress = Math.Max(trace.Progress, trace.MatchedDistance);
         trace.DrivenAtMatch = _distance;
         return new(LapDeltaStatus.Comparing, lap.CurrentLapSeconds - time, trace.Duration, received);
     }
