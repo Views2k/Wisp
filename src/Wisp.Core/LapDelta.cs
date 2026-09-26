@@ -36,10 +36,13 @@ public sealed class LapDeltaTracker
     private const int MaximumPoints = 40_000;
     private const int CoverageParts = 200;
     private const float FarFromCircuit = 150;
+    private const int HeldSamples = 30;
     private const float SampleDistance = 2;
     private readonly List<Point> _current = new();
     private Trace? _best, _previous, _challenger;
     private LapTelemetry? _last;
+    private LapDeltaReading _lastReading = LapDeltaReading.Waiting;
+    private int _held;
     private uint _lastTimestamp;
     private DateTimeOffset _lastReceived;
     private int _car;
@@ -96,6 +99,8 @@ public sealed class LapDeltaTracker
         _timeAttack.Reset();
         _mapPosition = null;
         _interrupted = _paused = _retainLearningMap = _isRecording = _gameLapActive = false;
+        _held = 0;
+        _lastReading = LapDeltaReading.Waiting;
         _gameLapProbe = null;
         _best = _previous = _challenger = null;
         _last = null;
@@ -240,17 +245,23 @@ public sealed class LapDeltaTracker
                 (!boundary && lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds));
             if (!continuous)
             {
-                // Only a rewind runs the game's clock backwards; it returns to a moment of this
-                // recording. Otherwise a lap clock back at the start (a restart, reset or new
-                // attempt) begins a new lap, and the references restart at their own start
-                // rather than being searched.
-                if (unchecked((int)(state.GameTimestampMilliseconds - _lastTimestamp)) < 0 && RewindsTo(last, lap)) Rewind(lap);
-                else if (lap.CurrentLapSeconds <= .25f) StartLap(lap);
+                // A rewind returns the car to a moment of this recording, with the lap clock at that
+                // moment. A lap clock back at zero where laps start (a restart, reset or new attempt)
+                // begins a new lap, and the references restart at their own start rather than being
+                // searched.
+                var clockBack = unchecked((int)(state.GameTimestampMilliseconds - _lastTimestamp)) < 0;
+                if ((clockBack || lap.CurrentLapSeconds > .25f) && RewindsTo(last, lap)) Rewind(lap);
+                else if (lap.CurrentLapSeconds <= .25f && (lap.RaceSeconds <= .5f || AtLapStart(lap.Position.ToVector()))) StartLap(lap);
+                // Straight after a rewind the game can briefly report a lap clock that fits neither.
+                // Wait a moment for a consistent sample before giving up on this lap's recording.
+                else if (lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds && ++_held <= HeldSamples) return _lastReading;
                 else Reacquire(last, lap);
             }
-            else if (elapsed == 0 && !resumed)
+            // FH6 sends about two packets per timestamp tick, and its timestamp can stop ticking
+            // after a rewind. A sample only repeats the last one when nothing else changed either.
+            else if (elapsed == 0 && !resumed && moved < .01f && lap.CurrentLapSeconds == last.CurrentLapSeconds)
             {
-                return Read(lap, reference, state.ReceivedTimestamp ?? 0);
+                return _lastReading = Read(lap, reference, state.ReceivedTimestamp ?? 0);
             }
             else if (boundary)
             {
@@ -275,16 +286,18 @@ public sealed class LapDeltaTracker
         }
         if (_last is null) StartLap(lap);
         _interrupted = _paused = false;
+        _held = 0;
         _last = lap;
         _car = state.CarOrdinal;
         _lastTimestamp = state.GameTimestampMilliseconds;
         _lastReceived = state.ReceivedAtUtc;
         Record(lap);
-        return Read(lap, reference, state.ReceivedTimestamp ?? 0);
+        return _lastReading = Read(lap, reference, state.ReceivedTimestamp ?? 0);
     }
 
     private bool HasGameLapTiming(VehicleState state, LapTelemetry lap)
     {
+        if (_gameLapProbe is not null && state.GameTimestampMilliseconds == _gameLapProbeTimestamp) return _gameLapActive;
         var previous = _gameLapProbe;
         var elapsed = unchecked(state.GameTimestampMilliseconds - _gameLapProbeTimestamp) / 1000f;
         var timerElapsed = unchecked(state.GameTimestampMilliseconds - _gameLapValueTimestamp) / 1000f;
@@ -367,6 +380,16 @@ public sealed class LapDeltaTracker
             if (_current[middle].Time <= time) low = middle; else high = middle - 1;
         }
         return low;
+    }
+
+    // Where laps start: the references' first samples, or this recording's when it began at the line.
+    private bool AtLapStart(Vector3 position)
+    {
+        var starts = new List<Vector3>(3);
+        if (_best is not null) starts.Add(_best.Points[0].Position);
+        if (_previous is not null) starts.Add(_previous.Points[0].Position);
+        if (_startedAtLine && _current.Count > 0) starts.Add(_current[0].Position);
+        return starts.Count == 0 || starts.Any(start => Vector3.Distance(start, position) <= 35);
     }
 
     private void StartLap(LapTelemetry lap)

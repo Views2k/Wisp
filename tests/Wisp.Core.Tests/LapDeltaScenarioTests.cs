@@ -48,6 +48,23 @@ public sealed class LapDeltaScenarioTests
 
         protected double NextPace() => Pace = 55 + Random.NextDouble() * 10;
 
+        // FH6 sends nothing while rewinding. What its timestamp does afterwards is not documented,
+        // so each session picks one: it runs back with the rewind, carries on from where it was, or
+        // stops ticking until the next pause.
+        protected enum RewindTimestamp { RunsBack, CarriesOn, FreezesUntilPause }
+        protected RewindTimestamp RewindClock;
+        protected double TimestampOffset;
+        protected double? FrozenTimestamp;
+        protected bool AtRest;
+        protected uint Reported(double game) => unchecked((uint)Math.Round((FrozenTimestamp ?? game + TimestampOffset) * 1000));
+
+        protected void RewindTimestampFrom(double from, double to)
+        {
+            if (RewindClock == RewindTimestamp.RunsBack) return;
+            if (RewindClock == RewindTimestamp.FreezesUntilPause) FrozenTimestamp ??= from + TimestampOffset;
+            TimestampOffset += from - to;
+        }
+
         protected void Begin(string name)
         {
             _events.Add(name);
@@ -107,6 +124,7 @@ public sealed class LapDeltaScenarioTests
         internal void Run()
         {
             NextPace();
+            RewindClock = (RewindTimestamp)Random.Next(3);
             Send();
             for (var step = 0; step < 70; step++)
             {
@@ -152,14 +170,16 @@ public sealed class LapDeltaScenarioTests
             if (send) Send();
         }
 
-        private void Send(bool raceOn = true)
+        private void Send(bool raceOn = true, double? lapClock = null)
         {
-            var state = LapDeltaTests.State(_now.Race, _now.Lap, _number, Position(_now.Fraction), _lastLap) with
+            var state = LapDeltaTests.State(_now.Race, lapClock ?? _now.Lap, _number, Position(_now.Fraction), _lastLap) with
             {
                 IsRaceOn = raceOn,
-                GameTimestampMilliseconds = unchecked((uint)Math.Round(_now.Game * 1000)),
-                ReceivedAtUtc = Epoch.AddSeconds(Wall)
+                GameTimestampMilliseconds = Reported(_now.Game),
+                ReceivedAtUtc = Epoch.AddSeconds(Wall),
+                GroundSpeedMetersPerSecond = AtRest ? 0 : 16
             };
+            AtRest = false;
             Observe(Tracker.Update(state, Mode), raceOn, _now.Lap, _now.Fraction);
         }
 
@@ -169,23 +189,27 @@ public sealed class LapDeltaScenarioTests
             Begin($"pause {seconds:F1}s{(packets ? "" : " without packets")}");
             if (packets) for (var i = 0; i < seconds * 10; i++) { Wall += .1; Send(raceOn: false); }
             else Wall += seconds;
+            FrozenTimestamp = null;
             End();
         }
 
-        // The game returns to earlier moments of this lap, one per packet.
+        // Nothing arrives while rewinding, sometimes after a brief race-off moment. The game then
+        // continues from the chosen earlier moment, its lap and race clocks back at that moment, and
+        // its lap timer can read about zero for a sample first.
         private void Rewind(double seconds)
         {
             var steps = Math.Min((int)(seconds * 10), _history.Count - 3);
             if (steps < 2) return;
-            Begin($"rewind {steps / 10d:F1}s");
-            for (var i = 0; i < steps; i++)
-            {
-                _history.RemoveAt(_history.Count - 1);
-                _now = _history[^1];
-                if (BrokenAt is { } broken && _now.Lap <= broken) BrokenAt = null;
-                Wall += .1;
-                Send();
-            }
+            Begin($"rewind {steps / 10d:F1}s, timestamp {RewindClock}");
+            if (Random.NextDouble() < .5) { Wall += .1; Send(raceOn: false); }
+            Wall += .5 + Random.NextDouble() * 3;
+            var from = _now.Game;
+            _history.RemoveRange(_history.Count - steps, steps);
+            _now = _history[^1];
+            if (BrokenAt is { } broken && _now.Lap <= broken) BrokenAt = null;
+            RewindTimestampFrom(from, _now.Game);
+            if (Random.NextDouble() < .5) Send(lapClock: .05 + Random.NextDouble() * .35);
+            Send();
             End();
         }
 
@@ -215,6 +239,7 @@ public sealed class LapDeltaScenarioTests
             Wall += .1;
             _now = _now with { Game = _now.Game + .1, Race = _now.Race + .1, Lap = _now.Lap + .1, Fraction = _now.Fraction - back };
             _history.Add(_now);
+            AtRest = true;
             Send();
             End();
         }
@@ -257,6 +282,7 @@ public sealed class LapDeltaScenarioTests
         internal void Run()
         {
             NextPace();
+            RewindClock = (RewindTimestamp)Random.Next(3);
             Send();
             for (var step = 0; step < 70; step++)
             {
@@ -311,9 +337,12 @@ public sealed class LapDeltaScenarioTests
             var state = LapDeltaTests.State(_now.Game, 0, 0, _now.Position) with
             {
                 IsRaceOn = raceOn,
+                GameTimestampMilliseconds = Reported(_now.Game),
                 ReceivedAtUtc = Epoch.AddSeconds(Wall),
+                GroundSpeedMetersPerSecond = AtRest ? 0 : 16,
                 Lap = new(_now.Position, 0, 0, 0, 0, 0)
             };
+            AtRest = false;
             var reading = Tracker.Update(state, Mode, LapTimingMode.TimeAttack);
             Observe(reading, raceOn, _now.Game - _start, _now.Fraction);
         }
@@ -323,29 +352,34 @@ public sealed class LapDeltaScenarioTests
             Begin($"pause {seconds:F1}s{(packets ? "" : " without packets")}");
             if (packets) for (var i = 0; i < seconds * 10; i++) { Wall += .1; Send(raceOn: false); }
             else Wall += seconds;
+            FrozenTimestamp = null;
             End();
         }
 
+        // Nothing arrives while rewinding, sometimes after a brief race-off moment. The car then
+        // continues from the chosen earlier moment of this attempt, at that moment's speed. Rewinds
+        // of at least a second, as players use them.
         private void Rewind(double seconds)
         {
-            var steps = Math.Min((int)(seconds * 10), _history.Count - 3);
-            if (steps < 2) return;
-            Begin($"rewind {steps / 10d:F1}s");
-            for (var i = 0; i < steps; i++)
-            {
-                _history.RemoveAt(_history.Count - 1);
-                _now = _history[^1];
-                if (BrokenAt is { } broken && _now.Game - _start <= broken) BrokenAt = null;
-                Wall += .1;
-                Send();
-            }
+            var steps = Math.Min(Math.Max(10, (int)(seconds * 10)), _history.Count - 3);
+            if (steps < 10) return;
+            Begin($"rewind {steps / 10d:F1}s, timestamp {RewindClock}");
+            if (Random.NextDouble() < .5) { Wall += .1; Send(raceOn: false); }
+            Wall += .5 + Random.NextDouble() * 3;
+            var from = _now.Game;
+            _history.RemoveRange(_history.Count - steps, steps);
+            _now = _history[^1];
+            if (BrokenAt is { } broken && _now.Game - _start <= broken) BrokenAt = null;
+            RewindTimestampFrom(from, _now.Game);
+            Send();
             End();
         }
 
         private void LosePackets(double seconds)
         {
             var steps = (int)(seconds * 10);
-            if (steps < 2 || _now.Fraction < .02 || _now.Fraction + steps * .1 / Pace >= .97) return;
+            // With a stopped timestamp a data gap cannot be told apart from a pause.
+            if (steps < 2 || FrozenTimestamp is not null || _now.Fraction < .02 || _now.Fraction + steps * .1 / Pace >= .97) return;
             Begin($"lost {steps / 10d:F1}s");
             var from = _now.Position;
             var before = _now.Game - _start;
@@ -367,6 +401,7 @@ public sealed class LapDeltaScenarioTests
             _history.Clear();
             _history.Add(_now);
             _start = null;
+            AtRest = true;
             Send();
             End();
         }
@@ -381,6 +416,7 @@ public sealed class LapDeltaScenarioTests
             _history.Clear();
             _history.Add(_now);
             _start = null;
+            AtRest = true;
             Send();
             End();
         }
