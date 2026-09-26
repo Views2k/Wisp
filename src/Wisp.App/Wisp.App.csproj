@@ -16,8 +16,8 @@
     <AssemblyVersion>2.4.0.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
-    <AssemblyMetadata Include="WispDiagnosticBuildId" Value="lap-delta-20260925-7" />
-    <AssemblyMetadata Include="WispDiagnosticBuildLabel" Value="2.4 Lap Delta Test 7" />
+    <AssemblyMetadata Include="WispDiagnosticBuildId" Value="lap-delta-20260926-8" />
+    <AssemblyMetadata Include="WispDiagnosticBuildLabel" Value="2.4 Lap Delta Test 8" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Wisp.Core\Wisp.Core.csproj" />

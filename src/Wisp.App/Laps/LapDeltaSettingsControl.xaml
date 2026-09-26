@@ -96,31 +96,35 @@
             <ComboBoxItem Content="Session best" Tag="{x:Static core:LapDeltaReference.SessionBest}" />
             <ComboBoxItem Content="Previous lap" Tag="{x:Static core:LapDeltaReference.PreviousLap}" />
         </ComboBox>
-        <CheckBox x:Name="BarToggle" Content="Show delta bar" Style="{DynamicResource ToggleSwitchStyle}"
-                  Checked="Options_Changed" Unchecked="Options_Changed" AutomationProperties.Name="Show lap delta bar" />
-        <TextBlock Text="The bar shows up to two seconds ahead or behind. The number shows the full difference in seconds."
-                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
-        <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <TextBlock Text="Gauge size" /><TextBlock Grid.Column="1" Text="{Binding Value, ElementName=ScaleSlider, StringFormat={}{0:P0}}" />
-        </Grid>
-        <Slider x:Name="ScaleSlider" Minimum="0.5" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
-                SmallChange="0.05" LargeChange="0.25" ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Lap delta size" />
-        <CheckBox x:Name="MapToggle" Content="Show live track map" Style="{DynamicResource ToggleSwitchStyle}"
-                  Checked="MapOptions_Changed" Unchecked="MapOptions_Changed" AutomationProperties.Name="Show live track map" />
-        <TextBlock Text="Follow your car around an enlarged track outline. Your first full lap builds the map; later laps keep the full circuit in view."
-                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
-        <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <TextBlock Text="Map size" /><TextBlock Grid.Column="1" Text="{Binding Value, ElementName=MapScaleSlider, StringFormat={}{0:P0}}" />
-        </Grid>
-        <Slider x:Name="MapScaleSlider" Minimum="0.5" Maximum="3" TickFrequency="0.05" IsSnapToTickEnabled="True"
-                SmallChange="0.05" LargeChange="0.25" ValueChanged="MapScale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Track map size" />
-        <TextBlock Text="Change delta and track map colors in Colors." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,12" />
-        <WrapPanel>
-            <Button Content="Reset reference laps" Click="ResetSession_Click" Margin="0,0,12,6" />
-            <Button Content="Reset delta position" Click="ResetPosition_Click" Margin="0,0,12,6" />
-            <Button Content="Reset map position" Click="ResetMapPosition_Click" Margin="0,0,12,6" />
-        </WrapPanel>
-        <TextBlock Text="Use Edit HUD layout to move either overlay. Pausing and rewinding keep your learned track and reference laps. Changing timing mode or car starts a new reference session."
-                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,6,0,0" />
+        <Expander Header="More options" Style="{StaticResource MoreOptionsStyle}" AutomationProperties.Name="More lap delta options">
+            <StackPanel Margin="0,12,0,0">
+                <CheckBox x:Name="BarToggle" Content="Show delta bar" Style="{DynamicResource ToggleSwitchStyle}"
+                          Checked="Options_Changed" Unchecked="Options_Changed" AutomationProperties.Name="Show lap delta bar" />
+                <TextBlock Text="The bar shows up to two seconds ahead or behind. The number shows the full difference in seconds."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Gauge size" /><TextBlock Grid.Column="1" Text="{Binding Value, ElementName=ScaleSlider, StringFormat={}{0:P0}}" />
+                </Grid>
+                <Slider x:Name="ScaleSlider" Minimum="0.5" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                        SmallChange="0.05" LargeChange="0.25" ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Lap delta size" />
+                <CheckBox x:Name="MapToggle" Content="Show live track map" Style="{DynamicResource ToggleSwitchStyle}"
+                          Checked="MapOptions_Changed" Unchecked="MapOptions_Changed" AutomationProperties.Name="Show live track map" />
+                <TextBlock Text="Follow your car around an enlarged track outline. Your first full lap builds the map; later laps keep the full circuit in view."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Map size" /><TextBlock Grid.Column="1" Text="{Binding Value, ElementName=MapScaleSlider, StringFormat={}{0:P0}}" />
+                </Grid>
+                <Slider x:Name="MapScaleSlider" Minimum="0.5" Maximum="3" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                        SmallChange="0.05" LargeChange="0.25" ValueChanged="MapScale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Track map size" />
+                <TextBlock Text="Change delta and track map colors in Colors." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,12" />
+                <WrapPanel>
+                    <Button Content="Reset reference laps" Click="ResetSession_Click" Margin="0,0,12,6" />
+                    <Button Content="Reset delta position" Click="ResetPosition_Click" Margin="0,0,12,6" />
+                    <Button Content="Reset map position" Click="ResetMapPosition_Click" Margin="0,0,12,6" />
+                </WrapPanel>
+                <TextBlock Text="Use Edit HUD layout to move either overlay. Pausing and rewinding keep your learned track and reference laps. Changing timing mode or car starts a new reference session."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,6,0,0" />
+            </StackPanel>
+        </Expander>
     </StackPanel>
 </UserControl>
