@@ -102,6 +102,18 @@ public sealed class HudPreset
     public string? CustomTractionCueColor { get; set; }
     public string? CustomGForceColor { get; set; }
     public string? CustomGForceTrailColor { get; set; }
+    // Saved from 2.5.1. Loading a profile saved earlier leaves these settings as they are.
+    public int Revision { get; set; }
+    public string? CustomParticleColor { get; set; }
+    public string? AppBorderColor { get; set; }
+    public string? AppTextColor { get; set; }
+    public string? AppMutedTextColor { get; set; }
+    public bool DriftGaugeEnabled { get; set; }
+    public double DriftGaugeScale { get; set; } = 1;
+    public bool DriftGaugeDarkMode { get; set; }
+    public bool DriftGaugeBackgroundEnabled { get; set; }
+    public double DriftGaugeBackgroundOpacity { get; set; } = .5;
+    internal const int CurrentRevision = 1;
 
     [JsonIgnore]
     public string Summary => LayoutMode switch
@@ -205,7 +217,17 @@ public sealed class HudPreset
             CustomBoostHighColor = settings.CustomBoostHighColor,
             CustomTractionCueColor = settings.CustomTractionCueColor,
             CustomGForceColor = settings.CustomGForceColor,
-            CustomGForceTrailColor = settings.CustomGForceTrailColor
+            CustomGForceTrailColor = settings.CustomGForceTrailColor,
+            Revision = CurrentRevision,
+            CustomParticleColor = settings.CustomParticleColor,
+            AppBorderColor = settings.ApplicationStyle?.BorderColor,
+            AppTextColor = settings.ApplicationStyle?.TextColor,
+            AppMutedTextColor = settings.ApplicationStyle?.MutedTextColor,
+            DriftGaugeEnabled = settings.DriftGaugeEnabled,
+            DriftGaugeScale = settings.DriftGaugeScale,
+            DriftGaugeDarkMode = settings.DriftGaugeDarkMode,
+            DriftGaugeBackgroundEnabled = settings.DriftGaugeBackgroundEnabled,
+            DriftGaugeBackgroundOpacity = settings.DriftGaugeBackgroundOpacity
         };
     }
 
@@ -293,6 +315,19 @@ public sealed class HudPreset
         settings.CustomTractionCueColor = CustomTractionCueColor;
         settings.CustomGForceColor = CustomGForceColor;
         settings.CustomGForceTrailColor = CustomGForceTrailColor;
+        if (Revision < 1) return;
+        settings.CustomParticleColor = CustomParticleColor;
+        var style = (settings.ApplicationStyle ?? new AppStyleSettings()).Clone();
+        style.BorderColor = AppBorderColor;
+        style.TextColor = AppTextColor;
+        style.MutedTextColor = AppMutedTextColor;
+        style.Normalize();
+        settings.ApplicationStyle = style;
+        settings.DriftGaugeEnabled = DriftGaugeEnabled;
+        settings.DriftGaugeScale = DriftGaugeScale;
+        settings.DriftGaugeDarkMode = DriftGaugeDarkMode;
+        settings.DriftGaugeBackgroundEnabled = DriftGaugeBackgroundEnabled;
+        settings.DriftGaugeBackgroundOpacity = DriftGaugeBackgroundOpacity;
     }
 
     public bool Normalize()
@@ -328,6 +363,9 @@ public sealed class HudPreset
         LapMapCarColor = ColorCustomization.NormalizeGauge(LapMapCarColor);
         LapMapBackgroundColor = ColorCustomization.NormalizeParticle(LapMapBackgroundColor);
         LapDeltaScale = NormalizeScale(LapDeltaScale);
+        CustomParticleColor = ColorCustomization.NormalizeParticle(CustomParticleColor);
+        DriftGaugeScale = NormalizeScale(DriftGaugeScale);
+        DriftGaugeBackgroundOpacity = double.IsFinite(DriftGaugeBackgroundOpacity) ? Math.Clamp(DriftGaugeBackgroundOpacity, 0, 1) : .5;
         if (!Enum.IsDefined(LapTimingMode)) LapTimingMode = global::Wisp.Core.LapTimingMode.GameLaps;
         if (!Enum.IsDefined(LapDeltaReference)) LapDeltaReference = global::Wisp.Core.LapDeltaReference.SessionBest;
         PowerTorqueGaugeScale = NormalizeScale(PowerTorqueGaugeScale);

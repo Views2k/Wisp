@@ -1433,6 +1433,10 @@ public sealed partial class AppController : IAsyncDisposable
         var previousLayoutMode = Settings.LayoutMode;
         var previousNativeGaugeMode = Settings.NativeGaugeMode;
         preset.ApplyTo(Settings);
+        Settings.NormalizeDriftGaugeSettings();
+        DriftGaugeOverlay?.ApplyAppearance(Settings.DriftGaugeScale, Settings.OverlayOpacity);
+        DriftGaugeOverlay?.SetEnabled(Settings.DriftGaugeEnabled);
+        SetDriftGaugeStatus(Settings.DriftGaugeEnabled ? "Waiting for driving telemetry" : "Off");
         ViewModel.ApplyPowerTorquePresetRange(preset);
         ViewModel.UpdateGForceColors(Settings);
         SyncHudPresetToViewModel();

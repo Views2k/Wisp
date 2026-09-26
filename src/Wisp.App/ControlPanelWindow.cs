@@ -474,6 +474,7 @@ public abstract partial class ControlPanelWindow : Window
     internal void ApplyHudPresetToControls()
     {
         FindControl<LapDeltaSettingsControl>("LapDeltaSettings").Initialize(_controller);
+        FindControl<DriftGaugeSettingsControl>("DriftGaugeSettings").Initialize(_controller);
         var wasLoaded = _loaded;
         _loaded = false;
         try
