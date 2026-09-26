@@ -15,7 +15,7 @@
 
 ## Wisp 2.5.1
 
-Time Attack attempts now end when Forza ends them, reference laps survive a Wisp restart, and the lap delta panel shows the reference lap's time. [Release notes](docs/releases/Wisp-2.5.1-release-notes.md).
+Time Attack attempts now end when Forza ends them, reference laps survive a Wisp restart, and the lap delta panel shows the reference lap's time. The lap overlays redraw only when their content changes, and HUD profiles keep more of your colors. [Release notes](docs/releases/Wisp-2.5.1-release-notes.md).
 
 ## Wisp 2.5
 

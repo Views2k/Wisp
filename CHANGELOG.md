@@ -7,6 +7,8 @@ Notable changes to Wisp are recorded here.
 - End a Time Attack attempt, as Forza does, when the car stays stopped for five seconds or, once two laps agree on the circuit, stays off it or goes the wrong way for five seconds.
 - Keep lap delta reference laps when Wisp restarts or updates while Forza keeps running.
 - Show the reference lap's time next to SESSION BEST or PREVIOUS LAP.
+- Redraw the lap delta panel and track map only when what they show changes, instead of at the display's refresh rate.
+- Save the background particle color, the app border and text colors, and the drift gauge's visibility, size, dark mode and black background in HUD profiles. Profiles saved earlier leave these settings as they are.
 
 ## 2.5.0 - 2026-09-26
 

@@ -18,13 +18,17 @@ public static class ReleaseNotesCatalog
             "2.5.1",
             "September 26, 2026",
             "LAP DELTA FIXES",
-            "Time Attack attempts end when Forza ends them, reference laps survive a Wisp restart, and the panel shows which lap it compares against.",
+            "Time Attack attempts end when Forza ends them, reference laps survive a Wisp restart, the lap overlays draw less often, and HUD profiles keep more of your colors.",
             true,
             [
                 Group("Lap delta (beta)",
                     "End a Time Attack attempt when the car stays stopped for five seconds, or, once two laps agree on the circuit, stays off it or goes the wrong way for five seconds. The panel shows START A LAP until the next start-line crossing.",
                     "Keep your reference laps when Wisp restarts or updates while Forza keeps running, as Forza keeps its Current Best.",
-                    "Show the reference lap's time next to SESSION BEST or PREVIOUS LAP.")
+                    "Show the reference lap's time next to SESSION BEST or PREVIOUS LAP.",
+                    "Redraw the lap delta panel and track map only when what they show changes, instead of at the display's refresh rate."),
+                Group("HUD profiles",
+                    "Save the background particle color, the app border and text colors, and the drift gauge's visibility, size, dark mode and black background.",
+                    "Profiles saved before 2.5.1 leave these settings as they are when you apply them.")
             ]),
         new(
             "2.5",
