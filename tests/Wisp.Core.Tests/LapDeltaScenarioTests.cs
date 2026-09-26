@@ -55,7 +55,8 @@ public sealed class LapDeltaScenarioTests
         private int _settle;
         private bool _quiet;
 
-        protected double NextPace() => Pace = 55 + Random.NextDouble() * 10;
+        // Each lap has its own pace. A car's speed cannot change much within a frame, even at the line.
+        protected double NextPace() => Pace = 59 + Random.NextDouble() * 2;
 
         // The PC's uptime in whole milliseconds, advancing in 15.625 ms ticks.
         protected uint Timestamp() => unchecked((uint)Math.Floor(Math.Floor((Wall + _boot) * 64) * 15.625));
