@@ -47,6 +47,8 @@ internal sealed class TimeAttackClock
     private double _uptime, _arrival, _moment, _earliest, _motion;
     private readonly (double Moment, double Motion)[] _arrivals = new (double, double)[8];
     private int _arrivalCount, _arrivalNext;
+    // The last packet came after a break, so only its own arrival placed it.
+    private bool _unplaced;
     private Vector3 _heading;
     internal bool CircuitChanged { get; private set; }
 
@@ -72,6 +74,7 @@ internal sealed class TimeAttackClock
             _origin = state.ReceivedAtUtc;
             _uptime = _arrival = _moment = _earliest = _motion = 0;
             _arrivalCount = _arrivalNext = 0;
+            _unplaced = true;
             return null;
         }
         var oldPosition = previous.Lap!.Position.ToVector();
@@ -86,17 +89,22 @@ internal sealed class TimeAttackClock
         _earliest = Math.Min(_earliest + Math.Clamp(arrival - _arrival, 0, LongInterval) * .001, arrival - uptime);
         var estimate = arrival - _earliest;
         // A packet can only arrive late. A recent packet's moment, plus the time the car needed to
-        // drive on from there at its speed, places this one when that is earlier.
-        if (uptime - _uptime > LongInterval || speed <= 2) _arrivalCount = _arrivalNext = 0;
+        // drive on from there at its speed, places this one when that is earlier, and this one
+        // places a packet that came after a break the same way.
+        var placed = uptime - _uptime <= LongInterval && speed > 2;
+        if (!placed) _arrivalCount = _arrivalNext = 0;
         else
         {
-            _motion += moved / speed;
+            var driven = moved / speed;
+            _motion += driven;
             for (var i = 0; i < _arrivalCount; i++)
             {
                 var (earlier, at) = _arrivals[i];
                 if (_motion - at <= ArrivalSpan) estimate = Math.Min(estimate, earlier + _motion - at);
             }
+            if (_unplaced) _moment = Math.Max(_uptime, Math.Min(_moment, Math.Clamp(estimate, uptime, uptime + TickLength) - driven));
         }
+        _unplaced = !placed;
         var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickLength));
         _arrivals[_arrivalNext] = (moment, _motion);
         _arrivalNext = (_arrivalNext + 1) % _arrivals.Length;
