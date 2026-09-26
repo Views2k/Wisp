@@ -34,7 +34,7 @@ internal sealed class TimeAttackClock
     private const double TickLength = .015;
     // Longer than any interval between packets while the game runs.
     private const double LongInterval = .2;
-    // How far back an earlier packet's arrival still places a later one, using the car's motion.
+    // How far back an earlier packet still places a later one, using the car's motion.
     private const double ArrivalSpan = .035;
     private readonly List<History> _history = new();
     private readonly record struct History(Vector3 Position, double Clock, double Start, float Distance, float Speed);
@@ -45,7 +45,7 @@ internal sealed class TimeAttackClock
     private ushort _lap;
     private DateTimeOffset _origin;
     private double _uptime, _arrival, _moment, _earliest, _motion;
-    private readonly (double Estimate, double Motion)[] _arrivals = new (double, double)[8];
+    private readonly (double Moment, double Motion)[] _arrivals = new (double, double)[8];
     private int _arrivalCount, _arrivalNext;
     private Vector3 _heading;
     internal bool CircuitChanged { get; private set; }
@@ -84,10 +84,9 @@ internal sealed class TimeAttackClock
         var arrival = (state.ReceivedAtUtc - _origin).TotalSeconds;
         var uptime = _uptime + unchecked((int)(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds)) / 1000d;
         _earliest = Math.Min(_earliest + Math.Clamp(arrival - _arrival, 0, LongInterval) * .001, arrival - uptime);
-        var arrived = arrival - _earliest;
-        var estimate = arrived;
-        // A packet can only arrive late. A recent packet that arrived sooner, plus the time the car
-        // needed to drive on from there at its speed, places this one when that is earlier.
+        var estimate = arrival - _earliest;
+        // A packet can only arrive late. A recent packet's moment, plus the time the car needed to
+        // drive on from there at its speed, places this one when that is earlier.
         if (uptime - _uptime > LongInterval || speed <= 2) _arrivalCount = _arrivalNext = 0;
         else
         {
@@ -98,10 +97,10 @@ internal sealed class TimeAttackClock
                 if (_motion - at <= ArrivalSpan) estimate = Math.Min(estimate, earlier + _motion - at);
             }
         }
-        _arrivals[_arrivalNext] = (arrived, _motion);
+        var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickLength));
+        _arrivals[_arrivalNext] = (moment, _motion);
         _arrivalNext = (_arrivalNext + 1) % _arrivals.Length;
         _arrivalCount = Math.Min(_arrivalCount + 1, _arrivals.Length);
-        var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickLength));
         var elapsed = moment - _moment;
         _uptime = uptime; _arrival = arrival; _moment = moment;
         if (_gate < 0) return null;
