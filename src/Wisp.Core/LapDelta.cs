@@ -453,11 +453,13 @@ public sealed class LapDeltaTracker
     {
         var duration = next.LastLapSeconds;
         var span = duration - last.CurrentLapSeconds + next.CurrentLapSeconds;
-        if (duration < 5 || duration < last.CurrentLapSeconds || span <= 0 || span > 1) return null;
-        var finish = Vector3.Lerp(last.Position.ToVector(), next.Position.ToVector(), (duration - last.CurrentLapSeconds) / span);
+        // Wisp's Time Attack clock can time the crossing a few milliseconds before the last sample
+        // when that sample reached it late.
+        if (duration < 5 || duration < last.CurrentLapSeconds - .05f || span <= 0 || span > 1) return null;
+        var finish = Vector3.Lerp(last.Position.ToVector(), next.Position.ToVector(), Math.Clamp((duration - last.CurrentLapSeconds) / span, 0, 1));
         if (!Eligible || _current.Count < 20 || _distance < 100 ||
             Vector3.Distance(_current[0].Position, next.Position.ToVector()) > 35) return finish;
-        _current.Add(new(finish, duration, _distance + Vector3.Distance(last.Position.ToVector(), finish)));
+        _current.Add(new(finish, Math.Max(duration, _current[^1].Time), _distance + Vector3.Distance(last.Position.ToVector(), finish)));
         var trace = new Trace(_current.ToArray(), duration);
         // Time Attack laps are inferred from start-line crossings, so a lap must also follow the
         // reference. One that does not is an abandoned attempt, unless the reference came from
