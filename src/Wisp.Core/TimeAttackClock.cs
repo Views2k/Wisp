@@ -36,12 +36,14 @@ internal sealed class TimeAttackClock
     private float _distance, _lastLap;
     private ushort _lap;
     private double _bridged;
+    // The timestamp stopped ticking while the car drove on; its next tick catches up.
+    private bool _stuck;
     internal bool CircuitChanged { get; private set; }
 
     internal void Reset()
     {
         _lastState = null; _gate = -1; _clock = 0; _start = double.NaN;
-        _distance = _lastLap = 0; _lap = 0; _bridged = 0; _history.Clear();
+        _distance = _lastLap = 0; _lap = 0; _bridged = 0; _stuck = false; _history.Clear();
     }
 
     internal LapTelemetry? Update(VehicleState state)
@@ -71,6 +73,7 @@ internal sealed class TimeAttackClock
         {
             step = wall;
             _bridged += wall;
+            if (_bridged > .1) _stuck = true;
         }
         else
         {
@@ -79,8 +82,9 @@ internal sealed class TimeAttackClock
             // meanwhile, is the timestamp catching up. Only the time the car needed for the distance
             // it moved, at its speed, was spent driving.
             var speed = state.GroundSpeedMetersPerSecond;
-            if (delta > 0 && (_bridged > .1 || delta > 1 && moved < speed * delta * .5f))
+            if (delta > 0 && (_stuck || delta > 1 && moved < speed * delta * .5f))
                 step = Math.Min(step, Math.Max(.1, speed > 1 ? moved / speed : 0));
+            if (delta > 0) _stuck = false;
             _bridged = 0;
         }
         // Movement faster than any car is a reset, restart or fast travel: it ends the attempt, and
