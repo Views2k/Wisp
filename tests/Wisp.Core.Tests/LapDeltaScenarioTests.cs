@@ -208,7 +208,7 @@ public sealed class LapDeltaScenarioTests
             _now = _history[^1];
             if (BrokenAt is { } broken && _now.Lap <= broken) BrokenAt = null;
             // Back at the very start of the race, the lap starts afresh.
-            if (_number == 0 && _now.Lap <= .25 && Math.Abs(_now.Race - _now.Lap) <= .1) BrokenAt = null;
+            if (_number == 0 && _now.Race <= .5 && Math.Abs(_now.Race - _now.Lap) <= .1) BrokenAt = null;
             RewindTimestampFrom(from, _now.Game);
             if (Random.NextDouble() < .5) Send(lapClock: .05 + Random.NextDouble() * .35);
             Send();
