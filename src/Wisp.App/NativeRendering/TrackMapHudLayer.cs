@@ -104,24 +104,22 @@ internal static class TrackMapHudLayer
     private sealed class Playback : HudLayerPlayback
     {
         private Snapshot? _snapshot;
-        private LapTrackOutline? _drawnOutline;
-        private int _drawnGeneration;
-        private bool _drawnRecording;
+        private (int Generation, LapTrackOutline? Outline, bool Recording, bool Shown, long X, long Z)? _drawn;
         internal override void Update(HudLayerSnapshot snapshot, long timestamp) => _snapshot = (Snapshot)snapshot;
-        internal override bool CanReuse(long timestamp)
-        {
-            if (_snapshot is not { } s) return false;
-            var map = s.Service.LatestMap;
-            return _drawnGeneration == s.Service.Generation && ReferenceEquals(_drawnOutline, map?.Outline) &&
-                _drawnRecording == (map?.IsRecording == true);
-        }
+        internal override bool IdleWhenUnchanged => true;
+        internal override bool CanReuse(long timestamp) =>
+            _snapshot is { } s && _drawn is { } drawn && drawn == Shown(s.Service.Generation, s.Service.LatestMap);
+
+        // What the map shows: its outline and label, and the car to half a metre.
+        private static (int, LapTrackOutline?, bool, bool, long, long) Shown(int generation, LapMapReading? map) =>
+            (generation, map?.Outline, map?.IsRecording == true, map is not null,
+                map is null ? 0 : (long)Math.Round(map.Position.X * 2), map is null ? 0 : (long)Math.Round(map.Position.Z * 2));
+
         internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
         {
             if (_snapshot is not { } s) return;
-            _drawnGeneration = s.Service.Generation;
             var map = s.Service.LatestMap;
-            _drawnOutline = map?.Outline;
-            _drawnRecording = map?.IsRecording == true;
+            _drawn = Shown(s.Service.Generation, map);
             Append(commands, s.Artwork, map, s.Track, s.Car, s.Background);
         }
     }

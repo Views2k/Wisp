@@ -105,10 +105,20 @@ internal static class LapDeltaHudLayer
     private sealed class Playback : HudLayerPlayback
     {
         private Snapshot? _snapshot;
-        private int _drawnGeneration;
+        private (int Generation, LapDeltaStatus Status, long Hundredths, long Bar, long Reference)? _drawn;
         private LapDeltaReading _reading = LapDeltaReading.Waiting;
         internal override void Update(HudLayerSnapshot snapshot, long timestamp) => _snapshot = (Snapshot)snapshot;
-        internal override bool CanReuse(long timestamp) => _snapshot is { } s && _drawnGeneration == s.Service.Generation;
+        internal override bool IdleWhenUnchanged => true;
+        internal override bool CanReuse(long timestamp) =>
+            _snapshot is { } s && _drawn is { } drawn && drawn == Shown(s, s.Service.Latest);
+
+        // What the panel shows: its status, the delta in hundredths, the bar to half a pixel and the
+        // reference lap's time.
+        private static (int, LapDeltaStatus, long, long, long) Shown(Snapshot snapshot, LapDeltaReading reading) =>
+            (snapshot.Service.Generation, reading.Status,
+                reading.Seconds is { } delta ? (long)Math.Round(delta * 100) : long.MinValue,
+                reading.Seconds is { } bar && snapshot.Bar ? (long)Math.Round(Math.Clamp(Math.Abs(bar) / 2, 0, 1) * 280) : 0,
+                reading.ReferenceSeconds is { } reference ? (long)Math.Round(reference * 1000) : -1);
         internal override bool RefreshNativeHistory(long timestamp)
         {
             var next = _snapshot?.Service.Latest ?? LapDeltaReading.Waiting;
@@ -120,8 +130,8 @@ internal static class LapDeltaHudLayer
         internal override void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp)
         {
             if (_snapshot is not { } s) return;
-            _drawnGeneration = s.Service.Generation;
             _reading = s.Service.Latest;
+            _drawn = Shown(s, _reading);
             Append(commands, _reading, s.Reference, s.Bar, s.Ahead, s.Behind);
         }
     }
