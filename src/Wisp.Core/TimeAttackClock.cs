@@ -53,7 +53,7 @@ internal sealed class TimeAttackClock
     // When packets were sent belongs to the packet stream, so it carries across circuits: each
     // packet's tick, arrival and placing, the quickest delay seen, and the car's motion.
     private double _uptime, _arrival, _moment, _quickest, _motion;
-    private readonly (double Arrived, double Motion)[] _arrivals = new (double, double)[12];
+    private readonly (double Arrival, double Motion)[] _arrivals = new (double, double)[12];
     private int _arrivalCount, _arrivalNext;
     // The last packet came after a break, so only its own arrival placed it, and the car drove on
     // through that break, timed by that arrival.
@@ -91,14 +91,16 @@ internal sealed class TimeAttackClock
         var speed = (packet.GroundSpeedMetersPerSecond + state.GroundSpeedMetersPerSecond) / 2;
         // Where a packet falls within its tick: as much after the tick as it arrived later than the
         // quickest packets did. Their delay does not change with the game's frames, so the quickest
-        // only lowers, or rises as slowly as the two clocks can drift apart.
+        // only lowers, or rises as slowly as the two clocks can drift apart. A new quickest changes
+        // where packets fall, not how much time passed between them.
         var arrival = _arrival + (state.ReceivedTimestamp is { } now && packet.ReceivedTimestamp is { } then
             ? (now - then) / (double)Stopwatch.Frequency
             : (state.ReceivedAtUtc - packet.ReceivedAtUtc).TotalSeconds);
         var uptime = _uptime + unchecked((int)(state.GameTimestampMilliseconds - packet.GameTimestampMilliseconds)) / 1000d;
-        _quickest = Math.Min(_quickest + Math.Clamp(arrival - _arrival, 0, LongInterval) * Drift, arrival - uptime);
-        var arrived = arrival - _quickest;
-        var estimate = arrived;
+        var quickest = Math.Min(_quickest + Math.Clamp(arrival - _arrival, 0, LongInterval) * Drift, arrival - uptime);
+        _moment += _quickest - quickest;
+        _quickest = quickest;
+        var estimate = arrival - _quickest;
         // A packet can only arrive late. A recent packet's arrival, plus the time the car needed to
         // drive on from there at its speed, places this one when that is earlier, and this one
         // places a packet that came after a break the same way.
@@ -111,7 +113,7 @@ internal sealed class TimeAttackClock
             for (var i = 0; i < _arrivalCount; i++)
             {
                 var (earlier, at) = _arrivals[i];
-                if (_motion - at <= ArrivalSpan) estimate = Math.Min(estimate, earlier + (_motion - at) * MotionAllowance);
+                if (_motion - at <= ArrivalSpan) estimate = Math.Min(estimate, earlier - _quickest + (_motion - at) * MotionAllowance);
             }
             if (_unplaced)
             {
@@ -131,7 +133,7 @@ internal sealed class TimeAttackClock
         // How much later this packet is placed than the last, before holding placings in order.
         var gained = placing - _moment;
         var moment = Math.Max(_moment, placing);
-        _arrivals[_arrivalNext] = (arrived, _motion);
+        _arrivals[_arrivalNext] = (arrival, _motion);
         _arrivalNext = (_arrivalNext + 1) % _arrivals.Length;
         _arrivalCount = Math.Min(_arrivalCount + 1, _arrivals.Length);
         var elapsed = moment - _moment;
