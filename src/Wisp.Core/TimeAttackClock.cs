@@ -69,20 +69,25 @@ internal sealed class TimeAttackClock
             _uptime = _arrival = _moment = _earliest = 0;
             return null;
         }
+        var oldPosition = previous.Lap!.Position.ToVector();
+        var move = position - oldPosition;
+        var moved = move.Length();
+        var speed = (previous.GroundSpeedMetersPerSecond + state.GroundSpeedMetersPerSecond) / 2;
         // Where a packet falls within its tick: as much after the tick as it arrived later than the
         // quickest packets did. The quickest delay drifts up slowly while packets flow, so it
-        // follows the two clocks.
+        // follows the two clocks. A packet held up on its way would be placed too late; while
+        // packets flow, the distance the car moved since the last one, at its speed, bounds how
+        // much later it was sent.
         var arrival = (state.ReceivedAtUtc - _origin).TotalSeconds;
         var uptime = _uptime + unchecked((int)(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds)) / 1000d;
         _earliest = Math.Min(_earliest + Math.Clamp(arrival - _arrival, 0, LongInterval) * .001, arrival - uptime);
-        var moment = Math.Max(_moment, Math.Clamp(arrival - _earliest, uptime, uptime + TickLength));
+        var estimate = arrival - _earliest;
+        if (uptime - _uptime <= LongInterval && speed > 2) estimate = Math.Min(estimate, _moment + moved / speed + .001);
+        var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickLength));
         var elapsed = moment - _moment;
         _uptime = uptime; _arrival = arrival; _moment = moment;
         if (_gate < 0) return null;
 
-        var oldPosition = previous.Lap!.Position.ToVector();
-        var move = position - oldPosition;
-        var moved = move.Length();
         // Game time between the two packets.
         var step = elapsed;
         // Movement faster than any car is a reset, restart or fast travel.
@@ -95,7 +100,6 @@ internal sealed class TimeAttackClock
             // moves it back.
             var before = previous.GroundSpeedMetersPerSecond;
             var after = state.GroundSpeedMetersPerSecond;
-            var speed = (before + after) / 2;
             var needed = speed > 1 ? moved / speed : moved < .05f ? 0 : elapsed;
             if (needed < elapsed * .8) step = needed;
             driving = needed <= elapsed * 1.25 && !(before >= 3 && after < 1) &&

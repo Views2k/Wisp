@@ -44,6 +44,7 @@ public sealed class LapDeltaTracker
     private LapDeltaReading _lastReading = LapDeltaReading.Waiting;
     private int _held;
     private uint _lastTimestamp;
+    private float _lastSpeed;
     private DateTimeOffset _lastReceived;
     private int _car;
     // A lap can become a reference when it started at the line and nothing broke its recording.
@@ -238,7 +239,7 @@ public sealed class LapDeltaTracker
             var gap = _interrupted || elapsed > 1 || state.ReceivedAtUtc - _lastReceived > TimeSpan.FromSeconds(1);
             // After a pause, or a pause in the packet stream, the game's lap clocks and the
             // car's position decide whether the same lap continues. Wall time is not lap time.
-            var resumed = gap && ContinuesLap(last, lap, moved);
+            var resumed = gap && ContinuesLap(last, lap, direction, state.GroundSpeedMetersPerSecond);
             var continuous = !(gap && !resumed ||
                 lap.RaceSeconds + .01f < last.RaceSeconds || lap.LapNumber < last.LapNumber ||
                 lap.LapNumber > last.LapNumber + 1 || !resumed && moved > Math.Max(25, elapsed * 180) ||
@@ -299,6 +300,7 @@ public sealed class LapDeltaTracker
         _car = state.CarOrdinal;
         _lastTimestamp = state.GameTimestampMilliseconds;
         _lastReceived = state.ReceivedAtUtc;
+        _lastSpeed = state.GroundSpeedMetersPerSecond;
         Record(lap);
         return _lastReading = Read(lap, reference, state.ReceivedTimestamp ?? 0);
     }
@@ -336,14 +338,17 @@ public sealed class LapDeltaTracker
     }
 
     // The same lap continues when the game's lap clock moved forward and the car is where that
-    // time allows. Crossing the line meanwhile is continuous when the reported lap time bridges
-    // both samples.
-    private static bool ContinuesLap(LapTelemetry last, LapTelemetry lap, float moved)
+    // time allows, still heading the same way and not put down at rest as a reset does. Crossing
+    // the line meanwhile is continuous when the reported lap time bridges both samples.
+    private bool ContinuesLap(LapTelemetry last, LapTelemetry lap, Vector3 move, float speed)
     {
         var step = lap.LapNumber == last.LapNumber
             ? Math.Abs(lap.LastLapSeconds - last.LastLapSeconds) <= .01f ? lap.CurrentLapSeconds - last.CurrentLapSeconds : -1
             : lap.LapNumber == last.LapNumber + 1 ? lap.LastLapSeconds - last.CurrentLapSeconds + lap.CurrentLapSeconds : -1;
-        return step >= -.01f && lap.RaceSeconds + .01f >= last.RaceSeconds && moved <= Math.Max(25, step * 180);
+        var moved = move.Length();
+        return step >= -.01f && lap.RaceSeconds + .01f >= last.RaceSeconds && moved <= Math.Max(25, step * 180) &&
+            (moved <= 5 || !(_lastSpeed >= 3 && speed < 1) &&
+                (_direction.LengthSquared() < .0001f || Vector3.Dot(move, _direction) >= 0));
     }
 
     // A rewind returns to an earlier moment of this lap: the lap clock goes back and the car
