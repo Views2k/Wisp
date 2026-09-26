@@ -246,8 +246,7 @@ public sealed class LapDeltaTracker
             // In a race the game rewinds its race clock and lap clock together. Straight after a rewind
             // it can briefly report a lap clock that disagrees with its race clock; wait for one that
             // agrees. (Wisp's Time Attack clocks restart an attempt while the race clock runs on.)
-            if (!continuous && timing == LapTimingMode.GameLaps && lap.LapNumber == last.LapNumber &&
-                last.RaceSeconds > 0 && lap.RaceSeconds > .5f &&
+            if (!continuous && timing == LapTimingMode.GameLaps && lap.LapNumber == last.LapNumber && last.RaceSeconds > 0 &&
                 Math.Abs(lap.CurrentLapSeconds - last.CurrentLapSeconds - (lap.RaceSeconds - last.RaceSeconds)) > .1f &&
                 ++_held <= HeldSamples) return _lastReading;
             if (!continuous)
@@ -258,7 +257,7 @@ public sealed class LapDeltaTracker
                 // searched.
                 var clockBack = unchecked((int)(state.GameTimestampMilliseconds - _lastTimestamp)) < 0;
                 if ((clockBack || lap.CurrentLapSeconds > .25f) && RewindsTo(last, lap)) Rewind(lap);
-                else if (lap.CurrentLapSeconds <= .25f && (lap.RaceSeconds <= .5f || AtLapStart(lap))) StartLap(lap);
+                else if (lap.CurrentLapSeconds <= .25f && (RaceStart(lap) || AtLapStart(lap))) StartLap(lap);
                 // Straight after a rewind the game can briefly report a lap clock that fits neither.
                 // Wait a moment for a consistent sample before giving up on this lap's recording.
                 else if (lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds && ++_held <= HeldSamples) return _lastReading;
@@ -388,6 +387,10 @@ public sealed class LapDeltaTracker
         }
         return low;
     }
+
+    // A race (re)start: the race clock and the first lap's clock both begin at zero.
+    private static bool RaceStart(LapTelemetry lap) =>
+        lap.LapNumber == 0 && lap.RaceSeconds <= .5f && Math.Abs(lap.RaceSeconds - lap.CurrentLapSeconds) <= .1f;
 
     // The car is at the line where laps start (the references' first samples, or this recording's
     // when it began there), no further from it than its lap clock allows.
