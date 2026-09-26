@@ -128,11 +128,15 @@ internal sealed class TimeAttackClock
         return new(position, (float)(_clock - _start), _lastLap, (float)_clock, _lap, 1);
     }
 
-    // Restores the latest moment of this attempt, at least 0.3 s earlier, that the car is back at
-    // with that moment's speed. A reset leaves the car at rest instead, so it is not a rewind.
+    // Restores the moment of this attempt, at least 0.3 s earlier, that the car is back at with that
+    // moment's speed: the closest recorded point, the latest visit on a tie. A reset leaves the car
+    // at rest instead, so it is not a rewind.
     private bool TryRestoreVisited(Vector3 position, float speed)
     {
         if (double.IsNaN(_start)) return false;
+        var best = -1;
+        var bestDistance = 25f;
+        var bestFraction = 0f;
         for (var i = _history.Count - 2; i >= 0; i--)
         {
             var from = _history[i];
@@ -141,15 +145,21 @@ internal sealed class TimeAttackClock
             if (_clock - to.Clock < .3) continue;
             var edge = to.Position - from.Position;
             var fraction = edge.LengthSquared() < .0001f ? 0 : Math.Clamp(Vector3.Dot(position - from.Position, edge) / edge.LengthSquared(), 0, 1);
-            if (Vector3.DistanceSquared(position, from.Position + fraction * edge) > 25) continue;
+            var distance = Vector3.DistanceSquared(position, from.Position + fraction * edge);
+            if (distance > bestDistance - .5f) continue;
             var recordedSpeed = from.Speed + fraction * (to.Speed - from.Speed);
             if (Math.Abs(speed - recordedSpeed) > Math.Max(3, recordedSpeed * .2f)) continue;
-            _clock = from.Clock + (to.Clock - from.Clock) * fraction;
-            _distance = from.Distance + (to.Distance - from.Distance) * fraction;
-            _history.RemoveRange(i + 1, _history.Count - i - 1);
-            return true;
+            best = i;
+            bestDistance = distance;
+            bestFraction = fraction;
         }
-        return false;
+        if (best < 0) return false;
+        var start = _history[best];
+        var end = _history[best + 1];
+        _clock = start.Clock + (end.Clock - start.Clock) * bestFraction;
+        _distance = start.Distance + (end.Distance - start.Distance) * bestFraction;
+        _history.RemoveRange(best + 1, _history.Count - best - 1);
+        return true;
     }
 
     private bool TryRestore(Vector3 position, uint timestamp)

@@ -251,7 +251,7 @@ public sealed class LapDeltaTracker
                 // searched.
                 var clockBack = unchecked((int)(state.GameTimestampMilliseconds - _lastTimestamp)) < 0;
                 if ((clockBack || lap.CurrentLapSeconds > .25f) && RewindsTo(last, lap)) Rewind(lap);
-                else if (lap.CurrentLapSeconds <= .25f && (lap.RaceSeconds <= .5f || AtLapStart(lap.Position.ToVector()))) StartLap(lap);
+                else if (lap.CurrentLapSeconds <= .25f && (lap.RaceSeconds <= .5f || AtLapStart(lap))) StartLap(lap);
                 // Straight after a rewind the game can briefly report a lap clock that fits neither.
                 // Wait a moment for a consistent sample before giving up on this lap's recording.
                 else if (lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds && ++_held <= HeldSamples) return _lastReading;
@@ -382,14 +382,17 @@ public sealed class LapDeltaTracker
         return low;
     }
 
-    // Where laps start: the references' first samples, or this recording's when it began at the line.
-    private bool AtLapStart(Vector3 position)
+    // The car is at the line where laps start (the references' first samples, or this recording's
+    // when it began there), no further from it than its lap clock allows.
+    private bool AtLapStart(LapTelemetry lap)
     {
         var starts = new List<Vector3>(3);
         if (_best is not null) starts.Add(_best.Points[0].Position);
         if (_previous is not null) starts.Add(_previous.Points[0].Position);
         if (_startedAtLine && _current.Count > 0) starts.Add(_current[0].Position);
-        return starts.Count == 0 || starts.Any(start => Vector3.Distance(start, position) <= 35);
+        var position = lap.Position.ToVector();
+        var reach = lap.CurrentLapSeconds * 90 + 10;
+        return starts.Count == 0 || starts.Any(start => Vector3.Distance(start, position) <= reach);
     }
 
     private void StartLap(LapTelemetry lap)
