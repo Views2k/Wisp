@@ -243,6 +243,11 @@ public sealed class LapDeltaTracker
                 lap.RaceSeconds + .01f < last.RaceSeconds || lap.LapNumber < last.LapNumber ||
                 lap.LapNumber > last.LapNumber + 1 || !resumed && moved > Math.Max(25, elapsed * 180) ||
                 (!boundary && lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds));
+            // The game rewinds its race clock and lap clock together. Straight after a rewind it can
+            // briefly report a lap clock that disagrees with its race clock; wait for one that agrees.
+            if (!continuous && lap.LapNumber == last.LapNumber && last.RaceSeconds > 0 && lap.RaceSeconds > .5f &&
+                Math.Abs(lap.CurrentLapSeconds - last.CurrentLapSeconds - (lap.RaceSeconds - last.RaceSeconds)) > .5f &&
+                ++_held <= HeldSamples) return _lastReading;
             if (!continuous)
             {
                 // A rewind returns the car to a moment of this recording, with the lap clock at that

@@ -75,7 +75,9 @@ internal sealed class TimeAttackClock
         }
         else
         {
-            if (_stalled && delta > 0) step = Math.Min(delta, .1);
+            // A timestamp that jumps further than the car could have driven meanwhile is catching up
+            // after being stuck, not time spent driving.
+            if (_stalled && delta > 0 || delta > 1 && moved < state.GroundSpeedMetersPerSecond * delta * .5f) step = Math.Min(delta, .1);
             _unticked = 0;
             _stalled = false;
         }
