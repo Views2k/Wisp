@@ -49,6 +49,8 @@ public sealed class LapDeltaScenarioTests
         protected double? BrokenAt;
         protected bool Valid => BrokenAt is null;
         protected bool AtRest;
+        // The car's speed when it is not following the circuit at its pace.
+        protected float? Speed;
         private double _received;
         private int _settle;
         private bool _quiet;
@@ -360,7 +362,7 @@ public sealed class LapDeltaScenarioTests
                 IsRaceOn = raceOn,
                 GameTimestampMilliseconds = Timestamp(),
                 ReceivedAtUtc = Received(),
-                GroundSpeedMetersPerSecond = AtRest ? 0 : (float)(Math.Tau * 150 / Pace),
+                GroundSpeedMetersPerSecond = AtRest ? 0 : Speed ?? (float)(Math.Tau * 150 / Pace),
                 Lap = new(_now.Position, 0, 0, 0, 0, 0)
             };
             AtRest = false;
@@ -452,12 +454,14 @@ public sealed class LapDeltaScenarioTests
             var from = _now.Position;
             var to = Position(-.03);
             var steps = (int)Math.Ceiling(Vector3.Distance(from, to) / (18 * Dt));
+            Speed = Vector3.Distance(from, to) / (float)(steps * Dt);
             for (var i = 1; i <= steps; i++)
             {
                 Wall += Dt;
                 _now = new(_now.Game + Dt, -.03, Vector3.Lerp(from, to, i / (float)steps));
                 Send();
             }
+            Speed = null;
             _history.Clear();
             _start = null;
             // Wisp can only tell the attempt was abandoned at the line; check from the new attempt on.

@@ -186,14 +186,17 @@ internal sealed class TimeAttackClock
             {
                 // Every forward crossing starts a new attempt. The previous one counts as a lap only
                 // if it was long enough to be one; otherwise it was abandoned at the line.
-                var crossing = _clock - step * (1 - fraction);
+                var from = _clock - step;
+                var span = step;
                 if (elapsed <= LongInterval && speed > 2)
                 {
-                    // Arrival only ever places a packet late, so the crossing is timed from whichever
-                    // of the two packets is placed earlier, by the time the car needed to reach the line.
+                    // Arrival only ever places a packet late. When the car's motion shows that one of
+                    // the two was, the crossing is timed from the other, by the car's motion.
                     var driven = moved / speed;
-                    crossing = _clock - step + Math.Min(0, gained - driven) + driven * fraction;
+                    if (gained < driven / MotionAllowance) { from += gained - driven; span = driven; }
+                    else if (gained > driven * MotionAllowance) span = driven;
                 }
+                var crossing = from + span * fraction;
                 if (!double.IsNaN(_start) && crossing - _start >= 15 && _distance >= 500)
                 {
                     _lastLap = (float)(crossing - _start);
