@@ -143,9 +143,9 @@ internal sealed class TimeAttackClock
             var from = _history[i];
             var to = _history[i + 1];
             if (from.Start != _start || to.Start != _start) break;
-            if (_clock - to.Clock < .3) continue;
             var edge = to.Position - from.Position;
             var fraction = edge.LengthSquared() < .0001f ? 0 : Math.Clamp(Vector3.Dot(position - from.Position, edge) / edge.LengthSquared(), 0, 1);
+            if (_clock - (from.Clock + (to.Clock - from.Clock) * fraction) < .3) continue;
             var distance = Vector3.DistanceSquared(position, from.Position + fraction * edge);
             if (distance > bestDistance - .5f) continue;
             var recordedSpeed = from.Speed + fraction * (to.Speed - from.Speed);
