@@ -255,8 +255,11 @@ public sealed class LapDeltaTracker
                 // moment. A lap clock back at zero where laps start (a restart, reset or new attempt)
                 // begins a new lap, and the references restart at their own start rather than being
                 // searched.
+                // In a race the game's lap counter tells a rewind from a new lap: a restart returns to lap
+                // zero with its clocks, and a new lap arrives by crossing the line. In Time Attack a lap
+                // clock back at zero is a new attempt unless the game's clock ran backwards.
                 var clockBack = unchecked((int)(state.GameTimestampMilliseconds - _lastTimestamp)) < 0;
-                if ((clockBack || lap.CurrentLapSeconds > .25f) && RewindsTo(last, lap)) Rewind(lap);
+                if ((clockBack || lap.CurrentLapSeconds > .25f || timing == LapTimingMode.GameLaps && !RaceStart(lap)) && RewindsTo(last, lap)) Rewind(lap);
                 else if (lap.CurrentLapSeconds <= .25f && (RaceStart(lap) || AtLapStart(lap))) StartLap(lap);
                 // Straight after a rewind the game can briefly report a lap clock that fits neither.
                 // Wait a moment for a consistent sample before giving up on this lap's recording.
