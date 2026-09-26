@@ -28,22 +28,28 @@ internal sealed class TimeAttackClock
         new(new(2785.70f, 4990.71f), Vector2.Normalize(new(.94037f, .34014f))),
         new(new(2495.16f, -5063.40f), Vector2.Normalize(new(-.01200f, -.99993f)))
     ];
+    // FH6's timestamp is the PC's uptime in milliseconds (the Windows tick count). It advances in
+    // 15.625 ms ticks and runs on while the game is paused, in a menu or rewinding; the game's lap
+    // timer stops for a pause and goes back with a rewind. The game sends nothing meanwhile.
+    private const double TickLength = .015;
+    // Longer than any interval between packets while the game runs.
+    private const double LongInterval = .2;
     private readonly List<History> _history = new();
-    private readonly record struct History(Vector3 Position, uint GameTimestamp, double Clock, double Start, ushort Lap, float Last, float Distance, float Speed);
+    private readonly record struct History(Vector3 Position, double Clock, double Start, float Distance, float Speed);
     private VehicleState? _lastState;
     private int _gate = -1;
     private double _clock, _start = double.NaN;
     private float _distance, _lastLap;
     private ushort _lap;
-    private double _bridged;
-    // The timestamp stopped ticking while the car drove on; its next tick catches up.
-    private bool _stuck;
+    private DateTimeOffset _origin;
+    private double _uptime, _arrival, _moment, _earliest;
+    private Vector3 _heading;
     internal bool CircuitChanged { get; private set; }
 
     internal void Reset()
     {
         _lastState = null; _gate = -1; _clock = 0; _start = double.NaN;
-        _distance = _lastLap = 0; _lap = 0; _bridged = 0; _stuck = false; _history.Clear();
+        _distance = _lastLap = 0; _lap = 0; _heading = default; _history.Clear();
     }
 
     internal LapTelemetry? Update(VehicleState state)
@@ -57,60 +63,59 @@ internal sealed class TimeAttackClock
         }
         var previous = _lastState;
         _lastState = state;
-        if (previous is null || _gate < 0) return null;
-        // The game's timestamp is its simulation clock: it stands still while the game is paused,
-        // like the game's own timer. Wall time is not lap time.
-        var delta = unchecked((int)(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds)) / 1000d;
-        var wall = (state.ReceivedAtUtc - previous.ReceivedAtUtc).TotalSeconds;
-        var oldPosition = previous.Lap!.Position.ToVector();
-        var moved = Vector3.Distance(position, oldPosition);
-        var clockReversed = delta < 0;
-        double step;
-        // FH6 ticks its timestamp about every 16 ms and sends about two packets per tick, and after
-        // some rewinds the timestamp stops ticking while the car drives on. Real time stands in for a
-        // sample without a tick, and the next tick adds only what it did not already cover.
-        if (delta == 0 && moved > .05f && wall is > 0 and <= .15)
+        if (previous is null)
         {
-            step = wall;
-            _bridged += wall;
-            if (_bridged > .1) _stuck = true;
+            _origin = state.ReceivedAtUtc;
+            _uptime = _arrival = _moment = _earliest = 0;
+            return null;
         }
+        // Where a packet falls within its tick: as much after the tick as it arrived later than the
+        // quickest packets did. The quickest delay drifts up slowly while packets flow, so it
+        // follows the two clocks.
+        var arrival = (state.ReceivedAtUtc - _origin).TotalSeconds;
+        var uptime = _uptime + unchecked((int)(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds)) / 1000d;
+        _earliest = Math.Min(_earliest + Math.Clamp(arrival - _arrival, 0, LongInterval) * .001, arrival - uptime);
+        var moment = Math.Max(_moment, Math.Clamp(arrival - _earliest, uptime, uptime + TickLength));
+        var elapsed = moment - _moment;
+        _uptime = uptime; _arrival = arrival; _moment = moment;
+        if (_gate < 0) return null;
+
+        var oldPosition = previous.Lap!.Position.ToVector();
+        var move = position - oldPosition;
+        var moved = move.Length();
+        // Game time between the two packets.
+        var step = elapsed;
+        // Movement faster than any car is a reset, restart or fast travel.
+        var driving = moved <= Math.Max(25, elapsed * 180);
+        if (elapsed > LongInterval)
+        {
+            // Nothing arrived: the game was paused, in a menu or rewinding, or it stalled or its
+            // packets were lost. The time the car needed for the distance it moved, at its speed,
+            // is how far the game got. A reset puts the car down at rest, and a reset or rewind
+            // moves it back.
+            var before = previous.GroundSpeedMetersPerSecond;
+            var after = state.GroundSpeedMetersPerSecond;
+            var speed = (before + after) / 2;
+            var needed = speed > 1 ? moved / speed : moved < .05f ? 0 : elapsed;
+            if (needed < elapsed * .8) step = needed;
+            driving = needed <= elapsed * 1.25 && !(before >= 3 && after < 1) &&
+                (moved < .5f || _heading == Vector3.Zero || Vector3.Dot(move, _heading) >= 0);
+        }
+
+        // A rewind shows as the game resuming, after a break in its data, at a moment of this
+        // attempt already driven, at that moment's speed. Position alone cannot tell it from a
+        // spin or rolling back.
+        var restored = (elapsed > LongInterval || !driving) && moved > 5 && TryRestoreVisited(position, state.GroundSpeedMetersPerSecond);
+        if (restored || !driving) _heading = default;
         else
         {
-            step = Math.Max(0, delta - _bridged);
-            // A tick after a long stall, or one that jumps further than the car could have driven
-            // meanwhile, is the timestamp catching up. Only the time the car needed for the distance
-            // it moved, at its speed, was spent driving.
-            var speed = state.GroundSpeedMetersPerSecond;
-            if (delta > 0 && (_stuck || delta > 1 && moved < speed * delta * .5f))
-                step = Math.Min(step, Math.Max(.1, speed > 1 ? moved / speed : 0));
-            if (delta > 0) _stuck = false;
-            _bridged = 0;
+            if (elapsed <= LongInterval && moved > .05f) _heading = move / moved;
+            _clock += step;
+            _distance += moved;
         }
-        // Movement faster than any car is a reset, restart or fast travel: it ends the attempt, and
-        // the next start-line crossing begins a new one.
-        var jumped = !clockReversed && moved > Math.Max(25, step * 180);
-
-        // Position alone cannot distinguish rewind from a spin or rolling back. A rewind shows as a
-        // backwards game clock, or as the game resuming after a break in its data (it sends nothing
-        // while rewinding) at a moment already driven, at that moment's speed.
-        if (clockReversed && !double.IsNaN(_start) &&
-            (_history.Count == 0 || _history[^1].GameTimestamp != previous.GameTimestampMilliseconds))
-            _history.Add(new(oldPosition, previous.GameTimestampMilliseconds, _clock, _start, _lap, _lastLap, _distance, previous.GroundSpeedMetersPerSecond));
-        var restored = clockReversed
-            ? TryRestore(position, state.GameTimestampMilliseconds)
-            : (wall > .3 || jumped) && moved > 5 && TryRestoreVisited(position, state.GroundSpeedMetersPerSecond);
-        var teleported = jumped && !restored;
-        if (!restored)
-        {
-            if (clockReversed || teleported) _start = double.NaN;
-            else
-            {
-                _clock += step;
-                _distance += moved;
-            }
-        }
-        if (!restored && !clockReversed && !teleported && Gates[_gate].Cross(oldPosition, position, out var fraction))
+        // A reset, restart or fast travel ends the attempt, and the next start-line crossing begins one.
+        if (!restored && !driving) _start = double.NaN;
+        if (!restored && driving && Gates[_gate].Cross(oldPosition, position, out var fraction))
         {
             if (step > 1) _start = double.NaN; // No samples near the line: its crossing time is unknown.
             else
@@ -130,7 +135,7 @@ internal sealed class TimeAttackClock
         if (double.IsNaN(_start)) return null;
         if (restored || _history.Count == 0 || _clock - _history[^1].Clock >= .1)
         {
-            _history.Add(new(position, state.GameTimestampMilliseconds, _clock, _start, _lap, _lastLap, _distance, state.GroundSpeedMetersPerSecond));
+            _history.Add(new(position, _clock, _start, _distance, state.GroundSpeedMetersPerSecond));
             if (_history.Count > 2400) _history.RemoveRange(0, 600);
         }
         return new(position, (float)(_clock - _start), _lastLap, (float)_clock, _lap, 1);
@@ -168,32 +173,5 @@ internal sealed class TimeAttackClock
         _distance = start.Distance + (end.Distance - start.Distance) * bestFraction;
         _history.RemoveRange(best + 1, _history.Count - best - 1);
         return true;
-    }
-
-    private bool TryRestore(Vector3 position, uint timestamp)
-    {
-        // A position may recur at a stop or crossing. The game timestamp identifies
-        // which visit is being restored; geometry only checks that it is consistent.
-        for (var i = Math.Max(0, _history.Count - 512); i < _history.Count - 1; i++)
-        {
-            var start = _history[i]; var end = _history[i + 1];
-            var span = unchecked((int)(end.GameTimestamp - start.GameTimestamp));
-            var offset = unchecked((int)(timestamp - start.GameTimestamp));
-            if (span <= 0 || offset < 0 || offset > span) continue;
-            var fraction = offset / (double)span;
-            var expected = Vector3.Lerp(start.Position, end.Position, (float)fraction);
-            if (Vector3.DistanceSquared(position, expected) > 25) return false;
-            _clock = start.Clock + (end.Clock - start.Clock) * fraction;
-            var selected = start.Lap == end.Lap || _clock < end.Start ? start : end;
-            _start = selected.Start; _lap = selected.Lap; _lastLap = selected.Last;
-            _distance = start.Lap == end.Lap
-                ? start.Distance + (end.Distance - start.Distance) * (float)fraction
-                : _clock >= end.Start
-                    ? end.Distance * (float)((_clock - end.Start) / Math.Max(.000001, end.Clock - end.Start))
-                    : start.Distance + Vector3.Distance(start.Position, expected);
-            _history.RemoveRange(i + 1, _history.Count - i - 1);
-            return true;
-        }
-        return false;
     }
 }

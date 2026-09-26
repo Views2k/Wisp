@@ -257,17 +257,16 @@ public sealed class LapDeltaTracker
                 // searched.
                 // In a race the game's lap counter tells a rewind from a new lap: a restart returns to lap
                 // zero with its clocks, and a new lap arrives by crossing the line. In Time Attack a lap
-                // clock back at zero is a new attempt unless the game's clock ran backwards.
-                var clockBack = unchecked((int)(state.GameTimestampMilliseconds - _lastTimestamp)) < 0;
-                if ((clockBack || lap.CurrentLapSeconds > .25f || timing == LapTimingMode.GameLaps && !RaceStart(lap)) && RewindsTo(last, lap)) Rewind(lap);
+                // clock back at zero is a new attempt.
+                if ((lap.CurrentLapSeconds > .25f || timing == LapTimingMode.GameLaps && !RaceStart(lap)) && RewindsTo(last, lap)) Rewind(lap);
                 else if (lap.CurrentLapSeconds <= .25f && (RaceStart(lap) || AtLapStart(lap))) StartLap(lap);
                 // Straight after a rewind the game can briefly report a lap clock that fits neither.
                 // Wait a moment for a consistent sample before giving up on this lap's recording.
                 else if (lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds && ++_held <= HeldSamples) return _lastReading;
                 else Reacquire(last, lap);
             }
-            // FH6 sends about two packets per timestamp tick, and its timestamp can stop ticking
-            // after a rewind. A sample only repeats the last one when nothing else changed either.
+            // FH6's timestamp advances in 15.625 ms ticks and it sends about two packets per tick, each
+            // with new data. A sample only repeats the last one when nothing else changed either.
             else if (elapsed == 0 && !resumed && moved < .01f && lap.CurrentLapSeconds == last.CurrentLapSeconds)
             {
                 return _lastReading = Read(lap, reference, state.ReceivedTimestamp ?? 0);

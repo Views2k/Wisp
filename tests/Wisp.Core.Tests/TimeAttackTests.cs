@@ -87,23 +87,22 @@ public sealed class TimeAttackTests
         var tracker = new LapDeltaTracker();
         Reference(tracker);
         var outline = tracker.ReadMap(1)!.Outline;
-        if (rewind)
-        {
-            for (var i = 1; i <= 20; i++) Update(tracker, 65 - i / 10d, 65 - i / 10d);
-        }
-        // A paused game freezes its timestamp while wall time passes.
-        else tracker.Update(State(65, 65) with { IsRaceOn = false, ReceivedAtUtc = State(66, 0).ReceivedAtUtc },
-            LapDeltaReference.SessionBest, LapTimingMode.TimeAttack);
+        // Nothing arrives for two seconds while the PC's uptime, the game's timestamp, runs on. A
+        // pause resumes where the car was; a rewind resumes two seconds back, at that moment's speed.
         LapDeltaReading reading = LapDeltaReading.Waiting;
         for (var i = 1; i <= 10; i++)
         {
             var time = (rewind ? 63 : 65) + i / 10d;
-            reading = tracker.Update(State(time, time) with { ReceivedAtUtc = State(time + 2, 0).ReceivedAtUtc },
-                LapDeltaReference.SessionBest, LapTimingMode.TimeAttack);
+            var now = State(67 + i / 10d, 0);
+            reading = tracker.Update(State(time, time) with
+            {
+                GameTimestampMilliseconds = now.GameTimestampMilliseconds,
+                ReceivedAtUtc = now.ReceivedAtUtc
+            }, LapDeltaReference.SessionBest, LapTimingMode.TimeAttack);
         }
         Assert.Same(outline, tracker.ReadMap(2)!.Outline);
         Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
-        Assert.InRange(reading.Seconds!.Value, -.15, .15);
+        Assert.InRange(reading.Seconds!.Value, -.01, .01);
     }
 
     private static LapDeltaReading UpdateAt(LapDeltaTracker tracker, double time, Vector3 position) =>
@@ -217,51 +216,64 @@ public sealed class TimeAttackTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ClockFollowsTheGameClockAcrossAPause(bool gameKeptRunning)
+    [InlineData(.5, false)]
+    [InlineData(20, false)]
+    [InlineData(5, true)]
+    public void ClockFollowsTheGameAcrossAGapInItsData(double seconds, bool gameKeptRunning)
     {
         var clock = new TimeAttackClock();
         for (var i = -1; i <= 100; i++) clock.Update(State(i / 10d, i / 10d));
-        // Five seconds of wall time pass. A paused game freezes its timestamp; a game that
-        // kept running (online) advances it, and so does its own timer.
-        var resumed = State(gameKeptRunning ? 15 : 10, 10) with { ReceivedAtUtc = State(15, 0).ReceivedAtUtc, GroundSpeedMetersPerSecond = 0 };
-        var sample = clock.Update(resumed);
-        Assert.InRange(sample!.CurrentLapSeconds, (gameKeptRunning ? 15 : 10) - .01, (gameKeptRunning ? 15 : 10) + .01);
+        // The PC's uptime runs on with no data. A paused game resumes one frame on from where the
+        // car was; a game that kept running (online, or with its packets lost) resumes further on.
+        var lap = gameKeptRunning ? 10 + seconds : 10.01;
+        var sample = clock.Update(State(10 + seconds, lap));
+        Assert.InRange(sample!.CurrentLapSeconds, lap - .01, lap + .01);
     }
 
     [Fact]
-    public void RewindToAfterGateRestoresNewLapMetadata()
+    public void LapTimeIsMeasuredWithinTheTimestampTicks()
+    {
+        // FH6 stamps packets with the PC's uptime in 15.625 ms ticks and sends about two per tick.
+        var clock = new TimeAttackClock();
+        var random = new Random(7);
+        LapTelemetry? sample = null;
+        for (var i = -12; i <= 120 * 120 + 60; i++)
+        {
+            var time = i / 120d;
+            sample = clock.Update(State(time, time) with
+            {
+                GameTimestampMilliseconds = (uint)Math.Floor(Math.Floor((time + 5000.3) * 64) * 15.625),
+                ReceivedAtUtc = DateTimeOffset.UnixEpoch.AddTicks((long)((time + .0003 + random.NextDouble() * .001) * TimeSpan.TicksPerSecond))
+            });
+        }
+        Assert.Equal(2, sample!.LapNumber);
+        Assert.InRange(sample.LastLapSeconds, 59.998, 60.002);
+        Assert.InRange(sample.CurrentLapSeconds, .498, .502);
+    }
+
+    [Fact]
+    public void RewindToJustAfterTheGateKeepsTheCompletedLap()
     {
         var clock = new TimeAttackClock();
-        for (var i = -1; i <= 612; i++) clock.Update(State(i / 10d - .05, i / 10d - .05));
-        var sample = clock.Update(State(60.02, 60.02));
+        for (var i = -1; i <= 650; i++) clock.Update(State(i / 10d - .05, i / 10d - .05));
+        // Two seconds without data, then the car is back just after the gate.
+        var sample = clock.Update(State(66.95, 60.25));
         Assert.Equal(1, sample!.LapNumber);
-        Assert.InRange(sample.CurrentLapSeconds, .019, .021);
+        Assert.InRange(sample.CurrentLapSeconds, .24, .26);
         Assert.InRange(sample.LastLapSeconds, 59.99, 60.01);
     }
 
     [Fact]
-    public void RewindingWithinAStopUsesTimestampRatherThanFirstVisitToPosition()
+    public void RewindToBeforeTheGateEndsTheAttemptAndKeepsTheCompletedLap()
     {
         var clock = new TimeAttackClock();
-        for (var i = -1; i <= 150; i++) clock.Update(State(i / 10d, Math.Min(i / 10d, 10)));
-        var sample = clock.Update(State(14, 10));
-        Assert.InRange(sample!.CurrentLapSeconds, 13.99, 14.01);
-    }
-
-    [Fact]
-    public void ContinuousRewindRetainsEveryRestoredCheckpoint()
-    {
-        var clock = new TimeAttackClock();
-        for (var i = -1; i <= 1000; i++) clock.Update(State(i * .016, i * .016));
-        for (var i = 1; i <= 80; i++)
-        {
-            var time = 16 - i * .016;
-            var sample = clock.Update(State(time, time));
-            Assert.NotNull(sample);
-            Assert.InRange(sample.CurrentLapSeconds, time - .002, time + .002);
-        }
+        for (var i = -1; i <= 650; i++) clock.Update(State(i / 10d - .05, i / 10d - .05));
+        Assert.Null(clock.Update(State(66.95, 59.5)));
+        LapTelemetry? sample = null;
+        for (var i = 1; i <= 10; i++) sample = clock.Update(State(66.95 + i / 10d, 59.5 + i / 10d));
+        Assert.Equal(1, sample!.LapNumber);
+        Assert.InRange(sample.LastLapSeconds, 59.99, 60.01);
+        Assert.InRange(sample.CurrentLapSeconds, .49, .51);
     }
 
     [Fact]

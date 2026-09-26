@@ -362,29 +362,6 @@ public sealed class LapDeltaTests
     }
 
     [Fact]
-    public void RewindKeepsComparingWhenTheTimestampStopsTicking()
-    {
-        var tracker = new LapDeltaTracker();
-        Drive(tracker, 0, 60, 0, 59.9);
-        Drive(tracker, 60, 60, 1, 30);
-        // FH6 sends nothing while rewinding, then resumes five seconds back on the lap and race clocks.
-        // Its timestamp can stay where it was, even while the car drives on.
-        const uint stuck = 90_000;
-        LapDeltaReading reading = LapDeltaReading.Waiting;
-        for (var i = 0; i <= 50; i++)
-        {
-            var t = 25 + i / 10d;
-            reading = tracker.Update(State(60 + t, t, 1, Circle(t / 60)) with
-            {
-                GameTimestampMilliseconds = stuck,
-                ReceivedAtUtc = Epoch.AddSeconds(93 + i / 10d)
-            }, LapDeltaReference.SessionBest);
-        }
-        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
-        Assert.InRange(reading.Seconds!.Value, -.02, .02);
-    }
-
-    [Fact]
     public void EveryPacketOfATimestampTickIsUsed()
     {
         // FH6 sends about two packets per timestamp tick, each with new data.
