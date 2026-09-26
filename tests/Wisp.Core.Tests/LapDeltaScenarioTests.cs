@@ -308,13 +308,14 @@ public sealed class LapDeltaScenarioTests
         {
             Wall += .1;
             var fraction = _now.Fraction + .1 / Pace;
-            if (_now.Fraction < 0 && fraction >= 0)
+            // The gate counts a crossing once the car is past the line.
+            if (_now.Fraction <= 0 && fraction > 0)
             {
                 _start = _now.Game - _now.Fraction * Pace;
                 BrokenAt = null;
                 _history.Clear();
             }
-            else if (fraction >= 1)
+            else if (fraction > 1)
             {
                 var crossing = _now.Game + (1 - _now.Fraction) * Pace;
                 if (_start is { } start && Valid)
@@ -441,7 +442,7 @@ public sealed class LapDeltaScenarioTests
             _history.Clear();
             _start = null;
             // Wisp can only tell the attempt was abandoned at the line; check from the new attempt on.
-            while (_now.Fraction < 0) Step();
+            while (_now.Fraction <= 0) Step();
             End();
         }
     }
