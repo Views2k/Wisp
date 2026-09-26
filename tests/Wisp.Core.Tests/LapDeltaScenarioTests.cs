@@ -143,6 +143,8 @@ public sealed class LapDeltaScenarioTests
                 else if (roll < .81) ResetOnTrack(30 + Random.NextDouble() * 90);
                 else if (roll < .86) Restart();
                 else Drive(40 + Random.NextDouble() * 60);
+                // Nobody acts again within a few frames: the game sends for a moment before the next event.
+                Drive(.1 + Random.NextDouble() * .2);
             }
         }
 
@@ -307,6 +309,8 @@ public sealed class LapDeltaScenarioTests
                 else if (roll < .84) ResetToStart();
                 else if (roll < .90) Abandon();
                 else Drive(40 + Random.NextDouble() * 60);
+                // Nobody acts again within a few frames: the game sends for a moment before the next event.
+                Drive(.1 + Random.NextDouble() * .2);
             }
         }
 
