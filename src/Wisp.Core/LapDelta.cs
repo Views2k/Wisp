@@ -248,7 +248,7 @@ public sealed class LapDeltaTracker
             // agrees. (Wisp's Time Attack clocks restart an attempt while the race clock runs on.)
             if (!continuous && timing == LapTimingMode.GameLaps && lap.LapNumber == last.LapNumber &&
                 last.RaceSeconds > 0 && lap.RaceSeconds > .5f &&
-                Math.Abs(lap.CurrentLapSeconds - last.CurrentLapSeconds - (lap.RaceSeconds - last.RaceSeconds)) > .5f &&
+                Math.Abs(lap.CurrentLapSeconds - last.CurrentLapSeconds - (lap.RaceSeconds - last.RaceSeconds)) > .1f &&
                 ++_held <= HeldSamples) return _lastReading;
             if (!continuous)
             {

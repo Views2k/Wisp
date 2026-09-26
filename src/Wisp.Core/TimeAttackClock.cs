@@ -35,14 +35,13 @@ internal sealed class TimeAttackClock
     private double _clock, _start = double.NaN;
     private float _distance, _lastLap;
     private ushort _lap;
-    private double _unticked;
-    private bool _stalled;
+    private double _bridged;
     internal bool CircuitChanged { get; private set; }
 
     internal void Reset()
     {
         _lastState = null; _gate = -1; _clock = 0; _start = double.NaN;
-        _distance = _lastLap = 0; _lap = 0; _unticked = 0; _stalled = false; _history.Clear();
+        _distance = _lastLap = 0; _lap = 0; _bridged = 0; _history.Clear();
     }
 
     internal LapTelemetry? Update(VehicleState state)
@@ -64,22 +63,22 @@ internal sealed class TimeAttackClock
         var oldPosition = previous.Lap!.Position.ToVector();
         var moved = Vector3.Distance(position, oldPosition);
         var clockReversed = delta < 0;
-        var step = Math.Max(0, delta);
-        // FH6 ticks its timestamp about every 16 ms and sends about two packets per tick, so an
-        // unchanged timestamp is normal. When it stops ticking while packets keep arriving and the
-        // car keeps moving, real time stands in until it ticks again.
+        double step;
+        // FH6 ticks its timestamp about every 16 ms and sends about two packets per tick, and after
+        // some rewinds the timestamp stops ticking while the car drives on. Real time stands in for a
+        // sample without a tick, and the next tick adds only what it did not already cover.
         if (delta == 0 && moved > .05f && wall is > 0 and <= .15)
         {
-            _unticked += wall;
-            if (_unticked > .1) { step = _stalled ? wall : _unticked; _stalled = true; }
+            step = wall;
+            _bridged += wall;
         }
         else
         {
-            // A timestamp that jumps further than the car could have driven meanwhile is catching up
-            // after being stuck, not time spent driving.
-            if (_stalled && delta > 0 || delta > 1 && moved < state.GroundSpeedMetersPerSecond * delta * .5f) step = Math.Min(delta, .1);
-            _unticked = 0;
-            _stalled = false;
+            step = Math.Max(0, delta - _bridged);
+            // A tick after a long stall, or one that jumps further than the car could have driven
+            // meanwhile, is the timestamp catching up rather than time spent driving.
+            if (delta > 0 && (_bridged > .1 || delta > 1 && moved < state.GroundSpeedMetersPerSecond * delta * .5f)) step = Math.Min(step, .1);
+            _bridged = 0;
         }
         // Movement faster than any car is a reset, restart or fast travel: it ends the attempt, and
         // the next start-line crossing begins a new one.
