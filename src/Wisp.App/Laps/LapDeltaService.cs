@@ -1,11 +1,13 @@
+using System.IO;
 using System.Diagnostics;
 using System.Threading.Channels;
 using Wisp.Core;
 
 namespace Wisp.App.Laps;
 
-internal sealed class LapDeltaService : IDisposable
+internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDisposable
 {
+    private Task _saving = Task.CompletedTask;
     private readonly Channel<(int Generation, VehicleState State)> _samples = Channel.CreateBounded<(int, VehicleState)>(
         new BoundedChannelOptions(512) { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait });
     private Task _worker = Task.CompletedTask;
@@ -72,6 +74,9 @@ internal sealed class LapDeltaService : IDisposable
     private async Task ProcessAsync()
     {
         var tracker = new LapDeltaTracker();
+        if (store?.Load() is { } kept) tracker.RestoreReferences(kept);
+        using var recorder = ApplicationVersionInfo.DiagnosticBuildId is null || store is null ? null :
+            LapDiagnosticsRecorder.Start(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp", "LapDiagnostics"));
         var generation = -1;
         var resetVersion = -1;
         await foreach (var sample in _samples.Reader.ReadAllAsync().ConfigureAwait(false))
@@ -85,7 +90,14 @@ internal sealed class LapDeltaService : IDisposable
                 resetVersion = reset; generation = current;
             }
             var reference = Volatile.Read(ref _reference);
-            var reading = tracker.Update(sample.State, (LapDeltaReference)reference, (LapTimingMode)Volatile.Read(ref _timing));
+            var timing = (LapTimingMode)Volatile.Read(ref _timing);
+            var reading = tracker.Update(sample.State, (LapDeltaReference)reference, timing);
+            recorder?.Write(sample.State, timing, (LapDeltaReference)reference, reading);
+            if (store is not null && tracker.TakeReferenceChange())
+            {
+                var session = tracker.ExportReferences();
+                _saving = _saving.ContinueWith(_ => store.Save(session), TaskScheduler.Default);
+            }
             var map = Volatile.Read(ref _mapEnabled) != 0 ? tracker.ReadMap(sample.State.ReceivedTimestamp ?? 0) : null;
             Volatile.Write(ref _publication, new(current, reference, reading, map));
         }

@@ -36,6 +36,8 @@ internal sealed class TimeAttackClock
     private const double TickSpan = .0166;
     // Longer than any interval between packets while the game runs.
     private const double LongInterval = .2;
+    // Forza ends a Time Attack attempt when the car stays stopped this long.
+    private const double AttemptExpiry = 5;
     // How far back an earlier packet's arrival still places a later one, using the car's motion,
     // which is allowed to understate the time by this much.
     private const double ArrivalSpan = .07;
@@ -49,6 +51,7 @@ internal sealed class TimeAttackClock
     private double _clock, _start = double.NaN;
     private float _distance, _lastLap;
     private ushort _lap;
+    private double _stopped;
     private Vector3 _heading;
     // When packets were sent belongs to the packet stream, so it carries across circuits: each
     // packet's tick, arrival and placing, the quickest delay seen, and the car's motion.
@@ -59,11 +62,21 @@ internal sealed class TimeAttackClock
     // through that break, timed by that arrival.
     private bool _unplaced, _timedBreak;
     internal bool CircuitChanged { get; private set; }
+    internal int Circuit => _gate;
+
+    // The attempt ends, as Forza ends it; the next start-line crossing begins one.
+    internal void EndAttempt() => _start = double.NaN;
+
+    // Continues on a circuit known from before a restart, without starting over there.
+    internal void Resume(int circuit)
+    {
+        if (_gate < 0 && circuit >= 0 && circuit < Gates.Length) _gate = circuit;
+    }
 
     internal void Reset()
     {
         _lastState = null; _gate = -1; _clock = 0; _start = double.NaN;
-        _distance = _lastLap = 0; _lap = 0; _heading = default; _history.Clear();
+        _distance = _lastLap = 0; _lap = 0; _stopped = 0; _heading = default; _history.Clear();
         _timedBreak = false;
     }
 
@@ -177,6 +190,8 @@ internal sealed class TimeAttackClock
             if (elapsed <= LongInterval && moved > .05f) _heading = move / moved;
             _clock += step;
             _distance += moved;
+            _stopped = state.GroundSpeedMetersPerSecond < 1 ? _stopped + step : 0;
+            if (_stopped >= AttemptExpiry) _start = double.NaN;
         }
         // A reset, restart or fast travel ends the attempt, and the next start-line crossing begins one.
         if (!restored && !driving) _start = double.NaN;

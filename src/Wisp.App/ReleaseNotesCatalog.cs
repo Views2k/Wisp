@@ -15,11 +15,27 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.5.1",
+            "September 26, 2026",
+            "LAP DELTA FIXES",
+            "Time Attack attempts end when Forza ends them, reference laps survive a Wisp restart, the lap overlays draw less often, and HUD profiles keep more of your colors.",
+            true,
+            [
+                Group("Lap delta (beta)",
+                    "End a Time Attack attempt when the car stays stopped for five seconds, or, once two laps agree on the circuit, stays off it or goes the wrong way for five seconds. The panel shows START A LAP until the next start-line crossing.",
+                    "Keep your reference laps when Wisp restarts or updates while Forza keeps running, as Forza keeps its Current Best.",
+                    "Show the reference lap's time next to SESSION BEST or PREVIOUS LAP.",
+                    "Redraw the lap delta panel and track map only when what they show changes, instead of at the display's refresh rate."),
+                Group("HUD profiles",
+                    "Save the background particle color, the app border and text colors, and the drift gauge's visibility, size, dark mode and black background.",
+                    "Profiles saved before 2.5.1 leave these and your lap delta settings as they are when you apply them. Before, a profile from before 2.5 turned lap delta and the track map off and switched Time Attack to race timing.")
+            ]),
+        new(
             "2.5",
             "September 26, 2026",
             "LAP DELTA BETA",
             "See how far ahead or behind your reference lap you are as you drive, with a live map of the circuit. Both are in beta.",
-            true,
+            false,
             [
                 Group("Lap delta (beta)",
                     "Show a live delta against your session best or previous lap, compared at the same place on the track, with an optional bar.",

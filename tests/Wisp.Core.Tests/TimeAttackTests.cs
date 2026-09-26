@@ -276,6 +276,73 @@ public sealed class TimeAttackTests
         Assert.InRange(sample.CurrentLapSeconds, .49, .51);
     }
 
+    [Theory]
+    [InlineData(3, LapDeltaStatus.Comparing)]
+    [InlineData(6, LapDeltaStatus.WaitingForLap)]
+    public void StoppingForFiveSecondsEndsTheAttempt(int seconds, LapDeltaStatus expected)
+    {
+        var tracker = new LapDeltaTracker();
+        Reference(tracker);
+        for (var i = 651; i <= 700; i++) Update(tracker, i / 10d, i / 10d);
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 1; i <= seconds * 10; i++)
+            reading = tracker.Update(State(70 + i / 10d, 70) with { GroundSpeedMetersPerSecond = 0 },
+                LapDeltaReference.SessionBest, LapTimingMode.TimeAttack);
+        Assert.Equal(expected, reading.Status);
+        // A new attempt begins at the next start-line crossing.
+        for (var i = 1; i <= 700; i++) reading = Update(tracker, 70 + seconds + i / 10d, 70 + i / 10d);
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+    }
+
+    [Theory]
+    [InlineData(1, LapDeltaStatus.RejoinReference)]
+    [InlineData(2, LapDeltaStatus.WaitingForLap)]
+    public void LeavingTheCircuitEndsTheAttemptOnceTwoLapsAgree(int laps, LapDeltaStatus expected)
+    {
+        var tracker = new LapDeltaTracker();
+        for (var i = -1; i <= laps * 600 + 100; i++) Update(tracker, i / 10d, i / 10d);
+        var center = (Route(0) + Route(30)) / 2;
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 1; i <= 80; i++)
+        {
+            var time = laps * 60 + 10 + i / 10d;
+            var onCircuit = Route(time);
+            var outward = Vector3.Normalize(onCircuit - center);
+            reading = UpdateAt(tracker, time, onCircuit + outward * Math.Min(40, i * 1.6f));
+        }
+        Assert.Equal(expected, reading.Status);
+    }
+
+    [Fact]
+    public void ReferenceLapsCarryOverARestartOfWisp()
+    {
+        var first = new LapDeltaTracker();
+        Reference(first);
+        var kept = first.ExportReferences();
+        Assert.NotNull(kept);
+        var restarted = new LapDeltaTracker();
+        restarted.RestoreReferences(kept);
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        // The attempt under way when Wisp restarted is unknown; the next one compares with the kept lap.
+        for (var i = 700; i <= 1300; i++) reading = Update(restarted, i / 10d, i / 10d);
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.Equal(60, reading.ReferenceSeconds!.Value, 1);
+        Assert.InRange(reading.Seconds!.Value, -.02, .02);
+    }
+
+    [Fact]
+    public void KeptReferenceLapsApplyOnlyToTheSameCar()
+    {
+        var first = new LapDeltaTracker();
+        Reference(first);
+        var restarted = new LapDeltaTracker();
+        restarted.RestoreReferences(first.ExportReferences()!);
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 700; i <= 1300; i++)
+            reading = restarted.Update(State(i / 10d, i / 10d) with { CarOrdinal = 43 }, LapDeltaReference.SessionBest, LapTimingMode.TimeAttack);
+        Assert.Equal(LapDeltaStatus.RecordingLap, reading.Status);
+    }
+
     [Fact]
     public void DifferentCircuitAndTimingModeClearOldReferences()
     {

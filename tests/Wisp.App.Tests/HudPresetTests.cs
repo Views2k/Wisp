@@ -167,7 +167,9 @@ public sealed class HudPresetTests
             "TractionCueEnabled", "ColorTheme", "BackgroundTheme", "HudBorderTheme", "BoostGaugeTheme",
             "CustomAccentColor", "CustomBackgroundColor", "CustomHudBorderColor",
             "CustomBoostLowColor", "CustomBoostMidColor", "CustomBoostHighColor", "CustomTractionCueColor",
-            "CustomGForceColor", "CustomGForceTrailColor"
+            "CustomGForceColor", "CustomGForceTrailColor",
+            "Revision", "CustomParticleColor", "AppBorderColor", "AppTextColor", "AppMutedTextColor",
+            "DriftGaugeEnabled", "DriftGaugeScale", "DriftGaugeDarkMode", "DriftGaugeBackgroundEnabled", "DriftGaugeBackgroundOpacity"
         ];
 
         var writable = typeof(HudPreset).GetProperties()
@@ -183,6 +185,74 @@ public sealed class HudPresetTests
             property.Name.Contains("Update", StringComparison.OrdinalIgnoreCase) ||
             property.Name.Contains("Debug", StringComparison.OrdinalIgnoreCase) ||
             property.Name.Contains("Hotkey", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ProfilesKeepParticleAppTextBorderAndDriftGaugeColors()
+    {
+        var source = new AppSettings
+        {
+            CustomParticleColor = "#80FF3366",
+            ApplicationStyle = new AppStyleSettings { BorderColor = "#FF223344", TextColor = "#FFEEDDCC", MutedTextColor = "#FF998877", GlowStrength = 40 },
+            DriftGaugeEnabled = true,
+            DriftGaugeScale = 1.4,
+            DriftGaugeDarkMode = true,
+            DriftGaugeBackgroundEnabled = true,
+            DriftGaugeBackgroundOpacity = .7
+        };
+        var target = new AppSettings { ApplicationStyle = new AppStyleSettings { GlowStrength = 90 } };
+
+        HudPreset.Capture(source, "Night").ApplyTo(target);
+
+        Assert.Equal(ColorCustomization.NormalizeParticle(source.CustomParticleColor), target.CustomParticleColor);
+        Assert.Equal("#FF223344", target.ApplicationStyle.BorderColor);
+        Assert.Equal("#FFEEDDCC", target.ApplicationStyle.TextColor);
+        Assert.Equal("#FF998877", target.ApplicationStyle.MutedTextColor);
+        // Profiles carry the app's colors, not its other style settings.
+        Assert.Equal(90, target.ApplicationStyle.GlowStrength);
+        Assert.True(target.DriftGaugeEnabled);
+        Assert.Equal(1.4, target.DriftGaugeScale);
+        Assert.True(target.DriftGaugeDarkMode);
+        Assert.True(target.DriftGaugeBackgroundEnabled);
+        Assert.Equal(.7, target.DriftGaugeBackgroundOpacity);
+    }
+
+    [Fact]
+    public void ProfilesSavedBefore251LeaveTheirNewerSettingsAlone()
+    {
+        var saved = HudPreset.Capture(new AppSettings(), "Older");
+        var json = JsonSerializer.Serialize(saved);
+        foreach (var name in new[] { "Revision", "CustomParticleColor", "AppBorderColor", "AppTextColor", "AppMutedTextColor",
+                     "DriftGaugeEnabled", "DriftGaugeScale", "DriftGaugeDarkMode", "DriftGaugeBackgroundEnabled", "DriftGaugeBackgroundOpacity" })
+        {
+            using var document = JsonDocument.Parse(json);
+            var fields = document.RootElement.EnumerateObject().Where(property => property.Name != name)
+                .ToDictionary(property => property.Name, property => property.Value.Clone());
+            json = JsonSerializer.Serialize(fields);
+        }
+        var older = JsonSerializer.Deserialize<HudPreset>(json)!;
+        var target = new AppSettings
+        {
+            CustomParticleColor = "#80FF3366",
+            ApplicationStyle = new AppStyleSettings { TextColor = "#FFEEDDCC" },
+            DriftGaugeEnabled = true,
+            DriftGaugeDarkMode = true,
+            LapTimingMode = LapTimingMode.TimeAttack,
+            LapDeltaEnabled = true,
+            LapMapEnabled = true,
+            LapDeltaAheadColor = "#FF00FF00"
+        };
+
+        older.ApplyTo(target);
+
+        Assert.Equal(LapTimingMode.TimeAttack, target.LapTimingMode);
+        Assert.True(target.LapDeltaEnabled);
+        Assert.True(target.LapMapEnabled);
+        Assert.Equal("#FF00FF00", target.LapDeltaAheadColor);
+        Assert.Equal("#80FF3366", target.CustomParticleColor);
+        Assert.Equal("#FFEEDDCC", target.ApplicationStyle.TextColor);
+        Assert.True(target.DriftGaugeEnabled);
+        Assert.True(target.DriftGaugeDarkMode);
     }
 
     [Fact]

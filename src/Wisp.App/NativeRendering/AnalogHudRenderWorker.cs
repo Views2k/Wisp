@@ -148,7 +148,8 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         long motionGeneration = 1;
         bool compositorActive = false, resetCompositor = false;
         var waitHandles = new WaitHandle[] { _stop, _changed };
-        bool announced = false, hasFrame = false, frameReady = false;
+        // hudShown: the last HUD build reached the screen, so an unchanged scene need not present again.
+        bool announced = false, hasFrame = false, frameReady = false, hudShown = false;
         int width = 0, height = 0;
         float appliedOpacity = float.NaN;
         float appliedHostX = float.NaN, appliedHostY = float.NaN;
@@ -175,6 +176,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                         playback.Reset();
                         hudPlayback.Reset();
                         hasFrame = false;
+                        hudShown = false;
                         pending = null;
                         resetCompositor = true;
                         _reset = false;
@@ -206,6 +208,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     playback.Reset();
                     hudPlayback.Reset();
                     hasFrame = false;
+                    hudShown = false;
                     compositorActive = false;
                     // Acknowledge the applied hide only after native visibility
                     // and pending playback have both been cleared.
@@ -240,6 +243,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                         device.UploadTexture(texture.Id, texture.Width, texture.Height, texture.Stride, texture.Pixels.ToArray());
                     width = presentation.Width;
                     height = presentation.Height;
+                    hudShown = false;
                     RecordStage(operation, "created", operationStarted);
                 }
                 if (width != presentation.Width || height != presentation.Height)
@@ -251,6 +255,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     compositorActive = false;
                     width = presentation.Width;
                     height = presentation.Height;
+                    hudShown = false;
                     RecordStage(operation, "resized", operationStarted);
                 }
                 // Host geometry is independent of HUD texture dimensions and
@@ -274,6 +279,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     if (device.PrepareForResume()) frameReady = false;
                     compositorActive = false;
                     pending = null;
+                    hudShown = false;
                     RecordStage(operation, "resumed", operationStarted);
                 }
                 if (appliedOpacity != presentation.Opacity || !_surfaceVisible)
@@ -342,6 +348,14 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     RecordStage("state", "discarded", Stopwatch.GetTimestamp());
                     pending = null;
                 }
+                // Layers that change only with their content, such as the lap delta panel and track map,
+                // wait for new input instead of presenting the same pixels at the refresh rate.
+                if (pending is null && hudShown && presentation.Hud is not null &&
+                    hudPlayback.IdleWhenUnchanged(Stopwatch.GetTimestamp()))
+                {
+                    WaitHandle.WaitAny(waitHandles, 50);
+                    continue;
+                }
                 if (pending is null)
                 {
                     _beforeDrawForTest?.Invoke(_stop);
@@ -404,6 +418,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     }
                     var sceneTicks = measure ? Stopwatch.GetTimestamp() - operationStarted : 0;
                     pending = new(sample, presentation, queuedTimestamp, ++sequence);
+                    hudShown = false;
                     if (ShiftCaptureHub.Current is not null)
                         pending = pending.Value with
                         {
@@ -475,6 +490,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 AnnounceReady();
                 if (pending.Value.Presentation.Hud is { } submittedHud)
                 {
+                    hudShown = true;
                     if (TachDiagnostics.IsEnabled)
                         foreach (var diagnostic in hudPlayback.NeedleDiagnostics)
                             Record(diagnostic.Sample, diagnostic.Kind, compositorActive && diagnostic.Kind == "analogue"

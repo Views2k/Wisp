@@ -23,6 +23,9 @@ internal abstract class HudLayerPlayback
     }
     internal abstract void AppendCommands(List<DirectCompositionDrawCommand> commands, long timestamp);
     internal virtual bool CanReuse(long timestamp) => true;
+    // A layer whose pixels change only when CanReuse turns false. A window of such layers waits for
+    // new input instead of presenting the same pixels again at the display's refresh rate.
+    internal virtual bool IdleWhenUnchanged => false;
     internal virtual (string Kind, AnalogHudSample Sample)? NeedleDiagnostic => null;
     internal virtual bool SupportsCompositorNeedle => false;
     internal virtual bool TryCopyCompositorNeedle(long timestamp, Span<CompositorNeedlePoint> points,
@@ -78,9 +81,9 @@ internal sealed class HudScenePlayback
     private readonly Dictionary<int, (HudLayerSnapshot Snapshot, HudLayerPlayback Playback)> _layers = [];
     private readonly List<DirectCompositionDrawCommand> _commands = new(256);
     private DirectCompositionDrawCommand[] _output = new DirectCompositionDrawCommand[256];
-    private HudWindowSnapshot? _snapshot;
+    private HudWindowSnapshot? _snapshot, _built;
     private bool _texturesChanged;
-    internal void Reset() { _layers.Clear(); _snapshot = null; _texturesChanged = true; }
+    internal void Reset() { _layers.Clear(); _snapshot = _built = null; _texturesChanged = true; }
     internal void Update(HudWindowSnapshot snapshot, long timestamp)
     {
         _snapshot = snapshot;
@@ -110,6 +113,11 @@ internal sealed class HudScenePlayback
         return invalidated;
     }
     internal bool CanReuse(long timestamp) => _layers.Values.All(layer => layer.Playback.CanReuse(timestamp));
+
+    // Nothing drawn in the last build has changed, and every layer changes only with its content.
+    internal bool IdleWhenUnchanged(long timestamp) => _snapshot is { } current && _built is { } built && !_texturesChanged &&
+        _layers.Count > 0 && _layers.Values.All(layer => layer.Playback.IdleWhenUnchanged) &&
+        current.CompatibleWith(built) && CanReuse(timestamp);
     internal IEnumerable<(string Kind, AnalogHudSample Sample)> NeedleDiagnostics =>
         _layers.Values.Select(layer => layer.Playback.NeedleDiagnostic).Where(sample => sample.HasValue).Select(sample => sample!.Value);
     internal IEnumerable<AnalogHudTexture> Textures => _snapshot is null ? [] :
@@ -142,6 +150,7 @@ internal sealed class HudScenePlayback
     internal (DirectCompositionDrawCommand[] Commands, int Count) BuildReusable(long timestamp)
     {
         _commands.Clear();
+        _built = _snapshot;
         if (_snapshot is null) return (_output, 0);
         foreach (var layer in _snapshot.Layers)
         {
