@@ -207,6 +207,8 @@ public sealed class LapDeltaScenarioTests
             _history.RemoveRange(_history.Count - steps, steps);
             _now = _history[^1];
             if (BrokenAt is { } broken && _now.Lap <= broken) BrokenAt = null;
+            // Back at the very start of the race, the lap starts afresh.
+            if (_number == 0 && _now.Lap <= .25 && Math.Abs(_now.Race - _now.Lap) <= .1) BrokenAt = null;
             RewindTimestampFrom(from, _now.Game);
             if (Random.NextDouble() < .5) Send(lapClock: .05 + Random.NextDouble() * .35);
             Send();
@@ -271,6 +273,12 @@ public sealed class LapDeltaScenarioTests
         private Moment _now = new(100, -.02, Position(-.02));
         private double? _start;
 
+        private static bool PastLine(double fraction)
+        {
+            var p = Position(fraction);
+            return Vector2.Dot(new Vector2(p.X, p.Z) - Gate, Forward) > 0;
+        }
+
         private static Vector3 Position(double fraction)
         {
             var right = new Vector2(Forward.Y, -Forward.X);
@@ -308,14 +316,14 @@ public sealed class LapDeltaScenarioTests
         {
             Wall += .1;
             var fraction = _now.Fraction + .1 / Pace;
-            // The gate counts a crossing once the car is measurably past the line.
-            if (_now.Fraction <= 1e-6 && fraction > 1e-6)
+            // The gate counts a crossing once the car is past the line.
+            if (Math.Abs(fraction) < .01 && !PastLine(_now.Fraction) && PastLine(fraction))
             {
                 _start = _now.Game - _now.Fraction * Pace;
                 BrokenAt = null;
                 _history.Clear();
             }
-            else if (fraction > 1)
+            else if (fraction > .99 && !PastLine(_now.Fraction) && PastLine(fraction))
             {
                 var crossing = _now.Game + (1 - _now.Fraction) * Pace;
                 if (_start is { } start && Valid)
@@ -442,7 +450,7 @@ public sealed class LapDeltaScenarioTests
             _history.Clear();
             _start = null;
             // Wisp can only tell the attempt was abandoned at the line; check from the new attempt on.
-            while (_now.Fraction <= 1e-6) Step();
+            while (_start is null) Step();
             End();
         }
     }
