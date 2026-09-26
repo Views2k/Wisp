@@ -69,6 +69,9 @@ public sealed class LapDeltaScenarioTests
 
         protected int Frames(double seconds) => (int)(seconds / Dt);
 
+        // Frame times vary a little from frame to frame.
+        protected double Frame() => Dt * (.95 + Random.NextDouble() * .1);
+
         protected void Begin(string name)
         {
             _events.Add(name);
@@ -155,8 +158,9 @@ public sealed class LapDeltaScenarioTests
 
         private void Step(bool send = true)
         {
-            Wall += Dt;
-            var next = _now with { Game = _now.Game + Dt, Race = _now.Race + Dt, Lap = _now.Lap + Dt, Fraction = _now.Fraction + Dt / Pace };
+            var frame = Frame();
+            Wall += frame;
+            var next = _now with { Game = _now.Game + frame, Race = _now.Race + frame, Lap = _now.Lap + frame, Fraction = _now.Fraction + frame / Pace };
             if (next.Fraction >= 1)
             {
                 var past = (next.Fraction - 1) * Pace;
@@ -230,7 +234,7 @@ public sealed class LapDeltaScenarioTests
             var from = Position(_now.Fraction);
             var before = _now.Lap;
             for (var i = 0; i < steps; i++) Step(send: false);
-            if (steps * Dt > 1 && Vector3.Distance(from, Position(_now.Fraction)) > 25) BrokenAt ??= before;
+            if (_now.Lap - before > 1 && Vector3.Distance(from, Position(_now.Fraction)) > 25) BrokenAt ??= before;
             Send();
             End();
         }
@@ -321,8 +325,9 @@ public sealed class LapDeltaScenarioTests
 
         private void Step(bool send = true)
         {
-            Wall += Dt;
-            var fraction = _now.Fraction + Dt / Pace;
+            var frame = Frame();
+            Wall += frame;
+            var fraction = _now.Fraction + frame / Pace;
             // The gate counts a crossing once the car is past the line.
             if (Math.Abs(fraction) < .01 && !PastLine(_now.Fraction) && PastLine(fraction))
             {
@@ -343,7 +348,7 @@ public sealed class LapDeltaScenarioTests
                 fraction = (fraction - 1) * Pace / NextPace();
                 _history.Clear();
             }
-            _now = new(_now.Game + Dt, fraction, Position(fraction));
+            _now = new(_now.Game + frame, fraction, Position(fraction));
             _history.Add(_now);
             if (send) Send();
         }
@@ -397,7 +402,7 @@ public sealed class LapDeltaScenarioTests
             var from = _now.Position;
             var before = _now.Game - _start;
             for (var i = 0; i < steps; i++) Step(send: false);
-            if (steps * Dt > 1 && before is { } time && Vector3.Distance(from, _now.Position) > 25) BrokenAt ??= time;
+            if (before is { } time && _now.Game - _start - time > 1 && Vector3.Distance(from, _now.Position) > 25) BrokenAt ??= time;
             Send();
             End();
         }
