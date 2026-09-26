@@ -369,7 +369,8 @@ public sealed class LapDeltaTracker
         var i = RecordedIndexAt(lap.CurrentLapSeconds);
         _current.RemoveRange(i + 1, _current.Count - i - 1);
         _distance = _current[i].Distance + Vector3.Distance(_current[i].Position, lap.Position.ToVector());
-        if (_brokenAt is { } broken && lap.CurrentLapSeconds <= broken) _brokenAt = null;
+        // Back before the break, or back at the very start of the race, the lap is whole again.
+        if (_brokenAt is { } broken && (lap.CurrentLapSeconds <= broken || RaceStart(lap))) _brokenAt = null;
         _direction = default;
         _nextMapTime = 0;
         _best?.Restart(reacquire: true);

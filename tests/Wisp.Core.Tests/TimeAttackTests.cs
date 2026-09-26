@@ -74,7 +74,7 @@ public sealed class TimeAttackTests
             after = after with { Lap = after.Lap! with { Position = after.Lap.Position.ToVector() + side } };
         }
         if (cause == "teleport") before = State(0, -5);
-        if (cause == "gap") after = State(3, .1);
+        if (cause == "gap") after = State(3, 2.9);
         clock.Update(before);
         Assert.Null(clock.Update(after));
     }
