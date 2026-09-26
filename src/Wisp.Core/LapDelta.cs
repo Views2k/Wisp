@@ -242,7 +242,7 @@ public sealed class LapDeltaTracker
             var resumed = gap && ContinuesLap(last, lap, direction, state.GroundSpeedMetersPerSecond);
             var continuous = !(gap && !resumed ||
                 lap.RaceSeconds + .01f < last.RaceSeconds || lap.LapNumber < last.LapNumber ||
-                lap.LapNumber > last.LapNumber + 1 || !resumed && moved > Math.Max(25, elapsed * 180) ||
+                lap.LapNumber > last.LapNumber + 1 || !resumed && !Drove(direction, elapsed, state.GroundSpeedMetersPerSecond) ||
                 (!boundary && lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds));
             // In a race the game rewinds its race clock and lap clock together. Straight after a rewind
             // it can briefly report a lap clock that disagrees with its race clock; wait for one that
@@ -337,18 +337,24 @@ public sealed class LapDeltaTracker
             unchecked(state.GameTimestampMilliseconds - _lastLapAdvanceTimestamp) <= 250;
     }
 
-    // The same lap continues when the game's lap clock moved forward and the car is where that
-    // time allows, still heading the same way and not put down at rest as a reset does. Crossing
-    // the line meanwhile is continuous when the reported lap time bridges both samples.
+    // The same lap continues when the game's lap clock moved forward and the car drove there in
+    // that time. Crossing the line meanwhile is continuous when the reported lap time bridges both
+    // samples.
     private bool ContinuesLap(LapTelemetry last, LapTelemetry lap, Vector3 move, float speed)
     {
         var step = lap.LapNumber == last.LapNumber
             ? Math.Abs(lap.LastLapSeconds - last.LastLapSeconds) <= .01f ? lap.CurrentLapSeconds - last.CurrentLapSeconds : -1
             : lap.LapNumber == last.LapNumber + 1 ? lap.LastLapSeconds - last.CurrentLapSeconds + lap.CurrentLapSeconds : -1;
+        return step >= -.01f && lap.RaceSeconds + .01f >= last.RaceSeconds && Drove(move, step, speed);
+    }
+
+    // The car is no further than its speed could take it in that time, still heading the same way,
+    // and not put down at rest as a reset does.
+    private bool Drove(Vector3 move, float seconds, float speed)
+    {
         var moved = move.Length();
-        return step >= -.01f && lap.RaceSeconds + .01f >= last.RaceSeconds && moved <= Math.Max(25, step * 180) &&
-            (moved <= 5 || !(_lastSpeed >= 3 && speed < 1) &&
-                (_direction.LengthSquared() < .0001f || Vector3.Dot(move, _direction) >= 0));
+        return moved <= 5 || moved <= Math.Max(_lastSpeed, speed) * seconds * 1.25f + 2 && !(_lastSpeed >= 3 && speed < 1) &&
+            (_direction.LengthSquared() < .0001f || Vector3.Dot(move, _direction) >= 0);
     }
 
     // A rewind returns to an earlier moment of this lap: the lap clock goes back and the car
