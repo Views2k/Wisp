@@ -142,6 +142,13 @@ internal sealed class TimeAttackClock
             var before = previous.GroundSpeedMetersPerSecond;
             var after = state.GroundSpeedMetersPerSecond;
             var needed = speed > 1 ? moved / speed : moved < .05f ? 0 : elapsed;
+            // Round a bend the car drove further than the straight line between the two places,
+            // which leaves its heading at half the angle it turned.
+            if (speed > 1 && moved > 1 && _heading != Vector3.Zero)
+            {
+                var half = MathF.Acos(Math.Clamp(Vector3.Dot(_heading, move / moved), -1, 1));
+                if (half is > .001f and < 1.2f) needed *= half / MathF.Sin(half);
+            }
             if (needed < elapsed * .8) step = needed;
             driving = needed <= elapsed * 1.25 && !(before >= 3 && after < 1) &&
                 (moved < .5f || _heading == Vector3.Zero || Vector3.Dot(move, _heading) >= 0);
