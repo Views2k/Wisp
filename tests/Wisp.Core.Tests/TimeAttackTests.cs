@@ -225,7 +225,7 @@ public sealed class TimeAttackTests
         for (var i = -1; i <= 100; i++) clock.Update(State(i / 10d, i / 10d));
         // Five seconds of wall time pass. A paused game freezes its timestamp; a game that
         // kept running (online) advances it, and so does its own timer.
-        var resumed = State(gameKeptRunning ? 15 : 10, 10) with { ReceivedAtUtc = State(15, 0).ReceivedAtUtc };
+        var resumed = State(gameKeptRunning ? 15 : 10, 10) with { ReceivedAtUtc = State(15, 0).ReceivedAtUtc, GroundSpeedMetersPerSecond = 0 };
         var sample = clock.Update(resumed);
         Assert.InRange(sample!.CurrentLapSeconds, (gameKeptRunning ? 15 : 10) - .01, (gameKeptRunning ? 15 : 10) + .01);
     }

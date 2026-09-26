@@ -106,7 +106,7 @@ internal sealed class TimeAttackClock
         }
         if (!restored && !clockReversed && !teleported && Gates[_gate].Cross(oldPosition, position, out var fraction))
         {
-            if (step > 1) _start = double.NaN; // No samples near the line: its crossing time is unknown.
+            if (delta > 1) _start = double.NaN; // No samples near the line: its crossing time is unknown.
             else
             {
                 // Every forward crossing starts a new attempt. The previous one counts as a lap only
