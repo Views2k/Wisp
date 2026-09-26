@@ -114,8 +114,9 @@ public sealed class LapDeltaScenarioTests
             }
         }
 
-        // How closely the reference lap time and the delta must match the game's.
-        protected const double Accuracy = .005;
+        // How closely the reference lap time and the delta must match the game's: the panel shows
+        // hundredths of a second.
+        protected const double Accuracy = .01;
 
         private void Require(bool condition, string message, double fraction) =>
             Assert.True(condition, $"{GetType().Name} seed {seed} at {1 / Dt:F0} packets/s, {Mode}, at {fraction:P1} of the lap: {message}. " +
