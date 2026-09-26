@@ -34,6 +34,8 @@ internal sealed class TimeAttackClock
     private const double TickLength = .015;
     // Longer than any interval between packets while the game runs.
     private const double LongInterval = .2;
+    // How far back an earlier packet's arrival still places a later one, using the car's motion.
+    private const double ArrivalSpan = .035;
     private readonly List<History> _history = new();
     private readonly record struct History(Vector3 Position, double Clock, double Start, float Distance, float Speed);
     private VehicleState? _lastState;
@@ -42,7 +44,9 @@ internal sealed class TimeAttackClock
     private float _distance, _lastLap;
     private ushort _lap;
     private DateTimeOffset _origin;
-    private double _uptime, _arrival, _moment, _earliest;
+    private double _uptime, _arrival, _moment, _earliest, _motion;
+    private readonly (double Estimate, double Motion)[] _arrivals = new (double, double)[8];
+    private int _arrivalCount, _arrivalNext;
     private Vector3 _heading;
     internal bool CircuitChanged { get; private set; }
 
@@ -66,7 +70,8 @@ internal sealed class TimeAttackClock
         if (previous is null)
         {
             _origin = state.ReceivedAtUtc;
-            _uptime = _arrival = _moment = _earliest = 0;
+            _uptime = _arrival = _moment = _earliest = _motion = 0;
+            _arrivalCount = _arrivalNext = 0;
             return null;
         }
         var oldPosition = previous.Lap!.Position.ToVector();
@@ -75,14 +80,27 @@ internal sealed class TimeAttackClock
         var speed = (previous.GroundSpeedMetersPerSecond + state.GroundSpeedMetersPerSecond) / 2;
         // Where a packet falls within its tick: as much after the tick as it arrived later than the
         // quickest packets did. The quickest delay drifts up slowly while packets flow, so it
-        // follows the two clocks. A packet held up on its way would be placed too late; while
-        // packets flow, the distance the car moved since the last one, at its speed, bounds how
-        // much later it was sent.
+        // follows the two clocks.
         var arrival = (state.ReceivedAtUtc - _origin).TotalSeconds;
         var uptime = _uptime + unchecked((int)(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds)) / 1000d;
         _earliest = Math.Min(_earliest + Math.Clamp(arrival - _arrival, 0, LongInterval) * .001, arrival - uptime);
-        var estimate = arrival - _earliest;
-        if (uptime - _uptime <= LongInterval && speed > 2) estimate = Math.Min(estimate, _moment + moved / speed + .001);
+        var arrived = arrival - _earliest;
+        var estimate = arrived;
+        // A packet can only arrive late. A recent packet that arrived sooner, plus the time the car
+        // needed to drive on from there at its speed, places this one when that is earlier.
+        if (uptime - _uptime > LongInterval || speed <= 2) _arrivalCount = _arrivalNext = 0;
+        else
+        {
+            _motion += moved / speed;
+            for (var i = 0; i < _arrivalCount; i++)
+            {
+                var (earlier, at) = _arrivals[i];
+                if (_motion - at <= ArrivalSpan) estimate = Math.Min(estimate, earlier + _motion - at);
+            }
+        }
+        _arrivals[_arrivalNext] = (arrived, _motion);
+        _arrivalNext = (_arrivalNext + 1) % _arrivals.Length;
+        _arrivalCount = Math.Min(_arrivalCount + 1, _arrivals.Length);
         var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickLength));
         var elapsed = moment - _moment;
         _uptime = uptime; _arrival = arrival; _moment = moment;
@@ -134,6 +152,8 @@ internal sealed class TimeAttackClock
                 }
                 _start = crossing;
                 _distance = moved * (1 - fraction);
+                // The attempt's history begins at the line, so a rewind to just after it restores exactly.
+                _history.Add(new(Vector3.Lerp(oldPosition, position, fraction), crossing, crossing, 0, state.GroundSpeedMetersPerSecond));
             }
         }
         if (double.IsNaN(_start)) return null;
