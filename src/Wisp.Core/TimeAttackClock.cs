@@ -47,8 +47,9 @@ internal sealed class TimeAttackClock
     private double _uptime, _arrival, _moment, _earliest, _motion;
     private readonly (double Moment, double Motion)[] _arrivals = new (double, double)[8];
     private int _arrivalCount, _arrivalNext;
-    // The last packet came after a break, so only its own arrival placed it.
-    private bool _unplaced;
+    // The last packet came after a break, so only its own arrival placed it, and the car drove on
+    // through that break, timed by that arrival.
+    private bool _unplaced, _timedBreak;
     private Vector3 _heading;
     internal bool CircuitChanged { get; private set; }
 
@@ -75,6 +76,7 @@ internal sealed class TimeAttackClock
             _uptime = _arrival = _moment = _earliest = _motion = 0;
             _arrivalCount = _arrivalNext = 0;
             _unplaced = true;
+            _timedBreak = false;
             return null;
         }
         var oldPosition = previous.Lap!.Position.ToVector();
@@ -102,9 +104,20 @@ internal sealed class TimeAttackClock
                 var (earlier, at) = _arrivals[i];
                 if (_motion - at <= ArrivalSpan) estimate = Math.Min(estimate, earlier + _motion - at);
             }
-            if (_unplaced) _moment = Math.Max(_uptime, Math.Min(_moment, Math.Clamp(estimate, uptime, uptime + TickLength) - driven));
+            if (_unplaced)
+            {
+                var placedAt = Math.Max(_uptime, Math.Min(_moment, Math.Clamp(estimate, uptime, uptime + TickLength) - driven));
+                if (_timedBreak && placedAt < _moment)
+                {
+                    var late = _moment - placedAt;
+                    if (_history.Count > 0 && _history[^1].Clock == _clock) _history[^1] = _history[^1] with { Clock = _clock - late };
+                    _clock -= late;
+                }
+                _moment = placedAt;
+            }
         }
         _unplaced = !placed;
+        _timedBreak = false;
         var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickLength));
         _arrivals[_arrivalNext] = (moment, _motion);
         _arrivalNext = (_arrivalNext + 1) % _arrivals.Length;
@@ -144,6 +157,7 @@ internal sealed class TimeAttackClock
         }
         // A reset, restart or fast travel ends the attempt, and the next start-line crossing begins one.
         if (!restored && !driving) _start = double.NaN;
+        _timedBreak = elapsed > LongInterval && driving && !restored && step == elapsed;
         if (!restored && driving && Gates[_gate].Cross(oldPosition, position, out var fraction))
         {
             if (step > 1) _start = double.NaN; // No samples near the line: its crossing time is unknown.
