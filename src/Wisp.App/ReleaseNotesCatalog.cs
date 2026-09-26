@@ -15,11 +15,28 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.5",
+            "September 26, 2026",
+            "LAP DELTA BETA",
+            "See how far ahead or behind your reference lap you are as you drive, with a live map of the circuit. Both are in beta.",
+            true,
+            [
+                Group("Lap delta (beta)",
+                    "Show a live delta against your session best or previous lap, compared at the same place on the track, with an optional bar.",
+                    "Time race and Rivals laps with the game's own lap clocks, and Time Attack laps at Legend Island, Hokubu, Soni and Sekibe from start-line crossings.",
+                    "Keep your lap through pauses and rewinds. A reset, restart or abandoned Time Attack attempt starts a fresh lap."),
+                Group("Live track map (beta)",
+                    "Follow your car around an enlarged outline of the circuit, built from your first full lap."),
+                Group("Appearance",
+                    "Change delta and track map colors in Colors, and move either overlay with Edit HUD layout. Display and position settings are under More options.",
+                    "A banner on the Dashboard introduces the new beta features once; close it when you have read it.")
+            ]),
+        new(
             "2.4.1",
             "September 25, 2026",
             "GAME PASS HOTFIX",
             "Enable Drift Zone angle-bonus guidance on the supported Xbox app and Microsoft Store PC build.",
-            true,
+            false,
             [
                 Group("Drift gauge",
                     "Recognize FH6 3.440.853.0 for Drift Zone angle-bonus guidance instead of showing UNVERIFIED BUILD.",

@@ -7,6 +7,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using Wisp.App.Laps;
 using Wisp.App.Runs;
 using Wisp.Core;
 
@@ -120,6 +121,7 @@ public abstract partial class ControlPanelWindow : Window
         SetSidebarOpen(!controller.Settings.SidebarCollapsed, animate: false);
         DataContext = controller.ViewModel;
         FindControl<DriftGaugeSettingsControl>("DriftGaugeSettings").Initialize(controller);
+        FindControl<LapDeltaSettingsControl>("LapDeltaSettings").Initialize(controller);
         FindControl<PowerTorqueGaugeSettingsControl>("PowerTorqueGaugeSettings").Initialize(controller);
         FindControl<ShiftCueSettingsControl>("ShiftCueSettings").Initialize(controller);
         RunsSurface.DataContext = controller.Runs;
@@ -281,6 +283,22 @@ public abstract partial class ControlPanelWindow : Window
                 var argb = DiagnosticsViewModel.ResolveShiftCueColor(settings, stage);
                 color = Color.FromArgb(255, (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
                 break;
+            case >= 17 and <= 21:
+                var target = ColorTargetSelector.SelectedIndex;
+                var (title, description, custom, fallback) = target switch
+                {
+                    17 => ("Lap delta · ahead", "Negative delta and gain bar.", settings.LapDeltaAheadColor, LapColors.Ahead),
+                    18 => ("Lap delta · behind", "Positive delta and loss bar.", settings.LapDeltaBehindColor, LapColors.Behind),
+                    19 => ("Track map · track", "Recorded circuit outline.", settings.LapMapTrackColor, LapColors.Track),
+                    20 => ("Track map · car", "Live position marker.", settings.LapMapCarColor, LapColors.Car),
+                    _ => ("Track map · background", "Panel color and opacity.", settings.LapMapBackgroundColor, LapColors.Background)
+                };
+                ColorEditor.Title = title;
+                ColorEditor.Description = description;
+                ColorEditor.MinimumOpacity = target == 21 ? 0 : 0.25;
+                ColorEditor.MaximumBrightness = 1;
+                color = LapColors.Resolve(custom, fallback);
+                break;
             default:
                 ColorEditor.Title = "App accent";
                 ColorEditor.Description = "Highlights, selections, buttons, and status color";
@@ -378,6 +396,9 @@ public abstract partial class ControlPanelWindow : Window
             case 16:
                 _controller.SetShiftCueColor(ColorTargetSelector.SelectedIndex - 13, value);
                 break;
+            case >= 17 and <= 21:
+                ApplySelectedLapColor(value);
+                break;
             default:
                 ApplyAppColorResources(value, _controller.Settings.CustomBackgroundColor);
                 _controller.SetCustomAccentColor(value);
@@ -409,6 +430,25 @@ public abstract partial class ControlPanelWindow : Window
         LoadSelectedColorTarget();
     }
 
+    private void ApplySelectedLapColor(string? value)
+    {
+        var target = ColorTargetSelector.SelectedIndex;
+        if (target is < 17 or > 21) return;
+        var settings = _controller.Settings;
+        _controller.SetLapColors(
+            target == 17 ? value : settings.LapDeltaAheadColor,
+            target == 18 ? value : settings.LapDeltaBehindColor,
+            target == 19 ? value : settings.LapMapTrackColor,
+            target == 20 ? value : settings.LapMapCarColor,
+            target == 21 ? value : settings.LapMapBackgroundColor);
+    }
+
+    protected void ResetLapColor_Click(object sender, RoutedEventArgs e)
+    {
+        ApplySelectedLapColor(null);
+        LoadSelectedColorTarget();
+    }
+
     private void ApplyGaugeColors(string? low, string? mid, string? high)
     {
         BoostGaugeThemeResources.Apply(Resources, _controller.Settings.BoostGaugeTheme, low, mid, high);
@@ -433,6 +473,7 @@ public abstract partial class ControlPanelWindow : Window
 
     internal void ApplyHudPresetToControls()
     {
+        FindControl<LapDeltaSettingsControl>("LapDeltaSettings").Initialize(_controller);
         var wasLoaded = _loaded;
         _loaded = false;
         try

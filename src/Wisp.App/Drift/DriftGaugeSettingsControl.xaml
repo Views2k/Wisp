@@ -92,36 +92,6 @@
                        TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
             <TextBlock Text="Angle-bonus guidance needs a verified game build. If unavailable, you can still use Custom target."
                        TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,8,0,0" />
-            <Expander Header="More options" Style="{StaticResource MoreOptionsStyle}" Margin="0,8,0,0"
-                      AutomationProperties.Name="More about drift guidance">
-                <StackPanel>
-                    <TextBlock Text="The scoring-angle guide starts around 10°. Ordinary 20–40° drifts already receive about 80–90% of the maximum angle bonus. The ticks change from yellow toward green as that bonus grows; it reaches its ceiling at 59.4°."
-                               TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
-                    <TextBlock Text="Keep your speed and line. You do not need to hold 60° to score. Beyond the green ceiling marker, yellow means more angle adds no bonus; red means outside the verified angle range. The percentage compares the angle multiplier with its maximum, not your total points."
-                               TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,8,0,0" />
-                    <TextBlock Text="Speed, your line and road contact still affect points. The gauge guides angle; it does not predict your total score or confirm that points are being awarded."
-                               TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,8,0,0" />
-                </StackPanel>
-            </Expander>
-        </StackPanel>
-        <CheckBox x:Name="DarkModeToggle" Content="Dark mode" Style="{DynamicResource ToggleSwitchStyle}"
-                  Checked="Enabled_Changed" Unchecked="Enabled_Changed" AutomationProperties.Name="Drift gauge dark mode"
-                  AutomationProperties.HelpText="Adds dark shading around the ticks and text for bright sky." />
-        <TextBlock Text="Adds dark shading around the ticks and text for bright sky."
-                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
-        <CheckBox x:Name="BackgroundToggle" Content="Black background" Style="{DynamicResource ToggleSwitchStyle}"
-                  Checked="Enabled_Changed" Unchecked="Enabled_Changed" AutomationProperties.Name="Drift gauge black background" />
-        <TextBlock Text="Add a plain black backing behind the gauge. Adjust its opacity to keep the road visible."
-                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,12" />
-        <StackPanel IsEnabled="{Binding IsChecked, ElementName=BackgroundToggle}" Margin="0,0,0,16">
-            <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <TextBlock Text="Background opacity" />
-                <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=BackgroundOpacitySlider, StringFormat={}{0:P0}}" />
-            </Grid>
-            <Slider x:Name="BackgroundOpacitySlider" Minimum="0" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True"
-                    SmallChange="0.05" LargeChange="0.1" ValueChanged="Value_Changed" Margin="0,6,0,0"
-                    AutomationProperties.Name="Drift gauge black background opacity" />
         </StackPanel>
         <StackPanel x:Name="CustomTargetSettings" Visibility="Collapsed">
             <Grid>
@@ -143,19 +113,43 @@
             <TextBlock Text="Choose an angle that suits your car and corner. This is your reference zone, not a Drift Zone score prediction. Custom guidance pauses at low speed, in reverse, or when telemetry stops."
                        TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,0,16" />
         </StackPanel>
-        <Grid>
-            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <TextBlock Text="Gauge size" />
-            <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=ScaleSlider, StringFormat={}{0:P0}}" />
-        </Grid>
-        <Slider x:Name="ScaleSlider" Minimum="0.5" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
-                SmallChange="0.05" LargeChange="0.25" ValueChanged="Value_Changed" Margin="0,6,0,12"
-                AutomationProperties.Name="Drift gauge size" />
-        <WrapPanel Margin="0,12,0,0">
-            <Button Content="Reset position" Click="ResetPosition_Click" Margin="0,0,12,6"
-                    AutomationProperties.Name="Reset drift gauge to the top center" />
-            <TextBlock Text="Use Edit HUD layout to move it." VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6" />
-        </WrapPanel>
+        <Expander x:Name="MoreOptions" Header="More options" Style="{StaticResource MoreOptionsStyle}" Margin="0,8,0,12"
+                  AutomationProperties.Name="More drift gauge options">
+            <StackPanel>
+                <CheckBox x:Name="DarkModeToggle" Content="Dark mode" Style="{DynamicResource ToggleSwitchStyle}"
+                          Checked="Enabled_Changed" Unchecked="Enabled_Changed" AutomationProperties.Name="Drift gauge dark mode"
+                          AutomationProperties.HelpText="Adds dark shading around the ticks and text for bright sky." />
+                <TextBlock Text="Adds dark shading around the ticks and text for bright sky."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
+                <CheckBox x:Name="BackgroundToggle" Content="Black background" Style="{DynamicResource ToggleSwitchStyle}"
+                          Checked="Enabled_Changed" Unchecked="Enabled_Changed" AutomationProperties.Name="Drift gauge black background" />
+                <TextBlock Text="Add a plain black backing behind the gauge. Adjust its opacity to keep the road visible."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,12" />
+                <StackPanel IsEnabled="{Binding IsChecked, ElementName=BackgroundToggle}" Margin="0,0,0,16">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Background opacity" />
+                        <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=BackgroundOpacitySlider, StringFormat={}{0:P0}}" />
+                    </Grid>
+                    <Slider x:Name="BackgroundOpacitySlider" Minimum="0" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                            SmallChange="0.05" LargeChange="0.1" ValueChanged="Value_Changed" Margin="0,6,0,0"
+                            AutomationProperties.Name="Drift gauge black background opacity" />
+                </StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Gauge size" />
+                    <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=ScaleSlider, StringFormat={}{0:P0}}" />
+                </Grid>
+                <Slider x:Name="ScaleSlider" Minimum="0.5" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                        SmallChange="0.05" LargeChange="0.25" ValueChanged="Value_Changed" Margin="0,6,0,12"
+                        AutomationProperties.Name="Drift gauge size" />
+                <WrapPanel Margin="0,12,0,0">
+                    <Button Content="Reset position" Click="ResetPosition_Click" Margin="0,0,12,6"
+                            AutomationProperties.Name="Reset drift gauge to the top center" />
+                    <TextBlock Text="Use Edit HUD layout to move it." VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6" />
+                </WrapPanel>
+            </StackPanel>
+        </Expander>
         <TextBlock x:Name="RenderStatus" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}"
                    AutomationProperties.LiveSetting="Polite" />
     </StackPanel>

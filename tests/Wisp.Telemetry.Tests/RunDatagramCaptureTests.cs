@@ -10,9 +10,8 @@ public sealed class RunDatagramCaptureTests
     [Fact]
     public async Task CapturesEveryDatagramBeforeTheReceiverDrainsItsSharedBuffer()
     {
-        var port = AvailablePort();
         await using var receiver = new TelemetryUdpReceiver();
-        await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+        var port = await StartReceiverAsync(receiver);
         var capture = receiver.BeginRunCapture(32);
         using var firstReceived = new ManualResetEventSlim();
         using var releaseReceiver = new ManualResetEventSlim();
@@ -56,9 +55,8 @@ public sealed class RunDatagramCaptureTests
     [Fact]
     public async Task FullCaptureDropsRecordingDataWithoutBlockingLatestTelemetryOrRestart()
     {
-        var port = AvailablePort();
         await using var receiver = new TelemetryUdpReceiver();
-        await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+        var port = await StartReceiverAsync(receiver);
         var capture = receiver.BeginRunCapture(2);
         using var sender = new UdpClient(AddressFamily.InterNetwork);
         for (var car = 5000; car < 5010; car++)
@@ -84,9 +82,8 @@ public sealed class RunDatagramCaptureTests
     [Fact]
     public async Task InvalidLengthIsRepresentedWithoutRetainingUnboundedPayload()
     {
-        var port = AvailablePort();
         await using var receiver = new TelemetryUdpReceiver();
-        await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+        var port = await StartReceiverAsync(receiver);
         var capture = receiver.BeginRunCapture(2);
         using var sender = new UdpClient(AddressFamily.InterNetwork);
         await sender.SendAsync(new byte[1000], new IPEndPoint(IPAddress.Loopback, port), TestContext.Current.CancellationToken);
@@ -103,9 +100,27 @@ public sealed class RunDatagramCaptureTests
         Assert.True(receiver.IsRunning);
     }
 
+    private static async Task<int> StartReceiverAsync(TelemetryUdpReceiver receiver)
+    {
+        // Probing releases the port before the receiver binds it. Another test's
+        // ephemeral sender can claim it in between; retry only that setup race.
+        for (var attempt = 0; ; attempt++)
+        {
+            var port = AvailablePort();
+            try
+            {
+                await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+                return port;
+            }
+            catch (SocketException error) when (error.SocketErrorCode == SocketError.AddressAlreadyInUse && attempt < 7)
+            {
+            }
+        }
+    }
+
     private static int AvailablePort()
     {
-        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp) { ExclusiveAddressUse = true };
         socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
         return ((IPEndPoint)socket.LocalEndPoint!).Port;
     }

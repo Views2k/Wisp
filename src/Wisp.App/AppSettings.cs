@@ -147,6 +147,7 @@ public sealed class AppSettings
     public bool SidebarCollapsed { get; set; }
     public bool UseLegacyInterface { get; set; }
     public string? CompletedFeatureTourId { get; set; }
+    public string? DismissedWhatsNewId { get; set; }
     public bool ResizableDashboardDisplay { get; set; }
     public bool GameAwareVisibility { get; set; } = true;
     public bool OverlayHotkeyEnabled { get; set; }
@@ -156,6 +157,22 @@ public sealed class AppSettings
     public Wisp.Core.Runs.RunPurpose RunPurpose { get; set; }
     public Runs.RunWorkspaceSettings RunWorkspace { get; set; } = new();
     public Runs.RunStatisticsView RunStatisticsView { get; set; }
+    public bool LapMapEnabled { get; set; }
+    public double LapMapScale { get; set; } = 1;
+    public string? LapDeltaAheadColor { get; set; }
+    public string? LapDeltaBehindColor { get; set; }
+    public string? LapMapTrackColor { get; set; }
+    public string? LapMapCarColor { get; set; }
+    public string? LapMapBackgroundColor { get; set; }
+    public LapTimingMode LapTimingMode { get; set; }
+    public bool LapDeltaEnabled { get; set; }
+    public LapDeltaReference LapDeltaReference { get; set; }
+    public bool LapDeltaShowBar { get; set; } = true;
+    public double LapDeltaScale { get; set; } = 1;
+    public Dictionary<string, OverlayPlacement> LapDeltaPlacements { get; set; } = new();
+    public Dictionary<string, OverlayPlacement> LapMapPlacements { get; set; } = new();
+    public string? LastLapMapPlacementKey { get; set; }
+    public string? LastLapDeltaPlacementKey { get; set; }
     public bool DriftGaugeEnabled { get; set; }
     public bool DriftGaugeDarkMode { get; set; }
     public bool DriftGaugeBackgroundEnabled { get; set; }
@@ -295,6 +312,7 @@ public sealed class AppSettings
         RunWorkspace ??= new Runs.RunWorkspaceSettings();
         RunWorkspace.Normalize();
         if (!Enum.IsDefined(RunStatisticsView)) RunStatisticsView = Runs.RunStatisticsView.Cards;
+        NormalizeLapDeltaSettings();
         NormalizeDriftGaugeSettings();
         NormalizePowerTorqueGaugeSettings();
         CustomHudBorderColor = ColorCustomization.NormalizeHudBorder(CustomHudBorderColor);
@@ -504,6 +522,27 @@ public sealed class AppSettings
     internal static double NormalizeTorqueGaugeMaximum(double value) =>
         double.IsFinite(value) ? Math.Clamp(value, 100, 10000) : 1200;
 
+    internal void NormalizeLapDeltaSettings()
+    {
+        LapMapScale = double.IsFinite(LapMapScale) ? Math.Clamp(LapMapScale, .5, 3) : 1;
+        LapDeltaAheadColor = ColorCustomization.NormalizeGauge(LapDeltaAheadColor);
+        LapDeltaBehindColor = ColorCustomization.NormalizeGauge(LapDeltaBehindColor);
+        LapMapTrackColor = ColorCustomization.NormalizeGauge(LapMapTrackColor);
+        LapMapCarColor = ColorCustomization.NormalizeGauge(LapMapCarColor);
+        LapMapBackgroundColor = ColorCustomization.NormalizeParticle(LapMapBackgroundColor);
+        LapDeltaScale = NormalizeScale(LapDeltaScale);
+        if (!Enum.IsDefined(LapTimingMode)) LapTimingMode = global::Wisp.Core.LapTimingMode.GameLaps;
+        if (!Enum.IsDefined(LapDeltaReference)) LapDeltaReference = global::Wisp.Core.LapDeltaReference.SessionBest;
+        LapMapPlacements ??= new();
+        NormalizePlacements(LapMapPlacements);
+        if (LapMapPlacements.Count > 32) LapMapPlacements = LapMapPlacements.TakeLast(32).ToDictionary(p => p.Key, p => p.Value);
+        if (LastLapMapPlacementKey is not null && !LapMapPlacements.ContainsKey(LastLapMapPlacementKey)) LastLapMapPlacementKey = null;
+        LapDeltaPlacements ??= new();
+        NormalizePlacements(LapDeltaPlacements);
+        if (LapDeltaPlacements.Count > 32) LapDeltaPlacements = LapDeltaPlacements.TakeLast(32).ToDictionary(p => p.Key, p => p.Value);
+        if (LastLapDeltaPlacementKey is not null && !LapDeltaPlacements.ContainsKey(LastLapDeltaPlacementKey)) LastLapDeltaPlacementKey = null;
+    }
+
     internal void NormalizeDriftGaugeSettings()
     {
         DriftGaugeBackgroundOpacity = double.IsFinite(DriftGaugeBackgroundOpacity) ? Math.Clamp(DriftGaugeBackgroundOpacity, 0, 1) : 0.5;
@@ -711,6 +750,7 @@ public sealed class SettingsService
         settings.RunWorkspace ??= new Runs.RunWorkspaceSettings();
         settings.RunWorkspace.Normalize();
         if (!Enum.IsDefined(settings.RunStatisticsView)) settings.RunStatisticsView = Runs.RunStatisticsView.Cards;
+        settings.NormalizeLapDeltaSettings();
         settings.NormalizeDriftGaugeSettings();
         settings.NormalizePowerTorqueGaugeSettings();
         settings.CustomHudBorderColor = ColorCustomization.NormalizeHudBorder(settings.CustomHudBorderColor);

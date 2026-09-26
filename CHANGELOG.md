@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.5.0 - 2026-09-26
+
+- Add lap delta (beta): a live delta against your session best or previous lap, compared at the same place on the track, with an optional bar. Race and Rivals laps use the game's lap clocks; Time Attack laps at Legend Island, Hokubu, Soni and Sekibe are timed from start-line crossings. Laps continue through pauses and rewinds.
+- Add a live track map (beta) that follows your car around the circuit outline built from your first full lap.
+- Introduce the new beta features with a one-time Dashboard banner.
+
 ## 2.4.1 - 2026-09-25
 
 - Enable Drift Zone angle-bonus guidance on Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC. Keep native compatibility checks and the existing Steam profile.

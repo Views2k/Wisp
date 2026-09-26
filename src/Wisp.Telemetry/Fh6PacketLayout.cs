@@ -25,6 +25,12 @@ public static class Fh6PacketLayout
     // common 232-byte Sled prefix. The Dash fields therefore begin at 244.
     public const int HorizonExtension = 232;
     public const int GroundSpeed = 256;
+    public const int Position = 244;
+    public const int LastLap = 300;
+    public const int CurrentLap = 304;
+    public const int CurrentRaceTime = 308;
+    public const int LapNumber = 312;
+    public const int RacePosition = 314;
     public const int Power = 260;
     public const int Torque = 264;
     public const int TireTemperature = 268;

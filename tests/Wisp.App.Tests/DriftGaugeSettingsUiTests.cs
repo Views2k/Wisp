@@ -78,6 +78,17 @@ internal static class DriftGaugeSettingsUiTests
             var tolerance = Assert.IsType<Slider>(control.FindName("ToleranceSlider"));
             var background = Assert.IsType<CheckBox>(control.FindName("BackgroundToggle"));
             var opacity = Assert.IsType<Slider>(control.FindName("BackgroundOpacitySlider"));
+            var moreOptions = Assert.IsType<Expander>(control.FindName("MoreOptions"));
+            Assert.False(moreOptions.IsExpanded);
+            foreach (var name in new[] { "DarkModeToggle", "BackgroundToggle", "BackgroundOpacitySlider", "ScaleSlider" })
+            {
+                var parent = LogicalTreeHelper.GetParent(Assert.IsAssignableFrom<FrameworkElement>(control.FindName(name)));
+                while (parent is not null && parent != moreOptions) parent = LogicalTreeHelper.GetParent(parent);
+                Assert.Same(moreOptions, parent);
+            }
+            moreOptions.IsExpanded = true;
+            surface.UpdateLayout();
+            Assert.True(Assert.IsType<StackPanel>(moreOptions.Content).ActualHeight > 100);
             Assert.True(background.IsChecked);
             Assert.Equal(.65, opacity.Value);
             selector.ApplyTemplate();
@@ -128,6 +139,7 @@ internal static class DriftGaugeSettingsUiTests
                 Assert.Equal(custom ? Visibility.Visible : Visibility.Collapsed, customSettings.Visibility);
                 Assert.Equal(custom ? Visibility.Collapsed : Visibility.Visible, zoneDescription.Visibility);
                 Assert.Equal(mode, settings.DriftGaugeGuidanceMode);
+                Assert.Equal(Visibility.Visible, moreOptions.Visibility);
                 if (custom)
                 {
                     target.SetCurrentValue(RangeBase.ValueProperty, 57d);

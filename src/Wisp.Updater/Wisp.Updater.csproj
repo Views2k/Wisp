@@ -12,9 +12,9 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp Update Helper</AssemblyTitle>
     <Description>Applies verified Wisp updates after the app exits.</Description>
-    <Version>2.4.1</Version>
-    <FileVersion>2.4.1.0</FileVersion>
-    <AssemblyVersion>2.4.1.0</AssemblyVersion>
+    <Version>2.5.0</Version>
+    <FileVersion>2.5.0.0</FileVersion>
+    <AssemblyVersion>2.5.0.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Wisp.Update\Wisp.Update.csproj" />

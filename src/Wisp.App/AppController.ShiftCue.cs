@@ -10,8 +10,17 @@ public sealed partial class AppController
     {
         var enabled = Settings.AccelerationShiftCueEnabled && !Settings.RequiresSetup &&
             !_runtimeSuspended && !_disposed;
-        _receiver.ValidatedStateObserver = enabled ? ViewModel.ObserveShiftCueTelemetry : null;
+        var lapEnabled = (Settings.LapDeltaEnabled || Settings.LapMapEnabled) && !Settings.RequiresSetup && !_runtimeSuspended && !_disposed;
+        _lapDelta.Configure(lapEnabled, Settings.LapDeltaReference, Settings.LapMapEnabled, Settings.LapTimingMode);
+        _receiver.ValidatedStateObserver = enabled && lapEnabled ? ObserveLapAndShiftTelemetry :
+            enabled ? ViewModel.ObserveShiftCueTelemetry : lapEnabled ? _lapDelta.Observe : null;
         if (!enabled) ViewModel.ResetShiftCueObservations();
+    }
+
+    private void ObserveLapAndShiftTelemetry(Wisp.Core.VehicleState? state)
+    {
+        _lapDelta.Observe(state);
+        ViewModel.ObserveShiftCueTelemetry(state);
     }
 
     public void SetShiftCueColor(int stage, string? value)

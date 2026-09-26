@@ -66,6 +66,7 @@ public abstract partial class ControlPanelWindow
 
     internal void RefreshFeatureTour()
     {
+        RefreshWhatsNew();
         if (_featureTourBanner is null) return;
         var offer = FeatureTourSession.ShouldOffer(_controller.Settings.CompletedFeatureTourId,
             _featureTourDiscoveryAllowed, _controller.Settings.RequiresSetup,

@@ -311,7 +311,7 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("$artifactVersion = $projectVersion", packaging, StringComparison.Ordinal);
         Assert.Contains("& $innoExecutable \"/O$stageDirectory\" $innoScript", packaging, StringComparison.Ordinal);
         Assert.Contains("Write-BuildProvenance $repository $publishFullPath", packaging, StringComparison.Ordinal);
-        Assert.Contains("#define MyAppVersion \"2.4.1\"", inno, StringComparison.Ordinal);
+        Assert.Contains("#define MyAppVersion \"2.5.0\"", inno, StringComparison.Ordinal);
         Assert.Contains("#define MyAppOutputVersion MyAppVersion", inno, StringComparison.Ordinal);
         Assert.Contains("UpdatingExistingInstallation := UpdateSwitchPresent() and ExistingInstallationPresent();", inno,
             StringComparison.Ordinal);

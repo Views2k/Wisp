@@ -38,6 +38,18 @@ public sealed class HudPreset
     public bool TireTemperatureReactiveColors { get; set; } = true;
     public TireTemperatureUnit TireTemperatureUnit { get; set; } = Wisp.App.TireTemperatureUnit.Fahrenheit;
     public double TireTemperatureGaugeScale { get; set; } = 1;
+    public bool LapMapEnabled { get; set; }
+    public double LapMapScale { get; set; } = 1;
+    public string? LapDeltaAheadColor { get; set; }
+    public string? LapDeltaBehindColor { get; set; }
+    public string? LapMapTrackColor { get; set; }
+    public string? LapMapCarColor { get; set; }
+    public string? LapMapBackgroundColor { get; set; }
+    public LapTimingMode LapTimingMode { get; set; }
+    public bool LapDeltaEnabled { get; set; }
+    public LapDeltaReference LapDeltaReference { get; set; }
+    public bool LapDeltaShowBar { get; set; } = true;
+    public double LapDeltaScale { get; set; } = 1;
     public bool PowerGaugeEnabled { get; set; }
     public bool TorqueGaugeEnabled { get; set; }
     public bool PowerGaugeAttached { get; set; } = true;
@@ -142,6 +154,18 @@ public sealed class HudPreset
             TireTemperatureReactiveColors = settings.TireTemperatureReactiveColors,
             TireTemperatureUnit = settings.TireTemperatureUnit,
             TireTemperatureGaugeScale = settings.TireTemperatureGaugeScale,
+            LapMapEnabled = settings.LapMapEnabled,
+            LapMapScale = settings.LapMapScale,
+            LapDeltaAheadColor = settings.LapDeltaAheadColor,
+            LapDeltaBehindColor = settings.LapDeltaBehindColor,
+            LapMapTrackColor = settings.LapMapTrackColor,
+            LapMapCarColor = settings.LapMapCarColor,
+            LapMapBackgroundColor = settings.LapMapBackgroundColor,
+            LapTimingMode = settings.LapTimingMode,
+            LapDeltaEnabled = settings.LapDeltaEnabled,
+            LapDeltaReference = settings.LapDeltaReference,
+            LapDeltaShowBar = settings.LapDeltaShowBar,
+            LapDeltaScale = settings.LapDeltaScale,
             PowerGaugeEnabled = settings.PowerGaugeEnabled,
             TorqueGaugeEnabled = settings.TorqueGaugeEnabled,
             PowerGaugeAttached = settings.PowerGaugeAttached,
@@ -217,6 +241,18 @@ public sealed class HudPreset
         settings.TireTemperatureReactiveColors = TireTemperatureReactiveColors;
         settings.TireTemperatureUnit = TireTemperatureUnit;
         settings.TireTemperatureGaugeScale = TireTemperatureGaugeScale;
+        settings.LapMapEnabled = LapMapEnabled;
+        settings.LapMapScale = LapMapScale;
+        settings.LapDeltaAheadColor = LapDeltaAheadColor;
+        settings.LapDeltaBehindColor = LapDeltaBehindColor;
+        settings.LapMapTrackColor = LapMapTrackColor;
+        settings.LapMapCarColor = LapMapCarColor;
+        settings.LapMapBackgroundColor = LapMapBackgroundColor;
+        settings.LapTimingMode = LapTimingMode;
+        settings.LapDeltaEnabled = LapDeltaEnabled;
+        settings.LapDeltaReference = LapDeltaReference;
+        settings.LapDeltaShowBar = LapDeltaShowBar;
+        settings.LapDeltaScale = LapDeltaScale;
         settings.PowerGaugeEnabled = PowerGaugeEnabled;
         settings.TorqueGaugeEnabled = TorqueGaugeEnabled;
         settings.PowerGaugeAttached = PowerGaugeAttached;
@@ -285,6 +321,15 @@ public sealed class HudPreset
         GForceHeightScale = NormalizeScale(GForceHeightScale);
         BoostGaugeScale = NormalizeScale(BoostGaugeScale);
         TireTemperatureGaugeScale = NormalizeScale(TireTemperatureGaugeScale);
+        LapMapScale = double.IsFinite(LapMapScale) ? Math.Clamp(LapMapScale, .5, 3) : 1;
+        LapDeltaAheadColor = ColorCustomization.NormalizeGauge(LapDeltaAheadColor);
+        LapDeltaBehindColor = ColorCustomization.NormalizeGauge(LapDeltaBehindColor);
+        LapMapTrackColor = ColorCustomization.NormalizeGauge(LapMapTrackColor);
+        LapMapCarColor = ColorCustomization.NormalizeGauge(LapMapCarColor);
+        LapMapBackgroundColor = ColorCustomization.NormalizeParticle(LapMapBackgroundColor);
+        LapDeltaScale = NormalizeScale(LapDeltaScale);
+        if (!Enum.IsDefined(LapTimingMode)) LapTimingMode = global::Wisp.Core.LapTimingMode.GameLaps;
+        if (!Enum.IsDefined(LapDeltaReference)) LapDeltaReference = global::Wisp.Core.LapDeltaReference.SessionBest;
         PowerTorqueGaugeScale = NormalizeScale(PowerTorqueGaugeScale);
         PowerGaugeScale = NormalizeScale(PowerGaugeScale);
         TorqueGaugeScale = NormalizeScale(TorqueGaugeScale);

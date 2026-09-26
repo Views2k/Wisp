@@ -1,0 +1,132 @@
+<UserControl x:Class="Wisp.App.LapDeltaSettingsControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:core="clr-namespace:Wisp.Core;assembly=Wisp.Core"
+             xmlns:local="clr-namespace:Wisp.App">
+    <UserControl.Resources>
+        <Style x:Key="LapReferenceItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemSurface" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="22" /></Grid.ColumnDefinitions>
+                                <ContentPresenter VerticalAlignment="Center" />
+                                <Path x:Name="SelectionMark" Grid.Column="1" Data="M1,5 L4,8 L10,1" Stroke="{DynamicResource AccentBrush}"
+                                      StrokeThickness="2" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="SelectionMark" Property="Visibility" Value="Visible" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ItemSurface" Property="Opacity" Value="0.45" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="LapReferenceComboStyle" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource InputBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="IsTextSearchEnabled" Value="True" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource LapReferenceItemStyle}" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid x:Name="ComboRoot">
+                            <Border x:Name="ComboSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="1" CornerRadius="12" Padding="{TemplateBinding Padding}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="22" /></Grid.ColumnDefinitions>
+                                    <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                      ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" Margin="0,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False" />
+                                    <Path Grid.Column="1" Data="M0,0 L4,4 L8,0" Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.5"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                            <ToggleButton Focusable="False" ClickMode="Press" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent" /></ControlTemplate></ToggleButton.Template>
+                            </ToggleButton>
+                            <Border x:Name="ComboFocus" CornerRadius="12" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2" Visibility="Collapsed" IsHitTestVisible="False" />
+                            <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False" VerticalOffset="4">
+                                <Border x:Name="PopupSurface" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                        Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="4">
+                                    <ScrollViewer CanContentScroll="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ComboSurface" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
+                            <Trigger Property="IsDropDownOpen" Value="True"><Setter TargetName="ComboSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboFocus" Property="Visibility" Value="Visible" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ComboRoot" Property="Opacity" Value="0.45" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+    <StackPanel>
+        <TextBlock Text="LAP DELTA · BETA" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold" />
+        <TextBlock Text="See where you gain time" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,12" />
+        <CheckBox x:Name="EnabledToggle" Content="Show lap delta (beta)" Style="{DynamicResource ToggleSwitchStyle}"
+                  Checked="Options_Changed" Unchecked="Options_Changed" AutomationProperties.Name="Show lap delta (beta)" />
+        <TextBlock Text="Beta feature: lap delta and the live track map are new and still being refined."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
+        <TextBlock Text="Complete a full circuit lap to set your reference. A negative delta means ahead; a positive delta means behind. The comparison follows your position around the track."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,16" />
+        <Label Content="Timing mode" Target="{Binding ElementName=TimingSelector}" Padding="0" Margin="0,0,0,6" />
+        <ComboBox x:Name="TimingSelector" Style="{StaticResource LapReferenceComboStyle}" SelectedValuePath="Tag"
+                  SelectionChanged="Timing_Changed" Margin="0,0,0,8" AutomationProperties.Name="Lap timing mode">
+            <ComboBoxItem Content="Race / Rivals laps" Tag="{x:Static core:LapTimingMode.GameLaps}" />
+            <ComboBoxItem Content="Time Attack" Tag="{x:Static core:LapTimingMode.TimeAttack}" />
+        </ComboBox>
+        <TextBlock Text="Time Attack starts when you cross the start/finish line at Legend Island, Hokubu, Soni or Sekibe. Complete a flying lap to set your reference."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,16" />
+        <Label Content="Compare against" Target="{Binding ElementName=ReferenceSelector}" Padding="0" Margin="0,0,0,6" />
+        <ComboBox x:Name="ReferenceSelector" Style="{StaticResource LapReferenceComboStyle}" SelectedValuePath="Tag"
+                  SelectionChanged="Reference_Changed" Margin="0,0,0,16" AutomationProperties.Name="Lap delta reference">
+            <ComboBoxItem Content="Session best" Tag="{x:Static core:LapDeltaReference.SessionBest}" />
+            <ComboBoxItem Content="Previous lap" Tag="{x:Static core:LapDeltaReference.PreviousLap}" />
+        </ComboBox>
+        <Expander Header="More options" Style="{StaticResource MoreOptionsStyle}" AutomationProperties.Name="More lap delta options">
+            <StackPanel Margin="0,12,0,0">
+                <CheckBox x:Name="BarToggle" Content="Show delta bar" Style="{DynamicResource ToggleSwitchStyle}"
+                          Checked="Options_Changed" Unchecked="Options_Changed" AutomationProperties.Name="Show lap delta bar" />
+                <TextBlock Text="The bar shows up to two seconds ahead or behind. The number shows the full difference in seconds."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Gauge size" /><TextBlock Grid.Column="1" Text="{Binding Value, ElementName=ScaleSlider, StringFormat={}{0:P0}}" />
+                </Grid>
+                <Slider x:Name="ScaleSlider" Minimum="0.5" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                        SmallChange="0.05" LargeChange="0.25" ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Lap delta size" />
+                <CheckBox x:Name="MapToggle" Content="Show live track map (beta)" Style="{DynamicResource ToggleSwitchStyle}"
+                          Checked="MapOptions_Changed" Unchecked="MapOptions_Changed" AutomationProperties.Name="Show live track map (beta)" />
+                <TextBlock Text="Follow your car around an enlarged track outline. Your first full lap builds the map; later laps keep the full circuit in view."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Map size" /><TextBlock Grid.Column="1" Text="{Binding Value, ElementName=MapScaleSlider, StringFormat={}{0:P0}}" />
+                </Grid>
+                <Slider x:Name="MapScaleSlider" Minimum="0.5" Maximum="3" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                        SmallChange="0.05" LargeChange="0.25" ValueChanged="MapScale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Track map size" />
+                <TextBlock Text="Change delta and track map colors in Colors." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,12" />
+                <WrapPanel>
+                    <Button Content="Reset reference laps" Click="ResetSession_Click" Margin="0,0,12,6" />
+                    <Button Content="Reset delta position" Click="ResetPosition_Click" Margin="0,0,12,6" />
+                    <Button Content="Reset map position" Click="ResetMapPosition_Click" Margin="0,0,12,6" />
+                </WrapPanel>
+                <TextBlock Text="Use Edit HUD layout to move either overlay. Pausing and rewinding keep your learned track and reference laps. Changing timing mode or car starts a new reference session."
+                           TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,6,0,0" />
+            </StackPanel>
+        </Expander>
+    </StackPanel>
+</UserControl>

@@ -148,7 +148,7 @@ internal sealed class HudNativeHost : IDisposable
         NativeAnalogSpeedometer or NativeElectricAnalogSpeedometer or NativeDigitalSpeedometer or
         NativeElectricDigitalSpeedometer or PowerTorqueGaugeView or AnalogBoostGaugeView or
         DigitalBoostRailView or AnalogTireTemperatureGaugeView or DigitalTireTemperatureGaugeView or
-        NativeGForceMeterView or GForceMeterView ||
+        NativeGForceMeterView or GForceMeterView or Laps.LapDeltaView or Laps.TrackMapView ||
         element.Name is "MinimalPanel" or "BoxedSpeedPanel" or "CombinedPanel";
 
     private void RequestCapture()
@@ -257,6 +257,8 @@ internal sealed class HudNativeHost : IDisposable
 
     private HudLayerSnapshot? CaptureLayer(FrameworkElement control) => control switch
     {
+        Laps.TrackMapView map => TrackMapHudLayer.Capture(map),
+        Laps.LapDeltaView lap => LapDeltaHudLayer.Capture(lap),
         NativeAnalogSpeedometer analog => MainHudLayer.Capture(analog, _vm),
         NativeElectricAnalogSpeedometer electric => MainHudLayer.Capture(electric, _vm),
         NativeDigitalSpeedometer digital => MainHudLayer.Capture(digital, _vm),

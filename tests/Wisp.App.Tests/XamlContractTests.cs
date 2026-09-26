@@ -380,7 +380,8 @@ public sealed class XamlContractTests
             "App accent", "Background and surfaces", "HUD border",
             "Gauge start", "Gauge middle", "Gauge end", "Traction hook cue",
             "App borders", "Main text", "Secondary text", "G-force dot", "G-force trail", "Background particles", "Drift cut flash",
-            "Shift cue · approach (beta)", "Shift cue · prepare (beta)", "Shift cue · shift (beta)"
+            "Shift cue · approach (beta)", "Shift cue · prepare (beta)", "Shift cue · shift (beta)",
+            "Lap delta · ahead", "Lap delta · behind", "Track map · track", "Track map · car", "Track map · background"
         }, targets);
         Assert.Empty(layout.Descendants(Presentation + "ComboBox"));
         Assert.DoesNotContain(extras.Descendants(Presentation + "ListBox"), element =>

@@ -240,6 +240,31 @@
                                                         AutomationProperties.Name="Review available Wisp update" />
                                                 </Grid>
                                             </local:OrbitSurface>
+                                    <local:OrbitSurface x:Name="WhatsNewBanner" Style="{StaticResource CardStyle}" BorderBrush="{DynamicResource AccentBrush}"
+                                                        Visibility="Collapsed" Margin="0,0,0,12">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="38" Height="38" CornerRadius="19"
+                                                    Background="{DynamicResource RaisedBrush}" VerticalAlignment="Center">
+                                                <TextBlock Text="✦" FontSize="18" FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource AccentBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Margin="14,0,20,0" VerticalAlignment="Center">
+                                                <TextBlock Text="New in Wisp 2.5: lap delta and live track map (beta)" FontSize="15" FontWeight="SemiBold"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Text="See how far ahead or behind your best or previous lap you are as you drive, with a live map of the circuit. Works in races, Rivals and Time Attack. Turn them on in Appearance under Lap delta."
+                                                           Foreground="{DynamicResource MutedBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <Button Grid.Column="2" Content="✕" Click="WhatsNewClose_Click" Padding="12,8"
+                                                    VerticalAlignment="Center" ToolTip="Close"
+                                                    AutomationProperties.Name="Close the Wisp 2.5 new features banner" />
+                                        </Grid>
+                                    </local:OrbitSurface>
 
                                     <local:OrbitSurface x:Name="OrbitInstrument" Treatment="Instrument" Shape="Swept" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource OrbitBorderBrush}" BorderThickness="{DynamicResource OrbitStrokeThickness}" CornerRadius="{DynamicResource OrbitCornerRadius}" Padding="112,6,62,12" SizeChanged="DashboardContent_SizeChanged">
                                         <StackPanel>
@@ -968,6 +993,7 @@
                 <local:OrbitSurface Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                     <local:DriftGaugeSettingsControl x:Name="DriftGaugeSettings" />
                 </local:OrbitSurface>
+<local:OrbitSurface Style="{StaticResource CardStyle}" Margin="0,14,0,0"><local:LapDeltaSettingsControl x:Name="LapDeltaSettings" /></local:OrbitSurface>
                 <local:OrbitSurface Style="{StaticResource CardStyle}" Margin="0,14,0,0">
                     <local:PowerTorqueGaugeSettingsControl x:Name="PowerTorqueGaugeSettings" />
                 </local:OrbitSurface>
@@ -1388,6 +1414,11 @@
 <ListBoxItem Content="Shift cue · approach (beta)" />
 <ListBoxItem Content="Shift cue · prepare (beta)" />
 <ListBoxItem Content="Shift cue · shift (beta)" />
+<ListBoxItem Content="Lap delta · ahead" />
+<ListBoxItem Content="Lap delta · behind" />
+<ListBoxItem Content="Track map · track" />
+<ListBoxItem Content="Track map · car" />
+<ListBoxItem Content="Track map · background" />
                                                 </ListBox>
                                             </DockPanel>
                                         </local:OrbitSurface>
@@ -1429,6 +1460,31 @@
             Click="ResetDriftFlashColor_Click" HorizontalAlignment="Left"
             AutomationProperties.Name="Reset Drift cut flash color" />
 </StackPanel>
+<Button x:Name="ResetLapColorButton" Content="Reset selected color" Click="ResetLapColor_Click"
+        HorizontalAlignment="Left" Margin="0,0,0,12" AutomationProperties.Name="Reset selected lap delta or track map color">
+    <Button.Style>
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="17">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="18">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="19">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="20">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ColorTargetSelector}" Value="21">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Button.Style>
+</Button>
 <local:ColorWheelEditor x:Name="ColorEditor"
                                                                 HorizontalAlignment="Stretch" MinHeight="350"
                                                                 SelectedColorChanged="ColorEditor_SelectedColorChanged" />
