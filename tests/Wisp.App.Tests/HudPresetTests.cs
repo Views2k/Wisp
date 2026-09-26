@@ -236,11 +236,19 @@ public sealed class HudPresetTests
             CustomParticleColor = "#80FF3366",
             ApplicationStyle = new AppStyleSettings { TextColor = "#FFEEDDCC" },
             DriftGaugeEnabled = true,
-            DriftGaugeDarkMode = true
+            DriftGaugeDarkMode = true,
+            LapTimingMode = LapTimingMode.TimeAttack,
+            LapDeltaEnabled = true,
+            LapMapEnabled = true,
+            LapDeltaAheadColor = "#FF00FF00"
         };
 
         older.ApplyTo(target);
 
+        Assert.Equal(LapTimingMode.TimeAttack, target.LapTimingMode);
+        Assert.True(target.LapDeltaEnabled);
+        Assert.True(target.LapMapEnabled);
+        Assert.Equal("#FF00FF00", target.LapDeltaAheadColor);
         Assert.Equal("#80FF3366", target.CustomParticleColor);
         Assert.Equal("#FFEEDDCC", target.ApplicationStyle.TextColor);
         Assert.True(target.DriftGaugeEnabled);

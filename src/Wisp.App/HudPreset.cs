@@ -102,7 +102,9 @@ public sealed class HudPreset
     public string? CustomTractionCueColor { get; set; }
     public string? CustomGForceColor { get; set; }
     public string? CustomGForceTrailColor { get; set; }
-    // Saved from 2.5.1. Loading a profile saved earlier leaves these settings as they are.
+    // Saved from 2.5.1, with lap delta settings saved reliably. Applying a profile saved earlier
+    // leaves these and the lap delta settings as they are: profiles from before 2.5 have none, and
+    // would otherwise turn lap delta off and switch Time Attack to race timing.
     public int Revision { get; set; }
     public string? CustomParticleColor { get; set; }
     public string? AppBorderColor { get; set; }
@@ -263,18 +265,6 @@ public sealed class HudPreset
         settings.TireTemperatureReactiveColors = TireTemperatureReactiveColors;
         settings.TireTemperatureUnit = TireTemperatureUnit;
         settings.TireTemperatureGaugeScale = TireTemperatureGaugeScale;
-        settings.LapMapEnabled = LapMapEnabled;
-        settings.LapMapScale = LapMapScale;
-        settings.LapDeltaAheadColor = LapDeltaAheadColor;
-        settings.LapDeltaBehindColor = LapDeltaBehindColor;
-        settings.LapMapTrackColor = LapMapTrackColor;
-        settings.LapMapCarColor = LapMapCarColor;
-        settings.LapMapBackgroundColor = LapMapBackgroundColor;
-        settings.LapTimingMode = LapTimingMode;
-        settings.LapDeltaEnabled = LapDeltaEnabled;
-        settings.LapDeltaReference = LapDeltaReference;
-        settings.LapDeltaShowBar = LapDeltaShowBar;
-        settings.LapDeltaScale = LapDeltaScale;
         settings.PowerGaugeEnabled = PowerGaugeEnabled;
         settings.TorqueGaugeEnabled = TorqueGaugeEnabled;
         settings.PowerGaugeAttached = PowerGaugeAttached;
@@ -316,6 +306,18 @@ public sealed class HudPreset
         settings.CustomGForceColor = CustomGForceColor;
         settings.CustomGForceTrailColor = CustomGForceTrailColor;
         if (Revision < 1) return;
+        settings.LapMapEnabled = LapMapEnabled;
+        settings.LapMapScale = LapMapScale;
+        settings.LapDeltaAheadColor = LapDeltaAheadColor;
+        settings.LapDeltaBehindColor = LapDeltaBehindColor;
+        settings.LapMapTrackColor = LapMapTrackColor;
+        settings.LapMapCarColor = LapMapCarColor;
+        settings.LapMapBackgroundColor = LapMapBackgroundColor;
+        settings.LapTimingMode = LapTimingMode;
+        settings.LapDeltaEnabled = LapDeltaEnabled;
+        settings.LapDeltaReference = LapDeltaReference;
+        settings.LapDeltaShowBar = LapDeltaShowBar;
+        settings.LapDeltaScale = LapDeltaScale;
         settings.CustomParticleColor = CustomParticleColor;
         var style = (settings.ApplicationStyle ?? new AppStyleSettings()).Clone();
         style.BorderColor = AppBorderColor;

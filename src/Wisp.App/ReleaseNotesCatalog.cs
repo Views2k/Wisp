@@ -28,7 +28,7 @@ public static class ReleaseNotesCatalog
                     "Redraw the lap delta panel and track map only when what they show changes, instead of at the display's refresh rate."),
                 Group("HUD profiles",
                     "Save the background particle color, the app border and text colors, and the drift gauge's visibility, size, dark mode and black background.",
-                    "Profiles saved before 2.5.1 leave these settings as they are when you apply them.")
+                    "Profiles saved before 2.5.1 leave these and your lap delta settings as they are when you apply them. Before, a profile from before 2.5 turned lap delta and the track map off and switched Time Attack to race timing.")
             ]),
         new(
             "2.5",
