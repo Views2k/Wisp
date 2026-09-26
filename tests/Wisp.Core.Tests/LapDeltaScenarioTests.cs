@@ -177,7 +177,7 @@ public sealed class LapDeltaScenarioTests
                 IsRaceOn = raceOn,
                 GameTimestampMilliseconds = Reported(_now.Game),
                 ReceivedAtUtc = Epoch.AddSeconds(Wall),
-                GroundSpeedMetersPerSecond = AtRest ? 0 : 16
+                GroundSpeedMetersPerSecond = AtRest ? 0 : (float)(Math.Tau * 150 / Pace)
             };
             AtRest = false;
             Observe(Tracker.Update(state, Mode), raceOn, _now.Lap, _now.Fraction);
@@ -339,7 +339,7 @@ public sealed class LapDeltaScenarioTests
                 IsRaceOn = raceOn,
                 GameTimestampMilliseconds = Reported(_now.Game),
                 ReceivedAtUtc = Epoch.AddSeconds(Wall),
-                GroundSpeedMetersPerSecond = AtRest ? 0 : 16,
+                GroundSpeedMetersPerSecond = AtRest ? 0 : (float)(Math.Tau * 150 / Pace),
                 Lap = new(_now.Position, 0, 0, 0, 0, 0)
             };
             AtRest = false;
