@@ -5,7 +5,7 @@ namespace Wisp.App;
 
 public sealed partial class AppController
 {
-    private readonly LapDeltaService _lapDelta = new();
+    private readonly LapDeltaService _lapDelta = new(LapReferenceStore.ForCurrentUser());
     internal LapDeltaService LapDelta => _lapDelta;
     internal LapDeltaWindow? LapDeltaOverlay { get; private set; }
     internal LapDeltaWindow? LapMapOverlay { get; private set; }

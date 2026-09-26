@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.5.1 - 2026-09-26
+
+- End a Time Attack attempt, as Forza does, when the car stays stopped for five seconds or, once two laps agree on the circuit, stays off it or goes the wrong way for five seconds.
+- Keep lap delta reference laps when Wisp restarts or updates while Forza keeps running.
+- Show the reference lap's time next to SESSION BEST or PREVIOUS LAP.
+
 ## 2.5.0 - 2026-09-26
 
 - Add lap delta (beta): a live delta against your session best or previous lap, compared at the same place on the track, with an optional bar. Race and Rivals laps use the game's lap clocks; Time Attack laps at Legend Island, Hokubu, Soni and Sekibe are timed from start-line crossings. Laps continue through pauses and rewinds.

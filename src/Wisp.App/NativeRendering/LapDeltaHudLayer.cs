@@ -13,6 +13,12 @@ internal static class LapDeltaHudLayer
     private const uint Base = 90_000;
     private const string Glyphs = "0123456789+−.";
     private const int CellWidth = 42, CellHeight = 64;
+    // The header names the reference and shows its lap time.
+    private const string TimeGlyphs = "0123456789:.";
+    private const int TimeCellWidth = 14;
+    private const double TimeGap = 8;
+    private static readonly double[] TimeAdvances = new double[TimeGlyphs.Length];
+    private static readonly double[] ReferenceLabelWidths = new double[2];
     private static IReadOnlyList<AnalogHudTexture>? _textures;
     private static readonly double[] Advances = new double[Glyphs.Length];
     private static readonly Typeface Face = new(new FontFamily("Bahnschrift SemiCondensed, Bahnschrift, Segoe UI"),
@@ -36,11 +42,26 @@ internal static class LapDeltaHudLayer
         for (var i = 0; i < labels.Length; i++)
         {
             var label = labels[i];
+            if (i < 2)
+            {
+                var text = Format(label, 14);
+                var width = (int)Math.Ceiling(text.WidthIncludingTrailingWhitespace) + 2;
+                ReferenceLabelWidths[i] = width;
+                textures.Add(Raster(Base + 2 + (uint)i, width, 28, dc => dc.DrawText(text, new Point(0, 0))));
+                continue;
+            }
             textures.Add(Raster(Base + 2 + (uint)i, 280, 28, dc =>
             {
-                var text = Format(label, i < 2 ? 14 : 19);
+                var text = Format(label, 19);
                 dc.DrawText(text, new Point((280 - text.Width) / 2, 0));
             }));
+        }
+        for (var i = 0; i < TimeGlyphs.Length; i++)
+        {
+            var text = Format(TimeGlyphs[i].ToString(), 14);
+            TimeAdvances[i] = text.WidthIncludingTrailingWhitespace + .5;
+            textures.Add(Raster(Base + 30 + (uint)i, TimeCellWidth, 28,
+                dc => dc.DrawText(text, new Point((TimeCellWidth - text.Width) / 2, 0))));
         }
         for (var i = 0; i < Glyphs.Length; i++)
         {
@@ -109,7 +130,7 @@ internal static class LapDeltaHudLayer
         LapDeltaReference reference, bool bar, AnalogHudColor? ahead = null, AnalogHudColor? behind = null)
     {
         commands.Add(AnalogHudScene.Quad(Base, new(0, 0, Width, Height)));
-        commands.Add(AnalogHudScene.Quad(Base + (reference == LapDeltaReference.SessionBest ? 2u : 3u), new(20, 9, 280, 28), color: Muted));
+        AppendHeader(commands, reference == LapDeltaReference.SessionBest ? 0 : 1, reading.ReferenceSeconds);
         if (reading.Seconds is not { } delta)
         {
             var label = reading.Status switch { LapDeltaStatus.RecordingLap => 5u, LapDeltaStatus.RejoinReference => 6u, _ => 4u };
@@ -133,5 +154,28 @@ internal static class LapDeltaHudLayer
         var length = Math.Clamp(Math.Abs(delta) / 2, 0, 1) * 140;
         if (length > 0) commands.Add(AnalogHudScene.Quad(Base + 1, new(delta < 0 ? 160 - length : 160, 95, length, 5), color: color));
         commands.Add(AnalogHudScene.Quad(Base + 1, new(159, 92, 2, 11), color: White));
+    }
+
+    // SESSION BEST or PREVIOUS LAP, followed by that lap's time once there is one.
+    private static void AppendHeader(List<DirectCompositionDrawCommand> commands, int label, double? referenceSeconds)
+    {
+        var time = referenceSeconds is > 0 and < 3600 ? LapTime(referenceSeconds.Value) : null;
+        var width = ReferenceLabelWidths[label] + (time is null ? 0 : TimeGap + time.Sum(character => TimeAdvances[TimeGlyphs.IndexOf(character)]));
+        var x = (Width - width) / 2;
+        commands.Add(AnalogHudScene.Quad(Base + 2 + (uint)label, new(x, 9, ReferenceLabelWidths[label], 28), color: Muted));
+        if (time is null) return;
+        x += ReferenceLabelWidths[label] + TimeGap;
+        foreach (var character in time)
+        {
+            var index = TimeGlyphs.IndexOf(character);
+            commands.Add(AnalogHudScene.Quad(Base + 30 + (uint)index, new(x - (TimeCellWidth - TimeAdvances[index]) / 2, 9, TimeCellWidth, 28), color: White));
+            x += TimeAdvances[index];
+        }
+    }
+
+    internal static string LapTime(double seconds)
+    {
+        var milliseconds = (long)Math.Round(seconds * 1000);
+        return $"{milliseconds / 60_000}:{milliseconds / 1000 % 60:00}.{milliseconds % 1000:000}";
     }
 }

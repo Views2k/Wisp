@@ -15,11 +15,23 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.5.1",
+            "September 26, 2026",
+            "LAP DELTA FIXES",
+            "Time Attack attempts end when Forza ends them, reference laps survive a Wisp restart, and the panel shows which lap it compares against.",
+            true,
+            [
+                Group("Lap delta (beta)",
+                    "End a Time Attack attempt when the car stays stopped for five seconds, or, once two laps agree on the circuit, stays off it or goes the wrong way for five seconds. The panel shows START A LAP until the next start-line crossing.",
+                    "Keep your reference laps when Wisp restarts or updates while Forza keeps running, as Forza keeps its Current Best.",
+                    "Show the reference lap's time next to SESSION BEST or PREVIOUS LAP.")
+            ]),
+        new(
             "2.5",
             "September 26, 2026",
             "LAP DELTA BETA",
             "See how far ahead or behind your reference lap you are as you drive, with a live map of the circuit. Both are in beta.",
-            true,
+            false,
             [
                 Group("Lap delta (beta)",
                     "Show a live delta against your session best or previous lap, compared at the same place on the track, with an optional bar.",
