@@ -74,6 +74,8 @@ internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDispos
     {
         var tracker = new LapDeltaTracker();
         if (store?.Load() is { } kept) tracker.RestoreReferences(kept);
+        using var recorder = ApplicationVersionInfo.DiagnosticBuildId is null || store is null ? null :
+            LapDiagnosticsRecorder.Start(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp", "LapDiagnostics"));
         var generation = -1;
         var resetVersion = -1;
         await foreach (var sample in _samples.Reader.ReadAllAsync().ConfigureAwait(false))
@@ -87,7 +89,9 @@ internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDispos
                 resetVersion = reset; generation = current;
             }
             var reference = Volatile.Read(ref _reference);
-            var reading = tracker.Update(sample.State, (LapDeltaReference)reference, (LapTimingMode)Volatile.Read(ref _timing));
+            var timing = (LapTimingMode)Volatile.Read(ref _timing);
+            var reading = tracker.Update(sample.State, (LapDeltaReference)reference, timing);
+            recorder?.Write(sample.State, timing, (LapDeltaReference)reference, reading);
             if (store is not null && tracker.TakeReferenceChange())
             {
                 var session = tracker.ExportReferences();
