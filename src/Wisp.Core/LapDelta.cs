@@ -22,6 +22,11 @@ public sealed record LapDeltaReading(LapDeltaStatus Status, double? Seconds = nu
     public static LapDeltaReading Waiting { get; } = new(LapDeltaStatus.WaitingForLap);
 }
 
+// Reference laps kept while Wisp restarts and the game keeps running: points as x, y, z, lap time
+// and distance.
+public sealed record LapReferenceTrace(float Duration, bool Confirmed, float[] Points);
+public sealed record LapReferenceSession(LapTimingMode Timing, int Car, int Circuit, LapReferenceTrace? Best, LapReferenceTrace? Previous);
+
 // One consumer owns the tracker. A lap trace is sampled by distance, and each
 // lookup searches only the nearby, forward part of the reference trace.
 public sealed class LapDeltaTracker
@@ -43,6 +48,11 @@ public sealed class LapDeltaTracker
     private LapTelemetry? _last;
     private LapDeltaReading _lastReading = LapDeltaReading.Waiting;
     private int _held;
+    // Forza ends a Time Attack attempt that leaves the circuit or goes the wrong way.
+    private const float AttemptExpiry = 5;
+    private float? _offCircuitSince;
+    private LapReferenceSession? _restoring;
+    private Trace? _savedBest, _savedPrevious;
     private uint _lastTimestamp;
     private float _lastSpeed;
     private DateTimeOffset _lastReceived;
@@ -70,6 +80,8 @@ public sealed class LapDeltaTracker
         internal double MatchedTime;
         internal float MatchedDistance, DrivenAtMatch;
         internal bool MatchedLast;
+        // Another lap followed this one, so it is the circuit's path.
+        internal bool Confirmed;
         // Which parts of this trace the current lap drove along it, in order. Rejoining further
         // on, rewinding and driving a stretch again add nothing; only a new lap clears it.
         private readonly bool[] _covered = new bool[CoverageParts];
@@ -101,6 +113,7 @@ public sealed class LapDeltaTracker
         _mapPosition = null;
         _interrupted = _paused = _retainLearningMap = _isRecording = _gameLapActive = false;
         _held = 0;
+        _offCircuitSince = null;
         _lastReading = LapDeltaReading.Waiting;
         _gameLapProbe = null;
         _best = _previous = _challenger = null;
@@ -200,6 +213,12 @@ public sealed class LapDeltaTracker
             _gameLapActive = false;
             Interrupt(paused: !state.IsRaceOn);
             return LapDeltaReading.Waiting;
+        }
+        if (_restoring is { } kept)
+        {
+            _restoring = null;
+            if (kept.Timing == timing && kept.Car == state.CarOrdinal) Restore(kept);
+            if ((_best ?? _previous) is not null && !NearCircuit(state.Lap.Position.ToVector())) ForgetCircuit();
         }
         if (_last is not null && state.CarOrdinal != _car) Reset();
         // Being moved far from the circuit (to the festival, another event or a new race) leaves
@@ -302,7 +321,73 @@ public sealed class LapDeltaTracker
         _lastReceived = state.ReceivedAtUtc;
         _lastSpeed = state.GroundSpeedMetersPerSecond;
         Record(lap);
-        return _lastReading = Read(lap, reference, state.ReceivedTimestamp ?? 0);
+        var reading = Read(lap, reference, state.ReceivedTimestamp ?? 0);
+        // Once two laps agree on the circuit's path, five seconds away from it ends the attempt, as
+        // leaving the circuit or going the wrong way does in Forza.
+        if (timing == LapTimingMode.TimeAttack && reading.Status == LapDeltaStatus.RejoinReference &&
+            (reference == LapDeltaReference.PreviousLap ? _previous : _best) is { Confirmed: true })
+        {
+            _offCircuitSince ??= lap.RaceSeconds;
+            if (lap.RaceSeconds - _offCircuitSince >= AttemptExpiry)
+            {
+                _timeAttack.EndAttempt();
+                _offCircuitSince = null;
+                return _lastReading = LapDeltaReading.Waiting;
+            }
+        }
+        else _offCircuitSince = null;
+        return _lastReading = reading;
+    }
+
+    // Reference laps can be kept while Wisp restarts and the game keeps running, as the game keeps
+    // its own best for that run. They apply again in the same car and timing mode, on that circuit.
+    public LapReferenceSession? ExportReferences() =>
+        _best is null && _previous is null ? null : new(_timingMode, _car, _timeAttack.Circuit, Export(_best), Export(_previous));
+
+    public void RestoreReferences(LapReferenceSession session) => _restoring = session;
+
+    // True once after the reference laps change.
+    public bool TakeReferenceChange()
+    {
+        if (ReferenceEquals(_best, _savedBest) && ReferenceEquals(_previous, _savedPrevious)) return false;
+        (_savedBest, _savedPrevious) = (_best, _previous);
+        return true;
+    }
+
+    private void Restore(LapReferenceSession kept)
+    {
+        _best = Import(kept.Best);
+        _previous = kept.Previous is { } previous && kept.Best is { } best && previous.Points.AsSpan().SequenceEqual(best.Points)
+            ? _best : Import(kept.Previous);
+        _car = kept.Car;
+        if (kept.Timing == LapTimingMode.TimeAttack) _timeAttack.Resume(kept.Circuit);
+        (_savedBest, _savedPrevious) = (_best, _previous);
+    }
+
+    private static LapReferenceTrace? Export(Trace? trace)
+    {
+        if (trace is null) return null;
+        var values = new float[trace.Points.Length * 5];
+        for (var i = 0; i < trace.Points.Length; i++)
+        {
+            var point = trace.Points[i];
+            values[i * 5] = point.Position.X;
+            values[i * 5 + 1] = point.Position.Y;
+            values[i * 5 + 2] = point.Position.Z;
+            values[i * 5 + 3] = point.Time;
+            values[i * 5 + 4] = point.Distance;
+        }
+        return new(trace.Duration, trace.Confirmed, values);
+    }
+
+    private static Trace? Import(LapReferenceTrace? kept)
+    {
+        if (kept?.Points is not { Length: >= 50 } values || values.Length % 5 != 0 || !float.IsFinite(kept.Duration) ||
+            kept.Duration <= 0 || !Array.TrueForAll(values, float.IsFinite)) return null;
+        var points = new Point[values.Length / 5];
+        for (var i = 0; i < points.Length; i++)
+            points[i] = new(new(values[i * 5], values[i * 5 + 1], values[i * 5 + 2]), values[i * 5 + 3], values[i * 5 + 4]);
+        return new Trace(points, kept.Duration) { Confirmed = kept.Confirmed };
     }
 
     private bool HasGameLapTiming(VehicleState state, LapTelemetry lap)
@@ -479,6 +564,8 @@ public sealed class LapDeltaTracker
             return finish;
         }
         _challenger = null;
+        // A lap that followed the reference confirms the circuit's path.
+        if (_best is { Followed: true } followed) followed.Confirmed = trace.Confirmed = true;
         _previous = trace;
         if (_best is null || duration < _best.Duration) _best = trace;
         return finish;
