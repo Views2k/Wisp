@@ -76,8 +76,11 @@ internal sealed class TimeAttackClock
         {
             step = Math.Max(0, delta - _bridged);
             // A tick after a long stall, or one that jumps further than the car could have driven
-            // meanwhile, is the timestamp catching up rather than time spent driving.
-            if (delta > 0 && (_bridged > .1 || delta > 1 && moved < state.GroundSpeedMetersPerSecond * delta * .5f)) step = Math.Min(step, .1);
+            // meanwhile, is the timestamp catching up. Only the time the car needed for the distance
+            // it moved, at its speed, was spent driving.
+            var speed = state.GroundSpeedMetersPerSecond;
+            if (delta > 0 && (_bridged > .1 || delta > 1 && moved < speed * delta * .5f))
+                step = Math.Min(step, Math.Max(.1, speed > 1 ? moved / speed : 0));
             _bridged = 0;
         }
         // Movement faster than any car is a reset, restart or fast travel: it ends the attempt, and
