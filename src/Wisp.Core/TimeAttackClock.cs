@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 
 namespace Wisp.Core;
@@ -28,37 +29,42 @@ internal sealed class TimeAttackClock
         new(new(2785.70f, 4990.71f), Vector2.Normalize(new(.94037f, .34014f))),
         new(new(2495.16f, -5063.40f), Vector2.Normalize(new(-.01200f, -.99993f)))
     ];
-    // FH6's timestamp is the PC's uptime in milliseconds (the Windows tick count). It advances in
-    // 15.625 ms ticks and runs on while the game is paused, in a menu or rewinding; the game's lap
+    // FH6's timestamp is the PC's uptime in whole milliseconds (the Windows tick count). It advances
+    // in 15.625 ms ticks and runs on while the game is paused, in a menu or rewinding; the game's lap
     // timer stops for a pause and goes back with a rewind. The game sends nothing meanwhile.
-    private const double TickLength = .015;
+    // A packet is sent within its tick, which can begin up to a millisecond after its reported start.
+    private const double TickSpan = .0166;
     // Longer than any interval between packets while the game runs.
     private const double LongInterval = .2;
     // How far back an earlier packet's arrival still places a later one, using the car's motion,
     // which is allowed to understate the time by this much.
     private const double ArrivalSpan = .07;
     private const double MotionAllowance = 1.03;
+    // How fast the receiving PC's clock can drift from the tick count.
+    private const double Drift = .00001;
     private readonly List<History> _history = new();
     private readonly record struct History(Vector3 Position, double Clock, double Start, float Distance, float Speed);
-    private VehicleState? _lastState;
+    private VehicleState? _lastState, _lastPacket;
     private int _gate = -1;
     private double _clock, _start = double.NaN;
     private float _distance, _lastLap;
     private ushort _lap;
-    private DateTimeOffset _origin;
-    private double _uptime, _arrival, _moment, _earliest, _motion;
+    private Vector3 _heading;
+    // When packets were sent belongs to the packet stream, so it carries across circuits: each
+    // packet's tick, arrival and placing, the quickest delay seen, and the car's motion.
+    private double _uptime, _arrival, _moment, _quickest, _motion;
     private readonly (double Arrived, double Motion)[] _arrivals = new (double, double)[12];
     private int _arrivalCount, _arrivalNext;
     // The last packet came after a break, so only its own arrival placed it, and the car drove on
     // through that break, timed by that arrival.
     private bool _unplaced, _timedBreak;
-    private Vector3 _heading;
     internal bool CircuitChanged { get; private set; }
 
     internal void Reset()
     {
         _lastState = null; _gate = -1; _clock = 0; _start = double.NaN;
         _distance = _lastLap = 0; _lap = 0; _heading = default; _history.Clear();
+        _timedBreak = false;
     }
 
     internal LapTelemetry? Update(VehicleState state)
@@ -70,28 +76,28 @@ internal sealed class TimeAttackClock
         {
             Reset(); _gate = near; CircuitChanged = true;
         }
-        var previous = _lastState;
-        _lastState = state;
-        if (previous is null)
+        var packet = _lastPacket;
+        _lastPacket = state;
+        if (packet is null)
         {
-            _origin = state.ReceivedAtUtc;
-            _uptime = _arrival = _moment = _earliest = _motion = 0;
-            _arrivalCount = _arrivalNext = 0;
+            _uptime = _arrival = _moment = _quickest = _motion = 0;
             _unplaced = true;
-            _timedBreak = false;
+            _lastState = state;
             return null;
         }
-        var oldPosition = previous.Lap!.Position.ToVector();
+        var oldPosition = packet.Lap!.Position.ToVector();
         var move = position - oldPosition;
         var moved = move.Length();
-        var speed = (previous.GroundSpeedMetersPerSecond + state.GroundSpeedMetersPerSecond) / 2;
+        var speed = (packet.GroundSpeedMetersPerSecond + state.GroundSpeedMetersPerSecond) / 2;
         // Where a packet falls within its tick: as much after the tick as it arrived later than the
-        // quickest packets did. The quickest delay drifts up slowly while packets flow, so it
-        // follows the two clocks.
-        var arrival = (state.ReceivedAtUtc - _origin).TotalSeconds;
-        var uptime = _uptime + unchecked((int)(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds)) / 1000d;
-        _earliest = Math.Min(_earliest + Math.Clamp(arrival - _arrival, 0, LongInterval) * .001, arrival - uptime);
-        var arrived = arrival - _earliest;
+        // quickest packets did. Their delay does not change with the game's frames, so the quickest
+        // only lowers, or rises as slowly as the two clocks can drift apart.
+        var arrival = _arrival + (state.ReceivedTimestamp is { } now && packet.ReceivedTimestamp is { } then
+            ? (now - then) / (double)Stopwatch.Frequency
+            : (state.ReceivedAtUtc - packet.ReceivedAtUtc).TotalSeconds);
+        var uptime = _uptime + unchecked((int)(state.GameTimestampMilliseconds - packet.GameTimestampMilliseconds)) / 1000d;
+        _quickest = Math.Min(_quickest + Math.Clamp(arrival - _arrival, 0, LongInterval) * Drift, arrival - uptime);
+        var arrived = arrival - _quickest;
         var estimate = arrived;
         // A packet can only arrive late. A recent packet's arrival, plus the time the car needed to
         // drive on from there at its speed, places this one when that is earlier, and this one
@@ -109,7 +115,7 @@ internal sealed class TimeAttackClock
             }
             if (_unplaced)
             {
-                var placedAt = Math.Max(_uptime, Math.Min(_moment, Math.Clamp(estimate, uptime, uptime + TickLength) - driven / MotionAllowance));
+                var placedAt = Math.Max(_uptime, Math.Min(_moment, Math.Clamp(estimate, uptime, uptime + TickSpan) - driven / MotionAllowance));
                 if (_timedBreak && placedAt < _moment)
                 {
                     var late = _moment - placedAt;
@@ -121,13 +127,15 @@ internal sealed class TimeAttackClock
         }
         _unplaced = !placed;
         _timedBreak = false;
-        var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickLength));
+        var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickSpan));
         _arrivals[_arrivalNext] = (arrived, _motion);
         _arrivalNext = (_arrivalNext + 1) % _arrivals.Length;
         _arrivalCount = Math.Min(_arrivalCount + 1, _arrivals.Length);
         var elapsed = moment - _moment;
         _uptime = uptime; _arrival = arrival; _moment = moment;
-        if (_gate < 0) return null;
+        var previous = _lastState;
+        _lastState = state;
+        if (previous is null || _gate < 0) return null;
 
         // Game time between the two packets.
         var step = elapsed;
