@@ -146,14 +146,15 @@ internal sealed class TimeAttackClock
     }
 
     // Restores the moment of this attempt, at least 0.3 s earlier, that the car is back at with that
-    // moment's speed: the closest recorded point, the latest visit on a tie. A reset leaves the car
-    // at rest instead, so it is not a rewind.
+    // moment's speed: the closest recorded point, where an earlier visit to the same place has to be
+    // clearly closer than a later one. A reset leaves the car at rest instead, so it is not a rewind.
     private bool TryRestoreVisited(Vector3 position, float speed)
     {
         if (double.IsNaN(_start)) return false;
         var best = -1;
         var bestDistance = 25f;
         var bestFraction = 0f;
+        var bestClock = 0d;
         for (var i = _history.Count - 2; i >= 0; i--)
         {
             var from = _history[i];
@@ -161,14 +162,16 @@ internal sealed class TimeAttackClock
             if (from.Start != _start || to.Start != _start) break;
             var edge = to.Position - from.Position;
             var fraction = edge.LengthSquared() < .0001f ? 0 : Math.Clamp(Vector3.Dot(position - from.Position, edge) / edge.LengthSquared(), 0, 1);
-            if (_clock - (from.Clock + (to.Clock - from.Clock) * fraction) < .3) continue;
+            var clock = from.Clock + (to.Clock - from.Clock) * fraction;
+            if (_clock - clock < .3) continue;
             var distance = Vector3.DistanceSquared(position, from.Position + fraction * edge);
-            if (distance > bestDistance - .5f) continue;
+            if (distance >= bestDistance || best >= 0 && bestClock - clock > .5 && distance > bestDistance - .5f) continue;
             var recordedSpeed = from.Speed + fraction * (to.Speed - from.Speed);
             if (Math.Abs(speed - recordedSpeed) > Math.Max(3, recordedSpeed * .2f)) continue;
             best = i;
             bestDistance = distance;
             bestFraction = fraction;
+            bestClock = clock;
         }
         if (best < 0) return false;
         var start = _history[best];
