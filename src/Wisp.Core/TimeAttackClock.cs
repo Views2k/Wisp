@@ -28,15 +28,16 @@ internal sealed class TimeAttackClock
         new(new(2785.70f, 4990.71f), Vector2.Normalize(new(.94037f, .34014f))),
         new(new(2495.16f, -5063.40f), Vector2.Normalize(new(-.01200f, -.99993f)))
     ];
-    // FH6's timestamp is the PC's uptime in whole milliseconds (the Windows tick count). It advances
-    // in 15.625 ms ticks and runs on while the game is paused, in a menu or rewinding; the game's lap
+    // FH6's timestamp is the PC's uptime in milliseconds (the Windows tick count). It advances in
+    // 15.625 ms ticks and runs on while the game is paused, in a menu or rewinding; the game's lap
     // timer stops for a pause and goes back with a rewind. The game sends nothing meanwhile.
-    // A packet is sent within its tick, which can begin up to a millisecond after its reported start.
-    private const double TickSpan = .0167;
-    // A packet placed at least this closely times the next one by its own placing.
-    private const double Placed = .003;
+    private const double TickLength = .015;
     // Longer than any interval between packets while the game runs.
     private const double LongInterval = .2;
+    // How far back an earlier packet's arrival still places a later one, using the car's motion,
+    // which is allowed to understate the time by this much.
+    private const double ArrivalSpan = .07;
+    private const double MotionAllowance = 1.03;
     private readonly List<History> _history = new();
     private readonly record struct History(Vector3 Position, double Clock, double Start, float Distance, float Speed);
     private VehicleState? _lastState;
@@ -45,8 +46,12 @@ internal sealed class TimeAttackClock
     private float _distance, _lastLap;
     private ushort _lap;
     private DateTimeOffset _origin;
-    // The previous packet: its tick, when it arrived, and the earliest and latest it can have been sent.
-    private double _uptime, _arrival, _early, _late;
+    private double _uptime, _arrival, _moment, _earliest, _motion;
+    private readonly (double Arrived, double Motion)[] _arrivals = new (double, double)[12];
+    private int _arrivalCount, _arrivalNext;
+    // The last packet came after a break, so only its own arrival placed it, and the car drove on
+    // through that break, timed by that arrival.
+    private bool _unplaced, _timedBreak;
     private Vector3 _heading;
     internal bool CircuitChanged { get; private set; }
 
@@ -70,38 +75,62 @@ internal sealed class TimeAttackClock
         if (previous is null)
         {
             _origin = state.ReceivedAtUtc;
-            _uptime = _arrival = _early = 0;
-            _late = TickSpan;
+            _uptime = _arrival = _moment = _earliest = _motion = 0;
+            _arrivalCount = _arrivalNext = 0;
+            _unplaced = true;
+            _timedBreak = false;
             return null;
         }
         var oldPosition = previous.Lap!.Position.ToVector();
         var move = position - oldPosition;
         var moved = move.Length();
         var speed = (previous.GroundSpeedMetersPerSecond + state.GroundSpeedMetersPerSecond) / 2;
-        // When each packet was sent: within its tick, and as far on from the previous packet as the
-        // car needed to drive between them at its speed (or, barely moving, about as much later as it
-        // arrived). Ticks and motion together place a packet to about a millisecond.
+        // Where a packet falls within its tick: as much after the tick as it arrived later than the
+        // quickest packets did. The quickest delay drifts up slowly while packets flow, so it
+        // follows the two clocks.
         var arrival = (state.ReceivedAtUtc - _origin).TotalSeconds;
         var uptime = _uptime + unchecked((int)(state.GameTimestampMilliseconds - previous.GameTimestampMilliseconds)) / 1000d;
-        var driven = speed > 2 ? moved / speed : Math.Max(0, arrival - _arrival);
-        var spread = speed > 2 ? driven * .02 + .0001 : .002;
-        double early = uptime, late = uptime + TickSpan;
-        var linked = uptime - _uptime <= LongInterval;
-        if (linked)
+        _earliest = Math.Min(_earliest + Math.Clamp(arrival - _arrival, 0, LongInterval) * .001, arrival - uptime);
+        var arrived = arrival - _earliest;
+        var estimate = arrived;
+        // A packet can only arrive late. A recent packet's arrival, plus the time the car needed to
+        // drive on from there at its speed, places this one when that is earlier, and this one
+        // places a packet that came after a break the same way.
+        var placed = uptime - _uptime <= LongInterval && speed > 2;
+        if (!placed) _arrivalCount = _arrivalNext = 0;
+        else
         {
-            var from = Math.Max(early, _early + driven - spread);
-            var to = Math.Min(late, _late + driven + spread);
-            if (from <= to) { early = from; late = to; }
+            var driven = moved / speed;
+            _motion += driven;
+            for (var i = 0; i < _arrivalCount; i++)
+            {
+                var (earlier, at) = _arrivals[i];
+                if (_motion - at <= ArrivalSpan) estimate = Math.Min(estimate, earlier + (_motion - at) * MotionAllowance);
+            }
+            if (_unplaced)
+            {
+                var placedAt = Math.Max(_uptime, Math.Min(_moment, Math.Clamp(estimate, uptime, uptime + TickLength) - driven / MotionAllowance));
+                if (_timedBreak && placedAt < _moment)
+                {
+                    var late = _moment - placedAt;
+                    if (_history.Count > 0 && _history[^1].Clock == _clock) _history[^1] = _history[^1] with { Clock = _clock - late };
+                    _clock -= late;
+                }
+                _moment = placedAt;
+            }
         }
-        // Game time between the two packets: from their placings when both are placed closely,
-        // otherwise from the car's motion.
-        var elapsed = Math.Max(0, (early + late - _early - _late) / 2);
-        var step = linked && speed > 2 && (_late - _early > Placed || late - early > Placed) ? driven : elapsed;
-        var shortest = Math.Max(0, early - _late);
-        var longest = late - _early;
-        _uptime = uptime; _arrival = arrival; _early = early; _late = late;
+        _unplaced = !placed;
+        _timedBreak = false;
+        var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickLength));
+        _arrivals[_arrivalNext] = (arrived, _motion);
+        _arrivalNext = (_arrivalNext + 1) % _arrivals.Length;
+        _arrivalCount = Math.Min(_arrivalCount + 1, _arrivals.Length);
+        var elapsed = moment - _moment;
+        _uptime = uptime; _arrival = arrival; _moment = moment;
         if (_gate < 0) return null;
 
+        // Game time between the two packets.
+        var step = elapsed;
         // Movement faster than any car is a reset, restart or fast travel.
         var driving = moved <= Math.Max(25, elapsed * 180);
         if (elapsed > LongInterval)
@@ -113,9 +142,7 @@ internal sealed class TimeAttackClock
             var before = previous.GroundSpeedMetersPerSecond;
             var after = state.GroundSpeedMetersPerSecond;
             var needed = speed > 1 ? moved / speed : moved < .05f ? 0 : elapsed;
-            // Driving on through the break, the ticks bound how long it lasted and the car's motion
-            // times it within them.
-            step = needed < elapsed * .8 ? needed : Math.Clamp(needed, shortest, longest);
+            if (needed < elapsed * .8) step = needed;
             driving = needed <= elapsed * 1.25 && !(before >= 3 && after < 1) &&
                 (moved < .5f || _heading == Vector3.Zero || Vector3.Dot(move, _heading) >= 0);
         }
@@ -133,6 +160,7 @@ internal sealed class TimeAttackClock
         }
         // A reset, restart or fast travel ends the attempt, and the next start-line crossing begins one.
         if (!restored && !driving) _start = double.NaN;
+        _timedBreak = elapsed > LongInterval && driving && !restored && step == elapsed;
         if (!restored && driving && Gates[_gate].Cross(oldPosition, position, out var fraction))
         {
             if (step > 1) _start = double.NaN; // No samples near the line: its crossing time is unknown.
