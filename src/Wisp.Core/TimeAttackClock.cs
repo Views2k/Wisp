@@ -127,7 +127,10 @@ internal sealed class TimeAttackClock
         }
         _unplaced = !placed;
         _timedBreak = false;
-        var moment = Math.Max(_moment, Math.Clamp(estimate, uptime, uptime + TickSpan));
+        var placing = Math.Clamp(estimate, uptime, uptime + TickSpan);
+        // How much later this packet is placed than the last, before holding placings in order.
+        var gained = placing - _moment;
+        var moment = Math.Max(_moment, placing);
         _arrivals[_arrivalNext] = (arrived, _motion);
         _arrivalNext = (_arrivalNext + 1) % _arrivals.Length;
         _arrivalCount = Math.Min(_arrivalCount + 1, _arrivals.Length);
@@ -184,6 +187,13 @@ internal sealed class TimeAttackClock
                 // Every forward crossing starts a new attempt. The previous one counts as a lap only
                 // if it was long enough to be one; otherwise it was abandoned at the line.
                 var crossing = _clock - step * (1 - fraction);
+                if (elapsed <= LongInterval && speed > 2)
+                {
+                    // Arrival only ever places a packet late, so the crossing is timed from whichever
+                    // of the two packets is placed earlier, by the time the car needed to reach the line.
+                    var driven = moved / speed;
+                    crossing = _clock - step + Math.Min(0, gained - driven) + driven * fraction;
+                }
                 if (!double.IsNaN(_start) && crossing - _start >= 15 && _distance >= 500)
                 {
                     _lastLap = (float)(crossing - _start);
