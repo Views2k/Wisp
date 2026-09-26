@@ -12,4 +12,11 @@ public sealed partial class AppController
         Settings.CompletedFeatureTourId = previous;
         return false;
     }
+
+    internal bool TryDismissWhatsNew(string id)
+    {
+        if (_disposed) return false;
+        Settings.DismissedWhatsNewId = id;
+        return TrySavePendingSettings();
+    }
 }

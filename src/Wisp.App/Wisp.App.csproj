@@ -11,14 +11,10 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp</AssemblyTitle>
     <Description>Wheel-indicated speed and G-force display for Forza Horizon 6.</Description>
-    <Version>2.4.1</Version>
-    <FileVersion>2.4.1.0</FileVersion>
-    <AssemblyVersion>2.4.1.0</AssemblyVersion>
+    <Version>2.5.0</Version>
+    <FileVersion>2.5.0.0</FileVersion>
+    <AssemblyVersion>2.5.0.0</AssemblyVersion>
   </PropertyGroup>
-  <ItemGroup>
-    <AssemblyMetadata Include="WispDiagnosticBuildId" Value="lap-delta-20260926-8" />
-    <AssemblyMetadata Include="WispDiagnosticBuildLabel" Value="2.4 Lap Delta Test 8" />
-  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Wisp.Core\Wisp.Core.csproj" />
     <ProjectReference Include="..\Wisp.Telemetry\Wisp.Telemetry.csproj" />

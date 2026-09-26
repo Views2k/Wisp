@@ -76,10 +76,12 @@
         </Style>
     </UserControl.Resources>
     <StackPanel>
-        <TextBlock Text="LAP DELTA" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold" />
+        <TextBlock Text="LAP DELTA · BETA" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold" />
         <TextBlock Text="See where you gain time" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,12" />
-        <CheckBox x:Name="EnabledToggle" Content="Show lap delta" Style="{DynamicResource ToggleSwitchStyle}"
-                  Checked="Options_Changed" Unchecked="Options_Changed" AutomationProperties.Name="Show lap delta" />
+        <CheckBox x:Name="EnabledToggle" Content="Show lap delta (beta)" Style="{DynamicResource ToggleSwitchStyle}"
+                  Checked="Options_Changed" Unchecked="Options_Changed" AutomationProperties.Name="Show lap delta (beta)" />
+        <TextBlock Text="Beta feature: lap delta and the live track map are new and still being refined."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
         <TextBlock Text="Complete a full circuit lap to set your reference. A negative delta means ahead; a positive delta means behind. The comparison follows your position around the track."
                    TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,16" />
         <Label Content="Timing mode" Target="{Binding ElementName=TimingSelector}" Padding="0" Margin="0,0,0,6" />
@@ -107,8 +109,8 @@
                 </Grid>
                 <Slider x:Name="ScaleSlider" Minimum="0.5" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
                         SmallChange="0.05" LargeChange="0.25" ValueChanged="Scale_Changed" Margin="0,6,0,12" AutomationProperties.Name="Lap delta size" />
-                <CheckBox x:Name="MapToggle" Content="Show live track map" Style="{DynamicResource ToggleSwitchStyle}"
-                          Checked="MapOptions_Changed" Unchecked="MapOptions_Changed" AutomationProperties.Name="Show live track map" />
+                <CheckBox x:Name="MapToggle" Content="Show live track map (beta)" Style="{DynamicResource ToggleSwitchStyle}"
+                          Checked="MapOptions_Changed" Unchecked="MapOptions_Changed" AutomationProperties.Name="Show live track map (beta)" />
                 <TextBlock Text="Follow your car around an enlarged track outline. Your first full lap builds the map; later laps keep the full circuit in view."
                            TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,16" />
                 <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
