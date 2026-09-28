@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using Wisp.Update;
 using Xunit;
 
@@ -23,10 +24,34 @@ public sealed class ApplicationVersionInfoTests
     {
         Assert.Equal("2.5.1", ApplicationVersionInfo.MachineVersion);
         Assert.Equal("2.5.1", ApplicationVersionInfo.DisplayVersion);
-        Assert.Null(ApplicationVersionInfo.DiagnosticBuildId);
-        Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
-        Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.5.1", ApplicationVersionInfo.FooterText);
-        Assert.Contains("current 2.5.1 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+        var project = ProjectMetadata();
+        Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildId"), ApplicationVersionInfo.DiagnosticBuildId);
+        Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildLabel"), ApplicationVersionInfo.DiagnosticBuildLabel);
+        if (ApplicationVersionInfo.DiagnosticBuildId is null)
+        {
+            Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
+            Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.5.1", ApplicationVersionInfo.FooterText);
+            Assert.Contains("current 2.5.1 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+        }
+        else
+        {
+            Assert.False(string.IsNullOrWhiteSpace(ApplicationVersionInfo.DiagnosticBuildId));
+            Assert.False(string.IsNullOrWhiteSpace(ApplicationVersionInfo.DiagnosticBuildLabel));
+            Assert.Equal($"WHEEL-INDICATED SPEED PANEL {ApplicationVersionInfo.DiagnosticBuildLabel} (private)", ApplicationVersionInfo.FooterText);
+            Assert.Contains($"You are testing {ApplicationVersionInfo.DiagnosticBuildLabel}.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+        }
         Assert.Equal(ApplicationVersionInfo.DisplayVersion, ReleaseNotesCatalog.Entries[0].Version);
+    }
+
+    private static Dictionary<string, string?> ProjectMetadata()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            var project = Path.Combine(directory.FullName, "src", "Wisp.App", "Wisp.App.csproj");
+            if (File.Exists(project))
+                return XDocument.Load(project).Descendants("AssemblyMetadata")
+                    .ToDictionary(element => (string)element.Attribute("Include")!, element => (string?)element.Attribute("Value"));
+        }
+        throw new DirectoryNotFoundException("The application project could not be located.");
     }
 }

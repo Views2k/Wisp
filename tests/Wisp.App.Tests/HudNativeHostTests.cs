@@ -138,6 +138,8 @@ internal static class HudNativeHostTests
             Assert.DoesNotContain(rows, row => row.Result == "error");
             Assert.False(window.IsActive);
             AssertMinimizedHostStopsRendering(window, host, handle, Rows);
+            AssertForeignOwnerRestart(window, host, presentationHandle, Rows,
+                () => Seed(analog, electric, digital, electricDigital, 6));
 
             // A device failure retires the native HUD while keeping WPF artwork
             // suppressed; the edit/layout window remains available.
@@ -324,6 +326,59 @@ internal static class HudNativeHostTests
         }
     }
 
+    private static void AssertForeignOwnerRestart(OverlayWindow window, HudNativeHost host,
+        IntPtr native, Func<TachRendererDiagnostic[]> rows, Action seed)
+    {
+        var layout = new WindowInteropHelper(window).Handle;
+        var worker = Worker(host);
+        var foreground = GetForegroundWindow();
+        foreach (var closeWindow in new[] { true, false })
+        {
+            using var owner = ForeignWindowOwner.Start();
+            try
+            {
+                Assert.True(WindowZOrder.AttachAboveGame(window, owner.Handle, raise: false));
+                Assert.Equal(owner.Handle, GetWindow(layout, 4));
+                Assert.Equal(owner.Handle, GetWindow(native, 4));
+                owner.Exit(closeWindow);
+                Assert.True(IsWindow(layout));
+                Assert.True(IsWindow(native));
+                Assert.Equal(IntPtr.Zero, GetWindow(layout, 4));
+                Assert.Equal(IntPtr.Zero, GetWindow(native, 4));
+
+                // Windows already removed the dead foreign owner. Hiding must
+                // not repeat a NULL-to-NULL owner assignment and fail the host.
+                window.SetTelemetryVisible(false, 1, hideImmediately: true);
+                Pump();
+                WindowZOrder.DetachFromGame(window);
+                PumpUntil(() => !worker.SurfaceVisible, 1000);
+                Assert.False(window.IsVisible);
+                Assert.True(IsWindow(native));
+                Assert.Equal(native, HudNativeHost.PresentationHandle(window));
+                Assert.Same(worker, Worker(host));
+
+                using var replacement = ForeignWindowOwner.Start();
+                try
+                {
+                    window.SetTelemetryVisible(true, 1);
+                    Assert.True(WindowZOrder.AttachAboveGame(window, replacement.Handle, raise: false));
+                    Assert.Equal(replacement.Handle, GetWindow(layout, 4));
+                    Assert.Equal(replacement.Handle, GetWindow(native, 4));
+                    var resumedAt = Stopwatch.GetTimestamp();
+                    seed();
+                    PumpUntil(() => Snapshot(host).Active && worker.SurfaceVisible && rows().Any(row =>
+                        row.Stage == "present" && row.Result == "submitted" && row.StartedTimestamp >= resumedAt), 4000);
+                    Assert.Same(worker, Worker(host));
+                    Assert.Equal(native, HudNativeHost.PresentationHandle(window));
+                    Assert.DoesNotContain(rows(), row => row.Result == "error");
+                    Assert.Equal(foreground, GetForegroundWindow());
+                }
+                finally { WindowZOrder.DetachFromGame(window); }
+            }
+            finally { WindowZOrder.DetachFromGame(window); }
+        }
+    }
+
     private static HudWindowSnapshot Snapshot(HudNativeHost host) =>
         Assert.IsType<HudWindowSnapshot>(typeof(HudNativeHost)
             .GetField("_snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(host));
@@ -383,6 +438,8 @@ internal static class HudNativeHostTests
     private static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr window, uint command);
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsWindow(IntPtr window);

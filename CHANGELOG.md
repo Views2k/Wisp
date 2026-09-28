@@ -2,6 +2,10 @@
 
 Notable changes to Wisp are recorded here.
 
+## Unreleased
+
+- Keep the overlay working after Forza restarts while Wisp stays open. Handle the game window closing before the overlay hides without treating the cleared window owner as a renderer failure.
+
 ## 2.5.1 - 2026-09-26
 
 - End a Time Attack attempt, as Forza does, when the car stays stopped for five seconds or, once two laps agree on the circuit, stays off it or goes the wrong way for five seconds.
