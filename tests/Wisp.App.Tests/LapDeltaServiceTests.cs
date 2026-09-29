@@ -40,6 +40,84 @@ public sealed class LapDeltaServiceTests
         Assert.True(ready());
     }
 
+    private static (LapReferenceStore Store, string Path) KeptLaps(Func<string?> gameRun)
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"wisp-laps-{Guid.NewGuid():N}.json");
+        return (new LapReferenceStore(path, gameRun), path);
+    }
+
+    private static async Task DriveAsync(LapDeltaService service, int from, int to)
+    {
+        for (var i = from; i <= to; i++)
+        {
+            var state = State(i);
+            service.Observe(state);
+            if (i % 40 == 0 || i == to) await WaitFor(() => service.Latest.ReceivedTimestamp == state.ReceivedTimestamp);
+        }
+    }
+
+    private static async Task CloseAsync(LapDeltaService service)
+    {
+        service.Dispose();
+        await service.Completion.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ResetBeforeTheFirstSampleDoesNotBringBackKeptLaps()
+    {
+        var (store, path) = KeptLaps(() => "7:1");
+        var first = new LapDeltaService(store);
+        first.Configure(true, LapDeltaReference.SessionBest);
+        await DriveAsync(first, 0, 620);
+        await WaitFor(() => first.Latest.Status == LapDeltaStatus.Comparing);
+        await CloseAsync(first);
+        Assert.NotNull(store.Load());
+
+        var restarted = new LapDeltaService(store);
+        restarted.Configure(true, LapDeltaReference.SessionBest);
+        restarted.ResetReferences();
+        await DriveAsync(restarted, 700, 760);
+        await CloseAsync(restarted);
+        Assert.Null(store.Load());
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task ResetReferenceLapsClearsKeptLapsWithoutLaterTelemetry()
+    {
+        var (store, path) = KeptLaps(() => "7:2");
+        var service = new LapDeltaService(store);
+        service.Configure(true, LapDeltaReference.SessionBest);
+        await DriveAsync(service, 0, 620);
+        await WaitFor(() => service.Latest.Status == LapDeltaStatus.Comparing);
+        service.ResetReferences();
+        await CloseAsync(service);
+        Assert.Null(store.Load());
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task CompletionWaitsForTheLastReferenceSave()
+    {
+        using var writes = new ManualResetEventSlim(true);
+        var (store, path) = KeptLaps(() => { writes.Wait(TimeSpan.FromSeconds(5)); return "7:3"; });
+        var service = new LapDeltaService(store);
+        service.Configure(true, LapDeltaReference.SessionBest);
+        await DriveAsync(service, 0, 0);
+        writes.Reset();
+        await DriveAsync(service, 1, 620);
+        await WaitFor(() => service.Latest.Status == LapDeltaStatus.Comparing);
+        service.Dispose();
+        var completion = service.Completion;
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        Assert.False(completion.IsCompleted);
+        Assert.False(File.Exists(path));
+        writes.Set();
+        await completion.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.NotNull(store.Load());
+        File.Delete(path);
+    }
+
     [Fact]
     public async Task BackgroundConsumerPublishesFreshReferenceAndFencesSettingsChanges()
     {

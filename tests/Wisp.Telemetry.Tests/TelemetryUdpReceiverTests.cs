@@ -201,6 +201,53 @@ public sealed class TelemetryUdpReceiverTests
         Assert.Null(receiver.Latest);
     }
 
+    [Theory]
+    [InlineData(2049)]
+    [InlineData(4096)]
+    public async Task OversizedDatagramIsRejectedWithoutStoppingTheListener(int size)
+    {
+        var port = GetAvailablePort();
+        await using var receiver = new TelemetryUdpReceiver();
+        await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+        using var sender = new UdpClient(AddressFamily.InterNetwork);
+        var endpoint = new IPEndPoint(IPAddress.Loopback, port);
+        await sender.SendAsync(new byte[size], endpoint, TestContext.Current.CancellationToken);
+        await WaitForStatistics(receiver, statistics => statistics.RejectedPackets == 1);
+        await sender.SendAsync(Fh6PacketFixture.Create(), endpoint, TestContext.Current.CancellationToken);
+        await WaitForStatistics(receiver, statistics => statistics.AcceptedPackets == 1);
+        Assert.Null(receiver.GetStatistics(DateTimeOffset.UtcNow).ListenerError);
+        Assert.NotNull(receiver.Latest);
+    }
+
+    [Fact]
+    public async Task OversizedDatagramInABurstLeavesTheNewestValidPacket()
+    {
+        var port = GetAvailablePort();
+        await using var receiver = new TelemetryUdpReceiver();
+        await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+        using var sender = new UdpClient(AddressFamily.InterNetwork);
+        var endpoint = new IPEndPoint(IPAddress.Loopback, port);
+        // One burst fits the socket buffer; the listener may drain the later datagrams.
+        await sender.SendAsync(Fh6PacketFixture.Create(), endpoint, TestContext.Current.CancellationToken);
+        await sender.SendAsync(new byte[4096], endpoint, TestContext.Current.CancellationToken);
+        await sender.SendAsync(Fh6PacketFixture.Create(), endpoint, TestContext.Current.CancellationToken);
+        await WaitForStatistics(receiver, _ => receiver.ReceivedDatagrams == 3);
+        var statistics = receiver.GetStatistics(DateTimeOffset.UtcNow);
+        Assert.Null(statistics.ListenerError);
+        Assert.NotNull(receiver.Latest);
+        await sender.SendAsync(Fh6PacketFixture.Create(), endpoint, TestContext.Current.CancellationToken);
+        await WaitForStatistics(receiver, _ => receiver.ReceivedDatagrams == 4);
+        Assert.Null(receiver.GetStatistics(DateTimeOffset.UtcNow).ListenerError);
+    }
+
+    private static async Task WaitForStatistics(TelemetryUdpReceiver receiver, Func<ReceiverStatistics, bool> ready)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (!ready(receiver.GetStatistics(DateTimeOffset.UtcNow)) && DateTime.UtcNow < deadline)
+            await Task.Delay(5, TestContext.Current.CancellationToken);
+        Assert.True(ready(receiver.GetStatistics(DateTimeOffset.UtcNow)));
+    }
+
     [Fact]
     public async Task DisposeReleasesPortAndPreventsRestart()
     {

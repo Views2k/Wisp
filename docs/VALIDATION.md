@@ -117,14 +117,23 @@ are not proof of physical display cadence.
 
 ## CI and packaging
 
-GitHub Actions runs on `windows-latest` and performs:
+A validation plan first chooses the scope of each workflow run.
 
-1. an audited NuGet restore;
+Changes to executable inputs run on `windows-latest`. The packaging script
+performs:
+
+1. an audited, locked NuGet restore;
 2. `dotnet format --verify-no-changes`;
 3. the complete Release .NET solution tests;
-4. a locked Release build of the UI review harness and bounded setup-wizard and
-   Appearance captures;
+4. a locked Release build of the UI review harness;
 5. the Python compatibility-audit tests.
+
+Documentation-only changes run on `ubuntu-latest`. They check the changed
+documentation and reuse the full validation of the unchanged executable inputs.
+
+The bounded setup-wizard and Appearance captures run only when the workflow is
+started manually with `capture_ui` enabled. Ordinary pull request, main and
+release-tag runs do not produce them.
 
 The local packaging script adds a separate installer gate. It runs the Release
 .NET suite, creates a self-contained untrimmed `win-x64` application publish and

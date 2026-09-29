@@ -90,6 +90,28 @@ public sealed class RunStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ARunImportedAfterRemovalCanBeRemovedAndRestoredAgain()
+    {
+        var store = new RunStore(_directory);
+        var run = RunTestData.CreateRun();
+        await store.SaveAsync(run);
+        var export = Path.Combine(Path.GetTempPath(), "WispRunTests", $"{Guid.NewGuid():N}-export.wisprun");
+        try
+        {
+            await store.ExportAsync(run.Id, export);
+            await store.DeleteAsync(run.Id);
+            await store.ImportManyAsync([export]);
+            Assert.Equal(run.Id, Assert.Single(await store.ListAsync()).Id);
+            await store.DeleteAsync(run.Id);
+            Assert.Empty(await store.ListAsync());
+            Assert.Equal(2, Directory.GetFiles(Path.Combine(_directory, "Deleted"), $"{run.Id:N}*.wisprun").Length);
+            await store.RestoreAsync(run.Id);
+            Assert.Equal(run.Samples, (await store.LoadAsync(run.Id)).Samples);
+        }
+        finally { File.Delete(export); }
+    }
+
+    [Fact]
     public async Task ExportAndImportUseNewIdentityAndNeverOverwriteDestination()
     {
         var store = new RunStore(_directory);

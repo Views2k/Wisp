@@ -194,6 +194,21 @@ public sealed class ApplicationUpdateCheckPolicyTests
     }
 
     [Fact]
+    public async Task ConfirmingAnUpdateNeverInstallsANewerReleaseFoundMeanwhile()
+    {
+        var found = Release();
+        await using var controller = Controller(CompletedSettings(), (_, _) => Task.FromResult<UpdateRelease?>(found));
+        var shown = await controller.GetAvailableApplicationUpdateDetailsAsync();
+        Assert.Equal("1.2.3", shown!.Version);
+        found = Release(new SemanticVersion(1, 2, 4));
+        FireDailyTimer(controller);
+        await WaitForCheckAsync(controller);
+        Assert.Null(await controller.PrepareApplicationUpdateAsync(shown.Version));
+        Assert.Contains("1.2.4", controller.ViewModel.ApplicationUpdateStatus);
+        Assert.Equal("1.2.4", (await controller.GetAvailableApplicationUpdateDetailsAsync())!.Version);
+    }
+
+    [Fact]
     public async Task ManualChecksRemainAvailableWhenAutomaticChecksAreDisabled()
     {
         var settings = CompletedSettings();
@@ -289,11 +304,15 @@ public sealed class ApplicationUpdateCheckPolicyTests
     }
     private static bool CheckActive(AppController controller) => (int)typeof(AppController)
         .GetField("_applicationUpdateOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(controller)! != 0;
-    private static UpdateRelease Release() => (UpdateRelease)Activator.CreateInstance(typeof(UpdateRelease),
-        BindingFlags.Instance | BindingFlags.NonPublic, binder: null,
-        args: [new SemanticVersion(1, 2, 3), "v1.2.3", "Wisp-Setup-1.2.3.exe", 1L, new string('A', 64),
-            new Uri("https://github.com/Views2k/Wisp/releases/download/v1.2.3/Wisp-Setup-1.2.3.exe"), "Reviewed maintenance update."],
-        culture: null)!;
+    private static UpdateRelease Release(SemanticVersion? version = null)
+    {
+        version ??= new SemanticVersion(1, 2, 3);
+        return (UpdateRelease)Activator.CreateInstance(typeof(UpdateRelease),
+            BindingFlags.Instance | BindingFlags.NonPublic, binder: null,
+            args: [version, $"v{version}", $"Wisp-Setup-{version}.exe", 1L, new string('A', 64),
+                new Uri($"https://github.com/Views2k/Wisp/releases/download/v{version}/Wisp-Setup-{version}.exe"), "Reviewed maintenance update."],
+            culture: null)!;
+    }
     private static Exception Failure(string kind) => kind switch
     {
         "http" => new HttpRequestException(),
@@ -312,6 +331,22 @@ public sealed class ApplicationUpdateCheckPolicyTests
         }, new SetupTelemetryEvidence(settings.UdpPort, 12, 12, TimeSpan.FromMilliseconds(550), now), _ => { }, now);
         return settings;
     }
+    [Fact]
+    public async Task RunsLayoutStatusReportsTheOutcomeOfTheSettingsWrite()
+    {
+        var failing = true;
+        await using var controller = new AppController(CompletedSettings(),
+            _ => { if (failing) throw new IOException("The settings file is locked."); },
+            new NoStartupRegistration(), checkForApplicationUpdate: (_, _) => Task.FromResult<UpdateRelease?>(null));
+        controller.Runs.SaveWorkspaceCommand.Execute(null);
+        Assert.Equal("Saving layout…", controller.Runs.WorkspaceStatus);
+        Assert.False(controller.TrySavePendingSettings());
+        Assert.StartsWith("Layout not saved yet.", controller.Runs.WorkspaceStatus);
+        failing = false;
+        Assert.True(controller.TrySavePendingSettings());
+        Assert.Equal("Layout saved.", controller.Runs.WorkspaceStatus);
+    }
+
     private sealed class NoStartupRegistration : IStartupRegistrationService
     {
         public void Apply(bool startWithWindows, bool startWithForza) { }

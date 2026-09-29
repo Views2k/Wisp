@@ -85,7 +85,7 @@ public sealed partial class AppController
         ScheduleSettingsSave();
     }
 
-    public void ResetLapDeltaSession() => _lapDelta.Reset();
+    public void ResetLapDeltaSession() => _lapDelta.ResetReferences();
     public void SaveLapDeltaPlacement() => SaveLapPlacement(false);
     public void SaveLapMapPlacement() => SaveLapPlacement(true);
     private void SaveLapPlacement(bool map)

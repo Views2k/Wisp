@@ -148,7 +148,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         long motionGeneration = 1;
         bool compositorActive = false, resetCompositor = false;
         var waitHandles = new WaitHandle[] { _stop, _changed };
-        // hudShown: the last HUD build reached the screen, so an unchanged scene need not present again.
+        // hudShown: the last HUD build was submitted for presentation, so an unchanged scene need not present again.
         bool announced = false, hasFrame = false, frameReady = false, hudShown = false;
         int width = 0, height = 0;
         float appliedOpacity = float.NaN;

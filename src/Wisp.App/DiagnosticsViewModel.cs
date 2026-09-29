@@ -9,6 +9,8 @@ using Wisp.Telemetry;
 
 namespace Wisp.App;
 
+internal enum RendererHostState { Ready, Starting, Failed }
+
 public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
 {
     private readonly DashboardPowerDisplayModel _dashboardPowerDisplayModel = new();
@@ -204,6 +206,31 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     {
         get => _nativeRendererStatus;
         internal set => Set(ref _nativeRendererStatus, value);
+    }
+
+    private readonly Dictionary<object, (RendererHostState State, string Text)> _rendererHosts =
+        new(ReferenceEqualityComparer.Instance);
+
+    // Each HUD window has its own renderer. The status shows the most serious state among them,
+    // so one window starting or running cannot hide another window's failure.
+    internal void ReportRendererHost(object host, RendererHostState state, string text)
+    {
+        _rendererHosts[host] = (state, text);
+        PublishRendererHosts();
+    }
+
+    internal void RemoveRendererHost(object host)
+    {
+        if (_rendererHosts.Remove(host) && _rendererHosts.Count > 0) PublishRendererHosts();
+    }
+
+    private void PublishRendererHosts()
+    {
+        var worst = _rendererHosts.Values.MaxBy(host => host.State);
+        var failed = _rendererHosts.Values.Count(host => host.State == RendererHostState.Failed);
+        NativeRendererStatus = failed > 0 && _rendererHosts.Count > 1
+            ? $"{worst.Text} ({failed} of {_rendererHosts.Count} HUD windows)"
+            : worst.Text;
     }
 
     public string StatusText { get => _statusText; private set => Set(ref _statusText, value); }

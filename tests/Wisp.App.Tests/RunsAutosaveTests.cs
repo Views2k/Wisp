@@ -42,6 +42,29 @@ public sealed class RunsAutosaveTests
     });
 
     [Fact]
+    public void ARunImportedAgainAfterRemovalKeepsSavingItsDetails() => OnDispatcher(async () =>
+    {
+        await using var fixture = await Fixture.Create();
+        fixture.Model.Name = "Before removal";
+        await WaitUntil(() => !fixture.Model.HasPendingMetadata);
+        var exported = Path.Combine(fixture.DirectoryPath, "removed.wisprun");
+        await fixture.Model.ExportSelectedAsync(exported);
+        await fixture.Model.DeleteSelectedAsync();
+        await Ready(fixture.Model);
+        await fixture.Model.ImportManyAsync([exported]);
+        await Ready(fixture.Model);
+        fixture.Model.SelectedRun = fixture.Model.Library.Single(item => item.Id == fixture.A.Id);
+        await Ready(fixture.Model);
+        Assert.Equal("Before removal", fixture.Model.Name);
+        fixture.Model.Name = "After import";
+        Assert.True(fixture.Model.HasPendingMetadata);
+        await WaitUntil(() => !fixture.Model.HasPendingMetadata);
+        Assert.Equal("After import", (await fixture.Service.Store.LoadAsync(fixture.A.Id)).Name);
+        Assert.Equal("Saved", fixture.Model.MetadataSaveStatus);
+        Assert.False(fixture.Model.CanUndoDelete);
+    });
+
+    [Fact]
     public void AutomaticSaveRunsAfterTypingStopsWithoutAnExplicitSaveCommand() => OnDispatcher(async () =>
     {
         await using var fixture = await Fixture.Create();

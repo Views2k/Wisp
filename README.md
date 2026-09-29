@@ -3,15 +3,19 @@
 <p align="center">
   <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
-  <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to 2.4.</strong>
+  <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to the latest release.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.5.1/Wisp-Setup-2.5.1.zip"><strong>Download Wisp 2.5.1</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.5.2/Wisp-Setup-2.5.2.zip"><strong>Download Wisp 2.5.2</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
   Support Wisp: <a href="https://ko-fi.com/views2k">Ko-fi</a> ·
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
+
+## Wisp 2.5.2
+
+The HUD keeps working when Forza restarts, telemetry survives oversized packets, and saved runs, reference laps, updates and renderer status behave as shown. [Release notes](docs/releases/Wisp-2.5.2-release-notes.md).
 
 ## Wisp 2.5.1
 
@@ -174,7 +178,7 @@ An optional quick tour introduces the drift gauge, Display mode, Runs, and
 Appearance. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.5.1](https://github.com/Views2k/Wisp/releases/download/v2.5.1/Wisp-Setup-2.5.1.zip) ·
+[Download Wisp 2.5.2](https://github.com/Views2k/Wisp/releases/download/v2.5.2/Wisp-Setup-2.5.2.zip) ·
 [2.5 release notes](docs/releases/Wisp-2.5.0-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
@@ -298,8 +302,8 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open the [Wisp 2.5.1 release](https://github.com/Views2k/Wisp/releases/tag/v2.5.1).
-2. Download and extract [Wisp-Setup-2.5.1.zip](https://github.com/Views2k/Wisp/releases/download/v2.5.1/Wisp-Setup-2.5.1.zip).
+1. Open the [Wisp 2.5.2 release](https://github.com/Views2k/Wisp/releases/tag/v2.5.2).
+2. Download and extract [Wisp-Setup-2.5.2.zip](https://github.com/Views2k/Wisp/releases/download/v2.5.2/Wisp-Setup-2.5.2.zip).
 3. Keep the installer and its `.sha256` file together.
 4. Verify the installer checksum, then run the installer.
 5. Complete the required setup wizard on first launch.

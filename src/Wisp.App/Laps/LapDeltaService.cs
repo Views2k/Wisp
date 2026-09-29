@@ -7,6 +7,7 @@ namespace Wisp.App.Laps;
 
 internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDisposable
 {
+    private readonly object _persistence = new();
     private Task _saving = Task.CompletedTask;
     private readonly Channel<(int Generation, VehicleState State)> _samples = Channel.CreateBounded<(int, VehicleState)>(
         new BoundedChannelOptions(512) { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait });
@@ -14,7 +15,7 @@ internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDispos
     private bool _started;
     private sealed record Publication(int Generation, int Reference, LapDeltaReading Reading, LapMapReading? Map = null);
     private Publication _publication = new(0, 0, LapDeltaReading.Waiting);
-    private int _generation, _enabled, _reference, _mapEnabled, _resetVersion, _timing;
+    private int _generation, _enabled, _reference, _mapEnabled, _resetVersion, _timing, _cleared;
 
     internal LapMapReading? LatestMap
     {
@@ -28,7 +29,25 @@ internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDispos
         }
     }
 
-    internal Task Completion => _worker;
+    // The worker's lifetime includes writing the reference laps it kept, so a clean shutdown
+    // leaves the latest ones on disk for a restart while the game keeps running.
+    internal Task Completion => CompleteAsync();
+
+    private async Task CompleteAsync()
+    {
+        await _worker.ConfigureAwait(false);
+        await Persisted().ConfigureAwait(false);
+    }
+
+    private Task Persisted()
+    {
+        lock (_persistence) return _saving;
+    }
+
+    private void Persist(Action write)
+    {
+        lock (_persistence) _saving = _saving.ContinueWith(_ => write(), TaskScheduler.Default);
+    }
     internal int Generation => Volatile.Read(ref _generation);
     internal LapDeltaReading Latest
     {
@@ -58,6 +77,15 @@ internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDispos
         Interrupt();
     }
 
+    // Reset reference laps: forget them now, including kept ones not yet restored and the copy on
+    // disk, without waiting for more telemetry.
+    internal void ResetReferences()
+    {
+        Interlocked.Increment(ref _cleared);
+        Reset();
+        if (store is not null) Persist(() => store.Save(null));
+    }
+
     private void Interrupt()
     {
         Interlocked.Increment(ref _generation);
@@ -73,21 +101,27 @@ internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDispos
 
     private async Task ProcessAsync()
     {
+        // A reset before the worker started has already cleared the kept laps.
+        await Persisted().ConfigureAwait(false);
+        var resetVersion = Volatile.Read(ref _resetVersion);
+        var applied = Volatile.Read(ref _cleared);
         var tracker = new LapDeltaTracker();
         if (store?.Load() is { } kept) tracker.RestoreReferences(kept);
         using var recorder = ApplicationVersionInfo.DiagnosticBuildId is null || store is null ? null :
             LapDiagnosticsRecorder.Start(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp", "LapDiagnostics"));
         var generation = -1;
-        var resetVersion = -1;
         await foreach (var sample in _samples.Reader.ReadAllAsync().ConfigureAwait(false))
         {
+            // Read before the generation: a reset changes both, in that order.
+            var cleared = Volatile.Read(ref _cleared);
             var current = Volatile.Read(ref _generation);
             if (sample.Generation != current || Volatile.Read(ref _enabled) == 0) continue;
             if (generation != current)
             {
                 var reset = Volatile.Read(ref _resetVersion);
-                if (reset != resetVersion) tracker.Reset(); else tracker.Interrupt();
-                resetVersion = reset; generation = current;
+                // The first sample starts a fresh tracker, which keeps any laps waiting to be restored.
+                if (reset != resetVersion) tracker.ResetReferences(); else if (generation >= 0) tracker.Interrupt();
+                resetVersion = reset; generation = current; applied = cleared;
             }
             var reference = Volatile.Read(ref _reference);
             var timing = (LapTimingMode)Volatile.Read(ref _timing);
@@ -96,7 +130,9 @@ internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDispos
             if (store is not null && tracker.TakeReferenceChange())
             {
                 var session = tracker.ExportReferences();
-                _saving = _saving.ContinueWith(_ => store.Save(session), TaskScheduler.Default);
+                var version = applied;
+                // Laps from before a reset never overwrite the cleared file.
+                Persist(() => { if (Volatile.Read(ref _cleared) == version) store.Save(session); });
             }
             var map = Volatile.Read(ref _mapEnabled) != 0 ? tracker.ReadMap(sample.State.ReceivedTimestamp ?? 0) : null;
             Volatile.Write(ref _publication, new(current, reference, reading, map));
@@ -106,7 +142,7 @@ internal sealed class LapDeltaService(LapReferenceStore? store = null) : IDispos
     public void Dispose()
     {
         Volatile.Write(ref _enabled, 0);
-        Reset();
+        Interrupt();
         _samples.Writer.TryComplete();
     }
 }
