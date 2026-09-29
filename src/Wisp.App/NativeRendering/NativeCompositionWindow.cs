@@ -41,7 +41,6 @@ internal sealed class NativeCompositionWindow : IDisposable
     private readonly Action<int> _failed;
     private readonly bool _fillMonitor;
     private bool _visible, _cloaked, _disposed, _synchronizing, _detached;
-    private IntPtr _owner;
     private Rectangle _bounds;
     private bool _topmost;
 
@@ -99,13 +98,14 @@ internal sealed class NativeCompositionWindow : IDisposable
             // Owning this popup from the cloaked WPF window would inherit its
             // cloak. Instead mirror the existing game ownership and Z-order.
             var owner = GetWindow(layout, 4); // GW_OWNER
-            if (owner != _owner)
+            // Windows clears ownership when the game exits. Reassigning NULL
+            // to an already-unowned popup fails with ERROR_INVALID_WINDOW_HANDLE.
+            if (owner != GetWindow(Handle, 4))
             {
                 Marshal.SetLastPInvokeError(0);
-                _ = SetWindowLongPtr(Handle, -8, owner);
+                var previousOwner = SetWindowLongPtr(Handle, -8, owner);
                 var error = Marshal.GetLastPInvokeError();
-                if (error != 0) throw new Win32Exception(error);
-                _owner = owner;
+                if (previousOwner == IntPtr.Zero && error != 0) throw new Win32Exception(error);
                 raise = true;
             }
             var topmost = (GetWindowLong(layout, -20) & 8) != 0;

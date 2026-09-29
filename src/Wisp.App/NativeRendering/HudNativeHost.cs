@@ -88,7 +88,7 @@ internal sealed class HudNativeHost : IDisposable
 
     private void BindViewModel()
     {
-        if (_vm is not null) _vm.PropertyChanged -= OnPropertyChanged;
+        if (_vm is not null) { _vm.PropertyChanged -= OnPropertyChanged; _vm.RemoveRendererHost(this); }
         _vm = _window.DataContext as DiagnosticsViewModel;
         if (_vm is not null) _vm.PropertyChanged += OnPropertyChanged;
     }
@@ -239,7 +239,7 @@ internal sealed class HudNativeHost : IDisposable
             _worker = new AnalogHudRenderWorker(_compositionWindow!.Handle, DebugLogging.TachDiagnostics.NextControlId(),
                 [], presentation, OnStatus, _vm?.ActiveCpuRendering == true, _nativeSource);
             _worker.HudPresented += OnPresented;
-            if (_vm is not null) _vm.NativeRendererStatus = "HUD renderer: native starting";
+            _vm?.ReportRendererHost(this, RendererHostState.Starting, "HUD renderer: native starting");
         }
         _worker.UpdateHud(_snapshot, Stopwatch.GetTimestamp());
     }
@@ -296,8 +296,8 @@ internal sealed class HudNativeHost : IDisposable
                 if (!visibleIds.Contains(source.Id) || IsPresented(source.Control)) continue;
                 source.Control.SetValue(PresentedProperty, true);
             }
-            if (_vm is not null) _vm.NativeRendererStatus = _vm.ActiveCpuRendering
-                ? "HUD renderer: CPU (WARP) / DirectComposition" : "HUD renderer: Direct3D 11 / DirectComposition";
+            if (_vm is not null) _vm.ReportRendererHost(this, RendererHostState.Ready, _vm.ActiveCpuRendering
+                ? "HUD renderer: CPU (WARP) / DirectComposition" : "HUD renderer: Direct3D 11 / DirectComposition");
         }));
     }
     private void OnStatus(bool ready, int hresult)
@@ -314,7 +314,7 @@ internal sealed class HudNativeHost : IDisposable
             _worker?.Dispose();
             RetireCompositionWindow();
             foreach (var source in _sources) source.Control.SetValue(PresentedProperty, false);
-            if (_vm is not null) _vm.NativeRendererStatus = $"HUD renderer: unavailable (0x{hresult:X8})";
+            _vm?.ReportRendererHost(this, RendererHostState.Failed, $"HUD renderer: unavailable (0x{hresult:X8})");
         }));
     }
     private static void SuppressWpfContent(Source source)
@@ -374,7 +374,7 @@ internal sealed class HudNativeHost : IDisposable
         _window.StateChanged -= OnLayoutUpdated;
         _window.Closed -= OnClosed;
         _window.DataContextChanged -= OnDataContextChanged;
-        if (_vm is not null) _vm.PropertyChanged -= OnPropertyChanged;
+        if (_vm is not null) { _vm.PropertyChanged -= OnPropertyChanged; _vm.RemoveRendererHost(this); }
         if (_worker is not null) { _worker.HudPresented -= OnPresented; _worker.Dispose(); }
         RetireCompositionWindow();
         RestoreWpfContent();

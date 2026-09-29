@@ -674,7 +674,9 @@ public sealed partial class AppController : IAsyncDisposable
             canCheck: true);
     }
 
-    public async Task<VerifiedInstaller?> PrepareApplicationUpdateAsync()
+    // confirmedVersion is the version the user confirmed. A newer release found by a background
+    // check meanwhile is presented for its own confirmation instead of being installed.
+    public async Task<VerifiedInstaller?> PrepareApplicationUpdateAsync(string? confirmedVersion = null)
     {
         if (_disposed || Interlocked.Exchange(ref _applicationUpdateOperation, 1) != 0)
         {
@@ -692,7 +694,14 @@ public sealed partial class AppController : IAsyncDisposable
 
             if (_pendingInstaller is { } pending && File.Exists(pending.StagedPath))
             {
-                return pending;
+                return confirmedVersion is null || pending.Version.ToString() == confirmedVersion ? pending : null;
+            }
+
+            if (_availableApplicationRelease is { } changed && confirmedVersion is not null &&
+                changed.Version.ToString() != confirmedVersion)
+            {
+                ShowAvailableApplicationUpdate(changed);
+                return null;
             }
 
             _pendingInstaller = null;
@@ -3128,6 +3137,13 @@ public sealed partial class AppController : IAsyncDisposable
             return false;
         }
 
+        var saved = WriteSettings();
+        Runs?.ReportPreferencesSaved(saved);
+        return saved;
+    }
+
+    private bool WriteSettings()
+    {
         try
         {
             _saveSettings(Settings);

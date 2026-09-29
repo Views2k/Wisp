@@ -293,11 +293,23 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                var result = await socket.ReceiveFromAsync(
-                    buffer.AsMemory(),
-                    SocketFlags.None,
-                    remoteEndpoint,
-                    cancellationToken).ConfigureAwait(false);
+                SocketReceiveFromResult result;
+                try
+                {
+                    result = await socket.ReceiveFromAsync(
+                        buffer.AsMemory(),
+                        SocketFlags.None,
+                        remoteEndpoint,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (SocketException exception) when (exception.SocketErrorCode == SocketError.MessageSize)
+                {
+                    // Windows discards the excess of a datagram larger than the buffer and reports it.
+                    // It cannot be telemetry, so count it as rejected and keep listening.
+                    RecordDatagram(drained: false);
+                    RejectOversizedDatagram();
+                    continue;
+                }
 
                 RecordDatagram(drained: false);
                 CaptureRunDatagram(buffer.AsSpan(0, result.ReceivedBytes));
@@ -356,19 +368,39 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     {
         for (var drained = 0; drained < MaximumDrainDatagrams && socket.Available > 0; drained++)
         {
-            ObserveSupersededDatagram(buffer.AsSpan(0, receivedBytes));
-            receivedBytes = socket.ReceiveFrom(
-                buffer,
-                0,
-                buffer.Length,
-                SocketFlags.None,
-                ref remoteEndpoint);
+            if (receivedBytes > 0) ObserveSupersededDatagram(buffer.AsSpan(0, receivedBytes));
+            try
+            {
+                receivedBytes = socket.ReceiveFrom(
+                    buffer,
+                    0,
+                    buffer.Length,
+                    SocketFlags.None,
+                    ref remoteEndpoint);
+            }
+            catch (SocketException exception) when (exception.SocketErrorCode == SocketError.MessageSize)
+            {
+                // The oversized datagram overwrote the buffer. An empty result is rejected as
+                // telemetry unless a later datagram in this drain replaces it.
+                RecordDatagram(drained: true);
+                receivedBytes = 0;
+                continue;
+            }
             RecordDatagram(drained: true);
             CaptureRunDatagram(buffer.AsSpan(0, receivedBytes));
             ObserveDatagram(buffer.AsSpan(0, receivedBytes), TelemetryPacketDiagnosticKind.Drained);
         }
 
         return receivedBytes;
+    }
+
+    private void RejectOversizedDatagram()
+    {
+        var stateObserver = Volatile.Read(ref _validatedStateObserver);
+        if (stateObserver is not null) ObserveValidatedState(stateObserver, null);
+        Volatile.Write(ref _lastParseError, (int)PacketParseError.IncorrectLength);
+        Interlocked.Increment(ref _rejectedPackets);
+        ObserveParsed(null, PacketParseError.IncorrectLength, LastDatagramTimestamp);
     }
 
     private void ObserveSupersededDatagram(ReadOnlySpan<byte> bytes)

@@ -105,6 +105,14 @@ public sealed partial class RunStore
         var source = RunPath(id);
         var destination = Path.Combine(trash, $"{id:N}.wisprun");
         CheckPath(destination);
+        if (File.Exists(destination))
+        {
+            // The run was removed before and imported again. Keep that earlier recovery copy under
+            // its own name; Undo restores this latest removal.
+            var earlier = Path.Combine(trash, $"{id:N}.{Guid.NewGuid():N}.wisprun");
+            CheckPath(earlier);
+            File.Move(destination, earlier, overwrite: false);
+        }
         File.Move(source, destination, overwrite: false);
         Volatile.Write(ref _isFull, false);
         await Task.CompletedTask;

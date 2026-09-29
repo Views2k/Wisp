@@ -331,6 +331,19 @@ public sealed class TimeAttackTests
     }
 
     [Fact]
+    public void ResettingDiscardsReferenceLapsWaitingToBeRestored()
+    {
+        var first = new LapDeltaTracker();
+        Reference(first);
+        var restarted = new LapDeltaTracker();
+        restarted.RestoreReferences(first.ExportReferences()!);
+        restarted.ResetReferences();
+        LapDeltaReading reading = LapDeltaReading.Waiting;
+        for (var i = 700; i <= 1300; i++) reading = Update(restarted, i / 10d, i / 10d);
+        Assert.Equal(LapDeltaStatus.RecordingLap, reading.Status);
+    }
+
+    [Fact]
     public void KeptReferenceLapsApplyOnlyToTheSameCar()
     {
         var first = new LapDeltaTracker();

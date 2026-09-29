@@ -2,6 +2,18 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.5.2 - 2026-09-29
+
+- Keep the HUD working when Forza restarts while Wisp stays open. When the game closed, Windows cleared the HUD window's owner, and Wisp treated that as a renderer failure that turned the HUD off until Wisp restarted.
+- Keep receiving telemetry after a packet larger than 2,048 bytes reaches Wisp's port; it is rejected instead of stopping the listener.
+- Save name, tune and note changes to a run imported again after it was removed.
+- Remove a run that was imported again after an earlier removal; the earlier recovery copy is kept under its own name.
+- Reset reference laps clears them at once, including laps kept from before a Wisp restart and their saved copy.
+- Write the latest reference laps before Wisp closes, so they return when Wisp restarts while Forza keeps running.
+- Install the version shown when you confirm an update; a newer release found meanwhile is shown for its own confirmation.
+- Diagnostics shows a HUD window's renderer failure even while other HUD windows run normally.
+- The Runs layout message says Saving layout… until the layout is written, and says when it could not be saved.
+
 ## 2.5.1 - 2026-09-26
 
 - End a Time Attack attempt, as Forza does, when the car stays stopped for five seconds or, once two laps agree on the circuit, stays off it or goes the wrong way for five seconds.

@@ -287,6 +287,15 @@ public sealed partial class RunsViewModel
         NotifyMetadata();
     }
 
+    // A removed run imported again starts from its imported details, like any library run. The
+    // edit kept for its removed copy would otherwise take new changes without ever saving them.
+    private void ForgetDeletedMetadata(IEnumerable<Guid> ids)
+    {
+        foreach (var id in ids)
+            if (_metadataEdits.TryGetValue(id, out var edit) && edit.Deleted) _metadataEdits.Remove(id);
+        NotifyMetadata();
+    }
+
     private static RunMetadataDraft MetadataOf(RecordedRun run) => new(run.Id, run.Name, run.Tune, run.Notes);
     private sealed class MetadataEdit(RunMetadataDraft draft)
     {

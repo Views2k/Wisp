@@ -6,6 +6,19 @@ namespace Wisp.App.Tests;
 
 public sealed class DiagnosticsViewModelTests
 {
+    [Fact]
+    public void AHealthyHudWindowDoesNotHideAnotherWindowsRendererFailure()
+    {
+        var viewModel = new DiagnosticsViewModel(new AppSettings());
+        object failed = new(), healthy = new();
+        viewModel.ReportRendererHost(failed, RendererHostState.Failed, "HUD renderer: unavailable (0x887A0005)");
+        viewModel.ReportRendererHost(healthy, RendererHostState.Starting, "HUD renderer: native starting");
+        viewModel.ReportRendererHost(healthy, RendererHostState.Ready, "HUD renderer: Direct3D 11 / DirectComposition");
+        Assert.Equal("HUD renderer: unavailable (0x887A0005) (1 of 2 HUD windows)", viewModel.NativeRendererStatus);
+        viewModel.RemoveRendererHost(failed);
+        Assert.Equal("HUD renderer: Direct3D 11 / DirectComposition", viewModel.NativeRendererStatus);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

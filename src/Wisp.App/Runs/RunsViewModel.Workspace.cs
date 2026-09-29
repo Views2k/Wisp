@@ -57,7 +57,7 @@ public sealed partial class RunsViewModel
         _selectedWorkspacePreset = WorkspacePresets.First(preset => preset.Id == _settings.RunWorkspace.Preset);
         _workspaceComparisonMode = WorkspaceComparisonModes.First(mode => mode.Id == _settings.RunWorkspace.ComparisonMode);
         LoadWorkspacePanels(_settings.RunWorkspace.Panels);
-        SaveWorkspaceCommand = Command(() => { PersistWorkspace(); WorkspaceStatus = "Layout saved."; return Task.CompletedTask; }, () => WorkspaceCanEdit);
+        SaveWorkspaceCommand = Command(() => { PersistWorkspace(explicitSave: true); return Task.CompletedTask; }, () => WorkspaceCanEdit);
         ResetWorkspaceCommand = Command(() => { ApplyWorkspacePreset(SelectedWorkspacePreset); return Task.CompletedTask; }, () => WorkspaceCanEdit);
     }
 
@@ -126,7 +126,10 @@ public sealed partial class RunsViewModel
         NotifyWorkspaceAvailability();
     }
 
-    private void PersistWorkspace()
+    private string _workspaceSavedMessage = "Layout saved automatically.";
+    private bool _workspaceSavePending;
+
+    private void PersistWorkspace(bool explicitSave = false)
     {
         var settings = new RunWorkspaceSettings
         {
@@ -136,9 +139,20 @@ public sealed partial class RunsViewModel
         };
         settings.Normalize();
         _settings.RunWorkspace = settings;
-        WorkspaceStatus = "Layout saved automatically.";
+        _workspaceSavedMessage = explicitSave ? "Layout saved." : "Layout saved automatically.";
+        _workspaceSavePending = true;
+        WorkspaceStatus = "Saving layout…";
         OnChanged(nameof(HasCustomWorkspaceLayout));
         PreferencesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    // The app reports each settings write; the layout status follows its outcome.
+    internal void ReportPreferencesSaved(bool saved)
+    {
+        if (!_workspaceSavePending) return;
+        _workspaceSavePending = !saved;
+        WorkspaceStatus = saved ? _workspaceSavedMessage
+            : "Layout not saved yet. Check available storage; Wisp tries again when a setting changes or when it closes.";
     }
 
     private void NotifyWorkspaceAvailability()

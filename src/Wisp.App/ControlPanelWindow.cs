@@ -886,14 +886,14 @@ public abstract partial class ControlPanelWindow : Window
 
     protected async void ConfirmApplicationUpdate_Click(object sender, RoutedEventArgs e)
     {
-        if (_applicationUpdateVersion is null)
+        if (_applicationUpdateVersion is not { } confirmedVersion)
         {
             HideApplicationUpdateConfirmation();
             return;
         }
 
         HideApplicationUpdateConfirmation();
-        var installer = await _controller.PrepareApplicationUpdateAsync();
+        var installer = await _controller.PrepareApplicationUpdateAsync(confirmedVersion);
         if (installer is null)
         {
             return;

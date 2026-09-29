@@ -27,6 +27,12 @@ public sealed partial class RunsViewModel
         try
         {
             var result = await StoreOperationAsync(() => _service.Store.ImportManyAsync(sources));
+            ForgetDeletedMetadata(result.Imported.Select(run => run.Id));
+            if (LastDeletedId is { } deleted && result.Imported.Any(run => run.Id == deleted))
+            {
+                // The removed run is back in the library; there is nothing left to undo.
+                LastDeletedId = null; OnChanged(nameof(CanUndoDelete));
+            }
             await LoadLibraryAsync();
             if (!HasRun && result.Imported.FirstOrDefault() is { } first && Library.FirstOrDefault(item => item.Id == first.Id) is { } item)
             {

@@ -107,6 +107,13 @@ public sealed class LapDeltaTracker
     }
     private readonly record struct Point(Vector3 Position, float Time, float Distance);
 
+    // Reset reference laps: also forget laps kept from before a restart and not yet restored.
+    public void ResetReferences()
+    {
+        _restoring = null;
+        Reset();
+    }
+
     public void Reset()
     {
         _timeAttack.Reset();

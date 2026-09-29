@@ -15,11 +15,33 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.5.2",
+            "September 29, 2026",
+            "RELIABILITY FIXES",
+            "The HUD keeps working when Forza restarts, and saved runs, reference laps, updates and renderer status behave as shown.",
+            true,
+            [
+                Group("HUD",
+                    "Keep the HUD working when Forza restarts while Wisp stays open. When the game closed, Windows cleared the HUD window's owner, and Wisp treated that as a renderer failure that turned the HUD off until Wisp restarted.",
+                    "Diagnostics shows a HUD window's renderer failure even while other HUD windows run normally. Before, the last window to report replaced the others' status."),
+                Group("Telemetry",
+                    "Keep receiving telemetry after a packet larger than 2,048 bytes reaches Wisp's port. It is now rejected; before, it stopped the listener until Wisp restarted."),
+                Group("Runs",
+                    "Save name, tune and note changes to a run imported again after it was removed. Before, they stayed in Wisp only and were lost when it closed.",
+                    "Remove a run that was imported again after an earlier removal. The earlier recovery copy is kept under its own name; before, its name blocked the removal.",
+                    "The layout message says Saving layout… until the layout is written, and says when it could not be saved."),
+                Group("Lap delta (beta)",
+                    "Reset reference laps clears them at once, including laps kept from before a Wisp restart and their saved copy. Before, it waited for the next telemetry, and laps kept from before a restart could return.",
+                    "Write the latest reference laps before Wisp closes, so they return when Wisp restarts while Forza keeps running."),
+                Group("Updates",
+                    "Install the version shown when you confirm an update. If a newer release appears while the confirmation is open, Wisp shows it for you to confirm.")
+            ]),
+        new(
             "2.5.1",
             "September 26, 2026",
             "LAP DELTA FIXES",
             "Time Attack attempts end when Forza ends them, reference laps survive a Wisp restart, the lap overlays draw less often, and HUD profiles keep more of your colors.",
-            true,
+            false,
             [
                 Group("Lap delta (beta)",
                     "End a Time Attack attempt when the car stays stopped for five seconds, or, once two laps agree on the circuit, stays off it or goes the wrong way for five seconds. The panel shows START A LAP until the next start-line crossing.",
