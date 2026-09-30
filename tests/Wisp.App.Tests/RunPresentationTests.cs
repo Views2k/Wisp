@@ -92,6 +92,59 @@ public sealed class RunPresentationTests
     }
 
     [Fact]
+    public void ChangedDrivenRadiusBreaksOnlyTheWheelCurveAndBetweenSampleReadout()
+    {
+        var run = new RecordedRun
+        {
+            Samples = [WheelSample(0, .3), WheelSample(.1, .3), WheelSample(.2, .31), WheelSample(.3, .31)]
+        };
+        var panel = Assert.Single(RunPresentation.Charts(run, null, RunChartGroup.Speed,
+            SpeedUnit.KilometersPerHour, TireTemperatureUnit.Celsius));
+        var ground = Assert.Single(panel.Series, series => series.Name == "A · Ground");
+        var wheels = Assert.Single(panel.Series, series => series.Name == "A · Wheels");
+        Assert.Single(ground.Points, point => point.BreakBefore);
+        Assert.Equal(new[] { 0d, .2 }, wheels.Points.Where(point => point.BreakBefore).Select(point => point.Seconds));
+        Assert.Empty(ground.Gaps);
+        var gap = Assert.Single(wheels.Gaps);
+        Assert.Equal(.1, gap.StartSeconds);
+        Assert.Equal(.2, gap.EndSeconds);
+        Assert.Equal(36, ground.ReadRecordedValue!(.15));
+        Assert.Null(wheels.ReadRecordedValue!(.15));
+        Assert.Equal(43.2, wheels.ReadRecordedValue!(.1)!.Value, 6);
+        Assert.Equal(44.64, wheels.ReadRecordedValue!(.2)!.Value, 6);
+        Assert.All(run.Samples.Zip(run.Samples.Skip(1)), pair => Assert.True(RunAnalysis.AreContinuous(pair.First, pair.Second)));
+    }
+
+    [Fact]
+    public void ChangedNonDrivenRadiusDoesNotBreakTheWheelCurve()
+    {
+        var run = new RecordedRun
+        {
+            Samples = [WheelSample(0, .3), WheelSample(.1, .3) with { FrontRadiusMeters = .4 }, WheelSample(.2, .3)]
+        };
+        var panel = Assert.Single(RunPresentation.Charts(run, null, RunChartGroup.Speed,
+            SpeedUnit.KilometersPerHour, TireTemperatureUnit.Celsius));
+        var wheels = Assert.Single(panel.Series, series => series.Name == "A · Wheels");
+        Assert.Single(wheels.Points, point => point.BreakBefore);
+        Assert.Empty(wheels.Gaps);
+        Assert.Equal(43.2, wheels.ReadRecordedValue!(.05)!.Value, 6);
+    }
+
+    [Fact]
+    public void ChangedCalibrationAtDuplicateTickDoesNotInventMissingTime()
+    {
+        RunSample[] samples = [WheelSample(0, .3), WheelSample(.1, .3), WheelSample(.1, .31), WheelSample(.2, .31)];
+        var points = RunPresentation.PreparePoints(samples, sample => sample.WheelSpeedMetersPerSecond, 0,
+            requireWheelCalibration: true);
+        Assert.True(points[2].BreakBefore);
+        Assert.False(points[3].BreakBefore);
+        Assert.Empty(RunPresentation.PrepareGaps(samples, sample => sample.WheelSpeedMetersPerSecond, 0,
+            requireWheelCalibration: true));
+        Assert.Equal(12.4, RunPresentation.RecordedValueAt(samples, sample => sample.WheelSpeedMetersPerSecond, .1,
+            requireWheelCalibration: true)!.Value, 6);
+    }
+
+    [Fact]
     public void UnknownTemperatureAndNaturallyAspiratedVacuumAreUnavailable()
     {
         var sample = Sample(0, 1000);
@@ -144,6 +197,19 @@ public sealed class RunPresentationTests
             SpeedUnit.KilometersPerHour, TireTemperatureUnit.Celsius), panel => panel.Unit == "°C");
         Assert.Equal("°C", temperature.Unit);
         Assert.Equal(100, temperature.Series[0].Points[0].Value, 3);
+    }
+
+    private static RunSample WheelSample(double seconds, double rearRadius)
+    {
+        var sample = Sample(seconds, 1000);
+        var state = sample.State with { WheelRotationRadiansPerSecond = new(40, 40, 40, 40) };
+        return sample with
+        {
+            State = state,
+            FrontRadiusMeters = .3,
+            RearRadiusMeters = rearRadius,
+            WheelSpeedMetersPerSecond = DrivenWheelSpeed.MetersPerSecond(state, new(.3, rearRadius))
+        };
     }
 
     internal static RunSample Sample(double seconds, float rpm) => new()

@@ -268,7 +268,7 @@ public static class RunAnalysis
             distance += (span.Speed(span.Start) + span.Speed(span.End)) * 0.5 * dt;
             throttle += AboveDuration(span.Lerp(span.A.State.Accelerator, span.B.State.Accelerator, span.Start), span.Lerp(span.A.State.Accelerator, span.B.State.Accelerator, span.End), FullThrottleMinimum, dt);
             braking += AboveDuration(span.Lerp(span.A.State.Brake, span.B.State.Brake, span.Start), span.Lerp(span.A.State.Brake, span.B.State.Brake, span.End), BrakingMinimum, dt);
-            if (HasSameCalibration(span.A, span.B) && Wheel(span.A) is { } wheelA && Wheel(span.B) is { } wheelB)
+            if (HasSameWheelCalibration(span.A, span.B) && Wheel(span.A) is { } wheelA && Wheel(span.B) is { } wheelB)
             {
                 var excessA = span.Lerp(wheelA - span.A.State.GroundSpeedMetersPerSecond, wheelB - span.B.State.GroundSpeedMetersPerSecond, span.Start);
                 var excessB = span.Lerp(wheelA - span.A.State.GroundSpeedMetersPerSecond, wheelB - span.B.State.GroundSpeedMetersPerSecond, span.End);
@@ -301,7 +301,9 @@ public static class RunAnalysis
             StartingRearTemperatureFahrenheit = startRear,
             EndingFrontTemperatureFahrenheit = endFront,
             EndingRearTemperatureFahrenheit = endRear,
-            AverageWheelSpeedExcessMetersPerSecond = wheelSeconds > Epsilon ? wheelIntegral / wheelSeconds : null
+            AverageWheelSpeedExcessMetersPerSecond = wheelSeconds > Epsilon ? wheelIntegral / wheelSeconds : null,
+            HasWheelSpeedSamples = ContextPoints(selection).Any(static sample =>
+                sample.WheelSpeedMetersPerSecond is { } wheel && double.IsFinite(wheel) && wheel >= 0)
         };
     }
 
@@ -356,16 +358,16 @@ public static class RunAnalysis
         var pointsB = ContextPoints(b);
         var referenceA = pointsA.FirstOrDefault();
         var referenceB = pointsB.FirstOrDefault();
-        return referenceA is not null && referenceB is not null && HasSameCalibration(referenceA, referenceB) &&
-               pointsA.All(p => Wheel(p) is not null && HasSameCalibration(referenceA, p)) &&
-               pointsB.All(p => Wheel(p) is not null && HasSameCalibration(referenceB, p));
+        return referenceA is not null && referenceB is not null && HasSameWheelCalibration(referenceA, referenceB) &&
+               pointsA.All(p => Wheel(p) is not null && HasSameWheelCalibration(referenceA, p)) &&
+               pointsB.All(p => Wheel(p) is not null && HasSameWheelCalibration(referenceB, p));
     }
 
     private static IEnumerable<RunSample> ContextPoints(Selection selection) => selection.Points.Concat(selection.Spans.SelectMany(static s => new[] { s.A, s.B }));
 
     private static bool WheelSpeedAhead(Span span)
     {
-        return Forward(span.A) && Forward(span.B) && HasSameCalibration(span.A, span.B) &&
+        return Forward(span.A) && Forward(span.B) && HasSameWheelCalibration(span.A, span.B) &&
             Ahead(span.A) && Ahead(span.B);
 
         static bool Ahead(RunSample s) => Wheel(s) is { } wheel && s.State.Accelerator >= FullThrottleMinimum &&
@@ -446,7 +448,7 @@ public static class RunAnalysis
         DrivetrainType.AllWheelDrive => Radius(p.FrontRadiusMeters) && Radius(p.RearRadiusMeters),
         _ => false
     };
-    private static bool HasSameCalibration(RunSample a, RunSample b) => TrustedCalibration(a) && TrustedCalibration(b) && a.State.Drivetrain == b.State.Drivetrain &&
+    public static bool HasSameWheelCalibration(RunSample a, RunSample b) => TrustedCalibration(a) && TrustedCalibration(b) && a.State.Drivetrain == b.State.Drivetrain &&
         (a.State.Drivetrain == DrivetrainType.RearWheelDrive || Math.Abs(a.FrontRadiusMeters!.Value - b.FrontRadiusMeters!.Value) <= 1e-6) &&
         (a.State.Drivetrain == DrivetrainType.FrontWheelDrive || Math.Abs(a.RearRadiusMeters!.Value - b.RearRadiusMeters!.Value) <= 1e-6);
 

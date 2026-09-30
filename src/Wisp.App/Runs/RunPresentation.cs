@@ -117,10 +117,11 @@ internal static class RunPresentation
                     var boostedCars = label == "Boost" ? run.Samples.Where(sample => Driving(sample) && !sample.State.IsElectric &&
                         float.IsFinite(sample.State.BoostPressurePsi) && sample.State.BoostPressurePsi > 0).Select(sample => sample.State.CarOrdinal).ToHashSet() : null;
                     double? Read(RunSample sample) => boostedCars is not null && !boostedCars.Contains(sample.State.CarOrdinal) ? null : read(sample);
-                    return new(name, comparison, color, PreparePoints(run.Samples, Read, offset, bounds))
+                    var requireWheelCalibration = label == "Wheels";
+                    return new(name, comparison, color, PreparePoints(run.Samples, Read, offset, bounds, requireWheelCalibration))
                     {
-                        ReadRecordedValue = seconds => RecordedValueAt(run.Samples, Read, seconds + offset, bounds),
-                        Gaps = PrepareGaps(run.Samples, Read, offset, bounds)
+                        ReadRecordedValue = seconds => RecordedValueAt(run.Samples, Read, seconds + offset, bounds, requireWheelCalibration),
+                        Gaps = PrepareGaps(run.Samples, Read, offset, bounds, requireWheelCalibration)
                     };
                 }
             }
@@ -134,7 +135,8 @@ internal static class RunPresentation
     }
 
     // Keep extrema and endpoints in chronological order, never bridge missing data.
-    internal static RunPlotPoint[] PreparePoints(RunSample[] samples, Func<RunSample, double?> read, double offset, RunInterval? bounds = null)
+    internal static RunPlotPoint[] PreparePoints(RunSample[] samples, Func<RunSample, double?> read, double offset, RunInterval? bounds = null,
+        bool requireWheelCalibration = false)
     {
         if (samples.Length == 0) return [];
         var points = new List<RunPlotPoint>(Math.Min(samples.Length, MaximumSeriesPoints));
@@ -145,7 +147,7 @@ internal static class RunPresentation
             var candidates = new List<(int Index, double Value, int Continuity)>(bucketSize);
             for (int index = start; index < Math.Min(samples.Length, start + bucketSize); index++)
             {
-                if (index == 0 || !ChartContinuous(samples[index - 1], samples[index])) continuity++;
+                if (index == 0 || !ChartContinuous(samples[index - 1], samples[index], requireWheelCalibration)) continuity++;
                 var sample = samples[index];
                 var value = read(sample);
                 if (!Driving(sample) || value is not double finite || !double.IsFinite(finite) ||
@@ -165,17 +167,19 @@ internal static class RunPresentation
         return points.ToArray();
     }
 
-    internal static bool ChartContinuous(RunSample previous, RunSample current) => RunAnalysis.AreContinuous(previous, current) ||
+    internal static bool ChartContinuous(RunSample previous, RunSample current, bool requireWheelCalibration = false) =>
+        (!requireWheelCalibration || RunAnalysis.HasSameWheelCalibration(previous, current)) && (RunAnalysis.AreContinuous(previous, current) ||
         (Driving(previous) && Driving(current) && current.ElapsedSeconds == previous.ElapsedSeconds &&
          current.State.GameTimestampMilliseconds == previous.State.GameTimestampMilliseconds && current.Segment == previous.Segment &&
-         current.State.CarOrdinal == previous.State.CarOrdinal && current.State.Drivetrain == previous.State.Drivetrain);
+         current.State.CarOrdinal == previous.State.CarOrdinal && current.State.Drivetrain == previous.State.Drivetrain));
 
     private static bool Driving(RunSample sample) => sample.IsDriving && sample.State.IsRaceOn &&
         double.IsFinite(sample.ElapsedSeconds) && sample.ElapsedSeconds >= 0 &&
         float.IsFinite(sample.State.GroundSpeedMetersPerSecond) && sample.State.GroundSpeedMetersPerSecond >= 0;
 
     // Cursor values come from the nearest original reading, never from reduced drawing vertices.
-    internal static double? RecordedValueAt(RunSample[] samples, Func<RunSample, double?> read, double seconds, RunInterval? bounds = null)
+    internal static double? RecordedValueAt(RunSample[] samples, Func<RunSample, double?> read, double seconds, RunInterval? bounds = null,
+        bool requireWheelCalibration = false)
     {
         if (samples.Length == 0 || seconds < samples[0].ElapsedSeconds || seconds > samples[^1].ElapsedSeconds ||
             (bounds is { } range && (seconds < range.StartSeconds || seconds > range.EndSeconds))) return null;
@@ -186,7 +190,7 @@ internal static class RunPresentation
         if (low < samples.Length - 1 && seconds > nearest.ElapsedSeconds)
         {
             var next = samples[low + 1];
-            if (!ChartContinuous(nearest, next) || read(nearest) is not double left || !double.IsFinite(left) ||
+            if (!ChartContinuous(nearest, next, requireWheelCalibration) || read(nearest) is not double left || !double.IsFinite(left) ||
                 read(next) is not double right || !double.IsFinite(right)) return null;
             if (next.ElapsedSeconds - seconds < seconds - nearest.ElapsedSeconds) nearest = next;
         }
@@ -200,14 +204,15 @@ internal static class RunPresentation
         return Driving(nearest) && value is double finite && double.IsFinite(finite) ? finite : null;
     }
 
-    internal static RunInterval[] PrepareGaps(RunSample[] samples, Func<RunSample, double?> read, double offset, RunInterval? bounds = null)
+    internal static RunInterval[] PrepareGaps(RunSample[] samples, Func<RunSample, double?> read, double offset, RunInterval? bounds = null,
+        bool requireWheelCalibration = false)
     {
         var gaps = new List<RunInterval>();
         RunSample? previous = null; bool interrupted = false;
         foreach (var sample in samples)
         {
             if (!Driving(sample) || read(sample) is not double value || !double.IsFinite(value)) { interrupted = true; continue; }
-            if (previous is not null && (interrupted || !ChartContinuous(previous, sample)) && sample.ElapsedSeconds > previous.ElapsedSeconds)
+            if (previous is not null && (interrupted || !ChartContinuous(previous, sample, requireWheelCalibration)) && sample.ElapsedSeconds > previous.ElapsedSeconds)
             {
                 var from = Math.Max(previous.ElapsedSeconds, bounds?.StartSeconds ?? 0);
                 var to = Math.Min(sample.ElapsedSeconds, bounds?.EndSeconds ?? double.MaxValue);

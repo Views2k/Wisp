@@ -8,6 +8,8 @@ namespace Wisp.App.Runs;
 public sealed class RunChartView : FrameworkElement
 {
     private StreamGeometry? _gapGeometry;
+    private DrawingGroup? _backgroundDrawing, _plotDrawing;
+    private double _preparedDpi;
     public static readonly DependencyProperty PanelProperty = DependencyProperty.Register(nameof(Panel), typeof(RunPlotPanel), typeof(RunChartView), new FrameworkPropertyMetadata(null, InvalidatePlot));
     public static readonly DependencyProperty StartSecondsProperty = DependencyProperty.Register(nameof(StartSeconds), typeof(double), typeof(RunChartView), new FrameworkPropertyMetadata(0d, InvalidatePlot));
     public static readonly DependencyProperty EndSecondsProperty = DependencyProperty.Register(nameof(EndSeconds), typeof(double), typeof(RunChartView), new FrameworkPropertyMetadata(1d, InvalidatePlot));
@@ -16,9 +18,9 @@ public sealed class RunChartView : FrameworkElement
     public static readonly DependencyProperty SelectionEndProperty = DependencyProperty.Register(nameof(SelectionEnd), typeof(double), typeof(RunChartView), new FrameworkPropertyMetadata(double.NaN, FrameworkPropertyMetadataOptions.AffectsRender));
     public static readonly DependencyProperty AccentBrushProperty = DependencyProperty.Register(nameof(AccentBrush), typeof(Brush), typeof(RunChartView), new FrameworkPropertyMetadata(Brushes.Turquoise, InvalidatePlot));
     public static readonly DependencyProperty TextBrushProperty = DependencyProperty.Register(nameof(TextBrush), typeof(Brush), typeof(RunChartView), new FrameworkPropertyMetadata(Brushes.WhiteSmoke, InvalidatePlot));
-    public static readonly DependencyProperty MutedBrushProperty = DependencyProperty.Register(nameof(MutedBrush), typeof(Brush), typeof(RunChartView), new FrameworkPropertyMetadata(Brushes.SlateGray, FrameworkPropertyMetadataOptions.AffectsRender));
+    public static readonly DependencyProperty MutedBrushProperty = DependencyProperty.Register(nameof(MutedBrush), typeof(Brush), typeof(RunChartView), new FrameworkPropertyMetadata(Brushes.SlateGray, InvalidatePlot));
     public static readonly DependencyProperty WarningBrushProperty = DependencyProperty.Register(nameof(WarningBrush), typeof(Brush), typeof(RunChartView), new FrameworkPropertyMetadata(Brushes.Orange, InvalidatePlot));
-    public static readonly DependencyProperty MarkersProperty = DependencyProperty.Register(nameof(Markers), typeof(IEnumerable<RunPlotMarker>), typeof(RunChartView), new FrameworkPropertyMetadata(Array.Empty<RunPlotMarker>(), FrameworkPropertyMetadataOptions.AffectsRender));
+    public static readonly DependencyProperty MarkersProperty = DependencyProperty.Register(nameof(Markers), typeof(IEnumerable<RunPlotMarker>), typeof(RunChartView), new FrameworkPropertyMetadata(Array.Empty<RunPlotMarker>(), InvalidatePlot));
     private readonly List<(Geometry Geometry, Pen Pen)> _paths = [];
     private Size _preparedSize;
     private bool _prepared;
@@ -56,29 +58,18 @@ public sealed class RunChartView : FrameworkElement
     {
         if ((!IsVisible && !RenderOffscreen) || Panel is null || ActualWidth < 100 || ActualHeight < 100) return;
         base.OnRender(drawing);
-        drawing.DrawRectangle(Brushes.Transparent, null, new Rect(RenderSize));
-        Text(drawing, Panel.Title + " · " + Panel.Unit, 13, TextBrush, new Point(0, 0));
+        if (!_prepared || _preparedSize != RenderSize || _preparedDpi != VisualTreeHelper.GetDpi(this).PixelsPerDip) Prepare();
+        drawing.DrawDrawing(_backgroundDrawing!);
         for (int index = 0; index < Panel.Series.Length; index++)
         {
             var series = Panel.Series[index];
             var x = index % 2 * ActualWidth / 2;
             var y = 24 + index / 2 * 19;
-            var pen = PenFor(series);
+            var pen = _paths[index].Pen;
             drawing.DrawLine(pen, new Point(x, y + 7), new Point(x + 20, y + 7));
             Text(drawing, series.Name + ": " + ValueAt(series, CursorSeconds), 10.5, HasComparison ? pen.Brush : TextBrush, new Point(x + 26, y), ActualWidth / 2 - 30);
         }
         var plot = Plot;
-        var gridPen = new Pen(MutedBrush, .4);
-        for (int index = 0; index <= 4; index++)
-        {
-            double fraction = index / 4d;
-            var y = plot.Bottom - fraction * plot.Height;
-            drawing.DrawLine(gridPen, new Point(plot.Left, y), new Point(plot.Right, y));
-            Text(drawing, (Panel.Minimum + fraction * (Panel.Maximum - Panel.Minimum)).ToString("0.#", CultureInfo.CurrentCulture),
-                10, MutedBrush, new Point(0, y - 6), 48);
-            Text(drawing, RunPresentation.Time(StartSeconds + fraction * Range), 10, MutedBrush,
-                new Point(plot.Left + fraction * plot.Width - (index == 4 ? 30 : 0), plot.Bottom + 7), 58);
-        }
         drawing.PushClip(new RectangleGeometry(plot));
         double selectionStart = _dragStart ?? SelectionStart, selectionEnd = _dragEnd ?? SelectionEnd;
         if (double.IsFinite(selectionStart) && double.IsFinite(selectionEnd))
@@ -89,18 +80,10 @@ public sealed class RunChartView : FrameworkElement
             drawing.DrawRectangle(AccentBrush, null, new Rect(left, plot.Top, Math.Max(0, right - left), plot.Height));
             drawing.Pop();
         }
-        if (!_prepared || _preparedSize != RenderSize) Prepare();
-        foreach (var (geometry, pen) in _paths) drawing.DrawGeometry(null, pen, geometry);
-        if (_gapGeometry is not null)
-        {
-            drawing.PushOpacity(.15); drawing.DrawGeometry(MutedBrush, null, _gapGeometry); drawing.Pop();
-        }
-        DrawMarkers(drawing);
+        drawing.DrawDrawing(_plotDrawing!);
         if (CursorSeconds >= StartSeconds && CursorSeconds <= EndSeconds)
             drawing.DrawLine(new Pen(TextBrush, 1), new Point(X(CursorSeconds), plot.Top), new Point(X(CursorSeconds), plot.Bottom));
         drawing.Pop();
-        if (Panel.Series.All(series => series.Points.Length == 0))
-            Text(drawing, "This channel was not available in the recording.", 12, MutedBrush, new Point(plot.Left + 8, plot.Top + 24), plot.Width - 16);
     }
     private void DrawMarkers(DrawingContext drawing)
     {
@@ -154,6 +137,34 @@ public sealed class RunChartView : FrameworkElement
         }
         _prepared = true;
         _preparedSize = RenderSize;
+        _preparedDpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        _backgroundDrawing = new DrawingGroup();
+        using (var drawing = _backgroundDrawing.Open())
+        {
+            drawing.DrawRectangle(Brushes.Transparent, null, new Rect(RenderSize));
+            Text(drawing, Panel.Title + " · " + Panel.Unit, 13, TextBrush, new Point(0, 0));
+            var plot = Plot;
+            var gridPen = new Pen(MutedBrush, .4);
+            for (var index = 0; index <= 4; index++)
+            {
+                var fraction = index / 4d;
+                var y = plot.Bottom - fraction * plot.Height;
+                drawing.DrawLine(gridPen, new(plot.Left, y), new(plot.Right, y));
+                Text(drawing, (Panel.Minimum + fraction * (Panel.Maximum - Panel.Minimum)).ToString("0.#", CultureInfo.CurrentCulture),
+                    10, MutedBrush, new(0, y - 6), 48);
+                Text(drawing, RunPresentation.Time(StartSeconds + fraction * Range), 10, MutedBrush,
+                    new(plot.Left + fraction * plot.Width - (index == 4 ? 30 : 0), plot.Bottom + 7), 58);
+            }
+        }
+        _plotDrawing = new DrawingGroup();
+        using (var drawing = _plotDrawing.Open())
+        {
+            foreach (var (geometry, pen) in _paths) drawing.DrawGeometry(null, pen, geometry);
+            drawing.PushOpacity(.15); drawing.DrawGeometry(MutedBrush, null, _gapGeometry); drawing.Pop();
+            DrawMarkers(drawing);
+            if (Panel.Series.All(series => series.Points.Length == 0))
+                Text(drawing, "This channel was not available in the recording.", 12, MutedBrush, new(Plot.Left + 8, Plot.Top + 24), Plot.Width - 16);
+        }
     }
     private Pen PenFor(RunPlotSeries series)
     {

@@ -159,6 +159,24 @@ public sealed class RunAnalysisTests
     }
 
     [Fact]
+    public void WheelDataPresenceDistinguishesMissingReadingsFromAnUnusableInterval()
+    {
+        var missing = RunAnalysis.BuildReport(Run(Sample(0, wheel: null), Sample(.1, wheel: null))).Statistics;
+        Assert.False(missing.HasWheelSpeedSamples);
+        Assert.Null(missing.AverageWheelSpeedExcessMetersPerSecond);
+
+        var isolated = RunAnalysis.BuildReport(Run(Sample(0, wheel: 20))).Statistics;
+        Assert.True(isolated.HasWheelSpeedSamples);
+        Assert.Null(isolated.AverageWheelSpeedExcessMetersPerSecond);
+
+        var changed = RunAnalysis.BuildReport(Run(Sample(0, wheel: 20), Sample(.1, wheel: 20) with { RearRadiusMeters = .4 }),
+            interval: new(.02, .08)).Statistics;
+        Assert.Equal(0, changed.SampleCount);
+        Assert.True(changed.HasWheelSpeedSamples);
+        Assert.Null(changed.AverageWheelSpeedExcessMetersPerSecond);
+    }
+
+    [Fact]
     public void WheelExcessIntegratesOnlyPositivePartAndOnlyTrustedCalibration()
     {
         var stats = RunAnalysis.BuildReport(Run(Sample(0, 10, wheel: 0), Sample(0.2, 10, wheel: 20))).Statistics;
