@@ -1,21 +1,25 @@
-Wisp 2.5.3 Clips Resilience Preview 1
-Private build ID: clips-resilience-20260930-01
+Wisp 2.5.3 Clips Resilience Preview 2
+Private build ID: clips-resilience-20260930-02
 
 This private candidate adds Clips and preserves the confirmed shift-coverage hotfix.
 It uses your existing Wisp installation, local settings, calibrations and saved runs.
 It is not a separate installation. It has not been published as a public release.
 
 Clips
-Open Clips between Extras and Release Notes. Choose a folder on a local drive,
-then enable clipping. Save clip keeps the available recent recording. Clipping
-is off by default, and recording settings can be changed while it is off.
+Open Clips between Extras and Release Notes. Enable clipping to keep a rolling
+recording. Save clip keeps a moment in Wisp's private library, ready to watch.
+Export copies the selected clip to your export folder. No export folder is needed
+to record. Clipping is off by default; change recording settings while it is off.
 The default is 60 seconds at 1080p60, quality 75. Lengths run from 30 to 300
 seconds in 30-second steps. Select 360p through 2160p and 30 or 60 fps.
 Higher quality and resolution use more storage. Five-minute clips take longer
 to save and need more space. The rolling buffer uses local app data under
-Wisp\ClipBuffer. Only finished MP4s are published to your selected folder.
-Choose a shorter folder path if Wisp says the location is too long for playback.
-Existing clips in that folder remain available to browse and export.
+Wisp\ClipBuffer. Saved clips use Wisp\Clips in local app data and appear in Wisp.
+Only Export writes a finished MP4 to your chosen export folder. Repeating an
+export verifies and reuses the existing file, rather than creating a duplicate.
+Changing the export folder does not change your private library or stop recording.
+Existing indexed clips are imported into the private library; originals are kept.
+An existing identical legacy clip in the export folder is reused without a copy.
 
 Enable and assign the two shortcuts separately: toggle clipping and save a clip.
 New shortcut defaults are Ctrl+Alt+F8 and Ctrl+Alt+F9. Existing assignments stay
@@ -25,15 +29,20 @@ behind the active save; queued clips include footage through processing time.
 Success shows the actual saved duration. Interruptions cancel queued saves
 with a message instead of saving a different moment after reconnecting.
 Saved clips appear 25 per page; the number of columns adapts to the window.
-Click a clip to watch it. Export copies its recorded resolution and quality;
+Click a clip to watch it in the enlarged player, which fits the available window
+and keeps the video's aspect ratio. The video has an opaque black backing and no
+scroll fade over it. Export copies its recorded resolution and quality;
 it cannot restore detail removed by compression or increase captured detail.
 Dashboard reminders identify clips not yet viewed or exported. Storage or
 recording errors still appear even when reminders are off.
 
 Audio comes from the game process when supported, never your microphone or all
 desktop audio. Clips capture the game window and exclude the separate Wisp HUD.
-An explicit enable action requests borderless capture access. Windows can deny
-or leave this unavailable; Wisp then explains that the normal border remains.
+Show capture border is off by default. An explicit enable action asks Windows
+for permission to hide the border; automatic startup checks existing access
+without prompting. Turning Show capture border on intentionally keeps it visible.
+Windows can deny or leave access unavailable; Wisp then explains that Windows
+may still require the border. This switch cannot override Windows permissions.
 Clipping stays enabled through recoverable interruptions. Stale frames repeat
 with a visible status. A changed game/audio/video session reconnects with a new
 rolling buffer; footage across incompatible sessions is not stitched together.

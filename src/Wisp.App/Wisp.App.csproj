@@ -16,8 +16,8 @@
     <AssemblyVersion>2.5.3.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
-    <AssemblyMetadata Include="WispDiagnosticBuildId" Value="clips-resilience-20260930-01" />
-    <AssemblyMetadata Include="WispDiagnosticBuildLabel" Value="Wisp 2.5.3 Clips Resilience Preview 1" />
+    <AssemblyMetadata Include="WispDiagnosticBuildId" Value="clips-resilience-20260930-02" />
+    <AssemblyMetadata Include="WispDiagnosticBuildLabel" Value="Wisp 2.5.3 Clips Resilience Preview 2" />
     <AssemblyMetadata Include="WispLapDiagnosticsEnabled" Value="false" />
   </ItemGroup>
   <ItemGroup>
