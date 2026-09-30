@@ -1,0 +1,611 @@
+#include "HdrFrameConverter.h"
+
+#include <DirectXPackedVector.h>
+#include <d3d10_1.h>
+#include <dxgi1_2.h>
+#include <tlhelp32.h>
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cwchar>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <thread>
+#include <vector>
+
+namespace
+{
+    using namespace recorder::hdr;
+    using namespace DirectX::PackedVector;
+    using Microsoft::WRL::ComPtr;
+    using Clock = std::chrono::steady_clock;
+    constexpr UINT SourceWidth = 3840, SourceHeight = 2160, Tolerance = 2;
+    std::atomic<bool> cancelled{ false };
+    struct Failure { const char* reason; HRESULT hr; };
+    void Check(HRESULT hr, const char* reason) { if (FAILED(hr)) throw Failure{ reason, hr }; }
+    void Require(bool value, const char* reason) { if (!value) throw Failure{ reason, E_FAIL }; }
+    BOOL WINAPI Cancel(DWORD signal) noexcept
+    {
+        if (signal != CTRL_C_EVENT && signal != CTRL_BREAK_EVENT) return FALSE;
+        cancelled.store(true); return TRUE;
+    }
+    bool ForzaRunning()
+    {
+        const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        Check(snapshot == INVALID_HANDLE_VALUE ? HRESULT_FROM_WIN32(GetLastError()) : S_OK, "process_enumeration_failed");
+        struct Close { HANDLE value; ~Close() { CloseHandle(value); } } close{ snapshot };
+        PROCESSENTRY32W entry{}; entry.dwSize = sizeof(entry);
+        Check(Process32FirstW(snapshot, &entry) ? S_OK : HRESULT_FROM_WIN32(GetLastError()), "process_enumeration_failed");
+        do
+        {
+            if (_wcsicmp(entry.szExeFile, L"ForzaHorizon6.exe") == 0 || _wcsicmp(entry.szExeFile, L"ForzaHorizon5.exe") == 0 ||
+                _wcsicmp(entry.szExeFile, L"ForzaHorizon4.exe") == 0 || _wcsicmp(entry.szExeFile, L"ForzaMotorsport.exe") == 0) return true;
+        } while (Process32NextW(snapshot, &entry));
+        Check(GetLastError() == ERROR_NO_MORE_FILES ? S_OK : HRESULT_FROM_WIN32(GetLastError()), "process_enumeration_failed");
+        return false;
+    }
+    enum class Mode { Help, SelfTest, Fixture, SdrFixture };
+    struct Options { Mode mode = Mode::Help; UINT adapter = 0, timeoutMs = 10000, whiteNits = 0; };
+    bool Number(const wchar_t* text, UINT minimum, UINT maximum, UINT& result) noexcept
+    {
+        if (!text || !*text) return false;
+        UINT value = 0;
+        for (; *text; ++text)
+        {
+            if (*text < L'0' || *text > L'9') return false;
+            const UINT digit = static_cast<UINT>(*text - L'0');
+            if (value > (maximum - digit) / 10) return false;
+            value = value * 10 + digit;
+        }
+        if (value < minimum || value > maximum) return false;
+        result = value; return true;
+    }
+    bool Parse(int argc, const wchar_t* const* argv, Options& options) noexcept
+    {
+        options = {};
+        if (argc == 1 || (argc == 2 && wcscmp(argv[1], L"--help") == 0)) return true;
+        if (argc == 2 && wcscmp(argv[1], L"--self-test") == 0) { options.mode = Mode::SelfTest; return true; }
+        if (argc < 2) return false;
+        if (wcscmp(argv[1], L"--hdr-conversion-fixture") == 0) options.mode = Mode::Fixture;
+        else if (wcscmp(argv[1], L"--sdr-conversion-fixture") == 0) options.mode = Mode::SdrFixture;
+        else return false;
+        UINT seen = 0;
+        for (int i = 2; i < argc; i += 2)
+        {
+            if (i + 1 >= argc) return false;
+            if (wcscmp(argv[i], L"--adapter-index") == 0)
+            {
+                if ((seen & 1) || !Number(argv[i + 1], 0, 15, options.adapter)) return false;
+                seen |= 1;
+            }
+            else if (wcscmp(argv[i], L"--timeout-ms") == 0)
+            {
+                if ((seen & 2) || !Number(argv[i + 1], 1000, 30000, options.timeoutMs)) return false;
+                seen |= 2;
+            }
+            else if (wcscmp(argv[i], L"--reference-white-nits") == 0)
+            {
+                if (options.mode != Mode::Fixture || (seen & 4) || !Number(argv[i + 1], 10, 1000, options.whiteNits)) return false;
+                seen |= 4;
+            }
+            else return false;
+        }
+        return options.mode == Mode::SdrFixture || (seen & 4) != 0;
+    }
+
+    struct Rgb { double r, g, b; };
+    const double NotFinite = (std::numeric_limits<double>::quiet_NaN)();
+    const double Infinity = (std::numeric_limits<double>::infinity)();
+    const std::array<Rgb, 16> Colors{{ {0,0,0}, {.001,.001,.001}, {.018,.018,.018}, {.18,.18,.18},
+        {1,1,1}, {2,2,2}, {4,4,4}, {12.5,12.5,12.5}, {4,0,0}, {0,4,0}, {0,0,4},
+        {-.5,1,.2}, {-1,-1,-1}, {NotFinite,1,1}, {Infinity,1,1}, {.0184,.0184,.0184} }};
+    using Pixel = std::array<HALF, 4>;
+    Pixel Pack(Rgb value)
+    {
+        return { XMConvertFloatToHalf(static_cast<float>(value.r)), XMConvertFloatToHalf(static_cast<float>(value.g)),
+            XMConvertFloatToHalf(static_cast<float>(value.b)), XMConvertFloatToHalf(1.0f) };
+    }
+    Rgb Quantized(Rgb value)
+    {
+        const auto pixel = Pack(value);
+        return { XMConvertHalfToFloat(pixel[0]), XMConvertHalfToFloat(pixel[1]), XMConvertHalfToFloat(pixel[2]) };
+    }
+    UINT ColorIndex(UINT patch, UINT frame) { return (patch + frame * 7) % static_cast<UINT>(Colors.size()); }
+    Rgb Generated(UINT x, UINT y, UINT frame)
+    {
+        if (frame < 2)
+        {
+            const UINT patch = (y / (OutputHeight / 4)) * 4 + x / (OutputWidth / 4);
+            return Colors[ColorIndex(patch, frame)];
+        }
+        if (y < OutputHeight / 2)
+        {
+            const double value = static_cast<double>(x) / 120;
+            return { value, value, value };
+        }
+        return ((x / 7 + y / 5) & 1) ? Rgb{4,0,0} : Rgb{0,0,4};
+    }
+    double Oetf(double value)
+    {
+        // ITU-R BT.709-6 section 1.2, including its specified breakpoint.
+        return value < .018 ? 4.5 * value : 1.099 * std::pow(value, .45) - .099;
+    }
+    using Bgra = std::array<BYTE, 4>;
+    constexpr std::array<Bgra, 16> SdrColors{{ {0,0,0,255}, {255,255,255,255},
+        {0,0,255,255}, {0,255,0,255}, {255,0,0,255}, {255,255,0,255}, {255,0,255,255}, {0,255,255,255},
+        {10,10,10,255}, {11,11,11,255}, {32,32,32,255}, {64,64,64,255}, {128,128,128,255},
+        {192,192,192,255}, {23,109,217,255}, {201,71,13,255} }};
+    Bgra SdrGenerated(UINT x, UINT y, UINT frame)
+    {
+        if (frame < 2)
+        {
+            const UINT patch = (y / (SourceHeight / 4)) * 4 + x / (SourceWidth / 4);
+            // Frame 1 varies within each source 2x2 footprint. Replicating
+            // output pixels would miss a decode-before-filter regression.
+            const UINT variation = frame == 0 ? 0 : (x & 1) * 3 + (y & 1) * 7;
+            return SdrColors[(patch + variation) % static_cast<UINT>(SdrColors.size())];
+        }
+        if (y < SourceHeight / 2)
+        {
+            const BYTE value = static_cast<BYTE>(x * 255 / (SourceWidth - 1));
+            return { value, value, value, 255 };
+        }
+        return ((x / 7 + y / 5) & 1) ? Bgra{0,0,255,255} : Bgra{255,0,0,255};
+    }
+    double SrgbLinear(double value)
+    {
+        return value <= .04045 ? value / 12.92 : std::pow((value + .055) / 1.055, 2.4);
+    }
+    Rgb SdrTransfer(Rgb code)
+    {
+        return { Oetf(SrgbLinear(code.r)), Oetf(SrgbLinear(code.g)), Oetf(SrgbLinear(code.b)) };
+    }
+    Rgb SdrReferenceCode(UINT x, UINT y, UINT frame)
+    {
+        // A normalized output pixel center maps to (2*x+.5,2*y+.5) in
+        // source texel-index coordinates: four BGRA8_UNORM samples, each 1/4.
+        // Filter quantized code values FIRST; _UNORM performs no sRGB decode.
+        static_assert(SourceWidth == 2 * OutputWidth && SourceHeight == 2 * OutputHeight);
+        Rgb filtered{};
+        for (UINT row = 0; row < 2; ++row)
+            for (UINT column = 0; column < 2; ++column)
+            {
+                const auto pixel = SdrGenerated(x * 2 + column, y * 2 + row, frame);
+                filtered.r += pixel[2] / 1020.0;
+                filtered.g += pixel[1] / 1020.0;
+                filtered.b += pixel[0] / 1020.0;
+            }
+        return SdrTransfer(filtered);
+    }
+    Rgb ReferenceCode(Rgb input, double referenceWhite)
+    {
+        // Independent double-precision reference. FP16 quantization is modeled
+        // before the appearance transform because that is the GPU source.
+        input = Quantized(input);
+        if (!std::isfinite(input.r) || !std::isfinite(input.g) || !std::isfinite(input.b)) return {};
+        const double factor = 80 / referenceWhite;
+        input.r *= factor; input.g *= factor; input.b *= factor;
+        const double luminance = .2126 * input.r + .7152 * input.g + .0722 * input.b;
+        if (!std::isfinite(luminance) || luminance <= 0) return {};
+        const double neutral = luminance / (1 + luminance);
+        std::array<double, 3> channels{ input.r / (1 + luminance), input.g / (1 + luminance), input.b / (1 + luminance) };
+        double compression = 1;
+        for (const double channel : channels)
+        {
+            const double delta = channel - neutral;
+            if (delta > 0) compression = (std::min)(compression, (1 - neutral) / delta);
+            else if (delta < 0) compression = (std::min)(compression, -neutral / delta);
+        }
+        for (auto& channel : channels)
+            channel = Oetf(std::clamp(neutral + compression * (channel - neutral), 0.0, 1.0));
+        return { channels[0], channels[1], channels[2] };
+    }
+    struct Yuv { UINT y, u, v; };
+    Yuv Matrix(Rgb code)
+    {
+        const double y = .2126 * code.r + .7152 * code.g + .0722 * code.b;
+        return { static_cast<UINT>(std::floor(16 + 219 * y + .5)),
+            static_cast<UINT>(std::floor(128 + 112 * (code.b - y) / .9278 + .5)),
+            static_cast<UINT>(std::floor(128 + 112 * (code.r - y) / .7874 + .5)) };
+    }
+    Yuv ReferenceAt(UINT x, UINT y, UINT frame, UINT whiteNits, bool sdr = false)
+    {
+        return Matrix(sdr ? SdrReferenceCode(x, y, frame) : ReferenceCode(Generated(x, y, frame), whiteNits));
+    }
+    Yuv ReferenceChroma(UINT x, UINT y, UINT frame, UINT whiteNits, bool sdr = false)
+    {
+        Rgb filtered{};
+        for (int row = 0; row < 2; ++row)
+            for (int column = -1; column <= 1; ++column)
+            {
+                const int sampleX = std::clamp(static_cast<int>(x) + column, 0, static_cast<int>(OutputWidth) - 1);
+                const UINT sampleY = (std::min)(y + static_cast<UINT>(row), OutputHeight - 1);
+                const auto code = sdr ? SdrReferenceCode(static_cast<UINT>(sampleX), sampleY, frame) :
+                    ReferenceCode(Generated(static_cast<UINT>(sampleX), sampleY, frame), whiteNits);
+                const double weight = column == 0 ? .25 : .125;
+                filtered.r += code.r * weight; filtered.g += code.g * weight; filtered.b += code.b * weight;
+            }
+        return Matrix(filtered);
+    }
+    struct Measurement { UINT checked = 0, maximumError = 0; };
+    void Record(Measurement& result, UINT observed, UINT expected)
+    {
+        ++result.checked;
+        const UINT error = observed > expected ? observed - expected : expected - observed;
+        result.maximumError = (std::max)(result.maximumError, error);
+    }
+    UINT ReadY(const D3D11_MAPPED_SUBRESOURCE& mapped, UINT x, UINT y)
+    {
+        return static_cast<const BYTE*>(mapped.pData)[static_cast<size_t>(y) * mapped.RowPitch + x];
+    }
+    void CheckPoint(const D3D11_MAPPED_SUBRESOURCE& mapped, UINT x, UINT y, UINT frame, UINT whiteNits, Measurement& result, bool sdr = false)
+    {
+        Record(result, ReadY(mapped, x, y), ReferenceAt(x, y, frame, whiteNits, sdr).y);
+        const UINT chromaX = x & ~1u, chromaY = y & ~1u;
+        const auto expected = ReferenceChroma(chromaX, chromaY, frame, whiteNits, sdr);
+        const size_t offset = static_cast<size_t>(mapped.RowPitch) * OutputHeight +
+            static_cast<size_t>(chromaY / 2) * mapped.RowPitch + chromaX;
+        const auto* bytes = static_cast<const BYTE*>(mapped.pData);
+        Record(result, bytes[offset], expected.u); Record(result, bytes[offset + 1], expected.v);
+    }
+
+    UINT SelfTest()
+    {
+        UINT passed = 0;
+        Options options;
+        const wchar_t* defaults[]{ L"fixture" };
+        if (!Parse(1, defaults, options) || options.mode != Mode::Help) return 0;
+        ++passed;
+        const wchar_t* valid[]{ L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"80",L"--adapter-index",L"15",L"--timeout-ms",L"30000" };
+        if (!Parse(8, valid, options) || options.whiteNits != 80 || options.adapter != 15 || options.timeoutMs != 30000) return 0;
+        ++passed;
+        const wchar_t* invalid[][6]{ {L"fixture",L"--hdr-conversion-fixture"}, {L"fixture",L"--capture"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"9"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"1001"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"NaN"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"-80"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"80.0"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"80",L"--reference-white-nits",L"80"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"80",L"--adapter-index",L"16"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"80",L"--timeout-ms",L"999"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits",L"80",L"--timeout-ms",L"30001"},
+            {L"fixture",L"--self-test",L"--hdr-conversion-fixture"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--reference-white-nits"} };
+        for (const auto& args : invalid)
+        {
+            int argc = 0; while (argc < 6 && args[argc]) ++argc;
+            if (Parse(argc, args, options)) return 0;
+            ++passed;
+        }
+        if (ValidateConfiguration(3840,2160,SourceEncoding::LinearScRgbFp16,80) ||
+            ValidateConfiguration(1920,1080,SourceEncoding::LinearScRgbFp16,1000)) return 0;
+        ++passed;
+        if (!ValidateConfiguration(3840,2160,SourceEncoding::Unknown,80) ||
+            !ValidateConfiguration(3840,2160,SourceEncoding::LinearScRgbFp16,static_cast<float>(NotFinite)) ||
+            !ValidateConfiguration(1920,1200,SourceEncoding::LinearScRgbFp16,80)) return 0;
+        ++passed;
+        if (std::abs(Oetf(.001) - .0045) > 1e-12 || std::abs(Oetf(1) - 1) > 1e-12 ||
+            std::abs(Oetf(.018) - .08124794403514046) > 1e-12) return 0;
+        ++passed;
+        const auto black = Matrix(ReferenceCode({0,0,0},80));
+        const auto white = Matrix(ReferenceCode({1,1,1},80));
+        if (black.y != 16 || black.u != 128 || black.v != 128 || white.y != 171 || white.u != 128 || white.v != 128) return 0;
+        ++passed;
+        const auto diffuse = ReferenceCode({1,1,1},80), brighter = ReferenceCode({2,2,2},80), brightest = ReferenceCode({12.5,12.5,12.5},80);
+        if (!(diffuse.r < brighter.r && brighter.r < brightest.r && brightest.r < 1)) return 0;
+        ++passed;
+        for (UINT i = 11; i < Colors.size(); ++i)
+        {
+            const auto code = ReferenceCode(Colors[i],80);
+            if (!std::isfinite(code.r) || !std::isfinite(code.g) || !std::isfinite(code.b) ||
+                code.r < 0 || code.r > 1 || code.g < 0 || code.g > 1 || code.b < 0 || code.b > 1) return 0;
+            if (i >= 12 && i <= 14 && (code.r != 0 || code.g != 0 || code.b != 0)) return 0;
+        }
+        ++passed;
+        const auto normalized = ReferenceCode({2,2,2},160);
+        if (std::abs(normalized.r - diffuse.r) > 1e-12) return 0;
+        ++passed;
+        // A left-sited edge must differ from a centered 2x2 chroma box.
+        const auto left = ReferenceChroma(6,600,2,80);
+        const auto a = ReferenceCode(Generated(6,600,2),80), b = ReferenceCode(Generated(7,600,2),80);
+        const auto centered = Matrix({(a.r+b.r)/2,(a.g+b.g)/2,(a.b+b.b)/2});
+        if (left.u == centered.u && left.v == centered.v) return 0;
+        ++passed;
+        D3D11_TEXTURE2D_DESC input{}, output{};
+        input.Width = SourceWidth; input.Height = SourceHeight; input.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        input.ArraySize = input.MipLevels = input.SampleDesc.Count = 1; input.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        output = input; output.Width = OutputWidth; output.Height = OutputHeight;
+        output.Format = DXGI_FORMAT_NV12; output.BindFlags = D3D11_BIND_RENDER_TARGET;
+        if (ValidateSurfaces(input,output,SourceWidth,SourceHeight)) return 0;
+        ++passed;
+        input.BindFlags = 0;
+        if (!ValidateSurfaces(input,output,SourceWidth,SourceHeight)) return 0;
+        ++passed;
+        input.BindFlags = D3D11_BIND_SHADER_RESOURCE; input.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        if (!ValidateSurfaces(input,output,SourceWidth,SourceHeight)) return 0;
+        ++passed;
+        const wchar_t* sdrDefault[]{ L"fixture",L"--sdr-conversion-fixture" };
+        if (!Parse(2,sdrDefault,options) || options.mode != Mode::SdrFixture || options.whiteNits != 0) return 0;
+        ++passed;
+        const wchar_t* sdrValid[]{ L"fixture",L"--sdr-conversion-fixture",L"--adapter-index",L"15",L"--timeout-ms",L"30000" };
+        if (!Parse(6,sdrValid,options) || options.mode != Mode::SdrFixture || options.adapter != 15 || options.timeoutMs != 30000) return 0;
+        ++passed;
+        const wchar_t* sdrInvalid[][6]{ {L"fixture",L"--sdr-conversion-fixture",L"--reference-white-nits",L"80"},
+            {L"fixture",L"--sdr-conversion-fixture",L"--reference-white-nits",L"0"},
+            {L"fixture",L"--sdr-conversion-fixture",L"--hdr-conversion-fixture"},
+            {L"fixture",L"--hdr-conversion-fixture",L"--sdr-conversion-fixture"},
+            {L"fixture",L"--sdr-conversion-fixture",L"--adapter-index",L"16"},
+            {L"fixture",L"--sdr-conversion-fixture",L"--timeout-ms",L"999"},
+            {L"fixture",L"--sdr-conversion-fixture",L"--timeout-ms",L"30001"},
+            {L"fixture",L"--sdr-conversion-fixture",L"--adapter-index",L"0",L"--adapter-index",L"1"},
+            {L"fixture",L"--sdr-conversion-fixture",L"--timeout-ms",L"1000",L"--timeout-ms",L"2000"},
+            {L"fixture",L"--sdr-conversion-fixture",L"--adapter-index"} };
+        for (const auto& args : sdrInvalid)
+        {
+            int argc = 0; while (argc < 6 && args[argc]) ++argc;
+            if (Parse(argc,args,options)) return 0;
+            ++passed;
+        }
+        if (ValidateConfiguration(SourceWidth,SourceHeight,SourceEncoding::SrgbBgra8,0) ||
+            !ValidateConfiguration(SourceWidth,SourceHeight,SourceEncoding::SrgbBgra8,80) ||
+            !ValidateConfiguration(SourceWidth,SourceHeight,SourceEncoding::SrgbBgra8,static_cast<float>(NotFinite))) return 0;
+        ++passed;
+        if (ValidateSurfaces(input,output,SourceWidth,SourceHeight,{},SourceEncoding::SrgbBgra8)) return 0;
+        ++passed;
+        input.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        if (!ValidateSurfaces(input,output,SourceWidth,SourceHeight,{},SourceEncoding::SrgbBgra8)) return 0;
+        ++passed;
+        input.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        if (!ValidateSurfaces(input,output,SourceWidth,SourceHeight,{},SourceEncoding::SrgbBgra8)) return 0;
+        ++passed;
+        if (std::abs(SrgbLinear(.04) - .04/12.92) > 1e-12 ||
+            std::abs(SrgbLinear(.5) - .21404114048223255) > 1e-12 || SrgbLinear(1) != 1) return 0;
+        ++passed;
+        const auto sdrBlack = Matrix(SdrTransfer({0,0,0})), sdrWhite = Matrix(SdrTransfer({1,1,1}));
+        const auto middle = Matrix(SdrTransfer({128/255.0,128/255.0,128/255.0}));
+        if (sdrBlack.y != 16 || sdrWhite.y != 235 || middle.y != 115 ||
+            sdrBlack.u != 128 || sdrBlack.v != 128 || sdrWhite.u != 128 || sdrWhite.v != 128 ||
+            middle.u != 128 || middle.v != 128) return 0;
+        ++passed;
+        const auto red = Matrix(SdrTransfer({1,0,0})), blue = Matrix(SdrTransfer({0,0,1}));
+        if (red.y != 63 || red.u != 102 || red.v != 240 || blue.y != 32 || blue.u != 240 || blue.v != 118) return 0;
+        ++passed;
+        // Ensure the subpixel pattern distinguishes the intended code-value
+        // filtering from decoding each source pixel before the resize.
+        Rgb incorrectLinearAverage{};
+        for (UINT y = 0; y < 2; ++y)
+            for (UINT x = 0; x < 2; ++x)
+            {
+                const auto pixel = SdrGenerated(x,y,1);
+                incorrectLinearAverage.r += SrgbLinear(pixel[2]/255.0)/4;
+                incorrectLinearAverage.g += SrgbLinear(pixel[1]/255.0)/4;
+                incorrectLinearAverage.b += SrgbLinear(pixel[0]/255.0)/4;
+            }
+        const auto correctResize = Matrix(SdrReferenceCode(0,0,1));
+        const auto incorrectResize = Matrix({Oetf(incorrectLinearAverage.r),Oetf(incorrectLinearAverage.g),Oetf(incorrectLinearAverage.b)});
+        if (std::abs(static_cast<int>(correctResize.y)-static_cast<int>(incorrectResize.y)) <= 10) return 0;
+        ++passed;
+        return passed;
+    }
+
+    int Run(const Options& options)
+    {
+        const bool sdr = options.mode == Mode::SdrFixture;
+        Evidence evidence;
+        Measurement patches, ramp, edges, boundaries;
+        UINT completedFrames = 0;
+        bool completed = false, rampMonotonic = false, highlightsDistinct = false, sdrRangeCorrect = false;
+        const auto started = Clock::now(), deadline = started + std::chrono::milliseconds(options.timeoutMs);
+        auto lastGameCheck = started - std::chrono::seconds(1);
+        const auto guard = [&]()
+        {
+            Require(!cancelled.load(), "cancelled"); Require(Clock::now() < deadline, "conversion_deadline_reached");
+            if (Clock::now() - lastGameCheck >= std::chrono::milliseconds(100))
+            {
+                Require(!ForzaRunning(), "forza_running"); lastGameCheck = Clock::now();
+            }
+        };
+        try
+        {
+            guard();
+            ComPtr<IDXGIFactory1> factory;
+            Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "adapter_factory_failed");
+            ComPtr<IDXGIAdapter1> adapter;
+            Check(factory->EnumAdapters1(options.adapter,&adapter), "selected_adapter_unavailable");
+            DXGI_ADAPTER_DESC1 description{};
+            Check(adapter->GetDesc1(&description), "adapter_description_failed");
+            Require(!(description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE), "software_adapter_refused");
+            ComPtr<ID3D11Device> device;
+            ComPtr<ID3D11DeviceContext> context;
+            const D3D_FEATURE_LEVEL levels[]{ D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
+            D3D_FEATURE_LEVEL selected{};
+            Check(D3D11CreateDevice(adapter.Get(),D3D_DRIVER_TYPE_UNKNOWN,nullptr,
+                D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                levels,static_cast<UINT>(std::size(levels)),D3D11_SDK_VERSION,&device,&selected,&context), "hardware_device_creation_failed");
+            ComPtr<ID3D10Multithread> multithread;
+            Check(device.As(&multithread), "multithread_interface_missing");
+            (void)multithread->SetMultithreadProtected(TRUE);
+            HdrFrameConverter converter;
+            if (!converter.Initialize(device.Get(),SourceWidth,SourceHeight,sdr ? SourceEncoding::SrgbBgra8 : SourceEncoding::LinearScRgbFp16,
+                static_cast<float>(options.whiteNits),evidence)) throw Failure{evidence.reason,evidence.hr};
+            guard();
+            D3D11_TEXTURE2D_DESC inputDescription{};
+            inputDescription.Width = SourceWidth; inputDescription.Height = SourceHeight;
+            inputDescription.MipLevels = inputDescription.ArraySize = inputDescription.SampleDesc.Count = 1;
+            inputDescription.Format = sdr ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_R16G16B16A16_FLOAT;
+            inputDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            ComPtr<ID3D11Texture2D> input;
+            Check(device->CreateTexture2D(&inputDescription,nullptr,&input), "synthetic_input_creation_failed");
+            auto outputDescription = inputDescription;
+            outputDescription.Width = OutputWidth; outputDescription.Height = OutputHeight;
+            outputDescription.Format = DXGI_FORMAT_NV12; outputDescription.BindFlags = D3D11_BIND_RENDER_TARGET;
+            ComPtr<ID3D11Texture2D> output;
+            Check(device->CreateTexture2D(&outputDescription,nullptr,&output), "nv12_output_creation_failed");
+            auto stagingDescription = outputDescription;
+            stagingDescription.BindFlags = 0; stagingDescription.Usage = D3D11_USAGE_STAGING;
+            stagingDescription.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            ComPtr<ID3D11Texture2D> staging;
+            Check(device->CreateTexture2D(&stagingDescription,nullptr,&staging), "synthetic_readback_creation_failed");
+            const D3D11_QUERY_DESC queryDescription{D3D11_QUERY_EVENT,0};
+            ComPtr<ID3D11Query> completion;
+            Check(device->CreateQuery(&queryDescription,&completion), "gpu_completion_query_failed");
+            std::vector<Pixel> pixels(sdr ? 0 : static_cast<size_t>(SourceWidth) * SourceHeight);
+            std::vector<Bgra> sdrPixels(sdr ? static_cast<size_t>(SourceWidth) * SourceHeight : 0);
+            for (UINT frame = 0; frame < 3; ++frame)
+            {
+                if (sdr)
+                {
+                    for (UINT y = 0; y < SourceHeight; ++y)
+                    {
+                        if (y % 64 == 0) guard();
+                        for (UINT x = 0; x < SourceWidth; ++x)
+                            sdrPixels[static_cast<size_t>(y)*SourceWidth+x] = SdrGenerated(x,y,frame);
+                    }
+                    context->UpdateSubresource(input.Get(),0,nullptr,sdrPixels.data(),SourceWidth * static_cast<UINT>(sizeof(Bgra)),0);
+                }
+                else
+                {
+                    for (UINT y = 0; y < OutputHeight; ++y)
+                    {
+                        if (y % 64 == 0) guard();
+                        for (UINT x = 0; x < OutputWidth; ++x)
+                        {
+                            const auto pixel = Pack(Generated(x,y,frame));
+                            const size_t offset = static_cast<size_t>(y * 2) * SourceWidth + x * 2;
+                            pixels[offset] = pixels[offset+1] = pixels[offset+SourceWidth] = pixels[offset+SourceWidth+1] = pixel;
+                        }
+                    }
+                    context->UpdateSubresource(input.Get(),0,nullptr,pixels.data(),SourceWidth * static_cast<UINT>(sizeof(Pixel)),0);
+                }
+                if (!converter.Submit(input.Get(),output.Get(),evidence)) throw Failure{evidence.reason,evidence.hr};
+                // Readback is restricted to generated fixture pixels.
+                context->CopyResource(staging.Get(),output.Get()); context->End(completion.Get()); context->Flush();
+                for (;;)
+                {
+                    guard(); Check(device->GetDeviceRemovedReason(), "d3d11_device_removed");
+                    BOOL ready = FALSE;
+                    const HRESULT hr = context->GetData(completion.Get(),&ready,sizeof(ready),D3D11_ASYNC_GETDATA_DONOTFLUSH);
+                    Check(hr, "gpu_completion_query_failed");
+                    if (hr == S_OK && ready) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                ++completedFrames;
+                D3D11_MAPPED_SUBRESOURCE mapped{};
+                Check(context->Map(staging.Get(),0,D3D11_MAP_READ,D3D11_MAP_FLAG_DO_NOT_WAIT,&mapped), "synthetic_readback_map_failed");
+                struct Unmap { ID3D11DeviceContext* context; ID3D11Texture2D* texture; ~Unmap() { context->Unmap(texture,0); } } unmap{context.Get(),staging.Get()};
+                Require(mapped.pData && mapped.RowPitch >= OutputWidth && mapped.RowPitch <= 65536, "nv12_readback_layout_invalid");
+                if (sdr)
+                {
+                    for (const auto point : std::array<std::array<UINT,2>,8>{{ {0,0}, {OutputWidth-1,0},
+                        {0,OutputHeight-1}, {OutputWidth-1,OutputHeight-1}, {OutputWidth/2,0},
+                        {OutputWidth/2,OutputHeight-1}, {0,OutputHeight/2}, {OutputWidth-1,OutputHeight/2} }})
+                        CheckPoint(mapped,point[0],point[1],frame,0,boundaries,true);
+                }
+                if (frame < 2)
+                {
+                    for (UINT patch = 0; patch < 16; ++patch)
+                    {
+                        const UINT left = (patch % 4) * (OutputWidth / 4) + OutputWidth / 8;
+                        const UINT top = (patch / 4) * (OutputHeight / 4) + OutputHeight / 8;
+                        for (UINT y = top; y < top + 8; ++y)
+                            for (UINT x = left; x < left + 8; ++x)
+                                CheckPoint(mapped,x,y,frame,options.whiteNits,patches,sdr);
+                    }
+                    if (sdr && frame == 0)
+                        sdrRangeCorrect = ReadY(mapped,OutputWidth/8,OutputHeight/8) == 16 &&
+                            ReadY(mapped,OutputWidth/4+OutputWidth/8,OutputHeight/8) == 235;
+                }
+                else
+                {
+                    UINT previous = 0;
+                    rampMonotonic = true;
+                    for (UINT i = 0; i < 256; ++i)
+                    {
+                        const UINT x = i * (OutputWidth - 1) / 255;
+                        CheckPoint(mapped,x,100,frame,options.whiteNits,ramp,sdr);
+                        const UINT actual = ReadY(mapped,x,100);
+                        if (actual < previous) rampMonotonic = false;
+                        previous = actual;
+                    }
+                    if (!sdr)
+                    {
+                        const UINT a = ReadY(mapped,120,100), b = ReadY(mapped,240,100), c = ReadY(mapped,480,100), d = ReadY(mapped,1500,100);
+                        highlightsDistinct = a < b && b < c && c < d;
+                    }
+                    for (UINT y = 600; y < 620; ++y)
+                        for (UINT x = 0; x < 64; ++x)
+                            CheckPoint(mapped,x,y,frame,options.whiteNits,edges,sdr);
+                }
+            }
+            Require(completedFrames == 3 && patches.checked == 6144 && ramp.checked == 768 && edges.checked == 3840, "synthetic_conversion_incomplete");
+            Require(!sdr || boundaries.checked == 72, "synthetic_sdr_boundary_checks_incomplete");
+            Require(patches.maximumError <= Tolerance && ramp.maximumError <= Tolerance && edges.maximumError <= Tolerance,
+                "synthetic_code_values_outside_tolerance");
+            Require(boundaries.maximumError <= Tolerance, "synthetic_boundary_values_outside_tolerance");
+            Require(rampMonotonic && (sdr ? sdrRangeCorrect : highlightsDistinct),
+                sdr ? "sdr_range_or_ramp_check_failed" : "highlight_compression_check_failed");
+            guard(); completed = true; evidence.reason = sdr ? "synthetic_sdr_conversion_completed" : "synthetic_hdr_conversion_completed";
+        }
+        catch (const Failure& failure) { evidence.reason = failure.reason; evidence.hr = failure.hr; }
+        catch (const std::bad_alloc&) { evidence.reason = "allocation_failed"; evidence.hr = E_OUTOFMEMORY; }
+        catch (...) { evidence.reason = "unexpected_native_failure"; evidence.hr = E_FAIL; }
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-started).count();
+        std::cout << std::boolalpha << "{\"mode\":\"" << (sdr ? "synthetic_srgb_to_sdr_nv12" : "synthetic_scrgb_to_sdr_nv12") << "\",\"completed\":" << completed
+            << ",\"reason\":\"" << evidence.reason << "\",\"hresult\":" << static_cast<UINT>(evidence.hr)
+            << ",\"sourceWidth\":" << SourceWidth << ",\"sourceHeight\":" << SourceHeight
+            << ",\"outputWidth\":" << OutputWidth << ",\"outputHeight\":" << OutputHeight
+            << ",\"sourceEncoding\":\"" << (sdr ? "sRGB_BGRA8" : "linear_scRGB_P709") << "\",\"referenceWhiteNits\":" << options.whiteNits;
+        if (sdr)
+            std::cout << ",\"referenceWhiteOrigin\":\"not_applicable\",\"toneCurve\":\"none\",\"gamutPolicy\":\"none\""
+                << ",\"resizeFilter\":\"bilinear_code_values_before_srgb_decode\",\"sdrBlackWhiteExact\":" << sdrRangeCorrect;
+        else
+            std::cout << ",\"referenceWhiteOrigin\":\"explicit_fixture_parameter\",\"toneCurve\":\"luminance_Reinhard\""
+                << ",\"gamutPolicy\":\"neutral_axis_compression\",\"nonfinitePolicy\":\"black\",\"nonpositiveLuminancePolicy\":\"black\"";
+        std::cout << ",\"invalidPixelCountCollected\":false,\"outputTransfer\":\"BT709\",\"outputMatrix\":\"BT709\""
+            << ",\"outputRange\":\"limited_16_235_16_240\",\"chromaSiting\":\"horizontal_left_vertical_center\""
+            << ",\"shadersCreated\":" << evidence.shadersCreated << ",\"planeViewsCreated\":" << evidence.planeViewsCreated
+            << ",\"submittedFrames\":" << evidence.submittedFrames << ",\"completedGpuFrames\":" << completedFrames
+            << ",\"patchCodeChecks\":" << patches.checked << ",\"patchMaximumCodeError\":" << patches.maximumError
+            << ",\"rampCodeChecks\":" << ramp.checked << ",\"rampMaximumCodeError\":" << ramp.maximumError
+            << ",\"edgeCodeChecks\":" << edges.checked << ",\"edgeMaximumCodeError\":" << edges.maximumError
+            << ",\"boundaryCodeChecks\":" << boundaries.checked << ",\"boundaryMaximumCodeError\":" << boundaries.maximumError
+            << ",\"allowedCodeError\":" << Tolerance << ",\"rampMonotonic\":" << rampMonotonic
+            << ",\"highlightsDistinct\":" << highlightsDistinct << ",\"elapsedMs\":" << elapsed
+            << ",\"captureUsed\":false,\"softwareConversionFallback\":false,\"gameAppearanceVerified\":false"
+            << ",\"displayWhiteQueried\":false,\"contentPeakMeasured\":false,\"encoderIntegrationVerified\":false"
+            << ",\"decodeVerified\":false,\"realtimePerformanceVerified\":false}\n";
+        return completed ? 0 : 3;
+    }
+}
+
+int wmain(int argc, wchar_t** argv)
+{
+    Options options;
+    if (!Parse(argc,argv,options)) { std::cout << "{\"completed\":false,\"reason\":\"invalid_arguments\"}\n"; return 2; }
+    if (options.mode == Mode::Help)
+    {
+        std::cout << "Synthetic scRGB HDR or sRGB BGRA8 -> SDR GPU conversion; no capture, files or windows.\n"
+            "Default/help initialize no graphics resources. --self-test is CPU-only.\n"
+            "--hdr-conversion-fixture --reference-white-nits 10..1000 [--adapter-index 0..15] [--timeout-ms 1000..30000]\n"
+            "--sdr-conversion-fixture [--adapter-index 0..15] [--timeout-ms 1000..30000]\n"
+            "Defaults: adapter 0, 10000 ms. Reference white is an explicit synthetic input, never a display/content measurement.\n"
+            "Three generated 3840x2160 FP16 patterns -> 1920x1080 limited BT709 NV12.\n"
+            "SDR mode uses BGRA8 patterns including subpixel variation, ramp, edges and border checks; no reference white or tone mapping.\n"
+            "Chosen Reinhard appearance requires later visual review; no capture, decode or gameplay performance claim.\n"
+            "Requires Forza closed. Ctrl+C cancels. Use an external API-call watchdog.\n";
+        return 0;
+    }
+    if (options.mode == Mode::SelfTest)
+    {
+        const UINT passed = SelfTest();
+        std::cout << "{\"mode\":\"cpu_contracts\",\"passed\":" << passed << ",\"graphicsInitialized\":false}\n";
+        return passed ? 0 : 1;
+    }
+    if (!SetConsoleCtrlHandler(Cancel,TRUE)) { std::cout << "{\"completed\":false,\"reason\":\"cancel_handler_failed\"}\n"; return 3; }
+    const int result = Run(options);
+    (void)SetConsoleCtrlHandler(Cancel,FALSE);
+    return result;
+}

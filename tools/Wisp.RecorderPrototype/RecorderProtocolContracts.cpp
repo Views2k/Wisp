@@ -1,0 +1,166 @@
+#include "RecorderProtocol.h"
+
+#include <array>
+#include <iostream>
+#include <limits>
+#include <string>
+
+namespace
+{
+    using namespace recorder::protocol;
+    constexpr const char* Session = "0123456789abcdef0123456789abcdef";
+    constexpr const char* Clip = "fedcba9876543210fedcba9876543210";
+    struct Failure { const char* contract; };
+    unsigned checks = 0;
+    void Check(bool value, const char* contract) { if (!value) throw Failure{ contract }; ++checks; }
+    std::string CommandLine(std::string_view kind, std::string_view extra = {}, std::string_view request = "1")
+    {
+        return "{\"v\":1,\"session\":\"" + std::string(Session) + "\",\"request\":" + std::string(request) +
+            ",\"command\":\"" + std::string(kind) + '"' + std::string(extra) + '}';
+    }
+    std::string Spool() { return std::string("C:\\Clips\\.wisp-recorder-") + Session; }
+    std::string JsonStringContent(std::string_view value)
+    {
+        constexpr char hex[] = "0123456789abcdef";
+        std::string out;
+        for (const auto character : value)
+        {
+            const auto byte = static_cast<unsigned char>(character);
+            if (byte == '\\' || byte == '"') { out += '\\'; out += character; }
+            else if (byte < 0x20) { out += "\\u00"; out += hex[byte >> 4]; out += hex[byte & 15]; }
+            else out += character;
+        }
+        return out;
+    }
+    std::string ConfigEncoded(std::string_view encodedPath)
+    {
+        return CommandLine("config", ",\"durationSeconds\":60,\"height\":1080,\"frameRate\":60,\"quality\":75,\"gameAudio\":true,\"spoolDirectory\":\"" + std::string(encodedPath) + '"');
+    }
+    std::string Config(std::string path = Spool()) { return ConfigEncoded(JsonStringContent(path)); }
+    std::string Start(std::string_view pid = "42", std::string_view window = "123", std::string_view time = "456")
+    {
+        return CommandLine("start", ",\"processId\":" + std::string(pid) + ",\"window\":\"" + std::string(window) +
+            "\",\"creationFileTime\":\"" + std::string(time) + '"');
+    }
+    std::string Save(std::string path = std::string("C:\\Clips\\") + Clip + ".mp4")
+    {
+        return CommandLine("save", ",\"clipId\":\"" + std::string(Clip) + "\",\"destination\":\"" + JsonStringContent(path) + '"');
+    }
+    void Replace(std::string& value, std::string_view before, std::string_view after)
+    {
+        const auto position = value.find(before); Check(position != std::string::npos, "fixture_replacement_exists");
+        value.replace(position, before.size(), after);
+    }
+    bool Accepted(const std::string& line) { Command command; return ParseCommand(line, command); }
+
+    void ValidCommands()
+    {
+        Command command;
+        Check(ParseCommand(Config(), command) && command.kind == CommandKind::Config && command.durationSeconds == 60 &&
+            command.height == 1080 && command.frameRate == 60 && command.quality == 75 && command.gameAudio, "config_exact_typed_fields");
+        Check(command.session == Session && command.request == 1 && command.spoolDirectory == L"C:\\Clips\\.wisp-recorder-0123456789abcdef0123456789abcdef", "config_session_and_wide_path");
+        Check(ParseCommand(Start(), command) && command.kind == CommandKind::Start && command.processId == 42 && command.window == 123 && command.creationFileTime == 456, "start_exact_target_identity");
+        Check(ParseCommand(Save(), command) && command.kind == CommandKind::Save && command.clipId == Clip, "save_guid_destination");
+        Check(Accepted(Config(std::string("\\\\server\\share\\.wisp-recorder-") + Session)), "unc_storage_syntax_accepted");
+        Check(ParseCommand(CommandLine("stop"), command) && command.kind == CommandKind::Stop && command.destination.empty(), "stop_has_no_payload");
+        Check(ParseCommand(CommandLine("stop", {}, "9223372036854775807"), command) && command.request == (std::numeric_limits<std::int64_t>::max)(), "request_exact_int64_maximum");
+        Check(ParseCommand(Start("4294967295", "18446744073709551615", "18446744073709551615"), command) &&
+            command.processId == (std::numeric_limits<std::uint32_t>::max)() && command.window == (std::numeric_limits<std::uint64_t>::max)(), "unsigned_identity_exact_maximum");
+        auto line = CommandLine("stop"); line += '\r';
+        Check(Accepted(line), "framed_terminal_cr_accepted");
+        line = CommandLine("stop"); line.append(MaximumLineBytes - line.size(), ' ');
+        Check(Accepted(line), "exact_line_limit_accepted");
+        line += ' '; Check(!Accepted(line), "line_over_limit_rejected");
+    }
+    void ExactSchemaAndNumbers()
+    {
+        for (const char* value : { "0", "-1", "9223372036854775808", "1.0", "1e0", "+1", "01", "true", "\"1\"", "null" })
+            Check(!Accepted(CommandLine("stop", {}, value)), "request_numeric_grammar_and_bounds");
+        for (const char* value : { "0", "-1", "4294967296", "1e1", "\"42\"" })
+            Check(!Accepted(Start(value)), "pid_uint32_no_coercion");
+        for (const char* value : { "0", "-1", "+1", "1.0", "1e3", "18446744073709551616", " 1", "", "000000000000000000001" })
+            Check(!Accepted(Start("42", value)), "window_positive_decimal_uint64_only");
+        auto value = Start(); Replace(value, "\"window\":\"123\"", "\"window\":123");
+        Check(!Accepted(value), "window_requires_string");
+        Check(!Accepted(CommandLine("stop", ",\"v\":1")), "duplicate_key_rejected");
+        Check(!Accepted(CommandLine("stop", ",\"\\u0076\":1")), "escaped_duplicate_key_rejected");
+        Check(!Accepted(CommandLine("stop", ",\"extra\":0")), "unknown_key_rejected");
+        Check(!Accepted(CommandLine("stop", ",\"extra\":{}")), "nested_object_rejected");
+        Check(!Accepted(CommandLine("stop", ",\"extra\":[]")), "array_rejected");
+        Check(!Accepted(CommandLine("anything")), "unknown_command_rejected");
+        value = Config(); Replace(value, "\"gameAudio\":true", "\"gameAudio\":1"); Check(!Accepted(value), "boolean_not_numeric");
+        value = Config(); Replace(value, "\"gameAudio\":true", "\"gameAudio\":false"); Check(!Accepted(value), "v1_requests_game_audio");
+        value = Config(); Replace(value, "\"durationSeconds\":60", "\"durationSeconds\":31"); Check(!Accepted(value), "duration_step_validated");
+        value = Config(); Replace(value, "\"height\":1080", "\"height\":1081"); Check(!Accepted(value), "resolution_allowlist");
+        value = Config(); Replace(value, "\"frameRate\":60", "\"frameRate\":120"); Check(!Accepted(value), "frame_rate_allowlist");
+        value = Config(); Replace(value, "\"quality\":75", "\"quality\":101"); Check(!Accepted(value), "quality_upper_bound");
+        value = CommandLine("stop"); Replace(value, Session, "00000000000000000000000000000000"); Check(!Accepted(value), "empty_guid_rejected");
+        Command cleared; Check(ParseCommand(Start(), cleared), "output_clear_fixture");
+        Check(!ParseCommand("{}", cleared) && cleared.kind == CommandKind::Invalid && cleared.session.empty() && cleared.processId == 0, "failure_clears_prior_command");
+    }
+    void UnicodeAndPaths()
+    {
+        Command escaped, raw;
+        const auto suffix = std::string("\\.wisp-recorder-") + Session;
+        const auto encodedSuffix = std::string(R"(\\.wisp-recorder-)") + Session;
+        Check(ParseCommand(ConfigEncoded(std::string(R"(C:\\Clips\\caf\u00e9\\\uD83D\uDE97)") + encodedSuffix), escaped), "valid_escaped_surrogate_pair");
+        Check(ParseCommand(Config(std::string("C:\\Clips\\caf\xc3\xa9\\\xf0\x9f\x9a\x97") + suffix), raw), "valid_raw_utf8_supplementary_path");
+        Check(escaped.spoolDirectory == raw.spoolDirectory, "raw_and_escaped_unicode_equal_utf16");
+        for (const std::string bad : { std::string("\\uD800"), std::string("\\uDC00"), std::string("\\uD800\\u0041"),
+            std::string("\\u0000"), std::string("\\uGGGG"), std::string("\\x41"), std::string("\xc0\x80"),
+            std::string("\xed\xa0\x80"), std::string("\xf4\x90\x80\x80"), std::string("\xe2\x82"), std::string("\x80") })
+            Check(!Accepted(ConfigEncoded(std::string(R"(C:\\Clips\\)") + bad + encodedSuffix)), "malformed_unicode_or_escape_rejected");
+        for (const char* prefix : { "relative\\", "C:relative\\", "C:\\\\", "C:\\..\\", "C:\\NUL\\", "C:\\clips.\\",
+            "C:\\clips \\", "C:\\clips:stream\\", "\\\\?\\C:\\", "\\\\.\\C:\\", "C:\\bad\nname\\" })
+            Check(!Accepted(Config(std::string(prefix) + ".wisp-recorder-" + Session)), "unsafe_path_syntax_rejected");
+        Check(!Accepted(Save("C:\\Clips\\different.mp4")), "save_basename_requires_reserved_guid");
+        Check(!Accepted(Config("C:\\Clips\\different")), "spool_basename_requires_session_guid");
+        auto nul = Config(); nul.insert(5, 1, '\0'); Check(!Accepted(nul), "raw_nul_rejected");
+        Check(!Accepted(std::string("\xef\xbb\xbf") + CommandLine("stop")), "utf8_bom_rejected");
+        Check(!Accepted(CommandLine("stop") + "\n"), "caller_must_supply_single_framed_line");
+    }
+    void OutputContracts()
+    {
+        std::string line;
+        Result result{ Session, (std::numeric_limits<std::int64_t>::max)(), true, Reason::None, std::nullopt };
+        Check(SerializeResult(result, line) && line.find("\"request\":9223372036854775807") != std::string::npos, "result_int64_not_double");
+        Check(line.find("destination") == std::string::npos && line.find("processId") == std::string::npos && line.back() == '}', "response_contains_no_path_or_target");
+        result.media = SavedMedia{ Clip, 1024, 1920, 1080, 60, 10, 10000010, false };
+        Check(!SerializeResult(result, line) && line.empty(), "silent_media_requires_warning_reason");
+        result.reason = Reason::AudioUnavailable;
+        Check(SerializeResult(result, line) && line.find("\"hasAudio\":false") != std::string::npos && line.find("audio_unavailable") != std::string::npos, "valid_silent_media_explicit");
+        result.media->hasAudio = true;
+        Check(!SerializeResult(result, line), "audible_media_cannot_claim_silent_reason");
+        result.reason = Reason::None;
+        Check(SerializeResult(result, line), "valid_audible_media");
+        result.media->fileBytes = MaximumMediaBytes + 1; Check(!SerializeResult(result, line), "output_file_size_bound");
+        result.media->fileBytes = 1024; result.media->end100ns = (std::numeric_limits<std::int64_t>::max)();
+        Check(!SerializeResult(result, line), "output_duration_bound_no_overflow");
+        result.media->start100ns = (std::numeric_limits<std::int64_t>::max)() - 100; Check(SerializeResult(result, line), "large_valid_media_timestamps_preserved");
+        result.media->start100ns = -1; Check(!SerializeResult(result, line), "negative_media_time_rejected");
+        result.media.reset(); result.ok = false; result.reason = Reason::StorageFailed;
+        Check(SerializeResult(result, line) && line.find("storage_failed") != std::string::npos, "fixed_failure_reason_only");
+        result.reason = static_cast<Reason>(999); Check(!SerializeResult(result, line) && line.empty(), "unknown_result_reason_rejected");
+        for (unsigned index = 0; index <= static_cast<unsigned>(Reason::ParentClosed); ++index)
+            Check(SerializeState(Session, State::Buffering, static_cast<Reason>(index), line) && line.find("\"request\":0") != std::string::npos, "state_reason_allowlist_serializes");
+        for (unsigned index = 0; index <= static_cast<unsigned>(State::Error); ++index)
+            Check(SerializeState(Session, static_cast<State>(index), Reason::None, line), "state_allowlist_serializes");
+        Check(!SerializeState(Session, static_cast<State>(999), Reason::None, line) && line.empty(), "unknown_state_rejected");
+        Check(!SerializeState("unsafe\"text", State::Error, Reason::ProtocolError, line), "response_strings_cannot_inject_json");
+        Check(SerializeState("ABCDEF0123456789ABCDEF0123456789", State::Waiting, Reason::None, line) &&
+            line.find("abcdef0123456789abcdef0123456789") != std::string::npos, "output_guid_case_canonical");
+    }
+}
+
+int main()
+{
+    try
+    {
+        ValidCommands(); ExactSchemaAndNumbers(); UnicodeAndPaths(); OutputContracts();
+        std::cout << "{\"mode\":\"recorder_protocol_cpu_contracts\",\"passed\":" << checks
+            << ",\"graphicsInitialized\":false,\"captureUsed\":false}\n";
+        return 0;
+    }
+    catch (const Failure& failure) { std::cout << "{\"passed\":false,\"reason\":\"" << failure.contract << "\"}\n"; return 1; }
+    catch (...) { std::cout << "{\"passed\":false,\"reason\":\"unexpected_contract_exception\"}\n"; return 1; }
+}
