@@ -15,11 +15,23 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.5.3",
+            "September 30, 2026",
+            "MONITOR PLACEMENT HOTFIX",
+            "Place a new HUD on Forza's monitor and let Reset HUD positions recover an existing wrong-screen placement.",
+            true,
+            [
+                Group("HUD placement",
+                    "Place a HUD without a saved position on Forza's monitor when the game is first detected. A temporary position used before detection is no longer saved as the final layout.",
+                    "Reset HUD positions moves the main HUD to the last detected Forza window's monitor. Focus the game once before using Reset if Wisp has not detected it yet.",
+                    "Keep saved positions unchanged until you move or reset them. You can still use Edit HUD layout to place gauges on another screen.")
+            ]),
+        new(
             "2.5.2",
             "September 29, 2026",
             "RELIABILITY FIXES",
             "The HUD keeps working when Forza restarts, and saved runs, reference laps, updates and renderer status behave as shown.",
-            true,
+            false,
             [
                 Group("HUD",
                     "Keep the HUD working when Forza restarts while Wisp stays open. When the game closed, Windows cleared the HUD window's owner, and Wisp treated that as a renderer failure that turned the HUD off until Wisp restarted.",

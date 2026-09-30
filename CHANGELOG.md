@@ -2,6 +2,11 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.5.3 - 2026-09-30
+
+- Place a HUD without a saved position on Forza's monitor when the game is first detected. Do not save the temporary startup position before that detection.
+- Make Reset HUD positions move the main HUD to the last detected Forza window's monitor. Existing saved layouts remain unchanged until moved or reset.
+
 ## 2.5.2 - 2026-09-29
 
 - Keep the HUD working when Forza restarts while Wisp stays open. When the game closed, Windows cleared the HUD window's owner, and Wisp treated that as a renderer failure that turned the HUD off until Wisp restarted.
