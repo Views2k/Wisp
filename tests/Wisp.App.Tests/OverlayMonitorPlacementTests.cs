@@ -34,10 +34,52 @@ internal static class OverlayMonitorPlacementTests
                     if (layout == HudLayoutMode.Native)
                         AssertPlacement(referenceHandle, monitor, layout, NativeGaugeMode.Analogue);
                 }
+                AssertGForcePlacement(referenceHandle, preserveSaved: false);
+                AssertGForcePlacement(referenceHandle, preserveSaved: true);
             }
             Assert.Equal(foreground, GetForegroundWindow());
         }
         finally { reference.Close(); }
+    }
+
+    private static void AssertGForcePlacement(IntPtr reference, bool preserveSaved)
+    {
+        var settings = new AppSettings
+        {
+            LayoutMode = HudLayoutMode.SeparateBoxes,
+            OverlayLocked = true,
+            GForceEnabled = true,
+            GForceAttached = false,
+            StartWithWindows = false,
+            StartWithForza = false,
+            AutomaticApplicationUpdateChecks = false
+        };
+        // An unrelated monitor's history must not block the current default.
+        settings.GForcePlacements["Other-1280x720-GForceV2"] = new(60, 70, 1, 1);
+        var controller = new AppController(settings, _ => { }, new NoStartupRegistration());
+        var overlay = new OverlayWindow(controller);
+        var gForce = new GForceWindow(controller);
+        controller.Overlay = overlay;
+        controller.GForceOverlay = gForce;
+        try
+        {
+            controller.RestoreOverlayPlacement();
+            gForce.RestorePosition(80, 90);
+            if (preserveSaved) controller.SaveGForcePlacement();
+            var before = new Point(gForce.Left, gForce.Top);
+            controller.CompleteInitialOverlayPlacement(reference);
+            var expected = preserveSaved ? before : OverlayPlacementGeometry.PlaceAdjacentHorizontally(
+                overlay.CurrentMonitorPlacementArea(), overlay.GetPlacementBounds(), new Size(gForce.Width, gForce.Height));
+            Assert.Equal(expected.X, gForce.Left, 5);
+            Assert.Equal(expected.Y, gForce.Top, 5);
+            Assert.True(settings.GForcePlacements.ContainsKey("Other-1280x720-GForceV2"));
+        }
+        finally
+        {
+            gForce.Close();
+            overlay.Close();
+            controller.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
     }
 
     private static void AssertPlacement(IntPtr reference, Rectangle monitor, HudLayoutMode layout, NativeGaugeMode mode)

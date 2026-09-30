@@ -1683,11 +1683,14 @@ public sealed partial class AppController : IAsyncDisposable
 
         ResetMainOverlayPosition();
         SaveOverlayPlacement();
-        if (Settings.GForcePlacements.Count == 0) RestoreGForcePlacement();
-        if (Settings.BoostGaugePlacements.Count == 0) RestoreBoostGaugePlacement();
-        if (Settings.TireTemperatureGaugePlacements.Count == 0) RestoreTireTemperatureGaugePlacement();
-        if (Settings.PowerGaugePlacements.Count == 0) RestorePowerGaugePlacement();
-        if (Settings.TorqueGaugePlacements.Count == 0) RestoreTorqueGaugePlacement();
+        if (!HasSavedPlacement(Settings.GForcePlacements, Settings.LastGForcePlacementKey)) RestoreGForcePlacement();
+        if (!HasSavedPlacement(Settings.BoostGaugePlacements, Settings.LastBoostGaugePlacementKey)) RestoreBoostGaugePlacement();
+        if (!HasSavedPlacement(Settings.TireTemperatureGaugePlacements, Settings.LastTireTemperatureGaugePlacementKey)) RestoreTireTemperatureGaugePlacement();
+        if (!HasSavedPlacement(Settings.PowerGaugePlacements, Settings.LastPowerGaugePlacementKey)) RestorePowerGaugePlacement();
+        if (!HasSavedPlacement(Settings.TorqueGaugePlacements, Settings.LastTorqueGaugePlacementKey)) RestoreTorqueGaugePlacement();
+
+        static bool HasSavedPlacement(IReadOnlyDictionary<string, OverlayPlacement> placements, string? key) =>
+            key is not null && placements.ContainsKey(key);
     }
 
     public void RestoreGForcePlacement()
