@@ -8,7 +8,8 @@ using System.Windows.Threading;
 
 namespace Wisp.App.Clips;
 
-public enum ClipRecorderState { Unavailable, Disabled, WaitingForGame, Buffering, Saving, Stopping, Error }
+public enum ClipRecorderState { Unavailable, Disabled, WaitingForGame, Buffering, Saving, Stopping, Error, Preparing, Reconnecting, Paused }
+public enum ClipBorderlessAccessResult { Allowed, Denied, Unavailable }
 public sealed record ClipRecorderSnapshot(ClipRecorderState State, bool Enabled, bool CanEnable, bool CanSave, string Status);
 
 public interface IClipRecorder
@@ -18,6 +19,8 @@ public interface IClipRecorder
     // A fixed, privacy-safe report; never raw stderr or exception messages.
     string FailureReport => "";
     event EventHandler? StateChanged;
+    Task<ClipBorderlessAccessResult> RequestBorderlessAccessAsync(CancellationToken cancellationToken)
+        => Task.FromResult(ClipBorderlessAccessResult.Unavailable);
     Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken);
     // Write only this reserved path, with create-new semantics. Return only after
     // successful finalization/close; failure must not report a saved clip.
@@ -80,6 +83,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private ClipRecorderSnapshot _snapshot;
     private ClipCardItem? _selected;
     private bool _busy, _disposed, _qualityPending, _runtimeActive = true;
+    private bool _saveActive, _drainingSaves;
+    private int _queuedSaves;
+    private string _saveQueueNotice = "";
+    private string _capturePermissionHint = "";
     private Task? _initialization;
     private Func<bool, bool, OverlayHotkeyChord, string?>? _registerShortcut;
     private string _error = "", _notice = "", _shortcutStatus = "Shortcuts are off.";
@@ -96,7 +103,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         _recorder = recorder; _dispatcher = dispatcher; _thumbnails = thumbnails;
         _snapshot = recorder.Snapshot;
         if (_settings.StorageDirectory.Length > 0) _library = new ClipLibrary(_settings.StorageDirectory);
-        SaveClipCommand = Command(SaveClipAsync, () => CanSave);
+        SaveClipCommand = Command(SaveClipAsync, () => CanRequestSave);
         PreviousPageCommand = Command(() => LoadPageAsync(_pageIndex - 1), () => !IsBusy && _pageIndex > 0);
         NextPageCommand = Command(() => LoadPageAsync(_pageIndex + 1), () => !IsBusy && _pageIndex + 1 < _pageCount);
         RefreshCommand = Command(() => LoadPageAsync(_pageIndex), () => !IsBusy && _library is not null);
@@ -123,7 +130,17 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public bool IsRecording => _snapshot.State == ClipRecorderState.Buffering;
     public bool CanBrowse => !_disposed && !IsBusy;
     public bool CanSave => !_disposed && _runtimeActive && !IsBusy && _library is not null && _snapshot.CanSave;
+    public bool CanRequestSave => !_disposed && _runtimeActive && _library is not null && _snapshot.Enabled &&
+        (!IsBusy || _saveActive) && _queuedSaves + (_saveActive ? 1 : 0) < 2 &&
+        _snapshot.State is ClipRecorderState.Preparing or ClipRecorderState.Buffering or ClipRecorderState.Saving;
+    public bool HasQueuedSave => _queuedSaves > 0;
+    public bool HasSaveQueueStatus => _queuedSaves > 0 || _saveQueueNotice.Length > 0;
+    public string SaveQueueStatus => _queuedSaves == 0 ? _saveQueueNotice : _saveActive
+        ? "Another clip save is queued. It will end when saving starts."
+        : $"{_queuedSaves} clip save{(_queuedSaves == 1 ? "" : "s")} queued until recording is ready. Queued clips end when saving starts.";
     public string RecorderStatus => _snapshot.Status;
+    public string CapturePermissionHint => _capturePermissionHint;
+    public bool HasCapturePermissionHint => _capturePermissionHint.Length > 0;
     public string FailureReport => _recorder.FailureReport;
     public bool HasFailureReport => FailureReport.Length > 0;
     public string Error => _error;
@@ -178,13 +195,27 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         PreferencesChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public Task ToggleAsync() => Operation(async () =>
+    public Task ToggleAsync() => ToggleAsync(requestAccess: true);
+    private Task ToggleAsync(bool requestAccess) => Operation(async () =>
     {
         var next = !_snapshot.Enabled;
         if (next && !ClipsSettings.CanRecordToDirectory(_settings.StorageDirectory))
         { ErrorText(ClipsSettings.RecordingPathTooLongMessage); return; }
         if (next && await IsNetworkStorageAsync())
         { ErrorText("Clip recording needs a local folder. Network drives are not supported."); return; }
+        if (next && requestAccess)
+        {
+            var access = await _recorder.RequestBorderlessAccessAsync(_token);
+            if (_disposed || !_runtimeActive) return;
+            _capturePermissionHint = access switch
+            {
+                ClipBorderlessAccessResult.Allowed => "",
+                ClipBorderlessAccessResult.Denied => "Windows did not allow borderless capture. Clipping can still work with the Windows capture border visible.",
+                _ => "Borderless capture is unavailable. Windows may show a capture border while clipping is on."
+            };
+            OnChanged(nameof(CapturePermissionHint)); OnChanged(nameof(HasCapturePermissionHint));
+        }
+        if (_disposed || !_runtimeActive) return;
         await _recorder.SetEnabledAsync(next, Recording(), _token);
         RefreshRecorder();
         if (_snapshot.Enabled != next) { ErrorText("Clipping did not change state. Check the recorder status."); return; }
@@ -192,8 +223,13 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         PreferencesChanged?.Invoke(this, EventArgs.Empty);
     }, "Clipping could not change state. Check the recorder status.", CanToggle);
 
-    internal void SetRuntimeActive(bool active) { _runtimeActive = active; NotifyState(); }
-    internal Task RestoreEnabledPreferenceAsync() => _settings.Enabled && !_snapshot.Enabled ? ToggleAsync() : Task.CompletedTask;
+    internal void SetRuntimeActive(bool active)
+    {
+        _runtimeActive = active;
+        if (!active) CancelQueuedSaves("Queued saves cancelled because clipping is paused.");
+        NotifyState();
+    }
+    internal Task RestoreEnabledPreferenceAsync() => _settings.Enabled && !_snapshot.Enabled ? ToggleAsync(requestAccess: false) : Task.CompletedTask;
     private Task<bool> IsNetworkStorageAsync() => Task.Run(() =>
         _settings.StorageDirectory.StartsWith(@"\\", StringComparison.Ordinal) ||
         new DriveInfo(Path.GetPathRoot(_settings.StorageDirectory)!).DriveType == DriveType.Network, _token);
@@ -201,9 +237,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public Task SaveClipAsync()
     {
         if (_disposed || !_runtimeActive) return Task.CompletedTask;
-        if (!CanSave)
+        if (!CanRequestSave)
         {
             if (_snapshot.State is ClipRecorderState.Error or ClipRecorderState.Unavailable) ErrorText(RecorderStatus);
+            else if (_queuedSaves + (_saveActive ? 1 : 0) >= 2) NoticeText("Two clip saves are already pending. Wait for them to finish before saving another.");
             else if (_snapshot.State == ClipRecorderState.Saving) NoticeText(ClipRecorderService.ReasonText("save_in_progress"));
             else if (IsBusy) NoticeText("Wisp is busy with another clip action. Wait for it to finish, then save again.");
             else if (_library is null) ErrorText("Choose a clip folder in Recording settings before saving a clip.");
@@ -211,7 +248,34 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             else ErrorText("No clip is ready yet. " + RecorderStatus);
             return Task.CompletedTask;
         }
-        return Operation(async () =>
+        _saveQueueNotice = ""; _queuedSaves++;
+        NotifyState();
+        return DrainSaveQueueAsync();
+    }
+
+    private async Task DrainSaveQueueAsync()
+    {
+        if (_drainingSaves || _queuedSaves == 0 || !CanSave) return;
+        _drainingSaves = true;
+        try
+        {
+            while (_queuedSaves > 0 && CanSave)
+            {
+                _queuedSaves--; _saveActive = true;
+                NotifyState();
+                var saved = await SaveOneClipAsync();
+                _saveActive = false;
+                if (!saved) CancelQueuedSaves("Queued saves cancelled because the previous clip could not be saved.");
+                NotifyState();
+            }
+        }
+        finally { _saveActive = false; _drainingSaves = false; if (!_disposed) NotifyState(); }
+    }
+
+    private async Task<bool> SaveOneClipAsync()
+    {
+        var saved = false;
+        await Operation(async () =>
         {
             var library = _library!;
             var target = await library.ReserveSaveAsync(Recording(), _token);
@@ -219,16 +283,52 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             try
             {
                 media = await _recorder.SaveAsync(target, _token);
-                await library.CommitFinalizedAsync(target.Id, media, _token);
+                var entry = await library.CommitFinalizedAsync(target.Id, media, _token);
+                saved = true;
+                if (_disposed || !ReferenceEquals(_library, library)) return;
+                InsertSavedClip(entry);
             }
             catch
             {
                 if (!_disposed) await ReadPageAsync(0);
                 throw;
             }
-            await ReadPageAsync(0);
-            NoticeText(media.HasAudio ? "Clip saved." : "Clip saved without audio. Game audio was unavailable.");
+            // The completed card appears before optional disk reconciliation/poster work.
+            var duration = TimeSpan.FromTicks(media.ActualEnd100ns - media.ActualStart100ns).TotalSeconds;
+            NoticeText($"Clip saved · {duration:0.0} s. " + (media.HasAudio
+                ? "Select it below to watch or export."
+                : "Game audio was unavailable. Select it below to watch or export."));
+            try
+            {
+                var page = await library.GetPageAsync(0, _token);
+                if (_disposed || !ReferenceEquals(_library, library)) return;
+                ApplyPage(page); StartThumbnails();
+            }
+            catch (OperationCanceledException) when (_token.IsCancellationRequested) { }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            { ErrorText("The clip was saved, but the full list could not be refreshed. Its card is shown below."); }
         }, "The clip could not be saved. Any unfinished save and its file have been kept.", CanSave, SaveFailureText);
+        return saved;
+    }
+
+    private void InsertSavedClip(ClipEntry entry)
+    {
+        CancelThumbnails();
+        if (_pageIndex != 0) Clips.Clear();
+        _pageIndex = 0;
+        Clips.Insert(0, new(entry));
+        while (Clips.Count > ClipLibrary.PageSize) Clips.RemoveAt(Clips.Count - 1);
+        _total++; _pageCount = (_total + ClipLibrary.PageSize - 1) / ClipLibrary.PageSize;
+        _newClips++;
+        OnChanged(nameof(NewClipCount)); OnChanged(nameof(HasReminder)); OnChanged(nameof(ReminderText));
+        NotifyState(); ReminderChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void CancelQueuedSaves(string message)
+    {
+        if (_queuedSaves == 0) return;
+        _queuedSaves = 0;
+        _saveQueueNotice = message;
     }
 
     private string? SaveFailureText(Exception error)
@@ -348,7 +448,9 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         var registrationError = _registerShortcut?.Invoke(save, enabled, chord);
         if (registrationError is not null)
         {
-            ErrorText($"Shortcut unchanged: {registrationError}.");
+            _shortcutStatus = $"{(save ? "Save a clip" : "Toggle clipping")} ({chord}) unavailable: {registrationError}. Choose another shortcut in Recording settings.";
+            OnChanged(nameof(ShortcutStatus));
+            ErrorText($"Shortcut unchanged. {_shortcutStatus}");
             foreach (var name in new[] { nameof(ToggleShortcutEnabled), nameof(SaveShortcutEnabled), nameof(ToggleShortcutText), nameof(SaveShortcutText) }) OnChanged(name);
             return false;
         }
@@ -375,7 +477,13 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void ApplyPage(ClipLibraryPage page)
     {
         _pageIndex = page.PageIndex; _pageCount = page.PageCount; _total = page.TotalClips; _pending = page.PendingSaves;
-        Clips.Clear(); foreach (var entry in page.Clips) Clips.Add(new(entry));
+        Clips.Clear();
+        foreach (var entry in page.Clips)
+        {
+            var item = _selected?.Id == entry.Id ? _selected : new ClipCardItem(entry);
+            item.Update(entry);
+            Clips.Add(item);
+        }
         SetReminder(page); NotifyState();
     }
     internal void SetGalleryActive(bool active)
@@ -470,13 +578,17 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void RefreshRecorder()
     {
         _snapshot = _recorder.Snapshot;
+        if (_snapshot.State is ClipRecorderState.Disabled or ClipRecorderState.Error or ClipRecorderState.Unavailable or
+            ClipRecorderState.WaitingForGame or ClipRecorderState.Paused or ClipRecorderState.Reconnecting or ClipRecorderState.Stopping)
+            CancelQueuedSaves("Queued saves cancelled because recording stopped or the game became unavailable.");
         OnChanged(nameof(RecorderStatus)); OnChanged(nameof(IsRecording));
         OnChanged(nameof(FailureReport)); OnChanged(nameof(HasFailureReport));
         NotifyState();
+        if (_queuedSaves > 0 && CanSave) _ = DrainSaveQueueAsync();
     }
     private void NotifyState()
     {
-        foreach (var name in new[] { nameof(IsBusy), nameof(IsEmpty), nameof(CanEditSettings), nameof(CanToggle), nameof(ClippingEnabled), nameof(CanSave), nameof(CanBrowse), nameof(CanExport), nameof(PageText), nameof(PendingText), nameof(CanOpenClipFolder) }) OnChanged(name);
+        foreach (var name in new[] { nameof(IsBusy), nameof(IsEmpty), nameof(CanEditSettings), nameof(CanToggle), nameof(ClippingEnabled), nameof(CanSave), nameof(CanRequestSave), nameof(HasQueuedSave), nameof(HasSaveQueueStatus), nameof(SaveQueueStatus), nameof(CanBrowse), nameof(CanExport), nameof(PageText), nameof(PendingText), nameof(CanOpenClipFolder) }) OnChanged(name);
         NotifyDashboardNotice();
         foreach (var command in _commands) command.Raise();
     }
@@ -494,7 +606,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        CommitQuality(); CancelThumbnails(); _disposed = true; ShortcutCaptureActive = false;
+        CommitQuality(); CancelThumbnails(); _queuedSaves = 0; _disposed = true; ShortcutCaptureActive = false;
         _recorder.StateChanged -= RecorderChanged; _lifetime.Cancel(); _lifetime.Dispose(); ClearSelection();
         if (_thumbnails is IDisposable ownedThumbnails) ownedThumbnails.Dispose();
         // Operations retain the captured token, never access a disposed token source.

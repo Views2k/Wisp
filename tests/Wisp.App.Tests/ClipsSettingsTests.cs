@@ -21,6 +21,8 @@ public sealed class ClipsSettingsTests
         Assert.Equal("", settings.StorageDirectory);
         Assert.False(settings.ToggleShortcutEnabled);
         Assert.False(settings.SaveShortcutEnabled);
+        Assert.Equal(new(OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt, Key.F8), settings.ToggleShortcut);
+        Assert.Equal(new(OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt, Key.F9), settings.SaveShortcut);
         Assert.NotEqual(settings.ToggleShortcut, settings.SaveShortcut);
         Assert.All(new[] { Key.H, Key.R, Key.M }, existing =>
         {
@@ -59,6 +61,8 @@ public sealed class ClipsSettingsTests
         Assert.Equal(100, settings.Quality);
         Assert.False(settings.ToggleShortcutEnabled);
         Assert.False(settings.SaveShortcutEnabled);
+        Assert.Equal(new(OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt, Key.F8), settings.ToggleShortcut);
+        Assert.Equal(new(OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt, Key.F9), settings.SaveShortcut);
         settings.Quality = -1;
         settings.Normalize();
         Assert.Equal(10, settings.Quality);
@@ -71,12 +75,33 @@ public sealed class ClipsSettingsTests
         {
             ToggleShortcutEnabled = true,
             SaveShortcutEnabled = true,
-            SaveShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift,
-            SaveShortcutKey = Key.C
+            SaveShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt,
+            SaveShortcutKey = Key.F8
         };
         settings.Normalize();
         Assert.True(settings.ToggleShortcutEnabled);
         Assert.False(settings.SaveShortcutEnabled);
+    }
+
+    [Fact]
+    public void ExistingValidShortcutsArePreservedWhenDefaultsChange()
+    {
+        var settings = new ClipsSettings
+        {
+            ToggleShortcutEnabled = true,
+            ToggleShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift,
+            ToggleShortcutKey = Key.C,
+            SaveShortcutEnabled = true,
+            SaveShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift,
+            SaveShortcutKey = Key.S
+        };
+        var originalToggle = settings.ToggleShortcut;
+        var originalSave = settings.SaveShortcut;
+        settings.Normalize();
+        Assert.True(settings.ToggleShortcutEnabled);
+        Assert.True(settings.SaveShortcutEnabled);
+        Assert.Equal(originalToggle, settings.ToggleShortcut);
+        Assert.Equal(originalSave, settings.SaveShortcut);
     }
 
     [Fact]

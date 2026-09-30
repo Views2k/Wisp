@@ -27,7 +27,80 @@ public sealed class ClipsViewModelTests
         Assert.True(model.ToggleShortcutEnabled);
         Assert.Equal(0, commits);
         Assert.Contains("Shortcut unchanged", model.Error, StringComparison.Ordinal);
+        Assert.Contains("Toggle clipping", model.ShortcutStatus, StringComparison.Ordinal);
+        Assert.Contains(replacement.ToString(), model.ShortcutStatus, StringComparison.Ordinal);
+        Assert.Contains("Recording settings", model.ShortcutStatus, StringComparison.Ordinal);
     });
+
+    [Theory]
+    [InlineData(ClipBorderlessAccessResult.Allowed, false)]
+    [InlineData(ClipBorderlessAccessResult.Denied, true)]
+    [InlineData(ClipBorderlessAccessResult.Unavailable, true)]
+    public void ExplicitEnableRequestsBorderlessAccessAndKeepsFallbackVisible(ClipBorderlessAccessResult access, bool hint) => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder { BorderlessAccess = access };
+        recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        await model.ToggleAsync();
+        Assert.Equal(1, recorder.PermissionCalls);
+        Assert.Equal(new[] { "permission", "enable" }, recorder.EnableOrder);
+        Assert.True(model.ClippingEnabled);
+        Assert.Equal(hint, model.HasCapturePermissionHint);
+        var message = model.CapturePermissionHint;
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording game clips"));
+        await model.SaveClipAsync();
+        Assert.Equal(message, model.CapturePermissionHint);
+        await model.ToggleAsync();
+        Assert.Equal(1, recorder.PermissionCalls);
+    });
+
+    [Fact]
+    public void RestoringEnabledPreferenceDoesNotRequestBorderlessPermission() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
+        using var model = new ClipsViewModel(new() { StorageDirectory = fixture.Directory, Enabled = true }, recorder, Dispatcher.CurrentDispatcher);
+        await model.InitializeAsync();
+        await model.RestoreEnabledPreferenceAsync();
+        Assert.True(model.ClippingEnabled);
+        Assert.Equal(0, recorder.PermissionCalls);
+        Assert.Equal(new[] { "enable" }, recorder.EnableOrder);
+    });
+
+    [Fact]
+    public void RuntimeSuspendDuringPermissionRequestCannotEnableRecordingLater() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recorder = new FakeRecorder { PermissionGate = gate };
+        recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        var enabling = model.ToggleAsync();
+        try
+        {
+            await recorder.PermissionEntered.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            model.SetRuntimeActive(false);
+        }
+        finally { gate.TrySetResult(); await enabling; }
+        Assert.Equal(0, recorder.ToggleCalls);
+        Assert.False(model.ClippingEnabled);
+    });
+
+    [Fact]
+    public void StartupShortcutStatusIdentifiesTheFailedActionAndRecovery()
+    {
+        var chord = new OverlayHotkeyChord(OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt, System.Windows.Input.Key.F9);
+        var failed = AppController.ClipShortcutStatus("Save a clip", true, chord, "another application is using this shortcut");
+        Assert.Contains("Save a clip", failed, StringComparison.Ordinal);
+        Assert.Contains(chord.ToString(), failed, StringComparison.Ordinal);
+        Assert.Contains("Recording settings", failed, StringComparison.Ordinal);
+        Assert.Equal("Save a clip shortcut is off.", AppController.ClipShortcutStatus("Save a clip", false, chord, null));
+        Assert.Equal($"Save a clip: {chord}.", AppController.ClipShortcutStatus("Save a clip", true, chord, null));
+    }
 
     [Fact]
     public void SuspendedRuntimePreventsToggleAndSaveActions() => OnDispatcher(async () =>
@@ -146,7 +219,7 @@ public sealed class ClipsViewModelTests
     });
 
     [Fact]
-    public void BusySaveAttemptPreservesTheCurrentSaveAndErrorWithoutQueuingAnother() => OnDispatcher(async () =>
+    public void TwoQuickSaveRequestsCommitBothAndThirdReportsLimit() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -164,14 +237,113 @@ public sealed class ClipsViewModelTests
             Assert.True(model.IsBusy);
             Assert.True(model.ClippingEnabled);
             Assert.Equal(previousError, model.Error);
-            Assert.Contains("Wait for it to finish", model.Notice, StringComparison.Ordinal);
+            Assert.True(model.HasQueuedSave);
+            Assert.Contains("end when saving starts", model.SaveQueueStatus, StringComparison.Ordinal);
+            Assert.False(model.CanRequestSave);
+            await model.SaveClipAsync();
+            Assert.Contains("Two clip saves are already pending", model.Notice, StringComparison.Ordinal);
             Assert.Equal(1, recorder.SaveCalls);
             Assert.Single(await new ClipLibrary(fixture.Directory).ListPendingAsync(TestContext.Current.CancellationToken));
         }
         finally { gate.TrySetResult(); await saving; }
-        Assert.Equal(1, recorder.SaveCalls);
-        Assert.Single(model.Clips);
+        Assert.Equal(2, recorder.SaveCalls);
+        Assert.Equal(2, model.Clips.Count);
+        Assert.False(model.HasQueuedSave);
+        Assert.Empty(await new ClipLibrary(fixture.Directory).ListPendingAsync(TestContext.Current.CancellationToken));
         Assert.False(model.IsBusy);
+    });
+
+    [Fact]
+    public void PreparingSavesWaitForPacketsWithoutPrematureReservations() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Preparing, true, true, false, "Preparing game capture"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        await model.SaveClipAsync();
+        await model.SaveClipAsync();
+        Assert.True(model.HasQueuedSave);
+        Assert.False(model.CanRequestSave);
+        Assert.Contains("end when saving starts", model.SaveQueueStatus, StringComparison.Ordinal);
+        Assert.Equal(0, recorder.SaveCalls);
+        Assert.Empty(await new ClipLibrary(fixture.Directory).ListPendingAsync(TestContext.Current.CancellationToken));
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        model.PropertyChanged += (_, _) =>
+        {
+            if (!model.IsBusy && model.Clips.Count == 2 && !model.HasQueuedSave) finished.TrySetResult();
+        };
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording game clips"));
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.Equal(2, recorder.SaveCalls);
+        Assert.Contains("60.0 s", model.Notice, StringComparison.Ordinal);
+    });
+
+    [Theory]
+    [InlineData(ClipRecorderState.Disabled)]
+    [InlineData(ClipRecorderState.WaitingForGame)]
+    [InlineData(ClipRecorderState.Paused)]
+    [InlineData(ClipRecorderState.Reconnecting)]
+    [InlineData(ClipRecorderState.Error)]
+    [InlineData(ClipRecorderState.Unavailable)]
+    [InlineData(ClipRecorderState.Stopping)]
+    public void InterruptedRecordingCancelsQueuedMomentInsteadOfSavingLater(ClipRecorderState interrupted) => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Preparing, true, true, false, "Preparing game capture"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        await model.SaveClipAsync();
+        recorder.Set(new(interrupted, true, true, false, "Capture interrupted"));
+        Assert.False(model.HasQueuedSave);
+        Assert.True(model.HasSaveQueueStatus);
+        Assert.Contains("Queued saves cancelled", model.SaveQueueStatus, StringComparison.Ordinal);
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording game clips"));
+        Assert.Equal(0, recorder.SaveCalls);
+        Assert.Empty(await new ClipLibrary(fixture.Directory).ListPendingAsync(TestContext.Current.CancellationToken));
+    });
+
+    [Fact]
+    public void RuntimeSuspendCancelsQueuedMoment() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Preparing, true, true, false, "Preparing game capture"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        await model.SaveClipAsync();
+        model.SetRuntimeActive(false);
+        Assert.False(model.HasQueuedSave);
+        Assert.Contains("Queued saves cancelled", model.SaveQueueStatus, StringComparison.Ordinal);
+        model.SetRuntimeActive(true);
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording game clips"));
+        Assert.Equal(0, recorder.SaveCalls);
+    });
+
+    [Fact]
+    public void FailedActiveSaveCancelsSecondIntentWithoutRetrying() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recorder = new FakeRecorder { SaveGate = gate, FailSave = true };
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording game clips"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        var first = model.SaveClipAsync();
+        try
+        {
+            await recorder.SaveEntered.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            await model.SaveClipAsync();
+            Assert.True(model.HasQueuedSave);
+        }
+        finally { gate.TrySetResult(); await first; }
+        Assert.Equal(1, recorder.SaveCalls);
+        Assert.False(model.HasQueuedSave);
+        Assert.Contains("previous clip could not be saved", model.SaveQueueStatus, StringComparison.Ordinal);
+        Assert.True(model.HasError);
+        Assert.Empty(model.Clips);
+        Assert.Single(await new ClipLibrary(fixture.Directory).ListPendingAsync(TestContext.Current.CancellationToken));
     });
 
     [Theory]
@@ -382,7 +554,9 @@ public sealed class ClipsViewModelTests
         await model.InitializeAsync();
         await model.SaveClipAsync();
         Assert.False(model.HasError);
-        Assert.Equal(silent ? "Clip saved without audio. Game audio was unavailable." : "Clip saved.", model.Notice);
+        Assert.Equal(silent
+            ? "Clip saved · 60.0 s. Game audio was unavailable. Select it below to watch or export."
+            : "Clip saved · 60.0 s. Select it below to watch or export.", model.Notice);
         var card = Assert.Single(model.Clips);
         Assert.Equal(!silent, card.Entry.Media.HasAudio);
         Assert.Equal(1, model.NewClipCount);
@@ -392,6 +566,38 @@ public sealed class ClipsViewModelTests
         Assert.Equal(FakeRecorder.Bytes, await File.ReadAllBytesAsync(destination, TestContext.Current.CancellationToken));
         Assert.Equal("Exported", card.ReviewState);
         Assert.Equal(0, model.NewClipCount);
+    });
+
+    [Fact]
+    public void SavedCardAppearsBeforeCompletionAndKeepsTheCurrentPlaybackSelection() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        await new ClipLibrary(fixture.Directory).ReserveSaveAsync(new(60, 1080, 60, 75), TestContext.Current.CancellationToken);
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording game clips"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        await model.SaveClipAsync();
+        var selected = Assert.Single(model.Clips);
+        await model.SelectForPlaybackAsync(selected);
+        var insertedWhilePublishing = false;
+        model.Clips.CollectionChanged += (_, change) =>
+        {
+            if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add &&
+                change.NewStartingIndex == 0 && change.NewItems?[0] is ClipCardItem added && added.Id != selected.Id)
+            {
+                insertedWhilePublishing |= model.IsBusy;
+                Assert.StartsWith("1 unfinished", model.PendingText, StringComparison.Ordinal);
+            }
+        };
+        await model.SaveClipAsync();
+        Assert.True(insertedWhilePublishing);
+        Assert.Equal(2, model.Clips.Count);
+        Assert.Same(selected, model.SelectedClip);
+        Assert.Contains(selected, model.Clips);
+        Assert.True(selected.IsSelected);
+        model.ClosePlayback();
+        Assert.False(selected.IsSelected);
     });
 
     [Fact]
@@ -436,6 +642,11 @@ public sealed class ClipsViewModelTests
         public string FailureReport { get; set; } = "";
         public event EventHandler? StateChanged;
         public int ToggleCalls { get; private set; }
+        public int PermissionCalls { get; private set; }
+        public ClipBorderlessAccessResult BorderlessAccess { get; init; } = ClipBorderlessAccessResult.Unavailable;
+        public TaskCompletionSource? PermissionGate { get; init; }
+        public TaskCompletionSource PermissionEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public List<string> EnableOrder { get; } = [];
         public int SaveCalls { get; private set; }
         public bool FailSave { get; init; }
         public Exception? SaveFailure { get; init; }
@@ -444,9 +655,17 @@ public sealed class ClipsViewModelTests
         public TaskCompletionSource SaveEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool SilentSave { get; init; }
         public void Set(ClipRecorderSnapshot snapshot) { Snapshot = snapshot; StateChanged?.Invoke(this, EventArgs.Empty); }
+        public async Task<ClipBorderlessAccessResult> RequestBorderlessAccessAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested(); PermissionCalls++; EnableOrder.Add("permission");
+            PermissionEntered.TrySetResult();
+            if (PermissionGate is not null) await PermissionGate.Task.WaitAsync(cancellationToken);
+            return BorderlessAccess;
+        }
         public Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested(); ToggleCalls++;
+            EnableOrder.Add(enabled ? "enable" : "disable");
             Set(enabled ? new(ClipRecorderState.WaitingForGame, true, true, false, "Waiting for Forza") :
                 new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
             return Task.CompletedTask;

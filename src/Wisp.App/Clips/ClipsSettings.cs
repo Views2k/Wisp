@@ -27,11 +27,11 @@ public sealed class ClipsSettings
     public bool RemindersEnabled { get; set; } = true;
     public string StorageDirectory { get; set; } = "";
     public bool ToggleShortcutEnabled { get; set; }
-    public OverlayHotkeyModifiers ToggleShortcutModifiers { get; set; } = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
-    public Key ToggleShortcutKey { get; set; } = Key.C;
+    public OverlayHotkeyModifiers ToggleShortcutModifiers { get; set; } = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt;
+    public Key ToggleShortcutKey { get; set; } = Key.F8;
     public bool SaveShortcutEnabled { get; set; }
-    public OverlayHotkeyModifiers SaveShortcutModifiers { get; set; } = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
-    public Key SaveShortcutKey { get; set; } = Key.S;
+    public OverlayHotkeyModifiers SaveShortcutModifiers { get; set; } = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt;
+    public Key SaveShortcutKey { get; set; } = Key.F9;
 
     [JsonIgnore]
     public OverlayHotkeyChord ToggleShortcut => new(ToggleShortcutModifiers, ToggleShortcutKey);
@@ -55,14 +55,14 @@ public sealed class ClipsSettings
         if (!OverlayHotkeyChord.TryCreate(ToggleShortcutModifiers, ToggleShortcutKey, out _, out _))
         {
             ToggleShortcutEnabled = false;
-            ToggleShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
-            ToggleShortcutKey = Key.C;
+            ToggleShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt;
+            ToggleShortcutKey = Key.F8;
         }
         if (!OverlayHotkeyChord.TryCreate(SaveShortcutModifiers, SaveShortcutKey, out _, out _))
         {
             SaveShortcutEnabled = false;
-            SaveShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
-            SaveShortcutKey = Key.S;
+            SaveShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt;
+            SaveShortcutKey = Key.F9;
         }
         if (ToggleShortcutEnabled && SaveShortcutEnabled && ToggleShortcut == SaveShortcut)
             SaveShortcutEnabled = false;

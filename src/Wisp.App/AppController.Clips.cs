@@ -42,6 +42,15 @@ public sealed partial class AppController
     {
         if (_disposed || _runtimeSuspended || Settings.RequiresSetup)
             return "shortcuts become available when Wisp is running";
+        if (enabled)
+        {
+            if (Settings.OverlayHotkeyEnabled && chord == new OverlayHotkeyChord(Settings.OverlayHotkeyModifiers, Settings.OverlayHotkeyKey))
+                return "this shortcut already controls Wisp HUD visibility";
+            if (Settings.RecordingShortcutEnabled && chord == new OverlayHotkeyChord(Settings.RecordingShortcutModifiers, Settings.RecordingShortcutKey))
+                return "this shortcut already starts and stops Wisp run recording";
+            if (Settings.MarkerShortcutEnabled && chord == new OverlayHotkeyChord(Settings.MarkerShortcutModifiers, Settings.MarkerShortcutKey))
+                return "this shortcut already marks a moment in Wisp runs";
+        }
         var result = (save ? _clipSaveRegistration : _clipToggleRegistration)?.Invoke(enabled, chord)
             ?? new OverlayHotkeyRegistrationResult(false, "the shortcut service is unavailable");
         return result.Succeeded ? null : result.Error;
@@ -54,13 +63,17 @@ public sealed partial class AppController
         var settings = Clips.Preferences;
         var toggleError = ConfigureClipShortcut(false, settings.ToggleShortcutEnabled, settings.ToggleShortcut);
         var saveError = ConfigureClipShortcut(true, settings.SaveShortcutEnabled, settings.SaveShortcut);
-        Clips.SetShortcutStatus(toggleError is not null || saveError is not null
-            ? $"Shortcut unavailable: {toggleError ?? saveError}."
-            : settings.ToggleShortcutEnabled || settings.SaveShortcutEnabled ? "Shortcuts are ready." : "Shortcuts are off.");
+        Clips.SetShortcutStatus(string.Join(" ",
+            ClipShortcutStatus("Toggle clipping", settings.ToggleShortcutEnabled, settings.ToggleShortcut, toggleError),
+            ClipShortcutStatus("Save a clip", settings.SaveShortcutEnabled, settings.SaveShortcut, saveError)));
         await Clips.InitializeAsync();
         if (!_disposed && !_runtimeSuspended && revision == _clipsRuntimeRevision)
             await Clips.RestoreEnabledPreferenceAsync();
     }
+
+    internal static string ClipShortcutStatus(string action, bool enabled, OverlayHotkeyChord chord, string? error) =>
+        !enabled ? $"{action} shortcut is off." : error is null ? $"{action}: {chord}." :
+        $"{action} ({chord}) unavailable: {error}. Choose another shortcut in Recording settings.";
 
     private Task SuspendClipsAsync()
     {

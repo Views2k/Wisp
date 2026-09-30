@@ -65,7 +65,7 @@
     <ScrollViewer x:Name="ClipsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,12">
         <StackPanel>
             <TextBlock Text="Clips" Style="{DynamicResource SectionTitleStyle}" Margin="0,0,0,5" />
-            <TextBlock Text="Save the last part of your drive, then watch or export it here." Style="{StaticResource ClipHint}" Margin="0,0,0,16" />
+            <TextBlock Text="Save the last part of your drive, then watch or export it here. Records the game window and game audio; separate Wisp HUD overlays are not included." Style="{StaticResource ClipHint}" Margin="0,0,0,16" />
             <Border Style="{DynamicResource CardStyle}" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
                     <WrapPanel>
@@ -83,6 +83,8 @@
                         </TextBlock.Style>
                     </TextBlock>
                     <TextBlock Text="{Binding RecorderStatus}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Text="{Binding CapturePermissionHint}" Style="{StaticResource ClipHint}" Margin="0,8,0,0" Visibility="{Binding HasCapturePermissionHint, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Text="{Binding SaveQueueStatus}" Style="{StaticResource ClipHint}" Margin="0,8,0,0" Visibility="{Binding HasSaveQueueStatus, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
                     <StackPanel Visibility="{Binding HasFailureReport, Converter={StaticResource ClipVisibility}}" Margin="0,10,0,0">
                         <Button Content="Copy error details" Click="CopyErrorDetails_Click" HorizontalAlignment="Left" Padding="12,7" />
                         <TextBlock Text="Includes the Wisp build, recording settings and error codes. No file paths, account details or video." Style="{StaticResource ClipHint}" Margin="0,5,0,0" />
