@@ -44,7 +44,7 @@ internal static class ClipsUiReview
             var libraryPath = Path.Combine(output, "synthetic-library-not-playable");
             Directory.CreateDirectory(libraryPath);
             File.WriteAllText(Path.Combine(libraryPath, "SYNTHETIC.txt"),
-                "UI fixture only. The GUID.mp4 files contain placeholder bytes, not video. Do not play, export or import them. No captured media exists here.");
+                "UI fixture only. The GUID.mp4 files and synthetic export copies contain placeholder bytes, not video. Do not play or import them. No captured media exists here.");
             var recorder = new FakeRecorder();
             var posters = new FakePosters();
             var fixtureContext = new DiagnosticsViewModel(new AppSettings
@@ -168,9 +168,42 @@ internal static class ClipsUiReview
                             "opaque-stretched-player-without-scroll-fade");
                         Capture(phase, surface, size, dpi);
                     }
-                model.ClosePlayback();
+                phase = "preview-export-state";
+                var export = (Button)page.FindName("ExportClipButton");
+                var exportStatus = (TextBlock)page.FindName("PreviewExportStatus");
+                var playbackStatus = (TextBlock)page.FindName("PlaybackStatus");
+                var exportDirectory = Path.Combine(output, "synthetic-export-not-playable");
+                Await(model.SetStorageDirectoryAsync(exportDirectory));
+                Await(model.ExportSelectedToFolderAsync()); Pump();
+                Check(!model.CanExport && !export.IsEnabled && model.HasPreviewExportStatus &&
+                    exportStatus.Text.StartsWith("Export successful.", StringComparison.Ordinal), "export-feedback-and-disabled-action");
+                Await(model.SelectForPlaybackAsync(model.SelectedClip!));
+                Check(model.CanExport && !model.HasPreviewExportStatus, "new-preview-allows-export-again");
+                Await(model.ExportSelectedToFolderAsync()); Pump();
+                Check(!export.IsEnabled && exportStatus.Text.Contains("no duplicate", StringComparison.Ordinal) &&
+                    Directory.GetFiles(exportDirectory, "*.mp4").Length == 1, "repeated-export-keeps-one-fixture-copy");
+                playbackStatus.Text = "This clip is taking too long to open. Choose it again to retry.";
+                playbackStatus.Visibility = Visibility.Visible;
+                foreach (var size in new[] { new Size(720, 440), new Size(980, 750), new Size(1464, 994) })
+                {
+                    phase = $"player-status-{size.Width:0}-144";
+                    Layout(size, 144); ScrollTo(playback);
+                    var scroll = (ScrollViewer)page.FindName("ClipsScroll");
+                    var viewport = (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+                    CheckFits(playback, viewport, "player-with-status-fits-viewport");
+                    CheckFits(playbackStatus, viewport, "playback-status-readable");
+                    CheckFits(exportStatus, viewport, "export-status-readable");
+                    CheckFits((WrapPanel)page.FindName("PlaybackControls"), viewport, "controls-visible-with-status");
+                    Check(player.ActualHeight > 0 && playbackStatus.Style is not null && exportStatus.Style is not null,
+                        "status-keeps-video-and-theme");
+                    Capture(phase, surface, size, 144);
+                }
+                // The detached page has no Loaded subscription; exercise the real close action.
+                Descendants(playback).OfType<Button>().Single(item => Equals(item.Content, "Close player"))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Pump();
-                Check(playback.Visibility == Visibility.Collapsed, "player-closes");
+                Check(playback.Visibility == Visibility.Collapsed && playbackStatus.Visibility == Visibility.Collapsed &&
+                    exportStatus.Visibility == Visibility.Collapsed, "player-closes");
                 // Exercise the real unload/reset handler without opening media.
                 // These temporary control values do not establish playback state.
                 timeline.Maximum = 90; timeline.Value = 7; timeline.IsEnabled = true;

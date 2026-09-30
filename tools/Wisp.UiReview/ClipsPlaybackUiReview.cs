@@ -184,6 +184,8 @@ internal static class ClipsPlaybackUiReview
             var playPause = (Button)currentPage.FindName("PlayPauseButton");
             var position = (Slider)currentPage.FindName("PlaybackPosition");
             var time = (TextBlock)currentPage.FindName("PlaybackTime");
+            var playbackStatus = (TextBlock)currentPage.FindName("PlaybackStatus");
+            var exportStatus = (TextBlock)currentPage.FindName("PreviewExportStatus");
             var timer = typeof(ClipsPage).GetField("_playbackTimer", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(currentPage) as DispatcherTimer
                 ?? throw new InvalidOperationException("Playback timer is unavailable.");
             var close = Descendants(currentPage).OfType<Button>().Single(item => Equals(item.Content, "Close player"));
@@ -203,6 +205,8 @@ internal static class ClipsPlaybackUiReview
                 FitsViewport(close) && FitsViewport(export) && FitsViewport(volume), "video-and-playback-controls-fully-visible-after-lower-card-click");
             var player = (MediaElement)host.Content;
             Check(player.Volume == 0 && player.NaturalVideoWidth == 1920 && player.NaturalVideoHeight == 1080, "muted-known-video");
+            Check(player.LoadedBehavior == MediaState.Manual && player.UnloadedBehavior == MediaState.Close,
+                "prepared-player-uses-manual-transport-and-close-on-unload");
             var fitScale = Math.Min(host.ActualWidth / player.NaturalVideoWidth, host.ActualHeight / player.NaturalVideoHeight);
             var fittedWidth = player.NaturalVideoWidth * fitScale;
             var fittedHeight = player.NaturalVideoHeight * fitScale;
@@ -226,6 +230,26 @@ internal static class ClipsPlaybackUiReview
             await Settle(150);
             var paused = player.Position.TotalSeconds; await Settle(350);
             Check(!timer.IsEnabled && Equals(playPause.Content, "Play") && Math.Abs(player.Position.TotalSeconds - paused) <= .2, "paused-position-stable");
+            phase = "buffering-while-user-paused";
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.BufferingStartedEvent));
+            Check(playbackStatus.Text == "Paused · buffering clip…" && playbackStatus.Visibility == Visibility.Visible,
+                "buffering-status-visible-with-user-pause");
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.BufferingEndedEvent));
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.MediaOpenedEvent));
+            await Settle(250);
+            Check(playbackStatus.Text == "Paused" && !timer.IsEnabled && Equals(playPause.Content, "Play") &&
+                Math.Abs(player.Position.TotalSeconds - paused) <= .2, "buffering-end-and-duplicate-open-do-not-resume-paused-player");
+            phase = "export-from-preview";
+            var exportDirectory = Path.Combine(output, "generated-preview-export");
+            await currentModel.SetStorageDirectoryAsync(exportDirectory);
+            Click(export);
+            await Until(() => currentModel.HasPreviewExportStatus && !currentModel.IsBusy, 3000);
+            Check(!export.IsEnabled && !currentModel.CanExport && exportStatus.Visibility == Visibility.Visible &&
+                exportStatus.Text.StartsWith("Export successful.", StringComparison.Ordinal) &&
+                Directory.GetFiles(exportDirectory, "*.mp4").Length == 1, "successful-export-is-visible-and-disabled-for-this-preview");
+            currentPage.UpdateLayout();
+            Check(FitsViewport(host) && FitsViewport(exportStatus) && FitsViewport(playPause) && FitsViewport(position),
+                "export-status-and-controls-fit-with-video");
             phase = "seek-paused"; position.Value = 2.25;
             await Until(() => Math.Abs(player.Position.TotalSeconds - 2.25) <= SeekToleranceSeconds, 1500);
             Check(!timer.IsEnabled && Equals(playPause.Content, "Play"), "seek-preserves-pause");
@@ -249,14 +273,29 @@ internal static class ClipsPlaybackUiReview
             phase = "close"; Click(close); await Settle(300);
             Check(host.Content is null && player.Source is null && !position.IsEnabled && position.Value == 0 &&
                 time.Text == "0:00 / 0:00" && !timer.IsEnabled && !currentModel.HasSelection, "close-clears-source-selection-timer-and-time");
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.MediaOpenedEvent));
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.BufferingStartedEvent));
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.MediaEndedEvent));
+            Check(host.Content is null && !playPause.IsEnabled && !timer.IsEnabled &&
+                playbackStatus.Visibility == Visibility.Collapsed && exportStatus.Visibility == Visibility.Collapsed,
+                "closed-player-callbacks-cannot-revive-status-or-transport");
             phase = "reopen-before-unload"; Click(playCard);
             await Until(() => host.Content is MediaElement && playPause.IsEnabled && position.IsEnabled, 5000);
             var secondPlayer = host.Content as MediaElement ?? throw new InvalidOperationException("The reopened player is unavailable.");
-            Check(!ReferenceEquals(secondPlayer, player) && secondPlayer.Volume == 0, "reopen-owns-new-muted-player");
+            Check(!ReferenceEquals(secondPlayer, player) && secondPlayer.Volume == 0 && export.IsEnabled &&
+                !currentModel.HasPreviewExportStatus, "reopen-owns-new-muted-player-and-fresh-export-state");
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.BufferingStartedEvent));
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.MediaEndedEvent));
+            Check(ReferenceEquals(host.Content, secondPlayer) && Equals(playPause.Content, "Pause") && timer.IsEnabled &&
+                !playbackStatus.Text.Contains("Buffering", StringComparison.OrdinalIgnoreCase),
+                "replaced-player-callbacks-do-not-change-current-playback");
             phase = "unload"; currentWindow.Content = null;
             await Until(() => !currentPage.IsLoaded, 1000); await Settle(300);
+            secondPlayer.RaiseEvent(new RoutedEventArgs(MediaElement.MediaOpenedEvent));
+            secondPlayer.RaiseEvent(new RoutedEventArgs(MediaElement.BufferingStartedEvent));
             Check(host.Content is null && secondPlayer.Source is null && !timer.IsEnabled && !position.IsEnabled &&
-                time.Text == "0:00 / 0:00" && !currentModel.HasSelection, "unload-clears-live-player-and-timer");
+                time.Text == "0:00 / 0:00" && !currentModel.HasSelection && playbackStatus.Visibility == Visibility.Collapsed,
+                "unload-clears-live-player-and-timer");
             Check(GameClosed(), "game-remained-closed");
 
             bool FitsViewport(FrameworkElement element)

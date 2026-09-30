@@ -94,6 +94,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private Func<bool, bool, OverlayHotkeyChord, string?>? _registerShortcut;
     private string _error = "", _notice = "", _shortcutStatus = "Shortcuts are off.";
     private string _libraryWarning = "";
+    private string _previewExportStatus = "";
+    private bool _previewExportSucceeded;
     private int _pageIndex, _pageCount, _total, _pending, _newClips;
     private long _selectionRevision;
     private CancellationTokenSource? _thumbnailWork;
@@ -162,7 +164,9 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public bool CanOpenClipFolder => !_disposed && !IsBusy && StorageDirectory.Length > 0;
     public bool IsEmpty => !IsBusy && Clips.Count == 0;
     public bool HasSelection => _selected is not null;
-    public bool CanExport => HasSelection && !IsBusy;
+    public bool CanExport => HasSelection && !IsBusy && !_previewExportSucceeded;
+    public string PreviewExportStatus => _previewExportStatus;
+    public bool HasPreviewExportStatus => _previewExportStatus.Length > 0;
     public ClipCardItem? SelectedClip => _selected;
     public string SelectedTitle => _selected?.Title ?? "Choose a clip to play";
     public int NewClipCount => _newClips;
@@ -442,6 +446,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             var candidate = await _library.GetMediaPathAsync(item.Id, _token);
             if (revision != _selectionRevision || _disposed) return;
             _selected?.Select(false); _selected = item; item.Select(true);
+            SetPreviewExportStatus("", false);
             foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport) }) OnChanged(name);
             path = candidate;
         }, "This clip could not be opened. Its file has been kept.", true);
@@ -472,27 +477,52 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
 
     public Task ExportSelectedToFolderAsync()
     {
+        if (!CanExport) return Task.CompletedTask;
         if (StorageDirectory.Length == 0)
-        { ErrorText("Choose an export folder above Saved clips, then choose Export again."); return Task.CompletedTask; }
+        {
+            const string message = "Export failed. Choose an export folder below the player, then try again.";
+            SetPreviewExportStatus(message, false); ErrorText(message);
+            return Task.CompletedTask;
+        }
         return ExportSelectedAsync(StorageDirectory, useDirectory: true);
     }
     public Task ExportSelectedAsync(string destination) => ExportSelectedAsync(destination, useDirectory: false);
     private Task ExportSelectedAsync(string destination, bool useDirectory)
     {
         var selected = _selected;
+        var revision = _selectionRevision;
+        const string failure = "Export failed. Check folder access and free space, then try again. Existing files are never overwritten.";
         return Operation(async () =>
         {
+            if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus("Exporting clip…", false);
             var library = _library!;
             var result = useDirectory ? await library.ExportToDirectoryAsync(selected!.Id, destination, _token) : await library.ExportAsync(selected!.Id, destination, _token);
+            var message = !result.ExportStateSaved ? "Export successful. The file is ready, but Wisp could not update its saved status."
+                : result.FileCreated ? "Export successful." : "Export successful. This clip is already in your export folder; no duplicate was created.";
+            if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(message, true);
+            NoticeText(message);
             if (result.ExportStateSaved)
             {
-                var page = await library.GetPageAsync(_pageIndex, _token);
-                var updated = page.Clips.FirstOrDefault(item => item.Id == selected.Id);
-                if (updated is not null) selected.Update(updated);
-                SetReminder(page);
+                try
+                {
+                    var page = await library.GetPageAsync(_pageIndex, _token);
+                    var updated = page.Clips.FirstOrDefault(item => item.Id == selected.Id);
+                    if (updated is not null) selected.Update(updated);
+                    SetReminder(page);
+                }
+                catch (OperationCanceledException) when (_token.IsCancellationRequested) { throw; }
+                catch (Exception error) when (error is not OutOfMemoryException)
+                {
+                    const string saved = "Export successful. The file is ready, but Wisp could not refresh its saved status.";
+                    if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(saved, true);
+                    NoticeText(saved);
+                }
             }
-            NoticeText(!result.ExportStateSaved ? "The export exists, but its exported state could not be saved." : result.FileCreated ? "Clip exported." : "This clip is already in your export folder. No duplicate was created.");
-        }, "The clip could not be exported. Check folder access and free space. An existing file is never overwritten.", CanExport);
+        }, failure, CanExport, _ =>
+        {
+            if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(failure, false);
+            return failure;
+        });
     }
 
     public bool ConfigureShortcut(bool save, bool enabled, OverlayHotkeyChord chord)
@@ -614,7 +644,14 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void ClearSelection()
     {
         ++_selectionRevision; _selected?.Select(false); _selected = null;
+        SetPreviewExportStatus("", false);
         foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport) }) OnChanged(name);
+    }
+    private void SetPreviewExportStatus(string message, bool succeeded)
+    {
+        _previewExportStatus = message;
+        _previewExportSucceeded = succeeded;
+        OnChanged(nameof(PreviewExportStatus)); OnChanged(nameof(HasPreviewExportStatus)); OnChanged(nameof(CanExport));
     }
     private async Task Operation(Func<Task> action, string errorText, bool allowed, Func<Exception, string?>? failureText = null)
     {

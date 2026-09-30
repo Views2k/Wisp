@@ -115,7 +115,13 @@
             </Expander>
             <Border x:Name="PlaybackSurface" Style="{DynamicResource CardStyle}" Padding="12" Margin="0,0,0,16" Visibility="{Binding HasSelection, Converter={StaticResource ClipVisibility}}" SizeChanged="PlaybackLayout_SizeChanged">
                 <StackPanel>
-                    <DockPanel x:Name="PlaybackHeader" Margin="0,0,0,8"><Button Content="Close player" Click="ClosePlayer_Click" DockPanel.Dock="Right" Padding="10,6" /><TextBlock Text="{Binding SelectedTitle}" VerticalAlignment="Center" TextWrapping="Wrap" /></DockPanel>
+                    <DockPanel x:Name="PlaybackHeader" Margin="0,0,0,8">
+                        <Button Content="Close player" Click="ClosePlayer_Click" DockPanel.Dock="Right" Padding="10,6" />
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{Binding SelectedTitle}" TextWrapping="Wrap" />
+                            <TextBlock x:Name="PlaybackStatus" Style="{StaticResource ClipHint}" Visibility="Collapsed" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
+                        </StackPanel>
+                    </DockPanel>
                     <ContentControl x:Name="PlayerHost" Background="Black" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" SizeChanged="PlaybackLayout_SizeChanged" AutomationProperties.Name="Selected clip video">
                         <ContentControl.Template>
                             <ControlTemplate TargetType="ContentControl">
@@ -134,10 +140,12 @@
                     </Grid>
                     <WrapPanel x:Name="PlaybackControls" Margin="0,8,0,0">
                         <Button x:Name="PlayPauseButton" Content="Pause" Click="PlayPause_Click" IsEnabled="False" Padding="12,6" Margin="0,0,8,4" />
-                        <Button Content="Export clip…" Click="Export_Click" IsEnabled="{Binding CanExport}" Padding="12,6" Margin="0,0,8,4" />
+                        <Button x:Name="ExportClipButton" Content="Export clip…" Click="Export_Click" IsEnabled="{Binding CanExport}" Padding="12,6" Margin="0,0,8,4" />
                         <TextBlock Text="Volume" VerticalAlignment="Center" Margin="8,0,8,4" />
                         <Slider x:Name="PlaybackVolume" Minimum="0" Maximum="1" Value="0.6" Width="110" SmallChange="0.05" LargeChange="0.1" ValueChanged="PlaybackVolume_Changed" VerticalAlignment="Center" AutomationProperties.Name="Clip playback volume" Margin="0,0,0,4" />
                     </WrapPanel>
+                    <TextBlock x:Name="PreviewExportStatus" Text="{Binding PreviewExportStatus}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,6,0,0"
+                               Visibility="{Binding HasPreviewExportStatus, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
                 </StackPanel>
             </Border>
             <TextBlock Text="Export folder · local drive" FontWeight="SemiBold" />

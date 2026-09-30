@@ -61,10 +61,69 @@ public sealed class ClipsViewModelTests
         await model.ExportSelectedToFolderAsync();
         var exported = Assert.Single(Directory.GetFiles(exportDirectory, "*.mp4"));
         Assert.Equal(await File.ReadAllBytesAsync(playback!, TestContext.Current.CancellationToken), await File.ReadAllBytesAsync(exported, TestContext.Current.CancellationToken));
+        Assert.False(model.CanExport);
+        Assert.Equal("Export successful.", model.PreviewExportStatus);
         await model.ExportSelectedToFolderAsync();
         Assert.Single(Directory.GetFiles(exportDirectory, "*.mp4"));
-        Assert.Contains("No duplicate", model.Notice, StringComparison.Ordinal);
+        Assert.Equal("Export successful.", model.PreviewExportStatus);
+        model.ClosePlayback();
+        Assert.False(model.HasPreviewExportStatus);
+        await model.SelectForPlaybackAsync(card);
+        Assert.True(model.CanExport);
+        await model.ExportSelectedToFolderAsync();
+        Assert.Single(Directory.GetFiles(exportDirectory, "*.mp4"));
+        Assert.Contains("no duplicate", model.PreviewExportStatus, StringComparison.Ordinal);
+        Assert.False(model.CanExport);
         Assert.Same(card, model.SelectedClip);
+    });
+
+    [Fact]
+    public void FailedExportShowsPreviewFeedbackAndAllowsRetry() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        await model.SaveClipAsync();
+        await model.SelectForPlaybackAsync(Assert.Single(model.Clips));
+        var occupied = Path.Combine(fixture.Directory, "occupied.mp4");
+        await File.WriteAllTextAsync(occupied, "keep", TestContext.Current.CancellationToken);
+        await model.ExportSelectedAsync(occupied);
+        Assert.StartsWith("Export failed.", model.PreviewExportStatus, StringComparison.Ordinal);
+        Assert.True(model.CanExport);
+        Assert.Equal("keep", await File.ReadAllTextAsync(occupied, TestContext.Current.CancellationToken));
+        await model.ExportSelectedAsync(Path.Combine(fixture.Directory, "retry.mp4"));
+        Assert.Equal("Export successful.", model.PreviewExportStatus);
+        Assert.False(model.CanExport);
+    });
+
+    [Fact]
+    public void CompletingExportAfterPreviewClosesDoesNotDisableTheNextPreview() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        await model.SaveClipAsync();
+        var card = Assert.Single(model.Clips);
+        await model.SelectForPlaybackAsync(card);
+        var closed = false;
+        model.PropertyChanged += (_, change) =>
+        {
+            if (!closed && change.PropertyName == nameof(model.IsBusy) && model.IsBusy)
+            { closed = true; model.ClosePlayback(); }
+        };
+        var destination = Path.Combine(fixture.Directory, "after-close.mp4");
+        await model.ExportSelectedAsync(destination);
+        Assert.True(closed);
+        Assert.True(File.Exists(destination));
+        Assert.False(model.HasSelection);
+        Assert.False(model.HasPreviewExportStatus);
+        await model.SelectForPlaybackAsync(card);
+        Assert.True(model.CanExport);
+        Assert.False(model.HasPreviewExportStatus);
     });
 
     [Fact]

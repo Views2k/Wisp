@@ -24,13 +24,13 @@ public partial class ClipsPage : UserControl
     private Button? _shortcutButton;
     private MediaElement? _player;
     private Window? _hostWindow;
-    private bool _paused;
-    private long _playbackRevision;
+    private readonly ClipsPlaybackState _playback = new();
+    private readonly Stopwatch _preparationElapsed = new();
+    private Guid? _playingClipId;
     private readonly DispatcherTimer _playbackTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
     private MediaElement? _seekPlayer;
     private long _seekRevision;
-    private double _durationSeconds;
-    private bool _updatingTimeline, _seeking, _ended;
+    private bool _updatingTimeline, _seeking;
 
     public ClipsPage()
     {
@@ -103,8 +103,10 @@ public partial class ClipsPage : UserControl
         var aspect = _player is { NaturalVideoWidth: > 0, NaturalVideoHeight: > 0 } player
             ? (double)player.NaturalVideoWidth / player.NaturalVideoHeight
             : media is { Width: > 0, Height: > 0 } ? (double)media.Width / media.Height : 16d / 9;
-        static double OuterHeight(FrameworkElement element) => element.ActualHeight + element.Margin.Top + element.Margin.Bottom;
+        static double OuterHeight(FrameworkElement element) => element.Visibility == Visibility.Collapsed ? 0 :
+            element.ActualHeight + element.Margin.Top + element.Margin.Bottom;
         var chrome = OuterHeight(PlaybackHeader) + OuterHeight(PlaybackTimeline) + OuterHeight(PlaybackControls) +
+            OuterHeight(PreviewExportStatus) +
             PlaybackSurface.Padding.Top + PlaybackSurface.Padding.Bottom + PlaybackSurface.BorderThickness.Top +
             PlaybackSurface.BorderThickness.Bottom + PlaybackSurface.Margin.Top + PlaybackSurface.Margin.Bottom;
         var height = Math.Max(0, Math.Min(width / aspect, viewportHeight - chrome));
@@ -165,9 +167,11 @@ public partial class ClipsPage : UserControl
     {
         if (sender is not Button { DataContext: ClipCardItem item } || Model is not { IsBusy: false } model) return;
         StopPlayer();
-        var revision = _playbackRevision;
+        var revision = _playback.Revision;
         var path = await model.SelectForPlaybackAsync(item);
-        if (path is null || revision != _playbackRevision || !IsVisible || !ReferenceEquals(Model, model)) return;
+        if (path is null || revision != _playback.Revision || !IsLoaded || !IsVisible || !ReferenceEquals(Model, model)) return;
+        _playback.Prepare(); revision = _playback.Revision;
+        _playingClipId = item.Id;
         var player = new MediaElement
         {
             LoadedBehavior = MediaState.Manual,
@@ -179,42 +183,59 @@ public partial class ClipsPage : UserControl
             ScrubbingEnabled = true
         };
         _player = player;
-        player.MediaOpened += async (_, _) =>
+        bool Current() => ReferenceEquals(_player, player) && revision == _playback.Revision &&
+            IsLoaded && IsVisible && ReferenceEquals(Model, model);
+        player.MediaOpened += (_, _) =>
         {
-            if (!ReferenceEquals(_player, player) || revision != _playbackRevision || !IsVisible) return;
+            if (!Current() || !_playback.Preparing) return;
             try
             {
-                player.Play(); _paused = false; _ended = false; PlayPauseButton.Content = "Pause"; PlayPauseButton.IsEnabled = true;
-                _durationSeconds = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan.TotalSeconds : 0;
-                if (!double.IsFinite(_durationSeconds) || _durationSeconds <= 0) _durationSeconds = 0;
+                var seconds = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan.TotalSeconds : 0;
+                if (!_playback.TryOpen(revision, player.HasVideo, player.NaturalVideoWidth, player.NaturalVideoHeight, seconds))
+                { FailPlayback("This clip has no playable video or duration. Choose another clip."); return; }
+                _preparationElapsed.Stop();
+                _playback.BufferingChanged(revision, player.IsBuffering);
+                player.Play();
+                if (!Current()) return;
+                PlayPauseButton.Content = "Pause"; PlayPauseButton.IsEnabled = true;
                 _updatingTimeline = true;
-                try { PlaybackPosition.Maximum = _durationSeconds > 0 ? _durationSeconds : 1; PlaybackPosition.IsEnabled = _durationSeconds > 0; }
+                try { PlaybackPosition.Maximum = _playback.DurationSeconds; PlaybackPosition.IsEnabled = true; }
                 finally { _updatingTimeline = false; }
-                SetTimelinePosition(0); UpdatePlayerSize(); UpdatePlaybackTimer();
+                SetTimelinePosition(0); UpdatePlaybackStatus(); UpdatePlayerSize(); UpdatePlaybackTimer();
             }
-            catch (InvalidOperationException) { StopPlayer(); model.PlaybackFailed(); return; }
-            await model.PlaybackOpenedAsync(item.Id);
+            catch (InvalidOperationException) { FailPlayback(); }
         };
-        player.MediaFailed += (_, _) => { if (ReferenceEquals(_player, player)) { StopPlayer(); model.PlaybackFailed(); } };
+        player.BufferingStarted += (_, _) =>
+        {
+            if (!Current()) return;
+            _playback.BufferingChanged(revision, true); UpdatePlaybackStatus();
+        };
+        player.BufferingEnded += (_, _) =>
+        {
+            if (!Current()) return;
+            _playback.BufferingChanged(revision, false); UpdatePlaybackStatus();
+        };
+        player.MediaFailed += (_, _) => { if (Current()) FailPlayback(); };
         player.MediaEnded += (_, _) =>
         {
-            if (!ReferenceEquals(_player, player) || revision != _playbackRevision) return;
+            if (!Current() || !_playback.Ready) return;
             try
             {
-                player.Pause(); _paused = true; _ended = true; PlayPauseButton.Content = "Play again";
+                player.Pause(); _playback.ReachEnd(revision); PlayPauseButton.Content = "Play again";
                 _playbackTimer.Stop();
-                if (!_seeking) SetTimelinePosition(_durationSeconds);
+                if (!_seeking) SetTimelinePosition(_playback.DurationSeconds);
+                UpdatePlaybackStatus();
             }
-            catch (InvalidOperationException) { StopPlayer(); model.PlaybackFailed(); }
+            catch (InvalidOperationException) { FailPlayback(); }
         };
         PlayerHost.Content = player;
-        try { player.Source = new Uri(path, UriKind.Absolute); player.Play(); }
+        _preparationElapsed.Restart(); UpdatePlaybackStatus(); UpdatePlaybackTimer();
+        try { player.Source = new Uri(path, UriKind.Absolute); player.Pause(); }
         catch (Exception error) when (error is InvalidOperationException or ArgumentException or IOException)
-        { StopPlayer(); model.PlaybackFailed(); return; }
+        { FailPlayback(); return; }
         _ = Dispatcher.InvokeAsync(() =>
         {
-            if (!ReferenceEquals(_player, player) || revision != _playbackRevision || !ReferenceEquals(Model, model) ||
-                !IsLoaded || !IsVisible || !PlaybackSurface.IsVisible || ClipsScroll.Content is not FrameworkElement content) return;
+            if (!Current() || !PlaybackSurface.IsVisible || ClipsScroll.Content is not FrameworkElement content) return;
             var offset = PlaybackSurface.TranslatePoint(new Point(), content).Y;
             if (double.IsFinite(offset)) ClipsScroll.ScrollToVerticalOffset(offset);
         }, DispatcherPriority.Loaded);
@@ -222,8 +243,8 @@ public partial class ClipsPage : UserControl
 
     private void StopPlayer()
     {
-        ++_playbackRevision;
-        _playbackTimer.Stop(); _seekPlayer = null; _seeking = false; _ended = false; _paused = false; _durationSeconds = 0;
+        _playback.Reset(); _preparationElapsed.Reset(); _playingClipId = null;
+        _playbackTimer.Stop(); _seekPlayer = null; _seeking = false;
         var player = _player; _player = null;
         if (player is not null)
         {
@@ -239,6 +260,17 @@ public partial class ClipsPage : UserControl
             finally { _updatingTimeline = false; }
         }
         if (PlaybackTime is not null) PlaybackTime.Text = "0:00 / 0:00";
+        UpdatePlaybackStatus();
+    }
+    private void FailPlayback(string message = "This clip could not be played. Choose the clip again to retry.")
+    {
+        StopPlayer(); _playback.Fail(message); UpdatePlaybackStatus(); Model?.PlaybackFailed();
+    }
+    private void UpdatePlaybackStatus()
+    {
+        if (PlaybackStatus is null) return;
+        PlaybackStatus.Text = _playback.Status;
+        PlaybackStatus.Visibility = PlaybackStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
     private void ClosePlayer_Click(object sender, RoutedEventArgs e) { StopPlayer(); Model?.ClosePlayback(); }
     private void PlayPause_Click(object sender, RoutedEventArgs e)
@@ -246,36 +278,49 @@ public partial class ClipsPage : UserControl
         if (_player is null || !PlayPauseButton.IsEnabled) return;
         try
         {
-            if (_paused)
+            if (_playback.Paused)
             {
-                if (_ended) { _player.Position = TimeSpan.Zero; _ended = false; SetTimelinePosition(0); }
+                if (_playback.Ended) { _player.Position = TimeSpan.Zero; SetTimelinePosition(0); }
                 _player.Play();
             }
             else _player.Pause();
-            _paused = !_paused; PlayPauseButton.Content = _paused ? "Play" : "Pause";
-            UpdatePlaybackTimer();
+            _playback.SetPaused(!_playback.Paused); PlayPauseButton.Content = _playback.Paused ? "Play" : "Pause";
+            UpdatePlaybackStatus(); UpdatePlaybackTimer();
         }
-        catch (InvalidOperationException) { StopPlayer(); Model?.PlaybackFailed(); }
+        catch (InvalidOperationException) { FailPlayback(); }
     }
     private void PlaybackVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e) { if (_player is not null) _player.Volume = e.NewValue; }
 
-    private bool CanTrackPlayback => _player is not null && PlayPauseButton.IsEnabled && _durationSeconds > 0 &&
+    private bool CanTrackPlayback => _player is not null && _playback.Ready && PlayPauseButton.IsEnabled &&
         IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized;
     private void UpdatePlaybackTimer()
     {
-        if (CanTrackPlayback && !_paused && !_seeking) _playbackTimer.Start();
+        if (_player is not null && IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized &&
+            (_playback.Preparing || CanTrackPlayback && !_playback.Paused && !_seeking)) _playbackTimer.Start();
         else _playbackTimer.Stop();
     }
     private void RefreshPlaybackPosition()
     {
-        if (!CanTrackPlayback || _paused || _seeking) { _playbackTimer.Stop(); return; }
-        try { SetTimelinePosition(_player!.Position.TotalSeconds); }
-        catch (InvalidOperationException) { StopPlayer(); Model?.PlaybackFailed(); }
+        if (_playback.Preparing)
+        {
+            if (_playback.OpeningTimedOut(_preparationElapsed.Elapsed))
+                FailPlayback("This clip is taking too long to open. Choose it again to retry.");
+            return;
+        }
+        if (!CanTrackPlayback || _playback.Paused || _seeking) { _playbackTimer.Stop(); return; }
+        try
+        {
+            var seconds = _player!.Position.TotalSeconds;
+            SetTimelinePosition(seconds);
+            if (_playback.ObservePosition(_playback.Revision, seconds) && _playingClipId is { } id && Model is { } model)
+                _ = model.PlaybackOpenedAsync(id);
+        }
+        catch (InvalidOperationException) { FailPlayback(); }
     }
     private void SetTimelinePosition(double seconds)
     {
         if (!double.IsFinite(seconds)) seconds = 0;
-        seconds = Math.Clamp(seconds, 0, _durationSeconds);
+        seconds = Math.Clamp(seconds, 0, _playback.DurationSeconds);
         _updatingTimeline = true;
         try { PlaybackPosition.Value = seconds; }
         finally { _updatingTimeline = false; }
@@ -284,18 +329,18 @@ public partial class ClipsPage : UserControl
     private void UpdateTimeLabel(double seconds)
     {
         static string Format(double value) => $"{(long)value / 60}:{(long)value % 60:00}";
-        PlaybackTime.Text = $"{Format(seconds)} / {Format(_durationSeconds)}";
+        PlaybackTime.Text = $"{Format(seconds)} / {Format(_playback.DurationSeconds)}";
     }
     private void PlaybackPosition_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (_updatingTimeline || PlaybackTime is null || _durationSeconds <= 0) return;
-        UpdateTimeLabel(Math.Clamp(e.NewValue, 0, _durationSeconds));
-        if (!_seeking) SeekPlayback(_player, _playbackRevision, e.NewValue);
+        if (_updatingTimeline || PlaybackTime is null || _playback.DurationSeconds <= 0) return;
+        UpdateTimeLabel(Math.Clamp(e.NewValue, 0, _playback.DurationSeconds));
+        if (!_seeking) SeekPlayback(_player, _playback.Revision, e.NewValue);
     }
     private void PlaybackSeek_Begin(object sender, DragStartedEventArgs e)
     {
         if (!CanTrackPlayback || !PlaybackPosition.IsEnabled) return;
-        _seekPlayer = _player; _seekRevision = _playbackRevision; _seeking = true; _playbackTimer.Stop();
+        _seekPlayer = _player; _seekRevision = _playback.Revision; _seeking = true; _playbackTimer.Stop();
     }
     private void PlaybackSeek_End(object sender, DragCompletedEventArgs e)
     {
@@ -307,17 +352,17 @@ public partial class ClipsPage : UserControl
     }
     private void SeekPlayback(MediaElement? player, long revision, double seconds)
     {
-        if (player is null || !ReferenceEquals(player, _player) || revision != _playbackRevision || !CanTrackPlayback || !double.IsFinite(seconds)) return;
+        if (player is null || !ReferenceEquals(player, _player) || revision != _playback.Revision || !CanTrackPlayback || !double.IsFinite(seconds)) return;
         try
         {
-            seconds = Math.Clamp(seconds, 0, _durationSeconds);
+            seconds = Math.Clamp(seconds, 0, _playback.DurationSeconds);
             player.Position = TimeSpan.FromSeconds(seconds);
-            _ended = seconds >= _durationSeconds;
-            PlayPauseButton.Content = _paused ? _ended ? "Play again" : "Play" : "Pause";
-            SetTimelinePosition(seconds);
+            _playback.SeekTo(seconds);
+            PlayPauseButton.Content = _playback.Paused ? _playback.Ended ? "Play again" : "Play" : "Pause";
+            SetTimelinePosition(seconds); UpdatePlaybackStatus();
         }
         catch (Exception error) when (error is InvalidOperationException or ArgumentException)
-        { StopPlayer(); Model?.PlaybackFailed(); }
+        { FailPlayback(); }
     }
 
     private void CaptureShortcut_Click(object sender, RoutedEventArgs e)
