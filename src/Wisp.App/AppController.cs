@@ -107,7 +107,8 @@ public sealed partial class AppController : IAsyncDisposable
             settingsService.SaveCompletedSetup,
             runsDirectory: Path.Combine(settingsService.DataDirectory, "Runs"),
             shiftCalibrationDirectory: Path.Combine(settingsService.DataDirectory, "ShiftCalibrations"),
-            recorderHelperPath: Path.Combine(AppContext.BaseDirectory, "Wisp.Recorder.exe"))
+            recorderHelperPath: Path.Combine(AppContext.BaseDirectory, "Wisp.Recorder.exe"),
+            clipLibraryDirectory: Path.Combine(settingsService.DataDirectory, "Clips"))
     {
     }
 
@@ -119,7 +120,8 @@ public sealed partial class AppController : IAsyncDisposable
         Func<Version, CancellationToken, Task<UpdateRelease?>>? checkForApplicationUpdate = null,
         string? runsDirectory = null,
         string? shiftCalibrationDirectory = null,
-        string? recorderHelperPath = null)
+        string? recorderHelperPath = null,
+        string? clipLibraryDirectory = null)
     {
         Settings = settings;
         _nativeHudProcessService.ShiftCueEnabled = settings.AccelerationShiftCueEnabled;
@@ -156,7 +158,7 @@ public sealed partial class AppController : IAsyncDisposable
         UpdateShiftCueObservation();
         _dispatcher = Dispatcher.CurrentDispatcher;
         InitializeRuns(runsDirectory);
-        InitializeClips(recorderHelperPath);
+        InitializeClips(recorderHelperPath, clipLibraryDirectory);
         _debugHealthMonitor = new DebugHealthMonitor(
             _receiver,
             _nativeHudProcessService,

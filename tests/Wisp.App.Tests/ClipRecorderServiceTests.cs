@@ -12,6 +12,47 @@ public sealed class ClipRecorderServiceTests
     private static readonly RecorderTarget Target = new(42, 123, 456);
     private static CancellationToken TestToken => TestContext.Current.CancellationToken;
 
+    [Theory]
+    [InlineData(false, ClipBorderlessAccessResult.Allowed, true)]
+    [InlineData(true, ClipBorderlessAccessResult.Allowed, false)]
+    [InlineData(false, ClipBorderlessAccessResult.Denied, false)]
+    [InlineData(false, ClipBorderlessAccessResult.Unavailable, false)]
+    public async Task CaptureBorderPreferenceAndCheckedGrantAreAppliedBeforeSessionOpen(
+        bool showCaptureBorder, ClipBorderlessAccessResult access, bool expectedAllowed)
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var checks = 0; var requests = 0;
+        await using var service = new ClipRecorderService(() => fixture.Directory, factory.Create, true,
+            checkBorderless: _ => { checks++; return Task.FromResult(access); },
+            requestBorderless: _ => { requests++; return Task.FromResult(ClipBorderlessAccessResult.Allowed); });
+        Assert.Equal(access, await service.CheckBorderlessAccessAsync(TestToken));
+        await service.SetEnabledAsync(true, Recording, TestToken, showCaptureBorder);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.Equal(expectedAllowed, session.BorderlessAllowedAtOpen);
+        Assert.Equal(expectedAllowed, session.BorderlessAllowed);
+        Assert.Equal(1, checks);
+        Assert.Equal(0, requests);
+    }
+
+    [Fact]
+    public async Task ShowingCaptureBorderOverridesAnAlreadyGrantedExplicitRequest()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = new ClipRecorderService(() => fixture.Directory, factory.Create, true,
+            requestBorderless: _ => Task.FromResult(ClipBorderlessAccessResult.Allowed));
+        Assert.Equal(ClipBorderlessAccessResult.Allowed, await service.RequestBorderlessAccessAsync(TestToken));
+        await service.SetEnabledAsync(true, Recording, TestToken, showCaptureBorder: true);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.False(session.BorderlessAllowedAtOpen);
+        Assert.False(session.BorderlessAllowed);
+    }
+
     [Fact]
     public async Task FailureReportSurvivesCleanupAndRetryUntilNewRecordingActuallyBuffers()
     {
@@ -598,6 +639,8 @@ public sealed class ClipRecorderServiceTests
     }
     private sealed class FakeSession : IRecorderSession
     {
+        public bool BorderlessAllowed { get; set; }
+        internal bool BorderlessAllowedAtOpen { get; private set; }
         internal readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource Disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource<FinalizedClipMedia> Saved = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -609,7 +652,7 @@ public sealed class ClipRecorderServiceTests
         public event EventHandler<RecorderStateUpdate>? StateChanged;
         internal void Emit(string state, string reason) => StateChanged?.Invoke(this, new(state, reason));
         public Task OpenAsync(ClipRecordingSpec recording, string storage, CancellationToken cancellationToken)
-        { cancellationToken.ThrowIfCancellationRequested(); Emit("waiting", "waiting_for_game"); return Task.CompletedTask; }
+        { cancellationToken.ThrowIfCancellationRequested(); BorderlessAllowedAtOpen = BorderlessAllowed; Emit("waiting", "waiting_for_game"); return Task.CompletedTask; }
         public Task StartAsync(RecorderTarget target, CancellationToken cancellationToken)
         { cancellationToken.ThrowIfCancellationRequested(); StartedTarget = target; Started.TrySetResult(); return Task.CompletedTask; }
         public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken) => Saved.Task.WaitAsync(cancellationToken);

@@ -12,15 +12,16 @@ public sealed partial class AppController
     internal bool ShortcutCaptureActive => Runs.ShortcutCaptureActive || Clips.ShortcutCaptureActive ||
         ControlPanel?.IsCapturingOverlayHotkey == true;
 
-    private void InitializeClips(string? helperPath)
+    private void InitializeClips(string? helperPath, string? clipLibraryDirectory)
     {
+        var libraryDirectory = clipLibraryDirectory ?? "";
         // Preview/test controllers cannot discover or launch the installed helper.
         _clipRecorder = helperPath is null
-            ? new ClipRecorderService(() => Settings.Clips.StorageDirectory,
+            ? new ClipRecorderService(() => libraryDirectory,
                 () => throw new InvalidOperationException("The recorder is unavailable in this host."), helperAvailable: false)
-            : new ClipRecorderService(helperPath, () => Settings.Clips.StorageDirectory);
+            : new ClipRecorderService(helperPath, () => libraryDirectory);
         Clips = new(Settings.Clips, _clipRecorder, _dispatcher,
-            helperPath is null ? null : new RecorderThumbnailProvider(helperPath));
+            helperPath is null ? null : new RecorderThumbnailProvider(helperPath), libraryDirectory: libraryDirectory);
         Clips.SetRuntimeActive(false);
         Clips.SetShortcutRegistration(ConfigureClipShortcut);
         Clips.PreferencesChanged += (_, _) =>

@@ -62,7 +62,8 @@ internal static class ClipsPlaybackUiReview
                     fixture.CopyTo(destination);
                 Await(library.CommitFinalizedAsync(target.Id, new(fixture.Length, 1920, 1080, 60, 0, 40_166_666, false), cancellation.Token));
             }
-            model = new(new() { StorageDirectory = libraryDirectory }, new InertRecorder(), Dispatcher.CurrentDispatcher);
+            model = new(new() { StorageDirectory = libraryDirectory }, new InertRecorder(), Dispatcher.CurrentDispatcher,
+                libraryDirectory: libraryDirectory);
             page = new ClipsPage { DataContext = model };
             ((Slider)page.FindName("PlaybackVolume")).Value = 0;
             var activeWindow = new Window
@@ -202,6 +203,18 @@ internal static class ClipsPlaybackUiReview
                 FitsViewport(close) && FitsViewport(export) && FitsViewport(volume), "video-and-playback-controls-fully-visible-after-lower-card-click");
             var player = (MediaElement)host.Content;
             Check(player.Volume == 0 && player.NaturalVideoWidth == 1920 && player.NaturalVideoHeight == 1080, "muted-known-video");
+            var fitScale = Math.Min(host.ActualWidth / player.NaturalVideoWidth, host.ActualHeight / player.NaturalVideoHeight);
+            var fittedWidth = player.NaturalVideoWidth * fitScale;
+            var fittedHeight = player.NaturalVideoHeight * fitScale;
+            Check(host.ActualHeight > 400 && fittedWidth > 700 && fittedHeight > 400 &&
+                player.ActualWidth >= fittedWidth - 1 && player.ActualHeight >= fittedHeight - 1 &&
+                FitsViewport(player) && player.Stretch == Stretch.Uniform,
+                "actual-video-fills-substantial-default-player-area");
+            Check(host.HorizontalContentAlignment == HorizontalAlignment.Stretch && host.VerticalContentAlignment == VerticalAlignment.Stretch &&
+                host.Background is SolidColorBrush { Color: var background } && background == Colors.Black &&
+                CleanVisualChain(player), "player-is-opaque-without-ancestor-effects-or-fade");
+            measurements["playerHostWidth"] = host.ActualWidth; measurements["playerHostHeight"] = host.ActualHeight;
+            measurements["fittedVideoWidth"] = fittedWidth; measurements["fittedVideoHeight"] = fittedHeight;
             measurements["naturalDurationSeconds"] = player.NaturalDuration.TimeSpan.TotalSeconds;
             Check(Math.Abs(measurements["naturalDurationSeconds"] - KnownDurationSeconds) <= .1 && timer.IsEnabled, "known-duration-and-active-timer");
             await Until(() => player.Position.TotalSeconds >= .35 && currentModel.NewClipCount == ClipLibrary.PageSize - 1, 2500);
@@ -252,6 +265,12 @@ internal static class ClipsPlaybackUiReview
                 var bounds = element.TransformToAncestor(viewport).TransformBounds(new Rect(element.RenderSize));
                 return bounds.Left >= -1 && bounds.Top >= -1 && bounds.Right <= viewport.ActualWidth + 1 &&
                     bounds.Bottom <= viewport.ActualHeight + 1;
+            }
+            static bool CleanVisualChain(DependencyObject element)
+            {
+                for (DependencyObject? current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+                    if (current is UIElement visual && (visual.Opacity != 1 || visual.OpacityMask is not null || visual.Effect is not null)) return false;
+                return true;
             }
         }
     }
@@ -425,7 +444,7 @@ internal static class ClipsPlaybackUiReview
     {
         public ClipRecorderSnapshot Snapshot => new(ClipRecorderState.Unavailable, false, false, false, "Synthetic playback check; recorder unavailable.");
         public event EventHandler? StateChanged { add { } remove { } }
-        public Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken token) => throw new InvalidOperationException();
+        public Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken token, bool showCaptureBorder = false) => throw new InvalidOperationException();
         public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken token) => throw new InvalidOperationException();
     }
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();

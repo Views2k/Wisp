@@ -62,26 +62,15 @@
             <Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></DataTrigger></Style.Triggers>
         </Style>
     </UserControl.Resources>
-    <ScrollViewer x:Name="ClipsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,12">
+    <ScrollViewer x:Name="ClipsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,12" ScrollChanged="ClipsScroll_ScrollChanged">
         <StackPanel>
-            <TextBlock Text="Clips" Style="{DynamicResource SectionTitleStyle}" Margin="0,0,0,5" />
-            <TextBlock Text="Save the last part of your drive, then watch or export it here. Records the game window and game audio; separate Wisp HUD overlays are not included." Style="{StaticResource ClipHint}" Margin="0,0,0,16" />
+            <TextBlock Text="Enable clipping to keep a rolling recording. Save clip keeps a moment in Wisp. Export copies it to your export folder." Style="{StaticResource ClipHint}" Margin="0,0,0,16" />
             <Border Style="{DynamicResource CardStyle}" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
                     <WrapPanel>
                         <CheckBox Content="Enable clipping" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding ClippingEnabled, Mode=OneWay}" IsEnabled="{Binding CanToggle}" Click="ClippingToggle_Click" Margin="0,0,16,10" VerticalAlignment="Center" AutomationProperties.Name="Enable clipping" />
                         <Button Content="Save clip" Command="{Binding SaveClipCommand}" Padding="14,7" Margin="0,0,0,10" />
                     </WrapPanel>
-                    <TextBlock x:Name="ClipSetupHint" Text="Select a storage location in Recording settings to enable clipping." Margin="0,0,0,10" AutomationProperties.LiveSetting="Polite">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock" BasedOn="{StaticResource ClipHint}">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding StorageDirectory}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
                     <TextBlock Text="{Binding RecorderStatus}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                     <TextBlock Text="{Binding CapturePermissionHint}" Style="{StaticResource ClipHint}" Margin="0,8,0,0" Visibility="{Binding HasCapturePermissionHint, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
                     <TextBlock Text="{Binding SaveQueueStatus}" Style="{StaticResource ClipHint}" Margin="0,8,0,0" Visibility="{Binding HasSaveQueueStatus, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
@@ -105,9 +94,8 @@
                         <DockPanel Margin="0,0,0,5"><TextBlock Text="Quality" /><TextBlock Text="{Binding Quality}" HorizontalAlignment="Right" /></DockPanel>
                         <Slider Minimum="10" Maximum="100" Value="{Binding Quality}" TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10" PreviewMouseLeftButtonUp="Quality_Commit" PreviewKeyUp="Quality_Commit" LostKeyboardFocus="Quality_Commit" AutomationProperties.Name="Clip quality,10 to100" Margin="0,0,0,8" />
                         <TextBlock Text="{Binding LongClipHint}" Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
-                        <TextBlock Text="Saved clips folder · local drive" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding StorageText}" Style="{StaticResource ClipHint}" Margin="0,5,0,8" />
-                        <Button Content="Choose folder…" Click="ChooseFolder_Click" HorizontalAlignment="Left" Padding="12,7" Margin="0,0,0,14" />
+                        <CheckBox x:Name="CaptureBorderToggle" Content="Show capture border" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding ShowCaptureBorder}" Margin="0,0,0,6" AutomationProperties.Name="Show capture border" />
+                        <TextBlock Text="Off by default. Hiding the border requires Windows permission; if unavailable, Windows keeps the border visible." Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
                         <TextBlock Text="Shortcuts" FontWeight="SemiBold" Margin="0,0,0,8" />
                         <WrapPanel>
                             <StackPanel Width="220" Margin="0,0,12,12">
@@ -121,22 +109,30 @@
                         </WrapPanel>
                         <TextBlock Text="{Binding ShortcutStatus}" Style="{StaticResource ClipHint}" />
                     </StackPanel>
-                    <TextBlock Text="Turn clipping off before changing recording settings or the folder." Style="{StaticResource ClipHint}" Margin="0,10,0,10" />
+                    <TextBlock Text="Records the game window and game audio; separate Wisp HUD overlays are not included. Turn clipping off before changing recording settings." Style="{StaticResource ClipHint}" Margin="0,10,0,10" />
                     <CheckBox Content="Remind me about new clips on the dashboard" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding RemindersEnabled}" />
                 </StackPanel>
             </Expander>
-            <Border x:Name="PlaybackSurface" Style="{DynamicResource CardStyle}" Padding="12" Margin="0,0,0,16" Visibility="{Binding HasSelection, Converter={StaticResource ClipVisibility}}">
+            <Border x:Name="PlaybackSurface" Style="{DynamicResource CardStyle}" Padding="12" Margin="0,0,0,16" Visibility="{Binding HasSelection, Converter={StaticResource ClipVisibility}}" SizeChanged="PlaybackLayout_SizeChanged">
                 <StackPanel>
-                    <DockPanel Margin="0,0,0,8"><Button Content="Close player" Click="ClosePlayer_Click" DockPanel.Dock="Right" Padding="10,6" /><TextBlock Text="{Binding SelectedTitle}" VerticalAlignment="Center" TextWrapping="Wrap" /></DockPanel>
-                    <ContentControl x:Name="PlayerHost" Height="280" Background="Black" AutomationProperties.Name="Selected clip video" />
-                    <Grid Margin="0,10,0,0">
+                    <DockPanel x:Name="PlaybackHeader" Margin="0,0,0,8"><Button Content="Close player" Click="ClosePlayer_Click" DockPanel.Dock="Right" Padding="10,6" /><TextBlock Text="{Binding SelectedTitle}" VerticalAlignment="Center" TextWrapping="Wrap" /></DockPanel>
+                    <ContentControl x:Name="PlayerHost" Background="Black" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" SizeChanged="PlaybackLayout_SizeChanged" AutomationProperties.Name="Selected clip video">
+                        <ContentControl.Template>
+                            <ControlTemplate TargetType="ContentControl">
+                                <Border Background="{TemplateBinding Background}" ClipToBounds="True">
+                                    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                                </Border>
+                            </ControlTemplate>
+                        </ContentControl.Template>
+                    </ContentControl>
+                    <Grid x:Name="PlaybackTimeline" Margin="0,10,0,0">
                         <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <Slider x:Name="PlaybackPosition" Minimum="0" Maximum="1" Value="0" IsEnabled="False" SmallChange="1" LargeChange="10" IsMoveToPointEnabled="True"
                                 ValueChanged="PlaybackPosition_Changed" Thumb.DragStarted="PlaybackSeek_Begin" Thumb.DragCompleted="PlaybackSeek_End"
                                 VerticalAlignment="Center" AutomationProperties.Name="Clip playback position" AutomationProperties.HelpText="Use arrow keys to seek one second, or Page Up and Page Down to seek ten seconds." />
                         <TextBlock x:Name="PlaybackTime" Grid.Column="1" Text="0:00 / 0:00" Style="{StaticResource ClipHint}" VerticalAlignment="Center" Margin="12,0,0,0" AutomationProperties.Name="Clip playback time" />
                     </Grid>
-                    <WrapPanel Margin="0,8,0,0">
+                    <WrapPanel x:Name="PlaybackControls" Margin="0,8,0,0">
                         <Button x:Name="PlayPauseButton" Content="Pause" Click="PlayPause_Click" IsEnabled="False" Padding="12,6" Margin="0,0,8,4" />
                         <Button Content="Export clip…" Click="Export_Click" IsEnabled="{Binding CanExport}" Padding="12,6" Margin="0,0,8,4" />
                         <TextBlock Text="Volume" VerticalAlignment="Center" Margin="8,0,8,4" />
@@ -144,10 +140,23 @@
                     </WrapPanel>
                 </StackPanel>
             </Border>
+            <TextBlock Text="Export folder · local drive" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding StorageText}" Style="{StaticResource ClipHint}" Margin="0,5,0,8" />
+            <TextBlock x:Name="ClipSetupHint" Text="Choose an export folder to copy saved clips out of Wisp." Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock" BasedOn="{StaticResource ClipHint}">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding StorageDirectory}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+            <Button Content="Choose export folder…" Click="ChooseFolder_Click" HorizontalAlignment="Left" Padding="12,7" Margin="0,0,0,14" />
             <DockPanel Margin="0,0,0,8"><Button Content="Refresh" Command="{Binding RefreshCommand}" DockPanel.Dock="Right" Padding="10,6" /><TextBlock Text="Saved clips" FontWeight="SemiBold" VerticalAlignment="Center" /></DockPanel>
             <TextBlock Text="{Binding PendingText}" Style="{StaticResource ClipHint}" Margin="0,0,0,8" />
-            <Button Content="Open clip folder" Click="OpenFolder_Click" IsEnabled="{Binding CanOpenClipFolder}" HorizontalAlignment="Left" Padding="12,7" Margin="0,0,0,12" />
-            <TextBlock Text="No clips saved here yet. Choose a folder, enable clipping and save a moment from your drive." Style="{StaticResource ClipHint}" Visibility="{Binding IsEmpty, Converter={StaticResource ClipVisibility}}" Margin="0,8,0,16" />
+            <Button Content="Open export folder" Click="OpenFolder_Click" IsEnabled="{Binding CanOpenClipFolder}" HorizontalAlignment="Left" Padding="12,7" Margin="0,0,0,12" />
+            <TextBlock Text="No clips saved yet. Enable clipping, then save a moment from your drive to watch it here." Style="{StaticResource ClipHint}" Visibility="{Binding IsEmpty, Converter={StaticResource ClipVisibility}}" Margin="0,8,0,16" />
             <ItemsControl x:Name="Gallery" ItemsSource="{Binding Clips}" IsEnabled="{Binding CanBrowse}" SizeChanged="Gallery_SizeChanged">
                 <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="{Binding GalleryColumns, RelativeSource={RelativeSource AncestorType={x:Type local:ClipsPage}}}" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate><DataTemplate DataType="{x:Type local:ClipCardItem}">

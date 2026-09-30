@@ -9,6 +9,7 @@ internal sealed record RecorderTargetObservation(RecorderTarget Target, long Epo
 
 internal interface IRecorderSession : IAsyncDisposable
 {
+    bool BorderlessAllowed { set; }
     RecorderFailureDiagnostic? FailureDiagnostic => null;
     event EventHandler<RecorderStateUpdate>? StateChanged;
     Task OpenAsync(ClipRecordingSpec recording, string storage, CancellationToken cancellationToken);
@@ -20,7 +21,7 @@ internal interface IRecorderSession : IAsyncDisposable
 internal sealed class ProcessRecorderSession(string installedHelperPath) : IRecorderSession
 {
     private readonly RecorderProcessClient _client = new(installedHelperPath);
-    internal bool BorderlessAllowed { set => _client.BorderlessAllowed = value; }
+    public bool BorderlessAllowed { set => _client.BorderlessAllowed = value; }
     public RecorderFailureDiagnostic? FailureDiagnostic => _client.FailureDiagnostic;
     public event EventHandler<RecorderStateUpdate>? StateChanged { add => _client.StateChanged += value; remove => _client.StateChanged -= value; }
     public Task OpenAsync(ClipRecordingSpec recording, string storage, CancellationToken cancellationToken) => _client.OpenAsync(recording, storage, cancellationToken);
@@ -37,6 +38,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private readonly Func<CancellationToken, Task<string>> _validateStorage;
     private readonly Func<TimeSpan, CancellationToken, Task> _recoveryDelay;
     private readonly Func<CancellationToken, Task<ClipBorderlessAccessResult>> _requestBorderless;
+    private readonly Func<CancellationToken, Task<ClipBorderlessAccessResult>> _checkBorderless;
     private readonly SemaphoreSlim _permissionGate = new(1, 1);
     private ClipBorderlessAccessResult? _borderlessAccess;
     private readonly bool _helperAvailable;
@@ -55,7 +57,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private FailureReportState? _failureReport;
     private sealed record FailureReportState(string Reason, ClipRecordingSpec? Recording,
         IRecorderSession? Owner, RecorderFailureDiagnostic? Diagnostic, ClipStorageDiagnostic? Storage);
-    private bool _enabled, _saving, _cleanupFailed;
+    private bool _enabled, _saving, _cleanupFailed, _showCaptureBorder;
     private CancellationTokenSource? _recoveryCancellation;
     private Task _recoveryTask = Task.CompletedTask;
     private bool _recoveryWaiting;
@@ -67,19 +69,22 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
 
     internal ClipRecorderService(string installedHelperPath, Func<string> storageDirectory)
         : this(storageDirectory, () => new ProcessRecorderSession(installedHelperPath), File.Exists(installedHelperPath),
-            requestBorderless: new RecorderBorderlessAccess(installedHelperPath).RequestAsync)
+            requestBorderless: new RecorderBorderlessAccess(installedHelperPath).RequestAsync,
+            checkBorderless: new RecorderBorderlessAccess(installedHelperPath).CheckAsync)
     { }
 
     internal ClipRecorderService(Func<string> storageDirectory, Func<IRecorderSession> createSession, bool helperAvailable,
         Func<CancellationToken, Task<string>>? validateStorage = null,
         Func<TimeSpan, CancellationToken, Task>? recoveryDelay = null,
-        Func<CancellationToken, Task<ClipBorderlessAccessResult>>? requestBorderless = null)
+        Func<CancellationToken, Task<ClipBorderlessAccessResult>>? requestBorderless = null,
+        Func<CancellationToken, Task<ClipBorderlessAccessResult>>? checkBorderless = null)
     {
         _storageDirectory = storageDirectory ?? throw new ArgumentNullException(nameof(storageDirectory));
         _createSession = createSession ?? throw new ArgumentNullException(nameof(createSession));
         _validateStorage = validateStorage ?? ValidateStorageAsync;
         _recoveryDelay = recoveryDelay ?? Task.Delay;
         _requestBorderless = requestBorderless ?? (_ => Task.FromResult(ClipBorderlessAccessResult.Unavailable));
+        _checkBorderless = checkBorderless ?? (_ => Task.FromResult(ClipBorderlessAccessResult.Unavailable));
         _helperAvailable = helperAvailable;
         _snapshot = OffSnapshot();
         _worker = Task.Run(WorkAsync);
@@ -97,7 +102,9 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     }
     public event EventHandler? StateChanged;
 
-    public async Task<ClipBorderlessAccessResult> RequestBorderlessAccessAsync(CancellationToken cancellationToken)
+    public Task<ClipBorderlessAccessResult> RequestBorderlessAccessAsync(CancellationToken cancellationToken) => ResolveBorderlessAccessAsync(true, cancellationToken);
+    public Task<ClipBorderlessAccessResult> CheckBorderlessAccessAsync(CancellationToken cancellationToken) => ResolveBorderlessAccessAsync(false, cancellationToken);
+    private async Task<ClipBorderlessAccessResult> ResolveBorderlessAccessAsync(bool request, CancellationToken cancellationToken)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         await _permissionGate.WaitAsync(linked.Token).ConfigureAwait(false);
@@ -105,8 +112,14 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             if (!_helperAvailable) return ClipBorderlessAccessResult.Unavailable;
-            if (_borderlessAccess is { } cached) return cached;
-            return (_borderlessAccess = await _requestBorderless(linked.Token).ConfigureAwait(false)).Value;
+            var result = await (request ? _requestBorderless : _checkBorderless)(linked.Token).ConfigureAwait(false);
+            lock (_sync)
+            {
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                linked.Token.ThrowIfCancellationRequested();
+                _borderlessAccess = result;
+            }
+            return result;
         }
         finally { _permissionGate.Release(); }
     }
@@ -136,7 +149,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         Signal();
     }
 
-    public async Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken)
+    public async Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken, bool showCaptureBorder = false)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         cancellationToken.ThrowIfCancellationRequested();
@@ -159,7 +172,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                     throw new IOException(ClipsSettings.RecordingPathTooLongMessage);
                 if (_enabled)
                 {
-                    if (_recording != recording || !string.Equals(_storage, storage, StringComparison.OrdinalIgnoreCase))
+                    if (_recording != recording || _showCaptureBorder != showCaptureBorder || !string.Equals(_storage, storage, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException("Disable clipping before changing its recording settings.");
                     return;
                 }
@@ -167,6 +180,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 CancelRecoveryLocked();
                 _recoveryAttempt = 0;
                 _observed = null;
+                _showCaptureBorder = showCaptureBorder;
                 _recording = recording; _storage = storage; _enabled = true; _fault = null; _blockedObservation = null; _revision++;
                 revision = _revision; previousSession = _session;
             }
@@ -291,7 +305,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             try
             {
                 session = _createSession();
-                if (session is ProcessRecorderSession process) process.BorderlessAllowed = _borderlessAccess == ClipBorderlessAccessResult.Allowed;
+                lock (_sync) session.BorderlessAllowed = !_showCaptureBorder && _borderlessAccess == ClipBorderlessAccessResult.Allowed;
                 lifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                 var owned = session;
                 EventHandler<RecorderStateUpdate> handler = (_, state) => OnNativeState(owned, state);

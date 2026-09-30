@@ -10,6 +10,97 @@ namespace Wisp.App.Tests;
 public sealed class ClipsViewModelTests
 {
     [Fact]
+    public void ShowBorderSkipsConsentAndCannotChangeDuringRecording() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder { BorderlessAccess = ClipBorderlessAccessResult.Allowed };
+        recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        Assert.False(model.ShowCaptureBorder);
+        model.ShowCaptureBorder = true;
+        Assert.True(model.Preferences.ShowCaptureBorder);
+        await model.ToggleAsync();
+        Assert.True(recorder.LastShowCaptureBorder);
+        Assert.Equal(0, recorder.PermissionCalls);
+        Assert.Equal(0, recorder.PermissionChecks);
+        Assert.False(model.HasCapturePermissionHint);
+        model.ShowCaptureBorder = false;
+        Assert.True(model.ShowCaptureBorder);
+        await model.ToggleAsync();
+        model.ShowCaptureBorder = false;
+        await model.ToggleAsync();
+        Assert.Equal(1, recorder.PermissionCalls);
+        Assert.False(recorder.LastShowCaptureBorder);
+    });
+
+    [Fact]
+    public void SavedClipStaysPrivateAndOnlyExplicitExportCreatesOneFile() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var privateDirectory = Path.Combine(fixture.Directory, "private");
+        var exportDirectory = Path.Combine(fixture.Directory, "exports");
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
+        using var model = new ClipsViewModel(new(), recorder, Dispatcher.CurrentDispatcher, libraryDirectory: privateDirectory);
+        await model.InitializeAsync();
+        Assert.True(model.CanToggle);
+        await model.ToggleAsync();
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        await model.SaveClipAsync();
+        var card = Assert.Single(model.Clips);
+        Assert.Single(Directory.GetFiles(privateDirectory, "*.mp4"));
+        Assert.False(Directory.Exists(exportDirectory));
+        var playback = await model.SelectForPlaybackAsync(card);
+        await model.ExportSelectedToFolderAsync();
+        Assert.Contains("Choose an export folder", model.Error, StringComparison.Ordinal);
+        await model.SetStorageDirectoryAsync(exportDirectory);
+        Assert.True(model.ClippingEnabled);
+        Assert.Same(card, model.SelectedClip);
+        Assert.False(Directory.Exists(exportDirectory));
+        await model.ExportSelectedToFolderAsync();
+        var exported = Assert.Single(Directory.GetFiles(exportDirectory, "*.mp4"));
+        Assert.Equal(await File.ReadAllBytesAsync(playback!, TestContext.Current.CancellationToken), await File.ReadAllBytesAsync(exported, TestContext.Current.CancellationToken));
+        await model.ExportSelectedToFolderAsync();
+        Assert.Single(Directory.GetFiles(exportDirectory, "*.mp4"));
+        Assert.Contains("No duplicate", model.Notice, StringComparison.Ordinal);
+        Assert.Same(card, model.SelectedClip);
+    });
+
+    [Fact]
+    public void FailedLegacyImportStaysVisibleAfterAutomaticRecordingRestore() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        Directory.CreateDirectory(fixture.Directory);
+        await File.WriteAllTextAsync(Path.Combine(fixture.Directory, ClipLibrary.IndexFileName), "invalid", TestContext.Current.CancellationToken);
+        var recorder = new FakeRecorder { BorderlessAccess = ClipBorderlessAccessResult.Allowed };
+        recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
+        using var model = new ClipsViewModel(new() { StorageDirectory = fixture.Directory, Enabled = true }, recorder,
+            Dispatcher.CurrentDispatcher, libraryDirectory: Path.Combine(fixture.Directory, "private"));
+        await model.InitializeAsync();
+        Assert.Contains("could not be imported", model.Error, StringComparison.Ordinal);
+        await model.RestoreEnabledPreferenceAsync();
+        Assert.True(model.ClippingEnabled);
+        Assert.Equal(0, recorder.PermissionCalls);
+        Assert.Equal(1, recorder.PermissionChecks);
+        Assert.False(model.HasCapturePermissionHint);
+        Assert.Contains("could not be imported", model.Error, StringComparison.Ordinal);
+        Assert.Equal(fixture.Directory, model.Preferences.LegacyLibraryDirectory);
+    });
+
+    [Fact]
+    public void PreviewWithoutLibraryDoesNotOpenOrCreateLegacyStorage() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        using var model = new ClipsViewModel(new() { StorageDirectory = fixture.Directory }, new FakeRecorder(),
+            Dispatcher.CurrentDispatcher, libraryDirectory: "");
+        await model.InitializeAsync();
+        Assert.False(Directory.Exists(fixture.Directory));
+        Assert.Empty(model.Clips);
+        Assert.False(model.CanToggle);
+    });
+
+    [Fact]
     public void FailedShortcutRegistrationPreservesWorkingPreferenceAndDoesNotPersist() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
@@ -62,12 +153,14 @@ public sealed class ClipsViewModelTests
         using var fixture = new Fixture();
         var recorder = new FakeRecorder();
         recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
-        using var model = new ClipsViewModel(new() { StorageDirectory = fixture.Directory, Enabled = true }, recorder, Dispatcher.CurrentDispatcher);
+        using var model = new ClipsViewModel(new() { StorageDirectory = fixture.Directory, Enabled = true }, recorder, Dispatcher.CurrentDispatcher, libraryDirectory: fixture.Directory);
         await model.InitializeAsync();
         await model.RestoreEnabledPreferenceAsync();
         Assert.True(model.ClippingEnabled);
         Assert.Equal(0, recorder.PermissionCalls);
-        Assert.Equal(new[] { "enable" }, recorder.EnableOrder);
+        Assert.Equal(1, recorder.PermissionChecks);
+        Assert.Equal(new[] { "check", "enable" }, recorder.EnableOrder);
+        Assert.True(model.HasCapturePermissionHint);
     });
 
     [Fact]
@@ -433,7 +526,7 @@ public sealed class ClipsViewModelTests
     });
 
     [Fact]
-    public void PendingOldFolderReminderCannotReplaceNewFolderCount() => OnDispatcher(async () =>
+    public void ChangingExportFolderPreservesLibraryAndPendingReminder() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
         var library = new ClipLibrary(fixture.Directory);
@@ -456,12 +549,12 @@ public sealed class ClipsViewModelTests
                 .GetMethod("RefreshReminderAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(model, null));
             Assert.False(pending.IsCompleted);
             await model.SetStorageDirectoryAsync(Path.Combine(fixture.Directory, "new-library"));
-            Assert.Equal(0, model.NewClipCount);
+            Assert.Equal(1, model.NewClipCount);
         }
         finally { gate.Release(); }
         await pending.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-        Assert.Equal(0, model.NewClipCount);
-        Assert.Empty(model.Clips);
+        Assert.Equal(1, model.NewClipCount);
+        Assert.Single(model.Clips);
     });
 
     [Fact]
@@ -482,7 +575,7 @@ public sealed class ClipsViewModelTests
     });
 
     [Fact]
-    public void LongNewFolderIsRefusedBeforeCreatingItsLibrary() => OnDispatcher(async () =>
+    public void ChoosingExportFolderDoesNotCreateOrChangeThePrivateLibrary() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
         using var model = fixture.Model(new FakeRecorder());
@@ -494,11 +587,11 @@ public sealed class ClipsViewModelTests
 
         await model.SetStorageDirectoryAsync(directory);
 
-        Assert.Equal(ClipsSettings.RecordingPathTooLongMessage, model.Error);
-        Assert.Equal(fixture.Directory, model.StorageDirectory);
-        Assert.Equal(fixture.Directory, model.Preferences.StorageDirectory);
+        Assert.Empty(model.Error);
+        Assert.Equal(directory, model.StorageDirectory);
+        Assert.Equal(directory, model.Preferences.StorageDirectory);
         Assert.False(Directory.Exists(directory));
-        Assert.Equal(0, commits);
+        Assert.Equal(1, commits);
     });
 
     [Fact]
@@ -514,7 +607,7 @@ public sealed class ClipsViewModelTests
         var recorder = new FakeRecorder();
         recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
         using var model = new ClipsViewModel(new() { StorageDirectory = directory, Enabled = true },
-            recorder, Dispatcher.CurrentDispatcher);
+            recorder, Dispatcher.CurrentDispatcher, libraryDirectory: directory);
         await model.InitializeAsync();
         var card = Assert.Single(model.Clips);
         Assert.Equal(target.MediaPath, await model.SelectForPlaybackAsync(card));
@@ -630,7 +723,7 @@ public sealed class ClipsViewModelTests
     private sealed class Fixture : IDisposable
     {
         public string Directory { get; } = Path.Combine(Path.GetTempPath(), "WispClipsViewModel", Guid.NewGuid().ToString("N"));
-        public ClipsViewModel Model(IClipRecorder recorder) => new(new() { StorageDirectory = Directory }, recorder, Dispatcher.CurrentDispatcher);
+        public ClipsViewModel Model(IClipRecorder recorder) => new(new() { StorageDirectory = Directory }, recorder, Dispatcher.CurrentDispatcher, libraryDirectory: Directory);
         public void Dispose() { if (System.IO.Directory.Exists(Directory)) System.IO.Directory.Delete(Directory, recursive: true); }
     }
 
@@ -643,6 +736,8 @@ public sealed class ClipsViewModelTests
         public event EventHandler? StateChanged;
         public int ToggleCalls { get; private set; }
         public int PermissionCalls { get; private set; }
+        public int PermissionChecks { get; private set; }
+        public bool LastShowCaptureBorder { get; private set; }
         public ClipBorderlessAccessResult BorderlessAccess { get; init; } = ClipBorderlessAccessResult.Unavailable;
         public TaskCompletionSource? PermissionGate { get; init; }
         public TaskCompletionSource PermissionEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -662,9 +757,15 @@ public sealed class ClipsViewModelTests
             if (PermissionGate is not null) await PermissionGate.Task.WaitAsync(cancellationToken);
             return BorderlessAccess;
         }
-        public Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken)
+        public Task<ClipBorderlessAccessResult> CheckBorderlessAccessAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested(); PermissionChecks++; EnableOrder.Add("check");
+            return Task.FromResult(BorderlessAccess);
+        }
+        public Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken, bool showCaptureBorder = false)
         {
             cancellationToken.ThrowIfCancellationRequested(); ToggleCalls++;
+            LastShowCaptureBorder = showCaptureBorder;
             EnableOrder.Add(enabled ? "enable" : "disable");
             Set(enabled ? new(ClipRecorderState.WaitingForGame, true, true, false, "Waiting for Forza") :
                 new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));

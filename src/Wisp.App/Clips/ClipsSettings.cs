@@ -11,7 +11,7 @@ public sealed class ClipsSettings
     public static IReadOnlyList<int> ResolutionChoices { get; } = Array.AsReadOnly(new[] { 360, 480, 720, 1080, 1440, 2160 });
     public static IReadOnlyList<int> FrameRateChoices { get; } = Array.AsReadOnly(new[] { 30, 60 });
 
-    internal const string RecordingPathTooLongMessage = "Choose a shorter clip folder so saved clips can play in Wisp.";
+    internal const string RecordingPathTooLongMessage = "Wisp's private clip storage path is too long for recording and playback.";
 
     // The player cannot open media paths of 260 UTF-16 characters or more.
     // Keep this recording policy separate from existing-library normalization.
@@ -20,12 +20,16 @@ public sealed class ClipsSettings
         Path.Combine(normalized, Guid.Empty.ToString("N") + ".mp4").Length < 260;
 
     public bool Enabled { get; set; }
+    public bool ShowCaptureBorder { get; set; }
     public int LengthSeconds { get; set; } = 60;
     public int ResolutionHeight { get; set; } = 1080;
     public int FrameRate { get; set; } = 60;
     public int Quality { get; set; } = 75;
     public bool RemindersEnabled { get; set; } = true;
     public string StorageDirectory { get; set; } = "";
+    public bool UsesPrivateLibrary { get; set; }
+    public string LegacyLibraryDirectory { get; set; } = "";
+    internal static string DefaultLibraryDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp", "Clips");
     public bool ToggleShortcutEnabled { get; set; }
     public OverlayHotkeyModifiers ToggleShortcutModifiers { get; set; } = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Alt;
     public Key ToggleShortcutKey { get; set; } = Key.F8;
@@ -49,9 +53,15 @@ public sealed class ClipsSettings
         if (!TryNormalizeStorageDirectory(StorageDirectory, out var directory))
         {
             StorageDirectory = "";
-            Enabled = false;
         }
         else StorageDirectory = directory;
+        if (!UsesPrivateLibrary)
+        {
+            LegacyLibraryDirectory = StorageDirectory;
+            UsesPrivateLibrary = true;
+        }
+        if (!TryNormalizeStorageDirectory(LegacyLibraryDirectory, out var legacy)) LegacyLibraryDirectory = "";
+        else LegacyLibraryDirectory = legacy;
         if (!OverlayHotkeyChord.TryCreate(ToggleShortcutModifiers, ToggleShortcutKey, out _, out _))
         {
             ToggleShortcutEnabled = false;

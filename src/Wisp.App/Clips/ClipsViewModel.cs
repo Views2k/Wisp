@@ -21,7 +21,9 @@ public interface IClipRecorder
     event EventHandler? StateChanged;
     Task<ClipBorderlessAccessResult> RequestBorderlessAccessAsync(CancellationToken cancellationToken)
         => Task.FromResult(ClipBorderlessAccessResult.Unavailable);
-    Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken);
+    Task<ClipBorderlessAccessResult> CheckBorderlessAccessAsync(CancellationToken cancellationToken)
+        => Task.FromResult(ClipBorderlessAccessResult.Unavailable);
+    Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken, bool showCaptureBorder = false);
     // Write only this reserved path, with create-new semantics. Return only after
     // successful finalization/close; failure must not report a saved clip.
     Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken);
@@ -79,6 +81,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private readonly CancellationToken _token;
     private readonly List<ClipCommand> _commands = [];
     private readonly ClipsSettings _settings;
+    private readonly string _libraryDirectory;
     private ClipLibrary? _library;
     private ClipRecorderSnapshot _snapshot;
     private ClipCardItem? _selected;
@@ -90,6 +93,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private Task? _initialization;
     private Func<bool, bool, OverlayHotkeyChord, string?>? _registerShortcut;
     private string _error = "", _notice = "", _shortcutStatus = "Shortcuts are off.";
+    private string _libraryWarning = "";
     private int _pageIndex, _pageCount, _total, _pending, _newClips;
     private long _selectionRevision;
     private CancellationTokenSource? _thumbnailWork;
@@ -97,12 +101,13 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private bool _galleryActive;
     internal Task ThumbnailCompletion { get; private set; } = Task.CompletedTask;
 
-    public ClipsViewModel(ClipsSettings settings, IClipRecorder recorder, Dispatcher dispatcher, IClipThumbnailProvider? thumbnails = null)
+    public ClipsViewModel(ClipsSettings settings, IClipRecorder recorder, Dispatcher dispatcher, IClipThumbnailProvider? thumbnails = null, string? libraryDirectory = null)
     {
         _token = _lifetime.Token; _settings = settings.Clone(); _settings.Normalize();
         _recorder = recorder; _dispatcher = dispatcher; _thumbnails = thumbnails;
         _snapshot = recorder.Snapshot;
-        if (_settings.StorageDirectory.Length > 0) _library = new ClipLibrary(_settings.StorageDirectory);
+        _libraryDirectory = libraryDirectory ?? ClipsSettings.DefaultLibraryDirectory;
+        if (_libraryDirectory.Length > 0) _library = new ClipLibrary(_libraryDirectory);
         SaveClipCommand = Command(SaveClipAsync, () => CanRequestSave);
         PreviousPageCommand = Command(() => LoadPageAsync(_pageIndex - 1), () => !IsBusy && _pageIndex > 0);
         NextPageCommand = Command(() => LoadPageAsync(_pageIndex + 1), () => !IsBusy && _pageIndex + 1 < _pageCount);
@@ -143,18 +148,18 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public bool HasCapturePermissionHint => _capturePermissionHint.Length > 0;
     public string FailureReport => _recorder.FailureReport;
     public bool HasFailureReport => FailureReport.Length > 0;
-    public string Error => _error;
-    public bool HasError => _error.Length > 0;
+    public string Error => _libraryWarning.Length == 0 ? _error : _error.Length == 0 ? _libraryWarning : _libraryWarning + " " + _error;
+    public bool HasError => _error.Length > 0 || _libraryWarning.Length > 0;
     public string Notice => _notice;
     public string StorageDirectory => _settings.StorageDirectory;
     public string SuggestedStorageDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Wisp Clips");
-    public string StorageText => StorageDirectory.Length == 0 ? $"Choose a clip folder on a local drive · suggested: {SuggestedStorageDirectory}" : StorageDirectory;
+    public string StorageText => StorageDirectory.Length == 0 ? "No export folder selected. Saved clips stay in Wisp until you export them." : StorageDirectory;
     public string LongClipHint => LengthSeconds == 300
         ? "Five-minute clips use more memory and storage and can take longer to save. Export keeps the recorded resolution and quality."
         : "Longer clips use more memory and storage. Export keeps the recorded resolution and quality.";
     public string PageText => _pageCount == 0 ? "No saved clips" : $"Page {_pageIndex + 1} of {_pageCount} · {_total} clips";
-    public string PendingText => _pending == 0 ? "" : $"{_pending} unfinished save(s). Open the clip folder to inspect retained files; they may be incomplete.";
-    public bool CanOpenClipFolder => !_disposed && !IsBusy && _library is not null;
+    public string PendingText => _pending == 0 ? "" : $"{_pending} unfinished save(s) retained in Wisp's private clip storage. Your completed clips are kept.";
+    public bool CanOpenClipFolder => !_disposed && !IsBusy && StorageDirectory.Length > 0;
     public bool IsEmpty => !IsBusy && Clips.Count == 0;
     public bool HasSelection => _selected is not null;
     public bool CanExport => HasSelection && !IsBusy;
@@ -175,6 +180,17 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public int LengthSeconds { get => _settings.LengthSeconds; set { if (ChangeChoice(value, LengthChoices, _settings.LengthSeconds)) { _settings.LengthSeconds = value; Changed(); OnChanged(nameof(LongClipHint)); } } }
     public int ResolutionHeight { get => _settings.ResolutionHeight; set { if (ChangeChoice(value, ResolutionChoices, _settings.ResolutionHeight)) { _settings.ResolutionHeight = value; Changed(); } } }
     public int FrameRate { get => _settings.FrameRate; set { if (ChangeChoice(value, FrameRateChoices, _settings.FrameRate)) { _settings.FrameRate = value; Changed(); } } }
+    public bool ShowCaptureBorder
+    {
+        get => _settings.ShowCaptureBorder;
+        set
+        {
+            if (!CanEditSettings || value == _settings.ShowCaptureBorder) return;
+            _settings.ShowCaptureBorder = value;
+            _capturePermissionHint = "";
+            Changed(); OnChanged(nameof(CapturePermissionHint)); OnChanged(nameof(HasCapturePermissionHint));
+        }
+    }
     public int Quality
     {
         get => _settings.Quality;
@@ -186,7 +202,42 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         set { if (_settings.RemindersEnabled != value) { _settings.RemindersEnabled = value; Changed(); OnChanged(nameof(HasReminder)); NotifyDashboardNotice(); ReminderChanged?.Invoke(this, EventArgs.Empty); } }
     }
 
-    public Task InitializeAsync() => _initialization ??= LoadPageAsync(0);
+    public Task InitializeAsync() => _initialization ??= Operation(async () =>
+    {
+        if (_library is null) return;
+        if (_settings.LegacyLibraryDirectory.Length > 0 && !string.Equals(_settings.LegacyLibraryDirectory, _libraryDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            var imported = 0;
+            try
+            {
+                ClipImportResult result;
+                do
+                {
+                    NoticeText($"Bringing existing clips into Wisp… {imported} imported. Original files are kept.");
+                    result = await _library!.ImportLegacyAsync(_settings.LegacyLibraryDirectory, _token);
+                    imported += result.Imported;
+                    if (result.Remaining > 0 && result.Imported == 0)
+                        throw new IOException("The existing clip import made no progress.");
+                } while (result.Remaining > 0);
+                _settings.LegacyLibraryDirectory = "";
+                PreferencesChanged?.Invoke(this, EventArgs.Empty);
+                NoticeText(imported > 0 ? $"{imported} existing clip(s) added to Wisp. Original files are kept." : "");
+                if (result.PendingLegacySaves > 0)
+                    LibraryWarningText("The previous clip folder contains unfinished saves. Those files have been kept.");
+            }
+            catch (OperationCanceledException) when (_token.IsCancellationRequested) { throw; }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            { LibraryWarningText("Some existing clips could not be imported. Original files are kept; Wisp will try the import again on its next start."); }
+        }
+        else if (_settings.LegacyLibraryDirectory.Length > 0)
+        { _settings.LegacyLibraryDirectory = ""; PreferencesChanged?.Invoke(this, EventArgs.Empty); }
+        await ReadPageAsync(0);
+    }, "The clip library could not be read. Its files have been kept.", !_disposed);
+    private void LibraryWarningText(string value)
+    {
+        _libraryWarning = value;
+        OnChanged(nameof(Error)); OnChanged(nameof(HasError)); NotifyDashboardNotice();
+    }
 
     public void CommitQuality()
     {
@@ -199,13 +250,13 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private Task ToggleAsync(bool requestAccess) => Operation(async () =>
     {
         var next = !_snapshot.Enabled;
-        if (next && !ClipsSettings.CanRecordToDirectory(_settings.StorageDirectory))
+        if (next && !ClipsSettings.CanRecordToDirectory(_libraryDirectory))
         { ErrorText(ClipsSettings.RecordingPathTooLongMessage); return; }
         if (next && await IsNetworkStorageAsync())
         { ErrorText("Clip recording needs a local folder. Network drives are not supported."); return; }
-        if (next && requestAccess)
+        if (next && !ShowCaptureBorder)
         {
-            var access = await _recorder.RequestBorderlessAccessAsync(_token);
+            var access = requestAccess ? await _recorder.RequestBorderlessAccessAsync(_token) : await _recorder.CheckBorderlessAccessAsync(_token);
             if (_disposed || !_runtimeActive) return;
             _capturePermissionHint = access switch
             {
@@ -215,8 +266,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             };
             OnChanged(nameof(CapturePermissionHint)); OnChanged(nameof(HasCapturePermissionHint));
         }
+        else if (next)
+        { _capturePermissionHint = ""; OnChanged(nameof(CapturePermissionHint)); OnChanged(nameof(HasCapturePermissionHint)); }
         if (_disposed || !_runtimeActive) return;
-        await _recorder.SetEnabledAsync(next, Recording(), _token);
+        await _recorder.SetEnabledAsync(next, Recording(), _token, ShowCaptureBorder);
         RefreshRecorder();
         if (_snapshot.Enabled != next) { ErrorText("Clipping did not change state. Check the recorder status."); return; }
         _settings.Enabled = next;
@@ -231,8 +284,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     }
     internal Task RestoreEnabledPreferenceAsync() => _settings.Enabled && !_snapshot.Enabled ? ToggleAsync(requestAccess: false) : Task.CompletedTask;
     private Task<bool> IsNetworkStorageAsync() => Task.Run(() =>
-        _settings.StorageDirectory.StartsWith(@"\\", StringComparison.Ordinal) ||
-        new DriveInfo(Path.GetPathRoot(_settings.StorageDirectory)!).DriveType == DriveType.Network, _token);
+        _libraryDirectory.StartsWith(@"\\", StringComparison.Ordinal) ||
+        new DriveInfo(Path.GetPathRoot(_libraryDirectory)!).DriveType == DriveType.Network, _token);
 
     public Task SaveClipAsync()
     {
@@ -243,7 +296,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             else if (_queuedSaves + (_saveActive ? 1 : 0) >= 2) NoticeText("Two clip saves are already pending. Wait for them to finish before saving another.");
             else if (_snapshot.State == ClipRecorderState.Saving) NoticeText(ClipRecorderService.ReasonText("save_in_progress"));
             else if (IsBusy) NoticeText("Wisp is busy with another clip action. Wait for it to finish, then save again.");
-            else if (_library is null) ErrorText("Choose a clip folder in Recording settings before saving a clip.");
+            else if (_library is null) ErrorText("Wisp's clip library is unavailable. Check the storage status.");
             else if (!_snapshot.Enabled) ErrorText("Clipping is off. Enable clipping before saving a clip.");
             else ErrorText("No clip is ready yet. " + RecorderStatus);
             return Task.CompletedTask;
@@ -344,20 +397,13 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public Task SetStorageDirectoryAsync(string directory) => Operation(async () =>
     {
         if (!ClipsSettings.TryNormalizeStorageDirectory(directory, out var full))
-        { ErrorText("Choose a clip folder on a local drive."); return; }
-        if (!ClipsSettings.CanRecordToDirectory(full))
-        { ErrorText(ClipsSettings.RecordingPathTooLongMessage); return; }
-        var next = new ClipLibrary(full);
-        var page = await next.GetPageAsync(0, _token);
-        ClearSelection();
-        _library = next;
+        { ErrorText("Choose an export folder on a local drive."); return; }
+        await Task.Run(() => { _token.ThrowIfCancellationRequested(); ClipLibrary.CheckPath(full); }, _token);
         _settings.StorageDirectory = full;
-        ApplyPage(page);
-        foreach (var name in new[] { nameof(StorageDirectory), nameof(StorageText), nameof(CanToggle) }) OnChanged(name);
+        foreach (var name in new[] { nameof(StorageDirectory), nameof(StorageText), nameof(CanOpenClipFolder) }) OnChanged(name);
         PreferencesChanged?.Invoke(this, EventArgs.Empty);
-        NoticeText("Clip folder selected. Files in the previous folder have been kept.");
-        StartThumbnails();
-    }, "That clip folder could not be opened. The previous folder is unchanged.", CanEditSettings);
+        NoticeText("Export folder selected. Saved clips stay in Wisp until you choose Export.");
+    }, "That export folder could not be selected. The previous folder is unchanged.", CanBrowse);
 
     public async Task<string?> GetClipFolderForOpenAsync()
     {
@@ -381,7 +427,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception error) when (error is not OutOfMemoryException)
         { if (!_disposed) ClipFolderOpenFailed(); return null; }
     }
-    public void ClipFolderOpenFailed() => ErrorText("The clip folder could not be opened. Check that the local drive is available.");
+    public void ClipFolderOpenFailed() => ErrorText("The export folder could not be opened. Check that the drive is available.");
 
     public async Task<string?> SelectForPlaybackAsync(ClipCardItem item)
     {
@@ -421,13 +467,20 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         : "The clipboard is busy. Try Copy error details again.");
     public void ClosePlayback() => ClearSelection();
 
-    public Task ExportSelectedAsync(string destination)
+    public Task ExportSelectedToFolderAsync()
+    {
+        if (StorageDirectory.Length == 0)
+        { ErrorText("Choose an export folder above Saved clips, then choose Export again."); return Task.CompletedTask; }
+        return ExportSelectedAsync(StorageDirectory, useDirectory: true);
+    }
+    public Task ExportSelectedAsync(string destination) => ExportSelectedAsync(destination, useDirectory: false);
+    private Task ExportSelectedAsync(string destination, bool useDirectory)
     {
         var selected = _selected;
         return Operation(async () =>
         {
             var library = _library!;
-            var result = await library.ExportAsync(selected!.Id, destination, _token);
+            var result = useDirectory ? await library.ExportToDirectoryAsync(selected!.Id, destination, _token) : await library.ExportAsync(selected!.Id, destination, _token);
             if (result.ExportStateSaved)
             {
                 var page = await library.GetPageAsync(_pageIndex, _token);
@@ -435,8 +488,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                 if (updated is not null) selected.Update(updated);
                 SetReminder(page);
             }
-            NoticeText(result.ExportStateSaved ? "Clip exported." : "Clip exported, but its exported state could not be saved.");
-        }, "The clip could not be exported. Choose a new filename and check folder access.", CanExport);
+            NoticeText(!result.ExportStateSaved ? "The export exists, but its exported state could not be saved." : result.FileCreated ? "Clip exported." : "This clip is already in your export folder. No duplicate was created.");
+        }, "The clip could not be exported. Check folder access and free space. An existing file is never overwritten.", CanExport);
     }
 
     public bool ConfigureShortcut(bool save, bool enabled, OverlayHotkeyChord chord)

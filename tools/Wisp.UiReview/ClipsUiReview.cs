@@ -54,7 +54,7 @@ internal static class ClipsUiReview
                 AutomaticApplicationUpdateChecks = false
             });
             using var model = new ClipsViewModel(new ClipsSettings { StorageDirectory = libraryPath },
-                recorder, Dispatcher.CurrentDispatcher, posters);
+                recorder, Dispatcher.CurrentDispatcher, posters, libraryDirectory: libraryPath);
             var page = new ClipsPage { DataContext = model };
             var surface = new Border
             {
@@ -72,6 +72,9 @@ internal static class ClipsUiReview
                 Check(!model.SaveClipCommand.CanExecute(null) && !model.PreviousPageCommand.CanExecute(null) &&
                     !model.NextPageCommand.CanExecute(null), "empty-actions-disabled");
                 CheckTimelineReset("initial-timeline-disabled");
+                var borderToggle = (CheckBox)page.FindName("CaptureBorderToggle");
+                Check(borderToggle.IsChecked == false && borderToggle.Style is not null && borderToggle.IsEnabled,
+                    "capture-border-default-off-and-themed");
                 Capture("empty", surface, new(980, 750), 96);
                 CheckSelectors();
 
@@ -141,8 +144,30 @@ internal static class ClipsUiReview
                     AutomationProperties.GetName(timeline).Length > 0, "timeline-themed-keyboard-accessibility");
                 CheckFits(timeline, playback, "timeline-bounds");
                 CheckFits((TextBlock)page.FindName("PlaybackTime"), playback, "timeline-label-bounds");
-                ScrollTo(playback);
-                Capture(phase, surface, new(980, 750), 96);
+                foreach (var dpi in new[] { 96, 144 })
+                    foreach (var size in new[] { new Size(720, 440), new Size(980, 750), new Size(1464, 994) })
+                    {
+                        phase = $"player-{size.Width:0}-{dpi}";
+                        Layout(size, dpi);
+                        ScrollTo(playback);
+                        var scroll = (ScrollViewer)page.FindName("ClipsScroll");
+                        var viewport = (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+                        Check(player.ActualHeight > 150 && player.ActualWidth > 500, "substantial-player-area");
+                        Check(size.Height < 700 || player.ActualHeight > 400, "desktop-player-exceeds-old-height-cap");
+                        var usedHeight = playback.ActualHeight + playback.Margin.Top + playback.Margin.Bottom;
+                        var widthLimited = Math.Abs(player.ActualHeight - player.ActualWidth * 9 / 16) <= 1;
+                        Check(widthLimited || Math.Abs(usedHeight - scroll.ViewportHeight) <= 1,
+                            "player-uses-width-or-remaining-viewport-height");
+                        CheckFits(playback, viewport, "whole-player-fits-viewport");
+                        CheckFits(timeline, viewport, "timeline-visible-with-player");
+                        CheckFits((WrapPanel)page.FindName("PlaybackControls"), viewport, "playback-controls-visible");
+                        Check(player.HorizontalContentAlignment == HorizontalAlignment.Stretch &&
+                            player.VerticalContentAlignment == VerticalAlignment.Stretch &&
+                            player.Background is SolidColorBrush { Color: var color } && color == Colors.Black &&
+                            !ScrollEdgeFade.GetIsEnabled(viewport) && viewport.OpacityMask is null,
+                            "opaque-stretched-player-without-scroll-fade");
+                        Capture(phase, surface, size, dpi);
+                    }
                 model.ClosePlayback();
                 Pump();
                 Check(playback.Visibility == Visibility.Collapsed, "player-closes");
@@ -160,7 +185,8 @@ internal static class ClipsUiReview
                 Layout(new(720, 440), 96);
                 ((ScrollViewer)page.FindName("ClipsScroll")).ScrollToTop(); Pump();
                 var selectors = Descendants(page).OfType<ComboBox>().ToArray();
-                Check(!model.CanEditSettings && selectors.Length == 3 && selectors.All(item => !item.IsEnabled), "recording-settings-disabled");
+                Check(!model.CanEditSettings && selectors.Length == 3 && selectors.All(item => !item.IsEnabled) &&
+                    !borderToggle.IsEnabled, "recording-settings-disabled");
                 Check(model.SaveClipCommand.CanExecute(null), "save-enabled-for-ready-fake");
                 Capture(phase, surface, new(720, 440), 96);
 
@@ -426,7 +452,7 @@ internal static class ClipsUiReview
         public event EventHandler? StateChanged;
         public int SaveCalls { get; private set; }
         public void Publish(ClipRecorderSnapshot snapshot) { Snapshot = snapshot; StateChanged?.Invoke(this, EventArgs.Empty); }
-        public Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken token) =>
+        public Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken token, bool showCaptureBorder = false) =>
             throw new InvalidOperationException("The detached review does not toggle a recorder.");
         public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken token)
         {

@@ -191,15 +191,16 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void ClipsSetupHintExplainsMissingFolderBesideTheToggle()
+    public void ClipsSetupHintExplainsExportFolderWithoutGatingRecording()
     {
         var document = LoadXaml(ClipsPagePath());
-        var toggle = Assert.Single(document.Descendants(Presentation + "CheckBox"),
-            element => element.Attribute("AutomationProperties.Name")?.Value == "Enable clipping");
+        var folder = Assert.Single(document.Descendants(Presentation + "Button"),
+            element => element.Attribute("Click")?.Value == "ChooseFolder_Click");
         var hint = Assert.Single(document.Descendants(Presentation + "TextBlock"),
             element => element.Attribute(Xaml + "Name")?.Value == "ClipSetupHint");
-        Assert.Same(toggle.Parent?.Parent, hint.Parent);
-        Assert.Equal("Select a storage location in Recording settings to enable clipping.", hint.Attribute("Text")?.Value);
+        Assert.Same(folder.Parent, hint.Parent);
+        Assert.DoesNotContain(folder.Ancestors(), element => element.Attribute("IsEnabled")?.Value == "{Binding CanEditSettings}");
+        Assert.Equal("Choose an export folder to copy saved clips out of Wisp.", hint.Attribute("Text")?.Value);
         Assert.Equal("Polite", hint.Attribute("AutomationProperties.LiveSetting")?.Value);
         var style = Assert.Single(hint.Descendants(Presentation + "Style"));
         Assert.Equal("{StaticResource ClipHint}", style.Attribute("BasedOn")?.Value);
@@ -208,6 +209,26 @@ public sealed class XamlContractTests
         Assert.Equal("{Binding StorageDirectory}", trigger.Attribute("Binding")?.Value);
         Assert.Equal("", trigger.Attribute("Value")?.Value);
         Assert.Equal("Visible", Assert.Single(trigger.Elements(Presentation + "Setter")).Attribute("Value")?.Value);
+    }
+
+    [Fact]
+    public void ClipsCaptureBorderUsesThemedRecordingSettingAndPlayerHasOpaqueStretchSurface()
+    {
+        var document = LoadXaml(ClipsPagePath());
+        var toggle = Assert.Single(document.Descendants(Presentation + "CheckBox"),
+            element => element.Attribute("AutomationProperties.Name")?.Value == "Show capture border");
+        Assert.Equal("{DynamicResource ToggleSwitchStyle}", toggle.Attribute("Style")?.Value);
+        Assert.Equal("{Binding ShowCaptureBorder}", toggle.Attribute("IsChecked")?.Value);
+        Assert.Contains(toggle.Ancestors(), element => element.Attribute("IsEnabled")?.Value == "{Binding CanEditSettings}");
+        var host = Assert.Single(document.Descendants(Presentation + "ContentControl"),
+            element => element.Attribute(Xaml + "Name")?.Value == "PlayerHost");
+        Assert.Null(host.Attribute("Height"));
+        Assert.Equal("Stretch", host.Attribute("HorizontalContentAlignment")?.Value);
+        Assert.Equal("Stretch", host.Attribute("VerticalContentAlignment")?.Value);
+        Assert.Equal("Black", host.Attribute("Background")?.Value);
+        var backing = Assert.Single(host.Descendants(Presentation + "Border"));
+        Assert.Equal("{TemplateBinding Background}", backing.Attribute("Background")?.Value);
+        Assert.Equal("True", backing.Attribute("ClipToBounds")?.Value);
     }
 
     [Fact]

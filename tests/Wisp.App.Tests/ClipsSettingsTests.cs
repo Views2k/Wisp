@@ -13,6 +13,7 @@ public sealed class ClipsSettingsTests
     {
         var settings = new ClipsSettings();
         Assert.False(settings.Enabled);
+        Assert.False(settings.ShowCaptureBorder);
         Assert.Equal(60, settings.LengthSeconds);
         Assert.Equal(1080, settings.ResolutionHeight);
         Assert.Equal(60, settings.FrameRate);
@@ -35,7 +36,7 @@ public sealed class ClipsSettingsTests
     }
 
     [Fact]
-    public void InvalidValuesFailClosedWithoutInventingAnOutputLocation()
+    public void InvalidExportLocationDoesNotDisablePrivateRecordingOrInventAFolder()
     {
         var settings = new ClipsSettings
         {
@@ -53,7 +54,7 @@ public sealed class ClipsSettingsTests
             SaveShortcutKey = Key.F4
         };
         settings.Normalize();
-        Assert.False(settings.Enabled);
+        Assert.True(settings.Enabled);
         Assert.Equal("", settings.StorageDirectory);
         Assert.Equal(60, settings.LengthSeconds);
         Assert.Equal(1080, settings.ResolutionHeight);
@@ -66,6 +67,20 @@ public sealed class ClipsSettingsTests
         settings.Quality = -1;
         settings.Normalize();
         Assert.Equal(10, settings.Quality);
+    }
+
+    [Fact]
+    public void OlderSettingsDefaultToHiddenBorderAndRetainLegacyLibraryForImport()
+    {
+        var settings = JsonSerializer.Deserialize<ClipsSettings>("""{"Enabled":true,"StorageDirectory":"C:\\Clips"}""")!;
+        settings.Normalize();
+        Assert.False(settings.ShowCaptureBorder);
+        Assert.True(settings.UsesPrivateLibrary);
+        Assert.Equal(@"C:\Clips", settings.LegacyLibraryDirectory);
+        settings.StorageDirectory = @"C:\Exports";
+        settings.Normalize();
+        Assert.Equal(@"C:\Clips", settings.LegacyLibraryDirectory);
+        Assert.True(settings.Enabled);
     }
 
     [Fact]
@@ -112,6 +127,7 @@ public sealed class ClipsSettingsTests
         {
             Enabled = true,
             LengthSeconds = 300,
+            ShowCaptureBorder = true,
             ResolutionHeight = 2160,
             FrameRate = 30,
             Quality = 42,
@@ -123,6 +139,7 @@ public sealed class ClipsSettingsTests
             SaveShortcutEnabled = true,
             SaveShortcutKey = Key.F9
         };
+        settings.Normalize();
         var loaded = JsonSerializer.Deserialize<ClipsSettings>(JsonSerializer.Serialize(settings))!;
         loaded.Normalize();
         Assert.Equal(JsonSerializer.Serialize(settings), JsonSerializer.Serialize(loaded));

@@ -160,7 +160,7 @@ public sealed class ClipsThumbnailTests
     {
         using var files = new Files(); await files.AddIndexedAsync();
         var thumbnails = new DelayedThumbnails();
-        using var model = new ClipsViewModel(new() { StorageDirectory = files.Directory }, new IdleRecorder(), Dispatcher.CurrentDispatcher, thumbnails);
+        using var model = new ClipsViewModel(new() { StorageDirectory = files.Directory }, new IdleRecorder(), Dispatcher.CurrentDispatcher, thumbnails, libraryDirectory: files.Directory);
         await model.InitializeAsync();
         Assert.False(thumbnails.Started.Task.IsCompleted);
         model.SetGalleryActive(true);
@@ -177,19 +177,19 @@ public sealed class ClipsThumbnailTests
     });
 
     [Fact]
-    public void OldFolderPreviewCannotPopulateNewFolder() => OnDispatcher(async () =>
+    public void ChangingExportFolderKeepsPrivateLibraryPreview() => OnDispatcher(async () =>
     {
         using var oldFiles = new Files(); using var newFiles = new Files();
         await oldFiles.AddIndexedAsync();
         var thumbnails = new DelayedThumbnails();
-        using var model = new ClipsViewModel(new() { StorageDirectory = oldFiles.Directory }, new IdleRecorder(), Dispatcher.CurrentDispatcher, thumbnails);
+        using var model = new ClipsViewModel(new() { StorageDirectory = oldFiles.Directory }, new IdleRecorder(), Dispatcher.CurrentDispatcher, thumbnails, libraryDirectory: oldFiles.Directory);
         model.SetGalleryActive(true); await model.InitializeAsync();
         await thumbnails.Started.Task.WaitAsync(Token);
         var oldWork = model.ThumbnailCompletion;
         await model.SetStorageDirectoryAsync(newFiles.Directory);
-        Assert.True(thumbnails.CapturedToken.IsCancellationRequested);
+        Assert.False(thumbnails.CapturedToken.IsCancellationRequested);
         thumbnails.Result.TrySetResult(FrozenImage()); await oldWork;
-        Assert.Empty(model.Clips); Assert.Equal(0, model.NewClipCount); Assert.False(model.IsBusy);
+        Assert.NotNull(Assert.Single(model.Clips).Thumbnail); Assert.Equal(1, model.NewClipCount); Assert.False(model.IsBusy);
     });
 
     [Fact]
@@ -197,7 +197,7 @@ public sealed class ClipsThumbnailTests
     {
         using var files = new Files(); await files.AddIndexedAsync();
         var thumbnails = new DelayedThumbnails();
-        var model = new ClipsViewModel(new() { StorageDirectory = files.Directory }, new IdleRecorder(), Dispatcher.CurrentDispatcher, thumbnails);
+        var model = new ClipsViewModel(new() { StorageDirectory = files.Directory }, new IdleRecorder(), Dispatcher.CurrentDispatcher, thumbnails, libraryDirectory: files.Directory);
         model.SetGalleryActive(true); await model.InitializeAsync(); await thumbnails.Started.Task.WaitAsync(Token);
         model.Dispose();
         Assert.True(thumbnails.Disposed); Assert.True(thumbnails.CapturedToken.IsCancellationRequested);
@@ -269,7 +269,7 @@ public sealed class ClipsThumbnailTests
     {
         public ClipRecorderSnapshot Snapshot => new(ClipRecorderState.Disabled, false, true, false, "Clipping is off");
         public event EventHandler? StateChanged { add { } remove { } }
-        public Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken, bool showCaptureBorder = false) => Task.CompletedTask;
         public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
     private sealed class Files : IDisposable

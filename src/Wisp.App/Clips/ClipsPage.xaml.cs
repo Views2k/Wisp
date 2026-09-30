@@ -78,11 +78,44 @@ public partial class ClipsPage : UserControl
     private void UpdateGalleryVisibility() => Model?.SetGalleryActive(IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized);
     private void ModelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ClipsViewModel.HasSelection) && Model?.HasSelection != true) StopPlayer();
+        if (e.PropertyName == nameof(ClipsViewModel.HasSelection))
+        {
+            UpdatePlaybackFade();
+            if (Model?.HasSelection != true) StopPlayer();
+        }
     }
     private void LeavePage() { StopPlayer(); FinishShortcut(); Model?.SetGalleryActive(false); Model?.CommitQuality(); Model?.ClosePlayback(); }
     private void Gallery_SizeChanged(object sender, SizeChangedEventArgs e) =>
         SetValue(GalleryColumnsPropertyKey, Math.Clamp((int)(Math.Max(0, e.NewSize.Width) / 176), 1, 5));
+    private void ClipsScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.ViewportHeightChange != 0 || e.ViewportWidthChange != 0) UpdatePlayerSize();
+    }
+    private void PlaybackLayout_SizeChanged(object sender, SizeChangedEventArgs e) => UpdatePlayerSize();
+    private void UpdatePlayerSize()
+    {
+        UpdatePlaybackFade();
+        if (PlayerHost is null || PlaybackControls is null || PlaybackSurface.Visibility != Visibility.Visible) return;
+        var width = PlayerHost.ActualWidth;
+        var viewportHeight = ClipsScroll.ViewportHeight;
+        if (!double.IsFinite(width) || width <= 0 || !double.IsFinite(viewportHeight) || viewportHeight <= 0) return;
+        var media = Model?.SelectedClip?.Entry.Media;
+        var aspect = _player is { NaturalVideoWidth: > 0, NaturalVideoHeight: > 0 } player
+            ? (double)player.NaturalVideoWidth / player.NaturalVideoHeight
+            : media is { Width: > 0, Height: > 0 } ? (double)media.Width / media.Height : 16d / 9;
+        static double OuterHeight(FrameworkElement element) => element.ActualHeight + element.Margin.Top + element.Margin.Bottom;
+        var chrome = OuterHeight(PlaybackHeader) + OuterHeight(PlaybackTimeline) + OuterHeight(PlaybackControls) +
+            PlaybackSurface.Padding.Top + PlaybackSurface.Padding.Bottom + PlaybackSurface.BorderThickness.Top +
+            PlaybackSurface.BorderThickness.Bottom + PlaybackSurface.Margin.Top + PlaybackSurface.Margin.Bottom;
+        var height = Math.Max(0, Math.Min(width / aspect, viewportHeight - chrome));
+        if (!double.IsFinite(PlayerHost.Height) || Math.Abs(PlayerHost.Height - height) > .5) PlayerHost.Height = height;
+    }
+    private void UpdatePlaybackFade()
+    {
+        if (ClipsScroll?.Template?.FindName("PART_ScrollContentPresenter", ClipsScroll) is not ScrollContentPresenter viewport) return;
+        if (Model?.HasSelection == true) ScrollEdgeFade.SetIsEnabled(viewport, false);
+        else viewport.ClearValue(ScrollEdgeFade.IsEnabledProperty);
+    }
     private async void ClippingToggle_Click(object sender, RoutedEventArgs e) { if (Model is { } model) await model.ToggleAsync(); }
     private void Quality_Commit(object sender, RoutedEventArgs e) => Model?.CommitQuality();
 
@@ -95,10 +128,10 @@ public partial class ClipsPage : UserControl
 
     private async void ChooseFolder_Click(object sender, RoutedEventArgs e)
     {
-        if (Model is not { CanEditSettings: true } model) return;
+        if (Model is not { IsBusy: false } model) return;
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "Choose a clip folder on a local drive",
+            Title = "Choose an export folder on a local drive",
             Multiselect = false,
             InitialDirectory = Directory.Exists(model.StorageDirectory) ? model.StorageDirectory :
                 Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
@@ -125,17 +158,7 @@ public partial class ClipsPage : UserControl
 
     private async void Export_Click(object sender, RoutedEventArgs e)
     {
-        if (Model is not { CanExport: true, SelectedClip: { } selected } model) return;
-        var dialog = new Microsoft.Win32.SaveFileDialog
-        {
-            Title = "Export clip",
-            Filter = "MP4 video (*.mp4)|*.mp4",
-            DefaultExt = ".mp4",
-            AddExtension = true,
-            FileName = $"Wisp clip {selected.Entry.SavedAtUtc.ToLocalTime():yyyy-MM-dd HH-mm-ss}.mp4",
-            OverwritePrompt = false
-        };
-        if (dialog.ShowDialog(Window.GetWindow(this)) == true) await model.ExportSelectedAsync(dialog.FileName);
+        if (Model is { CanExport: true } model) await model.ExportSelectedToFolderAsync();
     }
 
     private async void PlayClip_Click(object sender, RoutedEventArgs e)
@@ -150,6 +173,8 @@ public partial class ClipsPage : UserControl
             LoadedBehavior = MediaState.Manual,
             UnloadedBehavior = MediaState.Close,
             Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
             Volume = PlaybackVolume.Value,
             ScrubbingEnabled = true
         };
@@ -165,7 +190,7 @@ public partial class ClipsPage : UserControl
                 _updatingTimeline = true;
                 try { PlaybackPosition.Maximum = _durationSeconds > 0 ? _durationSeconds : 1; PlaybackPosition.IsEnabled = _durationSeconds > 0; }
                 finally { _updatingTimeline = false; }
-                SetTimelinePosition(0); UpdatePlaybackTimer();
+                SetTimelinePosition(0); UpdatePlayerSize(); UpdatePlaybackTimer();
             }
             catch (InvalidOperationException) { StopPlayer(); model.PlaybackFailed(); return; }
             await model.PlaybackOpenedAsync(item.Id);
