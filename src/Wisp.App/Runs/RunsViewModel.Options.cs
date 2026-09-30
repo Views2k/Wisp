@@ -52,6 +52,16 @@ public sealed partial class RunsViewModel
     public bool IsCountingDown => _countdownStartedAt is not null;
     private bool RecordingActive => IsCountingDown || _service.IsRecording || _service.IsPreparing;
     public bool CanEditRecordingOptions => !RecordingActive;
+    internal void RefreshProfileOptions()
+    {
+        LapReview.RefreshSettings();
+        foreach (var property in new[] { nameof(Purpose), nameof(CountdownSeconds), nameof(StopAfterSeconds),
+                     nameof(HotkeyEnabled), nameof(HotkeyText), nameof(MarkerHotkeyEnabled), nameof(MarkerHotkeyText) })
+            OnChanged(property);
+        RefreshHotkey();
+        RefreshMarkerHotkey();
+        RequestAnalysis();
+    }
     public int CountdownRemainingSeconds => _countdownStartedAt is { } started
         ? Math.Max(0, (int)Math.Ceiling(_armedCountdownSeconds - _timeProvider.GetElapsedTime(started).TotalSeconds)) : 0;
     public bool CanMarkMoment => _service.IsRecording;

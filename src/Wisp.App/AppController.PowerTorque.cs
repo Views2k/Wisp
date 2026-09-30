@@ -94,7 +94,7 @@ public sealed partial class AppController
 
     private void RestorePowerTorqueGaugePlacement(PowerTorqueGaugeWindow? window)
     {
-        if (window is null) return;
+        if (_applyingHudPreset || window is null) return;
         window.ApplyAppearance(window.IsTorque ? Settings.TorqueGaugeScale : Settings.PowerGaugeScale,
             Settings.OverlayOpacity);
         var placements = window.IsTorque ? Settings.TorqueGaugePlacements : Settings.PowerGaugePlacements;
