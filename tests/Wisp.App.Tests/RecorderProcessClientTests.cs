@@ -39,7 +39,7 @@ public sealed class RecorderProcessClientTests
     {
         using var fixture = new Fixture();
         var child = new FakeChild();
-        await using var client = new RecorderProcessClient(fixture.Helper, _ => child);
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
         var observed = new List<RecorderStateUpdate>();
         client.StateChanged += (_, state) => observed.Add(state);
         await client.OpenAsync(Recording, fixture.Directory, TestToken);
@@ -47,9 +47,10 @@ public sealed class RecorderProcessClientTests
         Assert.Empty(observed);
         Assert.Equal(new[] { "config", "start" }, child.Commands.Select(command => command.GetProperty("command").GetString()));
         var config = child.Commands[0];
-        Assert.Equal(Path.Combine(fixture.Directory, $".wisp-recorder-{client.Session:N}"), config.GetProperty("spoolDirectory").GetString());
+        Assert.Equal(Path.Combine(fixture.BufferRoot, client.Session.ToString("N"), $".wisp-recorder-{client.Session:N}"), config.GetProperty("spoolDirectory").GetString());
         Assert.False(System.IO.Directory.Exists(config.GetProperty("spoolDirectory").GetString()));
         Assert.True(config.GetProperty("gameAudio").GetBoolean());
+        Assert.False(config.GetProperty("borderlessAllowed").GetBoolean());
         Assert.Equal("123", child.Commands[1].GetProperty("window").GetString());
         await client.StopAsync(TestToken);
         Assert.True(child.Exited);
@@ -61,7 +62,7 @@ public sealed class RecorderProcessClientTests
     {
         using var fixture = new Fixture();
         var child = new FakeChild { SilentSave = true };
-        await using var client = new RecorderProcessClient(fixture.Helper, _ => child);
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
         await client.OpenAsync(Recording, fixture.Directory, TestToken);
         var id = Guid.NewGuid();
         var media = await client.SaveAsync(new(id, DateTimeOffset.UtcNow, Recording, Path.Combine(fixture.Directory, $"{id:N}.mp4")), TestToken);
@@ -70,7 +71,45 @@ public sealed class RecorderProcessClientTests
         Assert.Equal(20_000_000, media.ActualEnd100ns);
         Assert.Equal(1920, media.Width);
         Assert.Equal(60, media.FrameRate);
+        Assert.Equal(new byte[1024], await File.ReadAllBytesAsync(Path.Combine(fixture.Directory, $"{id:N}.mp4"), TestToken));
+        Assert.StartsWith(fixture.BufferRoot, child.Commands.Last().GetProperty("destination").GetString(), StringComparison.OrdinalIgnoreCase);
         await client.StopAsync(TestToken);
+    }
+
+    [Fact]
+    public async Task DestinationRemovedAfterEnableKeepsTheFinishedPrivateClip()
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild();
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+        await client.OpenAsync(Recording, fixture.Directory, TestToken);
+        var id = Guid.NewGuid();
+        Directory.Delete(fixture.Directory);
+        var error = await Assert.ThrowsAsync<RecorderClientException>(() => client.SaveAsync(
+            new(id, DateTimeOffset.UtcNow, Recording, Path.Combine(fixture.Directory, $"{id:N}.mp4")), TestToken));
+        Assert.Equal("clip_publish_failed", error.Reason);
+        var nativeSave = Assert.Single(child.Commands, command => command.GetProperty("command").GetString() == "save");
+        Assert.Equal(new byte[1024], await File.ReadAllBytesAsync(nativeSave.GetProperty("destination").GetString()!, TestToken));
+        await client.StopAsync(TestToken);
+    }
+
+    [Fact]
+    public async Task TerminalRecoveryDoesNotBecomeUnexpectedExitOrSendAStopCommand()
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild();
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot) { BorderlessAllowed = true };
+        var recovery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var states = new List<RecorderStateUpdate>();
+        client.StateChanged += (_, state) => { states.Add(state); if (state.State == "reconnecting") recovery.TrySetResult(); };
+        await client.OpenAsync(Recording, fixture.Directory, TestToken);
+        Assert.True(child.Commands[0].GetProperty("borderlessAllowed").GetBoolean());
+        child.Reconnect(client.Session);
+        await recovery.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        await client.StopAsync(TestToken);
+        Assert.DoesNotContain(states, state => state.Reason == "helper_exited");
+        Assert.DoesNotContain(child.Commands, command => command.GetProperty("command").GetString() == "stop");
+        Assert.Equal(0, child.Kills);
     }
 
     [Fact]
@@ -85,7 +124,7 @@ public sealed class RecorderProcessClientTests
             ExitDiagnostic = RecorderFailureDiagnosticTests.Line().Append((byte)10)
                 .Concat(JsonSerializer.SerializeToUtf8Bytes(second)).Append((byte)10).ToArray()
         };
-        await using var client = new RecorderProcessClient(fixture.Helper, _ => child);
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
         var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         client.StateChanged += (_, state) => { if (state.Reason == "helper_exited") terminal.TrySetResult(); };
         await client.OpenAsync(Recording, fixture.Directory, TestToken);
@@ -106,7 +145,7 @@ public sealed class RecorderProcessClientTests
     {
         using var fixture = new Fixture();
         var child = new FakeChild();
-        await using var client = new RecorderProcessClient(fixture.Helper, _ => child);
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
         await client.OpenAsync(Recording, fixture.Directory, TestToken);
         await Assert.ThrowsAsync<ArgumentException>(() => client.SaveAsync(new(Guid.NewGuid(), DateTimeOffset.UtcNow, Recording,
             Path.Combine(fixture.Directory, "unowned.mp4")), TestToken));
@@ -119,7 +158,7 @@ public sealed class RecorderProcessClientTests
         using var fixture = new Fixture();
         var child = new FakeChild { WrongRequest = true };
         var launches = 0;
-        await using var client = new RecorderProcessClient(fixture.Helper, _ => { launches++; return child; });
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => { launches++; return child; }, fixture.BufferRoot);
         var failure = await Assert.ThrowsAsync<RecorderClientException>(() => client.OpenAsync(Recording, fixture.Directory, TestToken));
         Assert.Equal("protocol_error", failure.Reason);
         Assert.True(child.Kills > 0);
@@ -131,7 +170,7 @@ public sealed class RecorderProcessClientTests
     {
         using var fixture = new Fixture();
         var child = new FakeChild { HoldSave = true };
-        await using var client = new RecorderProcessClient(fixture.Helper, _ => child);
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
         await client.OpenAsync(Recording, fixture.Directory, TestToken);
         using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(TestToken);
         var id = Guid.NewGuid();
@@ -166,7 +205,7 @@ public sealed class RecorderProcessClientTests
     {
         using var fixture = new Fixture();
         var child = new FakeChild { IgnoreClose = true, WaitFailuresRemaining = 1 };
-        await using var client = new RecorderProcessClient(fixture.Helper, _ => child);
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
         await client.OpenAsync(Recording, fixture.Directory, TestToken);
         await client.StopAsync(TestToken);
         Assert.Equal(1, child.Kills);
@@ -180,7 +219,7 @@ public sealed class RecorderProcessClientTests
     {
         using var fixture = new Fixture();
         var child = new FakeChild { IgnoreClose = true, IgnoreKill = true, WaitFailuresRemaining = 2 };
-        await using var client = new RecorderProcessClient(fixture.Helper, _ => child);
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
         await client.OpenAsync(Recording, fixture.Directory, TestToken);
         var failure = await Assert.ThrowsAsync<RecorderClientException>(() => client.StopAsync(TestToken));
         Assert.Equal("helper_shutdown_failed", failure.Reason);
@@ -224,12 +263,27 @@ public sealed class RecorderProcessClientTests
         Assert.Throws<RecorderClientException>(() => RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(result), session));
     }
 
+    [Theory]
+    [InlineData("reconnecting", "none")]
+    [InlineData("reconnecting", "window_minimized")]
+    [InlineData("paused", "unsupported_format")]
+    [InlineData("preparing", "none")]
+    public void UnsupportedTerminalStatePairsCannotSuppressAnUnexpectedExit(string state, string reason)
+    {
+        var session = Guid.NewGuid();
+        var line = JsonSerializer.SerializeToUtf8Bytes(new { v = 1, session = session.ToString("N"), request = 0, type = "state", state, reason });
+        var error = Assert.Throws<RecorderClientException>(() => RecorderProtocol.Decode(line, session));
+        Assert.Equal("protocol_error", error.Reason);
+    }
+
     private sealed class Fixture : IDisposable
     {
-        internal string Directory { get; } = Path.Combine(Path.GetTempPath(), "WispRecorderClientTests", Guid.NewGuid().ToString("N"));
+        private readonly string _root = Path.Combine(Path.GetTempPath(), "WispRecorderClientTests", Guid.NewGuid().ToString("N"));
+        internal string Directory => Path.Combine(_root, "clips");
         internal string Helper => Path.Combine(Directory, "Wisp.Recorder.exe");
+        internal string BufferRoot => Path.Combine(_root, "private-buffer");
         internal Fixture() => System.IO.Directory.CreateDirectory(Directory);
-        public void Dispose() => System.IO.Directory.Delete(Directory, true);
+        public void Dispose() => System.IO.Directory.Delete(_root, true);
     }
 
     private sealed class FakeChild : IRecorderChild
@@ -261,6 +315,11 @@ public sealed class RecorderProcessClientTests
             Input = new CommandStream(Receive, () => { if (!IgnoreClose) Finish(); });
         }
         internal void CompleteOutput() => _output.Complete();
+        internal void Reconnect(Guid session)
+        {
+            _output.Push(JsonSerializer.SerializeToUtf8Bytes(new { v = 1, session = session.ToString("N"), request = 0, type = "state", state = "reconnecting", reason = "capture_reconnecting" }).Append((byte)10).ToArray());
+            Finish();
+        }
         private void Receive(byte[] bytes)
         {
             using var document = JsonDocument.Parse(bytes);
@@ -269,6 +328,7 @@ public sealed class RecorderProcessClientTests
             if (name == "save") { SaveArrived.TrySetResult(); if (HoldSave) return; }
             var request = command.GetProperty("request").GetInt64() + (WrongRequest ? 1 : 0);
             var session = command.GetProperty("session").GetString()!;
+            if (name == "save") File.WriteAllBytes(command.GetProperty("destination").GetString()!, new byte[1024]);
             var reply = name == "save" ? Saved(session, request, command.GetProperty("clipId").GetString()!, SilentSave) :
                 new Dictionary<string, object> { ["v"] = 1, ["session"] = session, ["request"] = request, ["type"] = "result", ["ok"] = true, ["reason"] = "none" };
             _output.Push(JsonSerializer.SerializeToUtf8Bytes(reply).Append((byte)10).ToArray());

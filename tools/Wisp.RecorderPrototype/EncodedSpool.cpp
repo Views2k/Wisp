@@ -148,7 +148,7 @@ namespace recorder::spool
         { return time >= 0 && duration > 0 && time <= (std::numeric_limits<MediaTime>::max)() - duration; }
         struct File
         {
-            Handle handle;
+            Handle handle, ownership;
             std::wstring name;
             FILE_ID_INFO identity{};
             Track track = Track::Video;
@@ -163,6 +163,7 @@ namespace recorder::spool
             Handle parent, directory;
             Limits limits{};
             Configuration configuration;
+            std::wstring session;
             std::vector<std::shared_ptr<File>> files;
             std::shared_ptr<File> video, audio;
             std::atomic<bool> snapshotActive{ false }, ioFailed{ false };
@@ -202,6 +203,9 @@ namespace recorder::spool
                 // Only this tracked handle is deleted; readers pin before opening.
                 // Bytes stay charged if disposition or close fails.
                 CloseChecked(file->handle);
+                Check(SetFileInformationByHandle(file->ownership.value, FileDispositionInfo, &disposition, sizeof(disposition)),
+                    "spool_ownership_delete_failed");
+                CloseChecked(file->ownership);
                 state.bytes -= file->chargedBytes;
                 it = state.files.erase(it);
             }
@@ -233,7 +237,7 @@ namespace recorder::spool
         bool Fits(const State& state, std::uint64_t bytes, bool newFile, std::uint32_t records) noexcept
         {
             return bytes <= state.limits.maximumFileBytes - state.bytes &&
-                state.files.size() + (newFile ? 1u : 0u) <= state.limits.maximumFiles &&
+                (state.files.size() + (newFile ? 1u : 0u)) * 2 <= state.limits.maximumFiles &&
                 static_cast<std::uint64_t>(state.records) + state.snapshotRecords.load() + records <= state.limits.maximumRecords;
         }
         void MakeRoom(State& state, std::uint64_t bytes, bool newFile, bool nextVideoGop)
@@ -254,7 +258,8 @@ namespace recorder::spool
         }
         std::shared_ptr<File> CreateFile(State& state, Track track, bool configuration = false)
         {
-            Require(state.files.size() < state.limits.maximumFiles, "spool_file_limit");
+            Require((state.files.size() + 1) * 2 <= state.limits.maximumFiles, "spool_file_limit");
+            Require(OwnershipRecordBytes <= state.limits.maximumFileBytes - state.bytes, "spool_ownership_exceeds_quota");
             auto file = std::make_shared<File>();
             file->track = track; file->configuration = configuration;
             if (configuration) file->name = L"configuration.bin";
@@ -273,6 +278,25 @@ namespace recorder::spool
                 FILE_READ_DATA | FILE_WRITE_DATA | FILE_READ_ATTRIBUTES | DELETE, FILE_SHARE_READ, FILE_CREATE, false);
             Check(GetFileInformationByHandleEx(file->handle.value, FileIdInfo, &file->identity, sizeof(file->identity)),
                 "spool_file_identity_failed");
+            // WSCOWN01 fixed record, not a path or a mutable session-wide log.
+            // A partial record or a file created before proof commits is left
+            // unproven after a crash and must be preserved by orphan cleanup.
+            std::array<std::uint8_t, OwnershipRecordBytes> ownership{};
+            std::memcpy(ownership.data(), "WSCOWN01", 8);
+            Put(ownership.data() + 8, std::uint32_t{ 1 });
+            Put(ownership.data() + 12, OwnershipRecordBytes);
+            Require(state.session.size() == 32 && file->name.size() < 32, "spool_ownership_name_invalid");
+            for (std::size_t index = 0; index < state.session.size(); ++index)
+                ownership[16 + index] = static_cast<std::uint8_t>(state.session[index]);
+            Put(ownership.data() + 48, file->identity.VolumeSerialNumber);
+            std::memcpy(ownership.data() + 56, file->identity.FileId.Identifier, sizeof(file->identity.FileId.Identifier));
+            for (std::size_t index = 0; index < file->name.size(); ++index)
+                ownership[72 + index] = static_cast<std::uint8_t>(file->name[index]);
+            OpenNative(file->ownership, state.directory.value, file->name + L".owner",
+                FILE_READ_DATA | FILE_WRITE_DATA | FILE_READ_ATTRIBUTES | DELETE, FILE_SHARE_READ, FILE_CREATE, false);
+            file->chargedBytes += OwnershipRecordBytes; state.bytes += OwnershipRecordBytes;
+            Write(file->ownership.value, ownership.data(), OwnershipRecordBytes);
+            Flush(file->ownership.value);
             return file;
         }
     }
@@ -457,17 +481,18 @@ namespace recorder::spool
             Require(configuration.epoch && !configuration.h264SequenceHeader.empty() && configuration.h264SequenceHeader.size() <= 65536 &&
                 configuration.aacUserData.size() <= 1024, "spool_configuration_invalid");
             const std::uint64_t configurationBytes = 24 + configuration.h264SequenceHeader.size() + configuration.aacUserData.size();
-            Require(configurationBytes <= limits.maximumFileBytes, "spool_configuration_exceeds_quota");
+            Require(configurationBytes + OwnershipRecordBytes <= limits.maximumFileBytes, "spool_configuration_exceeds_quota");
             impl_ = std::make_unique<Impl>();
             auto& state = *impl_->state;
             state.limits = limits; state.configuration = configuration;
+            state.session = path.substr(path.size() - 32);
             const auto split = path.find_last_of(L'\\');
             OpenSessionParent(state.parent, path);
             OpenNative(state.directory, state.parent.value, path.substr(split + 1),
                 FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | FILE_ADD_FILE | DELETE,
                 FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_CREATE, true);
             auto file = CreateFile(state, Track::Video, true);
-            file->chargedBytes = configurationBytes; state.bytes += configurationBytes;
+            file->chargedBytes += configurationBytes; state.bytes += configurationBytes;
             std::array<std::uint8_t, 24> header{};
             header[0] = 'W'; header[1] = 'S'; header[2] = 'C'; header[3] = '1';
             Put(header.data() + 8, configuration.epoch);
@@ -511,7 +536,7 @@ namespace recorder::spool
             if (newFile) Seal(current);
             TrimDuration(state, video ? time + duration : (state.haveVideo ? state.videoEnd : time + duration), video && newFile);
             const std::uint64_t addedBytes = RecordHeaderBytes + size;
-            MakeRoom(state, addedBytes, newFile, video && newFile);
+            MakeRoom(state, addedBytes + (newFile ? OwnershipRecordBytes : 0), newFile, video && newFile);
             if (newFile) current = CreateFile(state, track);
             Require(current && !current->retired && !current->sealed, "spool_current_file_invalid");
             const Record record{ time, duration, current->committedBytes, static_cast<std::uint32_t>(size), clean };
@@ -650,7 +675,7 @@ namespace recorder::spool
         if (state.snapshotActive.load()) return HRESULT_FROM_WIN32(ERROR_BUSY);
         if (evidence_.poisoned || state.ioFailed.load()) return E_UNEXPECTED;
         for (const auto& file : state.files)
-            if (!file->handle.value || file->pins.load() != 0) return HRESULT_FROM_WIN32(ERROR_BUSY);
+            if (!file->handle.value || !file->ownership.value || file->pins.load() != 0) return HRESULT_FROM_WIN32(ERROR_BUSY);
         try
         {
             for (const auto& file : state.files)
@@ -659,6 +684,9 @@ namespace recorder::spool
                 Check(SetFileInformationByHandle(file->handle.value, FileDispositionInfo, &disposition, sizeof(disposition)),
                     "spool_discard_file_failed");
                 CloseChecked(file->handle);
+                Check(SetFileInformationByHandle(file->ownership.value, FileDispositionInfo, &disposition, sizeof(disposition)),
+                    "spool_discard_ownership_failed");
+                CloseChecked(file->ownership);
             }
             // No enumeration or recursive removal: an unexpected untracked
             // child causes this exact directory deletion to fail closed.
@@ -697,6 +725,7 @@ namespace recorder::spool
         {
             if (file->handle.value && !FlushFileBuffers(file->handle.value)) remember(HRESULT_FROM_WIN32(GetLastError()));
             remember(file->handle.Close());
+            remember(file->ownership.Close());
         }
         remember(state.directory.Close()); remember(state.parent.Close());
         evidence_.closed = true;
@@ -709,7 +738,7 @@ namespace recorder::spool
         {
             const auto& state = *impl_->state;
             result.accountedFileBytes = state.bytes; result.committedPackets = state.committedPackets;
-            result.ownedFiles = static_cast<std::uint32_t>(state.files.size()); result.rollingRecords = state.records;
+            result.ownedFiles = static_cast<std::uint32_t>(state.files.size() * 2); result.rollingRecords = state.records;
             result.snapshotRecords = state.snapshotRecords.load();
             result.poisoned |= state.ioFailed.load();
         }

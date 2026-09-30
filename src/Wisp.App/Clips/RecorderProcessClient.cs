@@ -12,6 +12,8 @@ internal sealed record RecorderReply(long Request, bool Ok, string Reason, Guid?
 internal sealed class RecorderClientException(string reason) : IOException("The clip recorder could not complete the operation.")
 {
     internal string Reason { get; } = reason;
+    internal string? StorageStage { get; init; }
+    internal int? StorageHResult { get; init; }
 }
 
 internal static class RecorderProtocol
@@ -24,9 +26,10 @@ internal static class RecorderProtocol
         "none", "waiting_for_game", "target_exited", "target_changed", "window_closed", "window_minimized",
         "window_resized", "focus_lost", "unsupported_os", "unsupported_gpu", "unsupported_format", "capture_failed",
         "encoder_failed", "audio_failed", "audio_capture_failed", "audio_unavailable", "buffer_full", "no_keyframe",
-        "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error", "cancelled", "stopped", "parent_closed"
+        "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error", "cancelled", "stopped", "parent_closed",
+        "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed"
     };
-    private static readonly HashSet<string> States = new(StringComparer.Ordinal) { "waiting", "buffering", "saving", "stopped", "error" };
+    private static readonly HashSet<string> States = new(StringComparer.Ordinal) { "waiting", "reconnecting", "paused", "buffering", "saving", "stopped", "error" };
 
     internal static Dictionary<string, object> Command(Guid session, long request, string command) => new()
     { ["v"] = 1, ["session"] = session.ToString("N"), ["request"] = request, ["command"] = command };
@@ -59,6 +62,9 @@ internal static class RecorderProtocol
                 RequireMembers(names, "v", "session", "request", "type", "state", "reason");
                 var state = root.GetProperty("state").GetString() ?? "";
                 if (request != 0 || !States.Contains(state)) throw new FormatException();
+                if (state == "paused" && reason != "window_minimized" || state == "reconnecting" && reason is not
+                    ("target_exited" or "target_changed" or "window_closed" or "window_resized" or "capture_reconnecting" or
+                     "encoder_reconnecting" or "audio_reconnecting" or "scheduler_late")) throw new FormatException();
                 return new RecorderStateUpdate(state, reason);
             }
             if (type != "result" || request <= 0) throw new FormatException();
@@ -167,7 +173,8 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
 {
     private readonly string _helperPath;
     private readonly Func<ProcessStartInfo, IRecorderChild> _launch;
-    private readonly SemaphoreSlim _commands = new(1, 1), _shutdown = new(1, 1);
+    private readonly string? _bufferRoot;
+    private readonly SemaphoreSlim _commands = new(1, 1), _shutdown = new(1, 1), _saves = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _token;
     private readonly object _sync = new();
@@ -180,16 +187,21 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
     private string? _terminalReason, _storage;
     private ClipRecordingSpec? _recording;
     private RecorderFailureDiagnostic? _failureDiagnostic;
+    private ClipBufferStore? _buffer;
+    private bool _recovering;
     internal Guid Session { get; } = Guid.NewGuid();
+    internal bool BorderlessAllowed { get; set; }
+    internal ClipBufferCleanup? StartupCleanup { get; private set; }
     internal RecorderFailureDiagnostic? FailureDiagnostic => Volatile.Read(ref _failureDiagnostic);
     internal event EventHandler<RecorderStateUpdate>? StateChanged;
 
-    internal RecorderProcessClient(string installedHelperPath, Func<ProcessStartInfo, IRecorderChild>? launch = null)
+    internal RecorderProcessClient(string installedHelperPath, Func<ProcessStartInfo, IRecorderChild>? launch = null, string? bufferRoot = null)
     {
         if (!Path.IsPathFullyQualified(installedHelperPath) || !string.Equals(Path.GetExtension(installedHelperPath), ".exe", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("The installed recorder helper path is invalid.", nameof(installedHelperPath));
         _helperPath = Path.GetFullPath(installedHelperPath);
         _launch = launch ?? (start => new RecorderProcessChild(start));
+        _bufferRoot = bufferRoot;
         _token = _lifetime.Token;
     }
 
@@ -219,13 +231,12 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
         if (!ClipsSettings.TryNormalizeStorageDirectory(selectedStorage, out var storage) || !Directory.Exists(storage))
             throw new ArgumentException("Choose an existing clip library folder.", nameof(selectedStorage));
         ClipLibrary.CheckPath(storage);
-        var spool = Path.Combine(storage, $".wisp-recorder-{Session:N}");
-        ClipLibrary.CheckPath(spool);
-        if (Directory.Exists(spool) || File.Exists(spool)) throw new IOException("The recorder session folder already exists.");
         if (Interlocked.Exchange(ref _opened, 1) != 0) throw new InvalidOperationException("The recorder client cannot be reopened.");
         _storage = storage; _recording = recording;
         try
         {
+            _buffer = await ClipBufferStore.OpenAsync(Session, _bufferRoot, cancellationToken).ConfigureAwait(false);
+            StartupCleanup = _buffer.StartupCleanup;
             lock (_sync)
             {
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -240,7 +251,8 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 ["frameRate"] = recording.FrameRate,
                 ["quality"] = recording.Quality,
                 ["gameAudio"] = true,
-                ["spoolDirectory"] = spool
+                ["spoolDirectory"] = _buffer.SpoolDirectory,
+                ["borderlessAllowed"] = BorderlessAllowed
             }, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             lock (_sync)
             {
@@ -275,18 +287,24 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
         var expected = Path.Combine(_storage!, $"{target.Id:N}.mp4");
         if (target.Id == Guid.Empty || target.Recording != _recording || !string.Equals(target.MediaPath, expected, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("The clip destination does not match its library reservation.", nameof(target));
-        ClipLibrary.CheckPath(expected);
-        if (File.Exists(expected) || Directory.Exists(expected)) throw new IOException("The reserved clip destination already exists.");
-        var result = await SendAsync("save", new() { ["clipId"] = target.Id.ToString("N"), ["destination"] = expected },
-            TimeSpan.FromMinutes(5), cancellationToken).ConfigureAwait(false);
-        var media = result.Media;
-        if (result.ClipId != target.Id || media is null || media.Height != _recording!.ResolutionHeight || media.FrameRate != _recording.FrameRate)
+        if (!await _saves.WaitAsync(0, cancellationToken).ConfigureAwait(false)) throw new RecorderClientException("save_in_progress");
+        using var publication = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _token);
+        publication.CancelAfter(TimeSpan.FromMinutes(5));
+        try
         {
-            Fail("protocol_error");
-            await ShutdownAsync().ConfigureAwait(false);
-            throw new RecorderClientException("protocol_error");
+            var buffer = _buffer ?? throw new RecorderClientException("buffer_storage_unavailable");
+            var result = await SendAsync("save", new() { ["clipId"] = target.Id.ToString("N"), ["destination"] = buffer.PrivateMediaPath(target.Id) },
+                TimeSpan.FromMinutes(5), publication.Token).ConfigureAwait(false);
+            var media = result.Media;
+            if (result.ClipId != target.Id || media is null || media.Height != _recording!.ResolutionHeight || media.FrameRate != _recording.FrameRate)
+            {
+                Fail("protocol_error");
+                await ShutdownAsync().ConfigureAwait(false);
+                throw new RecorderClientException("protocol_error");
+            }
+            return await buffer.PublishAsync(target, media, publication.Token).ConfigureAwait(false);
         }
-        return media;
+        finally { _saves.Release(); }
     }
 
     internal async Task StopAsync(CancellationToken cancellationToken)
@@ -361,7 +379,21 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
             while (await lines.ReadAsync(_token).ConfigureAwait(false) is { } line)
             {
                 var message = RecorderProtocol.Decode(line, Session);
-                if (message is RecorderStateUpdate state) { StateChanged?.Invoke(this, state); continue; }
+                if (message is RecorderStateUpdate state)
+                {
+                    // Native sends this terminal transition only after closing the old media session.
+                    // Preserve that reason when its following EOF arrives; the service owns recovery.
+                    if (state.State is "reconnecting" or "paused")
+                    {
+                        lock (_sync)
+                        {
+                            _recovering = true; _configured = false;
+                            _terminalReason ??= state.Reason;
+                            _pending?.TrySetException(new RecorderClientException(state.Reason)); _pending = null;
+                        }
+                    }
+                    StateChanged?.Invoke(this, state); continue;
+                }
                 var reply = (RecorderReply)message;
                 TaskCompletionSource<RecorderReply>? pending;
                 lock (_sync)
@@ -371,7 +403,16 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 }
                 pending.TrySetResult(reply);
             }
-            lock (_sync) { if (_stopping && _pending is null) return; }
+            lock (_sync)
+            {
+                if (_recovering)
+                {
+                    _pending?.TrySetException(new RecorderClientException("capture_reconnecting")); _pending = null;
+                    _configured = false;
+                    return;
+                }
+                if (_stopping && _pending is null) return;
+            }
             Fail("helper_exited");
         }
         catch (OperationCanceledException) when (_token.IsCancellationRequested) { }
@@ -438,7 +479,11 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 _stopping = true; _configured = false; child = _child;
                 _pending?.TrySetException(new RecorderClientException("stopped")); _pending = null;
             }
-            if (child is null) return;
+            if (child is null)
+            {
+                if (_buffer is { } unopened) { await unopened.DisposeAsync().ConfigureAwait(false); _buffer = null; }
+                return;
+            }
             try { child.Input.Close(); } catch (Exception error) when (error is IOException or ObjectDisposedException) { }
             using var exit = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             var exited = false;
@@ -460,7 +505,14 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 var readers = Task.WhenAll(_output ?? Task.CompletedTask, _error ?? Task.CompletedTask);
                 try { await readers.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); }
                 catch (Exception error) when (error is not OutOfMemoryException) { }
-                finally { if (exited) child.Dispose(); }
+                finally
+                {
+                    if (exited)
+                    {
+                        child.Dispose();
+                        if (_buffer is { } finished) { await finished.DisposeAsync().ConfigureAwait(false); _buffer = null; }
+                    }
+                }
             }
             if (!exited) throw new RecorderClientException("helper_shutdown_failed");
         }

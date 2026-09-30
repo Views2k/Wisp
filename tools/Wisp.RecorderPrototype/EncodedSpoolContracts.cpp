@@ -1,6 +1,7 @@
 #include "EncodedSpool.h"
 
 #include <array>
+#include <algorithm>
 #include <cstring>
 #include <cwchar>
 #include <limits>
@@ -33,6 +34,52 @@ namespace recorder::spool
             return config;
         }
         constexpr MediaTime Second = 10000000;
+        struct ContractHandle
+        {
+            HANDLE value = INVALID_HANDLE_VALUE;
+            ~ContractHandle() { if (value != INVALID_HANDLE_VALUE) (void)CloseHandle(value); }
+            bool Close() noexcept
+            {
+                if (value == INVALID_HANDLE_VALUE) return true;
+                if (!CloseHandle(value)) return false;
+                value = INVALID_HANDLE_VALUE; return true;
+            }
+        };
+        std::uint64_t Little(const std::uint8_t* data, unsigned bytes)
+        {
+            std::uint64_t value = 0;
+            for (unsigned index = 0; index < bytes; ++index) value |= static_cast<std::uint64_t>(data[index]) << (index * 8);
+            return value;
+        }
+        void VerifyOwnership(const std::wstring& path, const std::wstring& name, int& tests)
+        {
+            ContractHandle data, companion;
+            data.value = CreateFileW((path + L"\\" + name).c_str(), FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            companion.value = CreateFileW((path + L"\\" + name + L".owner").c_str(), GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            Expect(data.value != INVALID_HANDLE_VALUE && companion.value != INVALID_HANDLE_VALUE, tests);
+            LARGE_INTEGER size{};
+            Expect(GetFileSizeEx(companion.value, &size) && size.QuadPart == OwnershipRecordBytes, tests);
+            std::array<std::uint8_t, OwnershipRecordBytes> record{};
+            DWORD read = 0;
+            Expect(ReadFile(companion.value, record.data(), OwnershipRecordBytes, &read, nullptr) && read == OwnershipRecordBytes, tests);
+            Expect(std::memcmp(record.data(), "WSCOWN01", 8) == 0 && Little(record.data() + 8, 4) == 1 &&
+                Little(record.data() + 12, 4) == OwnershipRecordBytes, tests);
+            const auto session = path.substr(path.size() - 32);
+            bool namesMatch = true;
+            for (std::size_t index = 0; index < session.size(); ++index)
+                namesMatch &= record[16 + index] == static_cast<std::uint8_t>(session[index]);
+            for (std::size_t index = 0; index < name.size(); ++index)
+                namesMatch &= record[72 + index] == static_cast<std::uint8_t>(name[index]);
+            Expect(namesMatch && std::all_of(record.begin() + 72 + name.size(), record.end(),
+                [](std::uint8_t value) { return value == 0; }), tests);
+            FILE_ID_INFO identity{};
+            Expect(GetFileInformationByHandleEx(data.value, FileIdInfo, &identity, sizeof(identity)) &&
+                Little(record.data() + 48, 8) == identity.VolumeSerialNumber &&
+                std::memcmp(record.data() + 56, identity.FileId.Identifier, 16) == 0, tests);
+            Expect(companion.Close() && data.Close(), tests);
+        }
         std::uint32_t ReadAll(const Snapshot& snapshot, Track track, std::uint8_t expected, int& tests)
         {
             std::unique_ptr<PacketCursor> cursor, duplicate;
@@ -111,11 +158,14 @@ namespace recorder::spool
             EncodedSpool spool;
             const auto path = Session(parent);
             Expect(spool.Initialize(path, limits, Format()), tests);
+            VerifyOwnership(path, L"configuration.bin", tests);
+            Expect(spool.Result().accountedFileBytes == 28 + OwnershipRecordBytes && spool.Result().ownedFiles == 2, tests);
             EncodedSpool collision;
             Expect(!collision.Initialize(path, limits, Format()), tests); // Never reopen an existing session.
             Expect(SUCCEEDED(collision.Close()), tests);
             for (int frame = 0; frame < 11; ++frame)
                 Expect(spool.AppendVideo(frame * Second, Second, frame % 2 == 0, payload.data(), payload.size()), tests);
+            VerifyOwnership(path, L"v0000000000000001.bin", tests);
             std::shared_ptr<const Snapshot> snapshot, duplicate;
             Expect(spool.Retain(5 * Second, snapshot), tests);
             Expect(snapshot->Range().start100ns == 6 * Second && snapshot->Range().end100ns == 11 * Second &&
@@ -141,17 +191,24 @@ namespace recorder::spool
         {
             EncodedSpool spool;
             auto constrainedLimits = limits; constrainedLimits.maximumFileBytes = 4096;
-            Expect(spool.Initialize(Session(parent), constrainedLimits, Format()), tests);
-            for (int frame = 0; frame < 14; ++frame)
+            const auto path = Session(parent);
+            Expect(spool.Initialize(path, constrainedLimits, Format()), tests);
+            // Each single-packet GOP costs288 media/header bytes +128 proof
+            // bytes. Nine fit under the unchanged4096-byte quota.
+            for (int frame = 0; frame < 9; ++frame)
                 Expect(spool.AppendVideo(frame * Second, Second, true, payload.data(), payload.size()), tests);
             std::shared_ptr<const Snapshot> snapshot;
-            Expect(spool.Retain(30 * Second, snapshot) && snapshot->Range().videoPackets == 14, tests);
-            Expect(!spool.AppendVideo(14 * Second, Second, true, payload.data(), payload.size()), tests);
+            Expect(spool.Retain(30 * Second, snapshot) && snapshot->Range().videoPackets == 9, tests);
+            Expect(!spool.AppendVideo(9 * Second, Second, true, payload.data(), payload.size()), tests);
             Expect(std::strcmp(spool.Result().reason, "spool_capacity_reached") == 0 &&
                 !spool.Result().poisoned && spool.Result().accountedFileBytes <= 4096, tests);
-            Expect(ReadAll(*snapshot, Track::Video, 0x5a, tests) == 14, tests); // Quota refusal preserved pinned media.
+            Expect(ReadAll(*snapshot, Track::Video, 0x5a, tests) == 9, tests); // Quota refusal preserved pinned media.
             snapshot.reset();
-            Expect(spool.AppendVideo(14 * Second, Second, true, payload.data(), payload.size()), tests);
+            Expect(spool.AppendVideo(9 * Second, Second, true, payload.data(), payload.size()), tests);
+            Expect(GetFileAttributesW((path + L"\\v0000000000000001.bin").c_str()) == INVALID_FILE_ATTRIBUTES &&
+                GetLastError() == ERROR_FILE_NOT_FOUND, tests);
+            Expect(GetFileAttributesW((path + L"\\v0000000000000001.bin.owner").c_str()) == INVALID_FILE_ATTRIBUTES &&
+                GetLastError() == ERROR_FILE_NOT_FOUND, tests);
             Expect(spool.Result().accountedFileBytes <= 4096 && spool.Result().ownedFiles <= constrainedLimits.maximumFiles, tests);
             Expect(!spool.Retain(30 * Second, snapshot) &&
                 std::strcmp(spool.Result().reason, "spool_requested_history_evicted_by_capacity") == 0, tests);

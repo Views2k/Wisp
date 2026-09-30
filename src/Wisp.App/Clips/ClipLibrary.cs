@@ -12,7 +12,11 @@ public sealed record ClipSaveTarget(Guid Id, DateTimeOffset RequestedAtUtc, Clip
 // closing its file. Container/codec validation remains the native writer's
 // contract; this library validates ownership, size and the reported metadata.
 public sealed record FinalizedClipMedia(long FileBytes, int Width, int Height, int FrameRate,
-    long ActualStart100ns, long ActualEnd100ns, bool HasAudio);
+    long ActualStart100ns, long ActualEnd100ns, bool HasAudio)
+{
+    [JsonIgnore]
+    internal ClipBufferCommitReceipt? PublicationReceipt { get; init; }
+}
 
 public sealed record ClipEntry(Guid Id, DateTimeOffset SavedAtUtc, ClipRecordingSpec Recording,
     FinalizedClipMedia Media, DateTimeOffset? ViewedAtUtc = null, DateTimeOffset? ExportedAtUtc = null)
@@ -99,10 +103,12 @@ public sealed class ClipLibrary
                 ?? throw new InvalidOperationException("That clip has no pending save reservation.");
             ValidateMedia(media, pending.Recording);
             await using var file = OpenMedia(id, media.FileBytes);
-            var clip = new ClipEntry(id, DateTimeOffset.UtcNow, pending.Recording, media);
+            media.PublicationReceipt?.Validate(file.SafeFileHandle);
+            var clip = new ClipEntry(id, DateTimeOffset.UtcNow, pending.Recording, media with { PublicationReceipt = null });
             index.Pending.Remove(pending);
             index.Clips.Add(clip);
             await WriteIndexAsync(index, token).ConfigureAwait(false);
+            media.PublicationReceipt?.Commit();
             return clip;
         }, cancellationToken);
     }
@@ -338,7 +344,7 @@ public sealed class ClipLibrary
             try
             {
                 if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException("Clips cannot use linked folders or files.");
+                    throw new IOException("This linked or cloud-managed folder is unsupported. Choose a local folder without links; existing clips are kept.");
             }
             catch (FileNotFoundException) { }
             catch (DirectoryNotFoundException) { }

@@ -12,6 +12,7 @@ namespace recorder::spool
     using MediaTime = std::int64_t;
     constexpr MediaTime MaximumDuration = 300ll * 10000000;
     constexpr std::uint32_t MaximumPacketBytes = 16u * 1024 * 1024;
+    constexpr std::uint32_t OwnershipRecordBytes = 128;
     enum class Track { Video, Audio };
     enum class ReadResult { Packet, End, Failed };
 
@@ -20,7 +21,7 @@ namespace recorder::spool
         MediaTime maximumDuration100ns = MaximumDuration;
         std::uint64_t maximumFileBytes = 0; // Required; includes configuration/record headers and pinned files.
         std::uint32_t maximumRecords = 100000; // Rolling records plus the one snapshot's metadata copy.
-        std::uint32_t maximumFiles = 2048; // Includes configuration, retired pinned files and active files.
+        std::uint32_t maximumFiles = 2048; // Physical files: each configuration/chunk and its ownership companion.
     };
     struct Configuration
     {
@@ -97,6 +98,10 @@ namespace recorder::spool
     // the host owns cancellation/watchdog around blocking filesystem APIs.
     // The byte cap counts logical file bytes (not filesystem allocation/metadata),
     // including failed reserved tails. File and metadata counts have separate caps.
+    // Before any media bytes, each generated file gets a flushed128-byte .owner
+    // companion containing its session/name/FileIdInfo. Companions remain pinned
+    // and retire with the data file; they allow bounded orphan cleanup to verify
+    // exact ownership after a crash without trusting a filename pattern.
     // Only complete oldest GOPs/obsolete audio chunks can be retired. Pinned files
     // are never deleted. A cap refusal does not consume the caller's packet.
     // All I/O errors are terminal for appends and preserve remaining files.
