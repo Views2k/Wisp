@@ -27,6 +27,7 @@ public sealed record RecordedRun
     public bool IsIncomplete { get; init; }
     public long RejectedDatagrams { get; init; }
     public long DroppedDatagrams { get; init; }
+    public LapTimingMode? LapTimingMode { get; init; }
     public RunMarker[] Markers { get; init; } = [];
     public RunSample[] Samples { get; init; } = [];
 }
@@ -57,6 +58,7 @@ public sealed record RunStatistics
     public double? EndingFrontTemperatureFahrenheit { get; init; }
     public double? EndingRearTemperatureFahrenheit { get; init; }
     public double? AverageWheelSpeedExcessMetersPerSecond { get; init; }
+    public bool HasWheelSpeedSamples { get; init; }
 }
 
 public sealed record RunReport(RunInterval Interval, RunStatistics Statistics, RunFinding[] Findings, string QualityNote);

@@ -389,6 +389,7 @@ public sealed partial class RunStore
     {
         if (run.SchemaVersion != RecordedRun.CurrentSchemaVersion || run.Samples is null || run.Samples.Length is 0 or > MaximumSamples ||
             run.Markers is null || run.Markers.Length > MaximumMarkers ||
+            run.LapTimingMode is { } timing && !Enum.IsDefined(timing) ||
             run.RejectedDatagrams < 0 || run.DroppedDatagrams < 0 ||
             run.StartedAtUtc < new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero) || run.StartedAtUtc > DateTimeOffset.UtcNow.AddDays(1))
             throw new InvalidDataException("The run metadata, version, or sample count is invalid.");

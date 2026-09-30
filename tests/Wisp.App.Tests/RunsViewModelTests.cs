@@ -16,6 +16,77 @@ namespace Wisp.App.Tests;
 
 public sealed class RunsViewModelTests
 {
+    [Theory]
+    [InlineData(8, 8)]
+    [InlineData(2, 6)]
+    [InlineData(15, 10)]
+    public void LapSectionKeepsTheAbsoluteCursorWhenLeavingSameSpeedAlignment(double cursorSeconds, double expected) => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings { SpeedUnit = SpeedUnit.KilometersPerHour }, Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = WithLap(Run("Lap A", 0, 4));
+            var b = WithLap(Run("Lap B", 1, 4));
+            await model.ShowReviewAsync(a, b);
+            await Ready(model);
+            await LapReady();
+            model.FromSpeed = "36"; model.ToSpeed = "72";
+            model.ApplySpeedRangeCommand.Execute(null);
+            await Ready(model);
+            Assert.True(model.SameSpeed);
+
+            model.LapReview.Cursor = 600;
+            model.LapReview.SectionStartCommand.Execute(null);
+            await LapReady();
+            model.LapReview.Cursor = 1000;
+            model.LapReview.SectionEndCommand.Execute(null);
+            await LapReady();
+            model.LapReview.Cursor = (int)(cursorSeconds * 100);
+            Assert.Equal(cursorSeconds - 2.5, model.CursorSeconds, 5);
+            Assert.True(model.LapReview.ShowGraphsCommand.CanExecute(null));
+
+            model.LapReview.ShowGraphsCommand.Execute(null);
+            await Ready(model);
+            Assert.False(model.SameSpeed);
+            Assert.Equal(6, model.SelectionStart);
+            Assert.Equal(10, model.SelectionEnd);
+            Assert.Equal(6, model.ViewStart);
+            Assert.Equal(10, model.ViewEnd);
+            Assert.Equal(expected, model.CursorSeconds, 5);
+            Assert.Equal((int)(expected * 100), model.LapReview.Cursor);
+
+            async Task LapReady()
+            {
+                for (var step = 0; step < 500 && model.LapReview.IsBusy; step++) await Task.Delay(10, TestContext.Current.CancellationToken);
+                Assert.False(model.LapReview.IsBusy);
+                Assert.NotNull(model.LapReview.Lap);
+            }
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+
+        static RecordedRun WithLap(RecordedRun run) => run with
+        {
+            LapTimingMode = LapTimingMode.GameLaps,
+            Samples = run.Samples.Select(sample =>
+            {
+                var time = sample.ElapsedSeconds;
+                var phase = time / 20 * Math.Tau;
+                var number = (ushort)(time >= 20 ? 1 : 0);
+                return sample with
+                {
+                    State = sample.State with
+                    {
+                        Lap = new(new((float)(100 * Math.Cos(phase)), 0, (float)(100 * Math.Sin(phase))),
+                        (float)(time - number * 20), 20, (float)time, number, 1)
+                    }
+                };
+            }).ToArray()
+        };
+    });
+
     [Fact]
     public void SavingRunDetailsKeepsPreparedGraphsAndComparisonArrangementAvailable() => OnDispatcher(async () =>
     {

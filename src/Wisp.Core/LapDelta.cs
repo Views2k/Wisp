@@ -27,10 +27,17 @@ public sealed record LapDeltaReading(LapDeltaStatus Status, double? Seconds = nu
 public sealed record LapReferenceTrace(float Duration, bool Confirmed, float[] Points);
 public sealed record LapReferenceSession(LapTimingMode Timing, int Car, int Circuit, LapReferenceTrace? Best, LapReferenceTrace? Previous);
 
+public sealed record LapCaptureFrame(long Traversal, LapTelemetry Lap, bool Eligible);
+public sealed record LapCaptureCompletion(long Traversal, float DurationSeconds);
+
 // One consumer owns the tracker. A lap trace is sampled by distance, and each
 // lookup searches only the nearby, forward part of the reference trace.
 public sealed class LapDeltaTracker
 {
+    private long _captureTraversal;
+    private bool _captureEnabled;
+    public LapCaptureFrame? CaptureFrame { get; private set; }
+    public LapCaptureCompletion? CompletedCapture { get; private set; }
     private readonly TimeAttackClock _timeAttack = new();
     private LapTimingMode _timingMode;
     private bool _interrupted, _paused, _retainLearningMap, _isRecording;
@@ -116,6 +123,8 @@ public sealed class LapDeltaTracker
 
     public void Reset()
     {
+        CaptureFrame = null;
+        CompletedCapture = null;
         _timeAttack.Reset();
         _mapPosition = null;
         _interrupted = _paused = _retainLearningMap = _isRecording = _gameLapActive = false;
@@ -210,8 +219,12 @@ public sealed class LapDeltaTracker
         return new(_map, position, receivedTimestamp, _isRecording);
     }
 
-    public LapDeltaReading Update(VehicleState state, LapDeltaReference reference, LapTimingMode timing = LapTimingMode.GameLaps)
+    public LapDeltaReading Update(VehicleState state, LapDeltaReference reference, LapTimingMode timing = LapTimingMode.GameLaps,
+        bool capture = false)
     {
+        _captureEnabled = capture;
+        CaptureFrame = null;
+        CompletedCapture = null;
         _isRecording = false;
         if (timing != _timingMode) { Reset(); _timingMode = timing; }
         if (!state.IsRaceOn || state.Lap is null)
@@ -296,6 +309,7 @@ public sealed class LapDeltaTracker
             // with new data. A sample only repeats the last one when nothing else changed either.
             else if (elapsed == 0 && !resumed && moved < .01f && lap.CurrentLapSeconds == last.CurrentLapSeconds)
             {
+                if (capture) CaptureFrame = new(_captureTraversal, lap, Eligible);
                 return _lastReading = Read(lap, reference, state.ReceivedTimestamp ?? 0);
             }
             else if (boundary)
@@ -343,6 +357,7 @@ public sealed class LapDeltaTracker
             }
         }
         else _offCircuitSince = null;
+        if (capture) CaptureFrame = new(_captureTraversal, lap, Eligible);
         return _lastReading = reading;
     }
 
@@ -513,6 +528,7 @@ public sealed class LapDeltaTracker
 
     private void StartLap(LapTelemetry lap)
     {
+        _captureTraversal++;
         // A new lap redraws the learning map, including after an interrupted one.
         _retainLearningMap = false;
         _nextMapTime = 0;
@@ -566,6 +582,7 @@ public sealed class LapDeltaTracker
                 _best = duration < challenger.Duration ? trace : challenger;
                 _previous = trace;
                 _challenger = null;
+                if (_captureEnabled) CompletedCapture = new(_captureTraversal, duration);
             }
             else _challenger = trace;
             return finish;
@@ -575,6 +592,7 @@ public sealed class LapDeltaTracker
         if (_best is { Followed: true } followed) followed.Confirmed = trace.Confirmed = true;
         _previous = trace;
         if (_best is null || duration < _best.Duration) _best = trace;
+        if (_captureEnabled) CompletedCapture = new(_captureTraversal, duration);
         return finish;
     }
 

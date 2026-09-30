@@ -8,6 +8,36 @@ namespace Wisp.App.Tests;
 
 public sealed class LapDeltaServiceTests
 {
+    [Fact]
+    public async Task ExplicitClearWinsOverStaleCachePresentAtWorkerStartup()
+    {
+        var (store, path) = KeptLaps(() => "startup-reset-test");
+        var first = new LapDeltaService(store);
+        first.Configure(true, LapDeltaReference.SessionBest);
+        await DriveAsync(first, 0, 620);
+        await CloseAsync(first);
+        var kept = store.Load();
+        Assert.NotNull(kept);
+        using var restarted = new LapDeltaService(store);
+        try
+        {
+            restarted.ResetReferences();
+            await restarted.Completion;
+            // A stale cache must not override an explicit clear, even if it is
+            // readable again when the telemetry worker starts.
+            store.Save(kept);
+            restarted.Configure(true, LapDeltaReference.SessionBest, mapEnabled: true);
+            await DriveAsync(restarted, 700, 760);
+            Assert.NotNull(restarted.LatestMap);
+            Assert.False(restarted.LatestMap.Outline.Complete);
+        }
+        finally
+        {
+            await CloseAsync(restarted);
+            File.Delete(path);
+        }
+    }
+
     private static VehicleState State(int tick) => new()
     {
         IsRaceOn = true,

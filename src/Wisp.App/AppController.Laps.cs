@@ -12,6 +12,15 @@ public sealed partial class AppController
     private string? _lapGameDisplayKey;
     private DateTimeOffset _nextLapMonitorCheckUtc;
 
+    private void InitializeLapRunRecording()
+    {
+        _lapDelta.AttachRunStore(_runRecording.Store);
+        _lapDelta.LapSaved += run => Runs.NotifyLapSaved(run);
+        _lapDelta.LapRecordingStatusChanged += status => Runs.UpdateLapCaptureStatus(status);
+        Runs.PreferencesChanged += (_, _) => UpdateShiftCueObservation();
+        UpdateShiftCueObservation();
+    }
+
     internal void InitializeLapDeltaWindow()
     {
         if (_disposed || Settings.RequiresSetup || LapDeltaOverlay is not null) return;

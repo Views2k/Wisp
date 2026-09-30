@@ -23,6 +23,7 @@ public sealed partial class AppController
         Runs = new RunsViewModel(_runRecording, Settings, _dispatcher);
         Runs.BeforeStart = () => PublishRunContext(force: true);
         Runs.PreferencesChanged += (_, _) => ScheduleSettingsSave();
+        InitializeLapRunRecording();
     }
 
     internal void SetRecordingHotkeyRegistration(
@@ -97,7 +98,7 @@ public sealed partial class AppController
 
     private void PublishRunContext(bool force = false)
     {
-        if (!force && !_runRecording.IsRecording)
+        if (!force && !_runRecording.IsRecording && !Settings.LapReviewRecordingEnabled)
         {
             return;
         }
@@ -114,10 +115,12 @@ public sealed partial class AppController
         var radii = _hasDebugDerivedTelemetry && _debugDerivedCarOrdinal == state.CarOrdinal &&
             _runCalibrationDrivetrain == state.Drivetrain &&
             _debugCalibration.IsTrusted && fresh ? _debugCalibration.TrustedRadii : null;
-        _runRecording.UpdateContext(new RunRecordingContext(
+        var context = new RunRecordingContext(
             now, state.CarOrdinal, state.Drivetrain,
             fresh && state.IsRaceOn && visibility.Fresh && visibility.Visibility == NativeGameplayVisibility.Visible,
             radii?.FrontMeters, radii?.RearMeters,
-            visibility.Fresh ? snapshot.VisibilityObservedTimestamp + NativeVisibilityFreshnessTicks : now));
+            visibility.Fresh ? snapshot.VisibilityObservedTimestamp + NativeVisibilityFreshnessTicks : now);
+        _runRecording.UpdateContext(context);
+        _lapDelta.UpdateRunContext(context);
     }
 }
