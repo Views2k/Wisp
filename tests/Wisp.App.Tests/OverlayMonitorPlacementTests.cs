@@ -131,6 +131,21 @@ internal static class OverlayMonitorPlacementTests
             var bounds = manualOverlay.GetPlacementBounds();
             manualController.CompleteInitialOverlayPlacement(reference);
             Assert.Equal(bounds, manualOverlay.GetPlacementBounds());
+
+            var previousKey = manualController.Settings.LastOverlayPlacementKey!;
+            var previousPlacement = manualController.Settings.Placements[previousKey];
+            var previousValue = (previousPlacement.Left, previousPlacement.Top, previousPlacement.WidthScale, previousPlacement.HeightScale);
+            var nextLayout = manualController.Settings.LayoutMode == HudLayoutMode.Minimal
+                ? HudLayoutMode.Combined : HudLayoutMode.Minimal;
+            manualController.Settings.LayoutMode = nextLayout;
+            manualOverlay.ApplyLayout(nextLayout, NativeGaugeMode.Digital, 1, 1, 1);
+            manualController.RestoreOverlayPlacement();
+            // ApplyViewOptions updates placement scales after restoring a new style.
+            // The pending style must not keep the previous style's save target.
+            typeof(AppController).GetMethod("UpdateCurrentPlacementScales", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(manualController, null);
+            Assert.Null(manualController.Settings.LastOverlayPlacementKey);
+            Assert.Equal(previousValue, (previousPlacement.Left, previousPlacement.Top, previousPlacement.WidthScale, previousPlacement.HeightScale));
         }
         finally
         {

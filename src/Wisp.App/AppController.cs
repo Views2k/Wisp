@@ -1666,6 +1666,7 @@ public sealed partial class AppController : IAsyncDisposable
         else
         {
             _initialOverlayPlacementPending = true;
+            Settings.LastOverlayPlacementKey = null;
             ResetMainOverlayPosition();
             _activeOverlayPlacementKey = Overlay.GetDisplayKey();
             // A fallback shown before Forza is known is not a saved user layout.
