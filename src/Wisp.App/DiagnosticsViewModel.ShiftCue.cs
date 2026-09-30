@@ -56,7 +56,13 @@ public sealed partial class DiagnosticsViewModel
         }
     }
 
-    public string ShiftCueStatus { get => _shiftCueStatus; private set => Set(ref _shiftCueStatus, value); }
+    public string ShiftCueStatus
+    {
+        get => _shiftCueStatus;
+        // Driving, waiting and native refreshes share this label while calibration owns guidance.
+        private set => Set(ref _shiftCueStatus, AccelerationShiftCueEnabled && _shiftCalibration?.Active == true
+            ? ActiveShiftCalibrationCueStatus : value);
+    }
 
     internal void InitializeShiftCueSettings(AppSettings settings)
     {
@@ -171,9 +177,7 @@ public sealed partial class DiagnosticsViewModel
                 !data.Profile.IsValid ? "InvalidProfile" : "StaleOrMismatchedMetadata";
             ShiftCueStatus = data?.Status switch
             {
-                "CalibrationRequired" => _shiftCalibration?.Active == true
-                    ? "Calibrating — follow the calibration status below."
-                    : "Calibrate this car and tune to enable shift guidance.",
+                "CalibrationRequired" => "Calibrate this car and tune to enable shift guidance.",
                 "UnsupportedModifiers" => "This car's output curve is not supported",
                 "UnsupportedBuild" => "Shift guidance requires Steam FH6 6.440.853.0 and is unavailable on Game Pass",
                 "UnsupportedTransmission" => "Shift guidance is unavailable for this transmission",

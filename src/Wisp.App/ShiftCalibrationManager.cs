@@ -172,8 +172,13 @@ internal sealed class ShiftCalibrationManager(string? directory, Func<long>? tim
             session.BreakObservation();
             return;
         }
-        var now = state.ReceivedTimestamp ?? _clock();
-        if (now < data.ObservedTimestamp || now - data.ObservedTimestamp > Stopwatch.Frequency ||
+        // Ingress and the native reader run independently. A native refresh may
+        // arrive after this packet's receipt but before this callback reads it.
+        // Validate both against processing time; preserve receipt time for the pull.
+        var now = _clock();
+        var received = state.ReceivedTimestamp;
+        if (received is null or <= 0 || received > now || now - received > Stopwatch.Frequency * .15 ||
+            now < data.ObservedTimestamp || now - data.ObservedTimestamp > Stopwatch.Frequency ||
             data.LiveState is not { } live || live.CarOrdinal != state.CarOrdinal || now < live.ObservedTimestamp ||
             now - live.ObservedTimestamp > Stopwatch.Frequency * .15 || live.AlternateLimiterBranch)
         {
@@ -184,7 +189,7 @@ internal sealed class ShiftCalibrationManager(string? directory, Func<long>? tim
         // Keep transition packets so the learner can bracket a real upshift;
         // engine-output interventions must not enter its steady curve.
         var outputSettled = sameGear && live.OutputControl >= .99 && !live.SecondaryLimiterActive;
-        session.Observe(state, data.Fingerprint, now,
+        session.Observe(state, data.Fingerprint, received.Value,
             sameGear && live.LimiterActive && !live.SecondaryLimiterActive, outputSettled);
     }
 
@@ -211,8 +216,14 @@ internal sealed class ShiftCalibrationManager(string? directory, Func<long>? tim
         lock (_gate)
         {
             if (generation != _generation || !ReferenceEquals(session, _session)) return;
-            _status = result.Reason;
+            _status = ProgressStatus(result);
             if (!result.Ready || !_available) return;
+            if (_calibrated is { Ready: true } previous && previous.Gears
+                .Where((gear, index) => gear.HasEstimatedTarget && !result.Gears[index].HasEstimatedTarget).Any())
+            {
+                _status = "Previous calibration retained: this pull covers fewer shifts. Continue with a wider RPM range, or cancel to use the saved targets.";
+                return;
+            }
         }
         var saved = _store.Save(build, result, commit =>
         {
@@ -232,6 +243,21 @@ internal sealed class ShiftCalibrationManager(string? directory, Func<long>? tim
                     _status = "Calibration passed, but could not be saved. Check available disk space and folder access.";
     }
 
-    private static string SavedStatus(ShiftCalibrationResult result) =>
-        $"Calibration saved · {result.CoveredMinimumRpm:N0}–{result.CoveredMaximumRpm:N0} rpm · matching car and tune";
+    private static string SavedStatus(ShiftCalibrationResult result)
+    {
+        var saved = $"Calibration saved · {result.CoveredMinimumRpm:N0}–{result.CoveredMaximumRpm:N0} rpm · matching car and tune";
+        if (result.Status != ShiftCalibrationStatus.PartiallyReady) return saved;
+        var shifts = string.Join(", ", result.Gears.Select((gear, index) => (gear, index))
+            .Where(item => item.gear.HasEstimatedTarget).Select(item => $"{item.index + 1} → {item.index + 2}"));
+        return $"{saved}. Enabled shifts: {shifts}. {result.Reason}";
+    }
+
+    private static string ProgressStatus(ShiftCalibrationResult result)
+    {
+        var recorded = result.RecordedGears.Count > 0
+            ? $"Recorded gears: {string.Join(", ", result.RecordedGears)}. " : "";
+        var curve = result.CurveGear is { } gear
+            ? $"Curve: gear {gear}, {result.CoveredMinimumRpm:N0}–{result.CoveredMaximumRpm:N0} rpm. " : "";
+        return recorded + curve + result.Reason;
+    }
 }

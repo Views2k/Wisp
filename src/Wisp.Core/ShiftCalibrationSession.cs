@@ -15,6 +15,7 @@ public sealed class ShiftCalibrationSession
     private long _revision, _lastTimestamp, _gameAdvancedAt;
     private uint? _gameTimestamp;
     private bool _invalidated, _full;
+    private string? _interruptionReason;
     private string _reason = "On a straight, make a rolling full-throttle pull in one gear.";
 
     public ShiftCalibrationSession(ShiftCalibrationContext context, long timestampFrequency)
@@ -100,7 +101,9 @@ public sealed class ShiftCalibrationSession
                 Break("Keep full throttle during the rolling pull and confirming upshift.");
                 return;
             }
-            if (state.TireSlipRatio.MaximumAbsolute() > .15 || Math.Abs(state.LateralAccelerationMetersPerSecondSquared) > 1.5)
+            // Data Out reports normalized tire slip: magnitude above 1 is loss
+            // of grip. It is not the physical wheel-speed slip fraction.
+            if (state.TireSlipRatio.MaximumAbsolute() > 1 || Math.Abs(state.LateralAccelerationMetersPerSecondSquared) > 1.5)
             {
                 Break("Use a straight and a gear with grip; wheelspin or cornering interrupted the pull.");
                 return;
@@ -118,6 +121,7 @@ public sealed class ShiftCalibrationSession
         long revision;
         bool invalidated, full;
         string reason;
+        string? interruptionReason;
         lock (_gate)
         {
             points = _points.AsSpan(0, _count).ToArray();
@@ -125,11 +129,16 @@ public sealed class ShiftCalibrationSession
             invalidated = _invalidated;
             full = _full;
             reason = _reason;
+            interruptionReason = _interruptionReason;
         }
         if (invalidated)
             return ShiftCalibrationAnalysis.Empty(Context, revision, ShiftCalibrationStatus.ContextChanged,
                 "The car or tune changed. Start calibration for the current configuration.");
-        var result = ShiftCalibrationAnalysis.Evaluate(Context, revision, points, _frequency, reason);
+        var result = ShiftCalibrationAnalysis.Evaluate(Context, revision, points, _frequency, reason, interruptionReason) with
+        {
+            RecordedGears = Array.AsReadOnly(points.Where(point => point.Gear > 0)
+                .Select(point => point.Gear).Distinct().Order().ToArray())
+        };
         lock (_gate)
         {
             if (_invalidated)
@@ -168,6 +177,7 @@ public sealed class ShiftCalibrationSession
     {
         _epoch++;
         _reason = reason;
+        _interruptionReason = reason;
     }
 
     private static bool Finite(VehicleState state) => float.IsFinite(state.EngineRpm) &&

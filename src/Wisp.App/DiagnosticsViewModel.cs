@@ -1010,7 +1010,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         if (_captureCanaryState is { ReceivedTimestamp: { } capturedReceipt } captureState && CaptureCanary(captureState, nativeHud,
                 System.Diagnostics.Stopwatch.GetElapsedTime(capturedReceipt)) is { } canary)
             frame = frame with { ShiftCue = canary };
-        else if (AccelerationShiftCueEnabled &&
+        else if (AccelerationShiftCueEnabled && (_shiftIdentity.Length > 0 || frame.ShiftCue.Enabled) &&
             (!HasFreshShiftMetadata(nativeHud, frame.CarOrdinal, _shiftTimestamp()) ||
                 !HasStableShiftGear(nativeHud, (int)frame.Gear) ||
                 nativeHud.ShiftPerformance?.Fingerprint != _shiftIdentity))

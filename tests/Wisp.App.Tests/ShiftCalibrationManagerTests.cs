@@ -7,6 +7,55 @@ namespace Wisp.App.Tests;
 public sealed class ShiftCalibrationManagerTests
 {
     [Fact]
+    public async Task NarrowRecalibrationDoesNotDiscardPreviouslySupportedGear()
+    {
+        var f = new Fixture { Ratios = [4, 2, 1.8] };
+        await f.Initialize();
+        Assert.True(f.Manager.Start());
+        f.Sweep(2, 1200, 8500);
+        f.Sweep(3, 4800, 6800);
+        await f.Evaluate();
+        Assert.False(f.Manager.Active);
+        var original = f.Manager.Apply(f.Native().ShiftPerformance)!;
+        Assert.True(original.Gears[0].HasEstimatedTarget);
+        Assert.True(f.Manager.Start());
+        f.Sweep(2, 4000, 8500);
+        f.Sweep(3, 4800, 6800);
+        await f.Evaluate();
+        Assert.True(f.Manager.Active);
+        Assert.Contains("Previous calibration retained", f.Manager.Status);
+        f.Manager.Cancel();
+        var retained = f.Manager.Apply(f.Native().ShiftPerformance)!;
+        Assert.Equal(original.Gears[0].EstimatedTargetRpm, retained.Gears[0].EstimatedTargetRpm);
+        Assert.Equal(original.Gears[1].EstimatedTargetRpm, retained.Gears[1].EstimatedTargetRpm);
+    }
+
+    [Fact]
+    public async Task ConfirmedHigherGearWorksWhileMissingFirstGearCueStaysOff()
+    {
+        var f = new Fixture { Ratios = [4, 2, 1.8] };
+        await f.Initialize();
+        Assert.True(f.Manager.Start());
+        f.Sweep(2, 4000, 8500);
+        f.Sweep(3, 4800, 6800);
+        await f.Evaluate();
+        Assert.False(f.Manager.Active, f.Manager.Status);
+        var measured = f.Manager.Apply(f.Native().ShiftPerformance)!;
+        Assert.False(measured.Gears[0].HasEstimatedTarget);
+        Assert.True(measured.Gears[1].HasEstimatedTarget);
+        Assert.Contains("Enabled shifts: 2 → 3", f.Manager.Status);
+        Assert.Contains("Unmeasured shifts stay off", f.Manager.Status);
+
+        var model = new DiagnosticsViewModel(new AppSettings { AccelerationShiftCueEnabled = true }, () => f.Now);
+        model.InitializeShiftCalibration(f.Manager);
+        f.Draw(model, 6000, gear: 1);
+        Assert.False(model.NativeGaugeFrame.ShiftCue.Enabled);
+        f.Draw(model, 5300, gear: 2);
+        Assert.True(model.NativeGaugeFrame.ShiftCue.Enabled);
+        Assert.Contains("Calibrated full-load 2 → 3", model.ShiftCueStatus);
+    }
+
+    [Fact]
     public async Task ProductionPathNeverUsesUncalibratedNativeCurve()
     {
         var f = new Fixture();
@@ -18,6 +67,22 @@ public sealed class ShiftCalibrationManagerTests
         Assert.Empty(withheld.Gears);
         Assert.True(f.Manager.Start());
         Assert.False(f.Manager.CanStart);
+        Assert.Null(f.Manager.Apply(f.Native().ShiftPerformance)!.Profile);
+    }
+
+    [Fact]
+    public async Task HigherRecordedGearIsShownSeparatelyFromFirstUnresolvedTarget()
+    {
+        var f = new Fixture();
+        await f.Initialize();
+        Assert.True(f.Manager.Start());
+        // Leave a qualifying pull after the 350 ms output-settling window.
+        f.Sweep(2, 4_000, 6_800);
+        await f.Evaluate();
+        Assert.True(f.Manager.Active);
+        Assert.Contains("Recorded gears: 2.", f.Manager.Status);
+        Assert.Contains("Curve: gear 2,", f.Manager.Status);
+        Assert.Contains("gear 1 to 2 comparison", f.Manager.Status);
         Assert.Null(f.Manager.Apply(f.Native().ShiftPerformance)!.Profile);
     }
 
@@ -134,6 +199,7 @@ public sealed class ShiftCalibrationManagerTests
     {
         internal long Now = Stopwatch.Frequency * 10;
         internal string Key = "car-tune-A";
+        internal double[] Ratios = [2, 1];
         private uint _game = 1000;
         private int _gear = 1;
         private float _rpm = 1200;
@@ -148,11 +214,11 @@ public sealed class ShiftCalibrationManagerTests
 
         internal void Publish() => Manager.Update(State(), Native(), "build-A", true, Now);
 
-        internal void Draw(DiagnosticsViewModel model, float rpm)
+        internal void Draw(DiagnosticsViewModel model, float rpm, int gear = 1)
         {
             Now += Stopwatch.Frequency / 100;
             _game += 10;
-            _gear = 1;
+            _gear = gear;
             _rpm = rpm;
             var state = State();
             var native = Native();
@@ -213,7 +279,7 @@ public sealed class ShiftCalibrationManagerTests
 
         internal NativeHudSnapshot Native()
         {
-            var profile = new AccelerationShiftProfile([new(1000, 900), new(9000, 100)], [2, 1]);
+            var profile = new AccelerationShiftProfile([new(1000, 900), new(9000, 100)], Ratios);
             var live = new ShiftCueLiveState(100, Now, _rpm, _gear, _gear, _gear,
                 false, false, 9000, 1, false);
             var data = new ShiftCuePerformance(100, Now, Key, "Research", profile, [],

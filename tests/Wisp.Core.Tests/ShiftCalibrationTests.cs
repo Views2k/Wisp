@@ -75,6 +75,102 @@ public sealed class ShiftCalibrationTests
     }
 
     [Fact]
+    public void LaterHigherGearPullWithCutIsNotHiddenByWiderEarlierPull()
+    {
+        var session = new ShiftCalibrationSession(Context(8_000, [3, 2, 1]), Frequency);
+        long time = 1;
+        Sweep(session, ref time, 1, 1_000, 7_980, Constant);
+        var first = session.Evaluate();
+        Assert.False(first.Ready);
+        Assert.Equal(AccelerationShiftStatus.NoCrossoverInDomain, first.Gears[0].Status);
+        Assert.Null(first.EmpiricalUpperRpm);
+
+        session.BreakObservation();
+        Sweep(session, ref time, 2, 1_200, 7_980, Constant);
+        Cut(session, ref time, 2, 8_000, holdSameGear: true);
+        Sweep(session, ref time, 3, 4_100, 6_200, Constant);
+        var result = session.Evaluate();
+
+        Assert.True(result.Ready, result.Reason);
+        Assert.Equal(new[] { 1, 2, 3 }, result.RecordedGears);
+        Assert.Equal(2, result.CurveGear);
+        Assert.True(result.CoveredMinimumRpm > first.CoveredMinimumRpm);
+        Assert.Equal(7_980, result.EmpiricalUpperRpm);
+        Assert.Equal(1, result.ConfirmingUpshifts);
+        Assert.All(result.Gears.Take(2), gear =>
+        {
+            Assert.Equal(AccelerationShiftStatus.MeasuredUpperBoundary, gear.Status);
+            Assert.False(gear.OperatingCeilingVerified);
+        });
+    }
+
+    [Fact]
+    public void WiderSparsePullDoesNotHideLaterFittablePull()
+    {
+        var session = new ShiftCalibrationSession(Context(), Frequency);
+        long time = 1;
+        for (var rpm = 1_000; rpm <= 8_800; rpm += 120)
+        {
+            Add(session, ref time, 1, rpm, Falling(rpm));
+            time += 10;
+        }
+        Assert.Null(session.Evaluate().Profile);
+        session.BreakObservation();
+        Sweep(session, ref time, 1, 2_600, 8_200, Falling);
+        Sweep(session, ref time, 2, 4_200, 6_400, Falling);
+        var result = session.Evaluate();
+        Assert.True(result.Ready, result.Reason);
+        Assert.Equal(1, result.CurveGear);
+        Assert.Equal(20_000d / 3, result.Gears[0].EstimatedTargetRpm!.Value, 3);
+    }
+
+    [Fact]
+    public void LaterUsableCurveStillRequiresIndependentRecoveredOutput()
+    {
+        var session = new ShiftCalibrationSession(Context(8_000, [3, 2, 1]), Frequency);
+        long time = 1;
+        Sweep(session, ref time, 1, 1_000, 7_980, Constant);
+        session.BreakObservation();
+        Sweep(session, ref time, 2, 1_200, 7_980, Constant);
+        Cut(session, ref time, 2, 8_000, holdSameGear: true);
+        Sweep(session, ref time, 3, 4_100, 6_200, _ => 350);
+        var result = session.Evaluate();
+        Assert.False(result.Ready);
+        Assert.Equal(ShiftCalibrationStatus.NeedConfirmingUpshift, result.Status);
+        Assert.Equal(2, result.CurveGear);
+        Assert.Equal(0, result.ConfirmingUpshifts);
+    }
+
+    [Fact]
+    public void NarrowLaterCutDoesNotSupplyBoundaryToEarlierCurve()
+    {
+        var session = new ShiftCalibrationSession(Context(8_000), Frequency);
+        long time = 1;
+        Sweep(session, ref time, 1, 1_000, 7_980, Constant);
+        session.BreakObservation();
+        Sweep(session, ref time, 1, 5_000, 7_980, Constant);
+        Cut(session, ref time, 1, 8_000, holdSameGear: true);
+        Sweep(session, ref time, 2, 4_100, 6_200, Constant);
+        var result = session.Evaluate();
+        Assert.False(result.Ready);
+        Assert.Null(result.EmpiricalUpperRpm);
+        Assert.False(result.Gears[0].HasEstimatedTarget);
+    }
+
+    [Fact]
+    public void RecordedGearsDoNotIncludeRejectedWheelspinSamples()
+    {
+        var session = new ShiftCalibrationSession(Context(), Frequency);
+        session.Observe(State(1, 1, 2_000, 500) with { TireSlipRatio = new(1.3f, 1.3f, 1.3f, 1.3f) },
+            Fingerprint, 1);
+        session.Observe(State(11, 2, 2_000, 500), Fingerprint, 11);
+        var result = session.Evaluate();
+        Assert.Equal(new[] { 2 }, result.RecordedGears);
+        Assert.Null(result.CurveGear);
+        Assert.False(result.Ready);
+    }
+
+    [Fact]
     public void NativeCutImmediatelyFollowedByUpshiftDoesNotCreateBoundary()
     {
         var session = new ShiftCalibrationSession(Context(8_000), Frequency);
@@ -172,7 +268,7 @@ public sealed class ShiftCalibrationTests
                 state = interruption switch
                 {
                     "throttle" => state with { Accelerator = 100 },
-                    "slip" => state with { TireSlipRatio = new(.3f, .3f, .3f, .3f) },
+                    "slip" => state with { TireSlipRatio = new(1.3f, 1.3f, 1.3f, 1.3f) },
                     _ => state with { Brake = 100 }
                 };
                 session.Observe(state, Fingerprint, time);

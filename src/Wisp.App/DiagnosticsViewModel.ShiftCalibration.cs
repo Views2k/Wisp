@@ -4,6 +4,7 @@ namespace Wisp.App;
 
 public sealed partial class DiagnosticsViewModel
 {
+    private const string ActiveShiftCalibrationCueStatus = "Calibrating — follow the calibration status below.";
     private ShiftCalibrationManager? _shiftCalibration;
     private string _shiftCalibrationStatus = "Enable shift guidance, then return to driving to calibrate.";
     private bool _canStartShiftCalibration;
@@ -32,7 +33,6 @@ public sealed partial class DiagnosticsViewModel
         {
             ResetShiftCue();
             NativeGaugeFrame = NativeGaugeFrame with { ShiftCue = default };
-            ShiftCueStatus = "Calibrating — shift guidance resumes when the checks pass.";
         }
         PublishShiftCalibrationStatus();
     }
@@ -60,6 +60,10 @@ public sealed partial class DiagnosticsViewModel
         ShiftCalibrationStatus = _shiftCalibration.Status;
         CanStartShiftCalibration = AccelerationShiftCueEnabled && _shiftCalibration.CanStart;
         CanCancelShiftCalibration = _shiftCalibration.Active;
+        if (AccelerationShiftCueEnabled && CanCancelShiftCalibration)
+            ShiftCueStatus = ActiveShiftCalibrationCueStatus;
+        else if (ShiftCueStatus == ActiveShiftCalibrationCueStatus)
+            ShiftCueStatus = AccelerationShiftCueEnabled ? "Waiting for driving data" : "Off";
     }
 
     private ShiftCuePerformance? CalibratedShiftPerformance(ShiftCuePerformance? native) =>
