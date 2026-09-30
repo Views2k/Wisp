@@ -1,5 +1,5 @@
-Wisp 2.5.3 Clips Preview 2
-Private build ID: clips-preview-20260930-02
+Wisp 2.5.3 Clips Resilience Preview 1
+Private build ID: clips-resilience-20260930-01
 
 This private candidate adds Clips and preserves the confirmed shift-coverage hotfix.
 It uses your existing Wisp installation, local settings, calibrations and saved runs.
@@ -12,11 +12,18 @@ is off by default, and recording settings can be changed while it is off.
 The default is 60 seconds at 1080p60, quality 75. Lengths run from 30 to 300
 seconds in 30-second steps. Select 360p through 2160p and 30 or 60 fps.
 Higher quality and resolution use more storage. Five-minute clips take longer
-to save and need more space. Recording also uses temporary space in that folder.
+to save and need more space. The rolling buffer uses local app data under
+Wisp\ClipBuffer. Only finished MP4s are published to your selected folder.
 Choose a shorter folder path if Wisp says the location is too long for playback.
 Existing clips in that folder remain available to browse and export.
 
 Enable and assign the two shortcuts separately: toggle clipping and save a clip.
+New shortcut defaults are Ctrl+Alt+F8 and Ctrl+Alt+F9. Existing assignments stay
+unchanged; conflicts identify the unavailable shortcut and let you choose another.
+Early saves wait visibly for playable footage. One additional save can queue
+behind the active save; queued clips include footage through processing time.
+Success shows the actual saved duration. Interruptions cancel queued saves
+with a message instead of saving a different moment after reconnecting.
 Saved clips appear 25 per page; the number of columns adapts to the window.
 Click a clip to watch it. Export copies its recorded resolution and quality;
 it cannot restore detail removed by compression or increase captured detail.
@@ -24,9 +31,15 @@ Dashboard reminders identify clips not yet viewed or exported. Storage or
 recording errors still appear even when reminders are off.
 
 Audio comes from the game process when supported, never your microphone or all
-desktop audio. If game audio cannot start, the status explains the silent fallback.
-Window capture may omit a separate Wisp HUD overlay. Full gameplay performance,
-game audio, HDR appearance and five-minute recording still need live validation.
+desktop audio. Clips capture the game window and exclude the separate Wisp HUD.
+An explicit enable action requests borderless capture access. Windows can deny
+or leave this unavailable; Wisp then explains that the normal border remains.
+Clipping stays enabled through recoverable interruptions. Stale frames repeat
+with a visible status. A changed game/audio/video session reconnects with a new
+rolling buffer; footage across incompatible sessions is not stitched together.
+Specific errors include Copy error details. That report excludes raw logs and paths.
+Full gameplay performance, game audio, HDR appearance, interruption recovery,
+one-hour sessions and five-minute recording still need live validation.
 Offline and synthetic checks do not establish the requested under-5% FPS impact.
 
 HUD profiles
