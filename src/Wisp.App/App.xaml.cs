@@ -25,6 +25,8 @@ public partial class App : Application
     private OverlayHotkeyService? _overlayHotkey;
     private OverlayHotkeyService? _recordingHotkey;
     private OverlayHotkeyService? _markerHotkey;
+    private OverlayHotkeyService? _clipToggleHotkey;
+    private OverlayHotkeyService? _clipSaveHotkey;
     private bool _runtimeActive;
     private bool _applicationUpdateHandoffActive;
     private bool _closePreparationActive;
@@ -55,12 +57,15 @@ public partial class App : Application
         var settings = settingsService.Load();
         _controller = new AppController(settings, settingsService);
         _overlayHotkey = new OverlayHotkeyService();
-        _overlayHotkey.Pressed += (_, _) => _controller?.ToggleManualOverlayHidden();
+        _overlayHotkey.Pressed += (_, _) =>
+        {
+            if (_controller is { ShortcutCaptureActive: false }) _controller.ToggleManualOverlayHidden();
+        };
         _controller.SetOverlayHotkeyRegistration(_overlayHotkey.Apply);
         _recordingHotkey = new OverlayHotkeyService();
         _recordingHotkey.Pressed += async (_, _) =>
         {
-            if (_controller is not null && _runtimeActive && !_controller.Runs.ShortcutCaptureActive)
+            if (_controller is not null && _runtimeActive && !_controller.ShortcutCaptureActive)
             {
                 await _controller.Runs.ToggleRecordingAsync();
             }
@@ -69,12 +74,25 @@ public partial class App : Application
         _markerHotkey = new OverlayHotkeyService();
         _markerHotkey.Pressed += (_, _) =>
         {
-            if (_controller is not null && _runtimeActive && !_controller.Runs.ShortcutCaptureActive)
+            if (_controller is not null && _runtimeActive && !_controller.ShortcutCaptureActive)
             {
                 _controller.Runs.MarkMoment();
             }
         };
         _controller.SetMarkerHotkeyRegistration(_markerHotkey.Apply);
+        _clipToggleHotkey = new OverlayHotkeyService();
+        _clipToggleHotkey.Pressed += async (_, _) =>
+        {
+            if (_controller is not null && _runtimeActive && !_controller.ShortcutCaptureActive)
+                await _controller.Clips.ToggleAsync();
+        };
+        _clipSaveHotkey = new OverlayHotkeyService();
+        _clipSaveHotkey.Pressed += async (_, _) =>
+        {
+            if (_controller is not null && _runtimeActive && !_controller.ShortcutCaptureActive)
+                await _controller.Clips.SaveClipAsync();
+        };
+        _controller.SetClipHotkeyRegistrations(_clipToggleHotkey.Apply, _clipSaveHotkey.Apply);
         if (ApplicationUpdateLauncher.TryConsumeResult(out var updateResult))
         {
             _controller.ViewModel.UpdateApplicationUpdateStatus(
@@ -209,6 +227,10 @@ public partial class App : Application
             _recordingHotkey = null;
             _markerHotkey?.Dispose();
             _markerHotkey = null;
+            _clipToggleHotkey?.Dispose();
+            _clipToggleHotkey = null;
+            _clipSaveHotkey?.Dispose();
+            _clipSaveHotkey = null;
             _activationCancellation?.Dispose();
             _activationEvent?.Dispose();
             _instanceMutex?.Dispose();

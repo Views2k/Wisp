@@ -106,7 +106,8 @@ public sealed partial class AppController : IAsyncDisposable
             new StartupRegistrationService(),
             settingsService.SaveCompletedSetup,
             runsDirectory: Path.Combine(settingsService.DataDirectory, "Runs"),
-            shiftCalibrationDirectory: Path.Combine(settingsService.DataDirectory, "ShiftCalibrations"))
+            shiftCalibrationDirectory: Path.Combine(settingsService.DataDirectory, "ShiftCalibrations"),
+            recorderHelperPath: Path.Combine(AppContext.BaseDirectory, "Wisp.Recorder.exe"))
     {
     }
 
@@ -117,7 +118,8 @@ public sealed partial class AppController : IAsyncDisposable
         Action<AppSettings>? saveCompletedSetup = null,
         Func<Version, CancellationToken, Task<UpdateRelease?>>? checkForApplicationUpdate = null,
         string? runsDirectory = null,
-        string? shiftCalibrationDirectory = null)
+        string? shiftCalibrationDirectory = null,
+        string? recorderHelperPath = null)
     {
         Settings = settings;
         _nativeHudProcessService.ShiftCueEnabled = settings.AccelerationShiftCueEnabled;
@@ -154,6 +156,7 @@ public sealed partial class AppController : IAsyncDisposable
         UpdateShiftCueObservation();
         _dispatcher = Dispatcher.CurrentDispatcher;
         InitializeRuns(runsDirectory);
+        InitializeClips(recorderHelperPath);
         _debugHealthMonitor = new DebugHealthMonitor(
             _receiver,
             _nativeHudProcessService,
@@ -360,6 +363,7 @@ public sealed partial class AppController : IAsyncDisposable
         _uiTimer.Start();
         ApplyOverlayHotkeyRegistration();
         StartRunsUi();
+        await StartClipsAsync();
     }
 
     internal bool InitializeStartupRegistration()
@@ -405,6 +409,7 @@ public sealed partial class AppController : IAsyncDisposable
         // Closing to the opt-in companion releases UDP and native demand.
         // Queued packet/compositor callbacks cannot restart a suspended session.
         _runtimeSuspended = true;
+        var clipsStopped = SuspendClipsAsync();
         var calibrationStopped = ViewModel.SuspendShiftCalibration();
         await StopShiftCaptureAsync();
         UpdateShiftCueObservation();
@@ -440,6 +445,7 @@ public sealed partial class AppController : IAsyncDisposable
         await _receiver.StopAsync().ConfigureAwait(false);
         await stoppedRun.ConfigureAwait(false);
         await calibrationStopped.ConfigureAwait(false);
+        await clipsStopped.ConfigureAwait(false);
     }
 
     public void CompleteSetup(SetupPreferences preferences)
@@ -1363,6 +1369,7 @@ public sealed partial class AppController : IAsyncDisposable
             return false;
         }
 
+        CaptureCurrentHudPlacements();
         preset = HudPreset.Capture(Settings, normalizedName);
         ViewModel.CapturePowerTorquePresetRange(preset);
         Settings.HudPresets.Add(preset);
@@ -1382,6 +1389,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         var existing = Settings.HudPresets[index];
+        CaptureCurrentHudPlacements();
         preset = HudPreset.Capture(Settings, existing.Name, existing.Id);
         ViewModel.CapturePowerTorquePresetRange(preset);
         Settings.HudPresets[index] = preset;
@@ -1438,19 +1446,46 @@ public sealed partial class AppController : IAsyncDisposable
             error = "Select a saved profile first.";
             return false;
         }
+        if (!Runs.CanEditRecordingOptions)
+        {
+            error = "Stop the recording or countdown before applying a driving profile.";
+            return false;
+        }
 
         var previousLayoutMode = Settings.LayoutMode;
         var previousNativeGaugeMode = Settings.NativeGaugeMode;
-        preset.ApplyTo(Settings);
-        Settings.NormalizeDriftGaugeSettings();
-        DriftGaugeOverlay?.ApplyAppearance(Settings.DriftGaugeScale, Settings.OverlayOpacity);
-        DriftGaugeOverlay?.SetEnabled(Settings.DriftGaugeEnabled);
-        SetDriftGaugeStatus(Settings.DriftGaugeEnabled ? "Waiting for driving telemetry" : "Off");
-        ViewModel.ApplyPowerTorquePresetRange(preset);
-        ViewModel.UpdateGForceColors(Settings);
-        SyncHudPresetToViewModel();
-        ControlPanel?.ApplyHudPresetToControls();
-        ApplyViewOptions(previousLayoutMode, previousNativeGaugeMode);
+        var previousSpeedSource = Settings.SpeedSource;
+        preset.Normalize();
+        if (preset.Revision >= 2 && !TryRegisterProfileShortcuts(preset, out error)) return false;
+        _applyingHudPreset = preset.Revision >= 2;
+        try
+        {
+            preset.ApplyTo(Settings);
+            Settings.NormalizeDriftGaugeSettings();
+            DriftGaugeOverlay?.ApplyAppearance(Settings.DriftGaugeScale, Settings.OverlayOpacity);
+            DriftGaugeOverlay?.SetEnabled(Settings.DriftGaugeEnabled);
+            SetDriftGaugeStatus(Settings.DriftGaugeEnabled ? "Waiting for driving telemetry" : "Off");
+            // Legacy profiles store one effective range. Complete profiles restore
+            // the current car's own entry when SyncHudPresetToViewModel runs below.
+            if (preset.Revision < 2) ViewModel.ApplyPowerTorquePresetRange(preset);
+            ViewModel.UpdateGForceColors(Settings);
+            SyncHudPresetToViewModel();
+            ControlPanel?.ApplyHudPresetToControls();
+            ApplyViewOptions(previousLayoutMode, previousNativeGaugeMode);
+        }
+        finally
+        {
+            _applyingHudPreset = false;
+        }
+        if (Settings.SpeedSource != previousSpeedSource) _speedModel.Reset();
+        if (preset.Revision >= 2)
+        {
+            RestoreHudProfilePlacements(preset);
+            if (!Settings.OverlayHotkeyEnabled) _manualOverlayHidden = false;
+            UpdateOverlayHotkeyStatus(_runtimeSuspended ? "Paused" : Settings.OverlayHotkeyEnabled ? "On" : "Off");
+            SetOverlayLocked(Settings.OverlayLocked);
+            Runs.RefreshProfileOptions();
+        }
         Overlay?.ApplyHudBorderCustomization(Settings.HudBorderTheme, Settings.CustomHudBorderColor);
         GForceOverlay?.ApplyHudBorderCustomization(Settings.HudBorderTheme, Settings.CustomHudBorderColor);
         Overlay?.ApplyBoostGaugeCustomization(
@@ -1476,6 +1511,12 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void SyncHudPresetToViewModel()
     {
+        ViewModel.SpeedSourceSelectionIndex = (int)Settings.SpeedSource;
+        ViewModel.Smoothing = Settings.Smoothing;
+        ViewModel.GameAwareVisibility = Settings.GameAwareVisibility;
+        ViewModel.OverlayHotkeyEnabled = Settings.OverlayHotkeyEnabled;
+        ViewModel.OverlayHotkeyModifiers = Settings.OverlayHotkeyModifiers;
+        ViewModel.OverlayHotkeyKey = Settings.OverlayHotkeyKey;
         ViewModel.UnitSelectionIndex = Settings.SpeedUnit == SpeedUnit.MilesPerHour ? 0 : 1;
         ViewModel.TorqueUnitSelectionIndex = Settings.TorqueUnit == TorqueUnit.PoundFeet ? 1 : 0;
         ViewModel.LayoutSelectionIndex = (int)Settings.LayoutMode;
@@ -1638,7 +1679,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public void RestoreOverlayPlacement()
     {
-        if (Overlay is null)
+        if (_applyingHudPreset || Overlay is null)
         {
             return;
         }
@@ -1691,7 +1732,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public void RestoreGForcePlacement()
     {
-        if (GForceOverlay is null)
+        if (_applyingHudPreset || GForceOverlay is null)
         {
             return;
         }
@@ -1723,7 +1764,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public void RestoreBoostGaugePlacement()
     {
-        if (BoostGaugeOverlay is null)
+        if (_applyingHudPreset || BoostGaugeOverlay is null)
         {
             return;
         }
@@ -1754,7 +1795,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public void RestoreTireTemperatureGaugePlacement()
     {
-        if (TireTemperatureGaugeOverlay is null)
+        if (_applyingHudPreset || TireTemperatureGaugeOverlay is null)
         {
             return;
         }
@@ -1897,6 +1938,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void UpdateCurrentPlacementScales()
     {
+        if (_applyingHudPreset) return;
         if (Overlay is not null && Settings.LastOverlayPlacementKey is { } overlayKey &&
             Settings.Placements.TryGetValue(overlayKey, out var overlayPlacement))
         {
@@ -1946,6 +1988,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         _disposed = true;
+        var clipsDisposed = DisposeClipsAsync();
         var calibrationStopped = ViewModel.SuspendShiftCalibration();
         await StopShiftCaptureAsync();
         UpdateShiftCueObservation();
@@ -2020,6 +2063,7 @@ public sealed partial class AppController : IAsyncDisposable
         await _nativeHudProcessService.DisposeAsync().ConfigureAwait(false);
         await _receiver.DisposeAsync().ConfigureAwait(false);
         await calibrationStopped.ConfigureAwait(false);
+        await clipsDisposed.ConfigureAwait(false);
         _compatibilityLifetime.Dispose();
         _applicationUpdateLifetime.Dispose();
     }
@@ -2185,15 +2229,14 @@ public sealed partial class AppController : IAsyncDisposable
             _nextDiagnosticsAtUtc = now + TimeSpan.FromMilliseconds(250);
         }
 
+        var shiftNativeSnapshot = _nativeHudProcessService.SnapshotFor(latest?.CarOrdinal ?? 0);
         var nowTimestamp = Stopwatch.GetTimestamp();
         var connectionState = _freshness.GetState(nowTimestamp);
         var age = _freshness.GetAge(nowTimestamp);
-        ViewModel.RefreshShiftCalibration(latest,
-            _nativeHudProcessService.SnapshotFor(latest?.CarOrdinal ?? 0),
+        ViewModel.RefreshShiftCalibration(latest, shiftNativeSnapshot,
             _nativeHudProcessService.AttachedCompatibilityPack?.ExecutableSha256 ?? "", nowTimestamp);
         if (ViewModel.AccelerationShiftCueEnabled)
-            ViewModel.InvalidateStaleShiftCue(latest,
-                _nativeHudProcessService.SnapshotFor(latest?.CarOrdinal ?? 0), age, nowTimestamp);
+            ViewModel.InvalidateStaleShiftCue(latest, shiftNativeSnapshot, age, nowTimestamp);
         CaptureDebugSample(now, latest, connectionState, age);
         var hasFreshTelemetry = latest is not null &&
                                 connectionState == TelemetryConnectionState.Connected &&
@@ -2786,13 +2829,15 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         _nextVisibilityCheckAtUtc = now + TimeSpan.FromMilliseconds(33);
+        PrepareClipTargetObservation();
         var requiresFocusState =
             (!Settings.OverlayLocked) ||
             _nativeHudTelemetryActive ||
-            _overlayVisibleRequested;
+            _overlayVisibleRequested || _forzaFocusService.CaptureRequested;
         var focus = requiresFocusState
             ? _forzaFocusService.GetState(now)
             : default;
+        ObserveClipTarget();
         var standaloneGForceEnabled = IsStandaloneGForceWindowEnabled;
         var detachedBoostEnabled = IsDetachedBoostGaugeEnabled;
         var detachedTireTemperatureEnabled = IsDetachedTireTemperatureGaugeEnabled;

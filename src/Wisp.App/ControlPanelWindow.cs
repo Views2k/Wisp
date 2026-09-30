@@ -9,6 +9,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using Wisp.App.Laps;
 using Wisp.App.Runs;
+using Wisp.App.Clips;
 using Wisp.Core;
 
 namespace Wisp.App;
@@ -42,6 +43,9 @@ public abstract partial class ControlPanelWindow : Window
     private TabItem DiagnosticsTab => FindControl<TabItem>(nameof(DiagnosticsTab));
     private Expander ConnectionHelp => FindControl<Expander>(nameof(ConnectionHelp));
     private RunsPageBase RunsSurface => FindControl<RunsPageBase>(nameof(RunsSurface));
+    private ClipsPage ClipsSurface => FindControl<ClipsPage>(nameof(ClipsSurface));
+    private TabItem ClipsTab => FindControl<TabItem>(nameof(ClipsTab));
+    private Border DashboardClipPanel => FindControl<Border>(nameof(DashboardClipPanel));
     private Button AppearanceLockButton => FindControl<Button>(nameof(AppearanceLockButton));
     private RadioButton MinimalLayoutRadio => FindControl<RadioButton>(nameof(MinimalLayoutRadio));
     private RadioButton CombinedLayoutRadio => FindControl<RadioButton>(nameof(CombinedLayoutRadio));
@@ -126,6 +130,8 @@ public abstract partial class ControlPanelWindow : Window
         FindControl<ShiftCueSettingsControl>("ShiftCueSettings").Initialize(controller);
         RunsSurface.DataContext = controller.Runs;
         DashboardRunPanel.DataContext = controller.Runs;
+        ClipsSurface.DataContext = controller.Clips;
+        DashboardClipPanel.DataContext = controller.Clips;
         MphRadio.IsChecked = controller.Settings.SpeedUnit == SpeedUnit.MilesPerHour;
         KphRadio.IsChecked = controller.Settings.SpeedUnit == SpeedUnit.KilometersPerHour;
         NewtonMetersRadio.IsChecked = controller.Settings.TorqueUnit == TorqueUnit.NewtonMeters;
@@ -152,18 +158,22 @@ public abstract partial class ControlPanelWindow : Window
         DpiChanged += (_, _) => FitToCurrentWorkArea();
         LocationChanged += (_, _) => FitToCurrentWorkArea();
         Loaded += (_, _) => _loaded = true;
-        IsVisibleChanged += (_, _) => { if (!IsVisible) CloseConnectionPanel(); };
-        StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) CloseConnectionPanel(); };
+        IsVisibleChanged += (_, _) => { if (!IsVisible) { CloseConnectionPanel(); EndOverlayHotkeyCapture(); } };
+        StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) { CloseConnectionPanel(); EndOverlayHotkeyCapture(); } };
         Closed += (_, _) =>
         {
+            EndOverlayHotkeyCapture();
             CloseConnectionPanel();
             StopSidebarAnimation();
             RunsSurface.DataContext = null;
             DashboardRunPanel.DataContext = null;
+            ClipsSurface.DataContext = null;
+            DashboardClipPanel.DataContext = null;
         };
     }
 
     internal bool IsSidebarOpen => _sidebarOpen;
+    internal bool IsCapturingOverlayHotkey => _capturingOverlayHotkey;
 
     protected void ColorTargetSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -482,6 +492,8 @@ public abstract partial class ControlPanelWindow : Window
             var settings = _controller.Settings;
             MphRadio.IsChecked = settings.SpeedUnit == SpeedUnit.MilesPerHour;
             KphRadio.IsChecked = settings.SpeedUnit == SpeedUnit.KilometersPerHour;
+            WheelSpeedSourceRadio.IsChecked = settings.SpeedSource == SpeedSourceMode.WheelIndicated;
+            Fh6SpeedSourceRadio.IsChecked = settings.SpeedSource == SpeedSourceMode.Fh6VehicleSpeed;
             NewtonMetersRadio.IsChecked = settings.TorqueUnit == TorqueUnit.NewtonMeters;
             PoundFeetRadio.IsChecked = settings.TorqueUnit == TorqueUnit.PoundFeet;
             MinimalLayoutRadio.IsChecked = settings.LayoutMode == HudLayoutMode.Minimal;
@@ -492,6 +504,7 @@ public abstract partial class ControlPanelWindow : Window
             NativeAnalogueRadio.IsChecked = settings.NativeGaugeMode == NativeGaugeMode.Analogue;
             ManualGearDisplayRadio.IsChecked = settings.GearDisplayMode == GearDisplayMode.Manual;
             AutomaticGearDisplayRadio.IsChecked = settings.GearDisplayMode == GearDisplayMode.Automatic;
+            UpdateLockButtonLabels(settings.OverlayLocked);
 
             LoadSelectedColorTarget();
             ApplyAppColorResources(settings.CustomAccentColor, settings.CustomBackgroundColor);
@@ -597,12 +610,12 @@ public abstract partial class ControlPanelWindow : Window
         {
             case HudProfileDialogMode.Create:
                 HudProfileDialogTitle.Text = "Save HUD profile";
-                HudProfileDialogDescription.Text = "Give this combination a name. Wisp will save the current HUD layout, gauges, units, sizing, opacity, orientation, and complete color palette together.";
+                HudProfileDialogDescription.Text = "Save your HUD arrangement on each display, gauges, colors, units, speed settings, driving guidance, and recording controls. Calibration data and saved runs stay separate.";
                 ConfirmHudProfileButton.Content = "Save profile";
                 break;
             case HudProfileDialogMode.Update:
                 HudProfileDialogTitle.Text = $"Update {profile?.Name}?";
-                HudProfileDialogDescription.Text = "Replace this profile with the current Appearance setup and complete color palette.";
+                HudProfileDialogDescription.Text = "Replace this profile with the current HUD arrangements, appearance, driving settings, and recording controls.";
                 ConfirmHudProfileButton.Content = "Update profile";
                 break;
             case HudProfileDialogMode.Rename:
@@ -1247,6 +1260,12 @@ public abstract partial class ControlPanelWindow : Window
     }
 
     protected void OpenRuns_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedItem = RunsTab;
+    protected void OpenClips_Click(object sender, RoutedEventArgs e)
+    {
+        if (this is MainWindow { IsDashboardDisplayMode: true } modern)
+            modern.SetDashboardDisplayMode(false);
+        RootTabs.SelectedItem = ClipsTab;
+    }
 
     internal void ShowRunSaveProblem()
     {

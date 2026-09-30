@@ -1,0 +1,509 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Windows.Input;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+
+namespace Wisp.App.Clips;
+
+public enum ClipRecorderState { Unavailable, Disabled, WaitingForGame, Buffering, Saving, Stopping, Error }
+public sealed record ClipRecorderSnapshot(ClipRecorderState State, bool Enabled, bool CanEnable, bool CanSave, string Status);
+
+public interface IClipRecorder
+{
+    // Status is safe user-facing copy, never raw native diagnostics or paths.
+    ClipRecorderSnapshot Snapshot { get; }
+    // A fixed, privacy-safe report; never raw stderr or exception messages.
+    string FailureReport => "";
+    event EventHandler? StateChanged;
+    Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken);
+    // Write only this reserved path, with create-new semantics. Return only after
+    // successful finalization/close; failure must not report a saved clip.
+    Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken);
+}
+
+public interface IClipThumbnailProvider
+{
+    // Optional static poster, already frozen and at most 512px per dimension.
+    // Returning null means no preview; do not open a video player for each card.
+    Task<BitmapSource?> LoadAsync(ClipEntry clip, string validatedMediaPath, CancellationToken cancellationToken);
+}
+
+public sealed class ClipCardItem(ClipEntry entry) : INotifyPropertyChanged
+{
+    private BitmapSource? _thumbnail;
+    private bool _selected;
+    private bool _thumbnailLoading;
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public ClipEntry Entry { get; private set; } = entry;
+    public Guid Id => Entry.Id;
+    public string Title => Entry.SavedAtUtc.ToLocalTime().ToString("MMM d · h:mm tt");
+    public string Detail => $"{TimeSpan.FromSeconds(Entry.DurationSeconds):m\\:ss} · {Entry.Media.Height}p · {Entry.Media.FrameRate} fps";
+    public string ReviewState => Entry.ExportedAtUtc is not null ? "Exported" : Entry.ViewedAtUtc is not null ? "Viewed" : "New";
+    public string PlayLabel => $"Play clip from {Title}, {Detail}";
+    public BitmapSource? Thumbnail => _thumbnail;
+    public bool HasThumbnail => _thumbnail is not null;
+    public string PreviewStatus => _thumbnailLoading ? "Loading preview…" : "Preview unavailable";
+    public bool IsSelected => _selected;
+    internal void Select(bool selected) { _selected = selected; PropertyChanged?.Invoke(this, new(nameof(IsSelected))); }
+    internal void Update(ClipEntry updated)
+    {
+        Entry = updated;
+        PropertyChanged?.Invoke(this, new(nameof(ReviewState)));
+    }
+    internal void SetThumbnail(BitmapSource? image)
+    {
+        if (image is not null && (!image.IsFrozen || image.PixelWidth > 512 || image.PixelHeight > 512)) return;
+        _thumbnail = image;
+        PropertyChanged?.Invoke(this, new(nameof(Thumbnail)));
+        PropertyChanged?.Invoke(this, new(nameof(HasThumbnail)));
+    }
+    internal void SetThumbnailLoading(bool loading)
+    {
+        if (_thumbnailLoading == loading) return;
+        _thumbnailLoading = loading; PropertyChanged?.Invoke(this, new(nameof(PreviewStatus)));
+    }
+}
+
+public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
+{
+    private readonly IClipRecorder _recorder;
+    private readonly IClipThumbnailProvider? _thumbnails;
+    private readonly Dispatcher _dispatcher;
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly CancellationToken _token;
+    private readonly List<ClipCommand> _commands = [];
+    private readonly ClipsSettings _settings;
+    private ClipLibrary? _library;
+    private ClipRecorderSnapshot _snapshot;
+    private ClipCardItem? _selected;
+    private bool _busy, _disposed, _qualityPending, _runtimeActive = true;
+    private Task? _initialization;
+    private Func<bool, bool, OverlayHotkeyChord, string?>? _registerShortcut;
+    private string _error = "", _notice = "", _shortcutStatus = "Shortcuts are off.";
+    private int _pageIndex, _pageCount, _total, _pending, _newClips;
+    private long _selectionRevision;
+    private CancellationTokenSource? _thumbnailWork;
+    private long _thumbnailRevision;
+    private bool _galleryActive;
+    internal Task ThumbnailCompletion { get; private set; } = Task.CompletedTask;
+
+    public ClipsViewModel(ClipsSettings settings, IClipRecorder recorder, Dispatcher dispatcher, IClipThumbnailProvider? thumbnails = null)
+    {
+        _token = _lifetime.Token; _settings = settings.Clone(); _settings.Normalize();
+        _recorder = recorder; _dispatcher = dispatcher; _thumbnails = thumbnails;
+        _snapshot = recorder.Snapshot;
+        if (_settings.StorageDirectory.Length > 0) _library = new ClipLibrary(_settings.StorageDirectory);
+        SaveClipCommand = Command(SaveClipAsync, () => CanSave);
+        PreviousPageCommand = Command(() => LoadPageAsync(_pageIndex - 1), () => !IsBusy && _pageIndex > 0);
+        NextPageCommand = Command(() => LoadPageAsync(_pageIndex + 1), () => !IsBusy && _pageIndex + 1 < _pageCount);
+        RefreshCommand = Command(() => LoadPageAsync(_pageIndex), () => !IsBusy && _library is not null);
+        _recorder.StateChanged += RecorderChanged;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler? PreferencesChanged;
+    public event EventHandler? ReminderChanged;
+    public ObservableCollection<ClipCardItem> Clips { get; } = [];
+    public ICommand SaveClipCommand { get; }
+    public ICommand PreviousPageCommand { get; }
+    public ICommand NextPageCommand { get; }
+    public ICommand RefreshCommand { get; }
+    public ClipsSettings Preferences => _settings.Clone();
+    public IReadOnlyList<int> LengthChoices => ClipsSettings.LengthChoices;
+    public IReadOnlyList<int> ResolutionChoices => ClipsSettings.ResolutionChoices;
+    public IReadOnlyList<int> FrameRateChoices => ClipsSettings.FrameRateChoices;
+    public bool ShortcutCaptureActive { get; set; }
+    public bool IsBusy => _busy;
+    public bool CanEditSettings => !_disposed && !IsBusy && !_snapshot.Enabled;
+    public bool CanToggle => !_disposed && _runtimeActive && !IsBusy && (_snapshot.Enabled || (_snapshot.CanEnable && _library is not null));
+    public bool ClippingEnabled => _snapshot.Enabled;
+    public bool IsRecording => _snapshot.State == ClipRecorderState.Buffering;
+    public bool CanBrowse => !_disposed && !IsBusy;
+    public bool CanSave => !_disposed && _runtimeActive && !IsBusy && _library is not null && _snapshot.CanSave;
+    public string RecorderStatus => _snapshot.Status;
+    public string FailureReport => _recorder.FailureReport;
+    public bool HasFailureReport => FailureReport.Length > 0;
+    public string Error => _error;
+    public bool HasError => _error.Length > 0;
+    public string Notice => _notice;
+    public string StorageDirectory => _settings.StorageDirectory;
+    public string SuggestedStorageDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Wisp Clips");
+    public string StorageText => StorageDirectory.Length == 0 ? $"Choose a clip folder on a local drive · suggested: {SuggestedStorageDirectory}" : StorageDirectory;
+    public string LongClipHint => LengthSeconds == 300
+        ? "Five-minute clips use more memory and storage and can take longer to save. Export keeps the recorded resolution and quality."
+        : "Longer clips use more memory and storage. Export keeps the recorded resolution and quality.";
+    public string PageText => _pageCount == 0 ? "No saved clips" : $"Page {_pageIndex + 1} of {_pageCount} · {_total} clips";
+    public string PendingText => _pending == 0 ? "" : $"{_pending} unfinished save(s). Open the clip folder to inspect retained files; they may be incomplete.";
+    public bool CanOpenClipFolder => !_disposed && !IsBusy && _library is not null;
+    public bool IsEmpty => !IsBusy && Clips.Count == 0;
+    public bool HasSelection => _selected is not null;
+    public bool CanExport => HasSelection && !IsBusy;
+    public ClipCardItem? SelectedClip => _selected;
+    public string SelectedTitle => _selected?.Title ?? "Choose a clip to play";
+    public int NewClipCount => _newClips;
+    public bool HasReminder => _settings.RemindersEnabled && _newClips > 0;
+    public string ReminderText => _newClips == 1 ? "You have a new clip to review or export." : $"You have {_newClips} new clips to review or export.";
+    private bool RecorderNeedsAttention => _snapshot.State == ClipRecorderState.Error;
+    public bool HasDashboardNotice => HasError || RecorderNeedsAttention || _pending > 0 || HasReminder;
+    public string DashboardNoticeTitle => HasError || RecorderNeedsAttention ? "Clips need attention" : _pending > 0 ? "Unfinished clip saves" : "New clips";
+    public string DashboardNoticeText => HasError ? Error : RecorderNeedsAttention ? RecorderStatus : _pending > 0 ? PendingText : ReminderText;
+    public string ShortcutStatus => _shortcutStatus;
+    public string ToggleShortcutText => _settings.ToggleShortcut.ToString();
+    public string SaveShortcutText => _settings.SaveShortcut.ToString();
+    public bool ToggleShortcutEnabled { get => _settings.ToggleShortcutEnabled; set => ConfigureShortcut(false, value, _settings.ToggleShortcut); }
+    public bool SaveShortcutEnabled { get => _settings.SaveShortcutEnabled; set => ConfigureShortcut(true, value, _settings.SaveShortcut); }
+    public int LengthSeconds { get => _settings.LengthSeconds; set { if (ChangeChoice(value, LengthChoices, _settings.LengthSeconds)) { _settings.LengthSeconds = value; Changed(); OnChanged(nameof(LongClipHint)); } } }
+    public int ResolutionHeight { get => _settings.ResolutionHeight; set { if (ChangeChoice(value, ResolutionChoices, _settings.ResolutionHeight)) { _settings.ResolutionHeight = value; Changed(); } } }
+    public int FrameRate { get => _settings.FrameRate; set { if (ChangeChoice(value, FrameRateChoices, _settings.FrameRate)) { _settings.FrameRate = value; Changed(); } } }
+    public int Quality
+    {
+        get => _settings.Quality;
+        set { if (CanEditSettings && value is >= 10 and <= 100 && value != _settings.Quality) { _settings.Quality = value; _qualityPending = true; OnChanged(); } }
+    }
+    public bool RemindersEnabled
+    {
+        get => _settings.RemindersEnabled;
+        set { if (_settings.RemindersEnabled != value) { _settings.RemindersEnabled = value; Changed(); OnChanged(nameof(HasReminder)); NotifyDashboardNotice(); ReminderChanged?.Invoke(this, EventArgs.Empty); } }
+    }
+
+    public Task InitializeAsync() => _initialization ??= LoadPageAsync(0);
+
+    public void CommitQuality()
+    {
+        if (!_qualityPending) return;
+        _qualityPending = false;
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public Task ToggleAsync() => Operation(async () =>
+    {
+        var next = !_snapshot.Enabled;
+        if (next && !ClipsSettings.CanRecordToDirectory(_settings.StorageDirectory))
+        { ErrorText(ClipsSettings.RecordingPathTooLongMessage); return; }
+        if (next && await IsNetworkStorageAsync())
+        { ErrorText("Clip recording needs a local folder. Network drives are not supported."); return; }
+        await _recorder.SetEnabledAsync(next, Recording(), _token);
+        RefreshRecorder();
+        if (_snapshot.Enabled != next) { ErrorText("Clipping did not change state. Check the recorder status."); return; }
+        _settings.Enabled = next;
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+    }, "Clipping could not change state. Check the recorder status.", CanToggle);
+
+    internal void SetRuntimeActive(bool active) { _runtimeActive = active; NotifyState(); }
+    internal Task RestoreEnabledPreferenceAsync() => _settings.Enabled && !_snapshot.Enabled ? ToggleAsync() : Task.CompletedTask;
+    private Task<bool> IsNetworkStorageAsync() => Task.Run(() =>
+        _settings.StorageDirectory.StartsWith(@"\\", StringComparison.Ordinal) ||
+        new DriveInfo(Path.GetPathRoot(_settings.StorageDirectory)!).DriveType == DriveType.Network, _token);
+
+    public Task SaveClipAsync()
+    {
+        if (_disposed || !_runtimeActive) return Task.CompletedTask;
+        if (!CanSave)
+        {
+            if (_snapshot.State is ClipRecorderState.Error or ClipRecorderState.Unavailable) ErrorText(RecorderStatus);
+            else if (_snapshot.State == ClipRecorderState.Saving) NoticeText(ClipRecorderService.ReasonText("save_in_progress"));
+            else if (IsBusy) NoticeText("Wisp is busy with another clip action. Wait for it to finish, then save again.");
+            else if (_library is null) ErrorText("Choose a clip folder in Recording settings before saving a clip.");
+            else if (!_snapshot.Enabled) ErrorText("Clipping is off. Enable clipping before saving a clip.");
+            else ErrorText("No clip is ready yet. " + RecorderStatus);
+            return Task.CompletedTask;
+        }
+        return Operation(async () =>
+        {
+            var library = _library!;
+            var target = await library.ReserveSaveAsync(Recording(), _token);
+            FinalizedClipMedia media;
+            try
+            {
+                media = await _recorder.SaveAsync(target, _token);
+                await library.CommitFinalizedAsync(target.Id, media, _token);
+            }
+            catch
+            {
+                if (!_disposed) await ReadPageAsync(0);
+                throw;
+            }
+            await ReadPageAsync(0);
+            NoticeText(media.HasAudio ? "Clip saved." : "Clip saved without audio. Game audio was unavailable.");
+        }, "The clip could not be saved. Any unfinished save and its file have been kept.", CanSave, SaveFailureText);
+    }
+
+    private string? SaveFailureText(Exception error)
+    {
+        var current = _recorder.Snapshot;
+        if (current.State == ClipRecorderState.Error) return current.Status;
+        return error is RecorderClientException recorder ? ClipRecorderService.ReasonText(recorder.Reason) : null;
+    }
+
+    public Task LoadPageAsync(int pageIndex) => Operation(() => ReadPageAsync(Math.Max(0, pageIndex)),
+        "The clip library could not be read. Its files have been kept.", !IsBusy && !_disposed);
+
+    public Task SetStorageDirectoryAsync(string directory) => Operation(async () =>
+    {
+        if (!ClipsSettings.TryNormalizeStorageDirectory(directory, out var full))
+        { ErrorText("Choose a clip folder on a local drive."); return; }
+        if (!ClipsSettings.CanRecordToDirectory(full))
+        { ErrorText(ClipsSettings.RecordingPathTooLongMessage); return; }
+        var next = new ClipLibrary(full);
+        var page = await next.GetPageAsync(0, _token);
+        ClearSelection();
+        _library = next;
+        _settings.StorageDirectory = full;
+        ApplyPage(page);
+        foreach (var name in new[] { nameof(StorageDirectory), nameof(StorageText), nameof(CanToggle) }) OnChanged(name);
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+        NoticeText("Clip folder selected. Files in the previous folder have been kept.");
+        StartThumbnails();
+    }, "That clip folder could not be opened. The previous folder is unchanged.", CanEditSettings);
+
+    public async Task<string?> GetClipFolderForOpenAsync()
+    {
+        if (!CanOpenClipFolder) return null;
+        var library = _library;
+        var directory = StorageDirectory;
+        try
+        {
+            await Task.Run(() =>
+            {
+                _token.ThrowIfCancellationRequested();
+                if (!ClipsSettings.TryNormalizeStorageDirectory(directory, out var full) ||
+                    new DriveInfo(Path.GetPathRoot(full)!).DriveType == DriveType.Network)
+                    throw new IOException();
+                ClipLibrary.CheckPath(full);
+                if (!Directory.Exists(full)) throw new DirectoryNotFoundException();
+            }, _token);
+            return !_disposed && ReferenceEquals(library, _library) ? directory : null;
+        }
+        catch (OperationCanceledException) when (_token.IsCancellationRequested) { return null; }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        { if (!_disposed) ClipFolderOpenFailed(); return null; }
+    }
+    public void ClipFolderOpenFailed() => ErrorText("The clip folder could not be opened. Check that the local drive is available.");
+
+    public async Task<string?> SelectForPlaybackAsync(ClipCardItem item)
+    {
+        if (IsBusy || _disposed || _library is null || !Clips.Contains(item)) return null;
+        var revision = ++_selectionRevision;
+        string? path = null;
+        await Operation(async () =>
+        {
+            var candidate = await _library.GetMediaPathAsync(item.Id, _token);
+            if (revision != _selectionRevision || _disposed) return;
+            _selected?.Select(false); _selected = item; item.Select(true);
+            foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport) }) OnChanged(name);
+            path = candidate;
+        }, "This clip could not be opened. Its file has been kept.", true);
+        return path;
+    }
+
+    public async Task PlaybackOpenedAsync(Guid id)
+    {
+        if (_disposed || _library is null || _selected?.Id != id) return;
+        var library = _library;
+        try
+        {
+            var updated = await library.MarkViewedAsync(id, _token);
+            if (_disposed || !ReferenceEquals(_library, library)) return;
+            Clips.FirstOrDefault(item => item.Id == id)?.Update(updated);
+            await RefreshReminderAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        { ErrorText("The clip opened, but its viewed state could not be saved."); }
+    }
+
+    public void PlaybackFailed() => ErrorText("This clip could not be played. Its file has been kept.");
+    public void ReportCopyCompleted(bool copied) => NoticeText(copied
+        ? "Error details copied. You can include them when reporting this problem."
+        : "The clipboard is busy. Try Copy error details again.");
+    public void ClosePlayback() => ClearSelection();
+
+    public Task ExportSelectedAsync(string destination)
+    {
+        var selected = _selected;
+        return Operation(async () =>
+        {
+            var library = _library!;
+            var result = await library.ExportAsync(selected!.Id, destination, _token);
+            if (result.ExportStateSaved)
+            {
+                var page = await library.GetPageAsync(_pageIndex, _token);
+                var updated = page.Clips.FirstOrDefault(item => item.Id == selected.Id);
+                if (updated is not null) selected.Update(updated);
+                SetReminder(page);
+            }
+            NoticeText(result.ExportStateSaved ? "Clip exported." : "Clip exported, but its exported state could not be saved.");
+        }, "The clip could not be exported. Choose a new filename and check folder access.", CanExport);
+    }
+
+    public bool ConfigureShortcut(bool save, bool enabled, OverlayHotkeyChord chord)
+    {
+        if (!CanEditSettings) return false;
+        if (!OverlayHotkeyChord.TryCreate(chord.Modifiers, chord.Key, out chord, out var error)) { ErrorText(error); return false; }
+        if (enabled && (save ? _settings.ToggleShortcutEnabled && chord == _settings.ToggleShortcut : _settings.SaveShortcutEnabled && chord == _settings.SaveShortcut))
+        { ErrorText("Use different shortcuts for toggling clipping and saving a clip."); return false; }
+        var registrationError = _registerShortcut?.Invoke(save, enabled, chord);
+        if (registrationError is not null)
+        {
+            ErrorText($"Shortcut unchanged: {registrationError}.");
+            foreach (var name in new[] { nameof(ToggleShortcutEnabled), nameof(SaveShortcutEnabled), nameof(ToggleShortcutText), nameof(SaveShortcutText) }) OnChanged(name);
+            return false;
+        }
+        if (save) { _settings.SaveShortcutEnabled = enabled; _settings.SaveShortcutModifiers = chord.Modifiers; _settings.SaveShortcutKey = chord.Key; }
+        else { _settings.ToggleShortcutEnabled = enabled; _settings.ToggleShortcutModifiers = chord.Modifiers; _settings.ToggleShortcutKey = chord.Key; }
+        foreach (var name in new[] { nameof(ToggleShortcutEnabled), nameof(SaveShortcutEnabled), nameof(ToggleShortcutText), nameof(SaveShortcutText) }) OnChanged(name);
+        _shortcutStatus = enabled ? _registerShortcut is null ? "Shortcut configured; waiting for registration." : "Shortcut is ready." : "Shortcut disabled.";
+        OnChanged(nameof(ShortcutStatus));
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    public void SetShortcutStatus(string safeStatus) { _shortcutStatus = safeStatus; OnChanged(nameof(ShortcutStatus)); }
+    internal void SetShortcutRegistration(Func<bool, bool, OverlayHotkeyChord, string?> registration) => _registerShortcut = registration;
+
+    private async Task ReadPageAsync(int pageIndex)
+    {
+        if (_library is null) { Clips.Clear(); NotifyState(); return; }
+        var page = await _library.GetPageAsync(pageIndex, _token);
+        if (_disposed) return;
+        ClearSelection(); ApplyPage(page);
+        StartThumbnails();
+    }
+    private void ApplyPage(ClipLibraryPage page)
+    {
+        _pageIndex = page.PageIndex; _pageCount = page.PageCount; _total = page.TotalClips; _pending = page.PendingSaves;
+        Clips.Clear(); foreach (var entry in page.Clips) Clips.Add(new(entry));
+        SetReminder(page); NotifyState();
+    }
+    internal void SetGalleryActive(bool active)
+    {
+        if (_disposed || _galleryActive == active) return;
+        _galleryActive = active;
+        if (active) StartThumbnails(); else CancelThumbnails();
+    }
+    private void CancelThumbnails()
+    {
+        ++_thumbnailRevision;
+        var work = _thumbnailWork; _thumbnailWork = null;
+        work?.Cancel();
+        foreach (var item in Clips) item.SetThumbnailLoading(false);
+    }
+    private void StartThumbnails()
+    {
+        CancelThumbnails();
+        if (_disposed || !_galleryActive || _thumbnails is null || _library is null || Clips.Count == 0) return;
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_token);
+        _thumbnailWork = cancellation;
+        ThumbnailCompletion = LoadThumbnailsAsync(_library, Clips.ToArray(), _thumbnailRevision, cancellation);
+    }
+    private async Task LoadThumbnailsAsync(ClipLibrary library, ClipCardItem[] cards, long revision, CancellationTokenSource cancellation)
+    {
+        var token = cancellation.Token;
+        bool Current() => !_disposed && _galleryActive && revision == _thumbnailRevision && ReferenceEquals(library, _library);
+        try
+        {
+            // Metadata loading and page navigation do not wait for this loop.
+            // Cancellation reaches the one decoder; old results cannot populate a new page.
+            foreach (var item in cards)
+            {
+                if (!Current() || token.IsCancellationRequested) return;
+                if (item.HasThumbnail) continue;
+                item.SetThumbnailLoading(true);
+                try
+                {
+                    var path = await library.GetMediaPathAsync(item.Id, token);
+                    var image = await _thumbnails!.LoadAsync(item.Entry, path, token);
+                    if (!Current() || token.IsCancellationRequested || !Clips.Contains(item)) return;
+                    item.SetThumbnail(image);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+                catch (Exception error) when (error is not OutOfMemoryException) { /* Keep the accessible fallback. */ }
+                finally { if (Current()) item.SetThumbnailLoading(false); }
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_thumbnailWork, cancellation)) _thumbnailWork = null;
+            cancellation.Dispose();
+        }
+    }
+    private async Task RefreshReminderAsync()
+    {
+        var library = _library;
+        if (_disposed || library is null) return;
+        var page = await library.GetPageAsync(_pageIndex, _token);
+        if (!_disposed && ReferenceEquals(_library, library)) SetReminder(page);
+    }
+    private void SetReminder(ClipLibraryPage page)
+    {
+        _newClips = page.NewClips;
+        OnChanged(nameof(NewClipCount)); OnChanged(nameof(HasReminder)); OnChanged(nameof(ReminderText));
+        NotifyDashboardNotice();
+        ReminderChanged?.Invoke(this, EventArgs.Empty);
+    }
+    private ClipRecordingSpec Recording() => new(LengthSeconds, ResolutionHeight, FrameRate, Quality);
+    private bool ChangeChoice(int next, IReadOnlyList<int> choices, int current) => CanEditSettings && next != current && choices.Contains(next);
+    private void Changed([CallerMemberName] string? name = null) { OnChanged(name); PreferencesChanged?.Invoke(this, EventArgs.Empty); }
+    private void ClearSelection()
+    {
+        ++_selectionRevision; _selected?.Select(false); _selected = null;
+        foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport) }) OnChanged(name);
+    }
+    private async Task Operation(Func<Task> action, string errorText, bool allowed, Func<Exception, string?>? failureText = null)
+    {
+        if (!allowed || _busy || _disposed) return;
+        _busy = true; ErrorText(""); NoticeText(""); NotifyState();
+        try { CommitQuality(); await action(); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception error) when (error is not OutOfMemoryException) { ErrorText(failureText?.Invoke(error) ?? errorText); }
+        finally { _busy = false; if (!_disposed) { RefreshRecorder(); NotifyState(); } }
+    }
+    private void RecorderChanged(object? sender, EventArgs e)
+    {
+        if (_disposed) return;
+        if (_dispatcher.CheckAccess()) RefreshRecorder();
+        else _ = _dispatcher.InvokeAsync(() => { if (!_disposed) RefreshRecorder(); });
+    }
+    private void RefreshRecorder()
+    {
+        _snapshot = _recorder.Snapshot;
+        OnChanged(nameof(RecorderStatus)); OnChanged(nameof(IsRecording));
+        OnChanged(nameof(FailureReport)); OnChanged(nameof(HasFailureReport));
+        NotifyState();
+    }
+    private void NotifyState()
+    {
+        foreach (var name in new[] { nameof(IsBusy), nameof(IsEmpty), nameof(CanEditSettings), nameof(CanToggle), nameof(ClippingEnabled), nameof(CanSave), nameof(CanBrowse), nameof(CanExport), nameof(PageText), nameof(PendingText), nameof(CanOpenClipFolder) }) OnChanged(name);
+        NotifyDashboardNotice();
+        foreach (var command in _commands) command.Raise();
+    }
+    private void ErrorText(string text) { _error = text; OnChanged(nameof(Error)); OnChanged(nameof(HasError)); NotifyDashboardNotice(); }
+    private void NotifyDashboardNotice()
+    {
+        OnChanged(nameof(HasDashboardNotice)); OnChanged(nameof(DashboardNoticeTitle)); OnChanged(nameof(DashboardNoticeText));
+    }
+    private void NoticeText(string text) { _notice = text; OnChanged(nameof(Notice)); }
+    private void OnChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
+    private ICommand Command(Func<Task> execute, Func<bool> canExecute)
+    {
+        var command = new ClipCommand(execute, canExecute); _commands.Add(command); return command;
+    }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        CommitQuality(); CancelThumbnails(); _disposed = true; ShortcutCaptureActive = false;
+        _recorder.StateChanged -= RecorderChanged; _lifetime.Cancel(); _lifetime.Dispose(); ClearSelection();
+        if (_thumbnails is IDisposable ownedThumbnails) ownedThumbnails.Dispose();
+        // Operations retain the captured token, never access a disposed token source.
+    }
+    private sealed class ClipCommand(Func<Task> action, Func<bool> canExecute) : ICommand
+    {
+        public event EventHandler? CanExecuteChanged;
+        public bool CanExecute(object? parameter) => canExecute();
+        public async void Execute(object? parameter) { if (CanExecute(parameter)) await action(); }
+        public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+    }
+}

@@ -280,6 +280,13 @@ public partial class MainWindow : ControlPanelWindow
         {
             item.Height = compact ? 50 : 68;
             if (item.Content is not StackPanel content) continue;
+            foreach (var label in content.Children.OfType<TextBlock>())
+            {
+                if (compact)
+                    label.FontSize = 11;
+                else
+                    label.ClearValue(TextBlock.FontSizeProperty);
+            }
             foreach (var icon in content.Children.OfType<System.Windows.Shapes.Path>())
             {
                 if (compact)

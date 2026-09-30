@@ -7,6 +7,19 @@ namespace Wisp.App.Tests;
 public sealed class ApplicationVersionInfoTests
 {
     [Theory]
+    [InlineData(null, null, false)]
+    [InlineData(null, "true", false)]
+    [InlineData("private-test", null, true)]
+    [InlineData("private-test", "true", true)]
+    [InlineData("private-test", "false", false)]
+    [InlineData("private-test", "invalid", false)]
+    public void LapDiagnosticsRequirePrivateIdentityAndRespectExplicitOverride(
+        string? diagnosticBuildId, string? enabledOverride, bool expected)
+    {
+        Assert.Equal(expected, ApplicationVersionInfo.ShouldEnableLapDiagnostics(diagnosticBuildId, enabledOverride));
+    }
+
+    [Theory]
     [InlineData("1.1.0", "1.1")]
     [InlineData("2.0.0", "2.0")]
     [InlineData("1.0.12", "1.0.12")]
@@ -22,16 +35,27 @@ public sealed class ApplicationVersionInfoTests
     [Fact]
     public void CurrentVersionLabelsShareTheAssemblyVersion()
     {
-        Assert.Equal("2.5.2", ApplicationVersionInfo.MachineVersion);
-        Assert.Equal("2.5.2", ApplicationVersionInfo.DisplayVersion);
+        Assert.Equal("2.5.3", ApplicationVersionInfo.MachineVersion);
+        Assert.Equal("2.5.3", ApplicationVersionInfo.DisplayVersion);
         var project = ProjectMetadata();
         Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildId"), ApplicationVersionInfo.DiagnosticBuildId);
         Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildLabel"), ApplicationVersionInfo.DiagnosticBuildLabel);
+        Assert.Equal(ApplicationVersionInfo.ShouldEnableLapDiagnostics(
+            project.GetValueOrDefault("WispDiagnosticBuildId"), project.GetValueOrDefault("WispLapDiagnosticsEnabled")),
+            ApplicationVersionInfo.LapDiagnosticsEnabled);
         if (ApplicationVersionInfo.DiagnosticBuildId is null)
         {
             Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
-            Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.5.2", ApplicationVersionInfo.FooterText);
-            Assert.Contains("current 2.5.2 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+            if (ReleaseNotesCatalog.Entries[0].Label == "PRIVATE TEST")
+            {
+                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.5.3 (private test)", ApplicationVersionInfo.FooterText);
+                Assert.Contains("private 2.5.3 candidate. It has not been published.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+            }
+            else
+            {
+                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.5.3", ApplicationVersionInfo.FooterText);
+                Assert.Contains("current 2.5.3 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+            }
         }
         else
         {

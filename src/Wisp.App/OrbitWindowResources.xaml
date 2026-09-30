@@ -81,7 +81,7 @@
     <Style x:Key="OrbitDockItemStyle" TargetType="ListBoxItem">
         <Setter Property="Height" Value="68" />
         <Setter Property="Margin" Value="2" />
-        <Setter Property="Padding" Value="2" />
+        <Setter Property="Padding" Value="2,0" />
         <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />

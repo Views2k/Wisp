@@ -109,6 +109,8 @@ public sealed class WpfStyleRuntimeTests
                 Check(nameof(TachNeedleDiagnosticsTests), TachNeedleDiagnosticsTests.AssertOnCurrentDispatcher);
                 Check(nameof(OverlayPresentationTests), OverlayPresentationTests.AssertOnCurrentDispatcher);
                 Check(nameof(OverlayGForcePlacementTests), OverlayGForcePlacementTests.AssertOnCurrentDispatcher);
+                Check(nameof(HudProfilePlacementTests), HudProfilePlacementTests.AssertOnCurrentDispatcher);
+                Check(nameof(LapReviewUiRuntimeTests), LapReviewUiRuntimeTests.AssertOnCurrentDispatcher);
                 Check(nameof(OverlayElectricGaugePlacementTests), OverlayElectricGaugePlacementTests.AssertOnCurrentDispatcher);
                 Check("NativeRendererIntegrationTests hardware", () => NativeRendererIntegrationTests.AssertOnCurrentDispatcher());
                 Check("NativeRendererIntegrationTests WARP", () => NativeRendererIntegrationTests.AssertOnCurrentDispatcher(cpuRendering: true));

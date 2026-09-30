@@ -17,6 +17,7 @@
     <Compile Include="..\..\src\Wisp.App\AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="..\..\src\Wisp.App\AppStyleSettings.cs" Link="AppStyleSettings.cs" />
     <Compile Include="..\..\src\Wisp.App\Runs\RunWorkspaceSettings.cs" Link="RunWorkspaceSettings.cs" />
+    <Compile Include="..\..\src\Wisp.App\Clips\ClipsSettings.cs" Link="ClipsSettings.cs" />
     <Compile Include="..\..\src\Wisp.App\HudPreset.cs" Link="HudPreset.cs" />
     <Compile Include="..\..\src\Wisp.App\AppColorThemes.cs" Link="AppColorThemes.cs" />
     <Compile Include="..\..\src\Wisp.App\AppBackgroundThemes.cs" Link="AppBackgroundThemes.cs" />

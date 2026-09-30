@@ -32,8 +32,10 @@ public sealed class GForceGaugeSettingsTests
         Assert.Equal(1.4, settings.GForceHeightScale);
     }
 
-    [Fact]
-    public void SizeAndShapeRoundTripThroughSettingsAndProfilesWithoutChangingPlacements()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void SizeAndShapeRoundTripThroughSettingsAndProfilesWithVersionedPlacements(int revision)
     {
         var source = new AppSettings
         {
@@ -51,8 +53,12 @@ public sealed class GForceGaugeSettingsTests
         Assert.Equal(1.35, restored.GForcePlacements["display"].WidthScale);
         Assert.Equal(0.85, restored.GForcePlacements["display"].HeightScale);
 
-        var preset = JsonSerializer.Deserialize<HudPreset>(
-            JsonSerializer.Serialize(HudPreset.Capture(restored, "G-force size")))!;
+        var captured = HudPreset.Capture(restored, "G-force size");
+        Assert.Equal(2, captured.Revision);
+        Assert.NotSame(restored.GForcePlacements, captured.GForcePlacements);
+        Assert.NotSame(restored.GForcePlacements["display"], captured.GForcePlacements!["display"]);
+        captured.Revision = revision;
+        var preset = JsonSerializer.Deserialize<HudPreset>(JsonSerializer.Serialize(captured))!;
         var existingPlacement = new OverlayPlacement(30, 40, 0.8, 1.2);
         var target = new AppSettings
         {
@@ -63,7 +69,27 @@ public sealed class GForceGaugeSettingsTests
         Assert.Equal(1.6, target.GForceGaugeScale);
         Assert.Equal(1.35, target.GForceWidthScale);
         Assert.Equal(0.85, target.GForceHeightScale);
-        Assert.Same(existingPlacement, Assert.Single(target.GForcePlacements).Value);
+        if (revision == 1)
+        {
+            Assert.Equal("existing", Assert.Single(target.GForcePlacements).Key);
+            Assert.Same(existingPlacement, target.GForcePlacements["existing"]);
+            Assert.Equal(30, existingPlacement.Left);
+            Assert.Equal(40, existingPlacement.Top);
+        }
+        else
+        {
+            var placement = Assert.Single(target.GForcePlacements);
+            Assert.Equal("display", placement.Key);
+            Assert.Equal(10, placement.Value.Left);
+            Assert.Equal(20, placement.Value.Top);
+            Assert.Equal(1.35, placement.Value.WidthScale);
+            Assert.Equal(0.85, placement.Value.HeightScale);
+            Assert.NotSame(preset.GForcePlacements, target.GForcePlacements);
+            Assert.NotSame(preset.GForcePlacements!["display"], placement.Value);
+            placement.Value.Left = 99;
+            Assert.Equal(10, preset.GForcePlacements["display"].Left);
+            Assert.Equal(10, restored.GForcePlacements["display"].Left);
+        }
         Assert.Equal(0.8, existingPlacement.WidthScale);
         Assert.Equal(1.2, existingPlacement.HeightScale);
         Assert.Equal("existing", target.LastGForcePlacementKey);

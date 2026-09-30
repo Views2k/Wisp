@@ -15,6 +15,8 @@
     <ProjectReference Include="..\..\src\Wisp.App\Wisp.App.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\..\tools\Wisp.UiReview\LapReviewFixtures.cs" Link="UiReview\LapReviewFixtures.cs" />
+    <Compile Include="..\..\tools\Wisp.UiReview\LapReviewUiChecks.cs" Link="UiReview\LapReviewUiChecks.cs" />
     <None Update="Fixtures\TachMotion\moving-rpm-128.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

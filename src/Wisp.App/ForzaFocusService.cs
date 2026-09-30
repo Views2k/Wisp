@@ -14,7 +14,11 @@ public sealed class ForzaFocusService
 
     private HashSet<int> _forzaProcessIds = new();
     private HashSet<string> _forzaExecutableDirectories = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ForzaProcessDiscovery _discovery = new(FindForzaProcesses);
+    private readonly ForzaProcessDiscovery _discovery;
+    private volatile bool _captureRequested;
+    private readonly ForzaCaptureObservationTracker _captureObservation = new();
+    private ForzaCaptureCandidate? _captureCandidate;
+    private DateTimeOffset _nextCaptureCheckAtUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _nextFullscreenCheckAtUtc = DateTimeOffset.MinValue;
     private IntPtr _lastFullscreenWindow;
     private IntPtr _lastForzaForegroundWindow;
@@ -26,6 +30,20 @@ public sealed class ForzaFocusService
     private bool _lastFullscreenState;
     private DateTimeOffset _lastForzaConfirmedAtUtc = DateTimeOffset.MinValue;
 
+    public ForzaFocusService() => _discovery = new(() => FindForzaProcesses(_captureRequested));
+
+    internal bool CaptureRequested
+    {
+        get => _captureRequested;
+        set
+        {
+            _captureRequested = value;
+            if (!value) { _captureCandidate = null; _captureObservation.Observe(null); }
+        }
+    }
+
+    internal Clips.RecorderTargetObservation? CaptureObservation => _captureObservation.Current;
+
     public ForzaFocusState GetState(DateTimeOffset nowUtc)
     {
         if (_discovery.Refresh(nowUtc))
@@ -33,11 +51,14 @@ public sealed class ForzaFocusService
             var snapshot = _discovery.Current;
             _forzaProcessIds = snapshot.ProcessIds;
             _forzaExecutableDirectories = snapshot.ExecutableDirectories;
+            _captureCandidate = _captureRequested ? snapshot.CaptureCandidate : null;
             _lastClassifiedForegroundWindow = IntPtr.Zero;
             _lastClassifiedForegroundProcessId = 0;
             _lastClassifiedRootProcessId = 0;
             _lastClassifiedRootOwnerProcessId = 0;
         }
+
+        RefreshCaptureObservation(nowUtc);
 
         var foregroundWindow = GetReliableForegroundWindow();
         if (foregroundWindow == IntPtr.Zero && _forzaProcessIds.Count > 0)
@@ -264,7 +285,7 @@ public sealed class ForzaFocusService
         _nextFullscreenCheckAtUtc = DateTimeOffset.MinValue;
     }
 
-    private static ForzaProcessSnapshot FindForzaProcesses()
+    private static ForzaProcessSnapshot FindForzaProcesses(bool includeCapture)
     {
         var processIds = new HashSet<int>();
         var executableDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -285,32 +306,71 @@ public sealed class ForzaFocusService
             }
         }
 
-        if (processIds.Count > 0)
+        if (processIds.Count > 0 && !includeCapture)
         {
             return new ForzaProcessSnapshot(processIds, executableDirectories);
         }
 
+        var exactProcessFound = processIds.Count > 0;
+        ForzaCaptureCandidate? captureCandidate = null;
         var owners = new ForzaWindowOwnerCache(TryGetProcessName, TryGetExecutablePath);
         EnumWindows(
             (windowHandle, _) =>
             {
                 GetWindowThreadProcessId(windowHandle, out var processId);
-                if (processId <= 0 || processIds.Contains(processId))
+                if (processId <= 0)
                 {
                     return true;
                 }
 
-                if (owners.Matches(processId, GetWindowCaption(windowHandle)))
+                if (!exactProcessFound && !processIds.Contains(processId) && owners.Matches(processId, GetWindowCaption(windowHandle)))
                 {
                     processIds.Add(processId);
                     AddExecutableDirectory(owners.GetMatchedExecutablePath(processId), executableDirectories);
                 }
 
+                if (includeCapture && processIds.Contains(processId) &&
+                    TryCaptureCandidate(windowHandle, processId) is { } candidate &&
+                    (captureCandidate is null || (long)candidate.Width * candidate.Height > (long)captureCandidate.Width * captureCandidate.Height))
+                    captureCandidate = candidate;
+
                 return true;
             },
             IntPtr.Zero);
 
-        return new ForzaProcessSnapshot(processIds, executableDirectories);
+        return new ForzaProcessSnapshot(processIds, executableDirectories, captureCandidate);
+    }
+
+    private void RefreshCaptureObservation(DateTimeOffset nowUtc)
+    {
+        if (!_captureRequested || nowUtc < _nextCaptureCheckAtUtc) return;
+        _nextCaptureCheckAtUtc = nowUtc + TimeSpan.FromMilliseconds(250);
+        var candidate = _captureCandidate;
+        if (candidate is not null)
+        {
+            var window = unchecked((IntPtr)(long)candidate.Window);
+            GetWindowThreadProcessId(window, out var owner);
+            if (owner != candidate.ProcessId || !IsWindowVisible(window) || IsIconic(window) || IsWindowCloaked(window) ||
+                !GetWindowRect(window, out var bounds) || bounds.Right <= bounds.Left || bounds.Bottom <= bounds.Top)
+                candidate = null;
+            else candidate = candidate with { Width = bounds.Right - bounds.Left, Height = bounds.Bottom - bounds.Top };
+        }
+        _captureObservation.Observe(candidate);
+    }
+
+    private static ForzaCaptureCandidate? TryCaptureCandidate(IntPtr window, int processId)
+    {
+        if (!IsWindowVisible(window) || IsIconic(window) || IsWindowCloaked(window) || GetWindow(window, 4) != IntPtr.Zero ||
+            !GetWindowRect(window, out var bounds) || bounds.Right <= bounds.Left || bounds.Bottom <= bounds.Top) return null;
+        using var process = OpenProcess(ProcessQueryLimitedInformation, false, processId);
+        if (process.IsInvalid || !GetProcessTimes(process, out var creation, out _, out _, out _)) return null;
+        var path = new StringBuilder(32768);
+        var length = path.Capacity;
+        if (!QueryFullProcessImageName(process, 0, path, ref length) ||
+            !string.Equals(Path.GetFileName(path.ToString()), "ForzaHorizon6.exe", StringComparison.OrdinalIgnoreCase)) return null;
+        var time = ((ulong)(uint)creation.dwHighDateTime << 32) | (uint)creation.dwLowDateTime;
+        if (time == 0) return null;
+        return new((uint)processId, unchecked((ulong)window.ToInt64()), time, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
     }
 
     private static IntPtr FindTopmostInteractiveWindow()
@@ -484,6 +544,16 @@ public sealed class ForzaFocusService
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern SafeProcessHandle OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, int processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetProcessTimes(SafeProcessHandle process,
+        out System.Runtime.InteropServices.ComTypes.FILETIME creation, out System.Runtime.InteropServices.ComTypes.FILETIME exit,
+        out System.Runtime.InteropServices.ComTypes.FILETIME kernel, out System.Runtime.InteropServices.ComTypes.FILETIME user);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr window);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

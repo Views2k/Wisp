@@ -4,6 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:Wisp.App"
         xmlns:runs="clr-namespace:Wisp.App.Runs"
+        xmlns:clips="clr-namespace:Wisp.App.Clips"
         Title="Wisp" Width="1080" Height="780" MinWidth="720" MinHeight="440"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
         Foreground="{DynamicResource TextBrush}" Background="{DynamicResource WindowBrush}" WindowStartupLocation="CenterScreen" Cursor="Arrow"
@@ -147,6 +148,7 @@
                             <ListBoxItem AutomationProperties.Name="Diagnostics"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M0,9 H4 L7,2 L11,16 L14,9 H18" /><TextBlock Text="Diagnostics" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Profiles"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M3,2 H15 V6 H3 Z M3,8 H15 V12 H3 Z M3,14 H15 V18 H3 Z" /><TextBlock Text="Profiles" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Extras"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M9,1 A8,8 0 1 0 17,9 C17,6 13,6 12,8 C11,11 8,10 9,7 C10,4 12,2 9,1 Z M5,5 L5,5.2 M4,10 L4,10.2 M8,14 L8,14.2" /><TextBlock Text="Extras" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                            <ListBoxItem AutomationProperties.Name="Clips"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,2 H18 V17 H1 Z M7,6 L13,10 L7,14 Z" /><TextBlock Text="Clips" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Release Notes"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M3,1 H12 L17,6 V19 H3 Z M12,1 V6 H17 M6,10 H14 M6,13 H14 M6,16 H11" /><TextBlock Text="Release Notes" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                         </ListBox>
                         <StackPanel Grid.Row="2" VerticalAlignment="Bottom" Margin="22,18,10,20">
@@ -162,7 +164,17 @@
                                FontSize="23" FontWeight="SemiBold" Margin="0,0,0,18" />
                     <TabControl x:Name="RootTabs" Grid.Row="1" Style="{StaticResource SidebarPagesStyle}">
                         <TabItem x:Name="DashboardTab" Header="Dashboard">
-                            <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
+                            <Grid>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <Border x:Name="DashboardClipPanel" Grid.Row="0" MaxWidth="400" HorizontalAlignment="Right" Margin="0,0,0,10" Padding="14,10">
+                                    <Border.Style><Style TargetType="Border" BasedOn="{StaticResource CardStyle}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasDashboardNotice}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DashboardNoticeTitle}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding DashboardNoticeText}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,8" AutomationProperties.LiveSetting="Polite"/>
+                                        <Button Content="Review clips" Click="OpenClips_Click" HorizontalAlignment="Left" Padding="12,5" AutomationProperties.Name="Review clips and save status"/>
+                                    </StackPanel>
+                                </Border>
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
                                 <ScrollViewer.Resources>
                                     <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}">
                                         <Style.Triggers><Trigger Property="Maximum" Value="0"><Setter Property="Opacity" Value="0"/><Setter Property="IsHitTestVisible" Value="False"/></Trigger></Style.Triggers>
@@ -429,6 +441,7 @@
                                 </Viewbox>
                                 </Decorator>
                             </ScrollViewer>
+                            </Grid>
                         </TabItem>
 
                         <TabItem x:Name="RunsTab" Header="Runs">
@@ -1615,7 +1628,7 @@
                                         <StackPanel>
                                                 <TextBlock Text="HUD PROFILES" Style="{StaticResource EyebrowTextStyle}" />
                                                 <TextBlock Text="Saved combinations" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,0" />
-                                                <TextBlock Text="Switch the HUD layout, gauges, units, sizing, opacity, and complete color palette together. Profiles never change tire calibration, overlay positions, telemetry, startup, updates, or debug settings."
+                                                <TextBlock Text="Switch HUD arrangements, gauges, colors, units, speed settings, driving guidance, and recording controls together. Positions restore on matching displays. Calibration data, saved runs, and application settings stay separate."
                                                            Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" LineHeight="19" Margin="0,7,0,0" />
                                         </StackPanel>
                                     </Border>
@@ -1976,6 +1989,9 @@
                             </ScrollViewer>
                         </TabItem>
 
+                        <TabItem x:Name="ClipsTab" Header="Clips">
+                            <clips:ClipsPage x:Name="ClipsSurface" UseLegacyStyle="True" />
+                        </TabItem>
                         <TabItem x:Name="ReleaseNotesTab" Header="Release Notes">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <Decorator>

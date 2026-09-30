@@ -2,6 +2,17 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.5.3 - 2026-09-29
+
+Private test candidate; not published as a public release.
+
+- HUD profiles now include all HUD and driving settings and saved gauge positions. Older profiles preserve the settings and positions they did not contain. Startup, connections, updates, diagnostics, calibration history and saved runs stay separate.
+- Review recorded laps with a map of the driven line, a shared map/graph cursor, section statistics and position-matched comparison. Pin a saved lap as a review benchmark, or compare laps from the same run. Enable automatic completed-lap saving in Runs when wanted.
+- Shift calibration now considers later usable pulls instead of getting stuck on an earlier wider pull, and distinguishes recorded gears from unresolved shift comparisons.
+- Correct the normalized slip threshold and the independent native/UDP timestamp ordering that could interrupt valid calibration pulls. Keep one calibration guidance label and show the actual last interruption when no usable pull exists.
+- Reuse Runs and lap-review chart drawings during cursor movement. Present sample readings with themed controls and prevent empty lap popups.
+- Include available calibrated wheel data in new automatic lap recordings; explain missing data in older recordings without inventing it.
+
 ## 2.5.2 - 2026-09-29
 
 - Keep the HUD working when Forza restarts while Wisp stays open. When the game closed, Windows cleared the HUD window's owner, and Wisp treated that as a renderer failure that turned the HUD off until Wisp restarted.

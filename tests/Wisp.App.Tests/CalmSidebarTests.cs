@@ -16,7 +16,7 @@ public sealed class CalmSidebarTests
 {
     private static readonly XNamespace Presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
     private static readonly XNamespace Xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
-    private static readonly string[] PageNames = ["Dashboard", "Runs", "Appearance", "Diagnostics", "Profiles", "Extras", "Release Notes"];
+    private static readonly string[] PageNames = ["Dashboard", "Runs", "Appearance", "Diagnostics", "Profiles", "Extras", "Clips", "Release Notes"];
 
     [Fact]
     public void EveryNavigationPageUsesTheSameHorizontalDockSpacing()
@@ -48,7 +48,7 @@ public sealed class CalmSidebarTests
         Assert.Equal("68", SetterValue(style, "Height"));
         Assert.Equal("2", SetterValue(style, "Margin"));
         var panel = Assert.Single(navigation.Descendants(Presentation + "UniformGrid"));
-        Assert.Equal("7", panel.Attribute("Columns")?.Value);
+        Assert.Equal("8", panel.Attribute("Columns")?.Value);
     }
 
     [Fact]
@@ -136,7 +136,11 @@ public sealed class CalmSidebarTests
         Assert.Same(window.FindResource("RunCard"), runLibrary.Style);
         Assert.Same(window.FindResource("CardStyle"), runLibrary.Style.BasedOn);
         var runToggles = LogicalDescendants(runs).OfType<CheckBox>().ToArray();
-        Assert.Equal(4, runToggles.Length);
+        Assert.Equal(
+            ["AutomaticRecording", "FullThrottleOnly", "HotkeyEnabled", "MarkerHotkeyEnabled", "SameSpeed"],
+            runToggles.Select(runToggle => Assert.IsType<Binding>(
+                    BindingOperations.GetBinding(runToggle, ToggleButton.IsCheckedProperty)).Path.Path)
+                .OrderBy(path => path, StringComparer.Ordinal));
         Assert.All(runToggles, runToggle => Assert.Same(window.FindResource("ToggleSwitchStyle"), runToggle.Style));
         foreach (var name in new[] { "ShowGraphsButton", "RunRecordButton" })
             Assert.Same(window.FindResource("PrimaryButtonStyle"), Assert.IsType<Button>(runs.FindName(name)).Style);
@@ -154,7 +158,8 @@ public sealed class CalmSidebarTests
         {
             foreach (var size in new[]
                      {
-                         new Size(720, 440), new Size(980, 750), new Size(1040, 760),
+                         new Size(720, 440), new Size(860, 440), new Size(860, 760),
+                         new Size(980, 750), new Size(1040, 760),
                          new Size(1280, 900), new Size(1464, 994), new Size(2560, 1440)
                      })
             {
@@ -370,10 +375,14 @@ public sealed class CalmSidebarTests
     private static void AssertBoundsWithin(FrameworkElement element, FrameworkElement container)
     {
         var origin = element.TranslatePoint(new Point(), container);
+        var bounds = $"{element.GetType().Name} '{element.Name}'" +
+                     (element is TextBlock text ? $" ({text.Text}, font {text.FontSize:F1}, line height {text.LineHeight:F3})" : string.Empty) +
+                     $" at ({origin.X:F3}, {origin.Y:F3}), size {element.ActualWidth:F3} x {element.ActualHeight:F3}; " +
+                     $"container {container.GetType().Name} '{container.Name}' {container.ActualWidth:F3} x {container.ActualHeight:F3}.";
         Assert.InRange(origin.X, -0.5, container.ActualWidth);
         Assert.InRange(origin.Y, -0.5, container.ActualHeight);
-        Assert.True(origin.X + element.ActualWidth <= container.ActualWidth + 0.5);
-        Assert.True(origin.Y + element.ActualHeight <= container.ActualHeight + 0.5);
+        Assert.True(origin.X + element.ActualWidth <= container.ActualWidth + 0.5, bounds);
+        Assert.True(origin.Y + element.ActualHeight <= container.ActualHeight + 0.5, bounds);
     }
 
     private static void AssertToggleReachable(Button toggle, Grid toggleHost, Border sidebar,

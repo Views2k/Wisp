@@ -4,6 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:Wisp.App"
         xmlns:runs="clr-namespace:Wisp.App.Runs"
+        xmlns:clips="clr-namespace:Wisp.App.Clips"
         Title="Wisp" Width="1440" Height="1000" MinWidth="720" MinHeight="440"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
         Foreground="{DynamicResource TextBrush}" Background="{DynamicResource WindowBrush}" WindowStartupLocation="CenterScreen" Cursor="Arrow"
@@ -179,8 +180,17 @@
                     <TabControl x:Name="RootTabs" Grid.Row="1" Style="{StaticResource SidebarPagesStyle}">
                         <TabItem x:Name="DashboardTab" Header="Dashboard">
                             <Grid>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                                <Grid x:Name="DashboardToolbar" Visibility="Collapsed" Margin="12,10,12,14" Background="Transparent" MouseLeftButtonDown="DisplayToolbar_MouseLeftButtonDown">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <Border x:Name="DashboardClipPanel" Grid.Row="0" MaxWidth="400" HorizontalAlignment="Right"
+                                        Margin="8,0,8,10" Padding="14,10" CornerRadius="{DynamicResource OrbitCornerRadius}">
+                                    <Border.Style><Style TargetType="Border" BasedOn="{StaticResource CardStyle}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasDashboardNotice}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DashboardNoticeTitle}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding DashboardNoticeText}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,8" AutomationProperties.LiveSetting="Polite"/>
+                                        <Button Content="Review clips" Click="OpenClips_Click" HorizontalAlignment="Left" Padding="12,5" AutomationProperties.Name="Review clips and save status"/>
+                                    </StackPanel>
+                                </Border>
+                                <Grid x:Name="DashboardToolbar" Grid.Row="1" Visibility="Collapsed" Margin="12,10,12,14" Background="Transparent" MouseLeftButtonDown="DisplayToolbar_MouseLeftButtonDown">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <TextBlock x:Name="DashboardModeHint" TextTrimming="CharacterEllipsis" Text="DASHBOARD" FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
                                     <WrapPanel Grid.Column="1" VerticalAlignment="Center">
@@ -188,7 +198,7 @@
                                         <Button x:Name="DashboardDisplayButton" Content="Exit display mode" Click="DashboardDisplay_Click" Padding="14,8" AutomationProperties.Name="Exit dashboard display mode" ToolTip="Return to the normal window (Escape)"/>
                                     </WrapPanel>
                                 </Grid>
-                                <ScrollViewer Grid.Row="1" x:Name="DashboardViewport" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled" SizeChanged="DashboardViewport_SizeChanged">
+                                <ScrollViewer Grid.Row="2" x:Name="DashboardViewport" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled" SizeChanged="DashboardViewport_SizeChanged">
                                 <ScrollViewer.Resources>
                                     <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}">
                                         <Style.Triggers><Trigger Property="Maximum" Value="0"><Setter Property="Opacity" Value="0"/><Setter Property="IsHitTestVisible" Value="False"/></Trigger></Style.Triggers>
@@ -1980,7 +1990,7 @@
                                         <StackPanel>
                                                 <TextBlock Text="HUD PROFILES" Style="{StaticResource EyebrowTextStyle}" />
                                                 <TextBlock Text="Saved combinations" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,0" />
-                                                <TextBlock Text="Switch the HUD layout, gauges, units, sizing, opacity, and complete color palette together. Profiles never change tire calibration, overlay positions, telemetry, startup, updates, or debug settings."
+                                                <TextBlock Text="Switch HUD arrangements, gauges, colors, units, speed settings, driving guidance, and recording controls together. Positions restore on matching displays. Calibration data, saved runs, and application settings stay separate."
                                                            Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" LineHeight="19" Margin="0,7,0,0" />
                                         </StackPanel>
                                     </local:OrbitSurface>
@@ -2220,6 +2230,9 @@
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
+                        <TabItem x:Name="ClipsTab" Header="Clips">
+                            <clips:ClipsPage x:Name="ClipsSurface" />
+                        </TabItem>
                         <TabItem x:Name="ReleaseNotesTab" Header="Release Notes">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <Decorator>
@@ -2344,7 +2357,7 @@
                         KeyboardNavigation.DirectionalNavigation="Cycle">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <UniformGrid Rows="1" Columns="7" />
+                                <UniformGrid Rows="1" Columns="8" />
                             </ItemsPanelTemplate>
                         </ListBox.ItemsPanel>
                         <ListBoxItem AutomationProperties.Name="Dashboard">
@@ -2390,6 +2403,12 @@
                                     Style="{StaticResource OrbitDockIconStyle}"
                                     Data="M3,3 L12,3 L12,12 L3,12 Z M18,3 L27,3 L27,12 L18,12 Z M3,18 L12,18 L12,27 L3,27 Z M18,18 L27,18 L27,27 L18,27 Z" />
                                 <TextBlock Text="Extras" VerticalAlignment="Center" Style="{StaticResource OrbitDockLabelStyle}" />
+                            </StackPanel>
+                        </ListBoxItem>
+                        <ListBoxItem AutomationProperties.Name="Clips">
+                            <StackPanel Orientation="Vertical">
+                                <Path Style="{StaticResource OrbitDockIconStyle}" Data="M3,5 L26,5 L26,25 L3,25 Z M12,10 L20,15 L12,20 Z M3,10 L7,10 M3,20 L7,20 M22,10 L26,10 M22,20 L26,20" />
+                                <TextBlock Text="Clips" VerticalAlignment="Center" Style="{StaticResource OrbitDockLabelStyle}" />
                             </StackPanel>
                         </ListBoxItem>
                         <ListBoxItem AutomationProperties.Name="Release Notes">

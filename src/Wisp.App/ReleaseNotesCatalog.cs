@@ -15,11 +15,34 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.5.3",
+            "September 30, 2026",
+            "PRIVATE TEST",
+            "Clips preview, HUD profiles, recorded-lap review and the confirmed shift-calibration corrections for private testing.",
+            true,
+            [
+                Group("Clips preview",
+                    "Choose a local clip folder, enable clipping and save recent gameplay from Clips or a shortcut. Watch saved clips in the gallery or export an MP4 copy.",
+                    "Recording defaults to one minute at 1080p60, with length, resolution and quality controls. Game audio is included when available; Wisp explains when a clip is silent.",
+                    "This private preview still needs full-recorder gameplay and performance validation. Separate overlay windows may not appear in game-window capture."),
+                Group("Profiles",
+                    "Profiles include HUD and driving settings, gauge sizes and saved positions. App-wide startup, connections, updates and diagnostics stay separate."),
+                Group("Lap review and Runs",
+                    "Review a recorded lap's path, input traces and section statistics, with a shared map and graph cursor. Automatic completed-lap saving is optional.",
+                    "Empty lap selectors show why no lap is available. Cursor movement reuses chart drawings, and sample readings use the existing app styles.",
+                    "Automatic lap recordings include calibrated wheel-speed data when it is available. Older recordings explain when that data was not saved."),
+                Group("Shift calibration",
+                    "Keep one calibration guidance label while native and driving status refresh.",
+                    "Use the normalized tire-slip grip boundary and preserve valid pulls when native data refreshes after a telemetry packet arrives.",
+                    "Measured higher-gear targets can save without missing first-gear coverage blocking them. Unmeasured gears remain off; no targets are guessed.",
+                    "The status explains interrupted recording instead of always asking for a longer pull.")
+            ]),
+        new(
             "2.5.2",
             "September 29, 2026",
             "RELIABILITY FIXES",
             "The HUD keeps working when Forza restarts, and saved runs, reference laps, updates and renderer status behave as shown.",
-            true,
+            false,
             [
                 Group("HUD",
                     "Keep the HUD working when Forza restarts while Wisp stays open. When the game closed, Windows cleared the HUD window's owner, and Wisp treated that as a renderer failure that turned the HUD off until Wisp restarted.",

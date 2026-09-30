@@ -162,26 +162,14 @@ internal static class NativeCompositionWindowTests
         // The native host can cover the monitor; only the original HUD region
         // should allocate pixels or participate in this artwork comparison.
         var bounds = LayoutBounds(layout);
-        var background = new Window
-        {
-            WindowStyle = WindowStyle.None,
-            ResizeMode = ResizeMode.NoResize,
-            ShowActivated = false,
-            ShowInTaskbar = false,
-            Topmost = true,
-            Background = new SolidColorBrush(Color.FromRgb(18, 52, 86)),
-            Width = 400,
-            Height = 400
-        };
         var foreground = GetForegroundWindow();
+        var background = new NativeArtworkBackplate(bounds.Left - 10, bounds.Top - 10,
+            bounds.Right - bounds.Left + 20, bounds.Bottom - bounds.Top + 20);
         IntPtr dc = IntPtr.Zero, memory = IntPtr.Zero, bitmap = IntPtr.Zero, previous = IntPtr.Zero;
         try
         {
-            background.Show();
-            var behind = new WindowInteropHelper(background).Handle;
-            Assert.True(SetWindowPos(behind, native, bounds.Left - 10, bounds.Top - 10,
-                bounds.Right - bounds.Left + 20, bounds.Bottom - bounds.Top + 20, 0x0010));
-            background.UpdateLayout();
+            background.ShowBehind(native);
+            var behind = background.Handle;
             Pump();
             Assert.Equal(0, DwmFlush());
             dc = GetDC(IntPtr.Zero);
@@ -195,8 +183,7 @@ internal static class NativeCompositionWindowTests
             Assert.NotEqual(IntPtr.Zero, bitmap);
             previous = SelectObject(memory, bitmap);
             var frame = new int[width * height];
-            // The WPF fixture's pixels can reach composition after its layout
-            // completes. Wait for observed fixture/HUD pixels, not a fixed delay.
+            // Wait for observed fixture/HUD pixels, not a fixed delay.
             var wait = Stopwatch.StartNew();
             int attempts = 0, firstClear = 0, clear = 0, transparent = 0, brightArtwork = 0;
             bool ready;
@@ -223,20 +210,36 @@ internal static class NativeCompositionWindowTests
                 Thread.Sleep(10);
             }
             while (wait.Elapsed < TimeSpan.FromSeconds(2));
-            Console.WriteLine(FormattableString.Invariant(
-                $"nativeHostArtwork attempts={attempts};failedAttempts={attempts - (ready ? 1 : 0)};firstCorner=0x{firstClear:X6};finalCorner=0x{clear:X6};transparentSamples={transparent};brightSamples={brightArtwork};ready={ready};elapsedMs={wait.Elapsed.TotalMilliseconds:F1}"));
+            var artworkState = FormattableString.Invariant(
+                $"nativeHostArtwork attempts={attempts};failedAttempts={attempts - (ready ? 1 : 0)};firstCorner=0x{firstClear:X6};finalCorner=0x{clear:X6};transparentSamples={transparent};brightSamples={brightArtwork};ready={ready};elapsedMs={wait.Elapsed.TotalMilliseconds:F1}");
+            Console.WriteLine(artworkState);
+            var preceding = GetWindow(native, 3);
+            var orderSteps = 0;
+            while (preceding != IntPtr.Zero && preceding != behind && orderSteps++ < 256)
+                preceding = GetWindow(preceding, 3);
+            var backgroundAbove = preceding == behind ? "true" : preceding == IntPtr.Zero ? "false" : "unknown";
+            var finalSnapshot = Snapshot(HwndSource.FromHwnd(layout)!.RootVisual as Window ?? throw new InvalidOperationException());
+            var layerOpacities = string.Join('/', finalSnapshot.Layers.Select(layer => layer.Opacity.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            var fixtureState = FormattableString.Invariant(
+                $"backgroundAbove={backgroundAbove};nativeTopmost={(GetWindowLong(native, -20) & 8) != 0};backgroundTopmost={(GetWindowLong(behind, -20) & 8) != 0};layers={finalSnapshot.Layers.Length};active={finalSnapshot.Active};opacity={finalSnapshot.Opacity};layerOpacities={layerOpacities};offset={finalSnapshot.HostOffsetX},{finalSnapshot.HostOffsetY};bright={brightArtwork};transparent={transparent}");
+            var blueBoundsRead = GetWindowRect(behind, out var blueBounds);
+            var blueCloakResult = DwmGetWindowAttribute(behind, 14, out var blueCloak, sizeof(int));
+            var blueState = FormattableString.Invariant(
+                $"blueVisible={IsWindowVisible(behind)};blueBoundsRead={blueBoundsRead};blueBounds={blueBounds.Left},{blueBounds.Top},{blueBounds.Right},{blueBounds.Bottom};blueCloakHr=0x{blueCloakResult:X8};blueCloak={blueCloak};blueBackgroundRgb=123456;blueBackplate=win32_gdi");
             var reviewPath = Environment.GetEnvironmentVariable("WISP_NATIVE_HOST_REVIEW");
             if (!string.IsNullOrEmpty(reviewPath))
             {
+                System.IO.File.AppendAllText(reviewPath + ".txt", fixtureState + Environment.NewLine);
                 var encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr32, null, frame, width * 4)));
                 using var stream = System.IO.File.Create(reviewPath);
                 encoder.Save(stream);
             }
+            var failureState = $"{artworkState};{fixtureState};{blueState}";
             Assert.True((clear & 255) > ((clear >> 16) & 255),
-                "The empty native host must reveal the blue background beyond the HUD artwork.");
-            Assert.True(transparent > 100, $"The native HUD must preserve transparent areas (samples={transparent}).");
-            Assert.True(brightArtwork > 10, $"The native HWND must display the real gauge artwork (samples={brightArtwork}).");
+                $"The empty native host must reveal the blue background beyond the HUD artwork. ({failureState})");
+            Assert.True(transparent > 100, $"The native HUD must preserve transparent areas (samples={transparent}). ({failureState})");
+            Assert.True(brightArtwork > 10, $"The native HWND must display the real gauge artwork ({failureState}).");
             Assert.Equal(foreground, GetForegroundWindow());
         }
         finally
@@ -245,7 +248,7 @@ internal static class NativeCompositionWindowTests
             if (bitmap != IntPtr.Zero) _ = DeleteObject(bitmap);
             if (memory != IntPtr.Zero) _ = DeleteDC(memory);
             if (dc != IntPtr.Zero) _ = ReleaseDC(IntPtr.Zero, dc);
-            background.Close();
+            background.Dispose();
         }
     }
 
@@ -304,9 +307,6 @@ internal static class NativeCompositionWindowTests
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetLayeredWindowAttributes(IntPtr hwnd, out uint key, out byte alpha, out uint flags);
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")]
     private static extern IntPtr GetDC(IntPtr hwnd);
     [DllImport("user32.dll")]

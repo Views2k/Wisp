@@ -29,7 +29,7 @@ internal static class Program
     private static readonly (string Name, int Width, int Height)[] ResizableDashboardViewports =
         [("minimum", 440, 280), ("small", 600, 420), .. DashboardViewports];
     private static readonly string[] TabNames =
-        ["dashboard", "runs", "appearance", "diagnostics", "profiles", "extras", "release-notes"];
+        ["dashboard", "runs", "appearance", "diagnostics", "profiles", "extras", "clips", "release-notes"];
     private static readonly (string Name, int Width, int Height)[] WizardViewports =
         [("baseline", 800, 730), ("compact", 540, 440), ("wide", 840, 760), ("launch", 900, 780)];
     private static readonly string[] WizardStepNames = ["welcome", "connection", "display", "appearance"];
@@ -39,6 +39,21 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 5 && args[0] == "--clips-playback-check" && args[1] == "--source" && args[3] == "--output")
+            {
+                var output = PrepareOutput(args[4]);
+                return ClipsPlaybackUiReview.Run(args[2], output, () => LoadApplicationResources(output, out _));
+            }
+            if (args.Length == 3 && args[0] == "--clips-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return ClipsUiReview.Run(output, () => LoadApplicationResources(output, out _), SetOffscreenDpi);
+            }
+            if (args.Length == 3 && args[0] == "--lap-review-check" && args[1] == "--output")
+            {
+                var output = PrepareOutput(args[2]);
+                return LapReviewUiReview.Run(output, () => LoadApplicationResources(output, out _));
+            }
             if (args.Length == 3 && args[0] == "--lap-delta-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);
@@ -131,6 +146,8 @@ internal static class Program
             {
                 Console.WriteLine("Wisp.UiReview --output <new workspace directory> [--fixture <name>] [--scope matrix|dashboard|appearance|wizard] [--dashboard-mode normal|monitor|resizable] [--telemetry sample|waiting|lost] [--dpi 96|144] [--present] [--step welcome|connection|display|appearance] [--scroll-check] [--native-lifetime-check]");
                 Console.WriteLine("Fixtures: " + string.Join(", ", Fixture.All.Select(fixture => fixture.Name)));
+                Console.WriteLine("--clips-check --output <new workspace directory> checks the actual detached Clips page at 720/980/1464 widths and 96/144 DPI, generated posters, empty/pending/player layouts and closed selector templates. Isolated placeholder files only; no shown window, recorder helper, media playback or installed library access.");
+                Console.WriteLine("--lap-review-check --output <new workspace directory> captures actual expanded lap review with synthetic completed A/B laps, map/graph channels and selected sections at 980x750 and 720x440. Checks themed selectors and routed keyboard actions; no window, controller, listener, settings load or saved-run access.");
                 Console.WriteLine("--ev-wrap-check --output <new workspace directory> captures actual EV overlay and modern/legacy Appearance previews at 100%/75% gauge scale and 96 DPI. Synthetic sample only; no displayed window or live services.");
                 Console.WriteLine("Main-window --present requires one --fixture, omits --scope/--dpi, and shows display-only Appearance at monitor DPI with a 120-second auto-close timer.");
                 Console.WriteLine("--scope wizard captures all four unconfirmed steps at four sizes and 96/144 DPI by default. --present --scope wizard shows one display-only step; --step selects it. Wizard mode never tests or completes setup.");

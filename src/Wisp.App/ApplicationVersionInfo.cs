@@ -15,6 +15,13 @@ public static class ApplicationVersionInfo
 
     public static string? DiagnosticBuildLabel { get; } = ReadBuildMetadata("WispDiagnosticBuildLabel");
 
+    internal static bool LapDiagnosticsEnabled { get; } = ShouldEnableLapDiagnostics(
+        DiagnosticBuildId, ReadBuildMetadata("WispLapDiagnosticsEnabled"));
+
+    internal static bool ShouldEnableLapDiagnostics(string? diagnosticBuildId, string? enabledOverride) =>
+        diagnosticBuildId is not null &&
+        (enabledOverride is null || bool.TryParse(enabledOverride, out var enabled) && enabled);
+
     private static bool IsPrivateCandidate => ReleaseNotesCatalog.Entries[0].Label == "PRIVATE TEST";
 
     public static string FooterText => DiagnosticBuildLabel is { Length: > 0 } label

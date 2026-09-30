@@ -28,7 +28,7 @@ function Assert-PrivateBuildIdentity {
 function Assert-PrivatePayloadFiles {
     param([string]$Directory)
     foreach ($name in @('Wisp.Updater.exe', 'Wisp.exe', 'Wisp.dll', 'Wisp.Core.dll',
-        'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll',
+        'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe',
         'Wisp.deps.json', 'Wisp.runtimeconfig.json', 'hostfxr.dll', 'hostpolicy.dll',
         'coreclr.dll', 'PresentationNative_cor3.dll', 'wpfgfx_cor3.dll')) {
         $path = Join-Path $Directory $name
@@ -136,7 +136,7 @@ try {
     # Validate the exact RID-published components, not a separately compiled copy.
     # Test hosts keep their own dependencies/runtime configuration; only existing
     # Wisp product components are replaced before --no-build test execution.
-    $componentNames = @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll')
+    $componentNames = @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe')
     $testHostDirectories = @(
         'tests/Wisp.Core.Tests/bin/Release/net8.0-windows',
         'tests/Wisp.Telemetry.Tests/bin/Release/net8.0',
@@ -167,7 +167,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Private candidate isolated allocation check failed.' }
         Assert-SinglePassedTestResult (Join-Path $allocationResults 'allocation.trx') 'Private allocation check' $allocationTest
     }
-    foreach ($name in @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll')) {
+    foreach ($name in @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe')) {
         $publishedHash = (Get-FileHash -LiteralPath (Join-Path $publishDirectory $name) -Algorithm SHA256).Hash
         foreach ($testedDirectory in @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows')) {
             if ($publishedHash -cne (Get-FileHash -LiteralPath (Join-Path $repository "$testedDirectory/$name") -Algorithm SHA256).Hash) {

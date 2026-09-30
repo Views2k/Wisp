@@ -5,6 +5,7 @@ using System.Xml;
 using System.Xml.Linq;
 using Wisp.App;
 using Wisp.App.Runs;
+using Wisp.App.Clips;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -119,7 +120,8 @@ public sealed class XamlContractTests
                 foreach (Match match in BindingPathPattern.Matches(attribute.Value))
                 {
                     var path = match.Groups["path"].Value;
-                    var sourceType = BindingSourceType(attribute.Value, document, attribute.Parent);
+                    var sourceType = BindingSourceType(attribute.Value, document, attribute.Parent,
+                        bindingSetsDataContext: attribute.Name.LocalName == "DataContext");
                     if (sourceType is null)
                     {
                         failures.Add($"{Location(xamlPath, attribute)}: Binding source is not covered by this contract.");
@@ -135,6 +137,77 @@ public sealed class XamlContractTests
         }
 
         Assert.Empty(failures);
+    }
+
+    [Theory]
+    [InlineData("MainWindow.xaml")]
+    [InlineData("LegacyMainWindow.xaml")]
+    public void ClipsNavigationMatchesTabOrderAndReminderUsesClipsContext(string filename)
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), filename));
+        var tabs = Assert.Single(document.Descendants(Presentation + "TabControl"),
+            element => element.Attribute(Xaml + "Name")?.Value == "RootTabs");
+        var navigation = Assert.Single(document.Descendants(Presentation + "ListBox"),
+            element => element.Attribute(Xaml + "Name")?.Value == "SidebarNavigation");
+        var expected = new[] { "Dashboard", "Runs", "Appearance", "Diagnostics", "Profiles", "Extras", "Clips", "Release Notes" };
+        Assert.Equal(expected, tabs.Elements(Presentation + "TabItem").Select(element => element.Attribute("Header")?.Value));
+        Assert.Equal(expected, navigation.Elements(Presentation + "ListBoxItem").Select(element => element.Attribute("AutomationProperties.Name")?.Value));
+        var reminder = Assert.Single(document.Descendants(), element => element.Attribute(Xaml + "Name")?.Value == "DashboardClipPanel");
+        Assert.Equal(typeof(ClipsViewModel), BindingSourceType("{Binding DashboardNoticeText}", document, reminder));
+        foreach (var property in new[] { "HasDashboardNotice", "DashboardNoticeTitle", "DashboardNoticeText" })
+        {
+            Assert.True(BindingPathResolves(typeof(ClipsViewModel), property));
+            Assert.Contains(reminder.DescendantsAndSelf().Attributes(), attribute => attribute.Value == $"{{Binding {property}}}");
+        }
+        Assert.False(BindingPathResolves(typeof(ClipsViewModel), "DashboardNoticeTextTypo"));
+        Assert.Empty(reminder.Ancestors(Presentation + "ScrollViewer"));
+        Assert.Equal("0", reminder.Attribute("Grid.Row")?.Value);
+        Assert.Equal("400", reminder.Attribute("MaxWidth")?.Value);
+        Assert.Null(reminder.Attribute("Width"));
+        Assert.Equal("Right", reminder.Attribute("HorizontalAlignment")?.Value);
+        var dashboardGrid = Assert.IsType<XElement>(reminder.Parent);
+        Assert.Equal(Presentation + "Grid", dashboardGrid.Name);
+        Assert.Equal("DashboardTab", dashboardGrid.Parent?.Attribute(Xaml + "Name")?.Value);
+        var dashboardScroll = Assert.Single(dashboardGrid.Elements(Presentation + "ScrollViewer"));
+        Assert.Equal(filename == "MainWindow.xaml" ? "2" : "1", dashboardScroll.Attribute("Grid.Row")?.Value);
+        Assert.Single(reminder.Descendants(Presentation + "Button"), button => button.Attribute("Click")?.Value == "OpenClips_Click");
+        var code = ControlPanelCode();
+        Assert.Contains("ClipsSurface.DataContext = controller.Clips;", code, StringComparison.Ordinal);
+        Assert.Contains("DashboardClipPanel.DataContext = controller.Clips;", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClipsBindingsUseActualPageAndCardTypes()
+    {
+        var document = LoadXaml(ClipsPagePath());
+        Assert.Equal(typeof(ClipsViewModel), BindingSourceType("{Binding RecorderStatus}", document, document.Root));
+        var card = Assert.Single(document.Descendants(Presentation + "DataTemplate"));
+        Assert.Equal(typeof(ClipCardItem), BindingSourceType("{Binding PlayLabel}", document, card));
+        Assert.True(BindingPathResolves(typeof(ClipCardItem), "PlayLabel"));
+        Assert.False(BindingPathResolves(typeof(ClipCardItem), "PlayLabelTypo"));
+        var selection = Assert.Single(document.Descendants(Presentation + "DataTrigger"),
+            element => element.Attribute("Binding")?.Value == "{Binding IsSelected}");
+        Assert.Equal(typeof(ClipCardItem), BindingSourceType("{Binding IsSelected}", document, selection));
+    }
+
+    [Fact]
+    public void ClipsSetupHintExplainsMissingFolderBesideTheToggle()
+    {
+        var document = LoadXaml(ClipsPagePath());
+        var toggle = Assert.Single(document.Descendants(Presentation + "CheckBox"),
+            element => element.Attribute("AutomationProperties.Name")?.Value == "Enable clipping");
+        var hint = Assert.Single(document.Descendants(Presentation + "TextBlock"),
+            element => element.Attribute(Xaml + "Name")?.Value == "ClipSetupHint");
+        Assert.Same(toggle.Parent?.Parent, hint.Parent);
+        Assert.Equal("Select a storage location in Recording settings to enable clipping.", hint.Attribute("Text")?.Value);
+        Assert.Equal("Polite", hint.Attribute("AutomationProperties.LiveSetting")?.Value);
+        var style = Assert.Single(hint.Descendants(Presentation + "Style"));
+        Assert.Equal("{StaticResource ClipHint}", style.Attribute("BasedOn")?.Value);
+        Assert.Equal("Collapsed", Assert.Single(style.Elements(Presentation + "Setter")).Attribute("Value")?.Value);
+        var trigger = Assert.Single(style.Descendants(Presentation + "DataTrigger"));
+        Assert.Equal("{Binding StorageDirectory}", trigger.Attribute("Binding")?.Value);
+        Assert.Equal("", trigger.Attribute("Value")?.Value);
+        Assert.Equal("Visible", Assert.Single(trigger.Elements(Presentation + "Setter")).Attribute("Value")?.Value);
     }
 
     [Fact]
@@ -283,6 +356,37 @@ public sealed class XamlContractTests
     }
 
     [Fact]
+    public void LapCursorBindingContractResolvesItsLocalContextAndStillRejectsInvalidPaths()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "Runs", "LapReviewView.xaml"));
+        var panel = document.Descendants(Presentation + "WrapPanel").Single(element =>
+            element.Attribute("DataContext")?.Value == "{Binding CursorDetails}");
+        var contextBinding = panel.Attribute("DataContext")!.Value;
+        Assert.Equal(typeof(LapReviewViewModel), BindingSourceType(contextBinding, document, panel,
+            bindingSetsDataContext: true));
+        Assert.True(BindingPathResolves(typeof(LapReviewViewModel), BindingPath(contextBinding)!));
+        var values = panel.Descendants(Presentation + "TextBlock").Where(element =>
+            BindingPath(element.Attribute("Text")?.Value) is not null).ToArray();
+        Assert.Equal(8, values.Length);
+        foreach (var value in values)
+        {
+            var binding = value.Attribute("Text")!.Value;
+            var source = BindingSourceType(binding, document, value);
+            Assert.Equal(typeof(LapReviewCursorReadout), source);
+            Assert.True(BindingPathResolves(source!, BindingPath(binding)!));
+            Assert.False(BindingPathResolves(source!, BindingPath(binding)! + "Typo"));
+        }
+        Assert.Equal(typeof(LapReviewCursorReadout), BindingSourceType("{Binding Speed}", document, panel));
+        panel.SetAttributeValue("DataContext", "{Binding CursorDetailsTypo}");
+        Assert.Null(BindingSourceType("{Binding Speed}", document, values[0]));
+        panel.SetAttributeValue("DataContext", "{Binding CursorDetails.Temperatures}");
+        Assert.Equal(typeof(LapReviewWheelReadout), BindingSourceType("{Binding FrontLeft}", document, values[0]));
+        Assert.False(BindingPathResolves(typeof(LapReviewWheelReadout), "FrontLeftTypo"));
+        panel.SetAttributeValue("DataContext", "{StaticResource UnknownContext}");
+        Assert.Null(BindingSourceType("{Binding Speed}", document, values[0]));
+    }
+
+    [Fact]
     public void RunsBindingContractChecksPageTemplatesAndSharedDashboardContext()
     {
         var runs = LoadXaml(RunsPagePath());
@@ -331,6 +435,20 @@ public sealed class XamlContractTests
         var code = ControlPanelCode();
         Assert.Contains("RunsSurface.DataContext = controller.Runs;", code, StringComparison.Ordinal);
         Assert.Contains("DashboardRunPanel.DataContext = controller.Runs;", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LapReviewBindingsUseReviewAndMetricContexts()
+    {
+        var document = LoadXaml(Path.Combine(AppSourceDirectory(), "Runs", "LapReviewView.xaml"));
+        Assert.Equal(typeof(LapReviewViewModel), BindingSourceType("{Binding CursorText}", document, document.Root));
+        Assert.True(BindingPathResolves(typeof(LapReviewViewModel), "SelectedWheel"));
+        Assert.False(BindingPathResolves(typeof(LapReviewViewModel), "SelectedWheelTypo"));
+        var metric = document.Descendants(Presentation + "TextBlock")
+            .Single(element => element.Attribute("Text")?.Value == "{Binding Reference}");
+        Assert.Equal(typeof(LapReviewMetric), BindingSourceType("{Binding Reference}", document, metric));
+        Assert.True(BindingPathResolves(typeof(LapReviewMetric), "Reference"));
+        Assert.False(BindingPathResolves(typeof(LapReviewMetric), "ReferenceTypo"));
     }
 
     [Fact]
@@ -464,7 +582,7 @@ public sealed class XamlContractTests
             RegexOptions.Singleline).Value;
 
         Assert.Matches(
-            @"previousLayoutMode = Settings\.LayoutMode;\s*var previousNativeGaugeMode = Settings\.NativeGaugeMode;\s*preset\.ApplyTo\(Settings\);",
+            @"previousLayoutMode = Settings\.LayoutMode;\s*var previousNativeGaugeMode = Settings\.NativeGaugeMode;[\s\S]*?preset\.ApplyTo\(Settings\);",
             apply);
         Assert.Contains(
             "ApplyViewOptions(previousLayoutMode, previousNativeGaugeMode)",
@@ -1195,6 +1313,16 @@ public sealed class XamlContractTests
                         categoryPanes.Select(element => element.Attribute(Xaml + "Name")?.Value));
                     return categoryPanes;
                 }
+                if (tab.Attribute(Xaml + "Name")?.Value == "ClipsTab")
+                {
+                    var clipsSurface = Assert.Single(tab.Elements());
+                    Assert.Equal(XName.Get("ClipsPage", "clr-namespace:Wisp.App.Clips"), clipsSurface.Name);
+                    Assert.Equal("ClipsSurface", clipsSurface.Attribute(Xaml + "Name")?.Value);
+                    var clips = LoadXaml(ClipsPagePath());
+                    Assert.Empty(clips.Descendants(Presentation + "Viewbox"));
+                    return new[] { Assert.Single(clips.Descendants(Presentation + "ScrollViewer"),
+                        element => element.Attribute(Xaml + "Name")?.Value == "ClipsScroll") };
+                }
                 if (tab.Attribute(Xaml + "Name")?.Value != "RunsTab")
                     return new[] { Assert.Single(tab.Descendants(Presentation + "ScrollViewer")) };
 
@@ -1212,7 +1340,7 @@ public sealed class XamlContractTests
                 return panes;
             })
             .ToArray();
-        Assert.Equal(12, scrollViewers.Length);
+        Assert.Equal(13, scrollViewers.Length);
         Assert.All(
             scrollViewers,
             scrollViewer => Assert.Equal(
@@ -1224,10 +1352,10 @@ public sealed class XamlContractTests
         var dashboardGrid = Assert.Single(dashboard.Elements(Presentation + "Grid"));
         var dashboardRows = Assert.Single(dashboardGrid.Elements(Presentation + "Grid.RowDefinitions"))
             .Elements(Presentation + "RowDefinition").ToArray();
-        Assert.Equal(new[] { "Auto", "*" }, dashboardRows.Select(row => row.Attribute("Height")?.Value));
+        Assert.Equal(new[] { "Auto", "Auto", "*" }, dashboardRows.Select(row => row.Attribute("Height")?.Value));
         var dashboardToolbar = Assert.Single(dashboardGrid.Elements(Presentation + "Grid"));
         Assert.Equal("DashboardToolbar", dashboardToolbar.Attribute(Xaml + "Name")?.Value);
-        Assert.Equal("0", dashboardToolbar.Attribute("Grid.Row")?.Value ?? "0");
+        Assert.Equal("1", dashboardToolbar.Attribute("Grid.Row")?.Value);
         Assert.Equal("Collapsed", dashboardToolbar.Attribute("Visibility")?.Value);
         Assert.Single(dashboardToolbar.Descendants(Presentation + "Button"), button =>
             button.Attribute(Xaml + "Name")?.Value == "DashboardDisplayButton" &&
@@ -1240,7 +1368,7 @@ public sealed class XamlContractTests
         Assert.Empty(dashboardGrid.Elements(Presentation + "Grid.LayoutTransform"));
         var dashboardViewport = Assert.Single(dashboardGrid.Elements(Presentation + "ScrollViewer"));
         Assert.Equal("DashboardViewport", dashboardViewport.Attribute(Xaml + "Name")?.Value);
-        Assert.Equal("1", dashboardViewport.Attribute("Grid.Row")?.Value);
+        Assert.Equal("2", dashboardViewport.Attribute("Grid.Row")?.Value);
         var dashboardContent = Assert.Single(dashboardViewport.Elements(Presentation + "StackPanel"));
         Assert.Equal("DashboardContent", dashboardContent.Attribute(Xaml + "Name")?.Value);
         var displayTransform = Assert.Single(dashboardContent.Elements(Presentation + "StackPanel.LayoutTransform"));
@@ -1813,7 +1941,8 @@ public sealed class XamlContractTests
         return RoutedHandlerAttributes.Contains(name) || name.Contains("Mouse", StringComparison.Ordinal);
     }
 
-    private static Type? BindingSourceType(string binding, XDocument? document = null, XElement? targetElement = null)
+    private static Type? BindingSourceType(string binding, XDocument? document = null, XElement? targetElement = null,
+        bool bindingSetsDataContext = false)
     {
         var runsStyle = document?.Root?.Name == Presentation + "ResourceDictionary" &&
             targetElement?.AncestorsAndSelf().Any(element => element.Name == Presentation + "Style" &&
@@ -1879,6 +2008,22 @@ public sealed class XamlContractTests
         if (Regex.IsMatch(binding, @"\bSource\s*="))
             return null;
 
+        var contextBoundary = (bindingSetsDataContext ? targetElement?.Ancestors() : targetElement?.AncestorsAndSelf())
+            ?.FirstOrDefault(element => element.Attribute("DataContext") is not null || element.Name == Presentation + "DataTemplate");
+        if (contextBoundary?.Attribute("DataContext") is { } context)
+        {
+            var contextPath = BindingPath(context.Value);
+            var contextType = BindingSourceType(context.Value, document, contextBoundary, bindingSetsDataContext: true);
+            if (contextPath is null || contextType is null) return null;
+            foreach (var segment in contextPath.Split('.'))
+            {
+                var property = contextType.GetProperty(segment, BindingFlags.Instance | BindingFlags.Public);
+                if (property is null) return null;
+                contextType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+            }
+            return contextType;
+        }
+
         var itemContainerStyle = targetElement?.AncestorsAndSelf()
             .FirstOrDefault(element => element.Name == Presentation + "ItemsControl.ItemContainerStyle");
         if (IsRunsPageDocument(document) && itemContainerStyle?.Parent is { } itemsControl)
@@ -1912,6 +2057,18 @@ public sealed class XamlContractTests
         if (document?.Root?.Attribute(Xaml + "Class")?.Value == typeof(ConnectionStatusPanel).FullName)
             return typeof(ConnectionReport);
 
+        if (document?.Root?.Attribute(Xaml + "Class")?.Value == typeof(LapReviewView).FullName)
+            return typeof(LapReviewViewModel);
+
+        if (document?.Root?.Attribute(Xaml + "Class")?.Value == typeof(ClipsPage).FullName)
+        {
+            var styleKey = targetElement?.AncestorsAndSelf()
+                .FirstOrDefault(element => element.Name == Presentation + "Style")?.Attribute(Xaml + "Key")?.Value;
+            return styleKey == "ClipCardButton" ? typeof(ClipCardItem) : typeof(ClipsViewModel);
+        }
+        if (targetElement?.AncestorsAndSelf().Any(element => element.Attribute(Xaml + "Name")?.Value == "DashboardClipPanel") == true)
+            return typeof(ClipsViewModel);
+
         return typeof(DiagnosticsViewModel);
     }
 
@@ -1926,7 +2083,7 @@ public sealed class XamlContractTests
         if (namespaceName == Presentation.NamespaceName)
             return typeof(System.Windows.Controls.Control).Assembly.GetType($"System.Windows.Controls.{type.Groups["type"].Value}")
                 ?? typeof(System.Windows.Controls.Control).Assembly.GetType($"System.Windows.Controls.Primitives.{type.Groups["type"].Value}");
-        return namespaceName is "clr-namespace:Wisp.App" or "clr-namespace:Wisp.App.Runs"
+        return namespaceName is "clr-namespace:Wisp.App" or "clr-namespace:Wisp.App.Runs" or "clr-namespace:Wisp.App.Clips"
             ? typeof(DiagnosticsViewModel).Assembly.GetType($"{namespaceName[14..]}.{type.Groups["type"].Value}")
             : null;
     }
@@ -1967,6 +2124,8 @@ public sealed class XamlContractTests
             {
                 currentType = typeof(RunsViewModel);
             }
+            else if (segment == "DataContext" && typeof(ClipsPage).IsAssignableFrom(currentType))
+                currentType = typeof(ClipsViewModel);
             else if (segment == "SelectedItem" &&
                 currentType == typeof(System.Windows.Controls.TabControl) &&
                 sourceElement is not null && sourceElement.Name == Presentation + "TabControl")
@@ -2093,9 +2252,12 @@ public sealed class XamlContractTests
         Directory.EnumerateFiles(AppSourceDirectory(), "*.xaml", SearchOption.TopDirectoryOnly)
             .Append(RunsPagePath())
             .Append(LegacyRunsPagePath())
+            .Append(Path.Combine(AppSourceDirectory(), "Runs", "LapReviewView.xaml"))
+            .Append(ClipsPagePath())
             .OrderBy(path => path, StringComparer.Ordinal);
 
     private static string RunsPagePath() => Path.Combine(AppSourceDirectory(), "Runs", "RunsPage.xaml");
+    private static string ClipsPagePath() => Path.Combine(AppSourceDirectory(), "Clips", "ClipsPage.xaml");
 
     private static string LegacyRunsPagePath() => Path.Combine(AppSourceDirectory(), "Runs", "LegacyRunsPage.xaml");
 

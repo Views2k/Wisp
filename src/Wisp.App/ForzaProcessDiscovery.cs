@@ -2,9 +2,36 @@ namespace Wisp.App;
 
 internal sealed record ForzaProcessSnapshot(
     HashSet<int> ProcessIds,
-    HashSet<string> ExecutableDirectories)
+    HashSet<string> ExecutableDirectories,
+    ForzaCaptureCandidate? CaptureCandidate = null)
 {
     internal static ForzaProcessSnapshot Empty() => new([], new(StringComparer.OrdinalIgnoreCase));
+}
+
+internal sealed record ForzaCaptureCandidate(uint ProcessId, ulong Window, ulong CreationFileTime, int Width, int Height);
+
+// Only a stable native window identity/size establishes a new recording epoch.
+// Foreground state and telemetry never enter this policy.
+internal sealed class ForzaCaptureObservationTracker
+{
+    private ForzaCaptureCandidate? _pending, _stable;
+    private long _epoch;
+    internal Clips.RecorderTargetObservation? Current { get; private set; }
+
+    internal Clips.RecorderTargetObservation? Observe(ForzaCaptureCandidate? candidate)
+    {
+        if (candidate is null || candidate != _pending)
+        {
+            _pending = candidate; _stable = null; Current = null;
+            return null;
+        }
+        if (candidate != _stable)
+        {
+            _stable = candidate;
+            Current = new(new(candidate.ProcessId, candidate.Window, candidate.CreationFileTime), checked(++_epoch));
+        }
+        return Current;
+    }
 }
 
 // Polled by the UI thread; discovery itself never runs there. No completion callback
