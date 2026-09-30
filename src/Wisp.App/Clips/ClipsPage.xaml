@@ -130,7 +130,7 @@
                         <Slider x:Name="PlaybackPosition" Minimum="0" Maximum="1" Value="0" IsEnabled="False" SmallChange="1" LargeChange="10" IsMoveToPointEnabled="True"
                                 ValueChanged="PlaybackPosition_Changed" Thumb.DragStarted="PlaybackSeek_Begin" Thumb.DragCompleted="PlaybackSeek_End"
                                 VerticalAlignment="Center" AutomationProperties.Name="Clip playback position" AutomationProperties.HelpText="Use arrow keys to seek one second, or Page Up and Page Down to seek ten seconds." />
-                        <TextBlock x:Name="PlaybackTime" Grid.Column="1" Text="0:00 / 0:00" Style="{StaticResource ClipHint}" VerticalAlignment="Center" Margin="12,0,0,0" AutomationProperties.Name="Clip playback time" />
+                        <TextBlock x:Name="PlaybackTime" Grid.Column="1" Text="0:00 / 0:00" Style="{StaticResource ClipHint}" MinWidth="80" TextWrapping="NoWrap" TextAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0" AutomationProperties.Name="Clip playback time" />
                     </Grid>
                     <WrapPanel x:Name="PlaybackControls" Margin="0,8,0,0">
                         <Button x:Name="PlayPauseButton" Content="Pause" Click="PlayPause_Click" IsEnabled="False" Padding="12,6" Margin="0,0,8,4" />
