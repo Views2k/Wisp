@@ -1,4 +1,5 @@
 using System.IO;
+using System.Globalization;
 using System.Security;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -28,12 +29,15 @@ public sealed record ClipEntry(Guid Id, DateTimeOffset SavedAtUtc, ClipRecording
 public sealed record ClipLibraryPage(IReadOnlyList<ClipEntry> Clips, int PageIndex, int PageCount,
     int TotalClips, int PendingSaves, int UnviewedClips, int UnexportedClips, int NewClips);
 public sealed record ClipExportResult(bool FileCreated, bool ExportStateSaved);
+public sealed record ClipImportResult(int Imported, int AlreadyPresent, int Remaining, int PendingLegacySaves);
 
 public sealed class ClipLibrary
 {
     public const int PageSize = 25;
     public const int MaximumEntries = 5000;
     public const long MaximumMediaBytes = 16L * 1024 * 1024 * 1024;
+    internal const int MaximumImportClips = 25;
+    internal const long MaximumImportBytes = 1024L * 1024 * 1024;
     internal const int MaximumIndexBytes = 8 * 1024 * 1024;
     internal const string IndexFileName = ".wisp-clips.json";
     private const string IndexFormat = "wisp.clip-library";
@@ -147,43 +151,95 @@ public sealed class ClipLibrary
     {
         ValidateId(id);
         var destination = ValidateExportPath(newFilePath);
-        return InBackground(async token =>
+        return ExportCoreAsync(id, _ => destination, reuseIdentical: false, cancellationToken);
+    }
+
+    public Task<ClipExportResult> ExportToDirectoryAsync(Guid id, string directory, CancellationToken cancellationToken = default)
+    {
+        ValidateId(id);
+        if (!ClipsSettings.TryNormalizeDirectory(directory, out var normalized))
+            throw new ArgumentException("Choose an export folder using a full path.", nameof(directory));
+        return ExportCoreAsync(id, clip => Path.Combine(normalized,
+            $"Wisp-{clip.SavedAtUtc.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{clip.Id:N}.mp4"), reuseIdentical: true, cancellationToken);
+    }
+
+    private Task<ClipExportResult> ExportCoreAsync(Guid id, Func<ClipEntry, string> destinationFor, bool reuseIdentical, CancellationToken cancellationToken) =>
+        InBackground(async token =>
         {
             var index = await ReadIndexAsync(token).ConfigureAwait(false);
             var clip = Find(index, id);
-            CheckPath(destination);
-            if (File.Exists(destination) || Directory.Exists(destination))
-                throw new IOException("The export file already exists. Choose a new filename.");
-            var temporary = Path.Combine(Path.GetDirectoryName(destination)!, $".wisp-clip-export-{Guid.NewGuid():N}.tmp");
-            var createdTemporary = false;
-            try
-            {
-                await using (var source = OpenMedia(id, clip.Media.FileBytes))
-                await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                    65536, FileOptions.Asynchronous | FileOptions.SequentialScan))
-                {
-                    createdTemporary = true;
-                    await source.CopyToAsync(output, token).ConfigureAwait(false);
-                    await output.FlushAsync(token).ConfigureAwait(false);
-                    output.Flush(flushToDisk: true);
-                }
-                token.ThrowIfCancellationRequested();
-                CheckPath(destination);
-                CheckPath(temporary);
-                File.Move(temporary, destination, overwrite: false);
-                createdTemporary = false;
-            }
-            finally { if (createdTemporary) DeleteOwnTemporary(temporary); }
-
+            var destination = destinationFor(clip);
+            await using var source = OpenMedia(id, clip.Media.FileBytes);
+            var created = await ClipLibraryFiles.CopyOrVerifyAsync(source, Path.GetDirectoryName(destination)!, Path.GetFileName(destination), reuseIdentical, token,
+                reuseIdentical ? $"{id:N}.mp4" : null).ConfigureAwait(false);
+            if (clip.ExportedAtUtc is not null) return new ClipExportResult(created, true);
             index.Clips[index.Clips.IndexOf(clip)] = clip with { ExportedAtUtc = DateTimeOffset.UtcNow };
             try
             {
-                // The copy is already committed; cancellation must not falsely
-                // report an absent export or remove the user's completed file.
+                // The complete export exists, including a verified prior export.
+                // A metadata failure must not turn that into an absent-file claim.
                 await WriteIndexAsync(index, CancellationToken.None).ConfigureAwait(false);
-                return new ClipExportResult(true, true);
+                return new ClipExportResult(created, true);
             }
-            catch (Exception error) when (IsFileError(error)) { return new ClipExportResult(true, false); }
+            catch (Exception error) when (IsFileError(error)) { return new ClipExportResult(created, false); }
+        }, cancellationToken);
+
+    // Only entries named by a valid existing legacy index are imported. The
+    // original index remains held read-only throughout the bounded batch.
+    public Task<ClipImportResult> ImportLegacyAsync(string legacyDirectory, CancellationToken cancellationToken = default)
+    {
+        if (!ClipsSettings.TryNormalizeStorageDirectory(legacyDirectory, out var legacy) ||
+            string.Equals(legacy, _directory, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Choose a different existing legacy clip library.", nameof(legacyDirectory));
+        return Task.Run(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Microsoft.Win32.SafeHandles.SafeFileHandle sourceDirectory;
+            try { sourceDirectory = ClipLibraryFiles.OpenDirectory(legacy, create: false); }
+            catch (IOException error) when (ClipLibraryFiles.IsMissing(error)) { return new ClipImportResult(0, 0, 0, 0); }
+            using (sourceDirectory)
+            {
+                FileStream sourceIndex;
+                try { sourceIndex = ClipLibraryFiles.OpenRead(sourceDirectory, IndexFileName); }
+                catch (IOException error) when (ClipLibraryFiles.IsMissing(error)) { return new ClipImportResult(0, 0, 0, 0); }
+                await using (sourceIndex)
+                {
+                    var old = await ReadValidatedIndexAsync(sourceIndex, cancellationToken).ConfigureAwait(false);
+                    return await InBackground(async token =>
+                    {
+                        var index = await ReadIndexAsync(token).ConfigureAwait(false);
+                        var present = index.Clips.ToDictionary(clip => clip.Id);
+                        var pending = index.Pending.Select(clip => clip.Id).ToHashSet();
+                        var candidates = new List<ClipEntry>();
+                        var already = 0;
+                        foreach (var clip in old.Clips)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            if (pending.Contains(clip.Id)) throw new InvalidDataException("A legacy clip conflicts with a pending private save. All files have been kept.");
+                            if (!present.TryGetValue(clip.Id, out var existing)) { candidates.Add(clip); continue; }
+                            if (existing.SavedAtUtc != clip.SavedAtUtc || existing.Recording != clip.Recording || existing.Media != clip.Media)
+                                throw new InvalidDataException("A legacy clip identity conflicts with this library. All files have been kept.");
+                            using var held = OpenMedia(existing.Id, existing.Media.FileBytes);
+                            already++;
+                        }
+                        var imported = 0; long copiedBytes = 0;
+                        foreach (var clip in candidates.OrderBy(clip => clip.SavedAtUtc).ThenBy(clip => clip.Id))
+                        {
+                            token.ThrowIfCancellationRequested();
+                            if (imported == MaximumImportClips || imported > 0 && clip.Media.FileBytes > MaximumImportBytes - copiedBytes) break;
+                            if (index.Clips.Count + index.Pending.Count == MaximumEntries)
+                                throw new InvalidOperationException("The private clip library has reached its 5,000-record limit. Legacy files have been kept.");
+                            await using var source = ClipLibraryFiles.OpenRead(sourceDirectory, $"{clip.Id:N}.mp4");
+                            if (source.Length != clip.Media.FileBytes) throw new InvalidDataException("A legacy clip size differs from its index. All files have been kept.");
+                            await ClipLibraryFiles.CopyOrVerifyAsync(source, _directory, $"{clip.Id:N}.mp4", reuseIdentical: true, token).ConfigureAwait(false);
+                            index.Clips.Add(clip with { Media = clip.Media with { PublicationReceipt = null } });
+                            await WriteIndexAsync(index, token).ConfigureAwait(false);
+                            imported++; copiedBytes = checked(copiedBytes + clip.Media.FileBytes);
+                        }
+                        return new ClipImportResult(imported, already, candidates.Count - imported, old.Pending.Count);
+                    }, cancellationToken).ConfigureAwait(false);
+                }
+            }
         }, cancellationToken);
     }
 
@@ -219,7 +275,13 @@ public sealed class ClipLibrary
             if (Directory.Exists(path)) throw new InvalidDataException("The clip index path is not a file.");
             return new LibraryIndex { Format = IndexFormat, Version = 1 };
         }
-        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+        using var directory = ClipLibraryFiles.OpenDirectory(_directory, create: false);
+        await using var file = ClipLibraryFiles.OpenRead(directory, IndexFileName);
+        return await ReadValidatedIndexAsync(file, token).ConfigureAwait(false);
+    }
+
+    private static async Task<LibraryIndex> ReadValidatedIndexAsync(FileStream file, CancellationToken token)
+    {
         if (file.Length is <= 0 or > MaximumIndexBytes) throw new InvalidDataException("The clip index is empty or too large. Its file has been kept.");
         var index = await JsonSerializer.DeserializeAsync<LibraryIndex>(file, JsonOptions, token).ConfigureAwait(false)
             ?? throw new InvalidDataException("The clip index is invalid. Its file has been kept.");
@@ -259,10 +321,8 @@ public sealed class ClipLibrary
 
     private FileStream OpenMedia(Guid id, long expectedBytes)
     {
-        var path = MediaPath(id);
-        CheckPath(path);
-        var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        using var directory = ClipLibraryFiles.OpenDirectory(_directory, create: false);
+        var file = ClipLibraryFiles.OpenRead(directory, $"{id:N}.mp4");
         if (file.Length == expectedBytes) return file;
         file.Dispose();
         throw new InvalidDataException("The clip file size does not match its saved metadata. The file has been kept.");

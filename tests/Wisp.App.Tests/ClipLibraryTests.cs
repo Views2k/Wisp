@@ -119,6 +119,222 @@ public sealed class ClipLibraryTests : IDisposable
     }
 
     [Fact]
+    public async Task ExportToDirectoryCreatesOneVerifiedFileAndRepeatedExportCreatesNothing()
+    {
+        var library = new ClipLibrary(_directory);
+        var saved = await AddClipAsync(library);
+        var folder = Path.Combine(_directory, "chosen-export-folder");
+        Assert.False(Directory.Exists(folder));
+        Assert.Equal(new ClipExportResult(true, true), await library.ExportToDirectoryAsync(saved.Id, folder, TestContext.Current.CancellationToken));
+        var exported = Assert.Single(Directory.EnumerateFiles(folder));
+        Assert.StartsWith("Wisp-", Path.GetFileName(exported), StringComparison.Ordinal);
+        Assert.EndsWith($"-{saved.Id:N}.mp4", exported, StringComparison.Ordinal);
+        var timestamp = Assert.Single((await library.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips).ExportedAtUtc;
+        Assert.Equal(new ClipExportResult(false, true), await library.ExportToDirectoryAsync(saved.Id, folder, TestContext.Current.CancellationToken));
+        Assert.Equal(exported, Assert.Single(Directory.EnumerateFiles(folder)));
+        Assert.Equal(MediaBytes, await File.ReadAllBytesAsync(exported, TestContext.Current.CancellationToken));
+        Assert.Equal(timestamp, Assert.Single((await library.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips).ExportedAtUtc);
+        Assert.Equal(MediaBytes, await File.ReadAllBytesAsync(await library.GetMediaPathAsync(saved.Id, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task RepeatedExportRejectsSameSizeDifferentContentWithoutReplacingIt()
+    {
+        var library = new ClipLibrary(_directory);
+        var saved = await AddClipAsync(library);
+        var folder = Path.Combine(_directory, "exports");
+        await library.ExportToDirectoryAsync(saved.Id, folder, TestContext.Current.CancellationToken);
+        var destination = Assert.Single(Directory.EnumerateFiles(folder));
+        var unrelated = new byte[MediaBytes.Length];
+        await File.WriteAllBytesAsync(destination, unrelated, TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<IOException>(() => library.ExportToDirectoryAsync(saved.Id, folder, TestContext.Current.CancellationToken));
+        Assert.Equal(unrelated, await File.ReadAllBytesAsync(destination, TestContext.Current.CancellationToken));
+        Assert.Single(Directory.EnumerateFiles(folder));
+    }
+
+    [Fact]
+    public async Task VerifiedRepeatCanRepairExportMetadataWithoutCreatingAnotherFile()
+    {
+        var library = new ClipLibrary(_directory);
+        var saved = await AddClipAsync(library);
+        var folder = Path.Combine(_directory, "exports");
+        using (var heldIndex = new FileStream(IndexPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.Equal(new ClipExportResult(true, false), await library.ExportToDirectoryAsync(saved.Id, folder, TestContext.Current.CancellationToken));
+        Assert.Equal(new ClipExportResult(false, true), await library.ExportToDirectoryAsync(saved.Id, folder, TestContext.Current.CancellationToken));
+        Assert.Single(Directory.EnumerateFiles(folder));
+        Assert.Equal(0, (await library.GetPageAsync(0, TestContext.Current.CancellationToken)).UnexportedClips);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AbsentLegacyIndexNeverCreatesLegacyOrPrivateLibraryFiles(bool folderExists)
+    {
+        var legacyPath = Path.Combine(_directory, "legacy");
+        var privatePath = Path.Combine(_directory, "private");
+        if (folderExists) Directory.CreateDirectory(legacyPath);
+        var result = await new ClipLibrary(privatePath).ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken);
+        Assert.Equal(new ClipImportResult(0, 0, 0, 0), result);
+        Assert.Equal(folderExists, Directory.Exists(legacyPath));
+        if (folderExists) Assert.Empty(Directory.EnumerateFileSystemEntries(legacyPath));
+        Assert.False(Directory.Exists(privatePath));
+    }
+
+    [Fact]
+    public async Task ImportPreservesIndexedIdentityAndMetadataWithoutScanningOrChangingLegacyFiles()
+    {
+        var legacyPath = Path.Combine(_directory, "legacy");
+        var privatePath = Path.Combine(_directory, "private");
+        var legacy = new ClipLibrary(legacyPath);
+        var saved = await AddClipAsync(legacy);
+        await legacy.MarkViewedAsync(saved.Id, TestContext.Current.CancellationToken);
+        await legacy.ExportToDirectoryAsync(saved.Id, Path.Combine(_directory, "exports"), TestContext.Current.CancellationToken);
+        var expected = Assert.Single((await legacy.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips);
+        var pending = await legacy.ReserveSaveAsync(Recording, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(pending.MediaPath, MediaBytes, TestContext.Current.CancellationToken);
+        var unknown = Path.Combine(legacyPath, "unindexed.mp4");
+        await File.WriteAllBytesAsync(unknown, MediaBytes, TestContext.Current.CancellationToken);
+        var originalIndex = await File.ReadAllBytesAsync(Path.Combine(legacyPath, ClipLibrary.IndexFileName), TestContext.Current.CancellationToken);
+        var library = new ClipLibrary(privatePath);
+        Assert.Equal(new ClipImportResult(1, 0, 0, 1), await library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+        Assert.Equal(expected, Assert.Single((await library.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips));
+        Assert.Empty(await library.ListPendingAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(originalIndex, await File.ReadAllBytesAsync(Path.Combine(legacyPath, ClipLibrary.IndexFileName), TestContext.Current.CancellationToken));
+        Assert.Equal(MediaBytes, await File.ReadAllBytesAsync(await legacy.GetMediaPathAsync(saved.Id, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken));
+        Assert.True(File.Exists(pending.MediaPath));
+        Assert.True(File.Exists(unknown));
+        Assert.False(File.Exists(Path.Combine(privatePath, "unindexed.mp4")));
+        Assert.False(File.Exists(Path.Combine(privatePath, $"{pending.Id:N}.mp4")));
+        Assert.Equal(new ClipImportResult(0, 1, 0, 1), await library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ImportBatchesAreBoundedAndPreserveLaterPrivateReviewState()
+    {
+        var legacyPath = Path.Combine(_directory, "legacy");
+        var legacy = new ClipLibrary(legacyPath);
+        for (var index = 0; index < 26; index++) await AddClipAsync(legacy);
+        var library = new ClipLibrary(Path.Combine(_directory, "private"));
+        Assert.Equal(new ClipImportResult(25, 0, 1, 0), await library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+        var first = (await library.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips[0];
+        var viewed = await library.MarkViewedAsync(first.Id, TestContext.Current.CancellationToken);
+        Assert.Equal(new ClipImportResult(1, 25, 0, 0), await library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+        Assert.Equal(new ClipImportResult(0, 26, 0, 0), await library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+        var pages = (await library.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips
+            .Concat((await library.GetPageAsync(1, TestContext.Current.CancellationToken)).Clips);
+        Assert.Equal(viewed, Assert.Single(pages, clip => clip.Id == first.Id));
+    }
+
+    [Fact]
+    public async Task ExportingAnImportedClipToItsLegacyFolderReusesTheVerifiedOriginal()
+    {
+        var legacyPath = Path.Combine(_directory, "legacy");
+        var legacy = new ClipLibrary(legacyPath);
+        var saved = await AddClipAsync(legacy);
+        var originalIndex = await File.ReadAllBytesAsync(Path.Combine(legacyPath, ClipLibrary.IndexFileName), TestContext.Current.CancellationToken);
+        var library = new ClipLibrary(Path.Combine(_directory, "private"));
+        await library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken);
+        Assert.Equal(new ClipExportResult(false, true), await library.ExportToDirectoryAsync(saved.Id, legacyPath, TestContext.Current.CancellationToken));
+        Assert.Equal(new ClipExportResult(false, true), await library.ExportToDirectoryAsync(saved.Id, legacyPath, TestContext.Current.CancellationToken));
+        var original = Assert.Single(Directory.EnumerateFiles(legacyPath, "*.mp4"));
+        Assert.Equal($"{saved.Id:N}.mp4", Path.GetFileName(original));
+        Assert.Equal(MediaBytes, await File.ReadAllBytesAsync(original, TestContext.Current.CancellationToken));
+        Assert.Equal(originalIndex, await File.ReadAllBytesAsync(Path.Combine(legacyPath, ClipLibrary.IndexFileName), TestContext.Current.CancellationToken));
+        Assert.Equal(0, (await library.GetPageAsync(0, TestContext.Current.CancellationToken)).UnexportedClips);
+    }
+
+    [Fact]
+    public async Task DifferentLegacyNamedFileIsRefusedRatherThanExportedUnderAnotherName()
+    {
+        var library = new ClipLibrary(_directory);
+        var saved = await AddClipAsync(library);
+        var folder = Path.Combine(_directory, "exports");
+        Directory.CreateDirectory(folder);
+        var collision = Path.Combine(folder, $"{saved.Id:N}.mp4");
+        var unrelated = new byte[MediaBytes.Length];
+        await File.WriteAllBytesAsync(collision, unrelated, TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<IOException>(() => library.ExportToDirectoryAsync(saved.Id, folder, TestContext.Current.CancellationToken));
+        Assert.Equal(collision, Assert.Single(Directory.EnumerateFiles(folder)));
+        Assert.Equal(unrelated, await File.ReadAllBytesAsync(collision, TestContext.Current.CancellationToken));
+        Assert.Equal(1, (await library.GetPageAsync(0, TestContext.Current.CancellationToken)).UnexportedClips);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImportReusesOnlyIdenticalUnindexedDestinationBytes(bool differentBytes)
+    {
+        var legacyPath = Path.Combine(_directory, "legacy");
+        var legacy = new ClipLibrary(legacyPath);
+        var saved = await AddClipAsync(legacy);
+        var privatePath = Path.Combine(_directory, "private");
+        Directory.CreateDirectory(privatePath);
+        var destination = Path.Combine(privatePath, $"{saved.Id:N}.mp4");
+        var existing = differentBytes ? new byte[MediaBytes.Length] : MediaBytes;
+        await File.WriteAllBytesAsync(destination, existing, TestContext.Current.CancellationToken);
+        var library = new ClipLibrary(privatePath);
+        if (differentBytes)
+        {
+            await Assert.ThrowsAsync<IOException>(() => library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+            Assert.Empty((await library.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips);
+        }
+        else Assert.Equal(new ClipImportResult(1, 0, 0, 0), await library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+        Assert.Equal(existing, await File.ReadAllBytesAsync(destination, TestContext.Current.CancellationToken));
+        Assert.Equal(MediaBytes, await File.ReadAllBytesAsync(await legacy.GetMediaPathAsync(saved.Id, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CancelledImportDoesNotCreateDestinationOrTouchLegacyIndex()
+    {
+        var legacyPath = Path.Combine(_directory, "legacy");
+        var legacy = new ClipLibrary(legacyPath);
+        await AddClipAsync(legacy);
+        var original = await File.ReadAllBytesAsync(Path.Combine(legacyPath, ClipLibrary.IndexFileName), TestContext.Current.CancellationToken);
+        var privatePath = Path.Combine(_directory, "private");
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new ClipLibrary(privatePath).ImportLegacyAsync(legacyPath, cancelled.Token));
+        Assert.False(Directory.Exists(privatePath));
+        Assert.Equal(original, await File.ReadAllBytesAsync(Path.Combine(legacyPath, ClipLibrary.IndexFileName), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ImportIndexFailureKeepsBothCopiesAndRetryCommitsTheVerifiedPrivateFile()
+    {
+        var legacyPath = Path.Combine(_directory, "legacy");
+        var legacy = new ClipLibrary(legacyPath);
+        var saved = await AddClipAsync(legacy);
+        var privatePath = Path.Combine(_directory, "private");
+        var library = new ClipLibrary(privatePath);
+        _ = await library.ReserveSaveAsync(Recording, TestContext.Current.CancellationToken);
+        using (var heldIndex = new FileStream(Path.Combine(privatePath, ClipLibrary.IndexFileName), FileMode.Open, FileAccess.Read, FileShare.Read))
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+        var destination = Path.Combine(privatePath, $"{saved.Id:N}.mp4");
+        Assert.Equal(MediaBytes, await File.ReadAllBytesAsync(destination, TestContext.Current.CancellationToken));
+        Assert.Empty((await library.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips);
+        Assert.Equal(new ClipImportResult(1, 0, 0, 0), await library.ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+        Assert.Equal(saved, Assert.Single((await library.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips));
+        Assert.Single(await library.ListPendingAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(MediaBytes, await File.ReadAllBytesAsync(await legacy.GetMediaPathAsync(saved.Id, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task UnsupportedLegacyIndexIsRefusedBeforeCreatingAPrivateLibrary()
+    {
+        var legacyPath = Path.Combine(_directory, "legacy");
+        var legacy = new ClipLibrary(legacyPath);
+        await AddClipAsync(legacy);
+        var path = Path.Combine(legacyPath, ClipLibrary.IndexFileName);
+        var index = JsonNode.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken))!;
+        index["version"] = 999;
+        var corrupt = index.ToJsonString();
+        await File.WriteAllTextAsync(path, corrupt, TestContext.Current.CancellationToken);
+        var privatePath = Path.Combine(_directory, "private");
+        await Assert.ThrowsAsync<InvalidDataException>(() => new ClipLibrary(privatePath).ImportLegacyAsync(legacyPath, TestContext.Current.CancellationToken));
+        Assert.False(Directory.Exists(privatePath));
+        Assert.Equal(corrupt, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task UnsupportedOrCorruptIndexIsNeverReplaced()
     {
         var library = new ClipLibrary(_directory);
