@@ -219,11 +219,14 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                     if (result.Remaining > 0 && result.Imported == 0)
                         throw new IOException("The existing clip import made no progress.");
                 } while (result.Remaining > 0);
-                _settings.LegacyLibraryDirectory = "";
-                PreferencesChanged?.Invoke(this, EventArgs.Empty);
                 NoticeText(imported > 0 ? $"{imported} existing clip(s) added to Wisp. Original files are kept." : "");
                 if (result.PendingLegacySaves > 0)
                     LibraryWarningText("The previous clip folder contains unfinished saves. Those files have been kept.");
+                else
+                {
+                    _settings.LegacyLibraryDirectory = "";
+                    PreferencesChanged?.Invoke(this, EventArgs.Empty);
+                }
             }
             catch (OperationCanceledException) when (_token.IsCancellationRequested) { throw; }
             catch (Exception error) when (error is not OutOfMemoryException)

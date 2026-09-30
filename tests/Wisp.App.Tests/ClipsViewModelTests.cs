@@ -89,6 +89,59 @@ public sealed class ClipsViewModelTests
     });
 
     [Fact]
+    public void PendingLegacySavesStayVisibleAcrossRestartsUntilCompleted() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var token = TestContext.Current.CancellationToken;
+        var legacyDirectory = Path.Combine(fixture.Directory, "legacy");
+        var privateDirectory = Path.Combine(fixture.Directory, "private");
+        var legacy = new ClipLibrary(legacyDirectory);
+        var recording = new ClipRecordingSpec(60, 1080, 60, 75);
+        var ready = await legacy.ReserveSaveAsync(recording, token);
+        await File.WriteAllBytesAsync(ready.MediaPath, FakeRecorder.Bytes, token);
+        await legacy.CommitFinalizedAsync(ready.Id, FakeRecorder.Media, token);
+        var pending = await legacy.ReserveSaveAsync(recording, token);
+        await File.WriteAllBytesAsync(pending.MediaPath, FakeRecorder.Bytes, token);
+        var originalIndex = await File.ReadAllBytesAsync(Path.Combine(legacyDirectory, ClipLibrary.IndexFileName), token);
+        var settings = new ClipsSettings { StorageDirectory = legacyDirectory };
+
+        for (var start = 0; start < 2; start++)
+        {
+            using var model = new ClipsViewModel(settings, new FakeRecorder(), Dispatcher.CurrentDispatcher,
+                libraryDirectory: privateDirectory);
+            var persisted = 0;
+            model.PreferencesChanged += (_, _) => persisted++;
+            await model.InitializeAsync();
+            Assert.Contains("unfinished saves", model.Error, StringComparison.Ordinal);
+            Assert.Equal(legacyDirectory, model.Preferences.LegacyLibraryDirectory);
+            Assert.Equal(0, persisted);
+            Assert.Equal(ready.Id, Assert.Single(model.Clips).Id);
+            Assert.Single(Directory.GetFiles(privateDirectory, "*.mp4"));
+            Assert.False(File.Exists(Path.Combine(privateDirectory, $"{pending.Id:N}.mp4")));
+            Assert.Equal(originalIndex, await File.ReadAllBytesAsync(Path.Combine(legacyDirectory, ClipLibrary.IndexFileName), token));
+            Assert.Equal(FakeRecorder.Bytes, await File.ReadAllBytesAsync(pending.MediaPath, token));
+            settings = model.Preferences;
+        }
+
+        await legacy.CommitFinalizedAsync(pending.Id, FakeRecorder.Media, token);
+        using var completed = new ClipsViewModel(settings, new FakeRecorder(), Dispatcher.CurrentDispatcher,
+            libraryDirectory: privateDirectory);
+        var finalPersisted = 0;
+        completed.PreferencesChanged += (_, _) => finalPersisted++;
+        await completed.InitializeAsync();
+        Assert.False(completed.HasError);
+        Assert.Equal("", completed.Preferences.LegacyLibraryDirectory);
+        Assert.Equal(1, finalPersisted);
+        Assert.Equal(2, completed.Clips.Count);
+        Assert.Single(completed.Clips, clip => clip.Id == ready.Id);
+        Assert.Single(completed.Clips, clip => clip.Id == pending.Id);
+        Assert.Equal(2, Directory.GetFiles(privateDirectory, "*.mp4").Length);
+        Assert.Equal(2, (await legacy.GetPageAsync(0, token)).Clips.Count);
+        Assert.Equal(FakeRecorder.Bytes, await File.ReadAllBytesAsync(ready.MediaPath, token));
+        Assert.Equal(FakeRecorder.Bytes, await File.ReadAllBytesAsync(pending.MediaPath, token));
+    });
+
+    [Fact]
     public void PreviewWithoutLibraryDoesNotOpenOrCreateLegacyStorage() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
