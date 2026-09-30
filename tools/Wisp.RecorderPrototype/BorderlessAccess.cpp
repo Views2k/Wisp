@@ -19,6 +19,8 @@ namespace recorder::capture
         using winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus;
         constexpr DWORD DeadlineMs = 10000;
         constexpr std::string_view Request = "request-borderless-v1\n";
+        constexpr std::string_view Check = "check-borderless-v1\n";
+        enum class Operation { Invalid, Request, Check };
         const char* Outcome(AppCapabilityAccessStatus status) noexcept
         {
             switch (status)
@@ -37,7 +39,12 @@ namespace recorder::capture
                 return "{\"v\":1,\"mode\":\"borderless_access\",\"status\":\"denied\"}\n";
             return "{\"v\":1,\"mode\":\"borderless_access\",\"status\":\"unavailable\"}\n";
         }
-        bool IsRequest(std::string_view request) noexcept { return request == Request; }
+        Operation ParseOperation(std::string_view request) noexcept
+        {
+            if (request == Request) return Operation::Request;
+            if (request == Check) return Operation::Check;
+            return Operation::Invalid;
+        }
     }
 
     unsigned RunBorderlessAccessContracts() noexcept
@@ -45,12 +52,17 @@ namespace recorder::capture
         unsigned count = 0;
         bool passed = true;
         const auto test = [&](bool value) { ++count; passed = passed && value; };
-        test(IsRequest(Request));
-        test(!IsRequest("request-borderless-v1\r\n") && !IsRequest("request-borderless-v1"));
-        test(!IsRequest("request-borderless-v1\nextra") && !IsRequest(""));
+        test(ParseOperation(Request) == Operation::Request);
+        test(ParseOperation("request-borderless-v1\r\n") == Operation::Invalid && ParseOperation("request-borderless-v1") == Operation::Invalid);
+        test(ParseOperation("request-borderless-v1\nextra") == Operation::Invalid && ParseOperation("") == Operation::Invalid);
+        test(ParseOperation(Check) == Operation::Check);
+        test(ParseOperation("check-borderless-v1\r\n") == Operation::Invalid && ParseOperation("check-borderless-v1") == Operation::Invalid);
+        test(ParseOperation("check-borderless-v1\nrequest-borderless-v1\n") == Operation::Invalid);
+        test(ParseOperation("check-borderless-v1\nextra") == Operation::Invalid);
         test(std::strcmp(Outcome(AppCapabilityAccessStatus::Allowed), "allowed") == 0);
         test(std::strcmp(Outcome(AppCapabilityAccessStatus::DeniedByUser), "denied") == 0);
         test(std::strcmp(Outcome(AppCapabilityAccessStatus::NotDeclaredByApp), "unavailable") == 0);
+        test(std::strcmp(Outcome(AppCapabilityAccessStatus::UserPromptRequired), "unavailable") == 0);
         test(std::strcmp(Outcome(static_cast<AppCapabilityAccessStatus>(999)), "unavailable") == 0);
         test(std::strstr(ResultLine("unknown"), "\"status\":\"unavailable\"") != nullptr);
         return passed ? count : 0;
@@ -94,19 +106,30 @@ namespace recorder::capture
                 used += received;
                 if (used > Request.size()) throw winrt::hresult_invalid_argument();
             }
-            if (!IsRequest({ request.data(), used })) throw winrt::hresult_invalid_argument();
+            const auto operation = ParseOperation({ request.data(), used });
+            if (operation == Operation::Invalid) throw winrt::hresult_invalid_argument();
             winrt::check_hresult(RoInitialize(RO_INIT_MULTITHREADED)); initialized = true;
             // Microsoft documents a package capability for borderless access.
             // An unpackaged helper can be denied/unavailable; never assume a
             // grant or modify packaging/security to obtain one.
-            auto requestAccess = winrt::Windows::Graphics::Capture::GraphicsCaptureAccess::RequestAccessAsync(
-                winrt::Windows::Graphics::Capture::GraphicsCaptureAccessKind::Borderless);
-            const auto elapsed = GetTickCount64() - began;
-            const auto remaining = elapsed < DeadlineMs - 500 ? DeadlineMs - 500 - elapsed : 0;
-            if (remaining && requestAccess.wait_for(std::chrono::milliseconds(static_cast<std::int64_t>(remaining))) == winrt::Windows::Foundation::AsyncStatus::Completed)
-                outcome = Outcome(requestAccess.GetResults());
-            else requestAccess.Cancel();
-            requestAccess.Close();
+            if (operation == Operation::Check)
+            {
+                // CheckAccess reports the stored grant without requesting access.
+                // UserPromptRequired remains unavailable; only Request may prompt.
+                outcome = Outcome(winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapability::Create(
+                    L"graphicsCaptureWithoutBorder").CheckAccess());
+            }
+            else
+            {
+                auto requestAccess = winrt::Windows::Graphics::Capture::GraphicsCaptureAccess::RequestAccessAsync(
+                    winrt::Windows::Graphics::Capture::GraphicsCaptureAccessKind::Borderless);
+                const auto elapsed = GetTickCount64() - began;
+                const auto remaining = elapsed < DeadlineMs - 500 ? DeadlineMs - 500 - elapsed : 0;
+                if (remaining && requestAccess.wait_for(std::chrono::milliseconds(static_cast<std::int64_t>(remaining))) == winrt::Windows::Foundation::AsyncStatus::Completed)
+                    outcome = Outcome(requestAccess.GetResults());
+                else requestAccess.Cancel();
+                requestAccess.Close();
+            }
         }
         catch (...) { outcome = "unavailable"; }
         if (initialized) RoUninitialize();

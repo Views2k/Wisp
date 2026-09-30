@@ -9,7 +9,13 @@ internal sealed class RecorderBorderlessAccess(string helperPath, Func<ProcessSt
     private static IThumbnailChild? _unconfirmed;
     private readonly Func<ProcessStartInfo, IThumbnailChild> _launch = launch ?? (start => new ThumbnailProcessChild(start));
 
-    internal async Task<ClipBorderlessAccessResult> RequestAsync(CancellationToken cancellationToken)
+    internal Task<ClipBorderlessAccessResult> RequestAsync(CancellationToken cancellationToken) =>
+        RunAsync("request-borderless-v1\n"u8.ToArray(), cancellationToken);
+
+    internal Task<ClipBorderlessAccessResult> CheckAsync(CancellationToken cancellationToken) =>
+        RunAsync("check-borderless-v1\n"u8.ToArray(), cancellationToken);
+
+    private async Task<ClipBorderlessAccessResult> RunAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (Volatile.Read(ref _unconfirmed) is not null) return ClipBorderlessAccessResult.Unavailable;
@@ -36,7 +42,7 @@ internal sealed class RecorderBorderlessAccess(string helperPath, Func<ProcessSt
             var errors = ReadBoundedAsync(child.Error, 1024, deadline.Token);
             var exit = child.WaitForExitAsync(deadline.Token);
             work = [response, errors, exit];
-            await child.Input.WriteAsync("request-borderless-v1\n"u8.ToArray(), deadline.Token).ConfigureAwait(false);
+            await child.Input.WriteAsync(command, deadline.Token).ConfigureAwait(false);
             await child.Input.FlushAsync(deadline.Token).ConfigureAwait(false);
             child.Input.Close();
             await Task.WhenAll(work).ConfigureAwait(false);

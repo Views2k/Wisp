@@ -2,7 +2,8 @@
 
 namespace recorder::capture
 {
-    // Explicit permission-only child. Requires the fixed request line plus EOF;
+    // Permission-only child. Requires a fixed request/check line plus EOF;
+    // the check operation never requests access or opens a permission prompt.
     // never creates a capture item/session, device, window, or audio client.
     int RunBorderlessAccessStdio() noexcept;
     unsigned RunBorderlessAccessContracts() noexcept;
