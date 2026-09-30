@@ -14,6 +14,7 @@
 #include <iostream>
 #include <limits>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace
@@ -114,19 +115,24 @@ namespace
         return { XMConvertHalfToFloat(pixel[0]), XMConvertHalfToFloat(pixel[1]), XMConvertHalfToFloat(pixel[2]) };
     }
     UINT ColorIndex(UINT patch, UINT frame) { return (patch + frame * 7) % static_cast<UINT>(Colors.size()); }
-    Rgb Generated(UINT x, UINT y, UINT frame)
+    Rgb Generated(UINT x, UINT y, UINT frame, UINT whiteNits = 80)
     {
+        Rgb result{};
         if (frame < 2)
         {
             const UINT patch = (y / (OutputHeight / 4)) * 4 + x / (OutputWidth / 4);
-            return Colors[ColorIndex(patch, frame)];
+            result = Colors[ColorIndex(patch, frame)];
         }
-        if (y < OutputHeight / 2)
+        else if (y < OutputHeight / 2)
         {
             const double value = static_cast<double>(x) / 120;
-            return { value, value, value };
+            result = { value, value, value };
         }
-        return ((x / 7 + y / 5) & 1) ? Rgb{4,0,0} : Rgb{0,0,4};
+        else result = ((x / 7 + y / 5) & 1) ? Rgb{4,0,0} : Rgb{0,0,4};
+        // The same normalized contrast/highlight range is tested at each
+        // explicit synthetic white level, before source FP16 quantization.
+        const double scale = whiteNits / 80.0;
+        return { result.r * scale, result.g * scale, result.b * scale };
     }
     double Oetf(double value)
     {
@@ -180,6 +186,10 @@ namespace
             }
         return SdrTransfer(filtered);
     }
+    double ShoulderReference(double luminance)
+    {
+        return luminance <= .75 ? luminance : 1 - 1 / (16 * luminance - 8);
+    }
     Rgb ReferenceCode(Rgb input, double referenceWhite)
     {
         // Independent double-precision reference. FP16 quantization is modeled
@@ -190,8 +200,9 @@ namespace
         input.r *= factor; input.g *= factor; input.b *= factor;
         const double luminance = .2126 * input.r + .7152 * input.g + .0722 * input.b;
         if (!std::isfinite(luminance) || luminance <= 0) return {};
-        const double neutral = luminance / (1 + luminance);
-        std::array<double, 3> channels{ input.r / (1 + luminance), input.g / (1 + luminance), input.b / (1 + luminance) };
+        const double neutral = ShoulderReference(luminance);
+        const double scale = neutral / luminance;
+        std::array<double, 3> channels{ input.r * scale, input.g * scale, input.b * scale };
         double compression = 1;
         for (const double channel : channels)
         {
@@ -213,7 +224,7 @@ namespace
     }
     Yuv ReferenceAt(UINT x, UINT y, UINT frame, UINT whiteNits, bool sdr = false)
     {
-        return Matrix(sdr ? SdrReferenceCode(x, y, frame) : ReferenceCode(Generated(x, y, frame), whiteNits));
+        return Matrix(sdr ? SdrReferenceCode(x, y, frame) : ReferenceCode(Generated(x, y, frame,whiteNits), whiteNits));
     }
     Yuv ReferenceChroma(UINT x, UINT y, UINT frame, UINT whiteNits, bool sdr = false)
     {
@@ -224,7 +235,7 @@ namespace
                 const int sampleX = std::clamp(static_cast<int>(x) + column, 0, static_cast<int>(OutputWidth) - 1);
                 const UINT sampleY = (std::min)(y + static_cast<UINT>(row), OutputHeight - 1);
                 const auto code = sdr ? SdrReferenceCode(static_cast<UINT>(sampleX), sampleY, frame) :
-                    ReferenceCode(Generated(static_cast<UINT>(sampleX), sampleY, frame), whiteNits);
+                    ReferenceCode(Generated(static_cast<UINT>(sampleX), sampleY, frame,whiteNits), whiteNits);
                 const double weight = column == 0 ? .25 : .125;
                 filtered.r += code.r * weight; filtered.g += code.g * weight; filtered.b += code.b * weight;
             }
@@ -250,6 +261,16 @@ namespace
             static_cast<size_t>(chromaY / 2) * mapped.RowPitch + chromaX;
         const auto* bytes = static_cast<const BYTE*>(mapped.pData);
         Record(result, bytes[offset], expected.u); Record(result, bytes[offset + 1], expected.v);
+    }
+    void CheckNeutralAnchor(const D3D11_MAPPED_SUBRESOURCE& mapped, UINT x, UINT y, UINT luma, Measurement& result)
+    {
+        // Fixed policy/BT.709 checkpoints, independent of ReferenceCode and
+        // the shader. Uniform patch interiors avoid chroma-filter boundaries.
+        Record(result,ReadY(mapped,x,y),luma);
+        const size_t offset = static_cast<size_t>(mapped.RowPitch) * OutputHeight +
+            static_cast<size_t>(y / 2) * mapped.RowPitch + (x & ~1u);
+        const auto* bytes = static_cast<const BYTE*>(mapped.pData);
+        Record(result,bytes[offset],128); Record(result,bytes[offset+1],128);
     }
 
     UINT SelfTest()
@@ -292,8 +313,36 @@ namespace
         ++passed;
         const auto black = Matrix(ReferenceCode({0,0,0},80));
         const auto white = Matrix(ReferenceCode({1,1,1},80));
-        if (black.y != 16 || black.u != 128 || black.v != 128 || white.y != 171 || white.u != 128 || white.v != 128) return 0;
+        if (black.y != 16 || black.u != 128 || black.v != 128 || white.y != 221 || white.u != 128 || white.v != 128) return 0;
         ++passed;
+        const std::array<std::array<double,2>,8> toneAnchors{{ {0,0}, {.018,.018}, {.18,.18}, {.5,.5},
+            {.75,.75}, {1,7.0/8}, {2,23.0/24}, {4,55.0/56} }};
+        for (const auto& point : toneAnchors)
+        {
+            if (std::abs(ShoulderReference(point[0])-point[1]) > 1e-12) return 0;
+            ++passed;
+        }
+        constexpr double step = 1e-6;
+        const double leftSlope = (.75-ShoulderReference(.75-step))/step;
+        const double rightSlope = (ShoulderReference(.75+step)-.75)/step;
+        if (std::abs(leftSlope-1) > 1e-8 || std::abs(rightSlope-1) > 1e-5) return 0;
+        ++passed;
+        for (const auto color : std::array<Rgb,4>{{ {.001,.001,.001}, {.18,.18,.18}, {.5,.25,.125}, {.1,.3,.6} }})
+        {
+            const auto quantized = Quantized(color);
+            const auto code = ReferenceCode(color,80);
+            if (std::abs(code.r-Oetf(quantized.r)) > 1e-12 || std::abs(code.g-Oetf(quantized.g)) > 1e-12 ||
+                std::abs(code.b-Oetf(quantized.b)) > 1e-12) return 0;
+            ++passed;
+        }
+        const std::array<std::pair<double,UINT>,10> lumaAnchors{{ {0,16}, {.001,17}, {.018,34}, {.18,106},
+            {.5,171}, {.75,206}, {1,221}, {2,230}, {4,233}, {12.5,234} }};
+        for (const auto& point : lumaAnchors)
+        {
+            const auto yuv = Matrix(ReferenceCode({point.first,point.first,point.first},80));
+            if (yuv.y != point.second || yuv.u != 128 || yuv.v != 128) return 0;
+            ++passed;
+        }
         const auto diffuse = ReferenceCode({1,1,1},80), brighter = ReferenceCode({2,2,2},80), brightest = ReferenceCode({12.5,12.5,12.5},80);
         if (!(diffuse.r < brighter.r && brighter.r < brightest.r && brightest.r < 1)) return 0;
         ++passed;
@@ -395,7 +444,7 @@ namespace
     {
         const bool sdr = options.mode == Mode::SdrFixture;
         Evidence evidence;
-        Measurement patches, ramp, edges, boundaries;
+        Measurement patches, ramp, edges, boundaries, toneAnchors;
         UINT completedFrames = 0;
         bool completed = false, rampMonotonic = false, highlightsDistinct = false, sdrRangeCorrect = false;
         const auto started = Clock::now(), deadline = started + std::chrono::milliseconds(options.timeoutMs);
@@ -473,7 +522,7 @@ namespace
                         if (y % 64 == 0) guard();
                         for (UINT x = 0; x < OutputWidth; ++x)
                         {
-                            const auto pixel = Pack(Generated(x,y,frame));
+                            const auto pixel = Pack(Generated(x,y,frame,options.whiteNits));
                             const size_t offset = static_cast<size_t>(y * 2) * SourceWidth + x * 2;
                             pixels[offset] = pixels[offset+1] = pixels[offset+SourceWidth] = pixels[offset+SourceWidth+1] = pixel;
                         }
@@ -517,6 +566,13 @@ namespace
                     if (sdr && frame == 0)
                         sdrRangeCorrect = ReadY(mapped,OutputWidth/8,OutputHeight/8) == 16 &&
                             ReadY(mapped,OutputWidth/4+OutputWidth/8,OutputHeight/8) == 235;
+                    if (!sdr && frame == 0)
+                    {
+                        constexpr std::array<UINT,8> expected{{16,17,34,106,221,230,233,234}};
+                        for (UINT patch = 0; patch < expected.size(); ++patch)
+                            CheckNeutralAnchor(mapped,(patch%4)*(OutputWidth/4)+OutputWidth/8,
+                                (patch/4)*(OutputHeight/4)+OutputHeight/8,expected[patch],toneAnchors);
+                    }
                 }
                 else
                 {
@@ -532,6 +588,8 @@ namespace
                     }
                     if (!sdr)
                     {
+                        CheckNeutralAnchor(mapped,60,100,171,toneAnchors);
+                        CheckNeutralAnchor(mapped,90,100,206,toneAnchors);
                         const UINT a = ReadY(mapped,120,100), b = ReadY(mapped,240,100), c = ReadY(mapped,480,100), d = ReadY(mapped,1500,100);
                         highlightsDistinct = a < b && b < c && c < d;
                     }
@@ -542,6 +600,7 @@ namespace
             }
             Require(completedFrames == 3 && patches.checked == 6144 && ramp.checked == 768 && edges.checked == 3840, "synthetic_conversion_incomplete");
             Require(!sdr || boundaries.checked == 72, "synthetic_sdr_boundary_checks_incomplete");
+            Require(sdr || (toneAnchors.checked == 30 && toneAnchors.maximumError <= Tolerance), "hdr_contrast_policy_check_failed");
             Require(patches.maximumError <= Tolerance && ramp.maximumError <= Tolerance && edges.maximumError <= Tolerance,
                 "synthetic_code_values_outside_tolerance");
             Require(boundaries.maximumError <= Tolerance, "synthetic_boundary_values_outside_tolerance");
@@ -562,7 +621,8 @@ namespace
             std::cout << ",\"referenceWhiteOrigin\":\"not_applicable\",\"toneCurve\":\"none\",\"gamutPolicy\":\"none\""
                 << ",\"resizeFilter\":\"bilinear_code_values_before_srgb_decode\",\"sdrBlackWhiteExact\":" << sdrRangeCorrect;
         else
-            std::cout << ",\"referenceWhiteOrigin\":\"explicit_fixture_parameter\",\"toneCurve\":\"luminance_Reinhard\""
+            std::cout << ",\"referenceWhiteOrigin\":\"explicit_fixture_parameter\",\"toneCurve\":\"identity_then_smooth_shoulder\""
+                << ",\"toneKnee\":0.75,\"mappedReferenceWhite\":0.875"
                 << ",\"gamutPolicy\":\"neutral_axis_compression\",\"nonfinitePolicy\":\"black\",\"nonpositiveLuminancePolicy\":\"black\"";
         std::cout << ",\"invalidPixelCountCollected\":false,\"outputTransfer\":\"BT709\",\"outputMatrix\":\"BT709\""
             << ",\"outputRange\":\"limited_16_235_16_240\",\"chromaSiting\":\"horizontal_left_vertical_center\""
@@ -572,6 +632,7 @@ namespace
             << ",\"rampCodeChecks\":" << ramp.checked << ",\"rampMaximumCodeError\":" << ramp.maximumError
             << ",\"edgeCodeChecks\":" << edges.checked << ",\"edgeMaximumCodeError\":" << edges.maximumError
             << ",\"boundaryCodeChecks\":" << boundaries.checked << ",\"boundaryMaximumCodeError\":" << boundaries.maximumError
+            << ",\"toneAnchorCodeChecks\":" << toneAnchors.checked << ",\"toneAnchorMaximumCodeError\":" << toneAnchors.maximumError
             << ",\"allowedCodeError\":" << Tolerance << ",\"rampMonotonic\":" << rampMonotonic
             << ",\"highlightsDistinct\":" << highlightsDistinct << ",\"elapsedMs\":" << elapsed
             << ",\"captureUsed\":false,\"softwareConversionFallback\":false,\"gameAppearanceVerified\":false"
@@ -594,7 +655,8 @@ int wmain(int argc, wchar_t** argv)
             "Defaults: adapter 0, 10000 ms. Reference white is an explicit synthetic input, never a display/content measurement.\n"
             "Three generated 3840x2160 FP16 patterns -> 1920x1080 limited BT709 NV12.\n"
             "SDR mode uses BGRA8 patterns including subpixel variation, ramp, edges and border checks; no reference white or tone mapping.\n"
-            "Chosen Reinhard appearance requires later visual review; no capture, decode or gameplay performance claim.\n"
+            "Chosen 0.75-knee shoulder maps reference white to 0.875; appearance still requires visual review.\n"
+            "No capture, decode or gameplay performance claim.\n"
             "Requires Forza closed. Ctrl+C cancels. Use an external API-call watchdog.\n";
         return 0;
     }

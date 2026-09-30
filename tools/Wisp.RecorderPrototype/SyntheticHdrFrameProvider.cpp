@@ -40,9 +40,9 @@ namespace recorder::synthetic
             const double luminance = .2126 * color[0] + .7152 * color[1] + .0722 * color[2];
             if (luminance > 0)
             {
-                const double neutral = luminance / (1 + luminance);
+                const double neutral = luminance <= .75 ? luminance : 1 - .0625 / (luminance - .5);
                 double compression = 1;
-                for (auto& channel : color) channel /= 1 + luminance;
+                for (auto& channel : color) channel *= neutral / luminance;
                 for (const auto channel : color)
                 {
                     const double offset = channel - neutral;
@@ -164,7 +164,9 @@ namespace recorder::synthetic
         ExpectedPatches first, second, repeat;
         if (!provider.ExpectedFrame(0,first) || !provider.ExpectedFrame(1,second) || !provider.ExpectedFrame(2,repeat)) return 0;
         if (first[0].luma != 16 || first[0].chromaU != 128 || first[0].chromaV != 128 ||
-            first[2].luma != 171 || first[2].chromaU != 128 || first[2].chromaV != 128) return 0;
+            first[1].luma != 106 || first[1].chromaU != 128 || first[1].chromaV != 128 ||
+            first[2].luma != 221 || first[2].chromaU != 128 || first[2].chromaV != 128 ||
+            first[3].luma != 233 || first[3].chromaU != 128 || first[3].chromaV != 128) return 0;
         ++passed;
         for (UINT patch = 0; patch < HdrPatchCount; ++patch)
         {

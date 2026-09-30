@@ -50,8 +50,13 @@ float3 CodeRgb(float2 position)
     const float3 weights = float3(0.2126, 0.7152, 0.0722);
     float luminance = dot(rgb, weights);
     if (!isfinite(luminance) || luminance <= 0) return float3(0, 0, 0);
-    float mappedLuminance = luminance / (1 + luminance);
-    float3 chroma = rgb / (1 + luminance) - mappedLuminance;
+    // Preserve normal-range contrast; reserve only the shoulder for highlights.
+    const float knee = 0.75;
+    const float headroom = 0.25;
+    float aboveKnee = max(luminance - knee, 0);
+    float mappedLuminance = luminance <= knee ? luminance :
+        knee + headroom * aboveKnee / (aboveKnee + headroom);
+    float3 chroma = rgb * (mappedLuminance / luminance) - mappedLuminance;
     float amount = 1;
     [unroll] for (int channel = 0; channel < 3; ++channel)
     {

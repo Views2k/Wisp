@@ -36,8 +36,12 @@ namespace recorder::hdr
         const conversion::OutputConfiguration& configuration, SourceEncoding encoding) noexcept;
 
     // Prototype appearance policy: normalize linear scRGB by the explicitly
-    // supplied SDR-white level, apply luminance Reinhard, then neutral-axis
-    // gamut compression. This is not a measured game paper-white/content peak.
+    // supplied SDR-white level, preserve luminance through 0.75, then use the
+    // smooth shoulder T(Y)=0.75+0.25*(Y-0.75)/(Y-0.5). Value and slope match
+    // the identity at the knee; highlights approach 1. Reference white maps
+    // to 0.875, a chosen 12.5% linear headroom tradeoff. This is not a measured
+    // game paper-white/content peak or an exact HDR appearance match.
+    // Neutral-axis gamut compression follows the luminance transform.
     // Nonfinite sampled RGB and nonpositive luminance map to black. No input
     // invalid-pixel counts are collected by this converter.
     // SDR BGRA8 is explicitly sRGB: bilinear resize in source code values,
