@@ -17,7 +17,7 @@ namespace recorder::protocol
         std::string session;
         std::int64_t request = 0;
         std::uint32_t durationSeconds = 0, height = 0, frameRate = 0, quality = 0;
-        bool gameAudio = false;
+        bool gameAudio = false, borderlessAllowed = false;
         std::wstring spoolDirectory;
         std::uint32_t processId = 0;
         std::uint64_t window = 0, creationFileTime = 0;
@@ -30,17 +30,21 @@ namespace recorder::protocol
     // Session binding/request sequencing and path ownership stay with the host.
     bool ParseCommand(std::string_view line, Command& result) noexcept;
 
-    enum class State { Waiting, Buffering, Saving, Stopped, Error };
+    enum class State { Waiting, Buffering, Saving, Paused, Reconnecting, Stopped, Error };
     enum class Reason
     {
         None, WaitingForGame, TargetExited, TargetChanged, WindowClosed, WindowMinimized,
         WindowResized, FocusLost, UnsupportedOs, UnsupportedGpu, UnsupportedFormat,
         CaptureFailed, EncoderFailed, AudioFailed, AudioCaptureFailed, AudioUnavailable,
+        CaptureStale, CaptureReconnecting, EncoderReconnecting, AudioReconnecting, SchedulerLate,
         BufferFull, NoKeyframe, NotReady, SaveInProgress, StorageFailed, MuxFailed,
-        ProtocolError, Cancelled, Stopped, ParentClosed
+        ProtocolError, CleanupFailed, Cancelled, Stopped, ParentClosed
     };
     const char* Name(State state) noexcept;
     const char* Name(Reason reason) noexcept;
+    // An explicit new recording epoch is required. The managed owner rechecks
+    // the exact game target and applies bounded retry/backoff after helper exit.
+    bool IsRecoverable(Reason reason) noexcept;
 
     struct SavedMedia
     {

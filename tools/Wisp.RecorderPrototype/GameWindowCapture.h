@@ -13,7 +13,7 @@ namespace recorder::capture
         DWORD processId = 0;
         std::uint64_t creationTime = 0;
     };
-    struct Options { UINT frameRate = 60; };
+    struct Options { UINT frameRate = 60; bool borderlessAllowed = false; };
     struct SourceDescription
     {
         UINT width = 0, height = 0;
@@ -25,8 +25,10 @@ namespace recorder::capture
     struct FrameInfo
     {
         std::uint64_t version = 0;
-        // WGC SystemRelativeTime, in 100 ns QPC units. Not an encoded CFR PTS.
+        // Monotonic WGC metadata, in100ns QPC units. Not an encoded CFR PTS.
         LONGLONG timestamp100ns = 0;
+        // Original compositor value retained separately from monotonic metadata.
+        LONGLONG rawTimestamp100ns = 0;
         // Local QPC ticks observed after dequeuing this frame, before surface
         // work or the device lock. Paired with the texture/version under that lock.
         std::uint64_t receivedQpc = 0;
@@ -37,9 +39,14 @@ namespace recorder::capture
         HRESULT hr = S_OK, cleanupHr = S_OK;
         bool initialized = false, started = false, stopped = false;
         bool callbacksDrained = false;
-        std::uint64_t copiedFrames = 0, emptyCallbacks = 0;
+        bool borderlessRequested = false, borderRequiredSetFalse = false;
+        std::uint64_t copiedFrames = 0, emptyCallbacks = 0, timestampClamps = 0;
         SourceDescription source{};
     };
+    // Only normalizes duplicate/backward positive compositor metadata. Encoded
+    // CFR timestamps and the session's original A/V epoch are not adjusted.
+    bool NormalizeFrameTimestamp(LONGLONG raw, LONGLONG previous,
+        LONGLONG& normalized, bool& clamped) noexcept;
     struct FrameConsumer
     {
         virtual ~FrameConsumer() = default;
@@ -52,7 +59,8 @@ namespace recorder::capture
     // Inert until Initialize/Start. Caller owns an MTA worker; all public calls
     // and destruction occur there. No focus changes, window creation, audio,
     // pixel readback, encoding, file output or arbitrary-process capture.
-    // The normal Windows capture border policy is retained.
+    // Border suppression is requested only after explicit OS access approval.
+    // Windows can still retain a border; no OS policy or setting is bypassed.
     class GameWindowCapture final
     {
     public:

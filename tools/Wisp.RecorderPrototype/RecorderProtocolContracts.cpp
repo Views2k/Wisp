@@ -59,6 +59,19 @@ namespace
         Check(ParseCommand(Config(), command) && command.kind == CommandKind::Config && command.durationSeconds == 60 &&
             command.height == 1080 && command.frameRate == 60 && command.quality == 75 && command.gameAudio, "config_exact_typed_fields");
         Check(command.session == Session && command.request == 1 && command.spoolDirectory == L"C:\\Clips\\.wisp-recorder-0123456789abcdef0123456789abcdef", "config_session_and_wide_path");
+        Check(!command.borderlessAllowed, "borderless_missing_defaults_off");
+        auto borderless = Config(); borderless.insert(borderless.size() - 1, ",\"borderlessAllowed\":true");
+        Check(ParseCommand(borderless, command) && command.borderlessAllowed, "borderless_explicit_boolean");
+        Replace(borderless, "\"borderlessAllowed\":true", "\"borderlessAllowed\":false");
+        Check(ParseCommand(borderless, command) && !command.borderlessAllowed, "borderless_explicit_false");
+        Replace(borderless, "\"borderlessAllowed\":false", "\"borderlessAllowed\":true");
+        auto unknown = borderless; unknown.insert(unknown.size() - 1, ",\"extra\":0");
+        Check(!Accepted(unknown), "borderless_rejects_extra_field");
+        Replace(borderless, "\"borderlessAllowed\":true", "\"borderlessAllowed\":1");
+        Check(!Accepted(borderless), "borderless_rejects_non_boolean");
+        borderless = Config(); borderless.insert(borderless.size() - 1, ",\"borderlessAllowed\":true,\"borderlessAllowed\":true");
+        Check(!Accepted(borderless), "borderless_rejects_duplicate");
+        Check(!Accepted(CommandLine("stop", ",\"borderlessAllowed\":true")), "borderless_config_only");
         Check(ParseCommand(Start(), command) && command.kind == CommandKind::Start && command.processId == 42 && command.window == 123 && command.creationFileTime == 456, "start_exact_target_identity");
         Check(ParseCommand(Save(), command) && command.kind == CommandKind::Save && command.clipId == Clip, "save_guid_destination");
         Check(Accepted(Config(std::string("\\\\server\\share\\.wisp-recorder-") + Session)), "unc_storage_syntax_accepted");
@@ -146,6 +159,15 @@ namespace
         for (unsigned index = 0; index <= static_cast<unsigned>(State::Error); ++index)
             Check(SerializeState(Session, static_cast<State>(index), Reason::None, line), "state_allowlist_serializes");
         Check(!SerializeState(Session, static_cast<State>(999), Reason::None, line) && line.empty(), "unknown_state_rejected");
+        Check(SerializeState(Session, State::Paused, Reason::WindowMinimized, line) && line.find("\"state\":\"paused\"") != std::string::npos,
+            "minimized_paused_state");
+        Check(SerializeState(Session, State::Buffering, Reason::CaptureStale, line) && line.find("capture_stale") != std::string::npos,
+            "stale_frames_remain_buffering");
+        Check(!IsRecoverable(Reason::CaptureStale) && IsRecoverable(Reason::SchedulerLate) && IsRecoverable(Reason::AudioReconnecting),
+            "interruption_recovery_allowlist");
+        Check(!IsRecoverable(Reason::CleanupFailed) && !IsRecoverable(Reason::ProtocolError) &&
+            !IsRecoverable(Reason::StorageFailed) && !IsRecoverable(Reason::UnsupportedGpu) && !IsRecoverable(Reason::EncoderFailed),
+            "unsafe_or_unknown_errors_not_retried");
         Check(!SerializeState("unsafe\"text", State::Error, Reason::ProtocolError, line), "response_strings_cannot_inject_json");
         Check(SerializeState("ABCDEF0123456789ABCDEF0123456789", State::Waiting, Reason::None, line) &&
             line.find("abcdef0123456789abcdef0123456789") != std::string::npos, "output_guid_case_canonical");

@@ -1,4 +1,5 @@
 #include "RecorderHost.h"
+#include "GameWindowCapture.h"
 
 #include <limits>
 
@@ -59,6 +60,16 @@ namespace recorder::host
         test(!FrameFresh(observedNow, presentation, observedNow - MaximumSourceAge100ns - 1, 1));
         test(!FrameFresh(observedNow, presentation, observedNow + 2, 1));
         test(!FrameFresh(maximum, maximum + 1, maximum, 1) && !FrameFresh(maximum, maximum, maximum + 1, 1));
+        LONGLONG normalized = 0;
+        bool clamped = false;
+        test(capture::NormalizeFrameTimestamp(1234, 0, normalized, clamped) && normalized == 1234 && !clamped);
+        test(capture::NormalizeFrameTimestamp(1234, 1234, normalized, clamped) && normalized == 1235 && clamped);
+        test(capture::NormalizeFrameTimestamp(1200, 1235, normalized, clamped) && normalized == 1236 && clamped);
+        test(capture::NormalizeFrameTimestamp(1300, 1236, normalized, clamped) && normalized == 1300 && !clamped);
+        test(!capture::NormalizeFrameTimestamp(0, 100, normalized, clamped) && normalized == 0);
+        test(!capture::NormalizeFrameTimestamp(100, (std::numeric_limits<LONGLONG>::max)(), normalized, clamped));
+        // Metadata normalization cannot shift an already selected media epoch.
+        test(FrameTime(presentation, 2, 60, due, pts) && due == presentation + 333333 && pts == 333333);
         const std::string clip = "fedcba9876543210fedcba9876543210";
         const std::wstring spool = L"C:\\Clips\\.wisp-recorder-0123456789abcdef0123456789abcdef";
         test(DestinationMatches(spool, L"c:/clips/fedcba9876543210fedcba9876543210.mp4", clip));

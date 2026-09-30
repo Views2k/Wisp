@@ -26,7 +26,7 @@ namespace recorder::host
         std::uint64_t& due100ns, std::int64_t& pts100ns) noexcept;
     bool SchedulingAllowed(std::uint64_t now, std::uint64_t due) noexcept;
     // Receipt age measures local liveness. Presentation time remains the media
-    // epoch; reject old presentation content without assuming it cannot lead now.
+    // epoch. False signals visible stale-frame repetition, not a buffer reset.
     bool FrameFresh(std::uint64_t now, std::uint64_t presentation, std::uint64_t received,
         std::uint64_t roundingAllowance) noexcept;
     bool DestinationMatches(const std::wstring& spoolDirectory, const std::wstring& destination,

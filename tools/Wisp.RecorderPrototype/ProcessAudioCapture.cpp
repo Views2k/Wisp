@@ -217,8 +217,16 @@ namespace recorder::audio
         struct Handle
         {
             HANDLE value = nullptr;
-            ~Handle() { if (value) CloseHandle(value); }
-            Handle() = default;
+            HRESULT* closeHr = nullptr;
+            explicit Handle(HRESULT* result = nullptr) noexcept : closeHr(result) {}
+            ~Handle() { Close(); }
+            void Close() noexcept
+            {
+                if (!value) return;
+                if (!CloseHandle(value) && closeHr && SUCCEEDED(*closeHr))
+                    *closeHr = HRESULT_FROM_WIN32(GetLastError());
+                value = nullptr;
+            }
             Handle(const Handle&) = delete;
             Handle& operator=(const Handle&) = delete;
         };
@@ -369,7 +377,8 @@ namespace recorder::audio
 
         struct AudioResources
         {
-            explicit AudioResources(Evidence& output) : evidence(output) {}
+            explicit AudioResources(Evidence& output) : evidence(output), ready(&output.handleCloseHr)
+            { evidence.resourcesReleased = false; }
             Evidence& evidence;
             Handle ready;
             ComPtr<IAudioClient> client;
@@ -384,6 +393,8 @@ namespace recorder::audio
                 }
                 capture.Reset();
                 client.Reset(); // Event stays alive until both interfaces release.
+                ready.Close();
+                evidence.resourcesReleased = true;
             }
         };
 
@@ -459,13 +470,16 @@ namespace recorder::audio
         const auto began = Clock::now();
         bool initializedCom = false;
         bool claimedQueue = false;
+        // Failure before AudioResources exists owns no audio interfaces. Its
+        // constructor/destructor bracket the acquired-resource interval.
+        evidence.resourcesReleased = true;
         try
         {
             Require(ValidateOptions(options), "audio_options_invalid");
             evidence.continuous = options.mode == CaptureMode::UntilStopped;
             Require(queue.BeginSource(), "audio_queue_not_fresh");
             claimedQueue = true;
-            Handle process, stop;
+            Handle process(&evidence.handleCloseHr), stop(&evidence.handleCloseHr);
             Duplicate(target.process, process);
             Duplicate(stopEvent, stop);
             ValidateTarget(process.value, target);
@@ -531,11 +545,12 @@ namespace recorder::audio
         if (initializedCom) CoUninitialize();
         if (claimedQueue) queue.Close();
         evidence.queue = queue.Snapshot();
-        if (evidence.completed && (FAILED(evidence.stopHr) || FAILED(evidence.releaseBufferHr)))
+        if (evidence.completed && (FAILED(evidence.stopHr) || FAILED(evidence.releaseBufferHr) || FAILED(evidence.handleCloseHr)))
         {
             evidence.completed = false;
             evidence.reason = "audio_cleanup_failed";
-            evidence.hr = FAILED(evidence.stopHr) ? evidence.stopHr : evidence.releaseBufferHr;
+            evidence.hr = FAILED(evidence.stopHr) ? evidence.stopHr :
+                (FAILED(evidence.releaseBufferHr) ? evidence.releaseBufferHr : evidence.handleCloseHr);
         }
         evidence.elapsedMs = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - began).count());

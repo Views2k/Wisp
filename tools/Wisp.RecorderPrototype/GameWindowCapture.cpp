@@ -21,6 +21,16 @@
 
 namespace recorder::capture
 {
+    bool NormalizeFrameTimestamp(LONGLONG raw, LONGLONG previous,
+        LONGLONG& normalized, bool& clamped) noexcept
+    {
+        normalized = 0; clamped = false;
+        if (raw <= 0 || previous < 0) return false;
+        if (raw > previous) { normalized = raw; return true; }
+        if (previous == (std::numeric_limits<LONGLONG>::max)()) return false;
+        normalized = previous + 1; clamped = true;
+        return true;
+    }
     namespace
     {
         using namespace winrt::Windows::Graphics::Capture;
@@ -168,7 +178,8 @@ namespace recorder::capture
             std::atomic<HRESULT> cleanupHr{ S_OK };
             std::atomic<bool> stopped{ false };
             std::atomic<std::uint64_t> version{ 0 }, emptyCallbacks{ 0 };
-            std::atomic<LONGLONG> timestamp{ 0 };
+            std::atomic<LONGLONG> timestamp{ 0 }, rawTimestamp{ 0 };
+            std::atomic<std::uint64_t> timestampClamps{ 0 };
             std::atomic<std::uint64_t> receivedQpc{ 0 };
             std::mutex callbackMutex;
             std::condition_variable callbacksFinished;
@@ -259,11 +270,18 @@ namespace recorder::capture
                     GraphicsLock lock(state->multithread.get());
                     if (!state->stopped.load())
                     {
-                        Require(timestamp > state->timestamp.load(), "capture_timestamp_not_increasing");
+                        LONGLONG normalized = 0;
+                        bool clamped = false;
+                        Require(NormalizeFrameTimestamp(timestamp, state->timestamp.load(), normalized, clamped),
+                            "capture_timestamp_invalid");
+                        Require(!clamped || state->timestampClamps.load() != (std::numeric_limits<std::uint64_t>::max)(),
+                            "capture_counter_exhausted");
                         Require(state->version.load() != (std::numeric_limits<std::uint64_t>::max)(), "capture_version_exhausted");
                         state->context->CopyResource(state->latest.get(), surface.get());
                         Check(state->device->GetDeviceRemovedReason(), "capture_device_removed");
-                        state->timestamp.store(timestamp);
+                        state->timestamp.store(normalized);
+                        state->rawTimestamp.store(timestamp);
+                        if (clamped) ++state->timestampClamps;
                         state->receivedQpc.store(static_cast<std::uint64_t>(received.QuadPart));
                         ++state->version;
                     }
@@ -383,6 +401,22 @@ namespace recorder::capture
             value.pool = Direct3D11CaptureFramePool::CreateFreeThreaded(projected.as<IDirect3DDevice>(),
                 source_.hdr ? DirectXPixelFormat::R16G16B16A16Float : DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size);
             value.session = value.pool.CreateCaptureSession(value.item);
+            if (options.borderlessAllowed)
+            {
+                evidence_.borderlessRequested = true;
+                // The separate permission child must have returned Allowed.
+                // Property support/application is still best effort; the OS
+                // may retain a border (including another app's requirement).
+                try
+                {
+                    if (const auto border = value.session.try_as<IGraphicsCaptureSession3>())
+                    {
+                        border.IsBorderRequired(false);
+                        evidence_.borderRequiredSetFalse = !border.IsBorderRequired();
+                    }
+                }
+                catch (const winrt::hresult_error&) { evidence_.borderRequiredSetFalse = false; }
+            }
             const auto cursor = value.session.try_as<IGraphicsCaptureSession2>();
             const auto interval = value.session.try_as<IGraphicsCaptureSession5>();
             const auto secondary = value.session.try_as<IGraphicsCaptureSession6>();
@@ -483,6 +517,7 @@ namespace recorder::capture
         if (state->version.load() == 0) return S_FALSE;
         info.version = state->version.load();
         info.timestamp100ns = state->timestamp.load();
+        info.rawTimestamp100ns = state->rawTimestamp.load();
         info.receivedQpc = state->receivedQpc.load();
         const HRESULT hr = consumer.Submit(state->latest.get(), destination);
         if (FAILED(hr)) state->Stop("capture_conversion_failed", hr);
@@ -497,6 +532,7 @@ namespace recorder::capture
             const auto& state = *impl_->state;
             result.copiedFrames = state.version.load();
             result.emptyCallbacks = state.emptyCallbacks.load();
+            result.timestampClamps = state.timestampClamps.load();
             if (SUCCEEDED(result.cleanupHr)) result.cleanupHr = state.cleanupHr.load();
             if (state.stopped.load())
             {

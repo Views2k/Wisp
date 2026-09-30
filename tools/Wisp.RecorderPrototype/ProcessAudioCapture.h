@@ -113,6 +113,8 @@ namespace recorder::audio
         HRESULT hr = S_OK;
         HRESULT stopHr = S_OK;
         HRESULT releaseBufferHr = S_OK;
+        HRESULT handleCloseHr = S_OK;
+        bool resourcesReleased = false;
         bool completed = false;
         bool targetValidated = false;
         bool activationResultReceived = false;

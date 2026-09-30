@@ -86,6 +86,11 @@ namespace recorder::protocol
                 Require(count_ == names.size());
                 for (const auto* name : names) (void)Get(name);
             }
+            bool Has(const wchar_t* key) const noexcept
+            {
+                for (std::size_t index = 0; index < count_; ++index) if (fields_[index].key == key) return true;
+                return false;
+            }
             const Value& Get(const wchar_t* key) const
             {
                 for (std::size_t index = 0; index < count_; ++index) if (fields_[index].key == key) return fields_[index].value;
@@ -176,7 +181,7 @@ namespace recorder::protocol
             }
             std::string_view line_;
             std::size_t position_ = 0, count_ = 0;
-            std::array<Field, 10> fields_{};
+            std::array<Field, 11> fields_{};
         };
         bool Resolution(std::uint32_t height) noexcept { return height == 360 || height == 480 || height == 720 || height == 1080 || height == 1440 || height == 2160; }
         std::uint32_t U32(std::int64_t value) { Require(value > 0 && value <= (std::numeric_limits<std::uint32_t>::max)()); return static_cast<std::uint32_t>(value); }
@@ -262,7 +267,12 @@ namespace recorder::protocol
             const auto& kind = parser.Text(L"command");
             if (kind == L"config")
             {
-                parser.Keys({ L"v", L"session", L"request", L"command", L"durationSeconds", L"height", L"frameRate", L"quality", L"gameAudio", L"spoolDirectory" });
+                if (parser.Has(L"borderlessAllowed"))
+                {
+                    parser.Keys({ L"v", L"session", L"request", L"command", L"durationSeconds", L"height", L"frameRate", L"quality", L"gameAudio", L"spoolDirectory", L"borderlessAllowed" });
+                    command.borderlessAllowed = parser.Boolean(L"borderlessAllowed");
+                }
+                else parser.Keys({ L"v", L"session", L"request", L"command", L"durationSeconds", L"height", L"frameRate", L"quality", L"gameAudio", L"spoolDirectory" });
                 command.kind = CommandKind::Config;
                 command.durationSeconds = U32(parser.Integer(L"durationSeconds"));
                 command.height = U32(parser.Integer(L"height")); command.frameRate = U32(parser.Integer(L"frameRate"));
@@ -298,6 +308,7 @@ namespace recorder::protocol
         {
         case State::Waiting: return "waiting"; case State::Buffering: return "buffering";
         case State::Saving: return "saving"; case State::Stopped: return "stopped"; case State::Error: return "error";
+        case State::Paused: return "paused"; case State::Reconnecting: return "reconnecting";
         default: return nullptr;
         }
     }
@@ -313,14 +324,30 @@ namespace recorder::protocol
         case Reason::UnsupportedFormat: return "unsupported_format"; case Reason::CaptureFailed: return "capture_failed";
         case Reason::EncoderFailed: return "encoder_failed"; case Reason::AudioFailed: return "audio_failed";
         case Reason::AudioCaptureFailed: return "audio_capture_failed"; case Reason::AudioUnavailable: return "audio_unavailable";
+        case Reason::CaptureStale: return "capture_stale"; case Reason::CaptureReconnecting: return "capture_reconnecting";
+        case Reason::EncoderReconnecting: return "encoder_reconnecting"; case Reason::AudioReconnecting: return "audio_reconnecting";
+        case Reason::SchedulerLate: return "scheduler_late";
         case Reason::BufferFull: return "buffer_full"; case Reason::NoKeyframe: return "no_keyframe";
         case Reason::NotReady: return "not_ready"; case Reason::SaveInProgress: return "save_in_progress";
         case Reason::StorageFailed: return "storage_failed"; case Reason::MuxFailed: return "mux_failed";
         case Reason::ProtocolError: return "protocol_error"; case Reason::Cancelled: return "cancelled";
+        case Reason::CleanupFailed: return "cleanup_failed";
         case Reason::Stopped: return "stopped"; case Reason::ParentClosed: return "parent_closed";
         default: return nullptr;
         }
     }
+    bool IsRecoverable(Reason reason) noexcept
+    {
+        switch (reason)
+        {
+        case Reason::TargetExited: case Reason::TargetChanged: case Reason::WindowClosed:
+        case Reason::WindowMinimized: case Reason::WindowResized:
+        case Reason::CaptureReconnecting: case Reason::EncoderReconnecting:
+        case Reason::AudioReconnecting: case Reason::SchedulerLate: return true;
+        default: return false;
+        }
+    }
+
     bool SerializeResult(const Result& result, std::string& line) noexcept
     {
         line.clear();

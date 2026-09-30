@@ -18,7 +18,7 @@ $sources = @(
     'GameWindowCapture', 'HardwareEncoder', 'HardwareVideoSession', 'HdrFrameConverter',
     'GpuFrameConverter', 'ProcessAudioCapture', 'AudioTimeline', 'AacEncoder',
     'EncodedSpool', 'OwnedFileStream', 'SpoolMp4Writer', 'Mp4ClipWriter',
-    'EncodedClipBuffer', 'ClipThumbnail', 'ClipThumbnailContracts'
+    'EncodedClipBuffer', 'ClipThumbnail', 'ClipThumbnailContracts', 'BorderlessAccess'
 )
 foreach ($source in $sources) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot "$source.cpp") -PathType Leaf)) { throw 'Recorder source is incomplete.' }
