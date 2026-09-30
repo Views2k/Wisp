@@ -94,6 +94,7 @@ public sealed partial class AppController : IAsyncDisposable
     private DateTimeOffset _tractionCueUntilUtc = DateTimeOffset.MinValue;
     private ReceiverStatistics _cachedStatistics;
     private string? _activeOverlayPlacementKey;
+    private bool _initialOverlayPlacementPending;
     private NativeHudPublicationKey _lastNativeHudPublication;
     private bool _hasNativeHudPublication;
     private bool _debugListenerErrorActive;
@@ -1573,6 +1574,7 @@ public sealed partial class AppController : IAsyncDisposable
             return;
         }
 
+        _initialOverlayPlacementPending = false;
         var key = Overlay.GetDisplayKey();
         _activeOverlayPlacementKey = key;
         Settings.LastOverlayPlacementKey = key;
@@ -1646,6 +1648,7 @@ public sealed partial class AppController : IAsyncDisposable
         var key = PreferredOverlayPlacementKey();
         if (Settings.Placements.TryGetValue(key, out var placement))
         {
+            _initialOverlayPlacementPending = false;
             _activeOverlayPlacementKey = key;
             Settings.LastOverlayPlacementKey = key;
             ViewModel.OverlayWidthScale = placement.WidthScale;
@@ -1662,31 +1665,28 @@ public sealed partial class AppController : IAsyncDisposable
         }
         else
         {
-            if (Settings.LayoutMode == HudLayoutMode.Native)
-            {
-                var referenceScale = Overlay.CurrentNativeReferenceScale();
-                Settings.OverlayWidthScale = referenceScale;
-                Settings.OverlayHeightScale = referenceScale;
-                ViewModel.OverlayWidthScale = referenceScale;
-                ViewModel.OverlayHeightScale = referenceScale;
-                Overlay.ApplyLayout(
-                    Settings.LayoutMode,
-                    Settings.NativeGaugeMode,
-                    referenceScale,
-                    referenceScale,
-                    Settings.OverlayOpacity);
-            }
-
-            Overlay.ResetPosition();
+            _initialOverlayPlacementPending = true;
+            ResetMainOverlayPosition();
             _activeOverlayPlacementKey = Overlay.GetDisplayKey();
-            Settings.LastOverlayPlacementKey = _activeOverlayPlacementKey;
-            var bounds = Overlay.GetPlacementBounds();
-            Settings.Placements[_activeOverlayPlacementKey] = new OverlayPlacement(
-                bounds.Left,
-                bounds.Top,
-                Settings.OverlayWidthScale,
-                Settings.OverlayHeightScale);
+            // A fallback shown before Forza is known is not a saved user layout.
+            // Leave it pending across settings saves and restarts until the game
+            // is confirmed, or the user explicitly drags/resets the HUD.
+            CompleteInitialOverlayPlacement(_lastConfirmedForzaWindow);
         }
+    }
+
+    internal void CompleteInitialOverlayPlacement(IntPtr gameWindow)
+    {
+        if (!_initialOverlayPlacementPending || !Settings.OverlayLocked ||
+            Overlay is null || !Overlay.TryUseMonitorOfWindow(gameWindow)) return;
+
+        ResetMainOverlayPosition();
+        SaveOverlayPlacement();
+        if (Settings.GForcePlacements.Count == 0) RestoreGForcePlacement();
+        if (Settings.BoostGaugePlacements.Count == 0) RestoreBoostGaugePlacement();
+        if (Settings.TireTemperatureGaugePlacements.Count == 0) RestoreTireTemperatureGaugePlacement();
+        if (Settings.PowerGaugePlacements.Count == 0) RestorePowerGaugePlacement();
+        if (Settings.TorqueGaugePlacements.Count == 0) RestoreTorqueGaugePlacement();
     }
 
     public void RestoreGForcePlacement()
@@ -1788,18 +1788,8 @@ public sealed partial class AppController : IAsyncDisposable
 
     public void ResetOverlayPosition()
     {
-        if (Overlay is not null && Settings.LayoutMode == HudLayoutMode.Native)
-        {
-            var scale = Overlay.CurrentNativeReferenceScale();
-            Settings.OverlayWidthScale = scale;
-            Settings.OverlayHeightScale = scale;
-            ViewModel.OverlayWidthScale = scale;
-            ViewModel.OverlayHeightScale = scale;
-            Overlay.ApplyLayout(
-                Settings.LayoutMode, Settings.NativeGaugeMode, scale, scale, Settings.OverlayOpacity);
-        }
-
-        Overlay?.ResetPosition();
+        Overlay?.TryUseMonitorOfWindow(_lastConfirmedForzaWindow);
+        ResetMainOverlayPosition();
         SaveOverlayPlacement();
         ResetGForcePosition();
         SaveGForcePlacement();
@@ -1812,6 +1802,22 @@ public sealed partial class AppController : IAsyncDisposable
         {
             RestoreTireTemperatureGaugePlacement();
         }
+    }
+
+    private void ResetMainOverlayPosition()
+    {
+        if (Overlay is not null && Settings.LayoutMode == HudLayoutMode.Native)
+        {
+            var scale = Overlay.CurrentNativeReferenceScale();
+            Settings.OverlayWidthScale = scale;
+            Settings.OverlayHeightScale = scale;
+            ViewModel.OverlayWidthScale = scale;
+            ViewModel.OverlayHeightScale = scale;
+            Overlay.ApplyLayout(
+                Settings.LayoutMode, Settings.NativeGaugeMode, scale, scale, Settings.OverlayOpacity);
+        }
+
+        Overlay?.ResetPosition();
     }
 
     private void ResetGForcePosition()
@@ -2829,6 +2835,7 @@ public sealed partial class AppController : IAsyncDisposable
             ? focus.ForegroundWindow
             : _lastConfirmedForzaWindow;
         var forzaWindowKnown = WindowZOrder.IsWindowAvailable(confirmedForzaWindow);
+        if (forzaWindowKnown) CompleteInitialOverlayPlacement(confirmedForzaWindow);
         if (driftEnabled && focus.IsForzaForeground) RefreshDriftGaugeDisplay(confirmedForzaWindow, now);
         if ((lapEnabled || mapEnabled) && focus.IsForzaForeground) RefreshLapDeltaDisplay(confirmedForzaWindow, now);
         var telemetryFresh = _freshness.GetState(Stopwatch.GetTimestamp()) == TelemetryConnectionState.Connected;
