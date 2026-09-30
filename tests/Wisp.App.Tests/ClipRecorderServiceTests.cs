@@ -127,7 +127,7 @@ public sealed class ClipRecorderServiceTests
         service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
         var session = await factory.NextAsync();
         await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
-        Assert.Equal(ClipRecorderState.WaitingForGame, service.Snapshot.State);
+        Assert.Equal(ClipRecorderState.Preparing, service.Snapshot.State);
         Assert.False(service.Snapshot.CanSave);
         session.Emit("buffering", "none");
         Assert.Equal(ClipRecorderState.Buffering, service.Snapshot.State);
@@ -141,7 +141,7 @@ public sealed class ClipRecorderServiceTests
     }
 
     [Fact]
-    public async Task ResizeWaitsForNewObservationEpochWithoutRetryingUnchangedTarget()
+    public async Task ResizeAcceptsNewObservationWithoutWaitingForTheBackoff()
     {
         using var fixture = new Fixture();
         var factory = new SessionFactory();
@@ -151,10 +151,10 @@ public sealed class ClipRecorderServiceTests
         var first = await factory.NextAsync();
         await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         first.Emit("buffering", "none");
-        first.Emit("waiting", "window_resized");
+        first.Emit("reconnecting", "window_resized");
         await first.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         Assert.True(service.Snapshot.Enabled);
-        Assert.Equal(ClipRecorderState.WaitingForGame, service.Snapshot.State);
+        Assert.Equal(ClipRecorderState.Reconnecting, service.Snapshot.State);
         Assert.False(service.Snapshot.CanSave);
         for (var index = 0; index < 100; index++) service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
         Assert.Equal(1, factory.Count);
@@ -167,7 +167,7 @@ public sealed class ClipRecorderServiceTests
     }
 
     [Fact]
-    public async Task GenericCrashRequiresExplicitReenableEvenWhenTargetChanges()
+    public async Task HelperExitKeepsIntentAndNewTargetCancelsTheOldRetry()
     {
         using var fixture = new Fixture();
         var factory = new SessionFactory();
@@ -178,11 +178,8 @@ public sealed class ClipRecorderServiceTests
         await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         first.Emit("error", "helper_exited");
         await first.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
-        Assert.Equal(ClipRecorderState.Error, service.Snapshot.State);
-        Assert.False(service.Snapshot.Enabled);
-        service.ObserveTarget(new(Target, 2), service.TargetObservationGeneration);
-        Assert.Equal(1, factory.Count);
-        await service.SetEnabledAsync(true, Recording, TestToken);
+        Assert.Equal(ClipRecorderState.Reconnecting, service.Snapshot.State);
+        Assert.True(service.Snapshot.Enabled);
         service.ObserveTarget(new(Target, 2), service.TargetObservationGeneration);
         var second = await factory.NextAsync();
         await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
@@ -190,14 +187,11 @@ public sealed class ClipRecorderServiceTests
     }
 
     [Theory]
-    [InlineData("capture_failed", "Game capture failed.")]
     [InlineData("encoder_failed", "Video encoding failed.")]
-    [InlineData("audio_failed", "Game audio recording failed.")]
-    [InlineData("audio_capture_failed", "Game audio recording failed.")]
     [InlineData("protocol_error", "The recorder connection failed.")]
     [InlineData("helper_start_failed", "The recorder could not start.")]
-    [InlineData("helper_timeout", "The recorder did not respond in time.")]
-    [InlineData("helper_exited", "The recorder closed unexpectedly.")]
+    [InlineData("storage_failed", "The clip folder could not be written.")]
+    [InlineData("unsupported_gpu", "A compatible hardware video encoder is unavailable.")]
     public async Task RecorderFailureKeepsItsSpecificStatusAfterLateCancellation(string reason, string expected)
     {
         using var fixture = new Fixture();
@@ -284,7 +278,7 @@ public sealed class ClipRecorderServiceTests
         var stale = new ClipRecorderSnapshot(ClipRecorderState.Buffering, true, true, true, "Old session");
         publish.Invoke(service, [stale, oldRevision, second]);
         publish.Invoke(service, [stale, currentRevision, first]);
-        Assert.Equal(ClipRecorderState.WaitingForGame, service.Snapshot.State);
+        Assert.Equal(ClipRecorderState.Preparing, service.Snapshot.State);
         Assert.False(service.Snapshot.CanSave);
         second.Emit("buffering", "none");
         Assert.True(service.Snapshot.CanSave);
@@ -394,6 +388,174 @@ public sealed class ClipRecorderServiceTests
         finally { recorderField.SetValue(controller, originalRecorder); }
     }
 
+    [Theory]
+    [InlineData("capture_stale")]
+    [InlineData("capture_reconnecting")]
+    [InlineData("encoder_reconnecting")]
+    [InlineData("audio_reconnecting")]
+    [InlineData("scheduler_late")]
+    [InlineData("window_resized")]
+    [InlineData("helper_exited")]
+    [InlineData("helper_timeout")]
+    public async Task RecoverableInterruptionCleansOldSessionBeforeAutomaticReacquisition(string reason)
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        var generation = service.TargetObservationGeneration;
+        service.ObserveTarget(new(Target, 1), generation);
+        var first = await factory.NextAsync();
+        await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        first.Emit("buffering", "none");
+        first.Emit("reconnecting", reason);
+        var retry = await delays.NextAsync();
+        Assert.Equal(TimeSpan.FromSeconds(1), retry.Delay);
+        await first.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.Equal(ClipRecorderState.Reconnecting, service.Snapshot.State);
+        Assert.True(service.Snapshot.Enabled);
+        Assert.False(service.Snapshot.CanSave);
+        Assert.Equal(generation, service.TargetObservationGeneration);
+        Assert.Contains("buffer restarts", service.Snapshot.Status, StringComparison.Ordinal);
+        first.Emit("error", "cancelled");
+        await ReconcileAsync(service);
+        Assert.Equal(1, factory.Count);
+        retry.Resume.TrySetResult();
+        var second = await factory.NextAsync();
+        await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.Equal(Target, second.StartedTarget);
+        Assert.True(first.Disposed.Task.IsCompleted);
+        second.Emit("buffering", "none");
+        Assert.True(service.Snapshot.CanSave);
+        Assert.Empty(service.FailureReport);
+    }
+
+    [Fact]
+    public async Task RepeatedBriefRecoveriesBackOffAndDisableCancelsPendingRetry()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        foreach (var seconds in new[] { 1, 2, 4, 8, 16, 30, 30 })
+        {
+            await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            session.Emit("buffering", "none");
+            session.Emit("reconnecting", "capture_stale");
+            var retry = await delays.NextAsync();
+            Assert.Equal(TimeSpan.FromSeconds(seconds), retry.Delay);
+            await session.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            retry.Resume.TrySetResult();
+            session = await factory.NextAsync();
+        }
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("reconnecting", "capture_stale");
+        var last = await delays.NextAsync();
+        var count = factory.Count;
+        await service.SetEnabledAsync(false, Recording, TestToken);
+        last.Resume.TrySetResult();
+        await ReconcileAsync(service);
+        Assert.Equal(count, factory.Count);
+        Assert.False(service.Snapshot.Enabled);
+    }
+
+    [Fact]
+    public async Task MinimizedTargetPausesWithoutRetryingUntilRestoredObservation()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var first = await factory.NextAsync();
+        await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        first.Emit("paused", "window_minimized");
+        await first.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        await ReconcileAsync(service);
+        Assert.Equal(ClipRecorderState.Paused, service.Snapshot.State);
+        Assert.True(service.Snapshot.Enabled);
+        Assert.Equal(0, delays.Count);
+        Assert.Equal(1, factory.Count);
+        service.ObserveTarget(null, service.TargetObservationGeneration);
+        service.ObserveTarget(new(Target, 2), service.TargetObservationGeneration);
+        var restored = await factory.NextAsync();
+        await restored.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        restored.Emit("buffering", "none");
+        Assert.True(service.Snapshot.CanSave);
+    }
+
+    [Fact]
+    public async Task RepeatedFrameNoticeKeepsTheSamePlayableSessionAndHistory()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        session.Emit("buffering", "capture_stale");
+        await ReconcileAsync(service);
+        Assert.Equal(ClipRecorderState.Buffering, service.Snapshot.State);
+        Assert.True(service.Snapshot.CanSave);
+        Assert.Contains("last frame", service.Snapshot.Status, StringComparison.Ordinal);
+        Assert.Equal(0, delays.Count);
+        Assert.Equal(1, factory.Count);
+        Assert.Equal(0, session.Stops);
+        session.Emit("buffering", "none");
+        Assert.Equal("Recording game clips.", service.Snapshot.Status);
+    }
+
+    [Fact]
+    public async Task SavePublicationErrorHasCopyableStorageEvidenceAndKeepsRecording()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        var save = service.SaveAsync(new(Guid.NewGuid(), DateTimeOffset.UtcNow, Recording, "unused.mp4"), TestToken);
+        session.Saved.SetException(new RecorderClientException("clip_storage_full")
+        { StorageStage = "copy_media", StorageHResult = unchecked((int)0x80070070) });
+        await Assert.ThrowsAsync<RecorderClientException>(() => save);
+        Assert.True(service.Snapshot.CanSave);
+        Assert.True(service.Snapshot.Enabled);
+        Assert.Contains("Reason: clip_storage_full", service.FailureReport, StringComparison.Ordinal);
+        Assert.Contains("Storage stage: copy_media", service.FailureReport, StringComparison.Ordinal);
+        Assert.Contains("Storage HRESULT: 0x80070070", service.FailureReport, StringComparison.Ordinal);
+        var storageReport = service.FailureReport;
+        session.DiagnosticAfterDisposal = RecorderFailureDiagnostic.Parse(RecorderFailureDiagnosticTests.Line());
+        session.Emit("error", "encoder_failed");
+        await session.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        await ReconcileAsync(service);
+        Assert.Equal(storageReport, service.FailureReport);
+    }
+
+    private sealed class RecoveryClock
+    {
+        internal sealed record Retry(TimeSpan Delay, TaskCompletionSource Resume);
+        private readonly Channel<Retry> _delays = Channel.CreateUnbounded<Retry>();
+        internal int Count { get; private set; }
+        internal Task DelayAsync(TimeSpan delay, CancellationToken token)
+        {
+            Count++;
+            var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _delays.Writer.TryWrite(new(delay, resume));
+            return resume.Task.WaitAsync(token);
+        }
+        internal Task<Retry> NextAsync() => _delays.Reader.ReadAsync(TestToken).AsTask().WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+    }
+
     private static async Task ReconcileAsync(ClipRecorderService service)
     {
         var lifecycle = Assert.IsType<SemaphoreSlim>(typeof(ClipRecorderService).GetField("_lifecycle",
@@ -416,7 +578,9 @@ public sealed class ClipRecorderServiceTests
     {
         internal string Directory { get; } = Path.Combine(Path.GetTempPath(), "WispRecorderServiceTests", Guid.NewGuid().ToString("N"));
         internal Fixture() => System.IO.Directory.CreateDirectory(Directory);
-        internal ClipRecorderService Service(SessionFactory factory) => new(() => Directory, factory.Create, true);
+        internal ClipRecorderService Service(SessionFactory factory,
+            Func<TimeSpan, CancellationToken, Task>? recoveryDelay = null) => new(() => Directory, factory.Create, true,
+                recoveryDelay: recoveryDelay ?? ((_, token) => Task.Delay(Timeout.InfiniteTimeSpan, token)));
         public void Dispose() => System.IO.Directory.Delete(Directory, true);
     }
     private sealed class SessionFactory

@@ -9,10 +9,18 @@ public sealed class RecorderFailureDiagnosticTests
 {
     internal static Dictionary<string, object> Fields() => new()
     {
-        ["mode"] = "recorder_failure", ["v"] = 1, ["reason"] = "encoder_failed", ["stage"] = "video_submit",
-        ["hr"] = 2147500037u, ["videoPackets"] = 3u, ["audioPackets"] = 6u, ["submittedFrames"] = 4u,
-        ["schedulerLagKnown"] = true, ["schedulerLag100ns"] = 1500L,
-        ["sourceAgeKnown"] = false, ["sourceAge100ns"] = 0L
+        ["mode"] = "recorder_failure",
+        ["v"] = 1,
+        ["reason"] = "encoder_failed",
+        ["stage"] = "video_submit",
+        ["hr"] = 2147500037u,
+        ["videoPackets"] = 3u,
+        ["audioPackets"] = 6u,
+        ["submittedFrames"] = 4u,
+        ["schedulerLagKnown"] = true,
+        ["schedulerLag100ns"] = 1500L,
+        ["sourceAgeKnown"] = false,
+        ["sourceAge100ns"] = 0L
     };
 
     internal static byte[] Line() => JsonSerializer.SerializeToUtf8Bytes(Fields());
@@ -94,6 +102,20 @@ public sealed class RecorderFailureDiagnosticTests
         if (kind == "truncated") bytes = bytes[..^1];
         if (kind == "oversized") bytes = new byte[RecorderFailureDiagnostic.MaximumBytes + 1];
         Assert.Null(RecorderFailureDiagnostic.Parse(bytes));
+    }
+
+    [Fact]
+    public void ManagedStorageReportRetainsOnlyFixedStagesAndNumericCodes()
+    {
+        var error = new RecorderClientException("clip_publish_failed")
+        { StorageStage = "rename_publication", StorageHResult = unchecked((int)0x80070057) };
+        var report = ClipFailureReport.Build(error.Reason, new(60, 1080, 60, 100), null, ClipStorageDiagnostic.From(error));
+        Assert.Contains("Storage stage: rename_publication", report, StringComparison.Ordinal);
+        Assert.Contains("Storage HRESULT: 0x80070057", report, StringComparison.Ordinal);
+        Assert.Null(ClipStorageDiagnostic.From(new RecorderClientException("clip_publish_failed")
+        { StorageStage = "PRIVATE_DO_NOT_COPY", StorageHResult = 5 }));
+        Assert.Null(ClipStorageDiagnostic.From(new RecorderClientException("clip_publish_failed")
+        { StorageStage = "copy_media" }));
     }
 
     [Fact]

@@ -54,12 +54,24 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
     }
 }
 
+internal sealed record ClipStorageDiagnostic(string Stage, int HResult)
+{
+    internal static ClipStorageDiagnostic? From(RecorderClientException? error) =>
+        error?.StorageHResult is { } hr && error.StorageStage is
+            "validate_destination" or "open_private_media" or "private_media_identity" or "write_recovery_record" or
+            "open_destination" or "create_publication_temporary" or "copy_media" or "verify_copy" or
+            "rename_publication" or "published_identity" or "reopen_publication"
+            ? new(error.StorageStage, hr) : null;
+}
+
 internal static class ClipFailureReport
 {
-    internal static string Build(string reason, ClipRecordingSpec? recording, RecorderFailureDiagnostic? diagnostic)
+    internal static string Build(string reason, ClipRecordingSpec? recording, RecorderFailureDiagnostic? diagnostic,
+        ClipStorageDiagnostic? storage = null)
     {
         var safeReason = diagnostic?.Reason ?? (RecorderProtocol.Reasons.Contains(reason) ||
-            reason is "helper_start_failed" or "helper_timeout" or "helper_exited" or "helper_shutdown_failed" ? reason : "recorder_failed");
+            reason is "helper_start_failed" or "helper_timeout" or "helper_exited" or "helper_shutdown_failed" or
+                "buffer_storage_unavailable" or "buffer_storage_full" or "clip_storage_full" or "clip_publish_failed" ? reason : "recorder_failed");
         var report = new StringBuilder("Wisp Clips error report\n");
         report.AppendLine($"Version: {ApplicationVersionInfo.MachineVersion}");
         var build = ApplicationVersionInfo.DiagnosticBuildId;
@@ -68,6 +80,11 @@ internal static class ClipFailureReport
         report.AppendLine($"Reason: {safeReason}");
         if (recording is not null)
             report.AppendLine(FormattableString.Invariant($"Settings: {recording.LengthSeconds}s, {recording.ResolutionHeight}p, {recording.FrameRate}fps, quality {recording.Quality}, game audio requested"));
+        if (storage is not null)
+        {
+            report.AppendLine($"Storage stage: {storage.Stage}");
+            report.AppendLine($"Storage HRESULT: 0x{storage.HResult.ToString("X8", CultureInfo.InvariantCulture)}");
+        }
         if (diagnostic is null) report.AppendLine("Native detail: not available");
         else
         {

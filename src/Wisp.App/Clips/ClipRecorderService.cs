@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 
 namespace Wisp.App.Clips;
@@ -19,6 +20,7 @@ internal interface IRecorderSession : IAsyncDisposable
 internal sealed class ProcessRecorderSession(string installedHelperPath) : IRecorderSession
 {
     private readonly RecorderProcessClient _client = new(installedHelperPath);
+    internal bool BorderlessAllowed { set => _client.BorderlessAllowed = value; }
     public RecorderFailureDiagnostic? FailureDiagnostic => _client.FailureDiagnostic;
     public event EventHandler<RecorderStateUpdate>? StateChanged { add => _client.StateChanged += value; remove => _client.StateChanged -= value; }
     public Task OpenAsync(ClipRecordingSpec recording, string storage, CancellationToken cancellationToken) => _client.OpenAsync(recording, storage, cancellationToken);
@@ -33,6 +35,10 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private readonly Func<string> _storageDirectory;
     private readonly Func<IRecorderSession> _createSession;
     private readonly Func<CancellationToken, Task<string>> _validateStorage;
+    private readonly Func<TimeSpan, CancellationToken, Task> _recoveryDelay;
+    private readonly Func<CancellationToken, Task<ClipBorderlessAccessResult>> _requestBorderless;
+    private readonly SemaphoreSlim _permissionGate = new(1, 1);
+    private ClipBorderlessAccessResult? _borderlessAccess;
     private readonly bool _helperAvailable;
     private readonly object _sync = new();
     private readonly SemaphoreSlim _wake = new(0, 1), _lifecycle = new(1, 1);
@@ -48,21 +54,32 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private string? _storage, _fault;
     private FailureReportState? _failureReport;
     private sealed record FailureReportState(string Reason, ClipRecordingSpec? Recording,
-        IRecorderSession? Owner, RecorderFailureDiagnostic? Diagnostic);
+        IRecorderSession? Owner, RecorderFailureDiagnostic? Diagnostic, ClipStorageDiagnostic? Storage);
     private bool _enabled, _saving, _cleanupFailed;
+    private CancellationTokenSource? _recoveryCancellation;
+    private Task _recoveryTask = Task.CompletedTask;
+    private bool _recoveryWaiting;
+    private int _recoveryAttempt;
+    private long _bufferingSince;
     private long _revision;
     private long _targetObservationGeneration;
     private int _disposed, _resourcesDisposed;
 
     internal ClipRecorderService(string installedHelperPath, Func<string> storageDirectory)
-        : this(storageDirectory, () => new ProcessRecorderSession(installedHelperPath), File.Exists(installedHelperPath)) { }
+        : this(storageDirectory, () => new ProcessRecorderSession(installedHelperPath), File.Exists(installedHelperPath),
+            requestBorderless: new RecorderBorderlessAccess(installedHelperPath).RequestAsync)
+    { }
 
     internal ClipRecorderService(Func<string> storageDirectory, Func<IRecorderSession> createSession, bool helperAvailable,
-        Func<CancellationToken, Task<string>>? validateStorage = null)
+        Func<CancellationToken, Task<string>>? validateStorage = null,
+        Func<TimeSpan, CancellationToken, Task>? recoveryDelay = null,
+        Func<CancellationToken, Task<ClipBorderlessAccessResult>>? requestBorderless = null)
     {
         _storageDirectory = storageDirectory ?? throw new ArgumentNullException(nameof(storageDirectory));
         _createSession = createSession ?? throw new ArgumentNullException(nameof(createSession));
         _validateStorage = validateStorage ?? ValidateStorageAsync;
+        _recoveryDelay = recoveryDelay ?? Task.Delay;
+        _requestBorderless = requestBorderless ?? (_ => Task.FromResult(ClipBorderlessAccessResult.Unavailable));
         _helperAvailable = helperAvailable;
         _snapshot = OffSnapshot();
         _worker = Task.Run(WorkAsync);
@@ -74,10 +91,25 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         get
         {
             lock (_sync) return _failureReport is { } failure
-                ? ClipFailureReport.Build(failure.Reason, failure.Recording, failure.Diagnostic ?? failure.Owner?.FailureDiagnostic) : "";
+                ? ClipFailureReport.Build(failure.Reason, failure.Recording,
+                    IsManagedStorageFailure(failure.Reason) ? null : failure.Diagnostic ?? failure.Owner?.FailureDiagnostic, failure.Storage) : "";
         }
     }
     public event EventHandler? StateChanged;
+
+    public async Task<ClipBorderlessAccessResult> RequestBorderlessAccessAsync(CancellationToken cancellationToken)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        await _permissionGate.WaitAsync(linked.Token).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            if (!_helperAvailable) return ClipBorderlessAccessResult.Unavailable;
+            if (_borderlessAccess is { } cached) return cached;
+            return (_borderlessAccess = await _requestBorderless(linked.Token).ConfigureAwait(false)).Value;
+        }
+        finally { _permissionGate.Release(); }
+    }
     // Zero means there is no active capture demand. An observation is valid
     // only for the enable operation that requested its discovery.
     internal long TargetObservationGeneration
@@ -97,6 +129,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             if (Volatile.Read(ref _disposed) != 0 || !_enabled || generation == 0 ||
                 generation != _targetObservationGeneration || Equals(_observed, observation)) return;
             _observed = observation; _revision++;
+            CancelRecoveryLocked();
+            _recoveryAttempt = 0;
             _sessionLifetime?.Cancel();
         }
         Signal();
@@ -130,6 +164,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                     return;
                 }
                 _targetObservationGeneration = checked(_targetObservationGeneration + 1);
+                CancelRecoveryLocked();
+                _recoveryAttempt = 0;
                 _observed = null;
                 _recording = recording; _storage = storage; _enabled = true; _fault = null; _blockedObservation = null; _revision++;
                 revision = _revision; previousSession = _session;
@@ -143,6 +179,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         lock (_sync)
         {
             _enabled = false; _observed = null;
+            CancelRecoveryLocked();
             if (!_cleanupFailed) _fault = null; _revision++; _sessionLifetime?.Cancel();
             stoppingRevision = _revision; stoppingSession = _session;
         }
@@ -183,7 +220,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             var current = false;
             lock (_sync)
             {
-                if (ReferenceEquals(session, _session)) { RememberFailure(error.Reason, session); current = true; }
+                if (ReferenceEquals(session, _session)) { RememberFailure(error.Reason, session, error); current = true; }
             }
             if (current) StateChanged?.Invoke(this, EventArgs.Empty);
             throw;
@@ -225,21 +262,28 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             RecorderTargetObservation? observed;
             ClipRecordingSpec? recording;
             string? storage;
-            bool enabled, blocked;
+            bool enabled, blocked, recoveryWaiting;
             long revision;
             lock (_sync)
             {
                 observed = _observed; recording = _recording; storage = _storage; enabled = _enabled;
+                recoveryWaiting = _recoveryWaiting;
                 blocked = Equals(observed, _blockedObservation); revision = _revision;
-                if (enabled && observed is not null && !blocked && _session is not null && Equals(_activeObservation, observed)) return;
+                if (enabled && observed is not null && !blocked && _session is not null &&
+                    !_sessionLifetime!.IsCancellationRequested && Equals(_activeObservation, observed)) return;
             }
             await CloseSessionAsync().ConfigureAwait(false);
             lock (_sync) { if (revision != _revision) continue; }
             if (!enabled || _cleanupFailed) { PublishOff(); return; }
+            if (recoveryWaiting)
+            {
+                Publish(new(ClipRecorderState.Reconnecting, true, true, false, RecoveryStatus(_fault!)), revision, null);
+                return;
+            }
             if (observed is null || blocked)
             {
-                Publish(new(ClipRecorderState.WaitingForGame, true, true, false,
-                    blocked && _fault is not null ? ReasonText(_fault) : "Waiting for a game window."), revision, null);
+                Publish(new(_fault == "window_minimized" ? ClipRecorderState.Paused : ClipRecorderState.WaitingForGame, true, true, false,
+                    (_fault == "window_minimized" || blocked) && _fault is not null ? ReasonText(_fault) : "Waiting for a game window."), revision, null);
                 return;
             }
             IRecorderSession? session = null;
@@ -247,6 +291,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             try
             {
                 session = _createSession();
+                if (session is ProcessRecorderSession process) process.BorderlessAllowed = _borderlessAccess == ClipBorderlessAccessResult.Allowed;
                 lifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                 var owned = session;
                 EventHandler<RecorderStateUpdate> handler = (_, state) => OnNativeState(owned, state);
@@ -254,10 +299,11 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 {
                     _session = session; _sessionLifetime = lifetime; _activeObservation = observed;
                     _sessionHandler = handler; _nativeState = null;
+                    _bufferingSince = 0;
                     if (revision != _revision) lifetime.Cancel();
                 }
                 session.StateChanged += handler;
-                Publish(new(ClipRecorderState.WaitingForGame, true, true, false, "Preparing game capture…"), revision, session);
+                Publish(new(ClipRecorderState.Preparing, true, true, false, "Preparing game capture…"), revision, session);
                 await session.OpenAsync(recording!, storage!, lifetime.Token).ConfigureAwait(false);
                 await session.StartAsync(observed.Target, lifetime.Token).ConfigureAwait(false);
             }
@@ -265,7 +311,11 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             catch (Exception error) when (error is not OutOfMemoryException)
             {
                 if (lifetime?.IsCancellationRequested != true)
-                    SetFault(error is RecorderClientException recorder ? recorder.Reason : "capture_failed");
+                {
+                    var reason = error is RecorderClientException recorder ? recorder.Reason : "capture_failed";
+                    if (IsRecoverable(reason)) RequestRecovery(reason, session, revision);
+                    else SetFault(reason, session, revision);
+                }
             }
             lock (_sync) { if (revision == _revision) return; }
         }
@@ -279,14 +329,20 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         {
             if (!ReferenceEquals(_session, session) || _sessionLifetime!.IsCancellationRequested || !_enabled || Volatile.Read(ref _disposed) != 0) return;
             _nativeState = state;
-            if ((state.State is "waiting" or "stopped" or "error") && IsTargetTransition(state.Reason))
+            if ((state.State is "waiting" or "paused" or "reconnecting" or "stopped" or "error") && IsTargetTransition(state.Reason))
             {
                 _blockedObservation = _activeObservation; _fault = state.Reason; _revision++;
+                CancelRecoveryLocked();
                 _sessionLifetime.Cancel(); transition = true;
             }
             revision = _revision;
         }
-        if (transition) { Publish(new(ClipRecorderState.WaitingForGame, true, true, false, ReasonText(state.Reason)), revision, session); Signal(); }
+        if (transition)
+        {
+            Publish(new(state.Reason == "window_minimized" ? ClipRecorderState.Paused : ClipRecorderState.WaitingForGame,
+            true, true, false, ReasonText(state.Reason)), revision, session); Signal();
+        }
+        else if ((state.State is "error" or "stopped" or "reconnecting") && IsRecoverable(state.Reason)) RequestRecovery(state.Reason, session, revision);
         else if (state.State is "error" or "stopped") SetFault(state.Reason, session, revision);
         else PublishNativeState();
     }
@@ -300,9 +356,14 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         {
             if (!_enabled || _session is null || _sessionLifetime!.IsCancellationRequested) return;
             if (_saving || _nativeState?.State == "saving") snapshot = new(ClipRecorderState.Saving, true, true, false, "Saving clip…");
-            else if (_nativeState?.State == "buffering") snapshot = new(ClipRecorderState.Buffering, true, true, true,
-                _nativeState.Reason is "audio_unavailable" or "audio_capture_failed" ? "Recording video. Game audio is unavailable." : "Recording game clips.");
-            else if (_nativeState?.State == "waiting") snapshot = new(ClipRecorderState.WaitingForGame, true, true, false, "Waiting for a game window.");
+            else if (_nativeState?.State == "buffering")
+            {
+                if (_bufferingSince == 0) _bufferingSince = Stopwatch.GetTimestamp();
+                snapshot = new(ClipRecorderState.Buffering, true, true, true,
+                    _nativeState.Reason == "capture_stale" ? "No new game frames. Recording the last frame while waiting for the game." :
+                    _nativeState.Reason is "audio_unavailable" or "audio_capture_failed" ? "Recording video. Game audio is unavailable." : "Recording game clips.");
+            }
+            else if (_nativeState?.State == "waiting") snapshot = new(ClipRecorderState.Preparing, true, true, false, "Preparing game capture…");
             session = _session; revision = _revision;
         }
         if (snapshot is not null) Publish(snapshot, revision, session);
@@ -331,10 +392,12 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         var reportUpdated = false;
         lock (_sync)
         {
-            if (_failureReport is { Diagnostic: null } failure && ReferenceEquals(failure.Owner, session) &&
+            if (_failureReport is { Diagnostic: null } failure && !IsManagedStorageFailure(failure.Reason) && ReferenceEquals(failure.Owner, session) &&
                 session.FailureDiagnostic is { } diagnostic)
             {
                 _failureReport = failure with { Diagnostic = diagnostic };
+                if (_fault == "storage_failed" && diagnostic.HResult is 0x80070070 or 0x80070027 or 0xD000007F)
+                    _fault = "buffer_storage_full";
                 reportUpdated = true;
             }
         }
@@ -353,14 +416,82 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         {
             if (expectedRevision is not null && (_revision != expectedRevision || !ReferenceEquals(_session, expectedSession))) return;
             RememberFailure(reason, _session);
+            if (reason is "cleanup_failed" or "helper_shutdown_failed") _cleanupFailed = true;
             _fault = reason; _enabled = false; _revision++;
+            CancelRecoveryLocked();
             _sessionLifetime?.Cancel();
         }
         PublishOff(); Signal();
     }
 
-    private void RememberFailure(string reason, IRecorderSession? owner) =>
-        _failureReport ??= new(reason, _recording, owner, owner?.FailureDiagnostic);
+    private void RequestRecovery(string reason, IRecorderSession? expectedSession, long expectedRevision)
+    {
+        long revision;
+        CancellationTokenSource cancellation;
+        TimeSpan delay;
+        lock (_sync)
+        {
+            if (!_enabled || _revision != expectedRevision || !ReferenceEquals(_session, expectedSession) ||
+                Volatile.Read(ref _disposed) != 0) return;
+            RememberFailure(reason, expectedSession);
+            if (_bufferingSince != 0 && Stopwatch.GetElapsedTime(_bufferingSince) >= TimeSpan.FromSeconds(30))
+                _recoveryAttempt = 0;
+            CancelRecoveryLocked();
+            _recoveryAttempt = Math.Min(_recoveryAttempt + 1, 6);
+            delay = TimeSpan.FromSeconds(Math.Min(30, 1 << (_recoveryAttempt - 1)));
+            _fault = reason; _blockedObservation = null; _recoveryWaiting = true; revision = ++_revision;
+            _sessionLifetime?.Cancel();
+            cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            _recoveryCancellation = cancellation;
+        }
+        Publish(new(ClipRecorderState.Reconnecting, true, true, false, RecoveryStatus(reason)), revision, expectedSession);
+        Signal();
+        lock (_sync) _recoveryTask = RetryAfterDelayAsync(revision, delay, cancellation);
+    }
+
+    private async Task RetryAfterDelayAsync(long revision, TimeSpan delay, CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await _recoveryDelay(delay, cancellation.Token).ConfigureAwait(false);
+            lock (_sync)
+            {
+                if (cancellation.IsCancellationRequested || !_enabled || _revision != revision || Volatile.Read(ref _disposed) != 0) return;
+                _recoveryWaiting = false;
+                _recoveryCancellation = null;
+            }
+            Signal();
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        finally { cancellation.Dispose(); }
+    }
+
+    private void CancelRecoveryLocked()
+    {
+        _recoveryCancellation?.Cancel();
+        _recoveryCancellation = null;
+        _recoveryWaiting = false;
+    }
+
+    private static bool IsRecoverable(string reason) => reason is "capture_stale" or "capture_reconnecting" or
+        "encoder_reconnecting" or "audio_reconnecting" or "scheduler_late" or "capture_failed" or
+        "audio_failed" or "audio_capture_failed" or "helper_exited" or "helper_timeout" or "not_ready" or "window_resized";
+
+    private static string RecoveryStatus(string reason) => (reason switch
+    {
+        "audio_reconnecting" or "audio_failed" or "audio_capture_failed" => "Game audio changed. Reconnecting capture…",
+        "encoder_reconnecting" => "The video device changed. Reconnecting capture…",
+        "capture_stale" => "Waiting for fresh game frames. Reconnecting capture…",
+        "scheduler_late" => "Recording fell behind. Reconnecting capture…",
+        "window_resized" => "The game resolution changed. Reconnecting capture…",
+        _ => "Game capture was interrupted. Reconnecting automatically…"
+    }) + " The rolling buffer restarts after reconnecting.";
+
+    private void RememberFailure(string reason, IRecorderSession? owner, RecorderClientException? error = null) =>
+        _failureReport ??= new(reason, _recording, owner, IsManagedStorageFailure(reason) ? null : owner?.FailureDiagnostic, ClipStorageDiagnostic.From(error));
+
+    private static bool IsManagedStorageFailure(string reason) => reason is
+        "buffer_storage_unavailable" or "buffer_storage_full" or "clip_storage_full" or "clip_publish_failed";
 
     private ClipRecorderSnapshot OffSnapshot()
     {
@@ -401,7 +532,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         if (previous != snapshot || reportCleared) StateChanged?.Invoke(this, EventArgs.Empty);
     }
     private void Signal() { try { _wake.Release(); } catch (SemaphoreFullException) { } }
-    private static bool IsTargetTransition(string reason) => reason is "target_exited" or "target_changed" or "window_closed" or "window_minimized" or "window_resized";
+    private static bool IsTargetTransition(string reason) => reason is "target_exited" or "target_changed" or "window_closed" or "window_minimized";
     internal static string ReasonText(string reason) => reason switch
     {
         "target_exited" or "window_closed" or "waiting_for_game" => "Waiting for a game window.",
@@ -410,6 +541,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         "unsupported_os" => "This Windows version cannot record game clips.",
         "unsupported_gpu" => "A compatible hardware video encoder is unavailable.",
         "unsupported_format" => "The selected recording format is unavailable. Try a lower resolution or frame rate.",
+        "capture_stale" or "capture_reconnecting" or "encoder_reconnecting" or "audio_reconnecting" or "scheduler_late" => RecoveryStatus(reason),
         "capture_failed" => "Game capture failed. Enable clipping to try again.",
         "encoder_failed" => "Video encoding failed. Enable clipping to try again.",
         "audio_failed" or "audio_capture_failed" => "Game audio recording failed. Enable clipping to try again.",
@@ -418,13 +550,17 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         "helper_timeout" => "The recorder did not respond in time. Enable clipping to try again.",
         "helper_exited" => "The recorder closed unexpectedly. Enable clipping to try again.",
         "storage_failed" => "The clip folder could not be written. Check free space and folder access.",
+        "buffer_storage_unavailable" => "The local recording buffer could not be opened. Check free space and access to Wisp's local app data.",
+        "buffer_storage_full" => "The recording buffer drive is full. Free space before enabling clipping again.",
+        "clip_storage_full" => "The selected clips drive is full. Free space or choose another folder. The finished local clip has been kept.",
+        "clip_publish_failed" => "The finished clip could not be saved to your folder. Check folder access, cloud sync and free space. Its local copy has been kept.",
         "mux_failed" => "The clip could not be finalized. Any unfinished save and its file have been kept.",
         "no_keyframe" => "No playable clip is ready yet. Let recording continue, then save again.",
         "not_ready" => "No clip is ready yet. Wait for recording to start, then save again.",
         "save_in_progress" => "A clip is already being saved. Wait for it to finish.",
         "cancelled" => "The clip operation was cancelled. Any unfinished save and its file have been kept.",
         "buffer_full" => "The recording buffer is full. Enable clipping again to start a new buffer.",
-        "helper_shutdown_failed" => "The recorder did not confirm shutdown. Restart Wisp before enabling clips again.",
+        "helper_shutdown_failed" or "cleanup_failed" => "The recorder did not confirm shutdown. Restart Wisp before enabling clips again.",
         _ => "Recording stopped. Enable clipping to try again."
     };
 
@@ -432,10 +568,11 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            lock (_sync) { _enabled = false; _sessionLifetime?.Cancel(); }
+            lock (_sync) { _enabled = false; CancelRecoveryLocked(); _sessionLifetime?.Cancel(); }
             _lifetime.Cancel();
         }
         await _worker.ConfigureAwait(false);
+        await _recoveryTask.ConfigureAwait(false);
         if (_unconfirmedSession is { } unconfirmed)
         {
             await unconfirmed.DisposeAsync().ConfigureAwait(false);
