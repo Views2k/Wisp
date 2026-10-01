@@ -17,7 +17,7 @@ namespace recorder::protocol
         std::string session;
         std::int64_t request = 0;
         std::uint32_t durationSeconds = 0, height = 0, frameRate = 0, quality = 0;
-        bool gameAudio = false, borderlessAllowed = false;
+        bool gameAudio = false, borderlessAllowed = false, systemAudio = false;
         std::wstring spoolDirectory;
         std::uint32_t processId = 0;
         std::uint64_t window = 0, creationFileTime = 0;
@@ -34,7 +34,7 @@ namespace recorder::protocol
     enum class Reason
     {
         None, WaitingForGame, TargetExited, TargetChanged, WindowClosed, WindowMinimized,
-        WindowResized, FocusLost, UnsupportedOs, UnsupportedGpu, UnsupportedFormat,
+        WindowResized, FocusLost, FullscreenRequired, UnsupportedOs, UnsupportedGpu, UnsupportedFormat,
         CaptureFailed, EncoderFailed, AudioFailed, AudioCaptureFailed, AudioUnavailable,
         CaptureStale, CaptureReconnecting, EncoderReconnecting, AudioReconnecting, SchedulerLate,
         BufferFull, NoKeyframe, NotReady, SaveInProgress, StorageFailed, MuxFailed,

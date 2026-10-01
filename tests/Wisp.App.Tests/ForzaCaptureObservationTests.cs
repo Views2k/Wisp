@@ -1,4 +1,5 @@
 using Wisp.App.Clips;
+using Wisp.Core;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -8,7 +9,7 @@ public sealed class ForzaCaptureObservationTests
     private static readonly ForzaCaptureCandidate Window = new(42, 123, 456, 1920, 1080);
 
     [Fact]
-    public void UnchangedWindowKeepsOneEpochWithoutDependingOnForegroundOrTelemetry()
+    public void UnchangedEligibleWindowKeepsOneEpochWithoutTelemetry()
     {
         var tracker = new ForzaCaptureObservationTracker();
         Assert.Null(tracker.Observe(Window));
@@ -46,5 +47,46 @@ public sealed class ForzaCaptureObservationTests
         var tracker = new ForzaCaptureObservationTracker();
         for (var width = 1000; width < 1010; width++) Assert.Null(tracker.Observe(Window with { Width = width }));
         Assert.NotNull(tracker.Observe(Window with { Width = 1009 }));
+    }
+
+    [Theory]
+    [InlineData(123, 123, 0, 0, 1920, 1080, true)]
+    [InlineData(123, 0, 0, 0, 1920, 1080, false)]
+    [InlineData(123, 124, 0, 0, 1920, 1080, false)]
+    [InlineData(0, 0, 0, 0, 1920, 1080, false)]
+    [InlineData(123, 123, 1, 0, 1920, 1080, false)]
+    [InlineData(123, 123, 0, 1, 1920, 1080, false)]
+    [InlineData(123, 123, 0, 0, 1919, 1080, false)]
+    [InlineData(123, 123, 0, 0, 1920, 1079, false)]
+    [InlineData(123, 123, -1, 0, 1920, 1080, false)]
+    [InlineData(123, 123, 0, 0, 3840, 1080, false)]
+    public void CaptureRequiresExactForegroundAndPhysicalClientMonitorMatch(
+        int window, int foreground, int left, int top, int right, int bottom, bool expected)
+    {
+        Assert.Equal(expected, ForzaCaptureEligibility.IsEligible(new(window), new(foreground),
+            new(left, top, right, bottom), new(0, 0, 1920, 1080)));
+    }
+
+    [Fact]
+    public void NegativeMonitorCoordinatesAreValidButDegenerateAndOverflowingBoundsAreNot()
+    {
+        var secondary = new PixelBounds(-3840, -2160, 0, 0);
+        Assert.True(ForzaCaptureEligibility.IsEligible(new(123), new(123), secondary, secondary));
+        Assert.False(ForzaCaptureEligibility.IsEligible(new(123), new(123), default, default));
+        var overflow = new PixelBounds(int.MinValue, 0, int.MaxValue, 1080);
+        Assert.False(ForzaCaptureEligibility.IsEligible(new(123), new(123), overflow, overflow));
+    }
+
+    [Fact]
+    public void FocusLossDisarmsAndTheSameFullscreenWindowMustStabilizeAgain()
+    {
+        var tracker = new ForzaCaptureObservationTracker();
+        tracker.Observe(Window);
+        var first = tracker.Observe(Window)!;
+        var bounds = new PixelBounds(0, 0, 1920, 1080);
+        var eligible = ForzaCaptureEligibility.IsEligible(new(123), new(124), bounds, bounds);
+        Assert.Null(tracker.Observe(eligible ? Window : null));
+        Assert.Null(tracker.Observe(Window));
+        Assert.True(tracker.Observe(Window)!.Epoch > first.Epoch);
     }
 }

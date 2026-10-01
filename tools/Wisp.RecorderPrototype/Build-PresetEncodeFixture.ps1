@@ -15,7 +15,7 @@ foreach ($argumentPath in @($developerCommand, $PSScriptRoot, $buildDirectory, $
 }
 $sources = @(
     'PresetEncodeFixture', 'RecorderHost', 'RecorderHostPolicyContracts', 'RecorderProtocol',
-    'GameWindowCapture', 'HardwareEncoder', 'HardwareVideoSession', 'HdrFrameConverter',
+    'GameWindowCapture', 'GameScreenCapture', 'HardwareEncoder', 'HardwareVideoSession', 'HdrFrameConverter',
     'GpuFrameConverter', 'ProcessAudioCapture', 'AudioTimeline', 'AacEncoder',
     'EncodedSpool', 'OwnedFileStream', 'SpoolMp4Writer', 'Mp4ClipWriter',
     'EncodedClipBuffer', 'ClipThumbnail', 'ClipThumbnailContracts'
@@ -36,7 +36,7 @@ $batch = @"
 call "$developerCommand" -no_logo -arch=x64 -host_arch=x64 -winsdk=10.0.26100.0
 if errorlevel 1 exit /b 1
 $($compile -join "`r`n")
-link.exe /nologo /OUT:"$executable" $objects /DEBUG:FULL /PDB:"$buildDirectory\Wisp.PresetEncodeFixture.pdb" /PDBALTPATH:Wisp.PresetEncodeFixture.pdb /DYNAMICBASE /NXCOMPAT /GUARD:CF /OPT:REF /OPT:ICF /INCREMENTAL:NO /MANIFEST:EMBED /MANIFESTUAC:"level='asInvoker' uiAccess='false'" windowsapp.lib runtimeobject.lib d3d11.lib dxgi.lib mfplat.lib mf.lib mfuuid.lib uuid.lib ole32.lib oleaut32.lib user32.lib evr.lib mfreadwrite.lib d3dcompiler.lib wmcodecdspuuid.lib ntdll.lib
+link.exe /nologo /OUT:"$executable" $objects /DEBUG:FULL /PDB:"$buildDirectory\Wisp.PresetEncodeFixture.pdb" /PDBALTPATH:Wisp.PresetEncodeFixture.pdb /DYNAMICBASE /NXCOMPAT /GUARD:CF /OPT:REF /OPT:ICF /INCREMENTAL:NO /MANIFEST:EMBED /MANIFESTUAC:"level='asInvoker' uiAccess='false'" windowsapp.lib runtimeobject.lib d3d11.lib dxgi.lib mfplat.lib mf.lib mfuuid.lib uuid.lib ole32.lib oleaut32.lib user32.lib dwmapi.lib evr.lib mfreadwrite.lib d3dcompiler.lib wmcodecdspuuid.lib ntdll.lib
 exit /b %errorlevel%
 "@
 $compilerBatch = Join-Path $buildDirectory 'build.cmd'

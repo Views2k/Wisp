@@ -1,6 +1,7 @@
 #include "RecorderHost.h"
 #include "ClipThumbnail.h"
 #include "BorderlessAccess.h"
+#include "GameScreenCapture.h"
 
 #include <cwchar>
 #include <iostream>
@@ -20,6 +21,7 @@ int wmain(int argc, wchar_t** argv)
         const auto checks = recorder::host::RunPolicyContracts();
         const auto diagnostics = recorder::host::RunDiagnosticContracts();
         const auto borderless = recorder::capture::RunBorderlessAccessContracts();
+        const auto screen = recorder::capture::RunScreenCaptureContracts();
         unsigned thumbnails = 0;
         try { thumbnails = recorder::thumbnail::RunContracts(); }
         catch (...) { /* A zero count reports a failed pure contract. */ }
@@ -27,8 +29,9 @@ int wmain(int argc, wchar_t** argv)
             << ",\"thumbnailContractsPassed\":" << thumbnails
             << ",\"diagnosticContractsPassed\":" << diagnostics
             << ",\"borderlessContractsPassed\":" << borderless
+            << ",\"screenContractsPassed\":" << screen
             << ",\"captureUsed\":false,\"audioActivated\":false}\n";
-        return checks && thumbnails && diagnostics && borderless ? 0 : 1;
+        return checks && thumbnails && diagnostics && borderless && screen ? 0 : 1;
     }
     if (argc == 2 && std::wcscmp(argv[1], L"--stdio-protocol") == 0)
         return recorder::host::RunStdioRecorder();

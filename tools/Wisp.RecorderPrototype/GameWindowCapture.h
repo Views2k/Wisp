@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <d3d11.h>
+#include <dxgicommon.h>
 #include <cstdint>
 #include <memory>
 
@@ -14,10 +15,13 @@ namespace recorder::capture
         std::uint64_t creationTime = 0;
     };
     struct Options { UINT frameRate = 60; bool borderlessAllowed = false; };
+    enum class SourceEncoding { Unknown, SrgbBgra8, LinearScRgbFp16 };
     struct SourceDescription
     {
         UINT width = 0, height = 0;
         DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+        SourceEncoding encoding = SourceEncoding::Unknown;
+        DXGI_COLOR_SPACE_TYPE outputColorSpace = DXGI_COLOR_SPACE_CUSTOM;
         bool hdr = false, referenceWhiteQueried = false;
         // OS SDR-white exposure reference, not measured game paper white or peak.
         float referenceWhiteNits = 0;
@@ -25,7 +29,7 @@ namespace recorder::capture
     struct FrameInfo
     {
         std::uint64_t version = 0;
-        // Monotonic WGC metadata, in100ns QPC units. Not an encoded CFR PTS.
+        // Monotonic compositor metadata, in100ns QPC units. Not an encoded CFR PTS.
         LONGLONG timestamp100ns = 0;
         // Original compositor value retained separately from monotonic metadata.
         LONGLONG rawTimestamp100ns = 0;
@@ -40,6 +44,7 @@ namespace recorder::capture
         bool initialized = false, started = false, stopped = false;
         bool callbacksDrained = false;
         bool borderlessRequested = false, borderRequiredSetFalse = false;
+        bool duplicationInvalidated = false;
         std::uint64_t copiedFrames = 0, emptyCallbacks = 0, timestampClamps = 0;
         SourceDescription source{};
     };

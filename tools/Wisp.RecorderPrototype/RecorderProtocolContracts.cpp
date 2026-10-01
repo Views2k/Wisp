@@ -60,6 +60,16 @@ namespace
             command.height == 1080 && command.frameRate == 60 && command.quality == 75 && command.gameAudio, "config_exact_typed_fields");
         Check(command.session == Session && command.request == 1 && command.spoolDirectory == L"C:\\Clips\\.wisp-recorder-0123456789abcdef0123456789abcdef", "config_session_and_wide_path");
         Check(!command.borderlessAllowed, "borderless_missing_defaults_off");
+        Check(!command.systemAudio, "system_audio_missing_defaults_to_game");
+        auto systemAudio = Config(); systemAudio.insert(systemAudio.size() - 1, ",\"systemAudio\":true");
+        Check(ParseCommand(systemAudio, command) && command.systemAudio, "system_audio_explicit_boolean");
+        systemAudio.insert(systemAudio.size() - 1, ",\"borderlessAllowed\":false");
+        Check(ParseCommand(systemAudio, command) && command.systemAudio && !command.borderlessAllowed, "both_optional_fields_accepted");
+        auto unknownAudio = systemAudio; unknownAudio.insert(unknownAudio.size() - 1, ",\"extra\":0");
+        Check(!Accepted(unknownAudio), "audio_still_rejects_unknown_field");
+        Replace(systemAudio, "\"systemAudio\":true", "\"systemAudio\":1");
+        Check(!Accepted(systemAudio), "system_audio_rejects_non_boolean");
+        Check(!Accepted(CommandLine("stop", ",\"systemAudio\":true")), "audio_scope_config_only");
         auto borderless = Config(); borderless.insert(borderless.size() - 1, ",\"borderlessAllowed\":true");
         Check(ParseCommand(borderless, command) && command.borderlessAllowed, "borderless_explicit_boolean");
         Replace(borderless, "\"borderlessAllowed\":true", "\"borderlessAllowed\":false");

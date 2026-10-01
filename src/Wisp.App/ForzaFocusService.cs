@@ -38,7 +38,7 @@ public sealed class ForzaFocusService
         set
         {
             _captureRequested = value;
-            if (!value) { _captureCandidate = null; _captureObservation.Observe(null); }
+            if (!value) { _captureCandidate = null; _captureObservation.Observe(null); _nextCaptureCheckAtUtc = DateTimeOffset.MinValue; }
         }
     }
 
@@ -350,12 +350,40 @@ public sealed class ForzaFocusService
         {
             var window = unchecked((IntPtr)(long)candidate.Window);
             GetWindowThreadProcessId(window, out var owner);
-            if (owner != candidate.ProcessId || !IsWindowVisible(window) || IsIconic(window) || IsWindowCloaked(window) ||
-                !GetWindowRect(window, out var bounds) || bounds.Right <= bounds.Left || bounds.Bottom <= bounds.Top)
+            if (owner != candidate.ProcessId || GetAncestor(window, GetRoot) != window ||
+                !IsWindowVisible(window) || IsIconic(window) || IsWindowCloaked(window) ||
+                !TryGetCaptureBounds(window, out var bounds))
                 candidate = null;
             else candidate = candidate with { Width = bounds.Right - bounds.Left, Height = bounds.Bottom - bounds.Top };
         }
         _captureObservation.Observe(candidate);
+    }
+
+    private static bool TryGetCaptureBounds(IntPtr window, out NativeRectangle bounds)
+    {
+        bounds = default;
+        // Keep physical capture geometry separate from the HUD's tolerant
+        // fullscreen/foreground policy and restore the calling UI context.
+        var previousDpi = SetThreadDpiAwarenessContext(new IntPtr(-4));
+        if (previousDpi == IntPtr.Zero) return false;
+        var eligible = false;
+        try
+        {
+            var monitor = MonitorFromWindow(window, DefaultToNullMonitor);
+            var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+            if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info) ||
+                !GetClientRect(window, out var client)) return false;
+            var topLeft = new NativePoint { X = client.Left, Y = client.Top };
+            var bottomRight = new NativePoint { X = client.Right, Y = client.Bottom };
+            if (!ClientToScreen(window, ref topLeft) || !ClientToScreen(window, ref bottomRight)) return false;
+            bounds = new() { Left = topLeft.X, Top = topLeft.Y, Right = bottomRight.X, Bottom = bottomRight.Y };
+            eligible = ForzaCaptureEligibility.IsEligible(window, GetForegroundWindow(), bounds.ToPixelBounds(), info.Monitor.ToPixelBounds());
+        }
+        finally
+        {
+            if (SetThreadDpiAwarenessContext(previousDpi) == IntPtr.Zero) eligible = false;
+        }
+        return eligible;
     }
 
     private static ForzaCaptureCandidate? TryCaptureCandidate(IntPtr window, int processId)
@@ -598,6 +626,17 @@ public sealed class ForzaFocusService
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRect(IntPtr windowHandle, out NativeRectangle rectangle);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr windowHandle, ref NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsWindowVisible(IntPtr windowHandle);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -628,6 +667,13 @@ public sealed class ForzaFocusService
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo monitorInfo);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRectangle

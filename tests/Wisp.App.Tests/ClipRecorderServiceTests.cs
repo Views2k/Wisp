@@ -377,8 +377,13 @@ public sealed class ClipRecorderServiceTests
         Assert.Equal(2, factory.Count);
     }
 
-    [Fact]
-    public async Task OffOnBetweenVisibilityTicksStillClearsTheStableWindow()
+    [Theory]
+    [InlineData("off_on")]
+    [InlineData("focus_lost")]
+    [InlineData("fullscreen_required")]
+    [InlineData("window_minimized")]
+    [InlineData("window_closed")]
+    public async Task NewDemandBetweenVisibilityTicksStillClearsTheStableWindow(string transition)
     {
         using var fixture = new Fixture();
         var factory = new SessionFactory();
@@ -404,9 +409,28 @@ public sealed class ClipRecorderServiceTests
             var first = await factory.NextAsync();
             await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
 
-            // No controller tick occurs during either transition.
-            await service.SetEnabledAsync(false, Recording, TestToken);
-            await service.SetEnabledAsync(true, Recording, TestToken);
+            var previousGeneration = service.TargetObservationGeneration;
+            var previousObservation = focus.CaptureObservation;
+            // No controller tick sees the interruption, including a brief Alt-Tab.
+            if (transition == "off_on")
+            {
+                await service.SetEnabledAsync(false, Recording, TestToken);
+                await service.SetEnabledAsync(true, Recording, TestToken);
+            }
+            else
+            {
+                first.Emit(transition == "window_closed" ? "reconnecting" : "paused", transition);
+                await first.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+                await ReconcileAsync(service);
+                Assert.Equal(transition == "window_closed" ? ClipRecorderState.WaitingForGame : ClipRecorderState.Paused, service.Snapshot.State);
+                Assert.True(service.Snapshot.Enabled);
+                Assert.False(service.Snapshot.CanSave);
+                Assert.Equal(ClipRecorderService.ReasonText(transition), service.Snapshot.Status);
+            }
+            Assert.True(service.TargetObservationGeneration > previousGeneration);
+            service.ObserveTarget(previousObservation, previousGeneration);
+            await ReconcileAsync(service);
+            Assert.Equal(1, factory.Count);
             Assert.NotNull(focus.CaptureObservation);
             prepare.Invoke(controller, null);
             Assert.True(focus.CaptureRequested);
@@ -415,7 +439,7 @@ public sealed class ClipRecorderServiceTests
             await ReconcileAsync(service);
             Assert.Equal(1, factory.Count);
 
-            var replacement = candidate with { CreationFileTime = 789 };
+            var replacement = transition == "off_on" ? candidate with { CreationFileTime = 789 } : candidate;
             Assert.Null(tracker.Observe(replacement));
             observe.Invoke(controller, null);
             await ReconcileAsync(service);
@@ -425,6 +449,8 @@ public sealed class ClipRecorderServiceTests
             var second = await factory.NextAsync();
             await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
             Assert.Equal(replacement.CreationFileTime, second.StartedTarget!.CreationFileTime);
+            second.Emit("buffering", "none");
+            Assert.True(service.Snapshot.CanSave);
         }
         finally { recorderField.SetValue(controller, originalRecorder); }
     }

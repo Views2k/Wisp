@@ -124,14 +124,14 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         finally { _permissionGate.Release(); }
     }
     // Zero means there is no active capture demand. An observation is valid
-    // only for the enable operation that requested its discovery.
+    // only for the enable/resume demand that requested its discovery.
     internal long TargetObservationGeneration
     {
         get { lock (_sync) return _enabled && Volatile.Read(ref _disposed) == 0 ? _targetObservationGeneration : 0; }
     }
 
-    // Opening Wisp/Clips is not loss of the game target. Call null only for an
-    // unavailable/exited/minimized target, not merely a foreground change.
+    // Monitor capture is eligible only while the exact game window is focused
+    // and fullscreen. Ineligible observations stop the current media session.
     internal void ObserveTarget(RecorderTargetObservation? observation, long generation)
     {
         if (observation is not null && (observation.Epoch < 0 || observation.Target.ProcessId == 0 ||
@@ -184,7 +184,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 _recording = recording; _storage = storage; _enabled = true; _fault = null; _blockedObservation = null; _revision++;
                 revision = _revision; previousSession = _session;
             }
-            Publish(new(ClipRecorderState.WaitingForGame, true, true, false, "Waiting for a game window."), revision, previousSession);
+            Publish(new(ClipRecorderState.WaitingForGame, true, true, false, "Waiting for Forza to be focused and fullscreen."), revision, previousSession);
             Signal();
             return;
         }
@@ -296,8 +296,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             }
             if (observed is null || blocked)
             {
-                Publish(new(_fault == "window_minimized" ? ClipRecorderState.Paused : ClipRecorderState.WaitingForGame, true, true, false,
-                    (_fault == "window_minimized" || blocked) && _fault is not null ? ReasonText(_fault) : "Waiting for a game window."), revision, null);
+                Publish(new(IsPausedTarget(_fault) ? ClipRecorderState.Paused : ClipRecorderState.WaitingForGame, true, true, false,
+                    (IsPausedTarget(_fault) || blocked) && _fault is not null ? ReasonText(_fault) : "Waiting for Forza to be focused and fullscreen."), revision, null);
                 return;
             }
             IRecorderSession? session = null;
@@ -346,6 +346,13 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             if ((state.State is "waiting" or "paused" or "reconnecting" or "stopped" or "error") && IsTargetTransition(state.Reason))
             {
                 _blockedObservation = _activeObservation; _fault = state.Reason; _revision++;
+                if (IsPausedTarget(state.Reason) || state.Reason == "window_closed")
+                {
+                    // Native can see a brief focus/geometry change between UI
+                    // observations. Force the controller to stabilize anew.
+                    _targetObservationGeneration = checked(_targetObservationGeneration + 1);
+                    _observed = null;
+                }
                 CancelRecoveryLocked();
                 _sessionLifetime.Cancel(); transition = true;
             }
@@ -353,7 +360,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         }
         if (transition)
         {
-            Publish(new(state.Reason == "window_minimized" ? ClipRecorderState.Paused : ClipRecorderState.WaitingForGame,
+            Publish(new(IsPausedTarget(state.Reason) ? ClipRecorderState.Paused : ClipRecorderState.WaitingForGame,
             true, true, false, ReasonText(state.Reason)), revision, session); Signal();
         }
         else if ((state.State is "error" or "stopped" or "reconnecting") && IsRecoverable(state.Reason)) RequestRecovery(state.Reason, session, revision);
@@ -375,7 +382,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 if (_bufferingSince == 0) _bufferingSince = Stopwatch.GetTimestamp();
                 snapshot = new(ClipRecorderState.Buffering, true, true, true,
                     _nativeState.Reason == "capture_stale" ? "No new game frames. Recording the last frame while waiting for the game." :
-                    _nativeState.Reason is "audio_unavailable" or "audio_capture_failed" ? "Recording video. Game audio is unavailable." : "Recording game clips.");
+                    _nativeState.Reason is "audio_unavailable" or "audio_capture_failed" ? "Recording video. The selected audio is unavailable." : "Recording game clips.");
             }
             else if (_nativeState?.State == "waiting") snapshot = new(ClipRecorderState.Preparing, true, true, false, "Preparing game capture…");
             session = _session; revision = _revision;
@@ -493,7 +500,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
 
     private static string RecoveryStatus(string reason) => (reason switch
     {
-        "audio_reconnecting" or "audio_failed" or "audio_capture_failed" => "Game audio changed. Reconnecting capture…",
+        "audio_reconnecting" or "audio_failed" or "audio_capture_failed" => "Audio changed. Reconnecting capture…",
         "encoder_reconnecting" => "The video device changed. Reconnecting capture…",
         "capture_stale" => "Waiting for fresh game frames. Reconnecting capture…",
         "scheduler_late" => "Recording fell behind. Reconnecting capture…",
@@ -546,19 +553,22 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         if (previous != snapshot || reportCleared) StateChanged?.Invoke(this, EventArgs.Empty);
     }
     private void Signal() { try { _wake.Release(); } catch (SemaphoreFullException) { } }
-    private static bool IsTargetTransition(string reason) => reason is "target_exited" or "target_changed" or "window_closed" or "window_minimized";
+    private static bool IsPausedTarget(string? reason) => reason is "window_minimized" or "focus_lost" or "fullscreen_required";
+    private static bool IsTargetTransition(string reason) => reason is "target_exited" or "target_changed" or "window_closed" || IsPausedTarget(reason);
     internal static string ReasonText(string reason) => reason switch
     {
-        "target_exited" or "window_closed" or "waiting_for_game" => "Waiting for a game window.",
+        "target_exited" or "window_closed" or "waiting_for_game" => "Waiting for Forza to be focused and fullscreen.",
         "window_minimized" => "Recording paused while the game is minimized.",
-        "window_resized" or "target_changed" => "The game window changed. Waiting for a refreshed game window.",
+        "focus_lost" => "Recording paused. Return to Forza in fullscreen to resume.",
+        "fullscreen_required" => "Recording paused. Use fullscreen or borderless fullscreen in Forza to resume.",
+        "window_resized" or "target_changed" => "The game window changed. Waiting for Forza to be focused and fullscreen.",
         "unsupported_os" => "This Windows version cannot record game clips.",
         "unsupported_gpu" => "A compatible hardware video encoder is unavailable.",
-        "unsupported_format" => "The selected recording format is unavailable. Try a lower resolution or frame rate.",
+        "unsupported_format" => "The screen color format, orientation or recording settings are unsupported. Copy error details to report this.",
         "capture_stale" or "capture_reconnecting" or "encoder_reconnecting" or "audio_reconnecting" or "scheduler_late" => RecoveryStatus(reason),
         "capture_failed" => "Game capture failed. Enable clipping to try again.",
         "encoder_failed" => "Video encoding failed. Enable clipping to try again.",
-        "audio_failed" or "audio_capture_failed" => "Game audio recording failed. Enable clipping to try again.",
+        "audio_failed" or "audio_capture_failed" => "Audio recording failed. Enable clipping to try again.",
         "protocol_error" => "The recorder connection failed. Enable clipping to try again.",
         "helper_start_failed" => "The recorder could not start. Enable clipping to try again.",
         "helper_timeout" => "The recorder did not respond in time. Enable clipping to try again.",

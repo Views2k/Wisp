@@ -10,8 +10,15 @@ internal sealed record ForzaProcessSnapshot(
 
 internal sealed record ForzaCaptureCandidate(uint ProcessId, ulong Window, ulong CreationFileTime, int Width, int Height);
 
-// Only a stable native window identity/size establishes a new recording epoch.
-// Foreground state and telemetry never enter this policy.
+internal static class ForzaCaptureEligibility
+{
+    internal static bool IsEligible(IntPtr window, IntPtr foreground, Wisp.Core.PixelBounds client, Wisp.Core.PixelBounds monitor) =>
+        window != IntPtr.Zero && window == foreground && client.IsValid && monitor.IsValid && client == monitor &&
+        (long)client.Right - client.Left <= int.MaxValue && (long)client.Bottom - client.Top <= int.MaxValue;
+}
+
+// The caller supplies only an eligible focused fullscreen window. Two stable
+// identity/size observations establish a new recording epoch; telemetry is unused.
 internal sealed class ForzaCaptureObservationTracker
 {
     private ForzaCaptureCandidate? _pending, _stable;

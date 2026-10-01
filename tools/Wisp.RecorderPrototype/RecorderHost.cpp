@@ -1,6 +1,6 @@
 #include "RecorderHost.h"
 #include "RecorderProtocol.h"
-#include "GameWindowCapture.h"
+#include "GameScreenCapture.h"
 #include "HardwareVideoSession.h"
 #include "HdrFrameConverter.h"
 #include "AudioTimeline.h"
@@ -416,13 +416,25 @@ namespace recorder::host
             if (std::strcmp(reason, "target_process_exited") == 0) return Reason::TargetExited;
             if (std::strcmp(reason, "capture_item_closed") == 0 || std::strcmp(reason, "target_window_hidden") == 0) return Reason::WindowClosed;
             if (std::strcmp(reason, "target_window_minimized") == 0) return Reason::WindowMinimized;
+            if (std::strcmp(reason, "target_focus_lost") == 0) return Reason::FocusLost;
+            if (std::strcmp(reason, "target_not_fullscreen") == 0) return Reason::FullscreenRequired;
+            if (std::strcmp(reason, "duplication_access_lost") == 0 ||
+                std::strcmp(reason, "duplication_session_disconnected") == 0 ||
+                std::strcmp(reason, "duplication_busy") == 0 ||
+                std::strcmp(reason, "duplication_desktop_unavailable") == 0 ||
+                std::strcmp(reason, "duplication_mode_changed") == 0 ||
+                std::strcmp(reason, "display_rotation_changed") == 0 ||
+                std::strcmp(reason, "capture_surface_changed") == 0) return Reason::CaptureReconnecting;
             if (std::strcmp(reason, "target_size_changed") == 0 || std::strcmp(reason, "capture_content_size_changed") == 0) return Reason::WindowResized;
             if (std::strcmp(reason, "target_process_identity_mismatch") == 0 || std::strcmp(reason, "target_window_identity_changed") == 0)
                 return Reason::TargetChanged;
             if (std::strcmp(reason, "target_monitor_changed") == 0 || std::strcmp(reason, "display_configuration_changed") == 0 ||
                 std::strcmp(reason, "display_color_changed") == 0 || std::strcmp(reason, "display_white_changed") == 0 ||
                 std::strcmp(reason, "display_configuration_unstable") == 0) return Reason::CaptureReconnecting;
-            if (std::strcmp(reason, "display_color_unsupported") == 0 ||
+            if (std::strcmp(reason, "duplication_format_unsupported") == 0 ||
+                std::strcmp(reason, "duplication_mode_unsupported") == 0 ||
+                std::strcmp(reason, "display_rotation_unsupported") == 0 ||
+                std::strcmp(reason, "display_color_unsupported") == 0 ||
                 std::strcmp(reason, "display_color_information_unavailable") == 0 ||
                 std::strcmp(reason, "display_white_target_ambiguous") == 0 ||
                 std::strcmp(reason, "display_white_out_of_bounds") == 0) return Reason::UnsupportedFormat;
@@ -491,7 +503,7 @@ namespace recorder::host
             Shared& shared_;
             protocol::Command config_;
             Policy policy_;
-            capture::GameWindowCapture capture_;
+            capture::GameScreenCapture capture_;
             hdr::HdrFrameConverter converter_;
             hdr::Evidence conversionEvidence_{};
             encoder::HardwareVideoSession video_;
@@ -514,7 +526,7 @@ namespace recorder::host
             std::uint64_t videoPackets_ = 0, audioPackets_ = 0;
             LONGLONG videoEnd_ = 0, audioEnd_ = 0;
             UINT nextFrame_ = 0;
-            ULONGLONG targetCheck_ = 0, began_ = 0;
+            ULONGLONG began_ = 0;
             Reason reason_ = Reason::None;
             bool audioEnabled_ = false, audioInitialized_ = false, spoolInitialized_ = false;
             bool ready_ = false, readinessDirty_ = false, failed_ = false, closed_ = false, mfStarted_ = false, runtimeStarted_ = false;
@@ -571,9 +583,6 @@ namespace recorder::host
         }
         void MediaSession::CheckTarget()
         {
-            const auto now = GetTickCount64();
-            if (now - targetCheck_ < 200) return;
-            targetCheck_ = now;
             if (!capture_.CheckTarget()) throw Failure{ CaptureReason(capture_.Result().reason, capture_.Result().hr), capture_.Result().hr };
         }
         exporting::VideoFormat MediaSession::VideoFormat() const noexcept
@@ -611,9 +620,12 @@ namespace recorder::host
                 conversion::OutputConfiguration output{ policy_.width, policy_.height, policy_.frameRate,
                     policy_.aspectNumerator, policy_.aspectDenominator };
                 diagnosticStage_ = "conversion_initialize";
+                const auto sourceEncoding = source.encoding == capture::SourceEncoding::LinearScRgbFp16
+                    ? hdr::SourceEncoding::LinearScRgbFp16 : source.encoding == capture::SourceEncoding::SrgbBgra8
+                    ? hdr::SourceEncoding::SrgbBgra8 : hdr::SourceEncoding::Unknown;
                 if (!converter_.Initialize(capture_.Device(), source.width, source.height,
-                    source.hdr ? hdr::SourceEncoding::LinearScRgbFp16 : hdr::SourceEncoding::SrgbBgra8,
-                    source.hdr ? source.referenceWhiteNits : 0.0f, output, conversionEvidence_))
+                    sourceEncoding, sourceEncoding == hdr::SourceEncoding::LinearScRgbFp16
+                        ? source.referenceWhiteNits : 0.0f, output, conversionEvidence_))
                     throw Failure{ Reason::UnsupportedFormat, conversionEvidence_.hr };
                 encoder::EncodeConfig encode{ policy_.width, policy_.height, policy_.frameRate, policy_.bitrate,
                     policy_.aspectNumerator, policy_.aspectDenominator, MFVideoChromaSubsampling_MPEG2 };
@@ -628,6 +640,7 @@ namespace recorder::host
                     audioThread_ = std::thread([this, audioTarget]
                     {
                         audio::Options settings;
+                        settings.source = config_.systemAudio ? audio::LoopbackSource::SystemPlayback : audio::LoopbackSource::GameProcess;
                         settings.mode = audio::CaptureMode::UntilStopped; settings.maximumCaptureMs = 0;
                         audioEvidence_ = audio::RunProcessLoopback(audioTarget, settings, audioStop_.value, audioQueue_);
                         audioDone_.store(true); shared_.wake.Signal();
@@ -652,7 +665,6 @@ namespace recorder::host
                 Require(!shared_.abort.load(), Reason::ParentClosed);
                 diagnosticStage_ = "capture_start";
                 if (!capture_.Start()) throw Failure{ CaptureReason(capture_.Result().reason, capture_.Result().hr), capture_.Result().hr };
-                targetCheck_ = GetTickCount64();
                 return true;
             }
             catch (const Failure& value) { return Fail(value.reason, value.hr); }
@@ -689,7 +701,9 @@ namespace recorder::host
                 sourceStale_ = !FrameFresh(now, static_cast<std::uint64_t>(frame.rawTimestamp100ns), received100ns, qpcRounding_);
                 if (!epoch_)
                 {
-                    epoch_ = static_cast<std::uint64_t>(frame.timestamp100ns);
+                    // The first desktop image may predate capture. Start this
+                    // recording at submission; preserve raw image age above.
+                    epoch_ = now;
                     Require(timeline_.Initialize({ epoch_, frequency_ }), Reason::AudioFailed);
                 }
                 if (frame.version == previousVersion_)
@@ -1125,6 +1139,14 @@ namespace recorder::host
         test(CaptureReason("capture_frame_failed", DXGI_ERROR_DEVICE_RESET) == Reason::CaptureReconnecting);
         test(CaptureReason("display_color_unsupported", E_INVALIDARG) == Reason::UnsupportedFormat);
         test(CaptureReason("display_color_changed", E_INVALIDARG) == Reason::CaptureReconnecting);
+        test(CaptureReason("duplication_access_lost", DXGI_ERROR_ACCESS_LOST) == Reason::CaptureReconnecting);
+        test(CaptureReason("duplication_busy", DXGI_ERROR_NOT_CURRENTLY_AVAILABLE) == Reason::CaptureReconnecting);
+        test(CaptureReason("duplication_desktop_unavailable", E_ACCESSDENIED) == Reason::CaptureReconnecting);
+        test(CaptureReason("duplication_mode_changed", E_FAIL) == Reason::CaptureReconnecting);
+        test(CaptureReason("capture_surface_changed", E_FAIL) == Reason::CaptureReconnecting);
+        test(CaptureReason("duplication_format_unsupported", E_FAIL) == Reason::UnsupportedFormat);
+        test(CaptureReason("target_focus_lost", E_FAIL) == Reason::FocusLost);
+        test(CaptureReason("target_not_fullscreen", E_FAIL) == Reason::FullscreenRequired);
         test(VideoReason(DXGI_ERROR_DEVICE_REMOVED) == Reason::EncoderReconnecting && VideoReason(E_FAIL) == Reason::EncoderFailed);
         test(AudioReason(AUDCLNT_E_DEVICE_INVALIDATED, "audio_get_buffer_failed") == Reason::AudioReconnecting &&
             AudioReason(E_ACCESSDENIED, "process_audio_activation_result_failed") == Reason::AudioCaptureFailed);
@@ -1289,7 +1311,8 @@ namespace recorder::host
                 {
                     if (!config.session.empty() && !shared->eof.load() && !shared->outputFailed.load())
                         EmitState(*shared, config.session, cleaned ?
-                            (recoverableShutdown == Reason::WindowMinimized ? protocol::State::Paused : protocol::State::Reconnecting) :
+                            (recoverableShutdown == Reason::WindowMinimized || recoverableShutdown == Reason::FocusLost ||
+                                recoverableShutdown == Reason::FullscreenRequired ? protocol::State::Paused : protocol::State::Reconnecting) :
                             protocol::State::Error, cleaned ? recoverableShutdown : Reason::CleanupFailed);
                 }
                 catch (...) { exitCode = 3; }

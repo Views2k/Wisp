@@ -50,11 +50,24 @@ public sealed class RecorderProcessClientTests
         Assert.Equal(Path.Combine(fixture.BufferRoot, client.Session.ToString("N"), $".wisp-recorder-{client.Session:N}"), config.GetProperty("spoolDirectory").GetString());
         Assert.False(System.IO.Directory.Exists(config.GetProperty("spoolDirectory").GetString()));
         Assert.True(config.GetProperty("gameAudio").GetBoolean());
+        Assert.False(config.GetProperty("systemAudio").GetBoolean());
         Assert.False(config.GetProperty("borderlessAllowed").GetBoolean());
         Assert.Equal("123", child.Commands[1].GetProperty("window").GetString());
         await client.StopAsync(TestToken);
         Assert.True(child.Exited);
         Assert.Equal(0, child.Kills);
+    }
+
+    [Fact]
+    public async Task SystemAudioRequiresExplicitRecordingPreference()
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild();
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+        await client.OpenAsync(Recording with { CaptureSystemAudio = true }, fixture.Directory, TestToken);
+        Assert.True(child.Commands[0].GetProperty("systemAudio").GetBoolean());
+        Assert.True(child.Commands[0].GetProperty("gameAudio").GetBoolean());
+        await client.StopAsync(TestToken);
     }
 
     [Fact]
@@ -93,21 +106,26 @@ public sealed class RecorderProcessClientTests
         await client.StopAsync(TestToken);
     }
 
-    [Fact]
-    public async Task TerminalRecoveryDoesNotBecomeUnexpectedExitOrSendAStopCommand()
+    [Theory]
+    [InlineData("reconnecting", "capture_reconnecting")]
+    [InlineData("paused", "window_minimized")]
+    [InlineData("paused", "focus_lost")]
+    [InlineData("paused", "fullscreen_required")]
+    public async Task TerminalRecoveryDoesNotBecomeUnexpectedExitOrSendAStopCommand(string terminalState, string reason)
     {
         using var fixture = new Fixture();
         var child = new FakeChild();
         await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot) { BorderlessAllowed = true };
         var recovery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var states = new List<RecorderStateUpdate>();
-        client.StateChanged += (_, state) => { states.Add(state); if (state.State == "reconnecting") recovery.TrySetResult(); };
+        client.StateChanged += (_, state) => { states.Add(state); if (state.State == terminalState) recovery.TrySetResult(); };
         await client.OpenAsync(Recording, fixture.Directory, TestToken);
         Assert.True(child.Commands[0].GetProperty("borderlessAllowed").GetBoolean());
-        child.Reconnect(client.Session);
+        child.Terminal(client.Session, terminalState, reason);
         await recovery.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         await client.StopAsync(TestToken);
         Assert.DoesNotContain(states, state => state.Reason == "helper_exited");
+        Assert.Contains(states, state => state.State == terminalState && state.Reason == reason);
         Assert.DoesNotContain(child.Commands, command => command.GetProperty("command").GetString() == "stop");
         Assert.Equal(0, child.Kills);
     }
@@ -266,6 +284,9 @@ public sealed class RecorderProcessClientTests
     [Theory]
     [InlineData("reconnecting", "none")]
     [InlineData("reconnecting", "window_minimized")]
+    [InlineData("reconnecting", "focus_lost")]
+    [InlineData("reconnecting", "fullscreen_required")]
+    [InlineData("paused", "none")]
     [InlineData("paused", "unsupported_format")]
     [InlineData("preparing", "none")]
     public void UnsupportedTerminalStatePairsCannotSuppressAnUnexpectedExit(string state, string reason)
@@ -315,9 +336,9 @@ public sealed class RecorderProcessClientTests
             Input = new CommandStream(Receive, () => { if (!IgnoreClose) Finish(); });
         }
         internal void CompleteOutput() => _output.Complete();
-        internal void Reconnect(Guid session)
+        internal void Terminal(Guid session, string state, string reason)
         {
-            _output.Push(JsonSerializer.SerializeToUtf8Bytes(new { v = 1, session = session.ToString("N"), request = 0, type = "state", state = "reconnecting", reason = "capture_reconnecting" }).Append((byte)10).ToArray());
+            _output.Push(JsonSerializer.SerializeToUtf8Bytes(new { v = 1, session = session.ToString("N"), request = 0, type = "state", state, reason }).Append((byte)10).ToArray());
             Finish();
         }
         private void Receive(byte[] bytes)

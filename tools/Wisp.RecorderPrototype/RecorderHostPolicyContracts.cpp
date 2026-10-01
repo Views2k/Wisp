@@ -46,6 +46,14 @@ namespace recorder::host
         test(SchedulingAllowed(100, 100) && SchedulingAllowed(99, 100));
         test(SchedulingAllowed(100 + MaximumLateness100ns, 100));
         test(!SchedulingAllowed(101 + MaximumLateness100ns, 100));
+        // A newly acquired static desktop can carry an older presentation time.
+        // Its first-submit clock starts PTS0 now, without altering image age or
+        // backdating frame1 into an already missed scheduler interval.
+        constexpr std::uint64_t firstSubmit = 100000000, oldDesktopPresentation = 70000000;
+        test(FrameTime(oldDesktopPresentation, 1, 60, due, pts) && !SchedulingAllowed(firstSubmit, due));
+        test(FrameTime(firstSubmit, 0, 60, due, pts) && due == firstSubmit && pts == 0);
+        test(FrameTime(firstSubmit, 1, 60, due, pts) && due == firstSubmit + 166666 && pts == 166666 && SchedulingAllowed(firstSubmit, due));
+        test(!FrameFresh(firstSubmit, oldDesktopPresentation, firstSubmit, 1));
         test(FrameFresh(100 + MaximumSourceAge100ns, 100, 100, 1));
         test(!FrameFresh(101 + MaximumSourceAge100ns, 100, 101 + MaximumSourceAge100ns, 1));
         test(!FrameFresh(101 + MaximumSourceAge100ns, 101 + MaximumSourceAge100ns, 100, 1));

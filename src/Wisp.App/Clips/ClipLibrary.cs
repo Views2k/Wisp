@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 
 namespace Wisp.App.Clips;
 
-public sealed record ClipRecordingSpec(int LengthSeconds, int ResolutionHeight, int FrameRate, int Quality);
+public sealed record ClipRecordingSpec(int LengthSeconds, int ResolutionHeight, int FrameRate, int Quality, bool CaptureSystemAudio = false);
 public sealed record ClipSaveTarget(Guid Id, DateTimeOffset RequestedAtUtc, ClipRecordingSpec Recording, string MediaPath);
 
 // The native writer supplies this only after successful mux finalization and

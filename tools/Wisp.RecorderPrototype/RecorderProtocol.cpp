@@ -81,10 +81,12 @@ namespace recorder::protocol
                 }
                 Space(); Require(position_ == line_.size());
             }
-            void Keys(std::initializer_list<const wchar_t*> names) const
+            void Keys(std::initializer_list<const wchar_t*> names, std::initializer_list<const wchar_t*> optional = {}) const
             {
-                Require(count_ == names.size());
                 for (const auto* name : names) (void)Get(name);
+                std::size_t expected = names.size();
+                for (const auto* name : optional) if (Has(name)) ++expected;
+                Require(count_ == expected);
             }
             bool Has(const wchar_t* key) const noexcept
             {
@@ -181,7 +183,7 @@ namespace recorder::protocol
             }
             std::string_view line_;
             std::size_t position_ = 0, count_ = 0;
-            std::array<Field, 11> fields_{};
+            std::array<Field, 12> fields_{};
         };
         bool Resolution(std::uint32_t height) noexcept { return height == 360 || height == 480 || height == 720 || height == 1080 || height == 1440 || height == 2160; }
         std::uint32_t U32(std::int64_t value) { Require(value > 0 && value <= (std::numeric_limits<std::uint32_t>::max)()); return static_cast<std::uint32_t>(value); }
@@ -267,12 +269,10 @@ namespace recorder::protocol
             const auto& kind = parser.Text(L"command");
             if (kind == L"config")
             {
-                if (parser.Has(L"borderlessAllowed"))
-                {
-                    parser.Keys({ L"v", L"session", L"request", L"command", L"durationSeconds", L"height", L"frameRate", L"quality", L"gameAudio", L"spoolDirectory", L"borderlessAllowed" });
-                    command.borderlessAllowed = parser.Boolean(L"borderlessAllowed");
-                }
-                else parser.Keys({ L"v", L"session", L"request", L"command", L"durationSeconds", L"height", L"frameRate", L"quality", L"gameAudio", L"spoolDirectory" });
+                parser.Keys({ L"v", L"session", L"request", L"command", L"durationSeconds", L"height", L"frameRate", L"quality", L"gameAudio", L"spoolDirectory" },
+                    { L"borderlessAllowed", L"systemAudio" });
+                if (parser.Has(L"borderlessAllowed")) command.borderlessAllowed = parser.Boolean(L"borderlessAllowed");
+                if (parser.Has(L"systemAudio")) command.systemAudio = parser.Boolean(L"systemAudio");
                 command.kind = CommandKind::Config;
                 command.durationSeconds = U32(parser.Integer(L"durationSeconds"));
                 command.height = U32(parser.Integer(L"height")); command.frameRate = U32(parser.Integer(L"frameRate"));
@@ -320,6 +320,7 @@ namespace recorder::protocol
         case Reason::TargetExited: return "target_exited"; case Reason::TargetChanged: return "target_changed";
         case Reason::WindowClosed: return "window_closed"; case Reason::WindowMinimized: return "window_minimized";
         case Reason::WindowResized: return "window_resized"; case Reason::FocusLost: return "focus_lost";
+        case Reason::FullscreenRequired: return "fullscreen_required";
         case Reason::UnsupportedOs: return "unsupported_os"; case Reason::UnsupportedGpu: return "unsupported_gpu";
         case Reason::UnsupportedFormat: return "unsupported_format"; case Reason::CaptureFailed: return "capture_failed";
         case Reason::EncoderFailed: return "encoder_failed"; case Reason::AudioFailed: return "audio_failed";
@@ -341,7 +342,7 @@ namespace recorder::protocol
         switch (reason)
         {
         case Reason::TargetExited: case Reason::TargetChanged: case Reason::WindowClosed:
-        case Reason::WindowMinimized: case Reason::WindowResized:
+        case Reason::WindowMinimized: case Reason::WindowResized: case Reason::FocusLost: case Reason::FullscreenRequired:
         case Reason::CaptureReconnecting: case Reason::EncoderReconnecting:
         case Reason::AudioReconnecting: case Reason::SchedulerLate: return true;
         default: return false;

@@ -24,7 +24,7 @@ internal static class RecorderProtocol
     internal static readonly IReadOnlySet<string> Reasons = new HashSet<string>(StringComparer.Ordinal)
     {
         "none", "waiting_for_game", "target_exited", "target_changed", "window_closed", "window_minimized",
-        "window_resized", "focus_lost", "unsupported_os", "unsupported_gpu", "unsupported_format", "capture_failed",
+        "window_resized", "focus_lost", "fullscreen_required", "unsupported_os", "unsupported_gpu", "unsupported_format", "capture_failed",
         "encoder_failed", "audio_failed", "audio_capture_failed", "audio_unavailable", "buffer_full", "no_keyframe",
         "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error", "cancelled", "stopped", "parent_closed",
         "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed"
@@ -62,7 +62,7 @@ internal static class RecorderProtocol
                 RequireMembers(names, "v", "session", "request", "type", "state", "reason");
                 var state = root.GetProperty("state").GetString() ?? "";
                 if (request != 0 || !States.Contains(state)) throw new FormatException();
-                if (state == "paused" && reason != "window_minimized" || state == "reconnecting" && reason is not
+                if (state == "paused" && reason is not ("window_minimized" or "focus_lost" or "fullscreen_required") || state == "reconnecting" && reason is not
                     ("target_exited" or "target_changed" or "window_closed" or "window_resized" or "capture_reconnecting" or
                      "encoder_reconnecting" or "audio_reconnecting" or "scheduler_late")) throw new FormatException();
                 return new RecorderStateUpdate(state, reason);
@@ -251,6 +251,7 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 ["frameRate"] = recording.FrameRate,
                 ["quality"] = recording.Quality,
                 ["gameAudio"] = true,
+                ["systemAudio"] = recording.CaptureSystemAudio,
                 ["spoolDirectory"] = _buffer.SpoolDirectory,
                 ["borderlessAllowed"] = BorderlessAllowed
             }, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);

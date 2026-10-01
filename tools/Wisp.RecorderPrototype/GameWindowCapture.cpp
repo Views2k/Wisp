@@ -386,6 +386,8 @@ namespace recorder::capture
             source_.width = static_cast<UINT>(size.Width); source_.height = static_cast<UINT>(size.Height);
             source_.hdr = value.display.color == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
             source_.format = source_.hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
+            source_.encoding = source_.hdr ? SourceEncoding::LinearScRgbFp16 : SourceEncoding::SrgbBgra8;
+            source_.outputColorSpace = value.display.color;
             source_.referenceWhiteQueried = source_.hdr;
             source_.referenceWhiteNits = static_cast<float>(value.display.whiteLevel) * 80.0f / 1000.0f;
             state.source = source_;
