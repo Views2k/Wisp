@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <audioclient.h>
+#include <audioclientactivationparams.h>
 #include <wrl/client.h>
 #include <cstddef>
 #include <cstdint>
@@ -90,20 +91,22 @@ namespace recorder::audio
     {
         // Caller verifies this is the intended game before entering the source.
         // Requires QUERY_LIMITED_INFORMATION and SYNCHRONIZE access. This source
-        // duplicates the handle and rechecks PID/creation time, never discovers
-        // an endpoint or substitutes a different process.
+        // duplicates the handle and rechecks PID/creation time in both modes.
+        // System playback still stops when this game process exits.
         HANDLE process = nullptr;
         DWORD processId = 0;
         std::uint64_t creationFileTime = 0;
     };
 
     enum class CaptureMode { TimedFixture, UntilStopped };
+    enum class LoopbackSource { GameProcess, SystemPlayback };
 
     struct Options
     {
         DWORD activationTimeoutMs = 3000;
         DWORD maximumCaptureMs = 10000; // Timed fixture: 1..60000; UntilStopped requires 0.
         CaptureMode mode = CaptureMode::TimedFixture;
+        LoopbackSource source = LoopbackSource::GameProcess;
     };
     bool ValidateOptions(const Options& options) noexcept;
 
@@ -131,7 +134,9 @@ namespace recorder::audio
     };
 
     // Blocking source for a caller-owned ORDINARY worker. Initializes its MTA;
-    // no MMCSS, priority, system-audio, microphone, render/playback or disk path.
+    // no MMCSS, priority, microphone, render/playback or disk path. The default
+    // captures only the game process tree; SystemPlayback captures rendered
+    // audio from all processes except this recorder and its children.
     // Caller keeps inputs valid until entry duplicates handles. Stop event must
     // be a manual-reset event. A fresh queue is required for each invocation.
     // UntilStopped retains the same queue and per-notification bounds. The
@@ -143,6 +148,11 @@ namespace recorder::audio
 
     namespace detail
     {
+        // Production selection shared with CPU contracts. The system mode
+        // excludes this silent recorder, never the validated game process.
+        bool ConfigureLoopbackSource(LoopbackSource source, DWORD gameProcessId,
+            AUDIOCLIENT_ACTIVATION_PARAMS& parameters) noexcept;
+
         bool CountersCanAdvance(const QueueSnapshot& stats, std::uint32_t frames,
             DWORD flags, bool discontinuity) noexcept;
 

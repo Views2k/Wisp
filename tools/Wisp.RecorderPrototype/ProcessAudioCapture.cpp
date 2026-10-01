@@ -1,6 +1,5 @@
 #include "ProcessAudioCapture.h"
 
-#include <audioclientactivationparams.h>
 #include <mmdeviceapi.h>
 #include <propidl.h>
 #include <wrl/implements.h>
@@ -42,6 +41,7 @@ namespace recorder::audio
     bool ValidateOptions(const Options& options) noexcept
     {
         if (options.activationTimeoutMs < 1 || options.activationTimeoutMs > 30000) return false;
+        if (options.source != LoopbackSource::GameProcess && options.source != LoopbackSource::SystemPlayback) return false;
         switch (options.mode)
         {
         case CaptureMode::TimedFixture:
@@ -50,6 +50,29 @@ namespace recorder::audio
             return options.maximumCaptureMs == 0;
         default: return false;
         }
+    }
+
+    bool detail::ConfigureLoopbackSource(LoopbackSource source, DWORD gameProcessId,
+        AUDIOCLIENT_ACTIVATION_PARAMS& parameters) noexcept
+    {
+        parameters = {};
+        if (gameProcessId == 0) return false;
+        AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS selection{};
+        switch (source)
+        {
+        case LoopbackSource::GameProcess:
+            selection.TargetProcessId = gameProcessId;
+            selection.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
+            break;
+        case LoopbackSource::SystemPlayback:
+            selection.TargetProcessId = GetCurrentProcessId();
+            selection.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
+            break;
+        default: return false;
+        }
+        parameters.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
+        parameters.ProcessLoopbackParams = selection;
+        return true;
     }
 
     bool detail::CountersCanAdvance(const QueueSnapshot& stats, std::uint32_t frames,
@@ -311,7 +334,7 @@ namespace recorder::audio
             std::shared_ptr<ActivationState> state_;
         };
 
-        void Activate(HANDLE process, const Target& target, HANDLE stop, DWORD timeoutMs,
+        void Activate(HANDLE process, const Target& target, LoopbackSource source, HANDLE stop, DWORD timeoutMs,
             ComPtr<IAudioClient>& client, Evidence& evidence)
         {
             auto state = std::make_shared<ActivationState>();
@@ -321,9 +344,7 @@ namespace recorder::audio
             Duplicate(process, state->targetProcess);
             state->ready.value = CreateEventW(nullptr, TRUE, FALSE, nullptr);
             if (!state->ready.value) throw Failure{ "activation_event_failed", HRESULT_FROM_WIN32(GetLastError()) };
-            state->parameters.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
-            state->parameters.ProcessLoopbackParams.TargetProcessId = target.processId;
-            state->parameters.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
+            Require(detail::ConfigureLoopbackSource(source, target.processId, state->parameters), "audio_source_invalid");
             state->variant.vt = VT_BLOB;
             // The blob is borrowed from callback-owned state, not CoTaskMem.
             // Keep it alive through late completion; do not PropVariantClear it.
@@ -476,6 +497,7 @@ namespace recorder::audio
         try
         {
             Require(ValidateOptions(options), "audio_options_invalid");
+            evidence.processTreeOnly = options.source == LoopbackSource::GameProcess;
             evidence.continuous = options.mode == CaptureMode::UntilStopped;
             Require(queue.BeginSource(), "audio_queue_not_fresh");
             claimedQueue = true;
@@ -489,7 +511,7 @@ namespace recorder::audio
             initializedCom = true;
             {
                 AudioResources audio(evidence);
-                Activate(process.value, target, stop.value, options.activationTimeoutMs, audio.client, evidence);
+                Activate(process.value, target, options.source, stop.value, options.activationTimeoutMs, audio.client, evidence);
                 audio.ready.value = CreateEventW(nullptr, FALSE, FALSE, nullptr);
                 if (!audio.ready.value) throw Failure{ "audio_ready_event_failed", HRESULT_FROM_WIN32(GetLastError()) };
                 const WAVEFORMATEX format = PreferredFormat();

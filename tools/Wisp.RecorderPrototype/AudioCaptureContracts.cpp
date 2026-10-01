@@ -246,6 +246,35 @@ namespace
         Check(!detail::CountersCanAdvance(stats, 1, AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR, true) &&
             detail::CountersCanAdvance(stats, 1, 0, false), "timestamp_error_counter_bound");
     }
+
+    void LoopbackSourceContracts()
+    {
+        Options options;
+        Check(options.source == LoopbackSource::GameProcess && ValidateOptions(options), "game_audio_remains_default");
+        options.source = LoopbackSource::SystemPlayback;
+        Check(ValidateOptions(options), "system_playback_explicitly_supported");
+        options.source = static_cast<LoopbackSource>(99);
+        Check(!ValidateOptions(options), "unknown_audio_source_refused");
+
+        const DWORD recorderId = GetCurrentProcessId();
+        const DWORD gameId = recorderId == MAXDWORD ? recorderId - 1 : recorderId + 1;
+        AUDIOCLIENT_ACTIVATION_PARAMS parameters{};
+        Check(detail::ConfigureLoopbackSource(LoopbackSource::GameProcess, gameId, parameters) &&
+            parameters.ActivationType == AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK &&
+            parameters.ProcessLoopbackParams.TargetProcessId == gameId &&
+            parameters.ProcessLoopbackParams.ProcessLoopbackMode == PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
+            "game_source_includes_only_validated_game_tree");
+        Check(detail::ConfigureLoopbackSource(LoopbackSource::SystemPlayback, gameId, parameters) &&
+            parameters.ActivationType == AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK &&
+            parameters.ProcessLoopbackParams.TargetProcessId == recorderId &&
+            parameters.ProcessLoopbackParams.TargetProcessId != gameId &&
+            parameters.ProcessLoopbackParams.ProcessLoopbackMode == PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+            "system_source_excludes_recorder_not_game");
+        Check(!detail::ConfigureLoopbackSource(static_cast<LoopbackSource>(99), gameId, parameters) &&
+            parameters.ProcessLoopbackParams.TargetProcessId == 0, "invalid_source_has_no_capture_selection");
+        Check(!detail::ConfigureLoopbackSource(LoopbackSource::GameProcess, 0, parameters), "game_source_requires_game_identity");
+        Check(!detail::ConfigureLoopbackSource(LoopbackSource::SystemPlayback, 0, parameters), "system_source_still_requires_game_identity");
+    }
 }
 
 int main()
@@ -257,6 +286,7 @@ int main()
         FlagsAndTiming();
         ActivationHandoff();
         ContinuousOptionsAndCounters();
+        LoopbackSourceContracts();
         std::cout << "{\"mode\":\"process_audio_cpu_contracts\",\"passed\":" << checks
             << ",\"audioActivated\":false,\"captureUsed\":false,\"playbackUsed\":false}\n";
         return 0;
