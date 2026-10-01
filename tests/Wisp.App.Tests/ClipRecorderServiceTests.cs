@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading.Channels;
 using Wisp.App.Clips;
 using Xunit;
@@ -54,7 +55,7 @@ public sealed class ClipRecorderServiceTests
     }
 
     [Fact]
-    public async Task FailureReportSurvivesCleanupAndRetryUntilNewRecordingActuallyBuffers()
+    public async Task RecoveryDetailsSurviveCleanupRetryAndNewRecordingBuffering()
     {
         using var fixture = new Fixture();
         var factory = new SessionFactory();
@@ -80,7 +81,57 @@ public sealed class ClipRecorderServiceTests
         await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         Assert.Equal(report, service.FailureReport);
         second.Emit("buffering", "none");
-        Assert.Empty(service.FailureReport);
+        Assert.StartsWith("Recent recording resets", service.FailureReport, StringComparison.Ordinal);
+        Assert.Contains("Reset 1: helper_exited", service.FailureReport, StringComparison.Ordinal);
+        Assert.Contains("Reason: encoder_failed", service.FailureReport, StringComparison.Ordinal);
+        Assert.Contains("Stage: video_submit", service.FailureReport, StringComparison.Ordinal);
+        Assert.DoesNotContain(fixture.Directory, service.FailureReport, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ResetHistoryKeepsOnlyLatestEightWithLateSanitizedDiagnosticsInOrder()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        for (var number = 1; number <= 10; number++)
+        {
+            await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            session.Emit("buffering", "none");
+            var fields = RecorderFailureDiagnosticTests.Fields();
+            fields["reason"] = "scheduler_late";
+            fields["stage"] = "video_schedule";
+            fields["submittedFrames"] = number;
+            fields["path"] = @"C:\PRIVATE_DO_NOT_COPY\private.mp4";
+            fields["message"] = "PRIVATE_DO_NOT_COPY";
+            session.DiagnosticAfterDisposal = RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields));
+            session.Emit("reconnecting", "scheduler_late");
+            session.Emit("error", "cancelled"); // A stale callback cannot create a second reset.
+            var retry = await delays.NextAsync();
+            await ReconcileAsync(service);
+            Assert.True(session.Disposed.Task.IsCompleted);
+            retry.Resume.TrySetResult();
+            session = await factory.NextAsync();
+        }
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        var report = service.FailureReport;
+        var resets = report.Split('\n').Where(line => line.StartsWith("Reset ", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(Enumerable.Range(3, 8).Select(number => $"Reset {number}: scheduler_late"), resets.Select(line => line.TrimEnd('\r')));
+        Assert.DoesNotContain("Frames submitted: 1;", report, StringComparison.Ordinal);
+        Assert.DoesNotContain("Frames submitted: 2;", report, StringComparison.Ordinal);
+        for (var number = 3; number <= 10; number++)
+            Assert.Contains($"Frames submitted: {number};", report, StringComparison.Ordinal);
+        Assert.DoesNotContain("PRIVATE_DO_NOT_COPY", report, StringComparison.Ordinal);
+        Assert.DoesNotContain(fixture.Directory, report, StringComparison.Ordinal);
+        Assert.True(report.Length < 16_384);
+        Assert.True(service.Snapshot.CanSave);
+        await service.DisposeAsync();
+        Assert.Equal(report, service.FailureReport);
     }
 
     [Fact]
@@ -272,6 +323,9 @@ public sealed class ClipRecorderServiceTests
         var second = await factory.NextAsync();
         await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         Assert.Equal(2, factory.Count);
+        second.Emit("buffering", "none");
+        Assert.Contains("Reset 1: target_observation_unavailable", service.FailureReport, StringComparison.Ordinal);
+        Assert.Single(service.FailureReport.Split('\n'), line => line.StartsWith("Reset ", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -495,7 +549,7 @@ public sealed class ClipRecorderServiceTests
         Assert.True(first.Disposed.Task.IsCompleted);
         second.Emit("buffering", "none");
         Assert.True(service.Snapshot.CanSave);
-        Assert.Empty(service.FailureReport);
+        Assert.Contains($"Reset 1: {reason}", service.FailureReport, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -554,6 +608,8 @@ public sealed class ClipRecorderServiceTests
         await restored.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         restored.Emit("buffering", "none");
         Assert.True(service.Snapshot.CanSave);
+        Assert.Contains("Reset 1: window_minimized", service.FailureReport, StringComparison.Ordinal);
+        Assert.Single(service.FailureReport.Split('\n'), line => line.StartsWith("Reset ", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -578,6 +634,7 @@ public sealed class ClipRecorderServiceTests
         Assert.Equal(0, session.Stops);
         session.Emit("buffering", "none");
         Assert.Equal("Recording game clips.", service.Snapshot.Status);
+        Assert.Empty(service.FailureReport);
     }
 
     [Fact]

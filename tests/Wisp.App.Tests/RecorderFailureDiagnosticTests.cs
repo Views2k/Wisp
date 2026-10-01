@@ -16,6 +16,15 @@ public sealed class RecorderFailureDiagnosticTests
         Assert.Contains("audio: " + expected, report, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false, "compressed")]
+    [InlineData(true, "lossless")]
+    public void ReportIdentifiesSelectedVideoMode(bool lossless, string expected)
+    {
+        var report = ClipFailureReport.Build("encoder_failed", new(60, 1080, 60, 100, LosslessVideo: lossless), null);
+        Assert.Contains("video: " + expected, report, StringComparison.Ordinal);
+    }
+
     internal static Dictionary<string, object> Fields() => new()
     {
         ["mode"] = "recorder_failure",

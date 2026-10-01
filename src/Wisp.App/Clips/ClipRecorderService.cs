@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 
 namespace Wisp.App.Clips;
 
@@ -57,6 +58,10 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private FailureReportState? _failureReport;
     private sealed record FailureReportState(string Reason, ClipRecordingSpec? Recording,
         IRecorderSession? Owner, RecorderFailureDiagnostic? Diagnostic, ClipStorageDiagnostic? Storage);
+    private const int MaximumResetHistory = 8;
+    private readonly List<ResetReportState> _resetHistory = [];
+    private sealed record ResetReportState(long Sequence, string Trigger, long? SessionAgeMilliseconds, FailureReportState Detail);
+    private long _resetSequence, _sessionStarted;
     private bool _enabled, _saving, _cleanupFailed, _showCaptureBorder;
     private CancellationTokenSource? _recoveryCancellation;
     private Task _recoveryTask = Task.CompletedTask;
@@ -95,9 +100,24 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     {
         get
         {
-            lock (_sync) return _failureReport is { } failure
-                ? ClipFailureReport.Build(failure.Reason, failure.Recording,
-                    IsManagedStorageFailure(failure.Reason) ? null : failure.Diagnostic ?? failure.Owner?.FailureDiagnostic, failure.Storage) : "";
+            lock (_sync)
+            {
+                var report = new StringBuilder();
+                if (_failureReport is { } failure) report.Append(FormatFailure(failure));
+                if (_resetHistory.Count > 0)
+                {
+                    if (report.Length > 0) report.AppendLine();
+                    report.AppendLine("Recent recording resets (oldest first; this Wisp session only):");
+                    foreach (var reset in _resetHistory)
+                    {
+                        report.AppendLine(FormattableString.Invariant($"Reset {reset.Sequence}: {reset.Trigger}"));
+                        if (reset.SessionAgeMilliseconds is { } age)
+                            report.AppendLine(FormattableString.Invariant($"Session age (ms): {age}"));
+                        report.Append(FormatFailure(reset.Detail));
+                    }
+                }
+                return report.ToString();
+            }
         }
     }
     public event EventHandler? StateChanged;
@@ -141,6 +161,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         {
             if (Volatile.Read(ref _disposed) != 0 || !_enabled || generation == 0 ||
                 generation != _targetObservationGeneration || Equals(_observed, observation)) return;
+            if (_session is not null && _sessionLifetime?.IsCancellationRequested == false)
+                RememberReset(observation is null ? "target_observation_unavailable" : "target_observation_changed", _session);
             _observed = observation; _revision++;
             CancelRecoveryLocked();
             _recoveryAttempt = 0;
@@ -313,6 +335,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 {
                     _session = session; _sessionLifetime = lifetime; _activeObservation = observed;
                     _sessionHandler = handler; _nativeState = null;
+                    _sessionStarted = Stopwatch.GetTimestamp();
                     _bufferingSince = 0;
                     if (revision != _revision) lifetime.Cancel();
                 }
@@ -345,6 +368,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             _nativeState = state;
             if ((state.State is "waiting" or "paused" or "reconnecting" or "stopped" or "error") && IsTargetTransition(state.Reason))
             {
+                RememberReset(state.Reason, session);
                 _blockedObservation = _activeObservation; _fault = state.Reason; _revision++;
                 if (IsPausedTarget(state.Reason) || state.Reason == "window_closed")
                 {
@@ -397,6 +421,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         {
             session = _session; lifetime = _sessionLifetime; handler = _sessionHandler;
             _session = null; _sessionLifetime = null; _sessionHandler = null; _activeObservation = null; _nativeState = null; _saving = false;
+            _sessionStarted = 0;
         }
         if (session is null) return;
         if (handler is not null) session.StateChanged -= handler;
@@ -417,6 +442,14 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 _failureReport = failure with { Diagnostic = diagnostic };
                 if (_fault == "storage_failed" && diagnostic.HResult is 0x80070070 or 0x80070027 or 0xD000007F)
                     _fault = "buffer_storage_full";
+                reportUpdated = true;
+            }
+            for (var index = 0; index < _resetHistory.Count; index++)
+            {
+                var reset = _resetHistory[index];
+                if (!ReferenceEquals(reset.Detail.Owner, session)) continue;
+                var detail = reset.Detail with { Owner = null, Diagnostic = reset.Detail.Diagnostic ?? session.FailureDiagnostic };
+                _resetHistory[index] = reset with { Detail = detail };
                 reportUpdated = true;
             }
         }
@@ -453,6 +486,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             if (!_enabled || _revision != expectedRevision || !ReferenceEquals(_session, expectedSession) ||
                 Volatile.Read(ref _disposed) != 0) return;
             RememberFailure(reason, expectedSession);
+            RememberReset(reason, expectedSession);
             if (_bufferingSince != 0 && Stopwatch.GetElapsedTime(_bufferingSince) >= TimeSpan.FromSeconds(30))
                 _recoveryAttempt = 0;
             CancelRecoveryLocked();
@@ -508,6 +542,26 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
 
     private void RememberFailure(string reason, IRecorderSession? owner, RecorderClientException? error = null) =>
         _failureReport ??= new(reason, _recording, owner, IsManagedStorageFailure(reason) ? null : owner?.FailureDiagnostic, ClipStorageDiagnostic.From(error));
+
+    // Call only while holding _sync and before cancelling the current session.
+    private void RememberReset(string trigger, IRecorderSession? owner)
+    {
+        var safeTrigger = IsRecoverable(trigger) || IsTargetTransition(trigger) ||
+            trigger is "target_observation_unavailable" or "target_observation_changed" ? trigger : "capture_reconnecting";
+        long? age = owner is not null && _sessionStarted != 0 ? (long)Stopwatch.GetElapsedTime(_sessionStarted).TotalMilliseconds : null;
+        var reason = safeTrigger switch
+        {
+            "target_observation_unavailable" => "waiting_for_game",
+            "target_observation_changed" => "target_changed",
+            _ => safeTrigger
+        };
+        if (_resetHistory.Count == MaximumResetHistory) _resetHistory.RemoveAt(0);
+        _resetHistory.Add(new(++_resetSequence, safeTrigger, age,
+            new(reason, _recording, owner, owner?.FailureDiagnostic, null)));
+    }
+
+    private static string FormatFailure(FailureReportState failure) => ClipFailureReport.Build(failure.Reason, failure.Recording,
+        IsManagedStorageFailure(failure.Reason) ? null : failure.Diagnostic ?? failure.Owner?.FailureDiagnostic, failure.Storage);
 
     private static bool IsManagedStorageFailure(string reason) => reason is
         "buffer_storage_unavailable" or "buffer_storage_full" or "clip_storage_full" or "clip_publish_failed";
