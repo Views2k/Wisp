@@ -469,8 +469,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
 
     public void PlaybackFailed() => ErrorText("This clip could not be played. Its file has been kept.");
     public void ReportCopyCompleted(bool copied) => NoticeText(copied
-        ? "Error details copied. You can include them when reporting this problem."
-        : "The clipboard is busy. Try Copy error details again.");
+        ? "Details copied. You can include them when reporting this problem."
+        : "The clipboard is busy. Try copying the details again.");
     public void ClosePlayback() => ClearSelection();
 
     public Task ExportSelectedToFolderAsync()

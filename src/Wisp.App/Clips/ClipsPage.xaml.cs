@@ -36,6 +36,7 @@ public partial class ClipsPage : UserControl
     private long _seekRevision;
     private bool _updatingTimeline, _seeking;
     private string _playbackFailureDetails = "";
+    private LosslessClipPlayer? _playbackFailureOwner;
 
     public ClipsPage()
     {
@@ -355,6 +356,7 @@ public partial class ClipsPage : UserControl
     private void StopPlayer()
     {
         _playbackFailureDetails = "";
+        _playbackFailureOwner = null;
         if (CopyPlaybackDetails is not null) CopyPlaybackDetails.Visibility = Visibility.Collapsed;
         _playback.Reset(); _preparationElapsed.Reset(); _playingClipId = null;
         _playbackTimer.Stop(); _seekPlayer = null; _seekLosslessPlayer = null; _seeking = false;
@@ -379,11 +381,13 @@ public partial class ClipsPage : UserControl
     }
     private void FailPlayback(string message = "This clip could not be played. Choose the clip again to retry.")
     {
-        var lossless = _losslessPlayer is not null;
+        var lossless = _losslessPlayer;
+        var failureStage = lossless?.DiagnosticStage;
         StopPlayer(); _playback.Fail(message); UpdatePlaybackStatus(); Model?.PlaybackFailed();
-        if (lossless)
+        if (lossless is not null)
         {
-            _playbackFailureDetails = message;
+            _playbackFailureDetails = $"{message}\nFailure stage: {failureStage}";
+            _playbackFailureOwner = lossless;
             CopyPlaybackDetails.Visibility = Visibility.Visible;
         }
     }
@@ -392,7 +396,7 @@ public partial class ClipsPage : UserControl
         if (_playbackFailureDetails.Length == 0) return;
         try
         {
-            Clipboard.SetText($"Wisp lossless playback\n{_playbackFailureDetails}\nRuntime: {LosslessVlcRuntime.RuntimeStage}\nCleanup: {LosslessVlcRuntime.CleanupStatus}");
+            Clipboard.SetText($"Wisp lossless playback (mpv)\n{_playbackFailureDetails}\nCleanup: {_playbackFailureOwner?.CleanupStatus ?? "not-recorded"}");
             Model?.ReportCopyCompleted(true);
         }
         catch (ExternalException) { Model?.ReportCopyCompleted(false); }

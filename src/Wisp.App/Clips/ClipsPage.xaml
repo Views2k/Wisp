@@ -75,7 +75,7 @@
                     <TextBlock Text="{Binding RecorderStatus}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                     <TextBlock Text="{Binding SaveQueueStatus}" Style="{StaticResource ClipHint}" Margin="0,8,0,0" Visibility="{Binding HasSaveQueueStatus, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
                     <StackPanel Visibility="{Binding HasFailureReport, Converter={StaticResource ClipVisibility}}" Margin="0,10,0,0">
-                        <Button Content="Copy error details" Click="CopyErrorDetails_Click" HorizontalAlignment="Left" Padding="12,7" />
+                        <Button Content="Copy recording details" Click="CopyErrorDetails_Click" HorizontalAlignment="Left" Padding="12,7" />
                         <TextBlock Text="Includes the Wisp build, recording settings and error codes. No file paths, account details or video." Style="{StaticResource ClipHint}" Margin="0,5,0,0" />
                     </StackPanel>
                     <TextBlock Text="{Binding Notice}" Style="{StaticResource ClipHint}" AutomationProperties.LiveSetting="Polite" Margin="0,5,0,0" />

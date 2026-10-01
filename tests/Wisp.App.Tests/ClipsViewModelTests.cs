@@ -837,7 +837,7 @@ public sealed class ClipsViewModelTests
         Assert.Contains(nameof(ClipsViewModel.HasFailureReport), changes);
         Assert.Contains(nameof(ClipsViewModel.FailureReport), changes);
         model.ReportCopyCompleted(true);
-        Assert.Contains("Error details copied", model.Notice, StringComparison.Ordinal);
+        Assert.Contains("Details copied", model.Notice, StringComparison.Ordinal);
         Assert.Equal("Video encoding failed.", model.RecorderStatus);
         Assert.True(model.HasDashboardNotice);
         model.ReportCopyCompleted(false);

@@ -1,14 +1,14 @@
 using System.IO;
+using System.Globalization;
 using System.Windows.Threading;
-using LibVLCSharp.Shared;
 
 namespace Wisp.App.Clips;
 
 internal sealed record LosslessPlaybackSnapshot(bool Ready = false, double Duration = 0, double Position = 0,
     bool Buffering = false, bool Ended = false, string? Failure = null);
 
-// LibVLC owns the playback/audio clock. All native calls, including destruction,
-// are serialized away from WPF; native callbacks only publish managed signals.
+// mpv owns the playback/audio clock. All native calls, including destruction,
+// are serialized away from WPF. Native events are drained on that same worker.
 internal sealed class LosslessClipPlayer
 {
     private readonly object _sync = new();
@@ -18,16 +18,18 @@ internal sealed class LosslessClipPlayer
     private readonly TaskCompletionSource _detached = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task _tail = Task.CompletedTask;
     private Task<bool>? _close;
-    private LosslessVlcRuntime.Lease? _lease;
+    private LosslessMpvRuntime.Lease? _lease;
     private FileStream? _source;
-    private Media? _media;
-    private MediaPlayer? _native;
+    private LosslessMpvNative? _native;
     private LosslessPlaybackSnapshot _snapshot = new();
     private bool _closed, _paused = true;
-    private int _failed, _ended, _pollPending, _notifyPending;
+    private int _pollPending, _notifyPending;
+    private string _stage = "created", _cleanupStatus = "not-requested";
     private double _volume;
     internal LosslessVideoHost Host { get; }
     internal LosslessPlaybackSnapshot Snapshot => Volatile.Read(ref _snapshot);
+    internal string DiagnosticStage => Volatile.Read(ref _stage);
+    internal string CleanupStatus => Volatile.Read(ref _cleanupStatus);
     internal event EventHandler? Changed;
 
     internal LosslessClipPlayer(LosslessVideoHost host, double volume)
@@ -42,84 +44,117 @@ internal sealed class LosslessClipPlayer
         deadline.CancelAfter(TimeSpan.FromSeconds(15));
         var token = deadline.Token;
         var handle = await Host.Ready.WaitAsync(token).ConfigureAwait(false);
-        _lease = await LosslessVlcRuntime.AcquireAsync(_runtimeOperation, token).ConfigureAwait(false);
+        _lease = await LosslessMpvRuntime.AcquireAsync(_runtimeOperation, token).ConfigureAwait(false);
         _source = LosslessVlcRuntime.HoldSource(clip, path);
         token.ThrowIfCancellationRequested();
-        _native = new MediaPlayer(_lease.Engine)
-        { Mute = true, Volume = 0, EnableKeyInput = false, EnableMouseInput = false, Hwnd = handle };
-        _native.EncounteredError += (_, _) => { Interlocked.Exchange(ref _failed, 1); RequestPoll(); };
-        _native.EndReached += (_, _) => { Interlocked.Exchange(ref _ended, 1); RequestPoll(); };
-        _native.Buffering += (_, _) => RequestPoll();
-        _media = new Media(_lease.Engine, path, FromType.FromPath, ":start-paused");
-        _native.Media = _media;
+        SetStage("initialize-native-library");
+        _native = new LosslessMpvNative();
+        _native.Initialize(handle);
+        SetStage("prepare-paused-video");
+        _native.Run("loadfile", path, "replace");
         await PreparePausedAsync(token).ConfigureAwait(false);
-        uint width = 0, height = 0;
-        var duration = _native.Length / 1000d;
-        if (!_native.Size(0, ref width, ref height) || width != clip.Media.Width || height != clip.Media.Height ||
+        var duration = _native.Number("duration") ?? 0;
+        if (_native.Integer("video-params/w") != clip.Media.Width || _native.Integer("video-params/h") != clip.Media.Height ||
             duration <= 0 || !double.IsFinite(duration) || Math.Abs(duration - clip.DurationSeconds) > 1 ||
-            !_native.CanPause || !_native.IsSeekable || _native.Time is < 0 or > 34)
+            _native.Flag("seekable") != true || _native.Number("time-pos") is not (>= 0 and <= 0.034) ||
+            _native.Text("video-dec-params/pixelformat") != "gbrp")
             throw new InvalidDataException("The decoder metadata did not match the saved clip.");
+        token.ThrowIfCancellationRequested();
+        SetStage("player-ready");
         Publish(new(true, duration));
     });
 
     private async Task PreparePausedAsync(CancellationToken token)
     {
         var player = _native!;
-        player.Mute = true; player.Volume = 0;
-        Interlocked.Exchange(ref _ended, 0);
-        if (!player.Play()) throw new InvalidOperationException("The decoder could not open this clip.");
-        while (player.State != VLCState.Paused) await TickAsync(token).ConfigureAwait(false);
-        // A paused seek permits the decoder's first preview frame without advancing
-        // its clock. Cache percentage can remain below 100 while intentionally paused.
-        player.Time = 0;
-        while (player.State != VLCState.Paused || player.VoutCount == 0) await TickAsync(token).ConfigureAwait(false);
+        do { await TickAsync(token).ConfigureAwait(false); }
+        while (player.Restarts == 0 || player.Flag("pause") != true || player.Flag("seeking") == true ||
+            player.Flag("paused-for-cache") != false || player.Flag("vo-configured") != true ||
+            player.Number("time-pos") is not (>= 0 and <= 0.034));
         _paused = true;
     }
 
     private async Task TickAsync(CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if (Volatile.Read(ref _failed) != 0) throw new InvalidDataException("The lossless decoder reported an error.");
+        _native!.DrainEvents();
         await Task.Delay(20, token).ConfigureAwait(false);
     }
 
     internal void SetPaused(bool paused) => Queue(async () =>
     {
         if (_native is null || !Snapshot.Ready) return;
-        if (!paused && Volatile.Read(ref _ended) != 0)
+        if (!paused && _native.Flag("eof-reached") == true)
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             deadline.CancelAfter(TimeSpan.FromSeconds(15));
-            _native.Stop();
-            await PreparePausedAsync(deadline.Token).ConfigureAwait(false);
+            await SeekAsync(0, deadline.Token).ConfigureAwait(false);
         }
         _paused = paused;
-        _native.Volume = paused ? 0 : (int)Math.Round(_volume * 100);
-        _native.Mute = paused;
-        _native.SetPause(paused);
+        _native.Set("volume", (paused ? 0 : _volume * 100).ToString(CultureInfo.InvariantCulture));
+        _native.Set("mute", paused ? "yes" : "no");
+        _native.Set("pause", paused ? "yes" : "no");
+        SetStage(paused ? "paused" : "playing");
         Poll();
     });
 
     internal void SetVolume(double value) => Queue(() =>
     {
         _volume = Math.Clamp(value, 0, 1);
-        if (_native is not null && !_paused) _native.Volume = (int)Math.Round(_volume * 100);
+        if (_native is not null && !_paused) _native.Set("volume", (_volume * 100).ToString(CultureInfo.InvariantCulture));
         return Task.CompletedTask;
     });
 
     internal void Seek(double seconds) => Queue(async () =>
     {
         if (_native is null || !Snapshot.Ready || !double.IsFinite(seconds)) return;
-        if (Volatile.Read(ref _ended) != 0)
-        {
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-            deadline.CancelAfter(TimeSpan.FromSeconds(15));
-            _native.Stop();
-            await PreparePausedAsync(deadline.Token).ConfigureAwait(false);
-        }
-        _native.Time = (long)(Math.Clamp(seconds, 0, Snapshot.Duration) * 1000);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(15));
+        await SeekAsync(Math.Clamp(seconds, 0, Snapshot.Duration), deadline.Token).ConfigureAwait(false);
         Poll();
     });
+
+    private async Task SeekAsync(double seconds, CancellationToken token)
+    {
+        var player = _native!;
+        SetStage("seeking");
+        player.DrainEvents();
+        var previous = player.Restarts;
+        player.Run("seek", seconds.ToString(CultureInfo.InvariantCulture), "absolute+exact");
+        do { await TickAsync(token).ConfigureAwait(false); }
+        while (player.Flag("seeking") == true || player.Flag("paused-for-cache") != false ||
+            player.Restarts <= previous && !(seconds >= Snapshot.Duration && player.Flag("eof-reached") == true));
+        SetStage(_paused ? "paused" : "playing");
+    }
+
+    internal Task<LosslessAudioStatistics> ReadAudioStatisticsAsync(CancellationToken token)
+    {
+        var completion = new TaskCompletionSource<LosslessAudioStatistics>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Queue(() =>
+        {
+            try
+            {
+                var player = _native ?? throw new InvalidOperationException("The player is closed.");
+                completion.TrySetResult(new(player.Text("current-tracks/audio/codec"), player.Number("audio-pts"),
+                    player.Integer("audio-params/channel-count"), player.Number("volume"), player.Flag("mute")));
+            }
+            catch (Exception error) { completion.TrySetException(error); }
+            return Task.CompletedTask;
+        });
+        return completion.Task.WaitAsync(token);
+    }
+
+    internal Task<LosslessDecodedFrame> ReadDiagnosticFrameAsync(CancellationToken token)
+    {
+        var completion = new TaskCompletionSource<LosslessDecodedFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Queue(() =>
+        {
+            try { completion.TrySetResult((_native ?? throw new InvalidOperationException("The player is closed.")).ReadDiagnosticFrame()); }
+            catch (Exception error) { completion.TrySetException(error); }
+            return Task.CompletedTask;
+        });
+        return completion.Task.WaitAsync(token);
+    }
 
     internal void RequestPoll()
     {
@@ -130,13 +165,13 @@ internal sealed class LosslessClipPlayer
     private void Poll()
     {
         if (_native is null || !Snapshot.Ready) return;
-        if (Volatile.Read(ref _failed) != 0) throw new InvalidDataException("The lossless decoder reported an error.");
-        var ended = Volatile.Read(ref _ended) != 0;
-        if (ended) _paused = true;
+        _native.DrainEvents();
+        var ended = _native.Flag("eof-reached") == true;
+        if (ended) { _native.DrainEvents(); _paused = true; }
         Publish(Snapshot with
         {
-            Position = ended ? Snapshot.Duration : Math.Clamp(_native.Time / 1000d, 0, Snapshot.Duration),
-            Buffering = !_paused && _native.State == VLCState.Buffering,
+            Position = ended ? Snapshot.Duration : Math.Clamp(_native.Number("time-pos") ?? Snapshot.Position, 0, Snapshot.Duration),
+            Buffering = !_paused && _native.Flag("paused-for-cache") == true,
             Ended = ended
         });
     }
@@ -153,8 +188,8 @@ internal sealed class LosslessClipPlayer
                 catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
                 catch (Exception error)
                 {
-                    var code = error is OperationCanceledException ? "prepare-timeout" : error.GetType().Name;
-                    var action = LosslessVlcRuntime.CleanupPending
+                    var code = error is OperationCanceledException ? "prepare-timeout" : error is LosslessMpvException native ? native.Code : error.GetType().Name;
+                    var action = LosslessMpvRuntime.CleanupPending
                         ? "Decoder cleanup is still pending. Restart Wisp before opening another lossless clip."
                         : "Reopen the clip; if it repeats, restart Wisp and report this code.";
                     Publish(Snapshot with { Failure = $"Lossless playback failed ({code}, 0x{error.HResult:X8}). {action}" });
@@ -164,6 +199,7 @@ internal sealed class LosslessClipPlayer
     }
 
     private void Publish(LosslessPlaybackSnapshot value) { Volatile.Write(ref _snapshot, value); Signal(); }
+    private void SetStage(string stage) { Volatile.Write(ref _stage, stage); LosslessMpvRuntime.SetStage(_runtimeOperation, stage); }
     private void Signal()
     {
         if (Interlocked.Exchange(ref _notifyPending, 1) != 0 || _dispatcher.HasShutdownStarted) return;
@@ -175,7 +211,11 @@ internal sealed class LosslessClipPlayer
     }
 
     private void HostClosed(object? sender, EventArgs e) => _ = CloseAsync();
-    private void HostFailed(object? sender, EventArgs e) => Publish(Snapshot with { Failure = "The lossless video surface could not be clipped safely. Reopen the clip to retry." });
+    private void HostFailed(object? sender, EventArgs e)
+    {
+        Publish(Snapshot with { Failure = "The lossless video surface could not be clipped safely. Reopen the clip to retry." });
+        _lifetime.Cancel();
+    }
 
     internal Task<bool> CloseAsync()
     {
@@ -183,27 +223,27 @@ internal sealed class LosslessClipPlayer
         {
             if (_close is not null) return _close;
             _closed = true; _lifetime.Cancel();
+            Volatile.Write(ref _cleanupStatus, "stopping");
             Host.Closed -= HostClosed; Host.Failed -= HostFailed;
             var cleanup = _tail.ContinueWith(previous =>
             {
-                LosslessVlcRuntime.CleanupStarted(_runtimeOperation);
+                SetStage("stopping");
                 try
                 {
-                    _native?.Stop();
-                    if (_native is not null) _native.Hwnd = IntPtr.Zero;
-                    _native?.Dispose(); _native = null;
+                    _native?.Close(); _native = null;
                     _detached.TrySetResult();
-                    _media?.Dispose(); _media = null;
                     _source?.Dispose(); _source = null;
                     _lease?.Dispose(); _lease = null;
                     _lifetime.Dispose();
+                    Volatile.Write(ref _cleanupStatus, "complete");
                     return true;
                 }
                 catch (Exception)
                 {
                     // Preserve the exact native owner and lease rather than racing a
                     // second Dispose or reusing an engine with unconfirmed workers.
-                    LosslessVlcRuntime.Quarantine(this); return false;
+                    Volatile.Write(ref _cleanupStatus, "cleanup-failed-restart-required");
+                    LosslessMpvRuntime.Quarantine(this); return false;
                 }
             }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             Host.RetireAfter(_detached.Task);
@@ -214,6 +254,12 @@ internal sealed class LosslessClipPlayer
     private async Task<bool> ObserveCleanupAsync(Task<bool> cleanup)
     {
         try { return await cleanup.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
-        catch (TimeoutException) { LosslessVlcRuntime.CleanupDelayed(_runtimeOperation); return false; }
+        catch (TimeoutException)
+        {
+            Interlocked.CompareExchange(ref _cleanupStatus, "cleanup-pending-restart-may-be-required", "stopping");
+            LosslessMpvRuntime.CleanupDelayed(_runtimeOperation); return false;
+        }
     }
 }
+
+internal sealed record LosslessAudioStatistics(string? Codec, double? Position, long? Channels, double? Volume, bool? Mute);
