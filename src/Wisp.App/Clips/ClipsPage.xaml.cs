@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -180,7 +181,41 @@ public partial class ClipsPage : UserControl
 
     private async void Export_Click(object sender, RoutedEventArgs e)
     {
-        if (Model is { CanExport: true } model) await model.ExportSelectedToFolderAsync();
+        if (Model is not { CanExport: true, SelectedClip: { } selected } model) return;
+        var revision = _playback.Revision;
+        var dialog = CreateExportDialog(model.StorageDirectory, selected.Entry);
+        dialog.FileOk += (_, cancel) =>
+        {
+            var error = ValidateExportDestination(dialog.FileName);
+            if (error is null) return;
+            cancel.Cancel = true;
+            MessageBox.Show(Window.GetWindow(this), error, "Choose an export file", MessageBoxButton.OK, MessageBoxImage.Information);
+        };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true || !ReferenceEquals(Model, model) ||
+            !ReferenceEquals(model.SelectedClip, selected) || revision != _playback.Revision || !model.CanExport) return;
+        await model.ExportSelectedAsync(dialog.FileName);
+    }
+
+    internal static Microsoft.Win32.SaveFileDialog CreateExportDialog(string exportDirectory, ClipEntry clip) => new()
+    {
+        Title = "Export clip",
+        Filter = "MP4 video (*.mp4)|*.mp4",
+        FileName = $"Wisp-{clip.SavedAtUtc.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{clip.Id:N}.mp4",
+        DefaultExt = ".mp4",
+        AddExtension = true,
+        CheckPathExists = true,
+        OverwritePrompt = false,
+        InitialDirectory = Directory.Exists(exportDirectory) ? exportDirectory :
+            Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+    };
+
+    internal static string? ValidateExportDestination(string destination)
+    {
+        if (!Path.GetExtension(destination).Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+            return "Use .mp4 for the exported video.";
+        return File.Exists(destination) || Directory.Exists(destination)
+            ? "This name is already in use. Choose a different filename, or Cancel to keep the existing file."
+            : null;
     }
 
     private async void PlayClip_Click(object sender, RoutedEventArgs e)

@@ -64,7 +64,7 @@
     </UserControl.Resources>
     <ScrollViewer x:Name="ClipsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,12" ScrollChanged="ClipsScroll_ScrollChanged">
         <StackPanel>
-            <TextBlock Text="Enable clipping to keep a rolling recording. Save clip keeps a moment in Wisp. Export copies it to your export folder." Style="{StaticResource ClipHint}" Margin="0,0,0,16" />
+            <TextBlock Text="Enable clipping to keep a rolling recording. Save clip keeps a moment in Wisp. Export lets you choose a filename and folder for a copy." Style="{StaticResource ClipHint}" Margin="0,0,0,16" />
             <TextBlock Text="Fullscreen only, including borderless fullscreen. Clips record everything visible on Forza's screen, including the Wisp HUD and notifications. Recording pauses when you switch away from Forza or minimize it." TextWrapping="Wrap" Margin="0,0,0,16" />
             <Border Style="{DynamicResource CardStyle}" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
