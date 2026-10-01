@@ -21,6 +21,7 @@ public sealed class ClipsSettings
 
     public bool Enabled { get; set; }
     public bool ShowCaptureBorder { get; set; }
+    public bool CaptureSystemAudio { get; set; }
     public int LengthSeconds { get; set; } = 60;
     public int ResolutionHeight { get; set; } = 1080;
     public int FrameRate { get; set; } = 60;

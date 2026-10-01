@@ -89,7 +89,6 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private bool _saveActive, _drainingSaves;
     private int _queuedSaves;
     private string _saveQueueNotice = "";
-    private string _capturePermissionHint = "";
     private Task? _initialization;
     private Func<bool, bool, OverlayHotkeyChord, string?>? _registerShortcut;
     private string _error = "", _notice = "", _shortcutStatus = "Shortcuts are off.";
@@ -146,8 +145,6 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         ? "Another clip save is queued. It will end when saving starts."
         : $"{_queuedSaves} clip save{(_queuedSaves == 1 ? "" : "s")} queued until recording is ready. Queued clips end when saving starts.";
     public string RecorderStatus => _snapshot.Status;
-    public string CapturePermissionHint => _capturePermissionHint;
-    public bool HasCapturePermissionHint => _capturePermissionHint.Length > 0;
     public string FailureReport => _recorder.FailureReport;
     public bool HasFailureReport => FailureReport.Length > 0;
     public string Error => _libraryWarning.Length == 0 ? _error : _error.Length == 0 ? _libraryWarning : _libraryWarning + " " + _error;
@@ -184,15 +181,14 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public int LengthSeconds { get => _settings.LengthSeconds; set { if (ChangeChoice(value, LengthChoices, _settings.LengthSeconds)) { _settings.LengthSeconds = value; Changed(); OnChanged(nameof(LongClipHint)); } } }
     public int ResolutionHeight { get => _settings.ResolutionHeight; set { if (ChangeChoice(value, ResolutionChoices, _settings.ResolutionHeight)) { _settings.ResolutionHeight = value; Changed(); } } }
     public int FrameRate { get => _settings.FrameRate; set { if (ChangeChoice(value, FrameRateChoices, _settings.FrameRate)) { _settings.FrameRate = value; Changed(); } } }
-    public bool ShowCaptureBorder
+    public bool CaptureSystemAudio
     {
-        get => _settings.ShowCaptureBorder;
+        get => _settings.CaptureSystemAudio;
         set
         {
-            if (!CanEditSettings || value == _settings.ShowCaptureBorder) return;
-            _settings.ShowCaptureBorder = value;
-            _capturePermissionHint = "";
-            Changed(); OnChanged(nameof(CapturePermissionHint)); OnChanged(nameof(HasCapturePermissionHint));
+            if (!CanEditSettings || value == _settings.CaptureSystemAudio) return;
+            _settings.CaptureSystemAudio = value;
+            Changed();
         }
     }
     public int Quality
@@ -253,30 +249,15 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         PreferencesChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public Task ToggleAsync() => ToggleAsync(requestAccess: true);
-    private Task ToggleAsync(bool requestAccess) => Operation(async () =>
+    public Task ToggleAsync() => Operation(async () =>
     {
         var next = !_snapshot.Enabled;
         if (next && !ClipsSettings.CanRecordToDirectory(_libraryDirectory))
         { ErrorText(ClipsSettings.RecordingPathTooLongMessage); return; }
         if (next && await IsNetworkStorageAsync())
         { ErrorText("Clip recording needs a local folder. Network drives are not supported."); return; }
-        if (next && !ShowCaptureBorder)
-        {
-            var access = requestAccess ? await _recorder.RequestBorderlessAccessAsync(_token) : await _recorder.CheckBorderlessAccessAsync(_token);
-            if (_disposed || !_runtimeActive) return;
-            _capturePermissionHint = access switch
-            {
-                ClipBorderlessAccessResult.Allowed => "",
-                ClipBorderlessAccessResult.Denied => "Windows did not allow borderless capture. Clipping can still work with the Windows capture border visible.",
-                _ => "Borderless capture is unavailable. Windows may show a capture border while clipping is on."
-            };
-            OnChanged(nameof(CapturePermissionHint)); OnChanged(nameof(HasCapturePermissionHint));
-        }
-        else if (next)
-        { _capturePermissionHint = ""; OnChanged(nameof(CapturePermissionHint)); OnChanged(nameof(HasCapturePermissionHint)); }
         if (_disposed || !_runtimeActive) return;
-        await _recorder.SetEnabledAsync(next, Recording(), _token, ShowCaptureBorder);
+        await _recorder.SetEnabledAsync(next, Recording(), _token);
         RefreshRecorder();
         if (_snapshot.Enabled != next) { ErrorText("Clipping did not change state. Check the recorder status."); return; }
         _settings.Enabled = next;
@@ -289,7 +270,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         if (!active) CancelQueuedSaves("Queued saves cancelled because clipping is paused.");
         NotifyState();
     }
-    internal Task RestoreEnabledPreferenceAsync() => _settings.Enabled && !_snapshot.Enabled ? ToggleAsync(requestAccess: false) : Task.CompletedTask;
+    internal Task RestoreEnabledPreferenceAsync() => _settings.Enabled && !_snapshot.Enabled ? ToggleAsync() : Task.CompletedTask;
     private Task<bool> IsNetworkStorageAsync() => Task.Run(() =>
         _libraryDirectory.StartsWith(@"\\", StringComparison.Ordinal) ||
         new DriveInfo(Path.GetPathRoot(_libraryDirectory)!).DriveType == DriveType.Network, _token);
@@ -638,7 +619,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         NotifyDashboardNotice();
         ReminderChanged?.Invoke(this, EventArgs.Empty);
     }
-    private ClipRecordingSpec Recording() => new(LengthSeconds, ResolutionHeight, FrameRate, Quality);
+    private ClipRecordingSpec Recording() => new(LengthSeconds, ResolutionHeight, FrameRate, Quality, CaptureSystemAudio);
     private bool ChangeChoice(int next, IReadOnlyList<int> choices, int current) => CanEditSettings && next != current && choices.Contains(next);
     private void Changed([CallerMemberName] string? name = null) { OnChanged(name); PreferencesChanged?.Invoke(this, EventArgs.Empty); }
     private void ClearSelection()

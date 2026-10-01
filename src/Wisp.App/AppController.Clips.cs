@@ -88,7 +88,7 @@ public sealed partial class AppController
     private ClipRecordingSpec ClipRecordingPreferences()
     {
         var settings = Clips.Preferences;
-        return new(settings.LengthSeconds, settings.ResolutionHeight, settings.FrameRate, settings.Quality);
+        return new(settings.LengthSeconds, settings.ResolutionHeight, settings.FrameRate, settings.Quality, settings.CaptureSystemAudio);
     }
 
     private void UnregisterClipShortcuts()

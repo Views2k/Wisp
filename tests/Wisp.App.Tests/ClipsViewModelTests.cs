@@ -10,28 +10,28 @@ namespace Wisp.App.Tests;
 public sealed class ClipsViewModelTests
 {
     [Fact]
-    public void ShowBorderSkipsConsentAndCannotChangeDuringRecording() => OnDispatcher(async () =>
+    public void AudioDefaultsToForzaAndCannotChangeDuringRecording() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
         var recorder = new FakeRecorder { BorderlessAccess = ClipBorderlessAccessResult.Allowed };
         recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
         using var model = fixture.Model(recorder);
         await model.InitializeAsync();
-        Assert.False(model.ShowCaptureBorder);
-        model.ShowCaptureBorder = true;
-        Assert.True(model.Preferences.ShowCaptureBorder);
+        Assert.False(model.CaptureSystemAudio);
+        model.CaptureSystemAudio = true;
+        Assert.True(model.Preferences.CaptureSystemAudio);
         await model.ToggleAsync();
-        Assert.True(recorder.LastShowCaptureBorder);
+        Assert.True(recorder.LastRecording!.CaptureSystemAudio);
+        Assert.False(recorder.LastShowCaptureBorder);
         Assert.Equal(0, recorder.PermissionCalls);
         Assert.Equal(0, recorder.PermissionChecks);
-        Assert.False(model.HasCapturePermissionHint);
-        model.ShowCaptureBorder = false;
-        Assert.True(model.ShowCaptureBorder);
+        model.CaptureSystemAudio = false;
+        Assert.True(model.CaptureSystemAudio);
         await model.ToggleAsync();
-        model.ShowCaptureBorder = false;
+        model.CaptureSystemAudio = false;
         await model.ToggleAsync();
-        Assert.Equal(1, recorder.PermissionCalls);
-        Assert.False(recorder.LastShowCaptureBorder);
+        Assert.Equal(0, recorder.PermissionCalls);
+        Assert.False(recorder.LastRecording!.CaptureSystemAudio);
     });
 
     [Fact]
@@ -141,8 +141,7 @@ public sealed class ClipsViewModelTests
         await model.RestoreEnabledPreferenceAsync();
         Assert.True(model.ClippingEnabled);
         Assert.Equal(0, recorder.PermissionCalls);
-        Assert.Equal(1, recorder.PermissionChecks);
-        Assert.False(model.HasCapturePermissionHint);
+        Assert.Equal(0, recorder.PermissionChecks);
         Assert.Contains("could not be imported", model.Error, StringComparison.Ordinal);
         Assert.Equal(fixture.Directory, model.Preferences.LegacyLibraryDirectory);
     });
@@ -236,10 +235,10 @@ public sealed class ClipsViewModelTests
     });
 
     [Theory]
-    [InlineData(ClipBorderlessAccessResult.Allowed, false)]
-    [InlineData(ClipBorderlessAccessResult.Denied, true)]
-    [InlineData(ClipBorderlessAccessResult.Unavailable, true)]
-    public void ExplicitEnableRequestsBorderlessAccessAndKeepsFallbackVisible(ClipBorderlessAccessResult access, bool hint) => OnDispatcher(async () =>
+    [InlineData(ClipBorderlessAccessResult.Allowed)]
+    [InlineData(ClipBorderlessAccessResult.Denied)]
+    [InlineData(ClipBorderlessAccessResult.Unavailable)]
+    public void DesktopRecordingDoesNotDependOnWgcBorderPermission(ClipBorderlessAccessResult access) => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
         var recorder = new FakeRecorder { BorderlessAccess = access };
@@ -247,16 +246,15 @@ public sealed class ClipsViewModelTests
         using var model = fixture.Model(recorder);
         await model.InitializeAsync();
         await model.ToggleAsync();
-        Assert.Equal(1, recorder.PermissionCalls);
-        Assert.Equal(new[] { "permission", "enable" }, recorder.EnableOrder);
+        Assert.Equal(0, recorder.PermissionCalls);
+        Assert.Equal(0, recorder.PermissionChecks);
+        Assert.Equal(new[] { "enable" }, recorder.EnableOrder);
         Assert.True(model.ClippingEnabled);
-        Assert.Equal(hint, model.HasCapturePermissionHint);
-        var message = model.CapturePermissionHint;
         recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording game clips"));
         await model.SaveClipAsync();
-        Assert.Equal(message, model.CapturePermissionHint);
+        Assert.Single(model.Clips);
         await model.ToggleAsync();
-        Assert.Equal(1, recorder.PermissionCalls);
+        Assert.Equal(0, recorder.PermissionCalls);
     });
 
     [Fact]
@@ -270,27 +268,20 @@ public sealed class ClipsViewModelTests
         await model.RestoreEnabledPreferenceAsync();
         Assert.True(model.ClippingEnabled);
         Assert.Equal(0, recorder.PermissionCalls);
-        Assert.Equal(1, recorder.PermissionChecks);
-        Assert.Equal(new[] { "check", "enable" }, recorder.EnableOrder);
-        Assert.True(model.HasCapturePermissionHint);
+        Assert.Equal(0, recorder.PermissionChecks);
+        Assert.Equal(new[] { "enable" }, recorder.EnableOrder);
     });
 
     [Fact]
-    public void RuntimeSuspendDuringPermissionRequestCannotEnableRecordingLater() => OnDispatcher(async () =>
+    public void SuspendedRuntimeCannotEnableRecording() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var recorder = new FakeRecorder { PermissionGate = gate };
+        var recorder = new FakeRecorder();
         recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
         using var model = fixture.Model(recorder);
         await model.InitializeAsync();
-        var enabling = model.ToggleAsync();
-        try
-        {
-            await recorder.PermissionEntered.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
-            model.SetRuntimeActive(false);
-        }
-        finally { gate.TrySetResult(); await enabling; }
+        model.SetRuntimeActive(false);
+        await model.ToggleAsync();
         Assert.Equal(0, recorder.ToggleCalls);
         Assert.False(model.ClippingEnabled);
     });
@@ -850,6 +841,7 @@ public sealed class ClipsViewModelTests
         public int PermissionCalls { get; private set; }
         public int PermissionChecks { get; private set; }
         public bool LastShowCaptureBorder { get; private set; }
+        public ClipRecordingSpec? LastRecording { get; private set; }
         public ClipBorderlessAccessResult BorderlessAccess { get; init; } = ClipBorderlessAccessResult.Unavailable;
         public TaskCompletionSource? PermissionGate { get; init; }
         public TaskCompletionSource PermissionEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -878,6 +870,7 @@ public sealed class ClipsViewModelTests
         {
             cancellationToken.ThrowIfCancellationRequested(); ToggleCalls++;
             LastShowCaptureBorder = showCaptureBorder;
+            LastRecording = recording;
             EnableOrder.Add(enabled ? "enable" : "disable");
             Set(enabled ? new(ClipRecorderState.WaitingForGame, true, true, false, "Waiting for Forza") :
                 new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));

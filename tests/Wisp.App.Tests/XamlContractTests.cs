@@ -212,13 +212,13 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void ClipsCaptureBorderUsesThemedRecordingSettingAndPlayerHasOpaqueStretchSurface()
+    public void ClipsAudioUsesThemedRecordingSettingAndPlayerHasOpaqueStretchSurface()
     {
         var document = LoadXaml(ClipsPagePath());
         var toggle = Assert.Single(document.Descendants(Presentation + "CheckBox"),
-            element => element.Attribute("AutomationProperties.Name")?.Value == "Show capture border");
+            element => element.Attribute("AutomationProperties.Name")?.Value == "Record all app and system audio");
         Assert.Equal("{DynamicResource ToggleSwitchStyle}", toggle.Attribute("Style")?.Value);
-        Assert.Equal("{Binding ShowCaptureBorder}", toggle.Attribute("IsChecked")?.Value);
+        Assert.Equal("{Binding CaptureSystemAudio}", toggle.Attribute("IsChecked")?.Value);
         Assert.Contains(toggle.Ancestors(), element => element.Attribute("IsEnabled")?.Value == "{Binding CanEditSettings}");
         var host = Assert.Single(document.Descendants(Presentation + "ContentControl"),
             element => element.Attribute(Xaml + "Name")?.Value == "PlayerHost");

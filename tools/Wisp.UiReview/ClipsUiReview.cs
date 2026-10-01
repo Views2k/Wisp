@@ -72,9 +72,9 @@ internal static class ClipsUiReview
                 Check(!model.SaveClipCommand.CanExecute(null) && !model.PreviousPageCommand.CanExecute(null) &&
                     !model.NextPageCommand.CanExecute(null), "empty-actions-disabled");
                 CheckTimelineReset("initial-timeline-disabled");
-                var borderToggle = (CheckBox)page.FindName("CaptureBorderToggle");
-                Check(borderToggle.IsChecked == false && borderToggle.Style is not null && borderToggle.IsEnabled,
-                    "capture-border-default-off-and-themed");
+                var audioToggle = (CheckBox)page.FindName("CaptureSystemAudioToggle");
+                Check(audioToggle.IsChecked == false && audioToggle.Style is not null && audioToggle.IsEnabled,
+                    "system-audio-default-off-and-themed");
                 Capture("empty", surface, new(980, 750), 96);
                 CheckSelectors();
 
@@ -219,7 +219,7 @@ internal static class ClipsUiReview
                 ((ScrollViewer)page.FindName("ClipsScroll")).ScrollToTop(); Pump();
                 var selectors = Descendants(page).OfType<ComboBox>().ToArray();
                 Check(!model.CanEditSettings && selectors.Length == 3 && selectors.All(item => !item.IsEnabled) &&
-                    !borderToggle.IsEnabled, "recording-settings-disabled");
+                    !audioToggle.IsEnabled, "recording-settings-disabled");
                 Check(model.SaveClipCommand.CanExecute(null), "save-enabled-for-ready-fake");
                 Capture(phase, surface, new(720, 440), 96);
 

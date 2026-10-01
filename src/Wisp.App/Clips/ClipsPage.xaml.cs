@@ -56,9 +56,9 @@ public partial class ClipsPage : UserControl
     }
     private async void PageLoaded(object sender, RoutedEventArgs e)
     {
-        if (_hostWindow is not null) _hostWindow.StateChanged -= HostStateChanged;
+        if (_hostWindow is not null) { _hostWindow.StateChanged -= HostStateChanged; _hostWindow.Deactivated -= HostDeactivated; }
         _hostWindow = Window.GetWindow(this);
-        if (_hostWindow is not null) _hostWindow.StateChanged += HostStateChanged;
+        if (_hostWindow is not null) { _hostWindow.StateChanged += HostStateChanged; _hostWindow.Deactivated += HostDeactivated; }
         if (Model is { } model)
         {
             model.PropertyChanged -= ModelChanged;
@@ -71,13 +71,27 @@ public partial class ClipsPage : UserControl
     {
         LeavePage();
         if (Model is { } model) model.PropertyChanged -= ModelChanged;
-        if (_hostWindow is not null) _hostWindow.StateChanged -= HostStateChanged;
+        if (_hostWindow is not null) { _hostWindow.StateChanged -= HostStateChanged; _hostWindow.Deactivated -= HostDeactivated; }
         _hostWindow = null;
     }
     private void HostStateChanged(object? sender, EventArgs e) { if (_hostWindow?.WindowState == WindowState.Minimized) LeavePage(); else UpdateGalleryVisibility(); }
+    private void HostDeactivated(object? sender, EventArgs e) => PausePreviewForSystemCapture();
+    private void PausePreviewForSystemCapture()
+    {
+        if (Model is not { CaptureSystemAudio: true, ClippingEnabled: true } ||
+            _player is null || !_playback.Ready || _playback.Paused) return;
+        try
+        {
+            _player.Pause(); _playback.SetPaused(true); PlayPauseButton.Content = "Play";
+            UpdatePlaybackStatus(); UpdatePlaybackTimer();
+        }
+        catch (InvalidOperationException) { FailPlayback(); }
+    }
     private void UpdateGalleryVisibility() => Model?.SetGalleryActive(IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized);
     private void ModelChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (_hostWindow?.IsActive != true && e.PropertyName is nameof(ClipsViewModel.ClippingEnabled) or nameof(ClipsViewModel.CaptureSystemAudio))
+            PausePreviewForSystemCapture();
         if (e.PropertyName == nameof(ClipsViewModel.HasSelection))
         {
             UpdatePlaybackFade();
@@ -195,13 +209,16 @@ public partial class ClipsPage : UserControl
                 { FailPlayback("This clip has no playable video or duration. Choose another clip."); return; }
                 _preparationElapsed.Stop();
                 _playback.BufferingChanged(revision, player.IsBuffering);
-                player.Play();
+                var pauseForCapture = _hostWindow?.IsActive != true && model.CaptureSystemAudio && model.ClippingEnabled;
+                if (pauseForCapture) { player.Pause(); _playback.SetPaused(true); }
+                else player.Play();
                 if (!Current()) return;
-                PlayPauseButton.Content = "Pause"; PlayPauseButton.IsEnabled = true;
+                PlayPauseButton.Content = pauseForCapture ? "Play" : "Pause"; PlayPauseButton.IsEnabled = true;
                 _updatingTimeline = true;
                 try { PlaybackPosition.Maximum = _playback.DurationSeconds; PlaybackPosition.IsEnabled = true; }
                 finally { _updatingTimeline = false; }
                 SetTimelinePosition(0); UpdatePlaybackStatus(); UpdatePlayerSize(); UpdatePlaybackTimer();
+                if (_hostWindow?.IsActive != true) PausePreviewForSystemCapture();
             }
             catch (InvalidOperationException) { FailPlayback(); }
         };

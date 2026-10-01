@@ -79,7 +79,7 @@ internal static class ClipFailureReport
             report.AppendLine($"Build: {build}");
         report.AppendLine($"Reason: {safeReason}");
         if (recording is not null)
-            report.AppendLine(FormattableString.Invariant($"Settings: {recording.LengthSeconds}s, {recording.ResolutionHeight}p, {recording.FrameRate}fps, quality {recording.Quality}, game audio requested"));
+            report.AppendLine(FormattableString.Invariant($"Settings: {recording.LengthSeconds}s, {recording.ResolutionHeight}p, {recording.FrameRate}fps, quality {recording.Quality}, audio: {(recording.CaptureSystemAudio ? "system playback" : "Forza only")}"));
         if (storage is not null)
         {
             report.AppendLine($"Storage stage: {storage.Stage}");

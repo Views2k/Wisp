@@ -65,6 +65,7 @@
     <ScrollViewer x:Name="ClipsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,12" ScrollChanged="ClipsScroll_ScrollChanged">
         <StackPanel>
             <TextBlock Text="Enable clipping to keep a rolling recording. Save clip keeps a moment in Wisp. Export copies it to your export folder." Style="{StaticResource ClipHint}" Margin="0,0,0,16" />
+            <TextBlock Text="Fullscreen only, including borderless fullscreen. Clips record everything visible on Forza's screen, including the Wisp HUD and notifications. Recording pauses when you switch away from Forza or minimize it." TextWrapping="Wrap" Margin="0,0,0,16" />
             <Border Style="{DynamicResource CardStyle}" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
                     <WrapPanel>
@@ -72,7 +73,6 @@
                         <Button Content="Save clip" Command="{Binding SaveClipCommand}" Padding="14,7" Margin="0,0,0,10" />
                     </WrapPanel>
                     <TextBlock Text="{Binding RecorderStatus}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-                    <TextBlock Text="{Binding CapturePermissionHint}" Style="{StaticResource ClipHint}" Margin="0,8,0,0" Visibility="{Binding HasCapturePermissionHint, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
                     <TextBlock Text="{Binding SaveQueueStatus}" Style="{StaticResource ClipHint}" Margin="0,8,0,0" Visibility="{Binding HasSaveQueueStatus, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
                     <StackPanel Visibility="{Binding HasFailureReport, Converter={StaticResource ClipVisibility}}" Margin="0,10,0,0">
                         <Button Content="Copy error details" Click="CopyErrorDetails_Click" HorizontalAlignment="Left" Padding="12,7" />
@@ -94,8 +94,8 @@
                         <DockPanel Margin="0,0,0,5"><TextBlock Text="Quality" /><TextBlock Text="{Binding Quality}" HorizontalAlignment="Right" /></DockPanel>
                         <Slider Minimum="10" Maximum="100" Value="{Binding Quality}" TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10" PreviewMouseLeftButtonUp="Quality_Commit" PreviewKeyUp="Quality_Commit" LostKeyboardFocus="Quality_Commit" AutomationProperties.Name="Clip quality,10 to100" Margin="0,0,0,8" />
                         <TextBlock Text="{Binding LongClipHint}" Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
-                        <CheckBox x:Name="CaptureBorderToggle" Content="Show capture border" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding ShowCaptureBorder}" Margin="0,0,0,6" AutomationProperties.Name="Show capture border" />
-                        <TextBlock Text="Off by default. Hiding the border requires Windows permission; if unavailable, Windows keeps the border visible." Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
+                        <CheckBox x:Name="CaptureSystemAudioToggle" Content="Record all app and system audio" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding CaptureSystemAudio}" Margin="0,0,0,6" AutomationProperties.Name="Record all app and system audio" />
+                        <TextBlock Text="Off by default: only Forza audio is recorded. Turn on to include other apps, voice chat and system sounds. Microphone input is not recorded." Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
                         <TextBlock Text="Shortcuts" FontWeight="SemiBold" Margin="0,0,0,8" />
                         <WrapPanel>
                             <StackPanel Width="220" Margin="0,0,12,12">
@@ -109,7 +109,7 @@
                         </WrapPanel>
                         <TextBlock Text="{Binding ShortcutStatus}" Style="{StaticResource ClipHint}" />
                     </StackPanel>
-                    <TextBlock Text="Records the game window and game audio; separate Wisp HUD overlays are not included. Turn clipping off before changing recording settings." Style="{StaticResource ClipHint}" Margin="0,10,0,10" />
+                    <TextBlock Text="Turn clipping off before changing recording settings." Style="{StaticResource ClipHint}" Margin="0,10,0,10" />
                     <CheckBox Content="Remind me about new clips on the dashboard" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding RemindersEnabled}" />
                 </StackPanel>
             </Expander>

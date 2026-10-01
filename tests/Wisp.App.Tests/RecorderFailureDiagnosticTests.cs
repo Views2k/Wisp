@@ -7,6 +7,15 @@ namespace Wisp.App.Tests;
 
 public sealed class RecorderFailureDiagnosticTests
 {
+    [Theory]
+    [InlineData(false, "Forza only")]
+    [InlineData(true, "system playback")]
+    public void ReportIdentifiesSelectedAudioScope(bool systemAudio, string expected)
+    {
+        var report = ClipFailureReport.Build("audio_failed", new(60, 1080, 60, 75, systemAudio), null);
+        Assert.Contains("audio: " + expected, report, StringComparison.Ordinal);
+    }
+
     internal static Dictionary<string, object> Fields() => new()
     {
         ["mode"] = "recorder_failure",
