@@ -39,12 +39,31 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 5 && (args[0] is "--clips-lossless-product-check" or "--clips-lossless-product-aac-check") &&
+                args[1] == "--source" && args[3] == "--output")
+            {
+                var output = PrepareOutput(args[4]);
+                return LosslessProductReview.Run(args[2], output, () => LoadApplicationResources(output, out _),
+                    withSyntheticAac: args[0] == "--clips-lossless-product-aac-check");
+            }
+            if (args.Length == 5 && (args[0] is "--tune-asset-diagnostic" or "--tune-asset-offline-check") &&
+                args[1] == "--reference" && args[3] == "--output")
+                return TuneAssetDiagnostic.Run(args[2], PrepareOutput(args[4]), args[0] == "--tune-asset-diagnostic");
+            if (args.Length == 7 && args[0] == "--clips-lossless-playback-check" &&
+                args[1] == "--source" && args[3] == "--sha256" && args[5] == "--output")
+                return LosslessPlaybackReview.Run(args[2], args[4], PrepareOutput(args[6]));
             if (args.Length == 3 && args[0] == "--tune-live-check" && args[1] == "--output")
                 return TuneLiveReview.RunAsync(PrepareOutput(args[2])).GetAwaiter().GetResult();
             if (args.Length == 5 && args[0] == "--clips-playback-check" && args[1] == "--source" && args[3] == "--output")
             {
                 var output = PrepareOutput(args[4]);
                 return ClipsPlaybackUiReview.Run(args[2], output, () => LoadApplicationResources(output, out _));
+            }
+            if (args.Length == 7 && args[0] == "--clips-large-playback-check" && args[1] == "--source" &&
+                args[3] == "--metadata" && args[5] == "--output")
+            {
+                var output = PrepareOutput(args[6]);
+                return ClipsLargePlaybackReview.Run(args[2], args[4], output, () => LoadApplicationResources(output, out _));
             }
             if (args.Length == 3 && args[0] == "--clips-check" && args[1] == "--output")
             {
@@ -156,6 +175,11 @@ internal static class Program
                 Console.WriteLine("--clips-check --output <new workspace directory> checks the actual detached Clips page at 720/980/1464 widths and 96/144 DPI, generated posters, empty/pending/player layouts and closed selector templates. Isolated placeholder files only; no shown window, recorder helper, media playback or installed library access.");
                 Console.WriteLine("--tune-check --output <new workspace directory> checks detached current/saved/comparison Tune views and name/description dialogs in both interfaces at 720/1280 widths and 96/144 DPI. Embedded offline fixtures and isolated storage only; no shown window or game reads.");
                 Console.WriteLine("--tune-live-check --output <new workspace directory> explicitly reads the real foreground Forza tune twice through the production reader and checks completeness, session and setup consistency. No shown windows or game writes; 15-second cancellation budget, 30-second process limit. Requires separately confirmed readiness; never changes focus.");
+                Console.WriteLine("--tune-asset-diagnostic --reference <retained research work directory> --output <new workspace directory> explicitly compares bounded foreground game metadata with the pinned local reference. Scalars and projection hashes only; no raw database files, game writes or product acceptance. Requires fresh readiness. --tune-asset-offline-check uses the same arguments and only controlled mutations of the retained reference; no game access. Both have a 30-second hard limit.");
+                Console.WriteLine("--clips-large-playback-check --source <local mp4> --metadata <json> --output <new workspace directory> copies one explicitly selected 20-second-or-longer clip (at most 4 GiB) into an isolated library, then checks the actual muted Clips player for 15 seconds plus preparation and transport. Metadata contains only recording and media records. Requires Forza and Wisp closed; passive window, 90-second watchdog, no source writes or capture. Private fixture copy is retained; output contains scalar timing/state only.");
+                Console.WriteLine("--clips-lossless-product-check --source <pinned synthetic MP4> --output <new workspace directory> checks the actual Clips page's lossless thumbnail and paused transport, replay and cleanup. Fixed silent 128-frame/60-fps fixture; isolated library, passive window, 20-second work budget and 30-second hard limit. Requires Forza and Wisp closed. No screenshots, gameplay, A/V sync or performance claim.");
+                Console.WriteLine("--clips-lossless-product-aac-check uses the same arguments and guards with the separately pinned generated-AAC fixture. Checks native decoded-audio statistics after explicit playback while volume remains zero. No audible-output or A/V-sync claim.");
+                Console.WriteLine("--clips-lossless-playback-check --source <generated checkout fixture.mp4> --sha256 <verified fixture hash> --output <new workspace directory> checks current WPF decoder opening and brief muted transport after independent lossless pixel verification. Fixed 1280x720, 16-frame/60-fps source, at most 128 MiB. Requires Forza and Wisp closed; passive window, 10-second decoder budget and 20-second hard limit. No screenshots or pixel-readback claim.");
                 Console.WriteLine("--lap-review-check --output <new workspace directory> captures actual expanded lap review with synthetic completed A/B laps, map/graph channels and selected sections at 980x750 and 720x440. Checks themed selectors and routed keyboard actions; no window, controller, listener, settings load or saved-run access.");
                 Console.WriteLine("--ev-wrap-check --output <new workspace directory> captures actual EV overlay and modern/legacy Appearance previews at 100%/75% gauge scale and 96 DPI. Synthetic sample only; no displayed window or live services.");
                 Console.WriteLine("Main-window --present requires one --fixture, omits --scope/--dpi, and shows display-only Appearance at monitor DPI with a 120-second auto-close timer.");

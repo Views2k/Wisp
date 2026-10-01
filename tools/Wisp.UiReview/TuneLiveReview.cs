@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Wisp.App;
@@ -20,6 +21,23 @@ internal static class TuneLiveReview
     internal static async Task<int> RunAsync(string output)
     {
         var report = new LiveReport();
+        void ObserveReadFailure(object? sender, FirstChanceExceptionEventArgs args)
+        {
+            if (args.Exception is not (IOException or InvalidDataException or UnauthorizedAccessException or
+                System.ComponentModel.Win32Exception or DllNotFoundException or EntryPointNotFoundException or
+                ArgumentException or OverflowException)) return;
+            var frames = new StackTrace(true).GetFrames()
+                .Where(frame => frame.GetMethod()?.DeclaringType?.Namespace == "Wisp.App.Tunes")
+                .Take(12)
+                .Select(frame => new ReadFailureFrame(frame.GetMethod()!.DeclaringType!.Name,
+                    frame.GetMethod()!.Name, frame.GetFileLineNumber()))
+                .ToArray();
+            if (frames.Length != 0)
+                report.ReadFailure = new(args.Exception.GetType().Name, args.Exception.HResult, frames);
+            if (args.Exception is TuneAssetStreamValidationException stream)
+                report.AssetStream = new(stream.Flag, stream.ChunkSize, stream.Allocated, stream.Length, stream.VectorBytes);
+        }
+        AppDomain.CurrentDomain.FirstChanceException += ObserveReadFailure;
         var reportPath = Path.Combine(output, "tune-live-check.json");
         var started = Stopwatch.GetTimestamp();
         using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -116,6 +134,7 @@ internal static class TuneLiveReview
             }
             report.Phase = "complete";
             report.ElapsedMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            AppDomain.CurrentDomain.FirstChanceException -= ObserveReadFailure;
         }
 
         File.WriteAllText(reportPath, JsonSerializer.Serialize(report, JsonOptions));
@@ -173,6 +192,8 @@ internal static class TuneLiveReview
         public string? FailurePhase { get; set; }
         public string? Reason { get; set; }
         public string? ExceptionType { get; set; }
+        public ReadFailureDetails? ReadFailure { get; set; }
+        public AssetStreamDetails? AssetStream { get; set; }
         public int? ExceptionHResult { get; set; }
         public bool? ForegroundAtStart { get; set; }
         public bool? ForegroundBetweenReads { get; set; }
@@ -196,4 +217,8 @@ internal static class TuneLiveReview
         public int UserLibraryWrites => 0;
         public string Scope => "Two read-only production captures with foreground checks at their boundaries. Does not verify menu screenshot values, continuous foreground, every car/build, driving performance or the performance panel.";
     }
+
+    private sealed record ReadFailureFrame(string Type, string Method, int Line);
+    private sealed record ReadFailureDetails(string Type, int HResult, ReadFailureFrame[] Frames);
+    private sealed record AssetStreamDetails(byte Flag, uint ChunkSize, uint Allocated, ulong Length, long VectorBytes);
 }
