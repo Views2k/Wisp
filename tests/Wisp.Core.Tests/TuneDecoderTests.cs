@@ -193,9 +193,12 @@ public sealed class TuneDecoderTests
     {
         var a = Decode(Fixture("miata"));
         var field = Field(a, TuneFieldId.FrontTirePressure);
-        var converted = field with { ConversionFactor = field.ConversionFactor * 2,
+        var converted = field with
+        {
+            ConversionFactor = field.ConversionFactor * 2,
             DisplayValue = field.DisplayValue * 2,
-            DisplayText = TuneDecoder.FormatNumber(field.DisplayValue!.Value * 2, field.DisplayDecimals) };
+            DisplayText = TuneDecoder.FormatNumber(field.DisplayValue!.Value * 2, field.DisplayDecimals)
+        };
         var b = a with { Fields = a.Fields.SetItem(0, converted) };
         var row = TuneComparison.Compare(a, b)[0];
         Assert.True(row.RawEqual);
@@ -235,8 +238,11 @@ public sealed class TuneDecoderTests
     private static TuneDecodeInput ChangeNormalized(TuneDecodeInput source, TuneFieldId id, float value)
     {
         int index = TuneDecoder.Definitions.Single(definition => definition.Id == id).Offset / 4;
-        return source with { NormalizedCopies = source.NormalizedCopies.Select(copy =>
-            copy.SetItem(index, BitConverter.SingleToUInt32Bits(value))).ToImmutableArray() };
+        return source with
+        {
+            NormalizedCopies = source.NormalizedCopies.Select(copy =>
+            copy.SetItem(index, BitConverter.SingleToUInt32Bits(value))).ToImmutableArray()
+        };
     }
     private static TuneDecodeInput ChangePart(TuneDecodeInput source, TunePartId kind, int level) =>
         source with { Parts = source.Parts.Select(part => part.Kind == kind ? part with { Level = level } : part).ToImmutableArray() };

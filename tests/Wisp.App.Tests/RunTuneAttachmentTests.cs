@@ -39,7 +39,8 @@ public sealed class RunTuneAttachmentTests : IDisposable
         var run = AttachedRun();
         Assert.Throws<InvalidDataException>(() => RunStore.Validate(run with
         {
-            SchemaVersion = version, TuneAttachment = attach ? run.TuneAttachment : null
+            SchemaVersion = version,
+            TuneAttachment = attach ? run.TuneAttachment : null
         }));
     }
 

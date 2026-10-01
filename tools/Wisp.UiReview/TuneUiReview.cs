@@ -50,9 +50,14 @@ internal static class TuneUiReview
         Check(bindings.TotalCount == 0, "no-binding-diagnostics");
         File.WriteAllText(Path.Combine(output, "tune-ui-review.json"), JsonSerializer.Serialize(new
         {
-            Passed = failures.Count == 0, Checks = checks, Failures = failures, Captures = captures,
+            Passed = failures.Count == 0,
+            Checks = checks,
+            Failures = failures,
+            Captures = captures,
             BindingDiagnostics = bindings.Messages,
-            DetachedOnly = true, GameReads = 0, VisibleWindows = 0,
+            DetachedOnly = true,
+            GameReads = 0,
+            VisibleWindows = 0,
             Scope = "Offline fixture layouts and control states. No interactive focus, gameplay, or native-reader claim."
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine($"Tune detached UI: {checks} checks, {failures.Count} failures, {captures.Count} PNGs.");
@@ -71,7 +76,9 @@ internal static class TuneUiReview
             var library = Path.Combine(output, style + "-fixture-library");
             var settings = new AppSettings
             {
-                UseLegacyInterface = legacy, StartWithWindows = false, StartWithForza = false,
+                UseLegacyInterface = legacy,
+                StartWithWindows = false,
+                StartWithForza = false,
                 AutomaticApplicationUpdateChecks = false
             };
             var controller = new AppController(settings, _ => { }, new NoStartupRegistration(), tuneLibraryDirectory: library);

@@ -76,8 +76,12 @@ public sealed class TuneStore
         var now = _utcNow().ToUniversalTime();
         var saved = new SavedTune
         {
-            Id = Guid.NewGuid(), Snapshot = snapshot, Name = metadata.Name, Description = metadata.Description,
-            SavedAtUtc = now, ModifiedAtUtc = now
+            Id = Guid.NewGuid(),
+            Snapshot = snapshot,
+            Name = metadata.Name,
+            Description = metadata.Description,
+            SavedAtUtc = now,
+            ModifiedAtUtc = now
         };
         await WriteAsync(saved, replace: false, token).ConfigureAwait(false);
         return saved;
@@ -90,7 +94,8 @@ public sealed class TuneStore
         var now = _utcNow().ToUniversalTime();
         var updated = saved with
         {
-            Name = metadata.Name, Description = metadata.Description,
+            Name = metadata.Name,
+            Description = metadata.Description,
             ModifiedAtUtc = now < saved.ModifiedAtUtc ? saved.ModifiedAtUtc : now
         };
         await WriteAsync(updated, replace: true, token).ConfigureAwait(false);

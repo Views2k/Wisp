@@ -225,8 +225,12 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         }
         static SavedTune Choice(TuneSnapshot snapshot, string name, string description) => new()
         {
-            Id = Guid.NewGuid(), Snapshot = snapshot, Name = name, Description = description,
-            SavedAtUtc = snapshot.CapturedAtUtc, ModifiedAtUtc = snapshot.CapturedAtUtc
+            Id = Guid.NewGuid(),
+            Snapshot = snapshot,
+            Name = name,
+            Description = description,
+            SavedAtUtc = snapshot.CapturedAtUtc,
+            ModifiedAtUtc = snapshot.CapturedAtUtc
         };
         _comparisonExtras = request.B is null ? [Choice(request.A, request.NameA, request.DescriptionA)]
             : [Choice(request.A, request.NameA, request.DescriptionA), Choice(request.B, request.NameB, request.DescriptionB)];

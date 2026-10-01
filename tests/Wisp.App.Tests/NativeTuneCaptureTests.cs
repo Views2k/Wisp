@@ -207,20 +207,32 @@ public sealed class NativeTuneCaptureTests
         return new TuneDecodeInput
         {
             CapturedAtUtc = DateTimeOffset.UtcNow,
-            GameVersion = TuneDecoder.SupportedGameVersion, ExecutableSha256 = TuneDecoder.SupportedExecutableSha256,
-            ExecutableVerified = true, CaptureComplete = true, Coherent = true, LocalProviderCount = 1,
-            CarOrdinal = 1, Drivetrain = TuneDrivetrain.AllWheelDrive, ObservedGearEntryCount = 7, UnitPreference = 0,
-            NormalizedCopies = [words, words, words], Bounds = new(range, range, range, range, range, range),
+            GameVersion = TuneDecoder.SupportedGameVersion,
+            ExecutableSha256 = TuneDecoder.SupportedExecutableSha256,
+            ExecutableVerified = true,
+            CaptureComplete = true,
+            Coherent = true,
+            LocalProviderCount = 1,
+            CarOrdinal = 1,
+            Drivetrain = TuneDrivetrain.AllWheelDrive,
+            ObservedGearEntryCount = 7,
+            UnitPreference = 0,
+            NormalizedCopies = [words, words, words],
+            Bounds = new(range, range, range, range, range, range),
             Conversions = new Dictionary<TuneQuantity, TuneConversion>
             {
-                [TuneQuantity.Number] = new(0, 1, false), [TuneQuantity.Percentage] = new(1, 1, false),
-                [TuneQuantity.Pressure] = new(41, 1, false), [TuneQuantity.Angle] = new(47, 1, false),
-                [TuneQuantity.SpringRate] = new(54, 1, false), [TuneQuantity.RideHeight] = new(14, 1, false),
+                [TuneQuantity.Number] = new(0, 1, false),
+                [TuneQuantity.Percentage] = new(1, 1, false),
+                [TuneQuantity.Pressure] = new(41, 1, false),
+                [TuneQuantity.Angle] = new(47, 1, false),
+                [TuneQuantity.SpringRate] = new(54, 1, false),
+                [TuneQuantity.RideHeight] = new(14, 1, false),
                 [TuneQuantity.Downforce] = new(60, 1, false)
             }.ToImmutableDictionary(),
             Format = new(.017453292f, .5, -.5, .1, 10),
             CarRanges = Enum.GetValues<TuneFieldId>().ToImmutableDictionary(id => id, _ => range),
-            SpringScale = 1, PartLevelsResolved = true,
+            SpringScale = 1,
+            PartLevelsResolved = true,
             Parts = Enum.GetValues<TunePartId>().Select(kind => new TunePart(kind, 1, 3)).ToImmutableArray()
         };
     }

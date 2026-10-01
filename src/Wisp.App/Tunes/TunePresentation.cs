@@ -29,21 +29,35 @@ internal static class TunePresentation
 
     internal static string Label(TuneFieldId id) => id switch
     {
-        TuneFieldId.FrontTirePressure => "Front pressure", TuneFieldId.RearTirePressure => "Rear pressure",
+        TuneFieldId.FrontTirePressure => "Front pressure",
+        TuneFieldId.RearTirePressure => "Rear pressure",
         TuneFieldId.FinalDrive => "Final drive",
         >= TuneFieldId.Gear1 and <= TuneFieldId.Gear10 => $"Gear {(int)id - (int)TuneFieldId.Gear1 + 1}",
-        TuneFieldId.FrontCamber => "Front camber", TuneFieldId.RearCamber => "Rear camber",
-        TuneFieldId.FrontToe => "Front toe", TuneFieldId.RearToe => "Rear toe", TuneFieldId.FrontCaster => "Front caster angle",
-        TuneFieldId.FrontAntiroll => "Front", TuneFieldId.RearAntiroll => "Rear",
-        TuneFieldId.FrontSprings => "Front spring rate", TuneFieldId.RearSprings => "Rear spring rate",
-        TuneFieldId.FrontRideHeight => "Front ride height", TuneFieldId.RearRideHeight => "Rear ride height",
-        TuneFieldId.FrontRebound => "Front rebound", TuneFieldId.RearRebound => "Rear rebound",
-        TuneFieldId.FrontBump => "Front bump", TuneFieldId.RearBump => "Rear bump",
-        TuneFieldId.FrontDownforce => "Front downforce", TuneFieldId.RearDownforce => "Rear downforce",
-        TuneFieldId.BrakeBalance => "Balance", TuneFieldId.BrakePressure => "Pressure",
-        TuneFieldId.FrontDiffAcceleration => "Front acceleration", TuneFieldId.FrontDiffDeceleration => "Front deceleration",
-        TuneFieldId.RearDiffAcceleration => "Rear acceleration", TuneFieldId.RearDiffDeceleration => "Rear deceleration",
-        TuneFieldId.CenterDiffBalance => "Center balance (% rear)", _ => id.ToString()
+        TuneFieldId.FrontCamber => "Front camber",
+        TuneFieldId.RearCamber => "Rear camber",
+        TuneFieldId.FrontToe => "Front toe",
+        TuneFieldId.RearToe => "Rear toe",
+        TuneFieldId.FrontCaster => "Front caster angle",
+        TuneFieldId.FrontAntiroll => "Front",
+        TuneFieldId.RearAntiroll => "Rear",
+        TuneFieldId.FrontSprings => "Front spring rate",
+        TuneFieldId.RearSprings => "Rear spring rate",
+        TuneFieldId.FrontRideHeight => "Front ride height",
+        TuneFieldId.RearRideHeight => "Rear ride height",
+        TuneFieldId.FrontRebound => "Front rebound",
+        TuneFieldId.RearRebound => "Rear rebound",
+        TuneFieldId.FrontBump => "Front bump",
+        TuneFieldId.RearBump => "Rear bump",
+        TuneFieldId.FrontDownforce => "Front downforce",
+        TuneFieldId.RearDownforce => "Rear downforce",
+        TuneFieldId.BrakeBalance => "Balance",
+        TuneFieldId.BrakePressure => "Pressure",
+        TuneFieldId.FrontDiffAcceleration => "Front acceleration",
+        TuneFieldId.FrontDiffDeceleration => "Front deceleration",
+        TuneFieldId.RearDiffAcceleration => "Rear acceleration",
+        TuneFieldId.RearDiffDeceleration => "Rear deceleration",
+        TuneFieldId.CenterDiffBalance => "Center balance (% rear)",
+        _ => id.ToString()
     };
 
     internal static string Value(TuneField? field) => field?.Status switch
@@ -60,8 +74,13 @@ internal static class TunePresentation
 
     private static string Unit(TuneUnit? unit) => unit switch
     {
-        TuneUnit.Percent => "%", TuneUnit.Psi => " psi", TuneUnit.Degrees => "°",
-        TuneUnit.PoundsPerInch => " lb/in", TuneUnit.Inches => " in", TuneUnit.Pounds => " lb", _ => ""
+        TuneUnit.Percent => "%",
+        TuneUnit.Psi => " psi",
+        TuneUnit.Degrees => "°",
+        TuneUnit.PoundsPerInch => " lb/in",
+        TuneUnit.Inches => " in",
+        TuneUnit.Pounds => " lb",
+        _ => ""
     };
 
     internal static TuneDisplayRow Row(TuneField? field, TuneField? other, TuneFieldId id, bool comparison, double? displayDelta = null, bool rawEqual = false)

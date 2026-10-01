@@ -365,7 +365,9 @@ public sealed partial class RunStore
                 if (!File.Exists(RunPath(header.Id)))
                     await WriteAsync(header with
                     {
-                        Samples = samples.ToArray(), Markers = markers.ToArray(), IsIncomplete = true,
+                        Samples = samples.ToArray(),
+                        Markers = markers.ToArray(),
+                        IsIncomplete = true,
                         TuneAttachment = header.TuneAttachment is { } attachment ? attachment with { DrivingContinuityInterrupted = true } : null,
                         FinishReason = "Recovered after Wisp closed before the run finished"
                     }, false).ConfigureAwait(false);

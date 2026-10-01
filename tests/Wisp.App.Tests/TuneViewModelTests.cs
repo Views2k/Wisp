@@ -340,11 +340,13 @@ public sealed class TuneViewModelTests
             var dispatcher = Dispatcher.CurrentDispatcher;
             _ = dispatcher.InvokeAsync(async () =>
             {
-                try { await test(); } catch (Exception error) { failure = error; }
+                try { await test(); }
+                catch (Exception error) { failure = error; }
                 finally { dispatcher.BeginInvokeShutdown(DispatcherPriority.Send); finished.Set(); }
             });
             Dispatcher.Run();
-        }) { IsBackground = true };
+        })
+        { IsBackground = true };
         thread.SetApartmentState(ApartmentState.STA); thread.Start();
         Assert.True(finished.Wait(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken), "Tune workflow test exceeded its bounded dispatcher deadline.");
         if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
