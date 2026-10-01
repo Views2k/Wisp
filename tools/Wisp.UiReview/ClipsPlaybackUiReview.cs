@@ -33,6 +33,7 @@ internal static class ClipsPlaybackUiReview
         var phase = "source-validation";
         string? failure = null;
         object? failureSnapshot = null;
+        object? settledFailureSnapshot = null;
         var foreground = GetForegroundWindow();
         var foregroundUnchanged = foreground != IntPtr.Zero;
         var elapsed = Stopwatch.StartNew();
@@ -97,6 +98,11 @@ internal static class ClipsPlaybackUiReview
             failure = phase + "/" + error.GetType().Name;
             try { failureSnapshot = CaptureFailureSnapshot(page, model, window); }
             catch { failureSnapshot = new { available = false }; }
+            if (window?.IsVisible == true && GetForegroundWindow() == foreground)
+            {
+                try { Await(Settle(100)); settledFailureSnapshot = CaptureFailureSnapshot(page, model, window); }
+                catch { settledFailureSnapshot = new { available = false }; }
+            }
         }
         finally
         {
@@ -120,6 +126,7 @@ internal static class ClipsPlaybackUiReview
             completed = failure is null,
             failure,
             failureSnapshot,
+            settledFailureSnapshot,
             elapsedSeconds = elapsed.Elapsed.TotalSeconds,
             sourceSha256 = FixtureSha256,
             knownDurationSeconds = KnownDurationSeconds,
@@ -197,7 +204,8 @@ internal static class ClipsPlaybackUiReview
             measurements["beforeSelectionVerticalOffset"] = scroll.VerticalOffset;
             Check(FitsViewport(playCard), "bottom-row-card-fully-visible-before-click");
             phase = "media-open-and-player-reveal"; Click(playCard);
-            await Until(() => host.Content is MediaElement && playPause.IsEnabled && position.IsEnabled &&
+            await Until(() => host.Content is MediaElement { IsMeasureValid: true, IsArrangeValid: true } &&
+                host.IsMeasureValid && host.IsArrangeValid && playPause.IsEnabled && position.IsEnabled &&
                 FitsViewport(host) && FitsViewport(playPause) && FitsViewport(position) && FitsViewport(time) &&
                 FitsViewport(close) && FitsViewport(export) && FitsViewport(volume), 6500);
             measurements["afterSelectionVerticalOffset"] = scroll.VerticalOffset;
@@ -210,6 +218,9 @@ internal static class ClipsPlaybackUiReview
             var fitScale = Math.Min(host.ActualWidth / player.NaturalVideoWidth, host.ActualHeight / player.NaturalVideoHeight);
             var fittedWidth = player.NaturalVideoWidth * fitScale;
             var fittedHeight = player.NaturalVideoHeight * fitScale;
+            measurements["actualVideoWidth"] = player.ActualWidth; measurements["actualVideoHeight"] = player.ActualHeight;
+            measurements["playerHostWidth"] = host.ActualWidth; measurements["playerHostHeight"] = host.ActualHeight;
+            measurements["fittedVideoWidth"] = fittedWidth; measurements["fittedVideoHeight"] = fittedHeight;
             Check(host.ActualHeight > 400 && fittedWidth > 700 && fittedHeight > 400 &&
                 player.ActualWidth >= fittedWidth - 1 && player.ActualHeight >= fittedHeight - 1 &&
                 FitsViewport(player) && player.Stretch == Stretch.Uniform,
@@ -217,8 +228,6 @@ internal static class ClipsPlaybackUiReview
             Check(host.HorizontalContentAlignment == HorizontalAlignment.Stretch && host.VerticalContentAlignment == VerticalAlignment.Stretch &&
                 host.Background is SolidColorBrush { Color: var background } && background == Colors.Black &&
                 CleanVisualChain(player), "player-is-opaque-without-ancestor-effects-or-fade");
-            measurements["playerHostWidth"] = host.ActualWidth; measurements["playerHostHeight"] = host.ActualHeight;
-            measurements["fittedVideoWidth"] = fittedWidth; measurements["fittedVideoHeight"] = fittedHeight;
             measurements["naturalDurationSeconds"] = player.NaturalDuration.TimeSpan.TotalSeconds;
             Check(Math.Abs(measurements["naturalDurationSeconds"] - KnownDurationSeconds) <= .1 && timer.IsEnabled, "known-duration-and-active-timer");
             await Until(() => player.Position.TotalSeconds >= .35 && currentModel.NewClipCount == ClipLibrary.PageSize - 1, 2500);
@@ -325,6 +334,7 @@ internal static class ClipsPlaybackUiReview
         var selected = model?.SelectedClip;
         var timer = page is null ? null : typeof(ClipsPage).GetField("_playbackTimer", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(page) as DispatcherTimer;
         var elements = new Dictionary<string, object>();
+        elements["video"] = ElementState(player, viewport);
         foreach (var name in new[] { "PlaybackSurface", "PlayerHost", "PlayPauseButton", "PlaybackPosition", "PlaybackTime", "PlaybackVolume" })
             elements[name] = ElementState(page?.FindName(name) as FrameworkElement, viewport);
         if (page is not null)
@@ -387,7 +397,8 @@ internal static class ClipsPlaybackUiReview
                 buffering = player.IsBuffering,
                 bufferingProgress = Finite(player.BufferingProgress),
                 hasVideo = player.HasVideo,
-                hasAudio = player.HasAudio
+                hasAudio = player.HasAudio,
+                stretch = (int)player.Stretch
             };
         }
         catch { return new { present = true, stateReadable = false }; }
@@ -408,6 +419,8 @@ internal static class ClipsPlaybackUiReview
             loaded = element.IsLoaded,
             visible = element.IsVisible,
             enabled = element.IsEnabled,
+            measureValid = element.IsMeasureValid,
+            arrangeValid = element.IsArrangeValid,
             width = Finite(element.ActualWidth),
             height = Finite(element.ActualHeight),
             boundsAvailable = bounds.HasValue,
