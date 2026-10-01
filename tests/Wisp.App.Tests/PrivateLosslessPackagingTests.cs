@@ -15,6 +15,16 @@ public sealed class PrivateLosslessPackagingTests
     [InlineData("missing-managed")]
     [InlineData("sync")]
     [InlineData("wrong-output")]
+    [InlineData("mpv-missing")]
+    [InlineData("mpv-changed")]
+    [InlineData("mpv-extra")]
+    [InlineData("mpv-notice-missing")]
+    [InlineData("mpv-manifest-missing")]
+    [InlineData("mpv-manifest-changed")]
+    [InlineData("mpv-source-mismatch")]
+    [InlineData("mpv-source-incomplete")]
+    [InlineData("mpv-source-not-ready")]
+    [InlineData("mpv-source-missing")]
     public async Task DecoderPackagingUsesTheExactPublishedBundle(string scenario)
     {
         var root = RepositoryRoot();
@@ -57,7 +67,7 @@ public sealed class PrivateLosslessPackagingTests
         $tokens = $null; $errors = $null
         $ast = [Management.Automation.Language.Parser]::ParseFile($env:WISP_PRIVATE_SCRIPT, [ref]$tokens, [ref]$errors)
         if ($errors.Count -ne 0) { throw 'Private packaging script has syntax errors.' }
-        foreach ($name in @('Get-PrivateRegularFiles', 'Assert-PrivateLosslessPayload', 'Sync-PrivateLosslessTestPayload')) {
+        foreach ($name in @('Get-PrivateRegularFiles', 'Assert-PrivateLosslessPayload', 'Assert-PrivateMpvPayload', 'Assert-PrivateClipDecoders', 'Sync-PrivateLosslessTestPayload')) {
             $definition = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name}, $false)
             if ($null -eq $definition) { throw 'Decoder packaging helper is missing.' }
             . ([scriptblock]::Create($definition.Extent.Text))
@@ -86,6 +96,23 @@ public sealed class PrivateLosslessPackagingTests
                 Write-FixtureFile (Join-Path $publish $relative)
             }
             [IO.File]::Copy($manifestPath, (Join-Path $publish 'Licenses/libvlc-3.0.24-source-manifest.json'))
+            $mpvDll = Join-Path $publish 'libmpv/win-x64/libmpv-2.dll'
+            Write-FixtureFile $mpvDll
+            $mpvHash = (Get-FileHash -LiteralPath $mpvDll -Algorithm SHA256).Hash.ToLowerInvariant()
+            $mpvNotices = @()
+            foreach ($relative in @('LGPL-3.0.txt', 'GPL-3.0.txt', 'libmpv-thirdparty/fixture/COPYING')) {
+                $path = Join-Path $publish ('Licenses/' + $relative)
+                Write-FixtureFile $path
+                $mpvNotices += @{path=$relative; bytes=7; sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
+            }
+            $mpvManifest = @{schemaVersion=1; sourceClosure=@{status='complete'; distributionReady=$true};
+                nativeFiles=@(@{path='libmpv-2.dll'; bytes=7; sha256=$mpvHash}); noticeFiles=$mpvNotices}
+            $mpvManifestPath = Join-Path $fixture 'reviewed-mpv-manifest.json'
+            Write-FixtureFile $mpvManifestPath ($mpvManifest | ConvertTo-Json -Depth 6)
+            $mpvDependencyPath = Join-Path $fixture 'reviewed-mpv-dependency.json'
+            Write-FixtureFile $mpvDependencyPath (@{schemaVersion=1; binary=@{entry='libmpv-2.dll'; bytes=7; sha256=$mpvHash}} | ConvertTo-Json -Depth 4)
+            [IO.File]::Copy($mpvManifestPath, (Join-Path $publish 'Licenses/libmpv-source-manifest.json'))
+            [IO.File]::Copy($mpvDependencyPath, (Join-Path $publish 'Licenses/mpv-dependency.json'))
             $firstPlugin = Join-Path $publish ('libvlc/win-x64/' + @($native | Where-Object path -like 'plugins/*')[0].path)
             switch ($env:WISP_PRIVATE_CASE) {
                 'missing-plugin' { Remove-Item -LiteralPath $firstPlugin }
@@ -93,18 +120,37 @@ public sealed class PrivateLosslessPackagingTests
                 'changed-plugin' { Write-FixtureFile $firstPlugin 'changed' }
                 'missing-notice' { Remove-Item -LiteralPath $notice }
                 'missing-managed' { Remove-Item -LiteralPath (Join-Path $publish 'LibVLCSharp.dll') }
+                'mpv-missing' { Remove-Item -LiteralPath $mpvDll }
+                'mpv-changed' { Write-FixtureFile $mpvDll 'changed' }
+                'mpv-extra' { Write-FixtureFile (Join-Path $publish 'libmpv/win-x64/extra.dll') }
+                'mpv-notice-missing' { Remove-Item -LiteralPath (Join-Path $publish 'Licenses/LGPL-3.0.txt') }
+                'mpv-manifest-missing' { Remove-Item -LiteralPath (Join-Path $publish 'Licenses/libmpv-source-manifest.json') }
+                'mpv-manifest-changed' { Write-FixtureFile (Join-Path $publish 'Licenses/mpv-dependency.json') '{}' }
+                'mpv-source-mismatch' {
+                    $mpvManifest.nativeFiles[0].sha256 = ('0' * 64)
+                    Write-FixtureFile $mpvManifestPath ($mpvManifest | ConvertTo-Json -Depth 6)
+                }
+                'mpv-source-incomplete' { $mpvManifest.sourceClosure.status = 'incomplete' }
+                'mpv-source-not-ready' { $mpvManifest.sourceClosure.distributionReady = $false }
+                'mpv-source-missing' { $mpvManifest.Remove('sourceClosure') }
+            }
+            if ($env:WISP_PRIVATE_CASE -in @('mpv-source-incomplete', 'mpv-source-not-ready', 'mpv-source-missing')) {
+                Write-FixtureFile $mpvManifestPath ($mpvManifest | ConvertTo-Json -Depth 6)
+                [IO.File]::Copy($mpvManifestPath, (Join-Path $publish 'Licenses/libmpv-source-manifest.json'), $true)
             }
             $refused = $false
             try {
-                $hashes = Assert-PrivateLosslessPayload $publish $manifestPath
+                $hashes = Assert-PrivateClipDecoders $publish $manifestPath $mpvManifestPath $mpvDependencyPath
                 if ($env:WISP_PRIVATE_CASE -in @('sync', 'wrong-output')) {
                     $target = Join-Path $fixture 'tools/Wisp.UiReview/bin/Release/net8.0-windows'
                     if ($env:WISP_PRIVATE_CASE -eq 'wrong-output') { $target = Join-Path $fixture 'unrelated' }
                     Write-FixtureFile (Join-Path $target 'unrelated.keep') 'preserve'
                     Write-FixtureFile (Join-Path $target 'libvlc/win-x64/plugins/unselected.dll')
                     Write-FixtureFile (Join-Path $target 'libvlc/win-x86/libvlc.dll')
+                    Write-FixtureFile (Join-Path $target 'libmpv/win-x86/libmpv-2.dll')
+                    Write-FixtureFile (Join-Path $target 'libmpv/win-x64/stale.dll')
                     Sync-PrivateLosslessTestPayload $publish $target $fixture $hashes
-                    $actual = Assert-PrivateLosslessPayload $target $manifestPath
+                    $actual = Assert-PrivateClipDecoders $target $manifestPath $mpvManifestPath $mpvDependencyPath
                     foreach ($relative in $hashes.Keys) {
                         if ($actual[$relative] -cne $hashes[$relative]) { throw 'Decoder synchronization changed a published file.' }
                     }

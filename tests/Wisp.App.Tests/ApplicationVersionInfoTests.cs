@@ -71,7 +71,7 @@ public sealed class ApplicationVersionInfoTests
     [Fact]
     public void TuneAndClipsPreviewRetainsPrivateIdentity()
     {
-        Assert.Equal("clips-lossless-20261001-01", ApplicationVersionInfo.DiagnosticBuildId);
+        Assert.Equal("clips-buffer-playback-20261001-01", ApplicationVersionInfo.DiagnosticBuildId);
         Assert.Equal("Wisp 2.6.0 Tune and Clips preview", ApplicationVersionInfo.DiagnosticBuildLabel);
         Assert.True(ApplicationVersionInfo.IsPrivateCandidate);
         Assert.False(ApplicationVersionInfo.LapDiagnosticsEnabled);

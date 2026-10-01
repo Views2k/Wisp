@@ -163,6 +163,79 @@ function Assert-PrivateLosslessPayload {
     return $hashes
 }
 
+function Assert-PrivateMpvPayload {
+    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$ManifestPath,
+        [Parameter(Mandatory)][string]$DependencyManifestPath)
+    $root = [IO.Path]::GetFullPath($Directory).TrimEnd('\', '/')
+    $regular = @{}
+    foreach ($file in Get-PrivateRegularFiles $root) {
+        $regular[$file.FullName.Substring($root.Length + 1).Replace('\', '/')] = $file
+    }
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    $dependency = Get-Content -LiteralPath $DependencyManifestPath -Raw | ConvertFrom-Json
+    if ($null -eq $manifest.PSObject.Properties['sourceClosure'] -or
+        $manifest.sourceClosure.status -cne 'complete' -or $manifest.sourceClosure.distributionReady -ne $true) {
+        throw 'mpv packaging requires the completed reviewed source and license companion.'
+    }
+    $native = @($manifest.nativeFiles)
+    if ($manifest.schemaVersion -ne 1 -or $dependency.schemaVersion -ne 1 -or $native.Count -ne 1 -or
+        $native[0].path -cne 'libmpv-2.dll' -or $dependency.binary.entry -cne 'libmpv-2.dll' -or
+        $native[0].bytes -ne $dependency.binary.bytes -or $native[0].sha256 -cne $dependency.binary.sha256) {
+        throw 'The mpv source and dependency manifests must identify the same single runtime.'
+    }
+    $expected = @{ 'libmpv/win-x64/libmpv-2.dll' = $native[0] }
+    $actualNative = @($regular.Keys | Where-Object { $_.StartsWith('libmpv/', [StringComparison]::OrdinalIgnoreCase) })
+    if ($actualNative.Count -ne 1 -or $actualNative[0] -cne 'libmpv/win-x64/libmpv-2.dll') {
+        throw 'The published mpv tree differs from the selected runtime.'
+    }
+    $notices = @($manifest.noticeFiles)
+    if ($notices.Count -eq 0 -or $notices.Count -gt 256) { throw 'The mpv notice manifest is missing or unbounded.' }
+    foreach ($entry in $notices) {
+        $relative = [string]$entry.path
+        if ($relative -cnotmatch '^(LGPL-3\.0\.txt|GPL-3\.0\.txt|libmpv-thirdparty/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*)$' -or
+            @($relative.Split('/') | Where-Object { $_ -eq '.' -or $_ -eq '..' }).Count -ne 0 -or
+            $expected.ContainsKey("Licenses/$relative")) { throw 'Invalid or duplicate mpv notice path.' }
+        $expected["Licenses/$relative"] = $entry
+    }
+    foreach ($required in @('Licenses/LGPL-3.0.txt', 'Licenses/GPL-3.0.txt')) {
+        if (-not $expected.ContainsKey($required)) { throw 'The mpv manifest must include both required license texts.' }
+    }
+    $actualNotices = @($regular.Keys | Where-Object { $_.StartsWith('Licenses/libmpv-thirdparty/', [StringComparison]::OrdinalIgnoreCase) })
+    if (@($actualNotices | Where-Object { -not $expected.ContainsKey($_) }).Count -ne 0) {
+        throw 'The published mpv notices differ from the reviewed manifest.'
+    }
+    $hashes = @{}
+    foreach ($relative in $expected.Keys) {
+        $entry = $expected[$relative]
+        if (-not $regular.ContainsKey($relative) -or $entry.bytes -le 0 -or $regular[$relative].Length -ne $entry.bytes -or
+            [string]$entry.sha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'An mpv runtime file or notice is missing or has an invalid size.' }
+        $hash = (Get-FileHash -LiteralPath $regular[$relative].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($hash -cne $entry.sha256) { throw 'An mpv runtime file or notice differs from its provenance manifest.' }
+        $hashes[$relative] = $hash
+    }
+    foreach ($pair in @(@('Licenses/libmpv-source-manifest.json', $ManifestPath), @('Licenses/mpv-dependency.json', $DependencyManifestPath))) {
+        if (-not $regular.ContainsKey($pair[0])) { throw 'An mpv provenance manifest is missing.' }
+        $hash = (Get-FileHash -LiteralPath $regular[$pair[0]].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($hash -cne (Get-FileHash -LiteralPath $pair[1] -Algorithm SHA256).Hash.ToLowerInvariant()) {
+            throw 'A published mpv manifest differs from the reviewed source.'
+        }
+        $hashes[$pair[0]] = $hash
+    }
+    return $hashes
+}
+
+function Assert-PrivateClipDecoders {
+    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$VlcManifestPath,
+        [Parameter(Mandatory)][string]$MpvManifestPath, [Parameter(Mandatory)][string]$MpvDependencyPath)
+    $hashes = Assert-PrivateLosslessPayload $Directory $VlcManifestPath
+    $mpv = Assert-PrivateMpvPayload $Directory $MpvManifestPath $MpvDependencyPath
+    foreach ($relative in $mpv.Keys) {
+        if ($hashes.ContainsKey($relative)) { throw 'Decoder manifests contain a duplicate payload path.' }
+        $hashes[$relative] = $mpv[$relative]
+    }
+    return $hashes
+}
+
 function Assert-PrivateTestOutputDirectory {
     param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$RepositoryRoot)
     $repositoryRootPath = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
@@ -209,11 +282,10 @@ function Sync-PrivateLosslessTestPayload {
     # Inspect the complete destination before mutation. Remove only extra files
     # in this generated decoder tree; keep unrelated assemblies, data and licenses.
     $existing = @(Get-PrivateRegularFiles $target)
-    $decoderRoot = Join-Path $target 'libvlc'
-    $decoderPrefix = [IO.Path]::GetFullPath($decoderRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     foreach ($file in $existing) {
-        if (-not $file.FullName.StartsWith($decoderPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
         $relative = $file.FullName.Substring($target.Length + 1).Replace('\', '/')
+        if (-not ($relative.StartsWith('libvlc/', [StringComparison]::OrdinalIgnoreCase) -or
+            $relative.StartsWith('libmpv/', [StringComparison]::OrdinalIgnoreCase))) { continue }
         if (-not $ExpectedHashes.ContainsKey($relative)) { Remove-Item -LiteralPath $file.FullName -Force }
     }
     foreach ($relative in $ExpectedHashes.Keys) {
@@ -307,7 +379,9 @@ try {
     Assert-InstallerExecutable (Join-Path $publishDirectory 'Wisp.exe') $version 'Wisp' 'Wisp' $version
     Assert-NativeRendererLibrary (Join-Path $publishDirectory 'Wisp.NativeRenderer.dll')
     $decoderManifest = Join-Path $repository 'LICENSES/libvlc-3.0.24-source-manifest.json'
-    $decoderHashes = Assert-PrivateLosslessPayload $publishDirectory $decoderManifest
+    $mpvManifest = Join-Path $repository 'LICENSES/libmpv-source-manifest.json'
+    $mpvDependency = Join-Path $repository 'tools/mpv-dependency.json'
+    $decoderHashes = Assert-PrivateClipDecoders $publishDirectory $decoderManifest $mpvManifest $mpvDependency
     # Validate the exact RID-published components, not a separately compiled copy.
     # Test hosts keep their own dependencies/runtime configuration; only existing
     # Wisp product components are replaced before --no-build test execution.
@@ -336,7 +410,7 @@ try {
     }
     foreach ($directory in @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows')) {
         Sync-PrivateLosslessTestPayload $publishDirectory (Join-Path $repository $directory) $repository $decoderHashes
-        $null = Assert-PrivateLosslessPayload (Join-Path $repository $directory) $decoderManifest
+        $null = Assert-PrivateClipDecoders (Join-Path $repository $directory) $decoderManifest $mpvManifest $mpvDependency
     }
     & $dotnetExecutable test $solution --configuration Release --no-build --no-restore --nologo --filter $nonAllocationFilter `
         --logger trx --results-directory $testResults --disable-build-servers -m:1 -p:UseSharedCompilation=false
@@ -359,7 +433,7 @@ try {
     }
     foreach ($directory in @($publishDirectory, (Join-Path $repository 'tests/Wisp.App.Tests/bin/Release/net8.0-windows'),
         (Join-Path $repository 'tools/Wisp.UiReview/bin/Release/net8.0-windows'))) {
-        $verified = Assert-PrivateLosslessPayload $directory $decoderManifest
+        $verified = Assert-PrivateClipDecoders $directory $decoderManifest $mpvManifest $mpvDependency
         foreach ($relative in $decoderHashes.Keys) {
             if ($verified[$relative] -cne $decoderHashes[$relative]) { throw 'The decoder payload changed during private validation.' }
         }

@@ -48,7 +48,7 @@ internal sealed class LosslessMpvNative
         var path = Path.Combine(AppContext.BaseDirectory, "libmpv", "win-x64", "libmpv-2.dll");
         if (!File.Exists(path)) throw new FileNotFoundException("The lossless playback components are missing. Reinstall Wisp to restore them.");
         ClipLibrary.CheckPath(path);
-        // App-local and replaceable; no system search, downloads or runtime hash lock.
+        // App-local and replaceable; dependency search is limited to its directory and System32.
         const uint searchDllLoadDirectory = 0x00000100, searchSystem32 = 0x00000800;
         var module = LoadLibraryEx(path, IntPtr.Zero, searchDllLoadDirectory | searchSystem32);
         if (module == IntPtr.Zero) throw new InvalidOperationException("The lossless decoder could not be loaded.");

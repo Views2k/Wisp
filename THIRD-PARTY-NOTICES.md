@@ -49,9 +49,9 @@ The original MIT license is included in `LICENSES/fh6-time-attack-tracker-LICENS
 and in the installer's `Licenses` directory. Wisp uses these coordinates with its
 own lap tracking and native HUD.
 
-## Lossless clip playback: LibVLCSharp and LibVLC
+## Lossless clip thumbnails: LibVLCSharp and LibVLC
 
-Wisp's lossless clip player uses LibVLCSharp 3.10.1 and the x64 subset of
+Wisp's lossless clip thumbnail decoder uses LibVLCSharp 3.10.1 and the x64 subset of
 VideoLAN.LibVLC.Windows 3.0.24. These libraries are copyright their respective
 VideoLAN and LibVLCSharp contributors and are distributed under the GNU Lesser
 General Public License, version 2.1 or later. Wisp claims no ownership of them.
@@ -77,6 +77,32 @@ in Wisp's `LICENSE` applies; the remaining Wisp terms are unchanged.
 Official projects: [LibVLCSharp](https://code.videolan.org/videolan/LibVLCSharp),
 [LibVLC](https://www.videolan.org/vlc/libvlc.html),
 and [FFmpeg](https://ffmpeg.org/).
+
+## Lossless clip playback: libmpv
+
+The lossless clip player uses the official mpv project's x64 LGPL build from
+commit `a1f50f2c38206dc943f331cf5a5b02f97a0ce219`, workflow run `36640285359`.
+This development build combines mpv with LGPL FFmpeg and is distributed under
+LGPL version 3. The license texts are in `LICENSES/LGPL-3.0.txt` and
+`LICENSES/GPL-3.0.txt`; component notices are under `LICENSES/libmpv-thirdparty/`.
+Those licenses apply to the libraries, not to Wisp's original code or artwork.
+
+`LICENSES/libmpv-source-manifest.json` identifies the exact library, upstream
+build inputs, and matching source companion supplied with this installer.
+The companion contains the pinned mpv and FFmpeg sources, dependency sources,
+build recipes and patches, and the separate LibVLC source bundle used for
+thumbnails. It does not claim a reproduced native binary build. Source archives
+also include some unlinked build, test and platform dependencies; their presence
+does not imply that Wisp uses those components at runtime.
+
+`libmpv/win-x64/libmpv-2.dll` remains a separate, replaceable shared library.
+With Wisp closed, back it up and replace it with an interface-compatible x64
+libmpv build. Wisp does not enforce the original library hash at runtime. The
+LGPL replacement and debugging exception in Wisp's `LICENSE` applies.
+
+Official sources: [mpv](https://github.com/mpv-player/mpv),
+[FFmpeg](https://ffmpeg.org/), and
+[the dependency build recipes](https://github.com/BtbN/FFmpeg-Builds).
 
 ## NVIDIA video encoder API header
 

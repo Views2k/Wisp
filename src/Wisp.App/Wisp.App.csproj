@@ -19,7 +19,7 @@
     <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
   </PropertyGroup>
   <ItemGroup>
-    <AssemblyMetadata Include="WispDiagnosticBuildId" Value="clips-lossless-20261001-01" />
+    <AssemblyMetadata Include="WispDiagnosticBuildId" Value="clips-buffer-playback-20261001-01" />
     <AssemblyMetadata Include="WispDiagnosticBuildLabel" Value="Wisp 2.6.0 Tune and Clips preview" />
     <AssemblyMetadata Include="WispLapDiagnosticsEnabled" Value="false" />
   </ItemGroup>
@@ -43,10 +43,23 @@
   <Target Name="KeepLosslessDecoderReplaceable" AfterTargets="ComputeFilesToPublish">
     <ItemGroup>
       <ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
-                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'LibVLCSharp.dll' or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('libvlc'))">
+                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'LibVLCSharp.dll' or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('libvlc')) or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('libmpv'))">
         <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
       </ResolvedFileToPublish>
     </ItemGroup>
+  </Target>
+  <PropertyGroup>
+    <MpvDependencyDirectory>$(MSBuildProjectDirectory)\..\..\work\dependencies\libmpv\7e349cc9589b7ced492ed0207c24808f7c328a0ffa96cdae6a069861a1a856a4</MpvDependencyDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(MpvDependencyDirectory)\libmpv-2.dll" Link="libmpv\win-x64\libmpv-2.dll"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\..\tools\mpv-dependency.json" Link="Licenses\mpv-dependency.json"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="RestoreWispMpvDependency" BeforeTargets="PrepareForBuild"
+          Condition="'$(OS)' == 'Windows_NT' and '$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Restore-MpvDependency.ps1&quot;" />
   </Target>
   <PropertyGroup>
     <NativeRendererOutputDirectory>$(MSBuildProjectDirectory)\..\Wisp.NativeRenderer\bin\$(Configuration)\x64</NativeRendererOutputDirectory>
@@ -97,6 +110,10 @@
     <Content Include="..\..\LICENSES\NVIDIA-nvEncodeAPI-MIT.txt" Link="Licenses\NVIDIA-nvEncodeAPI-MIT.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\LibVLCThirdParty\**\*" Link="Licenses\LibVLCThirdParty\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\libvlc-3.0.24-source-manifest.json" Link="Licenses\libvlc-3.0.24-source-manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\LGPL-3.0.txt" Link="Licenses\LGPL-3.0.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\GPL-3.0.txt" Link="Licenses\GPL-3.0.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\libmpv-thirdparty\**\*" Link="Licenses\libmpv-thirdparty\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\libmpv-source-manifest.json" Link="Licenses\libmpv-source-manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\dotnet-runtime-8.0.31-LICENSE.txt" Link="Licenses\dotnet-runtime-8.0.31-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt" Link="Licenses\dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\windowsdesktop-runtime-8.0.31-LICENSE.txt" Link="Licenses\windowsdesktop-runtime-8.0.31-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

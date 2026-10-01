@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "a1f50f2c38206dc943f331cf5a5b02f97a0ce219",
+  "workflowRun": 36640285359,
+  "variant": "x86_64-w64-mingw32-lgpl",
+  "archive": {
+    "url": "https://github.com/mpv-player/mpv/releases/download/git-release/libmpv-v0.41.0-dev-ga1f50f2c3-36640285359-x86_64-w64-mingw32-lgpl.zip",
+    "bytes": 56076756,
+    "sha256": "7e349cc9589b7ced492ed0207c24808f7c328a0ffa96cdae6a069861a1a856a4"
+  },
+  "binary": {
+    "entry": "libmpv-2.dll",
+    "bytes": 126284288,
+    "sha256": "1e23e98611c99137565b684d7d59b5bf30dc3b81f3c8e606df6d503f0bd6b8a3"
+  }
+}
