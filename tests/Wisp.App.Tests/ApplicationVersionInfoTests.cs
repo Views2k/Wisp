@@ -69,10 +69,10 @@ public sealed class ApplicationVersionInfoTests
     }
 
     [Fact]
-    public void TuneDevelopmentBuildRetainsPrivateIdentity()
+    public void TuneAndClipsPreviewRetainsPrivateIdentity()
     {
-        Assert.Equal("tune-development-20260930-01", ApplicationVersionInfo.DiagnosticBuildId);
-        Assert.Equal("Wisp 2.6.0 Tune development", ApplicationVersionInfo.DiagnosticBuildLabel);
+        Assert.Equal("clips-lossless-20261001-01", ApplicationVersionInfo.DiagnosticBuildId);
+        Assert.Equal("Wisp 2.6.0 Tune and Clips preview", ApplicationVersionInfo.DiagnosticBuildLabel);
         Assert.True(ApplicationVersionInfo.IsPrivateCandidate);
         Assert.False(ApplicationVersionInfo.LapDiagnosticsEnabled);
         Assert.Contains("(private)", ApplicationVersionInfo.FooterText, StringComparison.Ordinal);
