@@ -82,7 +82,7 @@ public partial class ClipsPage : UserControl
             _player is null || !_playback.Ready || _playback.Paused) return;
         try
         {
-            _player.Pause(); _playback.SetPaused(true); PlayPauseButton.Content = "Play";
+            _player.Pause(); _playback.SetPaused(true);
             UpdatePlaybackStatus(); UpdatePlaybackTimer();
         }
         catch (InvalidOperationException) { FailPlayback(); }
@@ -207,13 +207,11 @@ public partial class ClipsPage : UserControl
                 var seconds = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan.TotalSeconds : 0;
                 if (!_playback.TryOpen(revision, player.HasVideo, player.NaturalVideoWidth, player.NaturalVideoHeight, seconds))
                 { FailPlayback("This clip has no playable video or duration. Choose another clip."); return; }
-                _preparationElapsed.Stop();
+                // Opening the decoder must not advance the clip before the user's Play action.
+                player.Pause(); player.Position = TimeSpan.Zero;
                 _playback.BufferingChanged(revision, player.IsBuffering);
-                var pauseForCapture = _hostWindow?.IsActive != true && model.CaptureSystemAudio && model.ClippingEnabled;
-                if (pauseForCapture) { player.Pause(); _playback.SetPaused(true); }
-                else player.Play();
+                if (!_playback.WaitingForInitialBuffer) _preparationElapsed.Stop();
                 if (!Current()) return;
-                PlayPauseButton.Content = pauseForCapture ? "Play" : "Pause"; PlayPauseButton.IsEnabled = true;
                 _updatingTimeline = true;
                 try { PlaybackPosition.Maximum = _playback.DurationSeconds; PlaybackPosition.IsEnabled = true; }
                 finally { _updatingTimeline = false; }
@@ -225,12 +223,17 @@ public partial class ClipsPage : UserControl
         player.BufferingStarted += (_, _) =>
         {
             if (!Current()) return;
-            _playback.BufferingChanged(revision, true); UpdatePlaybackStatus();
+            var waiting = _playback.WaitingForInitialBuffer;
+            _playback.BufferingChanged(revision, true);
+            if (!waiting && _playback.WaitingForInitialBuffer) _preparationElapsed.Restart();
+            UpdatePlaybackStatus(); UpdatePlaybackTimer();
         };
         player.BufferingEnded += (_, _) =>
         {
             if (!Current()) return;
-            _playback.BufferingChanged(revision, false); UpdatePlaybackStatus();
+            _playback.BufferingChanged(revision, false);
+            if (!_playback.Preparing) _preparationElapsed.Stop();
+            UpdatePlaybackStatus(); UpdatePlaybackTimer();
         };
         player.MediaFailed += (_, _) => { if (Current()) FailPlayback(); };
         player.MediaEnded += (_, _) =>
@@ -238,7 +241,7 @@ public partial class ClipsPage : UserControl
             if (!Current() || !_playback.Ready) return;
             try
             {
-                player.Pause(); _playback.ReachEnd(revision); PlayPauseButton.Content = "Play again";
+                player.Pause(); _playback.ReachEnd(revision);
                 _playbackTimer.Stop();
                 if (!_seeking) SetTimelinePosition(_playback.DurationSeconds);
                 UpdatePlaybackStatus();
@@ -288,6 +291,8 @@ public partial class ClipsPage : UserControl
         if (PlaybackStatus is null) return;
         PlaybackStatus.Text = _playback.Status;
         PlaybackStatus.Visibility = PlaybackStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        PlayPauseButton.Content = _playback.Ready && !_playback.Paused ? "Pause" : _playback.Ended ? "Play again" : "Play";
+        PlayPauseButton.IsEnabled = _playback.CanTogglePlayback;
     }
     private void ClosePlayer_Click(object sender, RoutedEventArgs e) { StopPlayer(); Model?.ClosePlayback(); }
     private void PlayPause_Click(object sender, RoutedEventArgs e)
@@ -295,33 +300,36 @@ public partial class ClipsPage : UserControl
         if (_player is null || !PlayPauseButton.IsEnabled) return;
         try
         {
-            if (_playback.Paused)
+            var play = _playback.Paused;
+            var restart = play && _playback.Ended;
+            // Commit user intent first: Play can raise a buffering callback immediately.
+            _playback.SetPaused(!play);
+            if (play)
             {
-                if (_playback.Ended) { _player.Position = TimeSpan.Zero; SetTimelinePosition(0); }
+                if (restart) { _player.Position = TimeSpan.Zero; SetTimelinePosition(0); }
                 _player.Play();
             }
             else _player.Pause();
-            _playback.SetPaused(!_playback.Paused); PlayPauseButton.Content = _playback.Paused ? "Play" : "Pause";
             UpdatePlaybackStatus(); UpdatePlaybackTimer();
         }
         catch (InvalidOperationException) { FailPlayback(); }
     }
     private void PlaybackVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e) { if (_player is not null) _player.Volume = e.NewValue; }
 
-    private bool CanTrackPlayback => _player is not null && _playback.Ready && PlayPauseButton.IsEnabled &&
+    private bool CanTrackPlayback => _player is not null && _playback.Ready &&
         IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized;
     private void UpdatePlaybackTimer()
     {
         if (_player is not null && IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized &&
-            (_playback.Preparing || CanTrackPlayback && !_playback.Paused && !_seeking)) _playbackTimer.Start();
+            (_playback.Preparing || _playback.WaitingForInitialBuffer || CanTrackPlayback && !_playback.Paused && !_seeking)) _playbackTimer.Start();
         else _playbackTimer.Stop();
     }
     private void RefreshPlaybackPosition()
     {
-        if (_playback.Preparing)
+        if (_playback.Preparing || _playback.WaitingForInitialBuffer)
         {
             if (_playback.OpeningTimedOut(_preparationElapsed.Elapsed))
-                FailPlayback("This clip is taking too long to open. Choose it again to retry.");
+                FailPlayback("This clip is taking too long to prepare. Choose it again to retry.");
             return;
         }
         if (!CanTrackPlayback || _playback.Paused || _seeking) { _playbackTimer.Stop(); return; }
@@ -375,7 +383,6 @@ public partial class ClipsPage : UserControl
             seconds = Math.Clamp(seconds, 0, _playback.DurationSeconds);
             player.Position = TimeSpan.FromSeconds(seconds);
             _playback.SeekTo(seconds);
-            PlayPauseButton.Content = _playback.Paused ? _playback.Ended ? "Play again" : "Play" : "Pause";
             SetTimelinePosition(seconds); UpdatePlaybackStatus();
         }
         catch (Exception error) when (error is InvalidOperationException or ArgumentException)

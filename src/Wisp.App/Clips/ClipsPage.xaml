@@ -139,7 +139,7 @@
                         <TextBlock x:Name="PlaybackTime" Grid.Column="1" Text="0:00 / 0:00" Style="{StaticResource ClipHint}" MinWidth="80" TextWrapping="NoWrap" TextAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0" AutomationProperties.Name="Clip playback time" />
                     </Grid>
                     <WrapPanel x:Name="PlaybackControls" Margin="0,8,0,0">
-                        <Button x:Name="PlayPauseButton" Content="Pause" Click="PlayPause_Click" IsEnabled="False" Padding="12,6" Margin="0,0,8,4" />
+                        <Button x:Name="PlayPauseButton" Content="Play" Click="PlayPause_Click" IsEnabled="False" Padding="12,6" Margin="0,0,8,4" />
                         <Button x:Name="ExportClipButton" Content="Export clip…" Click="Export_Click" IsEnabled="{Binding CanExport}" Padding="12,6" Margin="0,0,8,4" />
                         <TextBlock Text="Volume" VerticalAlignment="Center" Margin="8,0,8,4" />
                         <Slider x:Name="PlaybackVolume" Minimum="0" Maximum="1" Value="0.6" Width="110" SmallChange="0.05" LargeChange="0.1" ValueChanged="PlaybackVolume_Changed" VerticalAlignment="Center" AutomationProperties.Name="Clip playback volume" Margin="0,0,0,4" />

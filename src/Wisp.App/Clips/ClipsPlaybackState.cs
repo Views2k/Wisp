@@ -6,6 +6,7 @@ internal sealed class ClipsPlaybackState
     private Phase _phase;
     private double? _lastObservedPosition;
     private bool _viewed;
+    private bool _hasStarted;
     private string _failure = "";
 
     public long Revision { get; private set; }
@@ -14,13 +15,17 @@ internal sealed class ClipsPlaybackState
     public bool Paused { get; private set; }
     public bool Ended { get; private set; }
     public bool Buffering { get; private set; }
+    public bool WaitingForInitialBuffer => Ready && !_hasStarted && Buffering;
+    public bool CanTogglePlayback => Ready && (!Paused || !Buffering);
     public double DurationSeconds { get; private set; }
     public string Status => _phase switch
     {
         Phase.Preparing => "Preparing clip…",
         Phase.Failed => _failure,
+        Phase.Ready when Buffering && !_hasStarted => "Loading clip…",
         Phase.Ready when Ended && Paused => "Clip finished.",
         Phase.Ready when Paused && Buffering => "Paused · buffering clip…",
+        Phase.Ready when Paused && !_hasStarted => "Ready · press Play.",
         Phase.Ready when Paused => "Paused",
         Phase.Ready when Buffering => "Buffering clip…",
         _ => ""
@@ -30,13 +35,13 @@ internal sealed class ClipsPlaybackState
     {
         Revision++;
         _phase = Phase.Closed;
-        Paused = Ended = Buffering = _viewed = false;
+        Paused = Ended = Buffering = _viewed = _hasStarted = false;
         DurationSeconds = 0;
         _lastObservedPosition = null;
         _failure = "";
     }
 
-    public void Prepare() { Reset(); _phase = Phase.Preparing; }
+    public void Prepare() { Reset(); Paused = true; _phase = Phase.Preparing; }
 
     public bool TryOpen(long revision, bool hasVideo, int width, int height, double seconds)
     {
@@ -48,7 +53,7 @@ internal sealed class ClipsPlaybackState
         return true;
     }
 
-    public bool OpeningTimedOut(TimeSpan elapsed) => Preparing && elapsed >= TimeSpan.FromSeconds(15);
+    public bool OpeningTimedOut(TimeSpan elapsed) => (Preparing || WaitingForInitialBuffer) && elapsed >= TimeSpan.FromSeconds(15);
 
     public void BufferingChanged(long revision, bool buffering)
     {
@@ -57,8 +62,9 @@ internal sealed class ClipsPlaybackState
 
     public void SetPaused(bool paused)
     {
-        if (!Ready) return;
+        if (!Ready || !paused && Buffering) return;
         Paused = paused;
+        if (!paused) _hasStarted = true;
         if (!paused && Ended) { Ended = false; _lastObservedPosition = 0; }
     }
 

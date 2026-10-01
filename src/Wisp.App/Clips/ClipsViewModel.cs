@@ -47,7 +47,7 @@ public sealed class ClipCardItem(ClipEntry entry) : INotifyPropertyChanged
     public string Title => Entry.SavedAtUtc.ToLocalTime().ToString("MMM d · h:mm tt");
     public string Detail => $"{TimeSpan.FromSeconds(Entry.DurationSeconds):m\\:ss} · {Entry.Media.Height}p · {Entry.Media.FrameRate} fps";
     public string ReviewState => Entry.ExportedAtUtc is not null ? "Exported" : Entry.ViewedAtUtc is not null ? "Viewed" : "New";
-    public string PlayLabel => $"Play clip from {Title}, {Detail}";
+    public string PlayLabel => $"Open clip from {Title}, {Detail}";
     public BitmapSource? Thumbnail => _thumbnail;
     public bool HasThumbnail => _thumbnail is not null;
     public string PreviewStatus => _thumbnailLoading ? "Loading preview…" : "Preview unavailable";

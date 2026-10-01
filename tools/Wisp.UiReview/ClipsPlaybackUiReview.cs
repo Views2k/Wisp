@@ -229,11 +229,27 @@ internal static class ClipsPlaybackUiReview
                 host.Background is SolidColorBrush { Color: var background } && background == Colors.Black &&
                 CleanVisualChain(player), "player-is-opaque-without-ancestor-effects-or-fade");
             measurements["naturalDurationSeconds"] = player.NaturalDuration.TimeSpan.TotalSeconds;
-            Check(Math.Abs(measurements["naturalDurationSeconds"] - KnownDurationSeconds) <= .1 && timer.IsEnabled, "known-duration-and-active-timer");
+            Check(Math.Abs(measurements["naturalDurationSeconds"] - KnownDurationSeconds) <= .1 && !timer.IsEnabled,
+                "known-duration-prepared-without-running-timer");
+            phase = "prepared-awaiting-explicit-play";
+            await Settle(500);
+            Check(Equals(playPause.Content, "Play") && playbackStatus.Text == "Ready · press Play." &&
+                player.Position.TotalSeconds <= .05 && !timer.IsEnabled && currentModel.NewClipCount == ClipLibrary.PageSize,
+                "prepared-clip-stays-at-start-and-unviewed-without-autoplay");
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.BufferingStartedEvent));
+            Check(!playPause.IsEnabled && playbackStatus.Text == "Loading clip…" && timer.IsEnabled,
+                "initial-buffering-disables-play-with-loading-status-and-watchdog");
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.BufferingEndedEvent));
+            player.RaiseEvent(new RoutedEventArgs(MediaElement.MediaOpenedEvent));
+            await Settle(250);
+            Check(playPause.IsEnabled && Equals(playPause.Content, "Play") && playbackStatus.Text == "Ready · press Play." &&
+                player.Position.TotalSeconds <= .05 && !timer.IsEnabled && currentModel.NewClipCount == ClipLibrary.PageSize,
+                "initial-buffering-end-and-duplicate-open-do-not-autoplay");
+            phase = "explicit-play"; Click(playPause);
             await Until(() => player.Position.TotalSeconds >= .35 && currentModel.NewClipCount == ClipLibrary.PageSize - 1, 2500);
             var persisted = await new ClipLibrary(currentModel.StorageDirectory).GetPageAsync(0, cancellation.Token);
             Check(persisted.Clips.Single(item => item.Id == selected.Id).ViewedAtUtc is not null &&
-                persisted.Clips.Count(item => item.ViewedAtUtc is not null) == 1, "only-opened-clip-view-state-persisted");
+                persisted.Clips.Count(item => item.ViewedAtUtc is not null) == 1, "only-played-clip-view-state-persisted");
             measurements["advancedPositionSeconds"] = player.Position.TotalSeconds;
             phase = "pause"; Click(playPause);
             await Settle(150);
@@ -295,8 +311,8 @@ internal static class ClipsPlaybackUiReview
                 !currentModel.HasPreviewExportStatus, "reopen-owns-new-muted-player-and-fresh-export-state");
             player.RaiseEvent(new RoutedEventArgs(MediaElement.BufferingStartedEvent));
             player.RaiseEvent(new RoutedEventArgs(MediaElement.MediaEndedEvent));
-            Check(ReferenceEquals(host.Content, secondPlayer) && Equals(playPause.Content, "Pause") && timer.IsEnabled &&
-                !playbackStatus.Text.Contains("Buffering", StringComparison.OrdinalIgnoreCase),
+            Check(ReferenceEquals(host.Content, secondPlayer) && Equals(playPause.Content, "Play") && !timer.IsEnabled &&
+                playbackStatus.Text == "Ready · press Play.",
                 "replaced-player-callbacks-do-not-change-current-playback");
             phase = "unload"; currentWindow.Content = null;
             await Until(() => !currentPage.IsLoaded, 1000); await Settle(300);
