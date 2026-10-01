@@ -230,9 +230,13 @@ namespace recorder::spool
             Expect(spool.AppendAudio(audioStart + 213333, 213334, payload.data(), 1), tests);
             AvailablePlan plan;
             std::shared_ptr<const Snapshot> snapshot;
-            Expect(!spool.Retain(30 * Second, snapshot) && !snapshot, tests); // Standard selection is unchanged.
             if (audioStart <= 213334)
             {
+                Expect(spool.Retain(30 * Second, snapshot) && snapshot->Range().start100ns == 0 &&
+                    snapshot->Range().end100ns == 2 * frame + 1 && snapshot->Range().audioStart100ns == audioStart, tests);
+                Expect(ReadAll(*snapshot, Track::Video, 0x5a, tests) == 2, tests);
+                Expect(ReadAll(*snapshot, Track::Audio, 0x5a, tests) == (audioStart == 207 ? 2u : 1u), tests);
+                snapshot.reset();
                 Expect(spool.PlanAvailable(30 * Second, {}, plan) && !plan.sizeLimited &&
                     plan.bounds.start100ns == 0 && plan.bounds.end100ns == 2 * frame + 1 &&
                     plan.bounds.audioStart100ns == audioStart && plan.bounds.videoPackets == 2, tests);
@@ -244,12 +248,33 @@ namespace recorder::spool
             }
             else
             {
+                Expect(!spool.Retain(30 * Second, snapshot) && !snapshot &&
+                    std::strcmp(spool.Result().reason, "spool_no_keyframe_in_requested_span") == 0, tests);
                 Expect(!spool.PlanAvailable(30 * Second, {}, plan) && plan.bounds.videoPackets == 0 &&
                     std::strcmp(spool.Result().reason, "spool_no_keyframe_in_requested_span") == 0, tests);
                 Expect(!spool.RetainAvailable(30 * Second, {}, snapshot, plan) && !snapshot &&
                     plan.bounds.videoPackets == 0, tests);
             }
             Expect(SUCCEEDED(spool.Close()), tests);
+        }
+        {
+            EncodedSpool spool;
+            Expect(spool.Initialize(Session(parent), limits, Format(true)), tests);
+            for (int frame = 0; frame < 3; ++frame)
+                Expect(spool.AppendVideo(frame * Second, Second, frame % 2 == 0, payload.data(), 1), tests);
+            for (int frame = 0; frame < 141; ++frame)
+            {
+                const MediaTime time = static_cast<MediaTime>(frame) * 1024 * Second / 48000;
+                const MediaTime end = static_cast<MediaTime>(frame + 1) * 1024 * Second / 48000;
+                Expect(spool.AppendAudio(time + 207, end - time, payload.data(), 1), tests);
+            }
+            std::shared_ptr<const Snapshot> snapshot;
+            Expect(spool.Retain(30 * Second, snapshot) && snapshot->Range().start100ns == 0 &&
+                snapshot->Range().end100ns == 3 * Second && snapshot->Range().videoPackets == 3, tests);
+            snapshot.reset();
+            Expect(spool.Retain(Second, snapshot) && snapshot->Range().start100ns == 2 * Second &&
+                snapshot->Range().end100ns == 3 * Second && snapshot->Range().videoPackets == 1, tests);
+            snapshot.reset(); Expect(SUCCEEDED(spool.Close()), tests);
         }
         {
             EncodedSpool spool;

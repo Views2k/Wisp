@@ -182,7 +182,10 @@ namespace recorder::spool
             std::uint64_t committedLimit = 0;
         };
         void Seal(const std::shared_ptr<File>& file)
-        { if (file && !file->sealed) { Flush(file->handle.value); file->sealed = true; } }
+        {
+            // Checked writes already publish the readable prefix; temporary GOPs need no durability barrier.
+            if (file && !file->sealed) file->sealed = true;
+        }
         void Retire(State& state, const std::shared_ptr<File>& file)
         {
             if (file->retired) return;
@@ -705,7 +708,8 @@ namespace recorder::spool
                         else if (file->track == Track::Audio && !foundAudio) { audioStart = record.time; foundAudio = true; }
                 }
                 Require(end > 0, "spool_no_complete_frames", HRESULT_FROM_WIN32(ERROR_NO_DATA));
-                const MediaTime cutoff = (std::max)(end > span ? end - span : 0, withAudio ? audioStart : 0);
+                const MediaTime audioCutoff = withAudio && audioStart > MaximumAudioDuration ? audioStart - MaximumAudioDuration : 0;
+                const MediaTime cutoff = (std::max)(end > span ? end - span : 0, audioCutoff);
                 Require(!state.capacityEvicted || state.lastCapacityEvictedGop < cutoff,
                     "spool_requested_history_evicted_by_capacity", HRESULT_FROM_WIN32(ERROR_NO_DATA));
                 bool found = false;
@@ -743,7 +747,7 @@ namespace recorder::spool
                         target.push_back({ file, record, file->committedBytes }); included = true;
                     }
                 }
-                if (included) { Flush(file->handle.value); snapshot->pinned.push_back(file); }
+                if (included) snapshot->pinned.push_back(file);
             }
             Require(snapshot->video.size() == videoCount && snapshot->audio.size() == audioCount, "spool_snapshot_count_changed");
             snapshot->bounds.videoPackets = videoCount; snapshot->bounds.audioPackets = audioCount;
