@@ -57,6 +57,33 @@ function Replace-PrivateDirective {
     return $Text.Replace($Old, $New)
 }
 
+function Get-PrivateCompilerSourcePath {
+    param([Parameter(Mandatory)][string]$Directory)
+    if (-not ('WispPrivateCompilerPath' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+using System.Text;
+public static class WispPrivateCompilerPath {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint GetShortPathName(string path, StringBuilder result, uint capacity);
+}
+'@
+    }
+    $buffer = [Text.StringBuilder]::new(32768)
+    $count = [WispPrivateCompilerPath]::GetShortPathName($Directory, $buffer, [uint32]$buffer.Capacity)
+    $compilerPath = if ($count -gt 0 -and $count -lt $buffer.Capacity) { $buffer.ToString() } else { $Directory }
+    foreach ($file in Get-PrivateRegularFiles $Directory) {
+        $relative = [IO.Path]::GetRelativePath($Directory, $file.FullName)
+        $alias = Join-Path $compilerPath $relative
+        if ($alias.Length -ge 260) { throw 'The installer source path is too long; use a shorter checkout path.' }
+        if ((Get-FileHash -LiteralPath $alias -Algorithm SHA256).Hash -cne
+            (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash) {
+            throw 'The compiler source alias differs from the validated payload.'
+        }
+    }
+    return $compilerPath
+}
+
 function Get-PrivateRegularFiles {
     param([Parameter(Mandatory)][string]$Directory)
     $root = Get-Item -LiteralPath $Directory -Force
@@ -360,7 +387,8 @@ try {
     $inno = Replace-PrivateDirective $inno '#define MyAppDisplayVersion MyAppVersion' ('#define MyAppDisplayVersion "' + $DiagnosticBuildLabel + ' (private)"')
     $outputVersion = "$version-$DiagnosticBuildId"
     $inno = Replace-PrivateDirective $inno '#define MyAppOutputVersion MyAppVersion' ('#define MyAppOutputVersion "' + $outputVersion + '"')
-    $inno = Replace-PrivateDirective $inno 'Source: "..\artifacts\publish\*"' ('Source: "' + (Join-Path $publishDirectory '*') + '"')
+    $compilerSourceDirectory = Get-PrivateCompilerSourcePath $publishDirectory
+    $inno = Replace-PrivateDirective $inno 'Source: "..\artifacts\publish\*"' ('Source: "' + (Join-Path $compilerSourceDirectory '*') + '"')
     $inno = Replace-PrivateDirective $inno 'SetupIconFile=..\src\Wisp.App\Assets\Wisp.ico' ('SetupIconFile=' + (Join-Path $repository 'src/Wisp.App/Assets/Wisp.ico'))
     $privateInno = Join-Path $stageDirectory 'Wisp.Private.iss'
     [IO.File]::WriteAllText($privateInno, $inno, [Text.UTF8Encoding]::new($false))
