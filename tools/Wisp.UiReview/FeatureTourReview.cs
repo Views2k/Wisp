@@ -139,10 +139,12 @@ internal static class FeatureTourReview
 
                             Click(Required<Button>(window, "ReplayFeatureTourButton")); Arrange();
                             Check(window.FeatureTour.IsOpen && window.FeatureTour.StepIndex == 0, "replay-route");
-                            var escape = new KeyEventArgs(Keyboard.PrimaryDevice, presentation, 0, Key.Escape)
-                            { RoutedEvent = Keyboard.PreviewKeyDownEvent };
-                            window.RaiseEvent(escape); Arrange();
-                            Check(escape.Handled && !window.FeatureTour.IsOpen, "escape-not-dismissed");
+                            // Synthetic input must not inherit keys held on the user's desktop.
+                            Check(!window.TryDismissFeatureTourForKey(Key.Escape, ModifierKeys.Control) && window.FeatureTour.IsOpen,
+                                "modified-escape-dismissed");
+                            Check(window.TryDismissFeatureTourForKey(Key.Escape, ModifierKeys.None), "escape-not-handled");
+                            Arrange();
+                            Check(!window.FeatureTour.IsOpen, "escape-not-dismissed");
 
                             window.StartFeatureTour(); Arrange();
                             Click(overlay.TourSkipButton); Arrange();

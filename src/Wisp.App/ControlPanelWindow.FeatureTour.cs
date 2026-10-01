@@ -48,11 +48,7 @@ public abstract partial class ControlPanelWindow
         };
         PreviewKeyDown += (_, args) =>
         {
-            if (FeatureTour.IsOpen && args.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
-            {
-                DismissFeatureTour();
-                args.Handled = true;
-            }
+            if (TryDismissFeatureTourForKey(args.Key, Keyboard.Modifiers)) args.Handled = true;
         };
         RefreshFeatureTour();
     }
@@ -120,6 +116,13 @@ public abstract partial class ControlPanelWindow
         }
     }
 
+    internal bool TryDismissFeatureTourForKey(Key key, ModifierKeys modifiers)
+    {
+        if (!FeatureTour.IsOpen || key != Key.Escape || modifiers != ModifierKeys.None) return false;
+        DismissFeatureTour();
+        return true;
+    }
+
     private void ShowFeatureTourStep()
     {
         if (!FeatureTour.IsOpen || _featureTourOverlay is null) return;
@@ -174,7 +177,8 @@ public abstract partial class ControlPanelWindow
                 3 => lapSettings?.FindName("EnabledToggle") as FrameworkElement,
                 _ => (lapReview?.Content as FrameworkElement)?.FindName("LapSelector") as FrameworkElement
             };
-            target?.BringIntoView();
+            if (target is not null)
+                target.BringIntoView(new Rect(0, -8, target.ActualWidth, target.ActualHeight + 16));
             _featureTourOverlay.SetTarget(target);
             _featureTourOverlay.TourCardScroll.ScrollToTop();
             if (IsActive) _featureTourOverlay.TourNextButton.Focus();
