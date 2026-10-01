@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Xml.Linq;
 using Wisp.App;
 using Xunit;
 
@@ -299,6 +300,20 @@ public sealed class InstallerPackagingContractTests
         Assert.True(directory > preserveCompletedSetup && marker > directory);
         Assert.DoesNotContain("FileExists(SetupRequiredMarkerPath()", script, StringComparison.Ordinal);
         Assert.DoesNotContain("DeleteFile(SetupRequiredMarkerPath()", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApplicationUpdaterAndInstallerShareTheMachineVersion()
+    {
+        var version = ApplicationVersionInfo.MachineVersion;
+        foreach (var projectName in new[] { "Wisp.App", "Wisp.Updater" })
+        {
+            var project = XDocument.Load(Path.Combine(RepositoryRoot(), "src", projectName, $"{projectName}.csproj"));
+            Assert.Equal(version, Assert.Single(project.Descendants("Version")).Value);
+            Assert.Equal($"{version}.0", Assert.Single(project.Descendants("FileVersion")).Value);
+            Assert.Equal($"{version}.0", Assert.Single(project.Descendants("AssemblyVersion")).Value);
+        }
+        Assert.Contains($"#define MyAppVersion \"{version}\"", InnoScript(), StringComparison.Ordinal);
     }
 
     [Fact]
