@@ -57,6 +57,152 @@ function Replace-PrivateDirective {
     return $Text.Replace($Old, $New)
 }
 
+function Get-PrivateRegularFiles {
+    param([Parameter(Mandatory)][string]$Directory)
+    $root = Get-Item -LiteralPath $Directory -Force
+    if (-not $root.PSIsContainer -or ($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'The decoder payload directory must be a regular directory.'
+    }
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push($root.FullName)
+    while ($pending.Count -gt 0) {
+        foreach ($item in Get-ChildItem -LiteralPath $pending.Pop() -Force) {
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw 'Decoder payloads cannot contain reparse points.'
+            }
+            if ($item.PSIsContainer) { $pending.Push($item.FullName) }
+            else { $item }
+        }
+    }
+}
+
+function Assert-PrivateLosslessPayload {
+    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$ManifestPath)
+    $root = [IO.Path]::GetFullPath($Directory).TrimEnd('\', '/')
+    # Check every ancestor/file before validating or following nested payload paths.
+    $regular = @{}
+    foreach ($file in Get-PrivateRegularFiles $root) {
+        $relative = $file.FullName.Substring($root.Length + 1).Replace('\', '/')
+        $regular[$relative] = $file
+    }
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    $native = @($manifest.nativeFiles)
+    if ($native.Count -ne 24 -or @($native | Where-Object path -like 'plugins/*').Count -ne 22) {
+        throw 'The selected decoder bundle must contain exactly22 plugins and2 core libraries.'
+    }
+    $expected = @{}
+    foreach ($entry in $native) {
+        $relative = [string]$entry.path
+        if ($relative -cnotmatch '^(libvlc\.dll|libvlccore\.dll|plugins/[a-z_]+/lib[a-z0-9_]+_plugin\.dll)$' -or
+            $expected.ContainsKey("libvlc/win-x64/$relative")) { throw 'Invalid or duplicate decoder manifest path.' }
+        $expected["libvlc/win-x64/$relative"] = $entry
+    }
+    if (-not $expected.ContainsKey('libvlc/win-x64/libvlc.dll') -or -not $expected.ContainsKey('libvlc/win-x64/libvlccore.dll')) {
+        throw 'The decoder manifest must name both core libraries.'
+    }
+    $actualNative = @($regular.Keys | Where-Object { $_.StartsWith('libvlc/', [StringComparison]::OrdinalIgnoreCase) })
+    if ($actualNative.Count -ne $expected.Count -or @($actualNative | Where-Object { -not $expected.ContainsKey($_) }).Count -ne 0) {
+        throw 'The published decoder tree differs from the selected native allowlist.'
+    }
+    $notices = @($manifest.noticeFiles)
+    if ($notices.Count -eq 0 -or $notices.Count -gt 128) { throw 'The decoder notice manifest is missing or unbounded.' }
+    foreach ($entry in $notices) {
+        $relative = [string]$entry.path
+        if ($relative -cnotmatch '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' -or
+            @($relative.Split('/') | Where-Object { $_ -eq '.' -or $_ -eq '..' }).Count -ne 0 -or
+            $expected.ContainsKey("Licenses/LibVLCThirdParty/$relative")) { throw 'Invalid or duplicate decoder notice path.' }
+        $expected["Licenses/LibVLCThirdParty/$relative"] = $entry
+    }
+    $hashes = @{}
+    foreach ($relative in $expected.Keys) {
+        $entry = $expected[$relative]
+        if (-not $regular.ContainsKey($relative) -or $entry.bytes -le 0 -or $regular[$relative].Length -ne $entry.bytes -or
+            [string]$entry.sha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'A required decoder file or notice is missing or has an invalid size.' }
+        $hash = (Get-FileHash -LiteralPath $regular[$relative].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($hash -cne $entry.sha256) { throw 'A published decoder file or notice differs from its provenance manifest.' }
+        $hashes[$relative] = $hash
+    }
+    foreach ($relative in @('LibVLCSharp.dll', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.md',
+        'Licenses/LGPL-2.1.txt', 'Licenses/NVIDIA-nvEncodeAPI-MIT.txt', 'Licenses/libvlc-3.0.24-source-manifest.json')) {
+        if (-not $regular.ContainsKey($relative) -or $regular[$relative].Length -le 0) {
+            throw 'The decoder managed library, license or provenance file is missing.'
+        }
+        $hashes[$relative] = (Get-FileHash -LiteralPath $regular[$relative].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    if ($hashes['Licenses/libvlc-3.0.24-source-manifest.json'] -cne
+        (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()) {
+        throw 'The published decoder manifest differs from the reviewed source.'
+    }
+    return $hashes
+}
+
+function Assert-PrivateTestOutputDirectory {
+    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$RepositoryRoot)
+    $repositoryRootPath = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
+    $target = [IO.Path]::GetFullPath($Directory).TrimEnd('\', '/')
+    $allowed = @('tests/Wisp.Core.Tests/bin/Release/net8.0-windows', 'tests/Wisp.Telemetry.Tests/bin/Release/net8.0',
+        'tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tests/Wisp.Update.Tests/bin/Release/net8.0-windows',
+        'tests/Wisp.Updater.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows') |
+        ForEach-Object { [IO.Path]::GetFullPath((Join-Path $repositoryRootPath $_)).TrimEnd('\', '/') }
+    if ($target -notin $allowed) { throw 'Private component copies are limited to the six known generated test outputs.' }
+    for ($ancestor = $target; ; $ancestor = [IO.Path]::GetDirectoryName($ancestor)) {
+        $item = Get-Item -LiteralPath $ancestor -Force
+        if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'A private test output ancestor is not a regular directory.'
+        }
+        if ([string]::Equals($ancestor, $repositoryRootPath, [StringComparison]::OrdinalIgnoreCase)) { break }
+        if (-not $ancestor.StartsWith($repositoryRootPath + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'A private test output resolved outside the repository.'
+        }
+    }
+    # Includes existing DLL/EXE/PDB destinations and every nested entry. Complete
+    # this pass for every output before the first product component is copied.
+    $null = @(Get-PrivateRegularFiles $target)
+}
+
+function Sync-PrivateLosslessTestPayload {
+    param([Parameter(Mandatory)][string]$PublishDirectory, [Parameter(Mandatory)][string]$TestDirectory,
+        [Parameter(Mandatory)][string]$RepositoryRoot, [Parameter(Mandatory)][hashtable]$ExpectedHashes)
+    $repositoryRootPath = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
+    $target = [IO.Path]::GetFullPath($TestDirectory).TrimEnd('\', '/')
+    $allowed = @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows') |
+        ForEach-Object { [IO.Path]::GetFullPath((Join-Path $repositoryRootPath $_)).TrimEnd('\', '/') }
+    if ($target -notin $allowed) { throw 'Decoder synchronization is limited to the two known generated test outputs.' }
+    # Do not let any existing generated-output ancestor redirect writes or removal.
+    for ($ancestor = $target; ; $ancestor = [IO.Path]::GetDirectoryName($ancestor)) {
+        $item = Get-Item -LiteralPath $ancestor -Force
+        if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'A test output ancestor is not a regular directory.'
+        }
+        if ([string]::Equals($ancestor, $repositoryRootPath, [StringComparison]::OrdinalIgnoreCase)) { break }
+        if (-not $ancestor.StartsWith($repositoryRootPath + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The test output resolved outside the repository.'
+        }
+    }
+    # Inspect the complete destination before mutation. Remove only extra files
+    # in this generated decoder tree; keep unrelated assemblies, data and licenses.
+    $existing = @(Get-PrivateRegularFiles $target)
+    $decoderRoot = Join-Path $target 'libvlc'
+    $decoderPrefix = [IO.Path]::GetFullPath($decoderRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    foreach ($file in $existing) {
+        if (-not $file.FullName.StartsWith($decoderPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $relative = $file.FullName.Substring($target.Length + 1).Replace('\', '/')
+        if (-not $ExpectedHashes.ContainsKey($relative)) { Remove-Item -LiteralPath $file.FullName -Force }
+    }
+    foreach ($relative in $ExpectedHashes.Keys) {
+        $source = Join-Path $PublishDirectory $relative
+        $destination = [IO.Path]::GetFullPath((Join-Path $target $relative))
+        if (-not $destination.StartsWith($target + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'A decoder synchronization path escaped its test output.'
+        }
+        [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination)) | Out-Null
+        [IO.File]::Copy($source, $destination, $true)
+        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedHashes[$relative]) {
+            throw 'The test decoder payload differs from the fresh published files.'
+        }
+    }
+}
+
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $canonical = Join-Path $PSScriptRoot 'Build-Installer.ps1'
 $canonicalHash = (Get-FileHash -LiteralPath $canonical -Algorithm SHA256).Hash
@@ -133,6 +279,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Private application publish failed.' }
     Assert-InstallerExecutable (Join-Path $publishDirectory 'Wisp.exe') $version 'Wisp' 'Wisp' $version
     Assert-NativeRendererLibrary (Join-Path $publishDirectory 'Wisp.NativeRenderer.dll')
+    $decoderManifest = Join-Path $repository 'LICENSES/libvlc-3.0.24-source-manifest.json'
+    $decoderHashes = Assert-PrivateLosslessPayload $publishDirectory $decoderManifest
     # Validate the exact RID-published components, not a separately compiled copy.
     # Test hosts keep their own dependencies/runtime configuration; only existing
     # Wisp product components are replaced before --no-build test execution.
@@ -145,6 +293,9 @@ try {
         'tests/Wisp.Updater.Tests/bin/Release/net8.0-windows',
         'tools/Wisp.UiReview/bin/Release/net8.0-windows')
     foreach ($directory in $testHostDirectories) {
+        Assert-PrivateTestOutputDirectory (Join-Path $repository $directory) $repository
+    }
+    foreach ($directory in $testHostDirectories) {
         foreach ($name in $componentNames) {
             $destination = Join-Path $repository "$directory/$name"
             if (Test-Path -LiteralPath $destination -PathType Leaf) {
@@ -155,6 +306,10 @@ try {
                 }
             }
         }
+    }
+    foreach ($directory in @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows')) {
+        Sync-PrivateLosslessTestPayload $publishDirectory (Join-Path $repository $directory) $repository $decoderHashes
+        $null = Assert-PrivateLosslessPayload (Join-Path $repository $directory) $decoderManifest
     }
     & $dotnetExecutable test $solution --configuration Release --no-build --no-restore --nologo --filter $nonAllocationFilter `
         --logger trx --results-directory $testResults --disable-build-servers -m:1 -p:UseSharedCompilation=false
@@ -173,6 +328,13 @@ try {
             if ($publishedHash -cne (Get-FileHash -LiteralPath (Join-Path $repository "$testedDirectory/$name") -Algorithm SHA256).Hash) {
                 throw "Published $name differs from the tested and reviewed assembly."
             }
+        }
+    }
+    foreach ($directory in @($publishDirectory, (Join-Path $repository 'tests/Wisp.App.Tests/bin/Release/net8.0-windows'),
+        (Join-Path $repository 'tools/Wisp.UiReview/bin/Release/net8.0-windows'))) {
+        $verified = Assert-PrivateLosslessPayload $directory $decoderManifest
+        foreach ($relative in $decoderHashes.Keys) {
+            if ($verified[$relative] -cne $decoderHashes[$relative]) { throw 'The decoder payload changed during private validation.' }
         }
     }
     & $dotnetExecutable publish $updaterProject --configuration Release --runtime win-x64 --self-contained true `
