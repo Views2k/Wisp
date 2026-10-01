@@ -4,7 +4,7 @@
 param(
     [Parameter(Mandatory)][string]$AppAssemblyPath,
     [Parameter(Mandatory)][string]$ResearchDirectory,
-    [Parameter(Mandatory)][string]$TemporaryDirectory
+    [string]$TemporaryDirectory # Retained for older invocations; extraction no longer creates a file.
 )
 $ErrorActionPreference = 'Stop'
 $appPath = (Resolve-Path -LiteralPath $AppAssemblyPath).Path
@@ -19,13 +19,18 @@ $arguments[0] = [IO.File]::ReadAllBytes((Join-Path $workPath 'tune-game-asset-en
 $arguments[1] = [Convert]::FromHexString($metadata.crcTableHex)
 $arguments[2] = [Convert]::FromHexString($metadata.foldTableHex)
 $arguments[3] = [Threading.CancellationToken]::None
+if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($arguments[0])) -ne '8A529AAFC28DFC39EC18230E75297D56CF219F4E0A64EEE2C1134E8526BCC369') {
+    throw 'Retained encoded fixture provenance did not match.'
+}
 $decoder = $assembly.GetType('Wisp.App.Tunes.TuneAssetCapture', $true)
 $decoded = $decoder.GetMethod('Decode', $flags).Invoke($null, $arguments)
+if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($decoded)) -ne 'E0E5979B99ED4BEABA8405634E0484CF1C46BB51FEC4F1E8F22109535242F9C6') {
+    throw 'Retained decoded fixture provenance did not match.'
+}
 $extractor = $assembly.GetType('Wisp.App.Tunes.TuneAssetSqlite', $true)
-$extractArguments = [object[]]::new(3)
+$extractArguments = [object[]]::new(2)
 $extractArguments[0] = $decoded
 $extractArguments[1] = [Threading.CancellationToken]::None
-$extractArguments[2] = [IO.Path]::GetFullPath($TemporaryDirectory)
 $cache = $extractor.GetMethod('Extract', $flags).Invoke($null, $extractArguments)
 $rows = @($cache.GetType().GetField('_rows', [Reflection.BindingFlags]'NonPublic, Instance').GetValue($cache).Values)
 if ($rows.Count -lt 1 -or $rows.Count -gt 250000) { throw 'Unexpected extracted metadata row count.' }
@@ -54,4 +59,4 @@ foreach ($name in @('tune-miat-fe-locked-resolved.json', 'tune-exact-editable-12
     }
 }
 [Array]::Clear($decoded)
-[ordered]@{ Result = 'pass'; ResolvedFixtures = 3; PartChecks = $partChecks; ExtractedRows = $rows.Count; AssetHashesVerified = $true; LocalReadOnlySqlite = $true; LiveGameAccess = $false } | ConvertTo-Json -Compress
+[ordered]@{ Result = 'pass'; ResolvedFixtures = 3; PartChecks = $partChecks; ExtractedRows = $rows.Count; ReferenceAssetHashesVerified = $true; RequiredProjectionsVerified = $true; InMemoryReadOnlySqlite = $true; RawDatabaseWritten = $false; LiveGameAccess = $false } | ConvertTo-Json -Compress
