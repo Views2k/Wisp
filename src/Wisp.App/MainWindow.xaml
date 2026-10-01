@@ -5,6 +5,7 @@
         xmlns:local="clr-namespace:Wisp.App"
         xmlns:runs="clr-namespace:Wisp.App.Runs"
         xmlns:clips="clr-namespace:Wisp.App.Clips"
+        xmlns:tunes="clr-namespace:Wisp.App.Tunes"
         Title="Wisp" Width="1440" Height="1000" MinWidth="720" MinHeight="440"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
         Foreground="{DynamicResource TextBrush}" Background="{DynamicResource WindowBrush}" WindowStartupLocation="CenterScreen" Cursor="Arrow"
@@ -371,7 +372,8 @@
                         <TabItem x:Name="RunsTab" Header="Runs">
                             <runs:RunsPage x:Name="RunsSurface" />
                         </TabItem>
-                        <TabItem Header="Appearance" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        <TabItem x:Name="TuneTab" Header="Tune"><tunes:TunePage x:Name="TuneSurface" /></TabItem>
+                        <TabItem x:Name="AppearanceTab" Header="Appearance" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Wisp.App">
     <Grid x:Name="AppearanceWorkspace" Margin="0,0,0,12" SizeChanged="AppearanceWorkspace_SizeChanged">
         <Grid.RowDefinitions><RowDefinition x:Name="AppearancePreviewToggleRow" Height="0"/><RowDefinition Height="*"/></Grid.RowDefinitions>
@@ -2357,7 +2359,7 @@
                         KeyboardNavigation.DirectionalNavigation="Cycle">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <UniformGrid Rows="1" Columns="8" />
+                                <UniformGrid Rows="1" Columns="9" />
                             </ItemsPanelTemplate>
                         </ListBox.ItemsPanel>
                         <ListBoxItem AutomationProperties.Name="Dashboard">
@@ -2374,6 +2376,7 @@
                                 <TextBlock Text="Runs" VerticalAlignment="Center" Style="{StaticResource OrbitDockLabelStyle}" />
                             </StackPanel>
                         </ListBoxItem>
+                        <ListBoxItem AutomationProperties.Name="Tune"><StackPanel Orientation="Vertical"><Path Style="{StaticResource OrbitDockIconStyle}" Data="M2,4 H18 M2,10 H18 M2,16 H18 M6,1 V7 M13,7 V13 M8,13 V19" /><TextBlock Text="Tune" VerticalAlignment="Center" Style="{StaticResource OrbitDockLabelStyle}" /></StackPanel></ListBoxItem>
                         <ListBoxItem AutomationProperties.Name="Appearance">
                             <StackPanel Orientation="Vertical">
                                 <Path

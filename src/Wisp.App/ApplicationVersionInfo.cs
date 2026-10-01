@@ -22,7 +22,7 @@ public static class ApplicationVersionInfo
         diagnosticBuildId is not null &&
         (enabledOverride is null || bool.TryParse(enabledOverride, out var enabled) && enabled);
 
-    private static bool IsPrivateCandidate => ReleaseNotesCatalog.Entries[0].Label == "PRIVATE TEST";
+    internal static bool IsPrivateCandidate => ReleaseNotesCatalog.Entries[0].Label is "PRIVATE TEST" or "IN DEVELOPMENT";
 
     public static string FooterText => DiagnosticBuildLabel is { Length: > 0 } label
         ? $"WHEEL-INDICATED SPEED PANEL {label} (private)"

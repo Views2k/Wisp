@@ -127,7 +127,7 @@ internal static class DashboardWindowReview
                 Key(System.Windows.Input.Key.Escape);
             }
             ));
-            steps.Enqueue(("escape", () => { CheckRestoredNormal(); tabs.SelectedIndex = 2; }));
+            steps.Enqueue(("escape", () => { CheckRestoredNormal(); tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Appearance")); }));
             steps.Enqueue(("other-page", () =>
             {
                 Key(System.Windows.Input.Key.F11);

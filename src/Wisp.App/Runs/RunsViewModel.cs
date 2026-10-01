@@ -16,6 +16,8 @@ public sealed record SavedRunItem(RunSummary Summary)
     public string Detail => $"{Summary.StartedAtUtc.ToLocalTime():MMM d, h:mm tt} · {RunPresentation.Time(Summary.DurationSeconds)}";
     public string Tune => string.IsNullOrWhiteSpace(Summary.Tune) ? "No tune label" : Summary.Tune;
     public string Quality => Summary.IsIncomplete ? "Partial recording" : "";
+    public bool HasAttachedTune => Summary.AttachedTuneName is not null;
+    public string AttachedTune => Summary.AttachedTuneName is { } name ? $"Attached tune: {name}" : "";
 }
 
 public sealed class RunFindingItem(string title, string detail, ICommand showCommand, bool canShow) : INotifyPropertyChanged
@@ -129,10 +131,11 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
     public SavedRunItem? ComparisonChoice { get => _comparisonChoice; set { if (RecordingActive) return; Set(ref _comparisonChoice, value); RaiseCommands(); } }
-    public string RecordButtonText => IsCountingDown ? "Cancel countdown" : _service.IsRecording ? "Stop recording" : _service.IsPreparing ? "Saving run…" : "Record run";
-    public bool CanToggleRecording => (!_metadataClosing || _service.IsRecording) && (IsCountingDown || (!_service.IsPreparing && (_service.IsRecording || (_storageOperations == 0 && _service.CanStart))));
+    public string RecordButtonText => IsPreparingTune ? "Cancel tune check" : IsCountingDown ? "Cancel countdown" : _service.IsRecording ? "Stop recording" : _service.IsPreparing ? "Saving run…" : "Record run";
+    public bool CanToggleRecording => (!_metadataClosing || _service.IsRecording) && (IsPreparingTune || IsCountingDown || (!_service.IsPreparing && (_service.IsRecording || (_storageOperations == 0 && _service.CanStart))));
     public bool IsRecording => _service.IsRecording;
-    public string RecordingStatus => IsCountingDown ? $"Recording starts in {CountdownRemainingSeconds}… Return to Forza; the shortcut can cancel."
+    public string RecordingStatus => IsPreparingTune ? "Checking the tune before recording…"
+        : IsCountingDown ? $"Recording starts in {CountdownRemainingSeconds}… Return to Forza; the shortcut can cancel."
         : _service.IsRecording ? $"Recording · {RunPresentation.Time(_service.Elapsed.TotalSeconds)}" + (_activeStopAfter is { } stop ? $" · stops at {RunPresentation.Time(stop.TotalSeconds)}" : "")
         : _recordingNotice is { } notice ? notice
         : _storageOperations > 0 ? "Finishing library work before the next recording."
@@ -251,7 +254,8 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         Error = "";
         try
         {
-            if (IsCountingDown) { CancelCountdown(); }
+            if (IsPreparingTune) { CancelTunePreparation("Tune check canceled. Nothing was recorded."); }
+            else if (IsCountingDown) { CancelCountdown(); }
             else if (_service.IsRecording) { Status = "Saving your run…"; await _service.StopAsync(); }
             else
             {
@@ -276,6 +280,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         if (!visible && !_disposed) _ = FlushMetadataAsync();
         if (visible)
         {
+            _ = RefreshTuneChoicesAsync();
             var revision = _analysisRevision;
             RefreshStatus();
             if (revision == _analysisRevision) RequestCharts();
@@ -716,6 +721,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         NotifyNavigation();
         SelectedPointContext = "";
         foreach (var property in new[] { nameof(HasRun), nameof(HasComparison), nameof(CanManageRun), nameof(RunALabel), nameof(RunBLabel), nameof(RunDescription), nameof(CarIdentifier), nameof(IntervalLabel), nameof(CursorVehicleContext) }) OnChanged(property);
+        NotifyTuneRecording();
         RefreshMarkers();
         RaiseCommands();
     }

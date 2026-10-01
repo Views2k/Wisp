@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Wisp.App\Wisp.App.csproj" />
+    <EmbeddedResource Include="..\..\tests\Wisp.Core.Tests\TuneFixtures\*.json" LogicalName="Wisp.TuneFixtures.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

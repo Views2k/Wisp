@@ -216,7 +216,7 @@ internal static class ScrollLayoutAssertions
 
     private static void VerifyCompactAppearancePreview(MainWindow window, FrameworkElement surface, TabControl tabs)
     {
-        tabs.SelectedIndex = 2;
+        tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Appearance"));
         var toggle = Assert.IsType<Button>(window.FindName("AppearancePreviewToggle"));
         var editor = Assert.IsType<Grid>(window.FindName("AppearanceEditorPane"));
         var preview = Assert.IsType<Grid>(window.FindName("AppearancePreviewPane"));

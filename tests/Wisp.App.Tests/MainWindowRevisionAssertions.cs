@@ -77,7 +77,7 @@ internal static class MainWindowRevisionAssertions
                 var action = Assert.Single(content.Children.OfType<Button>());
                 action.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.False(window.IsDashboardDisplayMode);
-                Assert.Equal(6, tabs.SelectedIndex);
+                Assert.Equal("Clips", Assert.IsType<TabItem>(tabs.SelectedItem).Header);
             }
         }
         finally { notice.DataContext = previousContext; }

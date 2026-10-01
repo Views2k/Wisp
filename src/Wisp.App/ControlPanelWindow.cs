@@ -10,6 +10,8 @@ using System.Windows.Media;
 using Wisp.App.Laps;
 using Wisp.App.Runs;
 using Wisp.App.Clips;
+using Wisp.App.Tunes;
+using Wisp.Core.Tunes;
 using Wisp.Core;
 
 namespace Wisp.App;
@@ -39,6 +41,10 @@ public abstract partial class ControlPanelWindow : Window
     private TabItem DashboardTab => FindControl<TabItem>(nameof(DashboardTab));
     private Border DashboardRunPanel => FindControl<Border>(nameof(DashboardRunPanel));
     private Button LockButton => FindControl<Button>(nameof(LockButton));
+    private TabItem AppearanceTab => FindControl<TabItem>(nameof(AppearanceTab));
+    private TabItem TuneTab => FindControl<TabItem>(nameof(TuneTab));
+    private TunePage TuneSurface => FindControl<TunePage>(nameof(TuneSurface));
+    private bool IsTuneDialogOpen => TuneSurface.IsDialogOpen;
     private TabItem RunsTab => FindControl<TabItem>(nameof(RunsTab));
     private TabItem DiagnosticsTab => FindControl<TabItem>(nameof(DiagnosticsTab));
     private Expander ConnectionHelp => FindControl<Expander>(nameof(ConnectionHelp));
@@ -129,6 +135,8 @@ public abstract partial class ControlPanelWindow : Window
         FindControl<PowerTorqueGaugeSettingsControl>("PowerTorqueGaugeSettings").Initialize(controller);
         FindControl<ShiftCueSettingsControl>("ShiftCueSettings").Initialize(controller);
         RunsSurface.DataContext = controller.Runs;
+        TuneSurface.DataContext = controller.Tunes;
+        TuneSurface.DialogStateChanged += TuneDialogStateChanged;
         DashboardRunPanel.DataContext = controller.Runs;
         ClipsSurface.DataContext = controller.Clips;
         DashboardClipPanel.DataContext = controller.Clips;
@@ -166,6 +174,8 @@ public abstract partial class ControlPanelWindow : Window
             CloseConnectionPanel();
             StopSidebarAnimation();
             RunsSurface.DataContext = null;
+            TuneSurface.DialogStateChanged -= TuneDialogStateChanged;
+            TuneSurface.DataContext = null;
             DashboardRunPanel.DataContext = null;
             ClipsSurface.DataContext = null;
             DashboardClipPanel.DataContext = null;
@@ -1248,7 +1258,7 @@ public abstract partial class ControlPanelWindow : Window
         _controller.ResetOverlayPosition();
     }
 
-    protected void OpenHudControls_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedIndex = 2;
+    protected void OpenHudControls_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedItem = AppearanceTab;
 
     protected void OpenDiagnostics_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedItem = DiagnosticsTab;
 
@@ -1257,6 +1267,29 @@ public abstract partial class ControlPanelWindow : Window
         RootTabs.SelectedItem = DiagnosticsTab;
         ConnectionHelp.IsExpanded = true;
         ConnectionHelp.BringIntoView();
+    }
+
+    private void TuneDialogStateChanged(object? sender, EventArgs e)
+    {
+        var open = IsTuneDialogOpen;
+        if (open) CloseFeatureTour();
+        TitleBar.IsEnabled = !open;
+        FindControl<ListBox>("SidebarNavigation").IsEnabled = !open;
+    }
+
+    internal void OpenTuneSnapshot(TuneSnapshot snapshot, string name, string description)
+    {
+        if (IsTuneDialogOpen) return;
+        _controller.Tunes.OpenSnapshot(snapshot, name, description);
+        RootTabs.SelectedItem = TuneTab;
+    }
+
+    internal void OpenTuneComparison(TuneSnapshot a, string nameA, string descriptionA,
+        TuneSnapshot? b = null, string nameB = "", string descriptionB = "")
+    {
+        if (IsTuneDialogOpen) return;
+        _controller.Tunes.OpenComparisonSnapshots(a, nameA, descriptionA, b, nameB, descriptionB);
+        RootTabs.SelectedItem = TuneTab;
     }
 
     protected void OpenRuns_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedItem = RunsTab;

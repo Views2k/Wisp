@@ -17,6 +17,8 @@
   <ItemGroup>
     <Compile Include="..\..\tools\Wisp.UiReview\LapReviewFixtures.cs" Link="UiReview\LapReviewFixtures.cs" />
     <Compile Include="..\..\tools\Wisp.UiReview\LapReviewUiChecks.cs" Link="UiReview\LapReviewUiChecks.cs" />
+    <Compile Include="..\..\tools\Wisp.UiReview\TuneUiFixture.cs" Link="UiReview\TuneUiFixture.cs" />
+    <EmbeddedResource Include="..\Wisp.Core.Tests\TuneFixtures\*.json" LogicalName="Wisp.TuneFixtures.%(Filename)%(Extension)" />
     <None Update="Fixtures\TachMotion\moving-rpm-128.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

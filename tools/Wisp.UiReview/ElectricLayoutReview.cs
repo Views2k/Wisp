@@ -84,7 +84,7 @@ internal static class ElectricLayoutReview
                             try
                             {
                                 var page = detachSurface(window, controller.ViewModel);
-                                ((TabControl)window.FindName("RootTabs")).SelectedIndex = 2;
+                                ((TabControl)window.FindName("RootTabs")).SelectedItem = window.FindName("AppearanceTab");
                                 Arrange(page, new Size(1464, 994), dpi, setDpi);
                                 RequireDetached(window, page);
                                 var supplementary = (SupplementaryAnalogGaugePreview)window.FindName("NativeSupplementaryGaugePreview");

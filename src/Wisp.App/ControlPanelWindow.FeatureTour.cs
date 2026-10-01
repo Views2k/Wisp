@@ -81,7 +81,7 @@ public abstract partial class ControlPanelWindow
     {
         if (_featureTourOverlay is null || _controller.Settings.RequiresSetup ||
             this is MainWindow { IsDashboardDisplayMode: true } ||
-            HudProfileDialog.Visibility == Visibility.Visible || ApplicationUpdateConfirmation.Visibility == Visibility.Visible) return;
+            HudProfileDialog.Visibility == Visibility.Visible || ApplicationUpdateConfirmation.Visibility == Visibility.Visible || IsTuneDialogOpen) return;
         CloseConnectionPanel();
         _featureTourDiscoveryAllowed = true;
         _focusBeforeFeatureTour = Keyboard.FocusedElement;
@@ -110,7 +110,7 @@ public abstract partial class ControlPanelWindow
         var previous = _focusBeforeFeatureTour;
         FeatureTour.PersistReceipt(_controller.TryCompleteFeatureTour);
         CloseFeatureTour();
-        if (IsActive && HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible &&
+        if (IsActive && HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible && !IsTuneDialogOpen &&
             previous is UIElement { IsVisible: true, IsEnabled: true } element) element.Focus();
         if (FeatureTour.HasPendingReceipt)
         {

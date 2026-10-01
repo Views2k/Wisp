@@ -15,11 +15,27 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6",
+            "September 30, 2026",
+            "IN DEVELOPMENT",
+            "Read supported tuning values, keep named setups in Wisp, compare them and attach a checked snapshot to a run.",
+            true,
+            [
+                Group("Tune",
+                    "Tune follows Forza's tuning categories. Save a name and description, open saved setups without the game, or compare two snapshots. Opening a setup changes Wisp only; it does not apply a tune to Forza.",
+                    "Current-car reading is limited to the verified Steam 6.440.853.0 build and supported imperial units. Unavailable values stay unavailable. Broader game validation is still pending."),
+                Group("Run attachments",
+                    "Choose None, Current car or a saved tune before recording. Wisp checks the current tuning values after the countdown and offers recording without a tune if the check fails.",
+                    "Runs keep their own snapshot, name and description. Later library changes do not alter that history. A match covers the supported tuning controls and parts, not every installed upgrade."),
+                Group("Clips and earlier fixes",
+                    "This development build keeps the borderless fullscreen-monitor capture path, game-only default audio, HUD profiles, lap review and confirmed shift-calibration corrections from the private 2.5.3 builds.")
+            ]),
+        new(
             "2.5.3",
             "September 30, 2026",
             "PRIVATE TEST",
             "Clips preview, HUD profiles, recorded-lap review and the confirmed shift-calibration corrections for private testing.",
-            true,
+            false,
             [
                 Group("Clips preview",
                     "Choose a local clip folder, enable clipping and save recent gameplay from Clips or a shortcut. Watch saved clips in the gallery or export an MP4 copy.",

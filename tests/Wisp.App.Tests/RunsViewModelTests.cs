@@ -447,6 +447,57 @@ public sealed class RunsViewModelTests
         });
     });
 
+    [Fact]
+    public void FailedTuneCheckOffersOneAttemptWithoutTuneAndKeepsCountdown() => OnDispatcher(async () =>
+    {
+        await WithLiveReceiver(async (receiver, refreshTelemetry) =>
+        {
+            await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+            var clock = new ManualClock();
+            using var model = new RunsViewModel(service, new AppSettings { RecordingCountdownSeconds = 3 }, Dispatcher.CurrentDispatcher, clock);
+            var reads = 0;
+            model.AttachTuneChoice = RunTuneChoice.Current;
+            model.PrepareTune = (_, _) => { reads++; return Task.FromResult(new RunTunePreparation(null, "Setup mismatch")); };
+            model.BeforeStart = () => service.UpdateContext(new(Stopwatch.GetTimestamp(), 1, DrivetrainType.RearWheelDrive, true));
+            await model.ToggleRecordingAsync();
+            Assert.True(model.IsCountingDown); Assert.Equal(0, reads);
+            clock.Advance(TimeSpan.FromSeconds(3)); await refreshTelemetry(); model.RefreshStatus();
+            Assert.Equal(1, reads); Assert.False(model.IsRecording); Assert.Equal("Setup mismatch", model.Error);
+            Assert.True(model.RecordWithoutTuneCommand.CanExecute(null));
+            model.RecordWithoutTuneCommand.Execute(null);
+            Assert.True(model.IsCountingDown); Assert.False(model.IsRecording);
+            clock.Advance(TimeSpan.FromSeconds(3)); await refreshTelemetry(); model.RefreshStatus();
+            Assert.True(model.IsRecording, model.Error); Assert.Equal(1, reads);
+            Assert.Same(RunTuneChoice.Current, model.AttachTuneChoice);
+            await model.ToggleRecordingAsync(); await refreshTelemetry();
+            await model.ToggleRecordingAsync(); clock.Advance(TimeSpan.FromSeconds(3)); await refreshTelemetry(); model.RefreshStatus();
+            Assert.Equal(2, reads); Assert.False(model.IsRecording);
+        });
+    });
+
+    [Fact]
+    public void TunePreparationCanBeCanceledAndLateCompletionCannotStartRecording() => OnDispatcher(async () =>
+    {
+        await WithLiveReceiver(async (receiver, refreshTelemetry) =>
+        {
+            var directory = TemporaryDirectory();
+            await using var service = new RunRecordingService(receiver, directory);
+            using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+            var pending = new TaskCompletionSource<RunTunePreparation>(TaskCreationOptions.RunContinuationsAsynchronously);
+            model.AttachTuneChoice = RunTuneChoice.Current;
+            model.PrepareTune = (_, _) => pending.Task;
+            model.ValidatePreparedTune = _ => true;
+            var starts = 0; model.BeforeStart = () => starts++;
+            await model.ToggleRecordingAsync(); Assert.True(model.IsPreparingTune);
+            Assert.True(model.ToggleRecordingCommand.CanExecute(null)); Assert.False(model.CanEditRecordingOptions);
+            await model.ToggleRecordingAsync(); Assert.False(model.IsPreparingTune);
+            var snapshot = TuneUiTestData.ValidSnapshot();
+            pending.SetResult(new(new(snapshot, "Current", "", DateTimeOffset.UtcNow, RunTuneAttachmentKind.CurrentAtStart)));
+            await refreshTelemetry(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Assert.False(model.IsRecording); Assert.Equal(0, starts); Assert.False(Directory.Exists(directory));
+        });
+    });
+
     [Theory]
     [InlineData("button")]
     [InlineData("suspend")]

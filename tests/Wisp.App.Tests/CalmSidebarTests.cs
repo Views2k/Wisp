@@ -16,7 +16,7 @@ public sealed class CalmSidebarTests
 {
     private static readonly XNamespace Presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
     private static readonly XNamespace Xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
-    private static readonly string[] PageNames = ["Dashboard", "Runs", "Appearance", "Diagnostics", "Profiles", "Extras", "Clips", "Release Notes"];
+    private static readonly string[] PageNames = ["Dashboard", "Runs", "Tune", "Appearance", "Diagnostics", "Profiles", "Extras", "Clips", "Release Notes"];
 
     [Fact]
     public void EveryNavigationPageUsesTheSameHorizontalDockSpacing()
@@ -48,7 +48,7 @@ public sealed class CalmSidebarTests
         Assert.Equal("68", SetterValue(style, "Height"));
         Assert.Equal("2", SetterValue(style, "Margin"));
         var panel = Assert.Single(navigation.Descendants(Presentation + "UniformGrid"));
-        Assert.Equal("8", panel.Attribute("Columns")?.Value);
+        Assert.Equal("9", panel.Attribute("Columns")?.Value);
     }
 
     [Fact]

@@ -108,7 +108,9 @@ public sealed partial class AppController : IAsyncDisposable
             runsDirectory: Path.Combine(settingsService.DataDirectory, "Runs"),
             shiftCalibrationDirectory: Path.Combine(settingsService.DataDirectory, "ShiftCalibrations"),
             recorderHelperPath: Path.Combine(AppContext.BaseDirectory, "Wisp.Recorder.exe"),
-            clipLibraryDirectory: Path.Combine(settingsService.DataDirectory, "Clips"))
+            clipLibraryDirectory: Path.Combine(settingsService.DataDirectory, "Clips"),
+            tuneLibraryDirectory: Path.Combine(settingsService.DataDirectory, "Tunes"),
+            enableTuneCapture: true)
     {
     }
 
@@ -121,7 +123,9 @@ public sealed partial class AppController : IAsyncDisposable
         string? runsDirectory = null,
         string? shiftCalibrationDirectory = null,
         string? recorderHelperPath = null,
-        string? clipLibraryDirectory = null)
+        string? clipLibraryDirectory = null,
+        string? tuneLibraryDirectory = null,
+        bool enableTuneCapture = false)
     {
         Settings = settings;
         _nativeHudProcessService.ShiftCueEnabled = settings.AccelerationShiftCueEnabled;
@@ -158,6 +162,7 @@ public sealed partial class AppController : IAsyncDisposable
         UpdateShiftCueObservation();
         _dispatcher = Dispatcher.CurrentDispatcher;
         InitializeRuns(runsDirectory);
+        InitializeTunes(tuneLibraryDirectory, enableTuneCapture);
         InitializeClips(recorderHelperPath, clipLibraryDirectory);
         _debugHealthMonitor = new DebugHealthMonitor(
             _receiver,
@@ -1990,6 +1995,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         _disposed = true;
+        var tunesDisposed = DisposeTunesAsync();
         var clipsDisposed = DisposeClipsAsync();
         var calibrationStopped = ViewModel.SuspendShiftCalibration();
         await StopShiftCaptureAsync();
@@ -2061,6 +2067,7 @@ public sealed partial class AppController : IAsyncDisposable
         {
             // Optional local logging must never prevent clean application shutdown.
         }
+        await tunesDisposed.ConfigureAwait(false);
         await _runRecording.DisposeAsync().ConfigureAwait(false);
         await _nativeHudProcessService.DisposeAsync().ConfigureAwait(false);
         await _receiver.DisposeAsync().ConfigureAwait(false);
@@ -2134,6 +2141,7 @@ public sealed partial class AppController : IAsyncDisposable
 
         var latest = _receiver.Latest;
         RecordLatestFreshness(latest);
+        ObserveTuneCar(latest?.CarOrdinal ?? 0);
         var hasNewPacket = !ReferenceEquals(latest, _lastProcessedState);
         var now = DateTimeOffset.UtcNow;
         UpdateOverlayVisibility(now);
@@ -2208,6 +2216,7 @@ public sealed partial class AppController : IAsyncDisposable
         {
             _nextStatisticsAtUtc = now + TimeSpan.FromMilliseconds(250);
             _cachedStatistics = _receiver.GetStatistics(now);
+            _tuneCapture?.ObserveCompatibilityGeneration();
             _runRecording.RefreshStatus();
             PublishRunContext();
             if (Runs.IsCountingDown) Runs.RefreshStatus();
@@ -2835,10 +2844,11 @@ public sealed partial class AppController : IAsyncDisposable
         var requiresFocusState =
             (!Settings.OverlayLocked) ||
             _nativeHudTelemetryActive ||
-            _overlayVisibleRequested || _forzaFocusService.CaptureRequested;
+            _overlayVisibleRequested || _forzaFocusService.CaptureRequested || _tuneCapture?.NeedsGameObservation == true;
         var focus = requiresFocusState
             ? _forzaFocusService.GetState(now)
             : default;
+        if (requiresFocusState) ObserveTuneGame(focus.IsForzaRunning);
         ObserveClipTarget();
         var standaloneGForceEnabled = IsStandaloneGForceWindowEnabled;
         var detachedBoostEnabled = IsDetachedBoostGaugeEnabled;

@@ -50,7 +50,7 @@ public sealed partial class RunsViewModel
         }
     }
     public bool IsCountingDown => _countdownStartedAt is not null;
-    private bool RecordingActive => IsCountingDown || _service.IsRecording || _service.IsPreparing;
+    private bool RecordingActive => IsCountingDown || IsPreparingTune || _service.IsRecording || _service.IsPreparing;
     public bool CanEditRecordingOptions => !RecordingActive;
     internal void RefreshProfileOptions()
     {
@@ -74,6 +74,8 @@ public sealed partial class RunsViewModel
     }
     public void CancelCountdown(string reason = "Countdown canceled. Nothing was recorded.")
     {
+        _recordWithoutTuneOnce = false;
+        CancelTunePreparation(reason);
         if (!IsCountingDown) return;
         _countdownStartedAt = null; _recordingNotice = reason;
         NotifyRecordingOptions(); OnChanged(nameof(RecordingStatus)); OnChanged(nameof(RecordButtonText));
@@ -95,12 +97,26 @@ public sealed partial class RunsViewModel
     }
     private void StartNow()
     {
+        var withoutTune = _recordWithoutTuneOnce;
+        _recordWithoutTuneOnce = false;
         _recordingNotice = null;
+        _tunePreparationFailed = false;
+        if (!withoutTune && (AttachTuneChoice.CurrentCar || AttachTuneChoice.SavedTuneId is not null))
+        {
+            if (_tunePreparation is not null) return;
+            var cancellation = new CancellationTokenSource();
+            _tunePreparation = cancellation;
+            var revision = ++_tunePreparationRevision;
+            RefreshStatus();
+            _ = PrepareTuneAndStartAsync(AttachTuneChoice, cancellation, revision);
+            return;
+        }
         BeforeStart?.Invoke();
         if (!_service.Start(new RunRecordingOptions(_activeStopAfter))) Error = _service.Error ?? _service.Status;
     }
     private void NotifyRecordingOptions()
     {
+        NotifyTuneRecording();
         foreach (var property in new[] { nameof(IsCountingDown), nameof(CountdownRemainingSeconds), nameof(CanEditRecordingOptions), nameof(CanMarkMoment), nameof(MarkerStatus), nameof(CanExportImage) }) OnChanged(property);
     }
     public bool MarkerHotkeyEnabled { get => _settings.MarkerShortcutEnabled; set => ConfigureMarkerHotkey(value, SavedMarkerChord); }

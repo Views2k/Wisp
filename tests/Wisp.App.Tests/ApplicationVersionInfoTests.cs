@@ -22,6 +22,7 @@ public sealed class ApplicationVersionInfoTests
     [Theory]
     [InlineData("1.1.0", "1.1")]
     [InlineData("2.0.0", "2.0")]
+    [InlineData("2.6.0", "2.6")]
     [InlineData("1.0.12", "1.0.12")]
     [InlineData("1.1.10", "1.1.10")]
     public void DisplayFormattingDoesNotChangeMachineIdentity(string machine, string display)
@@ -35,8 +36,8 @@ public sealed class ApplicationVersionInfoTests
     [Fact]
     public void CurrentVersionLabelsShareTheAssemblyVersion()
     {
-        Assert.Equal("2.5.3", ApplicationVersionInfo.MachineVersion);
-        Assert.Equal("2.5.3", ApplicationVersionInfo.DisplayVersion);
+        Assert.Equal("2.6.0", ApplicationVersionInfo.MachineVersion);
+        Assert.Equal("2.6", ApplicationVersionInfo.DisplayVersion);
         var project = ProjectMetadata();
         Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildId"), ApplicationVersionInfo.DiagnosticBuildId);
         Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildLabel"), ApplicationVersionInfo.DiagnosticBuildLabel);
@@ -46,15 +47,15 @@ public sealed class ApplicationVersionInfoTests
         if (ApplicationVersionInfo.DiagnosticBuildId is null)
         {
             Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
-            if (ReleaseNotesCatalog.Entries[0].Label == "PRIVATE TEST")
+            if (ApplicationVersionInfo.IsPrivateCandidate)
             {
-                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.5.3 (private test)", ApplicationVersionInfo.FooterText);
-                Assert.Contains("private 2.5.3 candidate. It has not been published.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.6 (private test)", ApplicationVersionInfo.FooterText);
+                Assert.Contains("private 2.6 candidate. It has not been published.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
             }
             else
             {
-                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.5.3", ApplicationVersionInfo.FooterText);
-                Assert.Contains("current 2.5.3 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.6", ApplicationVersionInfo.FooterText);
+                Assert.Contains("current 2.6 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
             }
         }
         else
@@ -65,6 +66,18 @@ public sealed class ApplicationVersionInfoTests
             Assert.Contains($"You are testing {ApplicationVersionInfo.DiagnosticBuildLabel}.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
         }
         Assert.Equal(ApplicationVersionInfo.DisplayVersion, ReleaseNotesCatalog.Entries[0].Version);
+    }
+
+    [Fact]
+    public void TuneDevelopmentBuildRetainsPrivateIdentity()
+    {
+        Assert.Equal("tune-development-20260930-01", ApplicationVersionInfo.DiagnosticBuildId);
+        Assert.Equal("Wisp 2.6.0 Tune development", ApplicationVersionInfo.DiagnosticBuildLabel);
+        Assert.True(ApplicationVersionInfo.IsPrivateCandidate);
+        Assert.False(ApplicationVersionInfo.LapDiagnosticsEnabled);
+        Assert.Contains("(private)", ApplicationVersionInfo.FooterText, StringComparison.Ordinal);
+        Assert.DoesNotContain("current 2.6 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction,
+            StringComparison.Ordinal);
     }
 
     private static Dictionary<string, string?> ProjectMetadata()

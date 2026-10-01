@@ -6,6 +6,7 @@ using System.Xml.Linq;
 using Wisp.App;
 using Wisp.App.Runs;
 using Wisp.App.Clips;
+using Wisp.App.Tunes;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -149,7 +150,7 @@ public sealed class XamlContractTests
             element => element.Attribute(Xaml + "Name")?.Value == "RootTabs");
         var navigation = Assert.Single(document.Descendants(Presentation + "ListBox"),
             element => element.Attribute(Xaml + "Name")?.Value == "SidebarNavigation");
-        var expected = new[] { "Dashboard", "Runs", "Appearance", "Diagnostics", "Profiles", "Extras", "Clips", "Release Notes" };
+        var expected = new[] { "Dashboard", "Runs", "Tune", "Appearance", "Diagnostics", "Profiles", "Extras", "Clips", "Release Notes" };
         Assert.Equal(expected, tabs.Elements(Presentation + "TabItem").Select(element => element.Attribute("Header")?.Value));
         Assert.Equal(expected, navigation.Elements(Presentation + "ListBoxItem").Select(element => element.Attribute("AutomationProperties.Name")?.Value));
         var reminder = Assert.Single(document.Descendants(), element => element.Attribute(Xaml + "Name")?.Value == "DashboardClipPanel");
@@ -1344,6 +1345,20 @@ public sealed class XamlContractTests
                     return new[] { Assert.Single(clips.Descendants(Presentation + "ScrollViewer"),
                         element => element.Attribute(Xaml + "Name")?.Value == "ClipsScroll") };
                 }
+                if (tab.Attribute(Xaml + "Name")?.Value == "TuneTab")
+                {
+                    var tuneSurface = Assert.Single(tab.Elements());
+                    Assert.Equal(XName.Get("TunePage", "clr-namespace:Wisp.App.Tunes"), tuneSurface.Name);
+                    Assert.Equal("TuneSurface", tuneSurface.Attribute(Xaml + "Name")?.Value);
+                    var tune = LoadXaml(Path.Combine(AppSourceDirectory(), "Tunes", "TunePage.xaml"));
+                    Assert.Equal(typeof(TunePage).FullName, tune.Root!.Attribute(Xaml + "Class")?.Value);
+                    Assert.Empty(tune.Descendants(Presentation + "Viewbox"));
+                    var root = Assert.Single(tune.Root.Elements(Presentation + "Grid"));
+                    var scroll = Assert.Single(root.Elements(Presentation + "ScrollViewer"));
+                    Assert.Equal("TuneScroll", scroll.Attribute(Xaml + "Name")?.Value);
+                    Assert.Equal("Auto", scroll.Attribute("VerticalScrollBarVisibility")?.Value);
+                    return new[] { scroll };
+                }
                 if (tab.Attribute(Xaml + "Name")?.Value != "RunsTab")
                     return new[] { Assert.Single(tab.Descendants(Presentation + "ScrollViewer")) };
 
@@ -1361,7 +1376,7 @@ public sealed class XamlContractTests
                 return panes;
             })
             .ToArray();
-        Assert.Equal(13, scrollViewers.Length);
+        Assert.Equal(14, scrollViewers.Length);
         Assert.All(
             scrollViewers,
             scrollViewer => Assert.Equal(

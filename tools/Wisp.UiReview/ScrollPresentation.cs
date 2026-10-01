@@ -80,9 +80,9 @@ internal static class ScrollPresentation
     public static void Run(MainWindow sourceWindow, FrameworkElement surface, TabControl tabs, Fixture fixture,
         ReviewReport report, BindingTrace bindings, CancellationToken cancellationToken)
     {
-        if (report.ScrollCheck is null || tabs.Items[3] is not TabItem { Header: "Diagnostics", Content: ScrollViewer scroll })
+        if (report.ScrollCheck is null || tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Diagnostics")) is not { Content: ScrollViewer scroll })
             throw new InvalidOperationException("The scroll presentation contract changed.");
-        tabs.SelectedIndex = 3;
+        tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Diagnostics"));
         var originalContent = scroll.Content;
         var originalDecorator = originalContent is Decorator and not Viewbox ? (Decorator)originalContent : null;
         var viewbox = originalContent as Viewbox ?? originalDecorator?.Child as Viewbox

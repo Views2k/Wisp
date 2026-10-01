@@ -125,6 +125,7 @@ public sealed class WpfStyleRuntimeTests
                 Check(nameof(DriftGaugeTargetRangeTests), DriftGaugeTargetRangeTests.AssertOnCurrentDispatcher);
                 Check(nameof(DriftGaugeZoneVisualTests), DriftGaugeZoneVisualTests.AssertOnCurrentDispatcher);
                 Check(nameof(DriftGaugeSettingsUiTests), DriftGaugeSettingsUiTests.AssertOnCurrentDispatcher);
+                Check(nameof(TuneUiRuntimeTests), TuneUiRuntimeTests.AssertOnCurrentDispatcher);
                 Check(nameof(ApplicationUpdateCheckPolicyTests), ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher);
                 Check(nameof(NativeGaugeLifecycleTests), NativeGaugeLifecycleTests.AssertConsumersOnCurrentDispatcher);
                 Check(nameof(NativeRenderLifetimeTests), () => NativeRenderLifetimeTests.AssertConsumersOnCurrentDispatcher(_output.WriteLine));
@@ -418,7 +419,7 @@ public sealed class WpfStyleRuntimeTests
                 ProfileModalThemeTests.Verify(mainWindow);
                 MaintenancePersistenceTests.AssertProfileSaveRetryOnCurrentDispatcher();
 
-                tabs.SelectedIndex = 3;
+                tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Diagnostics"));
                 surface.UpdateLayout();
                 mainWindow.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.DataBind);
                 var logo = Assert.IsType<System.Windows.Shapes.Rectangle>(mainWindow.FindName("HeaderLogo"));

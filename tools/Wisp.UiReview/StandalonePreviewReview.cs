@@ -65,7 +65,7 @@ internal static class StandalonePreviewReview
                             {
                                 SupplementaryGaugeReview.ApplySample(controller.ViewModel);
                                 var page = detach(window, controller.ViewModel);
-                                ((TabControl)window.FindName("RootTabs")).SelectedIndex = 2;
+                                ((TabControl)window.FindName("RootTabs")).SelectedItem = window.FindName("AppearanceTab");
                                 window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
                                 page.Measure(new Size(1464, 994));
                                 page.Arrange(new Rect(0, 0, 1464, 994));

@@ -5,6 +5,7 @@
         xmlns:local="clr-namespace:Wisp.App"
         xmlns:runs="clr-namespace:Wisp.App.Runs"
         xmlns:clips="clr-namespace:Wisp.App.Clips"
+        xmlns:tunes="clr-namespace:Wisp.App.Tunes"
         Title="Wisp" Width="1080" Height="780" MinWidth="720" MinHeight="440"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
         Foreground="{DynamicResource TextBrush}" Background="{DynamicResource WindowBrush}" WindowStartupLocation="CenterScreen" Cursor="Arrow"
@@ -144,7 +145,8 @@
                                  AutomationProperties.Name="Wisp pages">
                             <ListBoxItem AutomationProperties.Name="Dashboard"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,1 H7 V7 H1 Z M11,1 H17 V7 H11 Z M1,11 H7 V17 H1 Z M11,11 H17 V17 H11 Z" /><TextBlock Text="Dashboard" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Runs"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,1 V17 H18 M4,12 L8,7 L12,10 L17,3" /><TextBlock Text="Runs" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
-                            <ListBoxItem AutomationProperties.Name="Appearance"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,3 H7 M11,3 H17 M1,9 H11 M15,9 H17 M1,15 H4 M8,15 H17 M7,1 V5 H11 V1 Z M11,7 V11 H15 V7 Z M4,13 V17 H8 V13 Z" /><TextBlock Text="Appearance" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                            <ListBoxItem AutomationProperties.Name="Tune"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M2,4 H18 M2,10 H18 M2,16 H18 M6,1 V7 M13,7 V13 M8,13 V19" /><TextBlock Text="Tune" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
+                        <ListBoxItem AutomationProperties.Name="Appearance"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M1,3 H7 M11,3 H17 M1,9 H11 M15,9 H17 M1,15 H4 M8,15 H17 M7,1 V5 H11 V1 Z M11,7 V11 H15 V7 Z M4,13 V17 H8 V13 Z" /><TextBlock Text="Appearance" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Diagnostics"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M0,9 H4 L7,2 L11,16 L14,9 H18" /><TextBlock Text="Diagnostics" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Profiles"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M3,2 H15 V6 H3 Z M3,8 H15 V12 H3 Z M3,14 H15 V18 H3 Z" /><TextBlock Text="Profiles" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
                             <ListBoxItem AutomationProperties.Name="Extras"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource SidebarIconStyle}" Data="M9,1 A8,8 0 1 0 17,9 C17,6 13,6 12,8 C11,11 8,10 9,7 C10,4 12,2 9,1 Z M5,5 L5,5.2 M4,10 L4,10.2 M8,14 L8,14.2" /><TextBlock Text="Extras" VerticalAlignment="Center" /></StackPanel></ListBoxItem>
@@ -448,7 +450,8 @@
                             <runs:LegacyRunsPage x:Name="RunsSurface" />
                         </TabItem>
 
-                        <TabItem Header="Appearance">
+                        <TabItem x:Name="TuneTab" Header="Tune"><tunes:TunePage x:Name="TuneSurface" UseLegacyStyle="True" /></TabItem>
+                        <TabItem x:Name="AppearanceTab" Header="Appearance">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <Decorator>
                                 <Viewbox x:Name="AppearanceScaleView" Stretch="Uniform" StretchDirection="DownOnly"

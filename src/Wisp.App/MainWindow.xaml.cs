@@ -1,3 +1,4 @@
+using Wisp.App.Tunes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Automation;
@@ -148,7 +149,7 @@ public partial class MainWindow : ControlPanelWindow
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible &&
+        if (HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible && !((TunePage)FindName("TuneSurface")).IsDialogOpen &&
             ((e.Key == Key.F11 && RootTabs.SelectedItem == DashboardTab) || (e.Key == Key.Escape && IsDashboardDisplayMode)))
         {
             SetDashboardDisplayMode(e.Key != Key.Escape && !IsDashboardDisplayMode);

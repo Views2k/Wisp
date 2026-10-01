@@ -206,6 +206,10 @@
                                                 <TextBlock Text="Stop after" Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,4" />
                                                 <ComboBox ItemsSource="{Binding StopAfterOptions}" DisplayMemberPath="Label" SelectedValuePath="Seconds" SelectedValue="{Binding StopAfterSeconds, Mode=TwoWay}" MinWidth="195" AutomationProperties.Name="Automatic recording duration" />
                                             </StackPanel>
+                                            <StackPanel Margin="0,0,12,10">
+                                                <TextBlock Text="Attach tune" Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,4" />
+                                                <ComboBox ItemsSource="{Binding TuneChoices}" DisplayMemberPath="Label" SelectedItem="{Binding AttachTuneChoice}" MinWidth="195" MaxWidth="280" AutomationProperties.Name="Tune to attach at recording start" />
+                                            </StackPanel>
 
                                         </WrapPanel>
                                         <TextBlock Text="A countdown waits before recording. Mark moments during the run to find them afterward; each run can hold 128 markers." Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,12" />
@@ -226,6 +230,7 @@
         </StackPanel>
         <StackPanel Grid.Row="1" Margin="0,0,0,4">
             <TextBlock x:Name="GraphActionError" Text="{Binding Error}" TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" FontSize="12" Margin="2,0,2,4" Visibility="{Binding HasError, Converter={StaticResource RunVisibility}}" AutomationProperties.LiveSetting="Assertive" />
+            <Button Content="Record without tune" Command="{Binding RecordWithoutTuneCommand}" HorizontalAlignment="Left" Margin="2,0,2,8" Visibility="{Binding CanRecordWithoutTune, Converter={StaticResource RunVisibility}}" />
             <local:RunMetadataStatus Margin="2,0,2,4" Visibility="{Binding HasMetadataSaveError, Converter={StaticResource RunVisibility}}" />
             <TextBlock x:Name="GraphExportStatus" Text="{Binding Status}" FontSize="11" Margin="2,0,2,4" AutomationProperties.LiveSetting="Polite">
                 <TextBlock.Style>
@@ -288,6 +293,7 @@
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" FontSize="14" />
                                 <TextBlock Text="{Binding Detail}" FontSize="10" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" Margin="0,6,0,3" />
                                 <TextBlock Text="{Binding Tune}" FontSize="10" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding AttachedTune}" FontSize="10" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" Visibility="{Binding HasAttachedTune, Converter={StaticResource RunVisibility}}" />
                                 <TextBlock Text="{Binding Quality}" Foreground="{DynamicResource WarningBrush}" FontSize="10" TextWrapping="Wrap" />
                             </StackPanel>
                         </DataTemplate>
@@ -473,6 +479,14 @@
                                             <TextBlock Text="Notes" Style="{StaticResource RunHint}" />
                                             <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" MaxLength="2000" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Height="84" Margin="0,4,0,10" AutomationProperties.Name="Run notes" />
                                             <TextBlock Text="{Binding CarIdentifier}" Style="{StaticResource RunHint}" FontSize="10" Margin="0,0,0,10" />
+                                            <StackPanel Margin="0,0,0,12" Visibility="{Binding HasAttachedTune, Converter={StaticResource RunVisibility}}">
+                                                <TextBlock Text="{Binding AttachedTuneName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding AttachedTuneDetail}" Style="{StaticResource RunHint}" Margin="0,4,0,6" />
+                                                <WrapPanel>
+                                                    <Button Content="View tune" Command="{Binding ViewAttachedTuneCommand}" Margin="0,0,8,6" />
+                                                    <Button Content="Compare tune" Command="{Binding CompareAttachedTuneCommand}" Margin="0,0,0,6" />
+                                                </WrapPanel>
+                                            </StackPanel>
                                             <WrapPanel>
                                                 <Button Content="Remove run" Click="Delete_Click" IsEnabled="{Binding CanManageRun}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" Margin="0,0,0,6" />
                                             </WrapPanel>

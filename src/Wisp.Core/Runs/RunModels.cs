@@ -16,11 +16,15 @@ public sealed record RunSample
 
 public sealed record RecordedRun
 {
-    public const int CurrentSchemaVersion = 1;
-    public int SchemaVersion { get; init; } = CurrentSchemaVersion;
+    public const int BaseSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
+    // Runs without structured tune data retain the established v1 format.
+    public int SchemaVersion { get; init; } = BaseSchemaVersion;
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Name { get; init; } = "Untitled run";
     public string Tune { get; init; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public RunTuneAttachment? TuneAttachment { get; init; }
     public string Notes { get; init; } = string.Empty;
     public DateTimeOffset StartedAtUtc { get; init; }
     public string FinishReason { get; init; } = string.Empty;

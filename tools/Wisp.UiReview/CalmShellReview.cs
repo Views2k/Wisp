@@ -117,7 +117,7 @@ internal static class CalmShellReview
     private sealed class Session
     {
         private static readonly string[] PageNames =
-            ["Dashboard", "Runs", "Appearance", "Diagnostics", "Profiles", "Extras", "Release Notes"];
+            ["Dashboard", "Runs", "Tune", "Appearance", "Diagnostics", "Profiles", "Extras", "Clips", "Release Notes"];
         private readonly string _output, _settingsPath, _initialHudSettings;
         private readonly SettingsService _settingsService;
         private readonly Application _application;
@@ -296,7 +296,7 @@ internal static class CalmShellReview
                     _report.PagesVerified++;
                 });
             }
-            Add("appearance-select", 1, () => _navigation.SetCurrentValue(Selector.SelectedIndexProperty, 2));
+            Add("appearance-select", 1, () => _navigation.SetCurrentValue(Selector.SelectedIndexProperty, Array.IndexOf(PageNames, "Appearance")));
             foreach (var category in new[] { "Layout", "Gauges", "Behaviour" })
             {
                 Add("appearance-" + category.ToLowerInvariant() + "-select", 40, () => SelectAppearanceCategory(category));

@@ -62,7 +62,7 @@ internal static class DriftGaugeSettingsUiTests
         {
             window = legacy ? new LegacyMainWindow(controller) : new MainWindow(controller);
             var tabs = Assert.IsType<TabControl>(window.FindName("RootTabs"));
-            tabs.SelectedIndex = 2;
+            tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Appearance"));
             if (!legacy) Assert.IsType<RadioButton>(window.FindName("AppearanceGaugesCategory")).IsChecked = true;
             var surface = Assert.IsAssignableFrom<FrameworkElement>(window.Content);
             surface.Measure(new Size(1280, 900));
