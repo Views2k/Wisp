@@ -1,0 +1,343 @@
+{
+  "CapturedAtUtc": "2026-09-30T13:46:20.439177-05:00",
+  "GameVersion": "6.440.853.0",
+  "ExecutableSha256": "FEC4A63CDEAD26F6528564F0E33C3D7FD02CD887337ED6E1AEACA79EB2843FCD",
+  "ExecutableVerified": true,
+  "CaptureComplete": true,
+  "Coherent": true,
+  "LocalProviderCount": 1,
+  "CarOrdinal": 1229,
+  "Drivetrain": "AllWheelDrive",
+  "ObservedGearEntryCount": 8,
+  "UnitPreference": 0,
+  "NormalizedCopies": [
+    [
+      1065353216,
+      1065353216,
+      1037186455,
+      1056964608,
+      1056964608,
+      1044000396,
+      1061193152,
+      1036831949,
+      1065353216,
+      1004220185,
+      1065353216,
+      1056964608,
+      1052350874,
+      1051931439,
+      1056964608,
+      1062557015,
+      1055815764,
+      1058878263,
+      0,
+      1050836509,
+      1057618036,
+      1048576001,
+      1028443341,
+      1051931443,
+      1053609165,
+      1056964608,
+      0,
+      1059378573,
+      1065198552,
+      0,
+      1054386215,
+      1060461333,
+      1061158912,
+      1036160860,
+      1065353216,
+      1056964608,
+      1055748869,
+      1051554569,
+      1048576007,
+      1044685649,
+      1041767855,
+      1038485350,
+      1033136098,
+      3212836864,
+      3212836864,
+      3212836864
+    ],
+    [
+      1065353216,
+      1065353216,
+      1037186455,
+      1056964608,
+      1056964608,
+      1044000396,
+      1061193152,
+      1036831949,
+      1065353216,
+      1004220185,
+      1065353216,
+      1056964608,
+      1052350874,
+      1051931439,
+      1056964608,
+      1062557015,
+      1055815764,
+      1058878263,
+      0,
+      1050836509,
+      1057618036,
+      1048576001,
+      1028443341,
+      1051931443,
+      1053609165,
+      1056964608,
+      0,
+      1059378573,
+      1065198552,
+      0,
+      1054386215,
+      1060461333,
+      1061158912,
+      1036160860,
+      1065353216,
+      1056964608,
+      1055748869,
+      1051554569,
+      1048576007,
+      1044685649,
+      1041767855,
+      1038485350,
+      1033136098,
+      3212836864,
+      3212836864,
+      3212836864
+    ],
+    [
+      1065353216,
+      1065353216,
+      1037186455,
+      1056964608,
+      1056964608,
+      1044000396,
+      1061193152,
+      1036831949,
+      1065353216,
+      1004220185,
+      1065353216,
+      1056964608,
+      1052350874,
+      1051931439,
+      1056964608,
+      1062557015,
+      1055815764,
+      1058878263,
+      0,
+      1050836509,
+      1057618036,
+      1048576001,
+      1028443341,
+      1051931443,
+      1053609165,
+      1056964608,
+      0,
+      1059378573,
+      1065198552,
+      0,
+      1054386215,
+      1060461333,
+      1061158912,
+      1036160860,
+      1065353216,
+      1056964608,
+      1055748869,
+      1051554569,
+      1048576007,
+      1044685649,
+      1041767855,
+      1038485350,
+      1033136098,
+      3212836864,
+      3212836864,
+      3212836864
+    ]
+  ],
+  "Bounds": {
+    "FinalDrive": {
+      "Maximum": 6.099999904632568,
+      "Minimum": 2.200000047683716
+    },
+    "ToeDegrees": {
+      "Maximum": 5.0,
+      "Minimum": -5.0
+    },
+    "GearRatio": {
+      "Maximum": 6.0,
+      "Minimum": 0.47999998927116394
+    },
+    "TirePressure": {
+      "Maximum": 55.0,
+      "Minimum": 15.0
+    },
+    "CasterDegrees": {
+      "Maximum": 7.0,
+      "Minimum": 1.0
+    },
+    "CamberDegrees": {
+      "Maximum": 5.0,
+      "Minimum": -5.0
+    }
+  },
+  "Conversions": {
+    "Pressure": {
+      "UnitId": 41,
+      "HasCallback": false,
+      "Factor": 1.0
+    },
+    "Angle": {
+      "UnitId": 47,
+      "HasCallback": false,
+      "Factor": 57.2957763671875
+    },
+    "RideHeight": {
+      "UnitId": 14,
+      "HasCallback": false,
+      "Factor": 39.37007141113281
+    },
+    "SpringRate": {
+      "UnitId": 54,
+      "HasCallback": false,
+      "Factor": 0.571041069849338
+    },
+    "Percentage": {
+      "UnitId": 1,
+      "HasCallback": false,
+      "Factor": 1.0
+    },
+    "Number": {
+      "UnitId": 0,
+      "HasCallback": false,
+      "Factor": 1.0
+    },
+    "Downforce": {
+      "UnitId": 60,
+      "HasCallback": false,
+      "Factor": 2.2046000957489014
+    }
+  },
+  "Format": {
+    "DegreesToRadians": 0.01745329238474369,
+    "NegativeHalf": -0.5,
+    "Ten": 10.0,
+    "PositiveHalf": 0.5,
+    "OneTenth": 0.1
+  },
+  "CarRanges": {
+    "RearBump": {
+      "Maximum": 20.0,
+      "Minimum": 1.0
+    },
+    "FrontRebound": {
+      "Maximum": 20.0,
+      "Minimum": 1.0
+    },
+    "FrontBump": {
+      "Maximum": 20.0,
+      "Minimum": 1.0
+    },
+    "FrontAntiroll": {
+      "Maximum": 65.0,
+      "Minimum": 1.0
+    },
+    "RearDownforce": {
+      "Maximum": 301.3399963378906,
+      "Minimum": 69.54000091552734
+    },
+    "FrontRideHeight": {
+      "Maximum": 0.11500000208616257,
+      "Minimum": 0.06499999761581421
+    },
+    "RearSprings": {
+      "Maximum": 200.0,
+      "Minimum": 40.0
+    },
+    "RearRebound": {
+      "Maximum": 20.0,
+      "Minimum": 1.0
+    },
+    "FrontSprings": {
+      "Maximum": 200.0,
+      "Minimum": 40.0
+    },
+    "RearRideHeight": {
+      "Maximum": 0.11999999731779099,
+      "Minimum": 0.07000000029802322
+    },
+    "FrontDownforce": {
+      "Maximum": 222.3000030517578,
+      "Minimum": 74.0999984741211
+    },
+    "RearAntiroll": {
+      "Maximum": 65.0,
+      "Minimum": 1.0
+    }
+  },
+  "SpringScale": 7.150068283081055,
+  "PartLevelsResolved": true,
+  "Parts": [
+    {
+      "Level": 0,
+      "InstalledId": 1229000,
+      "Kind": "Engine"
+    },
+    {
+      "Level": 2,
+      "InstalledId": 1229001,
+      "Kind": "Drivetrain"
+    },
+    {
+      "Level": 0,
+      "InstalledId": 1229000,
+      "Kind": "CarBody"
+    },
+    {
+      "Level": -1,
+      "InstalledId": -1,
+      "Kind": "Motor"
+    },
+    {
+      "Level": 3,
+      "InstalledId": 1229000,
+      "Kind": "Brakes"
+    },
+    {
+      "Level": 5,
+      "InstalledId": 1229005,
+      "Kind": "SpringDamper"
+    },
+    {
+      "Level": 3,
+      "InstalledId": 1229000,
+      "Kind": "FrontAntiroll"
+    },
+    {
+      "Level": 3,
+      "InstalledId": 1229000,
+      "Kind": "RearAntiroll"
+    },
+    {
+      "Level": 3,
+      "InstalledId": 1229000,
+      "Kind": "RearAero"
+    },
+    {
+      "Level": 7,
+      "InstalledId": 2102004,
+      "Kind": "Transmission"
+    },
+    {
+      "Level": 3,
+      "InstalledId": 2102003,
+      "Kind": "Differential"
+    },
+    {
+      "Level": 3,
+      "InstalledId": 1229000,
+      "Kind": "FrontAero"
+    }
+  ]
+}

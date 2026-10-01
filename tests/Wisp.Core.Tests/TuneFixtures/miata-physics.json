@@ -1,0 +1,116 @@
+[
+  {
+    "Factor": 1,
+    "Decimals": 2,
+    "Field": "FinalDrive",
+    "RangeValue": 2.200000047683716
+  },
+  {
+    "Factor": 1,
+    "Decimals": 2,
+    "Field": "Gear1",
+    "RangeValue": 1.7600033283233643
+  },
+  {
+    "Factor": 1,
+    "Decimals": 2,
+    "Field": "Gear2",
+    "RangeValue": 1.300004005432129
+  },
+  {
+    "Factor": 1,
+    "Decimals": 2,
+    "Field": "Gear3",
+    "RangeValue": 1.0400042533874512
+  },
+  {
+    "Factor": 1,
+    "Decimals": 2,
+    "Field": "Gear4",
+    "RangeValue": 0.8500044345855713
+  },
+  {
+    "Factor": 1,
+    "Decimals": 2,
+    "Field": "Gear5",
+    "RangeValue": 0.7200045585632324
+  },
+  {
+    "Factor": 1,
+    "Decimals": 2,
+    "Field": "Gear6",
+    "RangeValue": 0.7200045585632324
+  },
+  {
+    "Factor": 1,
+    "Decimals": 1,
+    "Field": "FrontTirePressure",
+    "RangeValue": 15.0
+  },
+  {
+    "Factor": 0.571041069849338,
+    "Decimals": 1,
+    "Field": "FrontSprings",
+    "RangeValue": 188.5064697265625
+  },
+  {
+    "Factor": 39.37007141113281,
+    "Decimals": 1,
+    "Field": "FrontRideHeight",
+    "RangeValue": 0.20149999856948853
+  },
+  {
+    "Factor": 1,
+    "Decimals": 1,
+    "Field": "FrontTirePressure",
+    "RangeValue": 15.0
+  },
+  {
+    "Factor": 0.571041069849338,
+    "Decimals": 1,
+    "Field": "FrontSprings",
+    "RangeValue": 188.5064697265625
+  },
+  {
+    "Factor": 39.37007141113281,
+    "Decimals": 1,
+    "Field": "FrontRideHeight",
+    "RangeValue": 0.20149999856948853
+  },
+  {
+    "Factor": 1,
+    "Decimals": 1,
+    "Field": "RearTirePressure",
+    "RangeValue": 15.30000114440918
+  },
+  {
+    "Factor": 0.571041069849338,
+    "Decimals": 1,
+    "Field": "RearSprings",
+    "RangeValue": 353.4510192871094
+  },
+  {
+    "Factor": 39.37007141113281,
+    "Decimals": 1,
+    "Field": "RearRideHeight",
+    "RangeValue": 0.19679999351501465
+  },
+  {
+    "Factor": 1,
+    "Decimals": 1,
+    "Field": "RearTirePressure",
+    "RangeValue": 15.30000114440918
+  },
+  {
+    "Factor": 0.571041069849338,
+    "Decimals": 1,
+    "Field": "RearSprings",
+    "RangeValue": 353.4510192871094
+  },
+  {
+    "Factor": 39.37007141113281,
+    "Decimals": 1,
+    "Field": "RearRideHeight",
+    "RangeValue": 0.19679999351501465
+  }
+]
