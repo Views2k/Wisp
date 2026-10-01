@@ -6,7 +6,7 @@ Save a clip of your drive, keep a copy of your tune, and review where a lap gain
 
 Enable clipping to keep a rolling recording, then press **Save clip** or your shortcut to keep the moment. Watch it in Wisp before exporting an MP4 with the filename and location you choose.
 
-- Choose up to 30 seconds through 5 minutes, in 30-second steps. The default is one minute.
+- Choose a clip length from 30 seconds to 5 minutes, in 30-second steps. Saves keep up to the available history. The default is one minute.
 - Record at 360p, 480p, 720p, 1080p, 1440p or 2160p, at 30 or 60 fps. The default is 1080p60.
 - Adjust quality from 10 to 100, or choose lossless video with a supported NVIDIA encoder. Lossless preserves the prepared full-color SDR video; recordings can be large, and available history depends on storage and the scene.
 - Record Forza audio by default, or include other apps and system sounds.

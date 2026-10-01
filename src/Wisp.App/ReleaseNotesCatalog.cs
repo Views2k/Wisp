@@ -23,7 +23,7 @@ public static class ReleaseNotesCatalog
             [
                 Group("Clips",
                     "Save recent gameplay, watch it in Wisp and export an MP4 with the filename and location you choose. Previews wait for Play.",
-                    "Choose up to 30 seconds through 5 minutes, 360p to 2160p, 30 or 60 fps and quality from 10 to 100. The default is one minute at 1080p60. Supported NVIDIA encoders also offer lossless video.",
+                    "Choose a clip length from 30 seconds to 5 minutes, 360p to 2160p, 30 or 60 fps and quality from 10 to 100. Saves keep up to the available history. The default is one minute at 1080p60. Supported NVIDIA encoders also offer lossless video.",
                     "Record Forza audio or include other apps and system sounds. Set separate toggle and save shortcuts, choose an export folder and enable reminders for new clips.",
                     "Clipping records the display containing fullscreen Forza, including the Wisp HUD and anything else on that screen. Recording pauses when you leave the game."),
                 Group("Tune",
