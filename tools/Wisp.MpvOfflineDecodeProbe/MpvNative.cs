@@ -23,7 +23,8 @@ internal sealed unsafe class MpvNative
     internal MpvNative(string dll)
     {
         Need(IntPtr.Size == 8 && Marshal.SizeOf<Node>() == 16 && Marshal.SizeOf<Event>() == 24 && Marshal.SizeOf<NodeList>() == 24, "x64-abi-required");
-        _module = LoadLibraryEx(dll, IntPtr.Zero, 0x1100); // Exact DLL directory + System32 only.
+        const uint searchDllLoadDirectory = 0x00000100, searchSystem32 = 0x00000800;
+        _module = LoadLibraryEx(dll, IntPtr.Zero, searchDllLoadDirectory | searchSystem32);
         Need(_module != IntPtr.Zero, "runtime-load-failed");
         _create = Bind<Create>("mpv_create"); _initialize = Bind<Call>("mpv_initialize");
         _destroy = Bind<Destroy>("mpv_terminate_destroy"); _option = Bind<SetText>("mpv_set_option_string");

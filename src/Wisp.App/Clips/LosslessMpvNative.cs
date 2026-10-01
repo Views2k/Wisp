@@ -49,7 +49,8 @@ internal sealed class LosslessMpvNative
         if (!File.Exists(path)) throw new FileNotFoundException("The lossless playback components are missing. Reinstall Wisp to restore them.");
         ClipLibrary.CheckPath(path);
         // App-local and replaceable; no system search, downloads or runtime hash lock.
-        var module = LoadLibraryEx(path, IntPtr.Zero, 0x1100);
+        const uint searchDllLoadDirectory = 0x00000100, searchSystem32 = 0x00000800;
+        var module = LoadLibraryEx(path, IntPtr.Zero, searchDllLoadDirectory | searchSystem32);
         if (module == IntPtr.Zero) throw new InvalidOperationException("The lossless decoder could not be loaded.");
         return module; // Never unload native code while an outstanding owner may exist.
     }
