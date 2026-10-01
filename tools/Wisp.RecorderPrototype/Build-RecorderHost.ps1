@@ -33,7 +33,8 @@ if ($headerHash -ne '4fe4094541ef0f8a13249d97a8692dc5f835a6e9dd42eeadb3e2f7321d5
 [void][IO.Directory]::CreateDirectory($OutputDirectory)
 [void][IO.Directory]::CreateDirectory($buildDirectory)
 $executable = Join-Path $OutputDirectory 'Wisp.Recorder.exe'
-$compilerFlags = '/nologo /std:c++17 /permissive- /EHsc /O2 /W4 /WX /MT /Z7 /guard:cf /DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNTDDI_VERSION=0x0A000010 /DUNICODE /D_UNICODE /DNOMINMAX /DWISP_THUMBNAIL_NO_MAIN'
+# Use standard coroutines in C++/WinRT without changing the recorder's C++17 language mode.
+$compilerFlags = '/nologo /std:c++17 /await:strict /permissive- /EHsc /O2 /W4 /WX /MT /Z7 /guard:cf /DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNTDDI_VERSION=0x0A000010 /DUNICODE /D_UNICODE /DNOMINMAX /DWISP_THUMBNAIL_NO_MAIN'
 $compile = foreach ($source in $sources) {
     "cl.exe $compilerFlags /c /Fo`"$buildDirectory\$source.obj`" `"$PSScriptRoot\$source.cpp`"`r`nif errorlevel 1 exit /b 1"
 }
