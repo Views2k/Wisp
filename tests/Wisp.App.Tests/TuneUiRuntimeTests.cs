@@ -16,7 +16,16 @@ internal static class TuneUiRuntimeTests
 {
     internal static void AssertOnCurrentDispatcher()
     {
-        foreach (var legacy in new[] { false, true }) Verify(legacy);
+        var previousContext = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+        try
+        {
+            foreach (var legacy in new[] { false, true }) Verify(legacy);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+        }
     }
 
     private static void Verify(bool legacy)
@@ -87,7 +96,7 @@ internal static class TuneUiRuntimeTests
         finally
         {
             if (window is not null) window.Close();
-            controller.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            Await(controller.DisposeAsync().AsTask());
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
