@@ -187,7 +187,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 return false;
             }
 
-            memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!);
+            memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity));
             handle = null;
             status = NativeAssistProviderStatus.Ready;
             return true;
@@ -233,7 +233,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 return false;
             }
 
-            var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack);
+            var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack, SessionToken(identity));
             if (!storeBuild.MatchesImage(candidate, identity.ModuleBase))
             {
                 status = NativeAssistProviderStatus.UnsupportedBuild;
@@ -279,6 +279,10 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             (ulong)module.BaseAddress, (uint)module.ModuleMemorySize);
     }
 
+    private static string SessionToken(NativeHudProcessIdentity identity) => Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(FormattableString.Invariant(
+            $"{identity.ProcessId}:{identity.StartTimeUtcTicks}:{identity.ModuleBase}:{identity.ImageSize}"))));
+
     private void SetStatus(string status) => Volatile.Write(ref _compatibilityStatus, status);
 }
 
@@ -289,7 +293,8 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
     private static readonly Lazy<NativeHudProcessMemoryFactory> DefaultFactory = new(() => new NativeHudProcessMemoryFactory());
     private readonly SafeProcessHandle _handle;
 
-    internal NativeHudProcessMemory(SafeProcessHandle handle, ulong moduleBase, NativeHudCompatibilityPack compatibilityPack)
+    internal NativeHudProcessMemory(SafeProcessHandle handle, ulong moduleBase, NativeHudCompatibilityPack compatibilityPack,
+        string sessionIdentity = "")
     {
         ArgumentNullException.ThrowIfNull(handle);
         ArgumentNullException.ThrowIfNull(compatibilityPack);
@@ -301,10 +306,12 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
         _handle = handle;
         ModuleBase = moduleBase;
         CompatibilityPack = compatibilityPack;
+        SessionIdentity = sessionIdentity;
     }
 
     public ulong ModuleBase { get; }
     public NativeHudCompatibilityPack CompatibilityPack { get; }
+    public string SessionIdentity { get; }
 
     public static bool TryOpen(out NativeHudProcessMemory? memory, out NativeAssistProviderStatus status) =>
         DefaultFactory.Value.TryOpenConcrete(out memory, out status);
