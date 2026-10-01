@@ -10,7 +10,6 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
-using LibVLCSharp.Shared;
 using Microsoft.Win32.SafeHandles;
 using Wisp.App.Clips;
 
@@ -24,15 +23,20 @@ internal static class LosslessProductReview
     private const long FixtureBytes = 120772903, FixtureDuration100ns = 21333333;
     private const string AacFixtureHash = "79A8A6AD75AA0251B6D2B412E4B6A644C07C85CA497386A85BCF1FCA7D10EE7A";
     private const long AacFixtureBytes = 120825849;
+    private const string ActualHash = "48A33FB214FE9F4D4802FAF88E71E61280C2C8CC680F2DF4A0135A1416806ABD";
+    private const long ActualBytes = 965569830, ActualDuration100ns = 24666500;
 
-    internal static int Run(string source, string output, Func<ResourceDictionary> loadResources, bool withSyntheticAac = false)
+    internal static int Run(string source, string output, Func<ResourceDictionary> loadResources, bool withSyntheticAac = false, bool reportedClip = false)
     {
-        using var watchdog = new System.Threading.Timer(_ => Environment.Exit(124), null, TimeSpan.FromSeconds(30), Timeout.InfiniteTimeSpan);
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var watchdog = new System.Threading.Timer(_ => Environment.Exit(124), null, TimeSpan.FromSeconds(reportedClip ? 50 : 30), Timeout.InfiniteTimeSpan);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(reportedClip ? 40 : 20));
         var token = deadline.Token;
-        var report = new Report { SyntheticAac = withSyntheticAac };
-        var expectedHash = withSyntheticAac ? AacFixtureHash : FixtureHash;
-        var expectedBytes = withSyntheticAac ? AacFixtureBytes : FixtureBytes;
+        var report = new Report { SyntheticAac = withSyntheticAac, ReportedClip = reportedClip };
+        var expectedHash = reportedClip ? ActualHash : withSyntheticAac ? AacFixtureHash : FixtureHash;
+        var expectedBytes = reportedClip ? ActualBytes : withSyntheticAac ? AacFixtureBytes : FixtureBytes;
+        var expectedWidth = reportedClip ? 3840 : 1280; var expectedHeight = reportedClip ? 2160 : 720;
+        var expectedDuration = reportedClip ? ActualDuration100ns : FixtureDuration100ns;
+        var samples = new List<LosslessDecodedFrame>();
         var foreground = GetForegroundWindow();
         var priorContext = SynchronizationContext.Current;
         var checkedApps = Stopwatch.GetTimestamp();
@@ -49,11 +53,12 @@ internal static class LosslessProductReview
         try
         {
             Need(foreground != IntPtr.Zero && AppsClosed(), "apps-and-foreground-guard");
-            Stage("verify-owned-synthetic-source");
+            Stage("verify-pinned-source");
             var full = Path.GetFullPath(source);
             var checkout = FindCheckout(output);
-            Need(Path.IsPathFullyQualified(source) && full.StartsWith(Path.Combine(checkout, "work") + Path.DirectorySeparatorChar,
-                StringComparison.OrdinalIgnoreCase) && Path.GetExtension(full).Equals(".mp4", StringComparison.OrdinalIgnoreCase), "checkout-synthetic-source-required");
+            Need(Path.IsPathFullyQualified(source) && Path.GetExtension(full).Equals(".mp4", StringComparison.OrdinalIgnoreCase) &&
+                (reportedClip ? Path.GetFileName(full) == "29e58a5054f547e7b7fc7535c16252da.mp4" :
+                full.StartsWith(Path.Combine(checkout, "work") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)), "pinned-source-required");
             ClipLibrary.CheckPath(full);
             held = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
             Need(held.Length == expectedBytes, "fixture-size");
@@ -66,14 +71,14 @@ internal static class LosslessProductReview
             Stage("create-owned-test-library");
             var directory = Path.Combine(output, "isolated-library");
             var library = new ClipLibrary(directory);
-            var reservation = library.ReserveSaveAsync(new(30, 720, 60, 100, LosslessVideo: true), token).GetAwaiter().GetResult();
+            var reservation = library.ReserveSaveAsync(new(30, expectedHeight, 60, 100, LosslessVideo: true), token).GetAwaiter().GetResult();
             held.Position = 0;
             using (var target = new FileStream(reservation.MediaPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             { held.CopyToAsync(target, token).GetAwaiter().GetResult(); target.Flush(); Need(target.Length == expectedBytes, "complete-copy"); }
             using (var copied = new FileStream(reservation.MediaPath, FileMode.Open, FileAccess.Read, FileShare.Read))
                 Need(Convert.ToHexString(SHA256.HashData(copied)) == expectedHash, "isolated-copy-hash");
-            library.CommitFinalizedAsync(reservation.Id, new(expectedBytes, 1280, 720, 60, 0, FixtureDuration100ns,
-                HasAudio: withSyntheticAac, LosslessVideo: true), token).GetAwaiter().GetResult();
+            library.CommitFinalizedAsync(reservation.Id, new(expectedBytes, expectedWidth, expectedHeight, 60, 0, expectedDuration,
+                HasAudio: reportedClip || withSyntheticAac, LosslessVideo: true), token).GetAwaiter().GetResult();
             Guard(); Stage("create-passive-production-page");
             application = new ReviewApplication { ShutdownMode = ShutdownMode.OnExplicitShutdown, Resources = loadResources() };
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
@@ -83,7 +88,7 @@ internal static class LosslessProductReview
             ((Slider)page.FindName("PlaybackVolume")).Value = 0;
             window = new Window
             {
-                Title = "Wisp synthetic lossless player check",
+                Title = "Wisp lossless player check",
                 Width = 980,
                 Height = 750,
                 ShowActivated = false,
@@ -121,9 +126,10 @@ internal static class LosslessProductReview
                 if (window is not null) { window.Content = null; window.Close(); }
                 model?.Dispose();
                 if (observed is not null) report.PlayerCleanupConfirmed = AwaitResult(observed.CloseAsync());
-                report.EngineCleanupConfirmed = AwaitResult(LosslessVlcRuntime.ShutdownAsync());
-                report.CleanupStatus = LosslessVlcRuntime.CleanupStatus;
-                report.RuntimeStage = LosslessVlcRuntime.RuntimeStage;
+                report.EngineCleanupConfirmed = AwaitResult(LosslessMpvRuntime.ShutdownAsync());
+                report.CleanupStatus = LosslessMpvRuntime.CleanupStatus;
+                report.RuntimeStage = LosslessMpvRuntime.RuntimeStage;
+                report.ThumbnailEngineCleanupConfirmed = AwaitResult(LosslessVlcRuntime.ShutdownAsync());
                 report.OwnedWindowClosed = window?.IsVisible != true;
                 application?.Shutdown();
             }
@@ -138,11 +144,28 @@ internal static class LosslessProductReview
             report.BindingDiagnosticCount = bindings.TotalCount;
             report.ThumbnailAfterCleanup = LosslessThumbnailDecoder.LastDiagnostic;
         }
-        report.Completed = report.Failure is null && report.Checks.Count == (withSyntheticAac ? 14 : 13) && report.Checks.All(item => item.Passed) &&
+        if (reportedClip && report.PlayerCleanupConfirmed)
+        {
+            foreach (var sample in samples)
+            {
+                var rgb = new byte[checked(sample.Width * sample.Height * 3)];
+                for (int from = 0, to = 0; to < rgb.Length; from += 4, to += 3)
+                { rgb[to] = sample.Bgra[from + 2]; rgb[to + 1] = sample.Bgra[from + 1]; rgb[to + 2] = sample.Bgra[from]; }
+                report.DecodedRgbHashes.Add(Convert.ToHexString(SHA256.HashData(rgb)));
+            }
+            // Two exact paused samples: first frame and the measured frame at 1.25s.
+            report.DecodedSamplesMatch = report.DecodedRgbHashes.SequenceEqual(new[]
+            {
+                "EDC52B17B4A705B788C9A86532D45157E586FCDF9702F180ABD8C6A788D11218",
+                "A73EDC08D5E6C167D9042F3F5C0AC91D5749E1DD992479B04A9D062F6F5C4240"
+            });
+        }
+        report.Completed = report.Failure is null && report.Checks.Count == (withSyntheticAac || reportedClip ? 15 : 14) && report.Checks.All(item => item.Passed) &&
             report.ForegroundUnchanged && report.AppsClosedAtEnd && report.OwnedWindowClosed && report.PlayerCleanupConfirmed &&
-            report.EngineCleanupConfirmed && report.BindingDiagnosticCount == 0 && report.MutedThroughout;
+            report.EngineCleanupConfirmed && report.ThumbnailEngineCleanupConfirmed && report.BindingDiagnosticCount == 0 && report.MutedThroughout &&
+            (!reportedClip || report.DecodedSamplesMatch);
         File.WriteAllText(Path.Combine(output, "lossless-product-review.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
-        Console.WriteLine(report.Completed ? "Production lossless synthetic player check passed." : "Production lossless synthetic player check failed; see scalar report.");
+        Console.WriteLine(report.Completed ? "Production lossless player check passed." : "Production lossless player check failed; see scalar report.");
         return report.Completed ? 0 : 2;
 
         void Stage(string stage) { report.Stage = stage; stages.WriteLine(stage); }
@@ -196,10 +219,11 @@ internal static class LosslessProductReview
             Need(observed is not null, "lossless-backend-route");
             await Until(() => observed.Snapshot.Ready && play.IsEnabled && position.IsEnabled, 8);
             Check(host.Content is LosslessVideoHost && observed.Host.Ready.IsCompletedSuccessfully, "clipped-native-video-host");
-            Check(Math.Abs(observed.Snapshot.Duration - 128d / 60) <= .02, "actual-container-duration");
+            Check(Math.Abs(observed.Snapshot.Duration - expectedDuration / 10_000_000d) <= .02, "actual-container-duration");
             Check(status.Text == "Ready · press Play.", "explicit-play-required");
             Stage("hold-paused-at-start");
             await Hold(2, () => observed.Snapshot.Position <= .034 && !observed.Snapshot.Ended);
+            if (reportedClip) samples.Add(await observed.ReadDiagnosticFrameAsync(token));
             Check(currentModel.SelectedClip?.Entry.ViewedAtUtc is null, "opening-does-not-mark-viewed");
             Stage("explicit-play-and-pause"); Click(play);
             await Until(() => observed.Snapshot.Position >= .3 && !observed.Snapshot.Ended); Click(play);
@@ -207,22 +231,30 @@ internal static class LosslessProductReview
             var paused = observed.Snapshot.Position;
             await Hold(.3, () => Math.Abs(observed.Snapshot.Position - paused) <= .034);
             Check(Equals(play.Content, "Play") && paused > 0 && paused < 1.8, "explicit-pause-holds-clock");
-            if (withSyntheticAac)
+            if (withSyntheticAac || reportedClip)
             {
                 Stage("verify-muted-aac-decode");
-                var statisticsTask = ReadAudioStatisticsAsync(observed, token);
+                var statisticsTask = observed.ReadAudioStatisticsAsync(token);
                 await Until(() => statisticsTask.IsCompleted, 2);
                 var statistics = await statisticsTask;
-                report.DecodedAudioBlocks = statistics.DecodedAudioBlocks;
+                report.AudioCodec = statistics.Codec;
+                report.AudioPosition = statistics.Position;
+                report.AudioChannels = statistics.Channels;
                 report.NativeVolume = statistics.Volume;
                 report.NativeMute = statistics.Mute;
                 if (statistics.Volume != 0) report.MutedThroughout = false;
-                Check(statistics.DecodedAudioBlocks > 0 && statistics.Volume == 0 && statistics.Mute,
-                    "synthetic-aac-decoded-while-muted");
+                Check(statistics.Codec == "aac" && statistics.Channels > 0 && statistics.Position > 0 && statistics.Volume == 0 && statistics.Mute == true,
+                    "aac-clock-advanced-while-muted");
             }
-            Stage("paused-seek"); position.Value = 1;
-            await Until(() => Math.Abs(observed.Snapshot.Position - 1) <= .05);
-            await Hold(.3, () => Math.Abs(observed.Snapshot.Position - 1) <= .05);
+            Stage("paused-seek-to-duration"); position.Value = position.Maximum;
+            await Until(() => observed.Snapshot.Ended && Equals(play.Content, "Play again"));
+            await Hold(.2, () => observed.Snapshot.Ended);
+            Check(Math.Abs(observed.Snapshot.Position - observed.Snapshot.Duration) < .034, "paused-endpoint-seek-completes");
+            var seekPosition = reportedClip ? 1.25 : 1;
+            Stage("paused-seek"); position.Value = seekPosition;
+            await Until(() => Math.Abs(observed.Snapshot.Position - seekPosition) <= .05);
+            await Hold(.3, () => Math.Abs(observed.Snapshot.Position - seekPosition) <= .05);
+            if (reportedClip) samples.Add(await observed.ReadDiagnosticFrameAsync(token));
             Check(Equals(play.Content, "Play"), "seek-does-not-resume");
             Stage("resume-to-end"); Click(play);
             await Until(() => observed.Snapshot.Ended && Equals(play.Content, "Play again"));
@@ -238,29 +270,6 @@ internal static class LosslessProductReview
             Check(host.Content is null && !currentModel.HasSelection, "close-clears-selected-player");
             Check(await observed.CloseAsync(), "bounded-player-cleanup"); Guard();
         }
-    }
-
-    private static async Task<AudioStatistics> ReadAudioStatisticsAsync(LosslessClipPlayer player, CancellationToken token)
-    {
-        // Private test seam: use the player's existing serialized worker so the
-        // diagnostic never races native ownership or queries LibVLC from WPF.
-        var result = new TaskCompletionSource<AudioStatistics>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var type = typeof(LosslessClipPlayer);
-        var queue = type.GetMethod("Queue", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        Func<Task> read = () =>
-        {
-            try
-            {
-                var media = (Media?)type.GetField("_media", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(player);
-                var native = (LibVLCSharp.Shared.MediaPlayer?)type.GetField("_native", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(player);
-                Need(media is not null && native is not null, "native-media-required-for-statistics");
-                result.TrySetResult(new(media.Statistics.DecodedAudio, native.Volume, native.Mute));
-            }
-            catch (Exception error) { result.TrySetException(error); }
-            return Task.CompletedTask;
-        };
-        _ = queue.Invoke(player, [read]);
-        return await result.Task.WaitAsync(token);
     }
 
     private static string FindCheckout(string output)
@@ -314,7 +323,6 @@ internal static class LosslessProductReview
         public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken token) => throw new InvalidOperationException();
     }
     private sealed record CheckResult(string Name, bool Passed);
-    private sealed record AudioStatistics(long DecodedAudioBlocks, int Volume, bool Mute);
     private sealed class Report
     {
         public string Stage { get; set; } = "guards";
@@ -327,8 +335,11 @@ internal static class LosslessProductReview
         public string? SourceSha256 { get; set; }
         public string? ThumbnailSha256 { get; set; }
         public bool SyntheticAac { get; set; }
-        public long? DecodedAudioBlocks { get; set; }
-        public int? NativeVolume { get; set; }
+        public bool ReportedClip { get; set; }
+        public string? AudioCodec { get; set; }
+        public double? AudioPosition { get; set; }
+        public long? AudioChannels { get; set; }
+        public double? NativeVolume { get; set; }
         public bool? NativeMute { get; set; }
         public LosslessThumbnailDecoder.ThumbnailDiagnostic? ThumbnailAtFailure { get; set; }
         public LosslessThumbnailDecoder.ThumbnailDiagnostic? ThumbnailAfterCleanup { get; set; }
@@ -338,16 +349,20 @@ internal static class LosslessProductReview
         public bool OwnedWindowClosed { get; set; }
         public bool PlayerCleanupConfirmed { get; set; }
         public bool EngineCleanupConfirmed { get; set; }
+        public bool ThumbnailEngineCleanupConfirmed { get; set; }
         public string? CleanupStatus { get; set; }
         public string? RuntimeStage { get; set; }
         public int BindingDiagnosticCount { get; set; }
         public List<CheckResult> Checks { get; } = [];
+        public List<string> DecodedRgbHashes { get; } = [];
+        public bool DecodedSamplesMatch { get; set; }
         public bool SourceModified => false;
         public bool GameplayCaptured => false;
         public bool? AudioPlayed => MutedThroughout ? false : null;
-        public string Scope => "Pinned synthetic MP4 in a new isolated library. Actual ClipsPage lossless route, vmem poster presence, explicit transport, viewport and cleanup. " +
-            (SyntheticAac ? "Generated AAC decode is checked through native decoded-block statistics while muted. " : "Silent fixture; no AAC check. ") +
-            "No audible-output, displayed-pixel fidelity, A/V sync or gameplay performance claim.";
+        public string Scope => "Pinned MP4 in a new isolated library. Actual ClipsPage lossless route, vmem poster presence, explicit transport, viewport and cleanup. " +
+            (SyntheticAac || ReportedClip ? "AAC decoder format and advancing audio clock are checked while muted. " : "Silent fixture; no AAC check. ") +
+            (ReportedClip ? "Two decoded video frames are compared with independent CPU RGB hashes; no image files written. " : "") +
+            "No audible-output, displayed-pixel fidelity, physical A/V sync or gameplay performance claim.";
     }
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(IntPtr handle, int index);

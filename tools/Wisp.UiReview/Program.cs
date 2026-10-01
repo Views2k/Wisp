@@ -39,12 +39,13 @@ internal static class Program
     {
         try
         {
-            if (args.Length == 5 && (args[0] is "--clips-lossless-product-check" or "--clips-lossless-product-aac-check") &&
+            if (args.Length == 5 && (args[0] is "--clips-lossless-product-check" or "--clips-lossless-product-aac-check" or "--clips-lossless-product-reported-check") &&
                 args[1] == "--source" && args[3] == "--output")
             {
                 var output = PrepareOutput(args[4]);
                 return LosslessProductReview.Run(args[2], output, () => LoadApplicationResources(output, out _),
-                    withSyntheticAac: args[0] == "--clips-lossless-product-aac-check");
+                    withSyntheticAac: args[0] == "--clips-lossless-product-aac-check",
+                    reportedClip: args[0] == "--clips-lossless-product-reported-check");
             }
             if (args.Length == 5 && (args[0] is "--tune-asset-diagnostic" or "--tune-asset-offline-check") &&
                 args[1] == "--reference" && args[3] == "--output")
@@ -178,7 +179,8 @@ internal static class Program
                 Console.WriteLine("--tune-asset-diagnostic --reference <retained research work directory> --output <new workspace directory> explicitly compares bounded foreground game metadata with the pinned local reference. Scalars and projection hashes only; no raw database files, game writes or product acceptance. Requires fresh readiness. --tune-asset-offline-check uses the same arguments and only controlled mutations of the retained reference; no game access. Both have a 30-second hard limit.");
                 Console.WriteLine("--clips-large-playback-check --source <local mp4> --metadata <json> --output <new workspace directory> copies one explicitly selected 20-second-or-longer clip (at most 4 GiB) into an isolated library, then checks the actual muted Clips player for 15 seconds plus preparation and transport. Metadata contains only recording and media records. Requires Forza and Wisp closed; passive window, 90-second watchdog, no source writes or capture. Private fixture copy is retained; output contains scalar timing/state only.");
                 Console.WriteLine("--clips-lossless-product-check --source <pinned synthetic MP4> --output <new workspace directory> checks the actual Clips page's lossless thumbnail and paused transport, replay and cleanup. Fixed silent 128-frame/60-fps fixture; isolated library, passive window, 20-second work budget and 30-second hard limit. Requires Forza and Wisp closed. No screenshots, gameplay, A/V sync or performance claim.");
-                Console.WriteLine("--clips-lossless-product-aac-check uses the same arguments and guards with the separately pinned generated-AAC fixture. Checks native decoded-audio statistics after explicit playback while volume remains zero. No audible-output or A/V-sync claim.");
+                Console.WriteLine("--clips-lossless-product-aac-check uses the same arguments and guards with the separately pinned generated-AAC fixture. Checks AAC decoder format and advancing audio clock after explicit playback while volume remains zero. No audible-output or A/V-sync claim.");
+                Console.WriteLine("--clips-lossless-product-reported-check uses the same arguments with the exact reported 4K clip SHA/size, read-only source and isolated library. Muted passive window, paused/play/seek/replay/cleanup, two decoded RGB sample hashes. 40-second work budget/50-second hard limit; no screenshot files, capture or physical presentation claim. Requires Forza and Wisp closed.");
                 Console.WriteLine("--clips-lossless-playback-check --source <generated checkout fixture.mp4> --sha256 <verified fixture hash> --output <new workspace directory> checks current WPF decoder opening and brief muted transport after independent lossless pixel verification. Fixed 1280x720, 16-frame/60-fps source, at most 128 MiB. Requires Forza and Wisp closed; passive window, 10-second decoder budget and 20-second hard limit. No screenshots or pixel-readback claim.");
                 Console.WriteLine("--lap-review-check --output <new workspace directory> captures actual expanded lap review with synthetic completed A/B laps, map/graph channels and selected sections at 980x750 and 720x440. Checks themed selectors and routed keyboard actions; no window, controller, listener, settings load or saved-run access.");
                 Console.WriteLine("--ev-wrap-check --output <new workspace directory> captures actual EV overlay and modern/legacy Appearance previews at 100%/75% gauge scale and 96 DPI. Synthetic sample only; no displayed window or live services.");

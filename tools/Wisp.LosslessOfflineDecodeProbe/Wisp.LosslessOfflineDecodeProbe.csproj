@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Wisp.LosslessOfflineDecodeProbe</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="LibVLCSharp">
+      <HintPath>$(WispDecoderPayload)/LibVLCSharp.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+  <Target Name="RequireExplicitPackagedDecoder" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(WispDecoderPayload)' == '' or !Exists('$(WispDecoderPayload)/LibVLCSharp.dll')" Text="Set WispDecoderPayload to the exact retained installer payload directory." />
+  </Target>
+</Project>
