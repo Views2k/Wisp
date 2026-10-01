@@ -1,5 +1,5 @@
-Wisp 2.5.3 Clips Resilience Preview 2
-Private build ID: clips-resilience-20260930-02
+Wisp 2.5.3 Borderless Clips Preview 1
+Private build ID: clips-borderless-20260930-01
 
 This private candidate adds Clips and preserves the confirmed shift-coverage hotfix.
 It uses your existing Wisp installation, local settings, calibrations and saved runs.
@@ -36,13 +36,15 @@ it cannot restore detail removed by compression or increase captured detail.
 Dashboard reminders identify clips not yet viewed or exported. Storage or
 recording errors still appear even when reminders are off.
 
-Audio comes from the game process when supported, never your microphone or all
-desktop audio. Clips capture the game window and exclude the separate Wisp HUD.
-Show capture border is off by default. An explicit enable action asks Windows
-for permission to hide the border; automatic startup checks existing access
-without prompting. Turning Show capture border on intentionally keeps it visible.
-Windows can deny or leave access unavailable; Wisp then explains that Windows
-may still require the border. This switch cannot override Windows permissions.
+Use Forza in fullscreen or borderless fullscreen mode. Clips record the entire
+game display, including the Wisp HUD and any notifications shown over the game.
+Capture pauses when Forza loses focus, is minimized, or leaves fullscreen.
+Desktop Duplication capture does not use the Windows yellow capture border or
+require borderless-capture permission. It does not require OBS.
+Audio comes from the Forza process by default. Record all app and system audio
+is optional and off by default; it includes other applications' playback too.
+Neither mode directly records microphone input. Wisp pauses its clip preview
+when you leave Wisp while system-audio recording is enabled.
 Clipping stays enabled through recoverable interruptions. Stale frames repeat
 with a visible status. A changed game/audio/video session reconnects with a new
 rolling buffer; footage across incompatible sessions is not stitched together.
