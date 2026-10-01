@@ -19,8 +19,6 @@
     <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
   </PropertyGroup>
   <ItemGroup>
-    <AssemblyMetadata Include="WispDiagnosticBuildId" Value="clips-buffer-playback-20261001-01" />
-    <AssemblyMetadata Include="WispDiagnosticBuildLabel" Value="Wisp 2.6.0 Tune and Clips preview" />
     <AssemblyMetadata Include="WispLapDiagnosticsEnabled" Value="false" />
   </ItemGroup>
   <ItemGroup>
@@ -54,6 +52,8 @@
   <ItemGroup>
     <Content Include="$(MpvDependencyDirectory)\libmpv-2.dll" Link="libmpv\win-x64\libmpv-2.dll"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\..\LICENSES\library-sources-distribution.json" Link="Licenses\library-sources-distribution.json"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\tools\mpv-dependency.json" Link="Licenses\mpv-dependency.json"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

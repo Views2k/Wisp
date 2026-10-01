@@ -25,6 +25,10 @@ public sealed class PrivateLosslessPackagingTests
     [InlineData("mpv-source-incomplete")]
     [InlineData("mpv-source-not-ready")]
     [InlineData("mpv-source-missing")]
+    [InlineData("recorder-missing")]
+    [InlineData("recorder-dll")]
+    [InlineData("recorder-x86")]
+    [InlineData("recorder-truncated")]
     public async Task DecoderPackagingUsesTheExactPublishedBundle(string scenario)
     {
         var root = RepositoryRoot();
@@ -67,7 +71,8 @@ public sealed class PrivateLosslessPackagingTests
         $tokens = $null; $errors = $null
         $ast = [Management.Automation.Language.Parser]::ParseFile($env:WISP_PRIVATE_SCRIPT, [ref]$tokens, [ref]$errors)
         if ($errors.Count -ne 0) { throw 'Private packaging script has syntax errors.' }
-        foreach ($name in @('Get-PrivateRegularFiles', 'Assert-PrivateLosslessPayload', 'Assert-PrivateMpvPayload', 'Assert-PrivateClipDecoders', 'Sync-PrivateLosslessTestPayload')) {
+        . (Join-Path ([IO.Path]::GetDirectoryName($env:WISP_PRIVATE_SCRIPT)) 'ClipDecoderPackaging.ps1')
+        foreach ($name in @('Sync-PrivateLosslessTestPayload')) {
             $definition = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name}, $false)
             if ($null -eq $definition) { throw 'Decoder packaging helper is missing.' }
             . ([scriptblock]::Create($definition.Extent.Text))
@@ -80,6 +85,18 @@ public sealed class PrivateLosslessPackagingTests
         }
         try {
             $publish = Join-Path $fixture 'published'
+            [IO.Directory]::CreateDirectory($publish) | Out-Null
+            $recorder = Join-Path $publish 'Wisp.Recorder.exe'
+            $pe = [byte[]]::new(512)
+            [BitConverter]::GetBytes([uint16]0x5A4D).CopyTo($pe, 0)
+            [BitConverter]::GetBytes([uint32]0x80).CopyTo($pe, 0x3C)
+            [BitConverter]::GetBytes([uint32]0x00004550).CopyTo($pe, 0x80)
+            [BitConverter]::GetBytes([uint16]0x8664).CopyTo($pe, 0x84)
+            [BitConverter]::GetBytes([uint16]1).CopyTo($pe, 0x86)
+            [BitConverter]::GetBytes([uint16]112).CopyTo($pe, 0x94)
+            [BitConverter]::GetBytes([uint16]2).CopyTo($pe, 0x96)
+            [BitConverter]::GetBytes([uint16]0x020B).CopyTo($pe, 0x98)
+            [IO.File]::WriteAllBytes($recorder, $pe)
             $upstream = Get-Content -LiteralPath $env:WISP_DECODER_MANIFEST -Raw | ConvertFrom-Json
             $native = @()
             foreach ($entry in $upstream.nativeFiles) {
@@ -133,6 +150,10 @@ public sealed class PrivateLosslessPackagingTests
                 'mpv-source-incomplete' { $mpvManifest.sourceClosure.status = 'incomplete' }
                 'mpv-source-not-ready' { $mpvManifest.sourceClosure.distributionReady = $false }
                 'mpv-source-missing' { $mpvManifest.Remove('sourceClosure') }
+                'recorder-missing' { Remove-Item -LiteralPath $recorder }
+                'recorder-dll' { $pe[0x97] = 0x20; [IO.File]::WriteAllBytes($recorder, $pe) }
+                'recorder-x86' { $pe[0x84] = 0x4C; $pe[0x85] = 1; [IO.File]::WriteAllBytes($recorder, $pe) }
+                'recorder-truncated' { [IO.File]::WriteAllBytes($recorder, [byte[]]@(0, 1)) }
             }
             if ($env:WISP_PRIVATE_CASE -in @('mpv-source-incomplete', 'mpv-source-not-ready', 'mpv-source-missing')) {
                 Write-FixtureFile $mpvManifestPath ($mpvManifest | ConvertTo-Json -Depth 6)
@@ -140,7 +161,8 @@ public sealed class PrivateLosslessPackagingTests
             }
             $refused = $false
             try {
-                $hashes = Assert-PrivateClipDecoders $publish $manifestPath $mpvManifestPath $mpvDependencyPath
+                Assert-RecorderExecutable $recorder
+                $hashes = Assert-ClipDecoders $publish $manifestPath $mpvManifestPath $mpvDependencyPath
                 if ($env:WISP_PRIVATE_CASE -in @('sync', 'wrong-output')) {
                     $target = Join-Path $fixture 'tools/Wisp.UiReview/bin/Release/net8.0-windows'
                     if ($env:WISP_PRIVATE_CASE -eq 'wrong-output') { $target = Join-Path $fixture 'unrelated' }
@@ -150,7 +172,7 @@ public sealed class PrivateLosslessPackagingTests
                     Write-FixtureFile (Join-Path $target 'libmpv/win-x86/libmpv-2.dll')
                     Write-FixtureFile (Join-Path $target 'libmpv/win-x64/stale.dll')
                     Sync-PrivateLosslessTestPayload $publish $target $fixture $hashes
-                    $actual = Assert-PrivateClipDecoders $target $manifestPath $mpvManifestPath $mpvDependencyPath
+                    $actual = Assert-ClipDecoders $target $manifestPath $mpvManifestPath $mpvDependencyPath
                     foreach ($relative in $hashes.Keys) {
                         if ($actual[$relative] -cne $hashes[$relative]) { throw 'Decoder synchronization changed a published file.' }
                     }

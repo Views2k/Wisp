@@ -28,7 +28,7 @@ Wisp Proprietary Source License.
 
 Wisp is distributed free of charge for personal, non-commercial use.
 
-Forza Horizon 6 © Microsoft Corporation. Wisp is an unofficial community
+Forza Horizon 6 Â© Microsoft Corporation. Wisp is an unofficial community
 project and is not endorsed by or affiliated with Microsoft.
 
 I claim no ownership of or license to Microsoft Game Content. Public
@@ -91,7 +91,9 @@ Those licenses apply to the libraries, not to Wisp's original code or artwork.
 build inputs, and matching source companion supplied with this installer.
 The companion contains the pinned mpv and FFmpeg sources, dependency sources,
 build recipes and patches, and the separate LibVLC source bundle used for
-thumbnails. It does not claim a reproduced native binary build. Source archives
+thumbnails. The matching [library source archive](https://github.com/Views2k/Wisp/releases/download/library-sources-2.6.0/Wisp-2.6.0-library-sources.zip)
+is also supplied with the public release; its size and SHA-256 are recorded in
+`LICENSES/library-sources-distribution.json`. It does not claim a reproduced native binary build. Source archives
 also include some unlinked build, test and platform dependencies; their presence
 does not imply that Wisp uses those components at runtime.
 

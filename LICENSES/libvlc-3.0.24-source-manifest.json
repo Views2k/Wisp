@@ -330,7 +330,7 @@
     "Fetch upstream archives above and verify recipe checksums; include original license/copyright/NOTICE files for each shipped library.",
     "Preserve all relevant dependency patches and recipe files from the verified VLC source archive, including build-only header recipes.",
     "Resolve the official native build configuration against this dependency closure; conditional encoder/build dependencies are recorded conservatively, not claimed as proven runtime contents.",
-    "Publish the matching source companion with the binary distribution and record its immutable URL/hash here.",
+    "Matching sources are supplied in the combined companion identified by LICENSES/library-sources-distribution.json; its immutable prerequisite asset is verified by CI and copied into each public release.",
     "Verify the reduced native allowlist against actual playback, seeking, AAC output and thumbnail paths; no Lua, HTTP plugin files or other architectures are selected."
   ],
   "replacement": "LibVLCSharp.dll and libvlc/win-x64 remain separate replaceable files. There is no runtime original-hash requirement.",

@@ -167,6 +167,11 @@ jobs:
         shell: pwsh
         run: ./installer/Build-Installer.ps1 -InnoCompiler (Resolve-Path .\work\innosetup\ISCC.exe).Path
 
+      - name: Prepare matching library source companion
+        if: needs.validation-plan.outputs.mode == 'full'
+        shell: pwsh
+        run: python ./tools/release_sources.py prepare --directory outputs
+
       - name: Capture reviewed setup wizard
         if: github.event_name == 'workflow_dispatch' && inputs.capture_ui
         run: dotnet run --project tools/Wisp.UiReview/Wisp.UiReview.csproj --configuration Release --no-build --no-restore --no-launch-profile -- --output .\work\ui-review\ci-wizard --scope wizard --step welcome --dpi 144
@@ -207,7 +212,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wisp-candidate-${{ github.sha }}
-          path: outputs/Wisp-Setup-*
+          path: |
+            outputs/Wisp-Setup-*
+            outputs/Wisp-*-library-sources.zip*
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
@@ -254,31 +261,16 @@ jobs:
           gh run download "$env:GITHUB_RUN_ID" --name "wisp-candidate-$env:GITHUB_SHA" --dir outputs
           if ($LASTEXITCODE -ne 0) { throw 'Could not download the candidate from this workflow run.' }
 
+      - name: Install Python for source verification
+        if: needs.validation-plan.outputs.mode == 'full'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14.7"
+
       - name: Verify candidate installer bundle
         if: needs.validation-plan.outputs.mode == 'full'
         shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $project = [xml](Get-Content -LiteralPath .\src\Wisp.App\Wisp.App.csproj -Raw)
-          $versions = @($project.Project.PropertyGroup | Where-Object { $null -ne $_.Version })
-          if ($versions.Count -ne 1 -or $versions[0].Version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
-            throw 'The candidate must have exactly one canonical application version.'
-          }
-          $version = [string]$versions[0].Version
-          $fileNames = @("Wisp-Setup-$version.exe", "Wisp-Setup-$version.zip")
-          $expectedNames = @($fileNames) + @($fileNames | ForEach-Object { $_ + '.sha256' })
-          $actualNames = @(Get-ChildItem -LiteralPath .\outputs -Force | Select-Object -ExpandProperty Name)
-          if ($actualNames.Count -ne 4 -or @(Compare-Object $expectedNames $actualNames -CaseSensitive).Count -ne 0) {
-            throw 'The candidate bundle must contain exactly its EXE, ZIP and two checksums.'
-          }
-          foreach ($fileName in $fileNames) {
-            $artifact = Join-Path .\outputs $fileName
-            $checksum = [System.IO.File]::ReadAllText((Join-Path .\outputs "$fileName.sha256"))
-            $match = [regex]::Match($checksum, '\A(?<hash>[a-fA-F0-9]{64}) \*' + [regex]::Escape($fileName) + '\r?\n?\z')
-            if (-not $match.Success -or (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash -ine $match.Groups['hash'].Value) {
-              throw "The candidate $fileName did not match its SHA-256 checksum."
-            }
-          }
+        run: python ./tools/release_sources.py verify --directory outputs
 
       - name: Test installer lifecycle
         if: needs.validation-plan.outputs.mode == 'full'
@@ -297,7 +289,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wisp-installer-${{ github.sha }}
-          path: outputs/Wisp-Setup-*
+          path: |
+            outputs/Wisp-Setup-*
+            outputs/Wisp-*-library-sources.zip*
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
@@ -336,6 +330,8 @@ jobs:
           display_version="${version%.0}"
           installer="outputs/Wisp-Setup-${version}.exe"
           archive="outputs/Wisp-Setup-${version}.zip"
+          sources="outputs/Wisp-${version}-library-sources.zip"
+          python3 ./tools/release_sources.py verify --directory outputs
           notes="docs/releases/Wisp-${version}-release-notes.md"
           if [ ! -f "$notes" ]; then
             notes="Wisp-${version}-release-notes.md"
@@ -351,5 +347,9 @@ jobs:
             --title "Wisp ${display_version}" \
             --notes-file "$notes" \
             "$installer" \
-            "$archive"
+            "${installer}.sha256" \
+            "$archive" \
+            "${archive}.sha256" \
+            "$sources" \
+            "${sources}.sha256"
           gh release edit "$GITHUB_REF_NAME" --draft=false --latest

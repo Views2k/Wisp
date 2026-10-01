@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ClipDecoderPackaging.ps1')
 
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $solution = Join-Path $repository 'Wisp.sln'
@@ -1330,6 +1331,11 @@ try {
         'Wisp' `
         $projectVersion
     Assert-NativeRendererLibrary (Assert-ReleasePath (Join-Path $publishFullPath 'Wisp.NativeRenderer.dll') $repository)
+    Assert-RecorderExecutable (Assert-ReleasePath (Join-Path $publishFullPath 'Wisp.Recorder.exe') $repository)
+    $null = Assert-ClipDecoders $publishFullPath `
+        (Join-Path $repository 'LICENSES/libvlc-3.0.24-source-manifest.json') `
+        (Join-Path $repository 'LICENSES/libmpv-source-manifest.json') `
+        (Join-Path $repository 'tools/mpv-dependency.json')
 
     & $dotnetExecutable publish $updaterProject --configuration Release --runtime win-x64 --self-contained true `
         --output $updaterPublishDirectory `

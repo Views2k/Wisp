@@ -135,6 +135,15 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("wisp-candidate-${{ github.sha }}", workflow, StringComparison.Ordinal);
         Assert.Contains("Test-InstallerLifecycle.ps1", workflow[package..publish], StringComparison.Ordinal);
         Assert.Contains("needs: [test, package-review]", workflow[publish..], StringComparison.Ordinal);
+        Assert.Contains("release_sources.py prepare --directory outputs", workflow[..package], StringComparison.Ordinal);
+        Assert.Contains("release_sources.py verify --directory outputs", workflow[package..publish], StringComparison.Ordinal);
+        Assert.Contains("release_sources.py verify --directory outputs", workflow[publish..], StringComparison.Ordinal);
+        Assert.Contains("\"${sources}.sha256\"", workflow[publish..], StringComparison.Ordinal);
+        var script = InstallerScript();
+        var decoderValidation = script.IndexOf("$null = Assert-ClipDecoders $publishFullPath", StringComparison.Ordinal);
+        Assert.True(decoderValidation > script.IndexOf("& $dotnetExecutable publish $project", StringComparison.Ordinal));
+        Assert.True(decoderValidation < script.IndexOf("& $innoExecutable", StringComparison.Ordinal));
+        Assert.Contains("Assert-RecorderExecutable (Assert-ReleasePath", script, StringComparison.Ordinal);
     }
 
     [Fact]

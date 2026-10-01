@@ -69,14 +69,14 @@ public sealed class ApplicationVersionInfoTests
     }
 
     [Fact]
-    public void TuneAndClipsPreviewRetainsPrivateIdentity()
+    public void TuneAndClipsReleaseHasPublicIdentity()
     {
-        Assert.Equal("clips-buffer-playback-20261001-01", ApplicationVersionInfo.DiagnosticBuildId);
-        Assert.Equal("Wisp 2.6.0 Tune and Clips preview", ApplicationVersionInfo.DiagnosticBuildLabel);
-        Assert.True(ApplicationVersionInfo.IsPrivateCandidate);
+        Assert.Null(ApplicationVersionInfo.DiagnosticBuildId);
+        Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
+        Assert.False(ApplicationVersionInfo.IsPrivateCandidate);
         Assert.False(ApplicationVersionInfo.LapDiagnosticsEnabled);
-        Assert.Contains("(private)", ApplicationVersionInfo.FooterText, StringComparison.Ordinal);
-        Assert.DoesNotContain("current 2.6 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction,
+        Assert.DoesNotContain("private", ApplicationVersionInfo.FooterText, StringComparison.Ordinal);
+        Assert.Contains("current 2.6 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction,
             StringComparison.Ordinal);
     }
 
