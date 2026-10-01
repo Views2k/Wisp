@@ -116,6 +116,23 @@ internal static class OverlayMonitorPlacementTests
             Assert.Empty(settings.Placements);
 
             settings.OverlayLocked = true;
+            // A locked profile can be applied while initial placement is still
+            // pending. Its layout must survive until profile positions restore.
+            settings.OverlayWidthScale = 1.25;
+            settings.OverlayHeightScale = .8;
+            overlay.ApplyLayout(layout, mode, 1.25, .8, settings.OverlayOpacity);
+            var profileBounds = overlay.GetPlacementBounds();
+            var applyingProfile = typeof(AppController).GetField("_applyingHudPreset", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            applyingProfile.SetValue(controller, true);
+            controller.CompleteInitialOverlayPlacement(reference);
+            Assert.Equal(profileBounds, overlay.GetPlacementBounds());
+            Assert.Equal(1.25, settings.OverlayWidthScale);
+            Assert.Equal(.8, settings.OverlayHeightScale);
+            Assert.Empty(settings.Placements);
+            Assert.Null(settings.LastOverlayPlacementKey);
+            applyingProfile.SetValue(controller, false);
+
+            // The deferred default still completes after profile application.
             controller.CompleteInitialOverlayPlacement(reference);
             var handle = new WindowInteropHelper(overlay).Handle;
             Assert.Equal(MonitorFromWindow(reference, 2), MonitorFromWindow(handle, 2));

@@ -1726,7 +1726,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     internal void CompleteInitialOverlayPlacement(IntPtr gameWindow)
     {
-        if (!_initialOverlayPlacementPending || !Settings.OverlayLocked ||
+        if (_applyingHudPreset || !_initialOverlayPlacementPending || !Settings.OverlayLocked ||
             Overlay is null || !Overlay.TryUseMonitorOfWindow(gameWindow)) return;
 
         ResetMainOverlayPosition();
