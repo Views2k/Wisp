@@ -19,9 +19,17 @@ public sealed class TuneAssetContractTests
     }
 
     [Theory]
-    [InlineData(0)] [InlineData(16)] [InlineData(18)] [InlineData(19)]
-    [InlineData(20)] [InlineData(21)] [InlineData(22)] [InlineData(23)]
-    [InlineData(28)] [InlineData(44)] [InlineData(56)]
+    [InlineData(0)]
+    [InlineData(16)]
+    [InlineData(18)]
+    [InlineData(19)]
+    [InlineData(20)]
+    [InlineData(21)]
+    [InlineData(22)]
+    [InlineData(23)]
+    [InlineData(28)]
+    [InlineData(44)]
+    [InlineData(56)]
     public void RequiredHeaderFormatChangesAreRejected(int offset)
     {
         var bytes = Header();
