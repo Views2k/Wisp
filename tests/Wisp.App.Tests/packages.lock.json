@@ -123,6 +123,8 @@
       "Wisp": {
         "type": "Project",
         "dependencies": {
+          "LibVLCSharp": "[3.10.1, )",
+          "VideoLAN.LibVLC.Windows": "[3.0.24, )",
           "Wisp.Core": "[1.0.0, )",
           "Wisp.Telemetry": "[1.0.0, )",
           "Wisp.Update": "[1.0.0, )"
@@ -140,11 +142,23 @@
       "wisp.update": {
         "type": "Project"
       },
+      "LibVLCSharp": {
+        "type": "CentralTransitive",
+        "requested": "[3.10.1, )",
+        "resolved": "3.10.1",
+        "contentHash": "6iSrYMk6RU8fyftdXrfR1TW3xpR/WhEmliORuWvAu2N05wECb8k2hykWiU53/1zqx616v/qUlDbJJyqv78MDkQ=="
+      },
       "Microsoft.Bcl.AsyncInterfaces": {
         "type": "CentralTransitive",
         "requested": "[10.0.11, )",
         "resolved": "10.0.11",
         "contentHash": "pUkYI1f99hY9giu/MRaEVN53RO7skXwR7FGtVvFJCK5ezdg5i0W+z1yj/91X5aKv07xGuSB5n1g/Zt2P4Ooq6g=="
+      },
+      "VideoLAN.LibVLC.Windows": {
+        "type": "CentralTransitive",
+        "requested": "[3.0.24, )",
+        "resolved": "3.0.24",
+        "contentHash": "U8SHuJr8eAC3x4+gEtOJD2heReo0tTWP3v21NunYNTzjmHpVp7qELs8phohqazxHMkaSIN8LufdIpAhldiLL/A=="
       }
     },
     "net8.0-windows7.0/win-x64": {

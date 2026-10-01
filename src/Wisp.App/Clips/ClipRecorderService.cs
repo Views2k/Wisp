@@ -380,9 +380,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             else if (_nativeState?.State == "buffering")
             {
                 if (_bufferingSince == 0) _bufferingSince = Stopwatch.GetTimestamp();
-                snapshot = new(ClipRecorderState.Buffering, true, true, true,
-                    _nativeState.Reason == "capture_stale" ? "No new game frames. Recording the last frame while waiting for the game." :
-                    _nativeState.Reason is "audio_unavailable" or "audio_capture_failed" ? "Recording video. The selected audio is unavailable." : "Recording game clips.");
+                snapshot = new(ClipRecorderState.Buffering, true, true, true, BufferingStatus(_nativeState));
             }
             else if (_nativeState?.State == "waiting") snapshot = new(ClipRecorderState.Preparing, true, true, false, "Preparing game capture…");
             session = _session; revision = _revision;
@@ -555,6 +553,14 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private void Signal() { try { _wake.Release(); } catch (SemaphoreFullException) { } }
     private static bool IsPausedTarget(string? reason) => reason is "window_minimized" or "focus_lost" or "fullscreen_required";
     private static bool IsTargetTransition(string reason) => reason is "target_exited" or "target_changed" or "window_closed" || IsPausedTarget(reason);
+    internal static string BufferingStatus(RecorderStateUpdate state)
+    {
+        var status = state.Reason == "capture_stale" ? "No new game frames. Recording the last frame while waiting for the game." :
+            state.Reason is "audio_unavailable" or "audio_capture_failed" ? "Recording video. The selected audio is unavailable." : "Recording game clips.";
+        if (state.LosslessBuffer is not { } buffer) return status;
+        return status + $" Lossless history: {buffer.Duration100ns / 10_000_000d:0.0} s · {buffer.PayloadBytes / 1048576d:0} of {buffer.BudgetBytes / 1048576d:0} MiB." +
+            (buffer.SizeLimited ? " Size limit reached; saves use the available history." : "");
+    }
     internal static string ReasonText(string reason) => reason switch
     {
         "target_exited" or "window_closed" or "waiting_for_game" => "Waiting for Forza to be focused and fullscreen.",
@@ -574,6 +580,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         "helper_timeout" => "The recorder did not respond in time. Enable clipping to try again.",
         "helper_exited" => "The recorder closed unexpectedly. Enable clipping to try again.",
         "storage_failed" => "The clip folder could not be written. Check free space and folder access.",
+        "lossless_storage_low" => "Lossless recording needs more free space for its buffer and finished clips. Free space on Wisp's local app data drive, or turn off Lossless video.",
         "buffer_storage_unavailable" => "The local recording buffer could not be opened. Check free space and access to Wisp's local app data.",
         "buffer_storage_full" => "The recording buffer drive is full. Free space before enabling clipping again.",
         "clip_storage_full" => "The selected clips drive is full. Free space or choose another folder. The finished local clip has been kept.",

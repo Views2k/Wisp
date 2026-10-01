@@ -17,7 +17,7 @@ namespace recorder::protocol
         std::string session;
         std::int64_t request = 0;
         std::uint32_t durationSeconds = 0, height = 0, frameRate = 0, quality = 0;
-        bool gameAudio = false, borderlessAllowed = false, systemAudio = false;
+        bool gameAudio = false, borderlessAllowed = false, systemAudio = false, losslessVideo = false;
         std::wstring spoolDirectory;
         std::uint32_t processId = 0;
         std::uint64_t window = 0, creationFileTime = 0;
@@ -37,7 +37,7 @@ namespace recorder::protocol
         WindowResized, FocusLost, FullscreenRequired, UnsupportedOs, UnsupportedGpu, UnsupportedFormat,
         CaptureFailed, EncoderFailed, AudioFailed, AudioCaptureFailed, AudioUnavailable,
         CaptureStale, CaptureReconnecting, EncoderReconnecting, AudioReconnecting, SchedulerLate,
-        BufferFull, NoKeyframe, NotReady, SaveInProgress, StorageFailed, MuxFailed,
+        BufferFull, NoKeyframe, NotReady, SaveInProgress, StorageFailed, LosslessStorageLow, MuxFailed,
         ProtocolError, CleanupFailed, Cancelled, Stopped, ParentClosed
     };
     const char* Name(State state) noexcept;
@@ -52,7 +52,7 @@ namespace recorder::protocol
         std::uint64_t fileBytes = 0;
         std::uint32_t width = 0, height = 0, frameRate = 0;
         std::int64_t start100ns = 0, end100ns = 0;
-        bool hasAudio = false;
+        bool hasAudio = false, losslessVideo = false, sizeLimited = false;
     };
     struct Result
     {
@@ -62,9 +62,21 @@ namespace recorder::protocol
         Reason reason = Reason::ProtocolError;
         std::optional<SavedMedia> media;
     };
+    struct LosslessBuffer
+    {
+        std::int64_t duration100ns = 0;
+        std::uint64_t payloadBytes = 0, budgetBytes = 0;
+        bool sizeLimited = false;
+        bool operator==(const LosslessBuffer& other) const noexcept
+        {
+            return duration100ns == other.duration100ns && payloadBytes == other.payloadBytes &&
+                budgetBytes == other.budgetBytes && sizeLimited == other.sizeLimited;
+        }
+    };
 
     // Canonical allowlisted output, WITHOUT trailing LF. No API accepts raw OS
     // error text, paths or target identity. Output is cleared on any refusal.
     bool SerializeResult(const Result& result, std::string& line) noexcept;
-    bool SerializeState(std::string_view session, State state, Reason reason, std::string& line) noexcept;
+    bool SerializeState(std::string_view session, State state, Reason reason, std::string& line,
+        const LosslessBuffer* losslessBuffer = nullptr) noexcept;
 }

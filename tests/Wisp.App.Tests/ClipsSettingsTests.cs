@@ -15,6 +15,7 @@ public sealed class ClipsSettingsTests
         Assert.False(settings.Enabled);
         Assert.False(settings.ShowCaptureBorder);
         Assert.False(settings.CaptureSystemAudio);
+        Assert.False(settings.LosslessVideo);
         Assert.Equal(60, settings.LengthSeconds);
         Assert.Equal(1080, settings.ResolutionHeight);
         Assert.Equal(60, settings.FrameRate);
@@ -34,6 +35,19 @@ public sealed class ClipsSettingsTests
         Assert.Equal(Enumerable.Range(1, 10).Select(value => value * 30), ClipsSettings.LengthChoices);
         Assert.Equal(new[] { 360, 480, 720, 1080, 1440, 2160 }, ClipsSettings.ResolutionChoices);
         Assert.Equal(new[] { 30, 60 }, ClipsSettings.FrameRateChoices);
+    }
+
+    [Fact]
+    public void LegacyQuality100StaysCompressedAndExplicitLosslessChoiceRoundTrips()
+    {
+        var legacy = JsonSerializer.Deserialize<ClipsSettings>("{\"Quality\":100}")!;
+        legacy.Normalize();
+        Assert.False(legacy.LosslessVideo);
+        Assert.Equal(100, legacy.Quality);
+        legacy.LosslessVideo = true;
+        var restored = JsonSerializer.Deserialize<ClipsSettings>(JsonSerializer.Serialize(legacy.Clone()))!;
+        Assert.True(restored.LosslessVideo);
+        Assert.Equal(100, restored.Quality);
     }
 
     [Fact]

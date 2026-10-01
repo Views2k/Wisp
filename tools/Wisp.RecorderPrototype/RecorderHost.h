@@ -15,6 +15,17 @@ namespace recorder::host
         std::uint32_t aspectNumerator = 1, aspectDenominator = 1;
         std::uint64_t spoolBytes = 0;
     };
+    struct LosslessStoragePolicy
+    {
+        std::uint64_t videoBytes = 0, spoolBytes = 0;
+    };
+    // Actual-byte lossless retention. The free-space allowance covers a pinned
+    // save, live replacement GOPs and both temporary/final clip copies. It is
+    // not a disk reservation against other applications.
+    bool BuildLosslessStoragePolicy(std::uint32_t frameRate, std::uint64_t freeBytes,
+        LosslessStoragePolicy&) noexcept;
+    bool BuildLosslessSaveRequirement(const LosslessStoragePolicy&, std::uint64_t chargedSpoolBytes,
+        std::uint64_t videoPayloadBytes, std::uint64_t audioPayloadBytes, std::uint64_t& requiredFreeBytes) noexcept;
     // Application policy, not a guarantee of bitrate, visual quality, capture
     // cadence or operating-system timing. Runtime negotiation remains required.
     constexpr std::uint64_t MaximumLateness100ns = 2500000;

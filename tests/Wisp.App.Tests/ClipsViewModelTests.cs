@@ -10,6 +10,32 @@ namespace Wisp.App.Tests;
 public sealed class ClipsViewModelTests
 {
     [Fact]
+    public void LosslessChoiceReachesRecorderAndPreservesCompressedQuality() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        Assert.False(model.LosslessVideo);
+        model.Quality = 100;
+        model.LosslessVideo = true;
+        Assert.False(model.CanEditCompressionQuality);
+        model.Quality = 10;
+        Assert.Equal(100, model.Quality);
+        await model.ToggleAsync();
+        Assert.True(recorder.LastRecording!.LosslessVideo);
+        model.LosslessVideo = false;
+        Assert.True(model.LosslessVideo);
+        await model.ToggleAsync();
+        model.LosslessVideo = false;
+        Assert.True(model.CanEditCompressionQuality);
+        Assert.Equal(100, model.Quality);
+        await model.ToggleAsync();
+        Assert.False(recorder.LastRecording!.LosslessVideo);
+    });
+
+    [Fact]
     public void AudioDefaultsToForzaAndCannotChangeDuringRecording() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();

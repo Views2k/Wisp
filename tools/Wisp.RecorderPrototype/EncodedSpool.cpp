@@ -299,14 +299,96 @@ namespace recorder::spool
             Flush(file->ownership.value);
             return file;
         }
+
+        AvailablePlan PlanState(const State& state, MediaTime span, const RetentionBudget& budget)
+        {
+            if (const auto reason = ValidateRetentionBudget(budget)) throw Failure{ reason, E_INVALIDARG, false };
+            Require(span > 0 && span <= state.limits.maximumDuration100ns, "spool_requested_span_invalid");
+            const bool withAudio = !state.configuration.aacUserData.empty();
+            Require(state.haveVideo && (!withAudio || state.haveAudio), "spool_no_complete_frames", HRESULT_FROM_WIN32(ERROR_NO_DATA));
+            const MediaTime availableEnd = withAudio ? (std::min)(state.videoEnd, state.audioEnd) : state.videoEnd;
+            MediaTime end = 0, audioStart = 0;
+            bool foundAudio = false;
+            for (const auto& file : state.files)
+            {
+                if (file->configuration || file->retired) continue;
+                for (const auto& record : file->records)
+                    if (file->track == Track::Video && record.time + record.duration <= availableEnd) end = record.time + record.duration;
+                    else if (file->track == Track::Audio && !foundAudio) { audioStart = record.time; foundAudio = true; }
+            }
+            Require(end > 0, "spool_no_complete_frames", HRESULT_FROM_WIN32(ERROR_NO_DATA));
+            const MediaTime requestedCutoff = end > span ? end - span : 0;
+            // Keep the first IDR when audio starts within the existing AAC
+            // coverage tolerance; selection must not reject what coverage accepts.
+            const MediaTime audioCutoff = withAudio && audioStart > MaximumAudioDuration ? audioStart - MaximumAudioDuration : 0;
+            const MediaTime cutoff = (std::max)(requestedCutoff, audioCutoff);
+            AvailablePlan plan;
+            plan.sizeLimited = state.capacityEvicted && state.lastCapacityEvictedGop >= requestedCutoff;
+            std::vector<const Record*> video, audio;
+            video.reserve(state.records);
+            bool found = false;
+            for (const auto& file : state.files)
+            {
+                if (file->configuration || file->retired || file->track != Track::Video) continue;
+                for (const auto& record : file->records)
+                {
+                    if (!found && record.clean && record.time >= cutoff && record.time < end) found = true;
+                    if (found && record.time + record.duration <= end)
+                    { video.push_back(&record); plan.videoPayloadBytes += record.bytes; }
+                }
+            }
+            Require(!video.empty(), "spool_no_keyframe_in_requested_span", HRESULT_FROM_WIN32(ERROR_NO_DATA));
+            if (withAudio)
+            {
+                audio.reserve(state.records - static_cast<std::uint32_t>(video.size()));
+                for (const auto& file : state.files)
+                {
+                    if (file->configuration || file->retired || file->track != Track::Audio) continue;
+                    for (const auto& record : file->records)
+                        if (record.time >= video.front()->time && record.time < end)
+                        { audio.push_back(&record); plan.audioPayloadBytes += record.bytes; }
+                }
+            }
+            std::size_t videoFirst = 0, audioFirst = 0;
+            while (plan.videoPayloadBytes > budget.maximumVideoBytes || plan.audioPayloadBytes > budget.maximumAudioBytes)
+            {
+                plan.sizeLimited = true;
+                do { plan.videoPayloadBytes -= video[videoFirst++]->bytes; }
+                while (videoFirst < video.size() && !video[videoFirst]->clean);
+                Require(videoFirst < video.size(), "spool_no_keyframe_within_byte_budget", HRESULT_FROM_WIN32(ERROR_NO_DATA));
+                while (audioFirst < audio.size() && audio[audioFirst]->time < video[videoFirst]->time)
+                    plan.audioPayloadBytes -= audio[audioFirst++]->bytes;
+            }
+            auto& bounds = plan.bounds;
+            bounds.start100ns = video[videoFirst]->time; bounds.end100ns = end;
+            bounds.videoPackets = static_cast<std::uint32_t>(video.size() - videoFirst);
+            bounds.audioPackets = static_cast<std::uint32_t>(audio.size() - audioFirst);
+            if (withAudio)
+            {
+                Require(audioFirst < audio.size(), "spool_audio_coverage_missing");
+                bounds.audioStart100ns = audio[audioFirst]->time;
+                bounds.audioEnd100ns = audio.back()->time + audio.back()->duration;
+                Require(bounds.audioStart100ns >= bounds.start100ns && bounds.audioStart100ns - bounds.start100ns <= MaximumAudioDuration &&
+                    bounds.audioEnd100ns >= end && bounds.audioEnd100ns - end <= MaximumAudioDuration, "spool_audio_coverage_missing");
+            }
+            return plan;
+        }
     }
 
+    const char* ValidateRetentionBudget(const RetentionBudget& value) noexcept
+    {
+        if (value.maximumVideoBytes == 0 || value.maximumVideoBytes > MaximumLosslessVideoBytes ||
+            value.maximumAudioBytes == 0 || value.maximumAudioBytes > MaximumRetainedAudioBytes)
+            return "spool_retention_budget_invalid";
+        return nullptr;
+    }
     const char* ValidateLimits(const Limits& value) noexcept
     {
         if (value.maximumDuration100ns <= 0 || value.maximumDuration100ns > MaximumDuration) return "spool_duration_invalid";
         if (value.maximumFileBytes < 4096 || value.maximumFileBytes > 64ull * 1024 * 1024 * 1024) return "spool_byte_limit_invalid";
         if (value.maximumRecords < 16 || value.maximumRecords > 200000) return "spool_record_limit_invalid";
         if (value.maximumFiles < 4 || value.maximumFiles > 4096) return "spool_file_limit_invalid";
+        if (value.maximumPacketBytes == 0 || value.maximumPacketBytes > MaximumPacketBytes) return "spool_packet_limit_invalid";
         return nullptr;
     }
     bool ValidateSessionPath(const std::wstring& path) noexcept
@@ -437,7 +519,8 @@ namespace recorder::spool
                 value.current = item.file;
             }
             const auto& record = item.record;
-            Require(record.bytes <= MaximumPacketBytes && record.offset <= item.committedLimit &&
+            Require(record.bytes > 0 && record.bytes <= (value.track == Track::Video ? value.snapshot->state->limits.maximumPacketBytes : 65536u) &&
+                record.offset <= item.committedLimit &&
                 RecordHeaderBytes + static_cast<std::uint64_t>(record.bytes) <= item.committedLimit - record.offset,
                 "spool_snapshot_boundary_invalid");
             Seek(value.reader.value, record.offset);
@@ -524,7 +607,7 @@ namespace recorder::spool
             Require(impl_->owner == GetCurrentThreadId(), "spool_wrong_writer", E_UNEXPECTED);
             auto& state = *impl_->state;
             Require(state.committedPackets != (std::numeric_limits<std::uint64_t>::max)(), "spool_packet_count_exhausted");
-            Require(bytes && size && size <= MaximumPacketBytes && (track == Track::Video || size <= 65536), "spool_packet_size_invalid");
+            Require(bytes && size && size <= (track == Track::Video ? state.limits.maximumPacketBytes : 65536u), "spool_packet_size_invalid");
             Require(ValidTime(time, duration), "spool_packet_time_invalid");
             const bool video = track == Track::Video;
             Require(video || !state.configuration.aacUserData.empty(), "spool_audio_not_configured");
@@ -565,6 +648,31 @@ namespace recorder::spool
         return false;
     }
     bool EncodedSpool::Retain(MediaTime span, std::shared_ptr<const Snapshot>& output) noexcept
+    { return RetainInternal(span, output, nullptr, nullptr); }
+
+    bool EncodedSpool::PlanAvailable(MediaTime span, const RetentionBudget& budget, AvailablePlan& output) noexcept
+    {
+        output = {};
+        try
+        {
+            Require(impl_ && evidence_.initialized && !evidence_.closed, "spool_not_readable", E_UNEXPECTED);
+            Require(impl_->owner == GetCurrentThreadId(), "spool_wrong_writer", E_UNEXPECTED);
+            output = PlanState(*impl_->state, span, budget);
+            evidence_.reason = "spool_available_plan"; evidence_.hr = S_OK;
+            return true;
+        }
+        catch (const Failure& error) { evidence_.reason = error.reason; evidence_.hr = error.hr; }
+        catch (const std::bad_alloc&) { evidence_.reason = "spool_plan_allocation_failed"; evidence_.hr = E_OUTOFMEMORY; }
+        catch (...) { evidence_.reason = "spool_plan_failed"; evidence_.hr = E_FAIL; }
+        return false;
+    }
+
+    bool EncodedSpool::RetainAvailable(MediaTime span, const RetentionBudget& budget,
+        std::shared_ptr<const Snapshot>& output, AvailablePlan& plan) noexcept
+    { plan = {}; return RetainInternal(span, output, &budget, &plan); }
+
+    bool EncodedSpool::RetainInternal(MediaTime span, std::shared_ptr<const Snapshot>& output,
+        const RetentionBudget* budget, AvailablePlan* available) noexcept
     {
         try
         {
@@ -575,36 +683,47 @@ namespace recorder::spool
             Require(span > 0 && span <= state.limits.maximumDuration100ns, "spool_requested_span_invalid");
             const bool withAudio = !state.configuration.aacUserData.empty();
             Require(state.haveVideo && (!withAudio || state.haveAudio), "spool_no_complete_frames", HRESULT_FROM_WIN32(ERROR_NO_DATA));
-            const MediaTime availableEnd = withAudio ? (std::min)(state.videoEnd, state.audioEnd) : state.videoEnd;
             MediaTime end = 0, audioStart = 0;
-            bool foundAudio = false;
-            for (const auto& file : state.files)
-            {
-                if (file->configuration || file->retired) continue;
-                for (const auto& record : file->records)
-                    if (file->track == Track::Video && record.time + record.duration <= availableEnd) end = record.time + record.duration;
-                    else if (file->track == Track::Audio && !foundAudio) { audioStart = record.time; foundAudio = true; }
-            }
-            Require(end > 0, "spool_no_complete_frames", HRESULT_FROM_WIN32(ERROR_NO_DATA));
-            const MediaTime cutoff = (std::max)(end > span ? end - span : 0, withAudio ? audioStart : 0);
-            Require(!state.capacityEvicted || state.lastCapacityEvictedGop < cutoff,
-                "spool_requested_history_evicted_by_capacity", HRESULT_FROM_WIN32(ERROR_NO_DATA));
-            MediaTime start = 0; bool found = false;
+            MediaTime start = 0;
             std::uint32_t videoCount = 0, audioCount = 0;
-            for (const auto& file : state.files)
+            AvailablePlan selected;
+            if (budget)
             {
-                if (file->configuration || file->retired || file->track != Track::Video) continue;
-                for (const auto& record : file->records)
-                {
-                    if (!found && record.clean && record.time >= cutoff && record.time < end) { start = record.time; found = true; }
-                    if (found && record.time >= start && record.time + record.duration <= end) ++videoCount;
-                }
+                selected = PlanState(state, span, *budget);
+                start = selected.bounds.start100ns; end = selected.bounds.end100ns;
+                videoCount = selected.bounds.videoPackets; audioCount = selected.bounds.audioPackets;
             }
-            Require(found && videoCount, "spool_no_keyframe_in_requested_span", HRESULT_FROM_WIN32(ERROR_NO_DATA));
-            if (withAudio)
+            else
+            {
+                const MediaTime availableEnd = withAudio ? (std::min)(state.videoEnd, state.audioEnd) : state.videoEnd;
+                bool foundAudio = false;
                 for (const auto& file : state.files)
-                    if (!file->configuration && !file->retired && file->track == Track::Audio)
-                        for (const auto& record : file->records) if (record.time >= start && record.time < end) ++audioCount;
+                {
+                    if (file->configuration || file->retired) continue;
+                    for (const auto& record : file->records)
+                        if (file->track == Track::Video && record.time + record.duration <= availableEnd) end = record.time + record.duration;
+                        else if (file->track == Track::Audio && !foundAudio) { audioStart = record.time; foundAudio = true; }
+                }
+                Require(end > 0, "spool_no_complete_frames", HRESULT_FROM_WIN32(ERROR_NO_DATA));
+                const MediaTime cutoff = (std::max)(end > span ? end - span : 0, withAudio ? audioStart : 0);
+                Require(!state.capacityEvicted || state.lastCapacityEvictedGop < cutoff,
+                    "spool_requested_history_evicted_by_capacity", HRESULT_FROM_WIN32(ERROR_NO_DATA));
+                bool found = false;
+                for (const auto& file : state.files)
+                {
+                    if (file->configuration || file->retired || file->track != Track::Video) continue;
+                    for (const auto& record : file->records)
+                    {
+                        if (!found && record.clean && record.time >= cutoff && record.time < end) { start = record.time; found = true; }
+                        if (found && record.time >= start && record.time + record.duration <= end) ++videoCount;
+                    }
+                }
+                Require(found && videoCount, "spool_no_keyframe_in_requested_span", HRESULT_FROM_WIN32(ERROR_NO_DATA));
+                if (withAudio)
+                    for (const auto& file : state.files)
+                        if (!file->configuration && !file->retired && file->track == Track::Audio)
+                            for (const auto& record : file->records) if (record.time >= start && record.time < end) ++audioCount;
+            }
             Require(static_cast<std::uint64_t>(state.records) + videoCount + audioCount <= state.limits.maximumRecords,
                 "spool_snapshot_metadata_limit", HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_MEMORY));
             auto snapshot = std::make_shared<Snapshot::Impl>();
@@ -643,6 +762,7 @@ namespace recorder::spool
             state.snapshotRecords.fetch_add(videoCount + audioCount); snapshot->charged = true;
             state.snapshotActive.store(true);
             output = std::move(retained);
+            if (available) *available = selected;
             evidence_.reason = "spool_snapshot_retained"; evidence_.hr = S_OK;
             return true;
         }

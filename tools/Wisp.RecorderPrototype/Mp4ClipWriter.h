@@ -8,11 +8,15 @@
 
 namespace recorder::exporting
 {
+    enum class VideoEncoding { H264Baseline420, H264LosslessGbr444 };
+    bool IsPacketSizeSupported(bool audio, size_t bytes, VideoEncoding) noexcept;
+
     struct VideoFormat
     {
         UINT width = 0, height = 0, frameRate = 0, bitrate = 0;
         UINT primaries = 0, transfer = 0, matrix = 0, nominalRange = 0, profile = 0;
         UINT pixelAspectNumerator = 1, pixelAspectDenominator = 1, chromaSiting = 0;
+        VideoEncoding encoding = VideoEncoding::H264Baseline420;
     };
     struct ExportEvidence
     {
@@ -43,7 +47,7 @@ namespace recorder::exporting
     const char* ValidateAudio(const AudioTrack&, const buffer::Clip&) noexcept;
 
     // CPU-only structure validation. Compressed syntax remains the encoder's
-    // responsibility. This stage supports ordered H264 Baseline without B frames.
+    // responsibility. Both explicit H264 modes require ordered packets without B frames.
     const char* ValidateClip(const buffer::Clip& clip, const VideoFormat& format) noexcept;
 
     struct ClipDescription

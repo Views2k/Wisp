@@ -23,14 +23,18 @@ public partial class ClipsPage : UserControl
     private ClipsViewModel? Model => DataContext as ClipsViewModel;
     private Button? _shortcutButton;
     private MediaElement? _player;
+    private LosslessClipPlayer? _losslessPlayer;
+    private bool HasPlayer => _player is not null || _losslessPlayer is not null;
     private Window? _hostWindow;
     private readonly ClipsPlaybackState _playback = new();
     private readonly Stopwatch _preparationElapsed = new();
     private Guid? _playingClipId;
     private readonly DispatcherTimer _playbackTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
     private MediaElement? _seekPlayer;
+    private LosslessClipPlayer? _seekLosslessPlayer;
     private long _seekRevision;
     private bool _updatingTimeline, _seeking;
+    private string _playbackFailureDetails = "";
 
     public ClipsPage()
     {
@@ -79,21 +83,23 @@ public partial class ClipsPage : UserControl
     private void PausePreviewForSystemCapture()
     {
         if (Model is not { CaptureSystemAudio: true, ClippingEnabled: true } ||
-            _player is null || !_playback.Ready || _playback.Paused) return;
+            !HasPlayer || !_playback.Ready || _playback.Paused) return;
         try
         {
-            _player.Pause(); _playback.SetPaused(true);
+            _player?.Pause(); _losslessPlayer?.SetPaused(true); _playback.SetPaused(true);
             UpdatePlaybackStatus(); UpdatePlaybackTimer();
         }
         catch (InvalidOperationException) { FailPlayback(); }
     }
-    private void UpdateGalleryVisibility() => Model?.SetGalleryActive(IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized);
+    private void UpdateGalleryVisibility() => Model?.SetGalleryActive(IsLoaded && IsVisible &&
+        _hostWindow?.WindowState != WindowState.Minimized && Model?.SelectedClip?.Entry.Media.LosslessVideo != true);
     private void ModelChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_hostWindow?.IsActive != true && e.PropertyName is nameof(ClipsViewModel.ClippingEnabled) or nameof(ClipsViewModel.CaptureSystemAudio))
             PausePreviewForSystemCapture();
         if (e.PropertyName == nameof(ClipsViewModel.HasSelection))
         {
+            UpdateGalleryVisibility();
             UpdatePlaybackFade();
             if (Model?.HasSelection != true) StopPlayer();
         }
@@ -186,6 +192,11 @@ public partial class ClipsPage : UserControl
         if (path is null || revision != _playback.Revision || !IsLoaded || !IsVisible || !ReferenceEquals(Model, model)) return;
         _playback.Prepare(); revision = _playback.Revision;
         _playingClipId = item.Id;
+        if (item.Entry.Media.LosslessVideo)
+        {
+            OpenLosslessPlayer(item.Entry, path, model, revision);
+            return;
+        }
         var player = new MediaElement
         {
             LoadedBehavior = MediaState.Manual,
@@ -261,10 +272,59 @@ public partial class ClipsPage : UserControl
         }, DispatcherPriority.Loaded);
     }
 
+    private void OpenLosslessPlayer(ClipEntry clip, string path, ClipsViewModel model, long revision)
+    {
+        if (ClipsScroll.Template?.FindName("PART_ScrollContentPresenter", ClipsScroll) is not FrameworkElement viewport)
+        { FailPlayback("The video viewport is not ready. Choose the clip again to retry."); return; }
+        var host = new LosslessVideoHost(viewport) { Focusable = false, IsHitTestVisible = false };
+        var player = new LosslessClipPlayer(host, PlaybackVolume.Value);
+        _losslessPlayer = player;
+        bool Current() => ReferenceEquals(_losslessPlayer, player) && revision == _playback.Revision &&
+            IsLoaded && IsVisible && ReferenceEquals(Model, model);
+        player.Changed += (_, _) =>
+        {
+            if (!Current()) return;
+            var state = player.Snapshot;
+            if (state.Failure is { } failure) { FailPlayback(failure); return; }
+            if (!state.Ready) return;
+            if (_playback.Preparing)
+            {
+                if (!_playback.TryOpen(revision, true, clip.Media.Width, clip.Media.Height, state.Duration))
+                { FailPlayback("This lossless clip has no playable video or duration."); return; }
+                _preparationElapsed.Stop();
+                _updatingTimeline = true;
+                try { PlaybackPosition.Maximum = state.Duration; PlaybackPosition.IsEnabled = true; }
+                finally { _updatingTimeline = false; }
+                SetTimelinePosition(0); UpdatePlayerSize();
+            }
+            _playback.BufferingChanged(revision, state.Buffering);
+            if (state.Ended)
+            {
+                _playback.ReachEnd(revision);
+                if (!_seeking) SetTimelinePosition(_playback.DurationSeconds);
+            }
+            UpdatePlaybackStatus(); UpdatePlaybackTimer();
+            if (_hostWindow?.IsActive != true) PausePreviewForSystemCapture();
+        };
+        PlayerHost.Content = host;
+        _preparationElapsed.Restart(); UpdatePlaybackStatus(); UpdatePlaybackTimer();
+        player.Open(clip, path);
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            if (!Current() || !PlaybackSurface.IsVisible || ClipsScroll.Content is not FrameworkElement content) return;
+            var offset = PlaybackSurface.TranslatePoint(new Point(), content).Y;
+            if (double.IsFinite(offset)) ClipsScroll.ScrollToVerticalOffset(offset);
+        }, DispatcherPriority.Loaded);
+    }
+
     private void StopPlayer()
     {
+        _playbackFailureDetails = "";
+        if (CopyPlaybackDetails is not null) CopyPlaybackDetails.Visibility = Visibility.Collapsed;
         _playback.Reset(); _preparationElapsed.Reset(); _playingClipId = null;
-        _playbackTimer.Stop(); _seekPlayer = null; _seeking = false;
+        _playbackTimer.Stop(); _seekPlayer = null; _seekLosslessPlayer = null; _seeking = false;
+        var lossless = _losslessPlayer; _losslessPlayer = null;
+        if (lossless is not null) _ = lossless.CloseAsync();
         var player = _player; _player = null;
         if (player is not null)
         {
@@ -284,7 +344,23 @@ public partial class ClipsPage : UserControl
     }
     private void FailPlayback(string message = "This clip could not be played. Choose the clip again to retry.")
     {
+        var lossless = _losslessPlayer is not null;
         StopPlayer(); _playback.Fail(message); UpdatePlaybackStatus(); Model?.PlaybackFailed();
+        if (lossless)
+        {
+            _playbackFailureDetails = message;
+            CopyPlaybackDetails.Visibility = Visibility.Visible;
+        }
+    }
+    private void CopyPlaybackDetails_Click(object sender, RoutedEventArgs e)
+    {
+        if (_playbackFailureDetails.Length == 0) return;
+        try
+        {
+            Clipboard.SetText($"Wisp lossless playback\n{_playbackFailureDetails}\nRuntime: {LosslessVlcRuntime.RuntimeStage}\nCleanup: {LosslessVlcRuntime.CleanupStatus}");
+            Model?.ReportCopyCompleted(true);
+        }
+        catch (ExternalException) { Model?.ReportCopyCompleted(false); }
     }
     private void UpdatePlaybackStatus()
     {
@@ -297,30 +373,41 @@ public partial class ClipsPage : UserControl
     private void ClosePlayer_Click(object sender, RoutedEventArgs e) { StopPlayer(); Model?.ClosePlayback(); }
     private void PlayPause_Click(object sender, RoutedEventArgs e)
     {
-        if (_player is null || !PlayPauseButton.IsEnabled) return;
+        if (!HasPlayer || !PlayPauseButton.IsEnabled) return;
         try
         {
             var play = _playback.Paused;
             var restart = play && _playback.Ended;
             // Commit user intent first: Play can raise a buffering callback immediately.
             _playback.SetPaused(!play);
+            if (_losslessPlayer is { } lossless)
+            {
+                if (restart) SetTimelinePosition(0);
+                lossless.SetPaused(!play);
+                UpdatePlaybackStatus(); UpdatePlaybackTimer();
+                return;
+            }
             if (play)
             {
-                if (restart) { _player.Position = TimeSpan.Zero; SetTimelinePosition(0); }
-                _player.Play();
+                if (restart) { _player!.Position = TimeSpan.Zero; SetTimelinePosition(0); }
+                _player!.Play();
             }
-            else _player.Pause();
+            else _player!.Pause();
             UpdatePlaybackStatus(); UpdatePlaybackTimer();
         }
         catch (InvalidOperationException) { FailPlayback(); }
     }
-    private void PlaybackVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e) { if (_player is not null) _player.Volume = e.NewValue; }
+    private void PlaybackVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_player is not null) _player.Volume = e.NewValue;
+        _losslessPlayer?.SetVolume(e.NewValue);
+    }
 
-    private bool CanTrackPlayback => _player is not null && _playback.Ready &&
+    private bool CanTrackPlayback => HasPlayer && _playback.Ready &&
         IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized;
     private void UpdatePlaybackTimer()
     {
-        if (_player is not null && IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized &&
+        if (HasPlayer && IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized &&
             (_playback.Preparing || _playback.WaitingForInitialBuffer || CanTrackPlayback && !_playback.Paused && !_seeking)) _playbackTimer.Start();
         else _playbackTimer.Stop();
     }
@@ -335,7 +422,8 @@ public partial class ClipsPage : UserControl
         if (!CanTrackPlayback || _playback.Paused || _seeking) { _playbackTimer.Stop(); return; }
         try
         {
-            var seconds = _player!.Position.TotalSeconds;
+            _losslessPlayer?.RequestPoll();
+            var seconds = _losslessPlayer?.Snapshot.Position ?? _player!.Position.TotalSeconds;
             SetTimelinePosition(seconds);
             if (_playback.ObservePosition(_playback.Revision, seconds) && _playingClipId is { } id && Model is { } model)
                 _ = model.PlaybackOpenedAsync(id);
@@ -360,28 +448,30 @@ public partial class ClipsPage : UserControl
     {
         if (_updatingTimeline || PlaybackTime is null || _playback.DurationSeconds <= 0) return;
         UpdateTimeLabel(Math.Clamp(e.NewValue, 0, _playback.DurationSeconds));
-        if (!_seeking) SeekPlayback(_player, _playback.Revision, e.NewValue);
+        if (!_seeking) SeekPlayback(_player, _losslessPlayer, _playback.Revision, e.NewValue);
     }
     private void PlaybackSeek_Begin(object sender, DragStartedEventArgs e)
     {
         if (!CanTrackPlayback || !PlaybackPosition.IsEnabled) return;
-        _seekPlayer = _player; _seekRevision = _playback.Revision; _seeking = true; _playbackTimer.Stop();
+        _seekPlayer = _player; _seekLosslessPlayer = _losslessPlayer; _seekRevision = _playback.Revision; _seeking = true; _playbackTimer.Stop();
     }
     private void PlaybackSeek_End(object sender, DragCompletedEventArgs e)
     {
         if (!_seeking) return;
-        var player = _seekPlayer; var revision = _seekRevision;
-        _seekPlayer = null; _seeking = false;
-        SeekPlayback(player, revision, PlaybackPosition.Value);
+        var player = _seekPlayer; var lossless = _seekLosslessPlayer; var revision = _seekRevision;
+        _seekPlayer = null; _seekLosslessPlayer = null; _seeking = false;
+        SeekPlayback(player, lossless, revision, PlaybackPosition.Value);
         UpdatePlaybackTimer();
     }
-    private void SeekPlayback(MediaElement? player, long revision, double seconds)
+    private void SeekPlayback(MediaElement? player, LosslessClipPlayer? lossless, long revision, double seconds)
     {
-        if (player is null || !ReferenceEquals(player, _player) || revision != _playback.Revision || !CanTrackPlayback || !double.IsFinite(seconds)) return;
+        if ((player is null && lossless is null) || !ReferenceEquals(player, _player) || !ReferenceEquals(lossless, _losslessPlayer) ||
+            revision != _playback.Revision || !CanTrackPlayback || !double.IsFinite(seconds)) return;
         try
         {
             seconds = Math.Clamp(seconds, 0, _playback.DurationSeconds);
-            player.Position = TimeSpan.FromSeconds(seconds);
+            if (lossless is not null) lossless.Seek(seconds);
+            else player!.Position = TimeSpan.FromSeconds(seconds);
             _playback.SeekTo(seconds);
             SetTimelinePosition(seconds); UpdatePlaybackStatus();
         }

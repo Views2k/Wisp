@@ -118,7 +118,9 @@ internal sealed class ClipBufferStore : IAsyncDisposable
             var identity = NativeFile.Identity(sourceHandle);
             if (identity.Bytes != (ulong)media.FileBytes || media.FileBytes is <= 0 or > ClipLibrary.MaximumMediaBytes)
                 throw new RecorderClientException("clip_publish_failed");
-            var record = new ClipRecord(Format, 1, Session, target.Id, target, media, identity);
+            if (media.LosslessVideo != target.Recording.LosslessVideo || (media.SizeLimited && !media.LosslessVideo))
+                throw new RecorderClientException("clip_publish_failed");
+            var record = new ClipRecord(Format, 2, Session, target.Id, target, media, identity);
             stage = "write_recovery_record";
             WriteRecord(_directory, RecordName(target.Id), record);
             destinationWrite = true;
@@ -319,8 +321,11 @@ internal sealed class ClipBufferStore : IAsyncDisposable
         return (retainedBytes, incomplete || limited, limited);
     }
 
-    private static bool ValidRecord(ClipRecord record, Guid session, Guid clip) => record.Format == Format && record.Version == 1 &&
+    private static bool ValidRecord(ClipRecord record, Guid session, Guid clip) => record.Format == Format && record.Version is 1 or 2 &&
         record.Session == session && record.Clip == clip && record.Target is not null && record.Target.Id == clip && record.Media is not null &&
+        record.Target.Recording is not null && record.Media.LosslessVideo == record.Target.Recording.LosslessVideo &&
+        (record.Version == 2 || !record.Media.LosslessVideo) &&
+        (!record.Media.SizeLimited || record.Media.LosslessVideo) &&
         record.Media.FileBytes > 0 && record.Media.FileBytes <= ClipLibrary.MaximumMediaBytes && record.Identity is not null &&
         record.Identity.Bytes == (ulong)record.Media.FileBytes;
 

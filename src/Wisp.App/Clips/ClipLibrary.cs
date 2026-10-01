@@ -6,14 +6,15 @@ using System.Text.Json.Serialization;
 
 namespace Wisp.App.Clips;
 
-public sealed record ClipRecordingSpec(int LengthSeconds, int ResolutionHeight, int FrameRate, int Quality, bool CaptureSystemAudio = false);
+public sealed record ClipRecordingSpec(int LengthSeconds, int ResolutionHeight, int FrameRate, int Quality,
+    bool CaptureSystemAudio = false, bool LosslessVideo = false);
 public sealed record ClipSaveTarget(Guid Id, DateTimeOffset RequestedAtUtc, ClipRecordingSpec Recording, string MediaPath);
 
 // The native writer supplies this only after successful mux finalization and
 // closing its file. Container/codec validation remains the native writer's
 // contract; this library validates ownership, size and the reported metadata.
 public sealed record FinalizedClipMedia(long FileBytes, int Width, int Height, int FrameRate,
-    long ActualStart100ns, long ActualEnd100ns, bool HasAudio)
+    long ActualStart100ns, long ActualEnd100ns, bool HasAudio, bool LosslessVideo = false, bool SizeLimited = false)
 {
     [JsonIgnore]
     internal ClipBufferCommitReceipt? PublicationReceipt { get; init; }
@@ -273,7 +274,7 @@ public sealed class ClipLibrary
         if (!File.Exists(path))
         {
             if (Directory.Exists(path)) throw new InvalidDataException("The clip index path is not a file.");
-            return new LibraryIndex { Format = IndexFormat, Version = 1 };
+            return new LibraryIndex { Format = IndexFormat, Version = 2 };
         }
         using var directory = ClipLibraryFiles.OpenDirectory(_directory, create: false);
         await using var file = ClipLibraryFiles.OpenRead(directory, IndexFileName);
@@ -292,6 +293,8 @@ public sealed class ClipLibrary
 
     private async Task WriteIndexAsync(LibraryIndex index, CancellationToken token)
     {
+        // Read legacy libraries without touching them; migrate only with a successful write.
+        index.Version = 2;
         ValidateIndex(index);
         var bytes = JsonSerializer.SerializeToUtf8Bytes(index, JsonOptions);
         if (bytes.Length > MaximumIndexBytes) throw new InvalidDataException("The clip index has reached its size limit. No clips were removed.");
@@ -359,6 +362,8 @@ public sealed class ClipLibrary
         var expectedWidth = recording.ResolutionHeight == 480 ? 854 : recording.ResolutionHeight * 16 / 9;
         if (media.FileBytes is <= 0 or > MaximumMediaBytes || media.Width != expectedWidth ||
             media.Height != recording.ResolutionHeight || media.FrameRate != recording.FrameRate ||
+            media.LosslessVideo != recording.LosslessVideo ||
+            (media.SizeLimited && !media.LosslessVideo) ||
             media.ActualStart100ns < 0 || media.ActualEnd100ns <= media.ActualStart100ns ||
             media.ActualEnd100ns - media.ActualStart100ns > 300L * 10_000_000)
             throw new InvalidDataException("The finalized clip metadata is invalid or differs from its recording settings.");
@@ -366,7 +371,7 @@ public sealed class ClipLibrary
 
     private static void ValidateIndex(LibraryIndex index)
     {
-        if (index.Format != IndexFormat || index.Version != 1 || index.Clips is null || index.Pending is null ||
+        if (index.Format != IndexFormat || index.Version is not (1 or 2) || index.Clips is null || index.Pending is null ||
             index.Clips.Count > MaximumEntries || index.Pending.Count > MaximumEntries - index.Clips.Count)
             throw new InvalidDataException("The clip index format or capacity is invalid. Its file has been kept.");
         var ids = new HashSet<Guid>();
@@ -377,12 +382,16 @@ public sealed class ClipLibrary
                 throw new InvalidDataException("The clip index contains invalid or duplicate records.");
             ValidateRecording(clip.Recording);
             ValidateMedia(clip.Media, clip.Recording);
+            if (index.Version == 1 && clip.Recording.LosslessVideo)
+                throw new InvalidDataException("The legacy clip index cannot describe lossless video. Its file has been kept.");
         }
         foreach (var pending in index.Pending)
         {
             if (pending is null || pending.Id == Guid.Empty || !ids.Add(pending.Id) || pending.RequestedAtUtc == default)
                 throw new InvalidDataException("The clip index contains invalid or duplicate reservations.");
             ValidateRecording(pending.Recording);
+            if (index.Version == 1 && pending.Recording.LosslessVideo)
+                throw new InvalidDataException("The legacy clip index cannot reserve lossless video. Its file has been kept.");
         }
     }
 

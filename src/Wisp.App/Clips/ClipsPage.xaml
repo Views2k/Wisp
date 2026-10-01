@@ -91,8 +91,10 @@
                             <StackPanel Width="150" Margin="0,0,12,12"><TextBlock Text="Resolution · p" Style="{StaticResource ClipHint}" Margin="0,0,0,5" /><ComboBox ItemsSource="{Binding ResolutionChoices}" SelectedItem="{Binding ResolutionHeight}" AutomationProperties.Name="Recording and export resolution" /></StackPanel>
                             <StackPanel Width="150" Margin="0,0,12,12"><TextBlock Text="Frame rate · fps" Style="{StaticResource ClipHint}" Margin="0,0,0,5" /><ComboBox ItemsSource="{Binding FrameRateChoices}" SelectedItem="{Binding FrameRate}" AutomationProperties.Name="Recording frame rate" /></StackPanel>
                         </WrapPanel>
-                        <DockPanel Margin="0,0,0,5"><TextBlock Text="Quality" /><TextBlock Text="{Binding Quality}" HorizontalAlignment="Right" /></DockPanel>
-                        <Slider Minimum="10" Maximum="100" Value="{Binding Quality}" TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10" PreviewMouseLeftButtonUp="Quality_Commit" PreviewKeyUp="Quality_Commit" LostKeyboardFocus="Quality_Commit" AutomationProperties.Name="Clip quality,10 to100" Margin="0,0,0,8" />
+                        <CheckBox Content="Lossless video" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding LosslessVideo}" Margin="0,0,0,6" AutomationProperties.Name="Lossless video" />
+                        <TextBlock Text="Preserves full-color SDR video after scaling and HDR conversion. Requires a supported NVIDIA encoder; files can be very large. Audio remains compressed." Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
+                        <DockPanel IsEnabled="{Binding CanEditCompressionQuality}" Margin="0,0,0,5"><TextBlock Text="Quality" /><TextBlock Text="{Binding Quality}" HorizontalAlignment="Right" /></DockPanel>
+                        <Slider IsEnabled="{Binding CanEditCompressionQuality}" Minimum="10" Maximum="100" Value="{Binding Quality}" TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10" PreviewMouseLeftButtonUp="Quality_Commit" PreviewKeyUp="Quality_Commit" LostKeyboardFocus="Quality_Commit" AutomationProperties.Name="Clip quality,10 to100" Margin="0,0,0,8" />
                         <TextBlock Text="{Binding LongClipHint}" Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
                         <CheckBox x:Name="CaptureSystemAudioToggle" Content="Record all app and system audio" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding CaptureSystemAudio}" Margin="0,0,0,6" AutomationProperties.Name="Record all app and system audio" />
                         <TextBlock Text="Off by default: only Forza audio is recorded. Turn on to include other apps, voice chat and system sounds. Microphone input is not recorded." Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
@@ -120,6 +122,7 @@
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="{Binding SelectedTitle}" TextWrapping="Wrap" />
                             <TextBlock x:Name="PlaybackStatus" Style="{StaticResource ClipHint}" Visibility="Collapsed" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
+                            <Button x:Name="CopyPlaybackDetails" Content="Copy playback details" Click="CopyPlaybackDetails_Click" Visibility="Collapsed" HorizontalAlignment="Left" Padding="10,6" Margin="0,6,0,0" />
                         </StackPanel>
                     </DockPanel>
                     <ContentControl x:Name="PlayerHost" Background="Black" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" SizeChanged="PlaybackLayout_SizeChanged" AutomationProperties.Name="Selected clip video">

@@ -15,7 +15,7 @@ namespace
     void Check(bool value, const char* contract) { if (!value) throw Failure{ contract }; ++checks; }
     std::string CommandLine(std::string_view kind, std::string_view extra = {}, std::string_view request = "1")
     {
-        return "{\"v\":1,\"session\":\"" + std::string(Session) + "\",\"request\":" + std::string(request) +
+        return "{\"v\":2,\"session\":\"" + std::string(Session) + "\",\"request\":" + std::string(request) +
             ",\"command\":\"" + std::string(kind) + '"' + std::string(extra) + '}';
     }
     std::string Spool() { return std::string("C:\\Clips\\.wisp-recorder-") + Session; }
@@ -34,7 +34,7 @@ namespace
     }
     std::string ConfigEncoded(std::string_view encodedPath)
     {
-        return CommandLine("config", ",\"durationSeconds\":60,\"height\":1080,\"frameRate\":60,\"quality\":75,\"gameAudio\":true,\"spoolDirectory\":\"" + std::string(encodedPath) + '"');
+        return CommandLine("config", ",\"durationSeconds\":60,\"height\":1080,\"frameRate\":60,\"quality\":75,\"gameAudio\":true,\"losslessVideo\":false,\"spoolDirectory\":\"" + std::string(encodedPath) + '"');
     }
     std::string Config(std::string path = Spool()) { return ConfigEncoded(JsonStringContent(path)); }
     std::string Start(std::string_view pid = "42", std::string_view window = "123", std::string_view time = "456")
@@ -97,6 +97,15 @@ namespace
     }
     void ExactSchemaAndNumbers()
     {
+        auto mode = Config(); Replace(mode, "\"losslessVideo\":false", "\"losslessVideo\":true");
+        Command lossless;
+        Check(ParseCommand(mode, lossless) && lossless.losslessVideo, "explicit_lossless_mode_preserved");
+        mode = Config(); Replace(mode, ",\"losslessVideo\":false", "");
+        Check(!Accepted(mode), "missing_encoding_mode_rejected");
+        mode = Config(); Replace(mode, "\"losslessVideo\":false", "\"losslessVideo\":1");
+        Check(!Accepted(mode), "encoding_mode_requires_boolean");
+        mode = Config(); Replace(mode, "\"v\":2", "\"v\":1");
+        Check(!Accepted(mode), "old_protocol_cannot_ignore_encoding_mode");
         for (const char* value : { "0", "-1", "9223372036854775808", "1.0", "1e0", "+1", "01", "true", "\"1\"", "null" })
             Check(!Accepted(CommandLine("stop", {}, value)), "request_numeric_grammar_and_bounds");
         for (const char* value : { "0", "-1", "4294967296", "1e1", "\"42\"" })
@@ -156,6 +165,12 @@ namespace
         Check(!SerializeResult(result, line), "audible_media_cannot_claim_silent_reason");
         result.reason = Reason::None;
         Check(SerializeResult(result, line), "valid_audible_media");
+        result.media->sizeLimited = true;
+        Check(!SerializeResult(result, line), "standard_media_cannot_claim_lossless_size_limit");
+        result.media->losslessVideo = true;
+        Check(SerializeResult(result, line) && line.find("\"sizeLimited\":true") != std::string::npos,
+            "lossless_saved_size_limit_explicit");
+        result.media->sizeLimited = false; result.media->losslessVideo = false;
         result.media->fileBytes = MaximumMediaBytes + 1; Check(!SerializeResult(result, line), "output_file_size_bound");
         result.media->fileBytes = 1024; result.media->end100ns = (std::numeric_limits<std::int64_t>::max)();
         Check(!SerializeResult(result, line), "output_duration_bound_no_overflow");
@@ -173,6 +188,30 @@ namespace
             "minimized_paused_state");
         Check(SerializeState(Session, State::Buffering, Reason::CaptureStale, line) && line.find("capture_stale") != std::string::npos,
             "stale_frames_remain_buffering");
+        Check(line.find("losslessBuffer") == std::string::npos, "standard_state_omits_lossless_buffer");
+        LosslessBuffer buffer{166666, 1234, 4096, true};
+        Check(SerializeState(Session, State::Buffering, Reason::None, line, &buffer) &&
+            line.find("\"losslessBuffer\":{\"duration100ns\":166666,\"payloadBytes\":1234,\"budgetBytes\":4096,\"sizeLimited\":true}") != std::string::npos,
+            "lossless_buffer_exact_scalar_object");
+        Check(!SerializeState(Session, State::Saving, Reason::None, line, &buffer) && line.empty(), "lossless_buffer_only_buffering");
+        buffer.duration100ns = 0;
+        Check(!SerializeState(Session, State::Buffering, Reason::None, line, &buffer), "lossless_buffer_empty_duration_rejected");
+        buffer.duration100ns = -1;
+        Check(!SerializeState(Session, State::Buffering, Reason::None, line, &buffer), "lossless_buffer_negative_duration_rejected");
+        buffer.duration100ns = 3000000001ll;
+        Check(!SerializeState(Session, State::Buffering, Reason::None, line, &buffer), "lossless_buffer_duration_bounded");
+        buffer.duration100ns = 3000000000ll; buffer.payloadBytes = 0;
+        Check(!SerializeState(Session, State::Buffering, Reason::None, line, &buffer), "lossless_buffer_empty_payload_rejected");
+        buffer.payloadBytes = 4097;
+        Check(!SerializeState(Session, State::Buffering, Reason::None, line, &buffer), "lossless_buffer_payload_cannot_exceed_budget");
+        buffer.budgetBytes = 12ull * 1024 * 1024 * 1024 + 16ull * 1024 * 1024;
+        buffer.payloadBytes = buffer.budgetBytes;
+        Check(SerializeState(Session, State::Buffering, Reason::AudioUnavailable, line, &buffer), "lossless_buffer_maximum_valid");
+        ++buffer.budgetBytes;
+        Check(!SerializeState(Session, State::Buffering, Reason::None, line, &buffer), "lossless_buffer_budget_bounded");
+        Check(SerializeState(Session, State::Error, Reason::LosslessStorageLow, line) &&
+            line.find("lossless_storage_low") != std::string::npos && !IsRecoverable(Reason::LosslessStorageLow),
+            "lossless_storage_low_specific_and_not_retried");
         Check(!IsRecoverable(Reason::CaptureStale) && IsRecoverable(Reason::SchedulerLate) && IsRecoverable(Reason::AudioReconnecting),
             "interruption_recovery_allowlist");
         Check(!IsRecoverable(Reason::CleanupFailed) && !IsRecoverable(Reason::ProtocolError) &&

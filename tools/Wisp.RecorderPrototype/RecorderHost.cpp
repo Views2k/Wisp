@@ -2,6 +2,7 @@
 #include "RecorderProtocol.h"
 #include "GameScreenCapture.h"
 #include "HardwareVideoSession.h"
+#include "NvencLosslessVideoSession.h"
 #include "HdrFrameConverter.h"
 #include "AudioTimeline.h"
 #include "AacEncoder.h"
@@ -53,6 +54,41 @@ namespace recorder::host
         result = { static_cast<std::uint32_t>(width), height, settings.frameRate, static_cast<std::uint32_t>(bitrate),
             height == 480 ? 1280u : 1u, height == 480 ? 1281u : 1u,
             (std::min)((std::max)(64ull * 1024 * 1024, storage), 16ull * 1024 * 1024 * 1024) };
+        return true;
+    }
+
+    bool BuildLosslessStoragePolicy(std::uint32_t rate, std::uint64_t freeBytes, LosslessStoragePolicy& result) noexcept
+    {
+        result = {};
+        if (rate != 30 && rate != 60) return false;
+        constexpr std::uint64_t gib = 1024ull * 1024 * 1024;
+        constexpr std::uint64_t metadata = 64ull * 1024 * 1024;
+        // Two-second IDR spacing plus one boundary packet and bounded audio.
+        const auto gop = (2ull * rate + 1) * lossless::MaximumPacketBytes + 16ull * 1024 * 1024;
+        const auto fixed = gib + 2 * gop + metadata;
+        if (freeBytes <= fixed) return false;
+        // Five payload budgets cover two rolling/pinned ranges and two MP4
+        // copies, including worst-case Annex-B length-prefix expansion.
+        const auto payload = (std::min)(12 * gib, (freeBytes - fixed) / 5);
+        if (payload < gop) return false;
+        result = { payload, 2 * (payload + gop) + metadata };
+        return result.spoolBytes <= 64 * gib;
+    }
+
+    bool BuildLosslessSaveRequirement(const LosslessStoragePolicy& policy, std::uint64_t charged,
+        std::uint64_t video, std::uint64_t audio, std::uint64_t& required) noexcept
+    {
+        required = 0;
+        constexpr std::uint64_t gib = 1024ull * 1024 * 1024;
+        if (!policy.videoBytes || policy.videoBytes > spool::MaximumLosslessVideoBytes ||
+            !policy.spoolBytes || policy.spoolBytes > 64 * gib || charged > policy.spoolBytes ||
+            !video || video > policy.videoBytes || audio > spool::MaximumRetainedAudioBytes) return false;
+        // Three-byte Annex-B prefixes may become four-byte MP4 lengths. Keep
+        // mux metadata allowance, both finalized/publication copies, and all
+        // remaining spool growth while the snapshot pins its source files.
+        const auto mp4 = video + (video + 3) / 4 + audio + 64ull * 1024 * 1024;
+        if (mp4 > protocol::MaximumMediaBytes) return false;
+        required = policy.spoolBytes - charged + 2 * mp4 + gib;
         return true;
     }
 
@@ -207,6 +243,16 @@ namespace recorder::host
         struct Failure { Reason reason; HRESULT hr; };
         void Require(bool value, Reason reason, HRESULT hr = E_FAIL) { if (!value) throw Failure{ reason, hr }; }
         void Check(HRESULT hr, Reason reason) { if (FAILED(hr)) throw Failure{ reason, hr }; }
+        std::uint64_t AvailableSpoolSpace(const std::wstring& sessionPath)
+        {
+            const auto slash = sessionPath.find_last_of(L"\\/");
+            Require(slash != std::wstring::npos, Reason::StorageFailed, E_INVALIDARG);
+            const auto parent = sessionPath.substr(0, slash + 1);
+            ULARGE_INTEGER available{};
+            if (!GetDiskFreeSpaceExW(parent.c_str(), &available, nullptr, nullptr))
+                throw Failure{ Reason::StorageFailed, HRESULT_FROM_WIN32(GetLastError()) };
+            return available.QuadPart;
+        }
         [[noreturn]] void TerminateSelf() noexcept
         {
             (void)TerminateProcess(GetCurrentProcess(), FatalExit);
@@ -457,7 +503,7 @@ namespace recorder::host
             exporting::FileExportEvidence result{};
             std::int64_t request = 0;
             std::string clipId;
-            bool hasAudio = false;
+            bool hasAudio = false, sizeLimited = false;
             std::atomic<bool> done{ false };
         };
 
@@ -478,6 +524,10 @@ namespace recorder::host
             bool Saving() const noexcept { return save_ != nullptr; }
             bool HasAudio() const noexcept { return audioEnabled_; }
             bool SourceStale() const noexcept { return sourceStale_; }
+            const protocol::LosslessBuffer* LosslessBufferStatus() const noexcept
+            { return losslessBuffer_ ? &*losslessBuffer_ : nullptr; }
+            bool BufferStatusChanged() const noexcept { return losslessBufferDirty_; }
+            void BufferStatusAnnounced() noexcept { losslessBufferDirty_ = false; }
             Reason Error() const noexcept { return reason_; }
             DWORD WaitMilliseconds() noexcept;
             void EmitFailureDiagnostic(Reason, HRESULT, const char*) noexcept;
@@ -498,15 +548,35 @@ namespace recorder::host
             void ProcessAudio(UINT maximumPackets);
             void InitializeSpool();
             void CheckReadiness();
+            void UpdateLosslessBuffer();
+            void SetLosslessBuffer(const spool::AvailablePlan*);
             bool StopAudio() noexcept;
+            HRESULT VideoError() const noexcept
+            {
+                if (!config_.losslessVideo) return video_.Result().hr;
+                const auto& result = losslessVideo_.Result();
+                return FAILED(result.cleanupHr) ? result.cleanupHr : result.hr;
+            }
+            const char* VideoReasonText() const noexcept
+            {
+                if (!config_.losslessVideo) return video_.Result().reason;
+                const auto& result = losslessVideo_.Result();
+                return FAILED(result.cleanupHr) ? result.cleanupReason : result.reason;
+            }
+            bool PumpVideo() noexcept { return config_.losslessVideo ? losslessVideo_.Pump() : video_.Pump(0); }
             exporting::VideoFormat VideoFormat() const noexcept;
             Shared& shared_;
             protocol::Command config_;
             Policy policy_;
+            LosslessStoragePolicy losslessStorage_{};
+            std::optional<protocol::LosslessBuffer> losslessBuffer_;
+            ULONGLONG nextLosslessBufferCheck_ = 0;
+            bool losslessBufferDirty_ = false;
             capture::GameScreenCapture capture_;
             hdr::HdrFrameConverter converter_;
             hdr::Evidence conversionEvidence_{};
             encoder::HardwareVideoSession video_;
+            lossless::NvencLosslessVideoSession losslessVideo_;
             aac::Encoder audioEncoder_;
             audio::AudioTimeline timeline_;
             audio::PacketQueue audioQueue_;
@@ -542,7 +612,7 @@ namespace recorder::host
             if (firstFailure_.recorded) return;
             firstFailure_.Record(reason, hr, diagnosticStage_);
             firstFailure_.videoPackets = videoPackets_; firstFailure_.audioPackets = audioPackets_;
-            firstFailure_.submittedFrames = video_.Result().submitted;
+            firstFailure_.submittedFrames = config_.losslessVideo ? losslessVideo_.Result().submitted : video_.Result().submitted;
             firstFailure_.schedulerLagKnown = schedulerLagKnown_; firstFailure_.schedulerLag100ns = schedulerLag100ns_;
             firstFailure_.sourceAgeKnown = sourceAgeKnown_; firstFailure_.sourceAge100ns = sourceAge100ns_;
             firstFailure_.localFrameAgeKnown = localFrameAgeKnown_; firstFailure_.localFrameAge100ns = localFrameAge100ns_;
@@ -556,7 +626,7 @@ namespace recorder::host
             snapshot.first = firstFailure_;
             const auto capture = capture_.Result();
             snapshot.capture = { capture.reason, capture.hr };
-            snapshot.video = { video_.Result().reason, video_.Result().hr };
+            snapshot.video = { VideoReasonText(), VideoError() };
             snapshot.conversion = { conversionEvidence_.reason, conversionEvidence_.hr };
             snapshot.aac = { audioEncoder_.Result().reason, audioEncoder_.Result().hr };
             snapshot.spool = { spool_.Result().reason, spool_.Result().hr };
@@ -587,6 +657,11 @@ namespace recorder::host
         }
         exporting::VideoFormat MediaSession::VideoFormat() const noexcept
         {
+            if (config_.losslessVideo)
+                return { policy_.width, policy_.height, policy_.frameRate, 0,
+                    MFVideoPrimaries_BT709, MFVideoTransFunc_709, MFVideoTransferMatrix_Identity, MFNominalRange_0_255,
+                    eAVEncH264VProfile_444, policy_.aspectNumerator, policy_.aspectDenominator, 0,
+                    exporting::VideoEncoding::H264LosslessGbr444 };
             return { policy_.width, policy_.height, policy_.frameRate, policy_.bitrate,
                 MFVideoPrimaries_BT709, MFVideoTransFunc_709, MFVideoTransferMatrix_BT709, MFNominalRange_16_235,
                 eAVEncH264VProfile_Base, policy_.aspectNumerator, policy_.aspectDenominator, MFVideoChromaSubsampling_MPEG2 };
@@ -598,6 +673,12 @@ namespace recorder::host
                 began_ = GetTickCount64();
                 diagnosticStage_ = "storage_preflight";
                 Check(spool::PreflightSessionParent(config_.spoolDirectory), Reason::StorageFailed);
+                if (config_.losslessVideo)
+                {
+                    Require(BuildLosslessStoragePolicy(policy_.frameRate, AvailableSpoolSpace(config_.spoolDirectory), losslessStorage_),
+                        Reason::LosslessStorageLow, HRESULT_FROM_WIN32(ERROR_DISK_FULL));
+                    policy_.spoolBytes = losslessStorage_.spoolBytes;
+                }
                 diagnosticStage_ = "runtime_initialize";
                 Check(RoInitialize(RO_INIT_MULTITHREADED), Reason::CaptureFailed); runtimeStarted_ = true;
                 Check(MFStartup(MF_VERSION, MFSTARTUP_FULL), Reason::EncoderFailed); mfStarted_ = true;
@@ -625,14 +706,21 @@ namespace recorder::host
                     ? hdr::SourceEncoding::SrgbBgra8 : hdr::SourceEncoding::Unknown;
                 if (!converter_.Initialize(capture_.Device(), source.width, source.height,
                     sourceEncoding, sourceEncoding == hdr::SourceEncoding::LinearScRgbFp16
-                        ? source.referenceWhiteNits : 0.0f, output, conversionEvidence_))
+                        ? source.referenceWhiteNits : 0.0f, output,
+                    config_.losslessVideo ? hdr::OutputEncoding::PreparedRgbAyuv : hdr::OutputEncoding::Bt709Nv12, conversionEvidence_))
                     throw Failure{ Reason::UnsupportedFormat, conversionEvidence_.hr };
                 encoder::EncodeConfig encode{ policy_.width, policy_.height, policy_.frameRate, policy_.bitrate,
                     policy_.aspectNumerator, policy_.aspectDenominator, MFVideoChromaSubsampling_MPEG2 };
                 encoder::LiveOptions options; options.operationTimeoutMs = 3000;
                 diagnosticStage_ = "video_initialize";
-                if (!video_.Initialize(capture_.Device(), encode, options, shared_.abort, *this))
-                    throw Failure{ VideoReason(video_.Result().hr, Reason::UnsupportedGpu), video_.Result().hr };
+                if (config_.losslessVideo)
+                {
+                    encode.bitrate = 0; encode.chromaSiting = 0;
+                    if (!losslessVideo_.Initialize(capture_.Device(), encode, { options.operationTimeoutMs, 0 }, shared_.abort, *this))
+                        throw Failure{ VideoReason(VideoError(), Reason::UnsupportedGpu), VideoError() };
+                }
+                else if (!video_.Initialize(capture_.Device(), encode, options, shared_.abort, *this))
+                    throw Failure{ VideoReason(VideoError(), Reason::UnsupportedGpu), VideoError() };
                 if (config_.gameAudio)
                 {
                     diagnosticStage_ = "audio_initialize";
@@ -743,7 +831,8 @@ namespace recorder::host
                 Check(sample->ConvertToContiguousBuffer(&buffer), Reason::EncoderFailed);
                 DWORD length = 0;
                 Check(buffer->GetCurrentLength(&length), Reason::EncoderFailed);
-                Require(length && length <= spool::MaximumPacketBytes, Reason::EncoderFailed);
+                Require(length && length <= (config_.losslessVideo ? lossless::MaximumPacketBytes : spool::StandardMaximumPacketBytes),
+                    Reason::EncoderFailed);
                 BYTE* data = nullptr;
                 Check(buffer->Lock(&data, nullptr, nullptr), Reason::EncoderFailed);
                 HRESULT operation = S_OK;
@@ -848,6 +937,7 @@ namespace recorder::host
             spool::Limits limits;
             limits.maximumDuration100ns = static_cast<LONGLONG>(config_.durationSeconds) * 10000000;
             limits.maximumFileBytes = policy_.spoolBytes;
+            limits.maximumPacketBytes = config_.losslessVideo ? lossless::MaximumPacketBytes : spool::StandardMaximumPacketBytes;
             if (!spool_.Initialize(config_.spoolDirectory, limits, configuration))
                 throw Failure{ Reason::StorageFailed, spool_.Result().hr };
             spoolInitialized_ = true;
@@ -862,6 +952,18 @@ namespace recorder::host
             if (ready_ || !readinessDirty_ || !spoolInitialized_ || videoPackets_ == 0 ||
                 (audioEnabled_ && (audioPackets_ == 0 || audioEnd_ <= 0))) return;
             readinessDirty_ = false;
+            if (config_.losslessVideo)
+            {
+                spool::AvailablePlan plan;
+                if (spool_.PlanAvailable(static_cast<LONGLONG>(config_.durationSeconds) * 10000000,
+                    { losslessStorage_.videoBytes, spool::MaximumRetainedAudioBytes }, plan))
+                {
+                    ready_ = true; SetLosslessBuffer(&plan);
+                    nextLosslessBufferCheck_ = GetTickCount64() + 1000;
+                    shared_.startup.store(0);
+                }
+                return;
+            }
             std::shared_ptr<const spool::Snapshot> probe;
             if (spool_.Retain(static_cast<LONGLONG>(config_.durationSeconds) * 10000000, probe))
             {
@@ -871,6 +973,28 @@ namespace recorder::host
                 if (ready_) shared_.startup.store(0);
             }
         }
+        void MediaSession::SetLosslessBuffer(const spool::AvailablePlan* plan)
+        {
+            std::optional<protocol::LosslessBuffer> next;
+            if (plan)
+                next = protocol::LosslessBuffer{ plan->bounds.end100ns - plan->bounds.start100ns,
+                    plan->videoPayloadBytes + plan->audioPayloadBytes,
+                    losslessStorage_.videoBytes + spool::MaximumRetainedAudioBytes, plan->sizeLimited };
+            const bool same = next.has_value() == losslessBuffer_.has_value() &&
+                (!next || *next == *losslessBuffer_);
+            if (!same) { losslessBuffer_ = next; losslessBufferDirty_ = true; }
+        }
+        void MediaSession::UpdateLosslessBuffer()
+        {
+            if (!config_.losslessVideo || !ready_ || !spoolInitialized_) return;
+            const auto now = GetTickCount64();
+            if (now < nextLosslessBufferCheck_) return;
+            nextLosslessBufferCheck_ = now + 1000;
+            spool::AvailablePlan plan;
+            const bool available = spool_.PlanAvailable(static_cast<LONGLONG>(config_.durationSeconds) * 10000000,
+                { losslessStorage_.videoBytes, spool::MaximumRetainedAudioBytes }, plan);
+            SetLosslessBuffer(available ? &plan : nullptr);
+        }
         bool MediaSession::Tick() noexcept
         {
             try
@@ -879,7 +1003,7 @@ namespace recorder::host
                 diagnosticStage_ = "capture_target";
                 CheckTarget();
                 diagnosticStage_ = "video_pump";
-                if (!video_.Pump(0)) throw Failure{ failed_ ? reason_ : VideoReason(video_.Result().hr), video_.Result().hr };
+                if (!PumpVideo()) throw Failure{ failed_ ? reason_ : VideoReason(VideoError()), VideoError() };
                 ProcessAudio(8); InitializeSpool(); ProcessAudio(8);
                 for (UINT submitted = 0; submitted < 2; ++submitted)
                 {
@@ -899,23 +1023,25 @@ namespace recorder::host
                         if (now < due) break;
                         Require(SchedulingAllowed(now, due), Reason::SchedulerLate);
                     }
-                    if (!video_.CanAcceptInput()) break;
+                    if (!(config_.losslessVideo ? losslessVideo_.CanAcceptInput() : video_.CanAcceptInput())) break;
                     diagnosticStage_ = "video_submit";
-                    const auto status = video_.TrySubmit(nextFrame_, pts, *this);
+                    const auto status = config_.losslessVideo ? losslessVideo_.TrySubmit(nextFrame_, pts, *this) :
+                        video_.TrySubmit(nextFrame_, pts, *this);
                     diagnosticStage_ = "video_submit";
-                    Require(status != encoder::SubmitResult::Failed, failed_ ? reason_ : VideoReason(video_.Result().hr), video_.Result().hr);
+                    Require(status != encoder::SubmitResult::Failed, failed_ ? reason_ : VideoReason(VideoError()), VideoError());
                     if (status == encoder::SubmitResult::WouldBlock) break;
                     Require(nextFrame_ != (std::numeric_limits<UINT>::max)(), Reason::EncoderFailed);
                     ++nextFrame_;
                     ProcessAudio(8); InitializeSpool();
                 }
                 diagnosticStage_ = "video_pump";
-                if (!video_.Pump(0)) throw Failure{ failed_ ? reason_ : VideoReason(video_.Result().hr), video_.Result().hr };
+                if (!PumpVideo()) throw Failure{ failed_ ? reason_ : VideoReason(VideoError()), VideoError() };
                 InitializeSpool(); ProcessAudio(8); CheckReadiness();
                 diagnosticStage_ = "startup_readiness";
                 Require(ready_ || GetTickCount64() - began_ < 12000, Reason::CaptureReconnecting);
                 diagnosticStage_ = "spool_health";
                 Require(!spool_.Result().poisoned, Reason::StorageFailed);
+                UpdateLosslessBuffer();
                 shared_.progress.store(GetTickCount64());
                 return true;
             }
@@ -948,7 +1074,21 @@ namespace recorder::host
                 Require(DestinationMatches(config_.spoolDirectory, command.destination, command.clipId), Reason::ProtocolError);
                 auto work = std::make_unique<SaveWork>();
                 diagnosticStage_ = "save_retain";
-                Require(spool_.Retain(static_cast<LONGLONG>(config_.durationSeconds) * 10000000, work->snapshot), Reason::NoKeyframe);
+                if (config_.losslessVideo)
+                {
+                    spool::AvailablePlan plan;
+                    const bool retained = spool_.RetainAvailable(static_cast<LONGLONG>(config_.durationSeconds) * 10000000,
+                        { losslessStorage_.videoBytes, spool::MaximumRetainedAudioBytes }, work->snapshot, plan);
+                    Require(retained, Reason::NoKeyframe, spool_.Result().hr);
+                    retainedAttempt = true; work->sizeLimited = plan.sizeLimited;
+                    diagnosticStage_ = "save_storage_preflight";
+                    std::uint64_t required = 0;
+                    Require(BuildLosslessSaveRequirement(losslessStorage_, spool_.Result().accountedFileBytes,
+                        plan.videoPayloadBytes, plan.audioPayloadBytes, required), Reason::LosslessStorageLow);
+                    Require(AvailableSpoolSpace(config_.spoolDirectory) >= required,
+                        Reason::LosslessStorageLow, HRESULT_FROM_WIN32(ERROR_DISK_FULL));
+                }
+                else Require(spool_.Retain(static_cast<LONGLONG>(config_.durationSeconds) * 10000000, work->snapshot), Reason::NoKeyframe);
                 retainedAttempt = true;
                 const std::wstring filename = std::wstring(command.clipId.begin(), command.clipId.end()) + L".mp4";
                 diagnosticStage_ = "save_create";
@@ -988,7 +1128,12 @@ namespace recorder::host
                 file = nullptr; save_ = std::move(work);
                 return true;
             }
-            catch (const Failure& value) { RememberFailure(value.reason, value.hr); reason_ = value.reason; }
+            catch (const Failure& value)
+            {
+                RememberFailure(value.reason, value.hr); reason_ = value.reason;
+                if (value.reason == Reason::LosslessStorageLow ||
+                    (config_.losslessVideo && value.reason == Reason::StorageFailed)) failed_ = true;
+            }
             catch (...) { RememberFailure(Reason::StorageFailed, E_FAIL); reason_ = Reason::StorageFailed; }
             EmitFailureDiagnostic(reason_, E_FAIL, "save_begin");
             preserveBuffer_ |= retainedAttempt;
@@ -1012,7 +1157,8 @@ namespace recorder::host
                     (shared_.exportCancel.load() ? Reason::Cancelled : Reason::MuxFailed), std::nullopt };
             if (completed.media.completed)
                 result.media = protocol::SavedMedia{ save_->clipId, completed.fileBytes, policy_.width, policy_.height,
-                    policy_.frameRate, save_->bounds.start100ns, save_->bounds.end100ns, save_->hasAudio };
+                    policy_.frameRate, save_->bounds.start100ns, save_->bounds.end100ns, save_->hasAudio,
+                    config_.losslessVideo, save_->sizeLimited };
             save_.reset(); shared_.saving.store(0);
             return true;
         }
@@ -1064,11 +1210,17 @@ namespace recorder::host
                         pendingSlice_ = {}; pendingPcm_.reset();
                     }
                     if (audioInitialized_) Require(audioEncoder_.Drain(), Reason::AudioFailed);
-                    Require(video_.Drain(), Reason::EncoderFailed);
+                    Require(config_.losslessVideo ? losslessVideo_.Drain() : video_.Drain(), Reason::EncoderFailed);
                 }
                 catch (...) { okay = false; }
             }
-            cleanupOkay = SUCCEEDED(video_.Close()) && cleanupOkay;
+            const HRESULT videoClose = config_.losslessVideo ? losslessVideo_.Close() : video_.Close();
+            if (config_.losslessVideo && FAILED(videoClose))
+            {
+                EmitFailureDiagnostic(Reason::CleanupFailed, videoClose, "video_cleanup");
+                TerminateSelf(); // Retained driver resources belong to this disposable helper.
+            }
+            cleanupOkay = SUCCEEDED(videoClose) && cleanupOkay;
             cleanupOkay = SUCCEEDED(audioEncoder_.Close()) && cleanupOkay;
             converter_ = hdr::HdrFrameConverter{};
             pendingPcm_.reset(); pendingSlice_ = {}; bootstrap_.reset();
@@ -1093,10 +1245,11 @@ namespace recorder::host
             Require(protocol::SerializeResult(result, line), Reason::ProtocolError);
             shared.Emit(std::move(line));
         }
-        void EmitState(Shared& shared, const std::string& session, protocol::State state, Reason reason)
+        void EmitState(Shared& shared, const std::string& session, protocol::State state, Reason reason,
+            const protocol::LosslessBuffer* losslessBuffer = nullptr)
         {
             std::string line;
-            Require(protocol::SerializeState(session, state, reason, line), Reason::ProtocolError);
+            Require(protocol::SerializeState(session, state, reason, line, losslessBuffer), Reason::ProtocolError);
             shared.Emit(std::move(line));
         }
     }
@@ -1231,12 +1384,15 @@ namespace recorder::host
                 if (media)
                 {
                     if (!media->Tick()) throw Failure{ media->Error(), E_FAIL };
-                    if (media->Ready() && !media->Saving() && (!announcedReady || announcedStale != media->SourceStale()))
+                    if (media->Ready() && !media->Saving() &&
+                        (!announcedReady || announcedStale != media->SourceStale() || media->BufferStatusChanged()))
                     {
                         announcedReady = true;
                         announcedStale = media->SourceStale();
                         EmitState(*shared, config.session, protocol::State::Buffering,
-                            announcedStale ? Reason::CaptureStale : (media->HasAudio() ? Reason::None : Reason::AudioUnavailable));
+                            announcedStale ? Reason::CaptureStale : (media->HasAudio() ? Reason::None : Reason::AudioUnavailable),
+                            media->LosslessBufferStatus());
+                        media->BufferStatusAnnounced();
                     }
                     protocol::Result result;
                     if (media->CollectSave(result, false))
@@ -1244,7 +1400,9 @@ namespace recorder::host
                         EmitResult(*shared, result);
                         announcedStale = media->SourceStale();
                         EmitState(*shared, config.session, protocol::State::Buffering,
-                            announcedStale ? Reason::CaptureStale : (media->HasAudio() ? Reason::None : Reason::AudioUnavailable));
+                            announcedStale ? Reason::CaptureStale : (media->HasAudio() ? Reason::None : Reason::AudioUnavailable),
+                            media->LosslessBufferStatus());
+                        media->BufferStatusAnnounced();
                     }
                 }
                 shared->progress.store(GetTickCount64());

@@ -85,6 +85,12 @@ float2 PSUV(float4 position : SV_Position) : SV_Target
     return float2(128 + 112 * (rgb.b - y) / 0.9278,
         128 + 112 * (rgb.r - y) / 0.7874) / 255;
 }
+uint4 PSFullColor(float4 position : SV_Position) : SV_Target
+{
+    uint3 rgb = (uint3)floor(saturate(CodeRgb(position.xy)) * 255 + 0.5);
+    // AYUV view order is V,U,Y,A; identity GBR requires Y=G,U=B,V=R.
+    return uint4(rgb.r, rgb.b, rgb.g, 255);
+}
 )hlsl";
         ComPtr<ID3DBlob> Compile(const char* entry, const char* profile)
         {
@@ -134,6 +140,13 @@ float2 PSUV(float4 position : SV_Position) : SV_Target
         const D3D11_TEXTURE2D_DESC& output, UINT width, UINT height,
         const conversion::OutputConfiguration& configuration, SourceEncoding encoding) noexcept
     {
+        return ValidateSurfaces(input, output, width, height, configuration, encoding, OutputEncoding::Bt709Nv12);
+    }
+
+    const char* ValidateSurfaces(const D3D11_TEXTURE2D_DESC& input,
+        const D3D11_TEXTURE2D_DESC& output, UINT width, UINT height,
+        const conversion::OutputConfiguration& configuration, SourceEncoding encoding, OutputEncoding outputEncoding) noexcept
+    {
         if (const char* reason = conversion::ValidateOutputConfiguration(configuration)) return reason;
         if (encoding != SourceEncoding::LinearScRgbFp16 && encoding != SourceEncoding::SrgbBgra8)
             return "source_color_encoding_unknown";
@@ -142,7 +155,10 @@ float2 PSUV(float4 position : SV_Position) : SV_Target
             input.MipLevels != 1 || input.ArraySize != 1 || input.SampleDesc.Count != 1 || input.SampleDesc.Quality != 0 ||
             input.Usage != D3D11_USAGE_DEFAULT || input.CPUAccessFlags != 0 || !(input.BindFlags & D3D11_BIND_SHADER_RESOURCE))
             return "source_surface_incompatible";
-        if (output.Format != DXGI_FORMAT_NV12 || output.Width != configuration.width || output.Height != configuration.height ||
+        if (outputEncoding != OutputEncoding::Bt709Nv12 && outputEncoding != OutputEncoding::PreparedRgbAyuv)
+            return "output_color_encoding_unknown";
+        const auto outputFormat = outputEncoding == OutputEncoding::Bt709Nv12 ? DXGI_FORMAT_NV12 : DXGI_FORMAT_AYUV;
+        if (output.Format != outputFormat || output.Width != configuration.width || output.Height != configuration.height ||
             output.MipLevels != 1 || output.ArraySize != 1 || output.SampleDesc.Count != 1 || output.SampleDesc.Quality != 0 ||
             output.Usage != D3D11_USAGE_DEFAULT || output.CPUAccessFlags != 0 || !(output.BindFlags & D3D11_BIND_RENDER_TARGET))
             return "destination_surface_incompatible";
@@ -159,11 +175,20 @@ float2 PSUV(float4 position : SV_Position) : SV_Target
         SourceEncoding encoding, float referenceWhiteNits,
         const conversion::OutputConfiguration& output, Evidence& evidence) noexcept
     {
+        return Initialize(device, width, height, encoding, referenceWhiteNits, output, OutputEncoding::Bt709Nv12, evidence);
+    }
+
+    bool HdrFrameConverter::Initialize(ID3D11Device* device, UINT width, UINT height,
+        SourceEncoding encoding, float referenceWhiteNits,
+        const conversion::OutputConfiguration& output, OutputEncoding outputEncoding, Evidence& evidence) noexcept
+    {
         try
         {
             if (const char* reason = ValidateConfiguration(width, height, encoding, referenceWhiteNits, output))
                 throw Failure{ reason, E_INVALIDARG };
             Require(device && !device_, "invalid_converter_initialization");
+            Require(outputEncoding == OutputEncoding::Bt709Nv12 || outputEncoding == OutputEncoding::PreparedRgbAyuv,
+                "output_color_encoding_unknown");
             Require(device->GetFeatureLevel() >= D3D_FEATURE_LEVEL_11_0, "feature_level_11_required");
             ComPtr<IDXGIDevice> dxgiDevice;
             Check(device->QueryInterface(IID_PPV_ARGS(&dxgiDevice)), "device_dxgi_query_failed");
@@ -179,13 +204,24 @@ float2 PSUV(float4 position : SV_Position) : SV_Target
             sourceWidth_ = width; sourceHeight_ = height;
             encoding_ = encoding;
             output_ = output;
+            outputEncoding_ = outputEncoding;
             evidence.output = output_;
+            evidence.outputEncoding = outputEncoding_;
             const auto vertexCode = Compile("VSMain", "vs_5_0");
-            const auto lumaCode = Compile("PSY", "ps_5_0");
-            const auto chromaCode = Compile("PSUV", "ps_5_0");
             Check(device_->CreateVertexShader(vertexCode->GetBufferPointer(), vertexCode->GetBufferSize(), nullptr, &vertex_), "vertex_shader_creation_failed");
-            Check(device_->CreatePixelShader(lumaCode->GetBufferPointer(), lumaCode->GetBufferSize(), nullptr, &luma_), "luma_shader_creation_failed");
-            Check(device_->CreatePixelShader(chromaCode->GetBufferPointer(), chromaCode->GetBufferSize(), nullptr, &chroma_), "chroma_shader_creation_failed");
+            if (outputEncoding_ == OutputEncoding::Bt709Nv12)
+            {
+                const auto lumaCode = Compile("PSY", "ps_5_0");
+                const auto chromaCode = Compile("PSUV", "ps_5_0");
+                Check(device_->CreatePixelShader(lumaCode->GetBufferPointer(), lumaCode->GetBufferSize(), nullptr, &luma_), "luma_shader_creation_failed");
+                Check(device_->CreatePixelShader(chromaCode->GetBufferPointer(), chromaCode->GetBufferSize(), nullptr, &chroma_), "chroma_shader_creation_failed");
+            }
+            else
+            {
+                const auto fullColorCode = Compile("PSFullColor", "ps_5_0");
+                Check(device_->CreatePixelShader(fullColorCode->GetBufferPointer(), fullColorCode->GetBufferSize(), nullptr, &fullColor_),
+                    "full_color_shader_creation_failed");
+            }
             evidence.shadersCreated = true;
             const bool sdr = encoding_ == SourceEncoding::SrgbBgra8;
             const float values[]{ static_cast<float>(output_.width), static_cast<float>(output_.height),
@@ -230,7 +266,7 @@ float2 PSUV(float4 position : SV_Position) : SV_Target
     {
         try
         {
-            Require(source && destination && device_ && context_ && chroma_, "invalid_conversion_arguments");
+            Require(source && destination && device_ && context_ && (chroma_ || fullColor_), "invalid_conversion_arguments");
             Require(!SameIdentity(source, destination), "aliased_conversion_surfaces");
             ComPtr<ID3D11Device> inputDevice, outputDevice;
             source->GetDevice(&inputDevice); destination->GetDevice(&outputDevice);
@@ -238,18 +274,22 @@ float2 PSUV(float4 position : SV_Position) : SV_Target
                 SameIdentity(outputDevice.Get(), device_.Get()), "cross_device_conversion_refused");
             D3D11_TEXTURE2D_DESC input{}, output{};
             source->GetDesc(&input); destination->GetDesc(&output);
-            if (const char* reason = ValidateSurfaces(input, output, sourceWidth_, sourceHeight_, output_, encoding_))
+            if (const char* reason = ValidateSurfaces(input, output, sourceWidth_, sourceHeight_, output_, encoding_, outputEncoding_))
                 throw Failure{ reason, E_INVALIDARG };
             Check(device_->GetDeviceRemovedReason(), "d3d11_device_removed");
             ComPtr<ID3D11ShaderResourceView> sourceView;
             Check(device_->CreateShaderResourceView(source, nullptr, &sourceView), "hdr_source_view_failed");
             D3D11_RENDER_TARGET_VIEW_DESC1 view{};
             view.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-            view.Format = DXGI_FORMAT_R8_UNORM;
+            view.Format = outputEncoding_ == OutputEncoding::Bt709Nv12 ? DXGI_FORMAT_R8_UNORM : DXGI_FORMAT_R8G8B8A8_UINT;
             ComPtr<ID3D11RenderTargetView1> yView, uvView;
-            Check(device_->CreateRenderTargetView1(destination, &view, &yView), "nv12_luma_view_failed");
-            view.Format = DXGI_FORMAT_R8G8_UNORM; view.Texture2D.PlaneSlice = 1;
-            Check(device_->CreateRenderTargetView1(destination, &view, &uvView), "nv12_chroma_view_failed");
+            Check(device_->CreateRenderTargetView1(destination, &view, &yView), outputEncoding_ == OutputEncoding::Bt709Nv12
+                ? "nv12_luma_view_failed" : "full_color_view_failed");
+            if (outputEncoding_ == OutputEncoding::Bt709Nv12)
+            {
+                view.Format = DXGI_FORMAT_R8G8_UNORM; view.Texture2D.PlaneSlice = 1;
+                Check(device_->CreateRenderTargetView1(destination, &view, &uvView), "nv12_chroma_view_failed");
+            }
             evidence.planeViewsCreated = true;
             context_->IASetInputLayout(nullptr);
             context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -268,14 +308,17 @@ float2 PSUV(float4 position : SV_Position) : SV_Target
             context_->RSSetViewports(1, &yViewport);
             ID3D11RenderTargetView* yTarget[]{ yView.Get() };
             context_->OMSetRenderTargets(1, yTarget, nullptr);
-            context_->PSSetShader(luma_.Get(), nullptr, 0);
+            context_->PSSetShader(outputEncoding_ == OutputEncoding::Bt709Nv12 ? luma_.Get() : fullColor_.Get(), nullptr, 0);
             context_->Draw(3, 0);
-            const D3D11_VIEWPORT uvViewport{ 0, 0, static_cast<float>(output_.width / 2), static_cast<float>(output_.height / 2), 0, 1 };
-            context_->RSSetViewports(1, &uvViewport);
-            ID3D11RenderTargetView* uvTarget[]{ uvView.Get() };
-            context_->OMSetRenderTargets(1, uvTarget, nullptr);
-            context_->PSSetShader(chroma_.Get(), nullptr, 0);
-            context_->Draw(3, 0);
+            if (outputEncoding_ == OutputEncoding::Bt709Nv12)
+            {
+                const D3D11_VIEWPORT uvViewport{ 0, 0, static_cast<float>(output_.width / 2), static_cast<float>(output_.height / 2), 0, 1 };
+                context_->RSSetViewports(1, &uvViewport);
+                ID3D11RenderTargetView* uvTarget[]{ uvView.Get() };
+                context_->OMSetRenderTargets(1, uvTarget, nullptr);
+                context_->PSSetShader(chroma_.Get(), nullptr, 0);
+                context_->Draw(3, 0);
+            }
             ID3D11ShaderResourceView* noInput[]{ nullptr };
             context_->PSSetShaderResources(0, 1, noInput);
             context_->OMSetRenderTargets(0, nullptr, nullptr);

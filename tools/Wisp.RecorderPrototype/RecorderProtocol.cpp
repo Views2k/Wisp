@@ -183,7 +183,7 @@ namespace recorder::protocol
             }
             std::string_view line_;
             std::size_t position_ = 0, count_ = 0;
-            std::array<Field, 12> fields_{};
+            std::array<Field, 13> fields_{};
         };
         bool Resolution(std::uint32_t height) noexcept { return height == 360 || height == 480 || height == 720 || height == 1080 || height == 1440 || height == 2160; }
         std::uint32_t U32(std::int64_t value) { Require(value > 0 && value <= (std::numeric_limits<std::uint32_t>::max)()); return static_cast<std::uint32_t>(value); }
@@ -247,7 +247,7 @@ namespace recorder::protocol
         void Common(std::string& line, std::string_view session, std::int64_t request, const char* type)
         {
             Require(Guid(session));
-            line = "{\"v\":1,\"session\":\""; AppendGuid(line, session);
+            line = "{\"v\":2,\"session\":\""; AppendGuid(line, session);
             line += "\",\"request\":"; Number(line, request);
             line += ",\"type\":\""; line += type; line += '"';
         }
@@ -262,14 +262,14 @@ namespace recorder::protocol
             if (line.back() == '\r') line.remove_suffix(1);
             Require(line.find('\r') == std::string_view::npos);
             Parser parser(line); parser.Parse();
-            Require(parser.Integer(L"v") == 1);
+            Require(parser.Integer(L"v") == 2);
             Command command;
             command.session = GuidText(parser.Text(L"session"));
             command.request = parser.Integer(L"request"); Require(command.request > 0);
             const auto& kind = parser.Text(L"command");
             if (kind == L"config")
             {
-                parser.Keys({ L"v", L"session", L"request", L"command", L"durationSeconds", L"height", L"frameRate", L"quality", L"gameAudio", L"spoolDirectory" },
+                parser.Keys({ L"v", L"session", L"request", L"command", L"durationSeconds", L"height", L"frameRate", L"quality", L"gameAudio", L"spoolDirectory", L"losslessVideo" },
                     { L"borderlessAllowed", L"systemAudio" });
                 if (parser.Has(L"borderlessAllowed")) command.borderlessAllowed = parser.Boolean(L"borderlessAllowed");
                 if (parser.Has(L"systemAudio")) command.systemAudio = parser.Boolean(L"systemAudio");
@@ -277,6 +277,7 @@ namespace recorder::protocol
                 command.durationSeconds = U32(parser.Integer(L"durationSeconds"));
                 command.height = U32(parser.Integer(L"height")); command.frameRate = U32(parser.Integer(L"frameRate"));
                 command.quality = U32(parser.Integer(L"quality")); command.gameAudio = parser.Boolean(L"gameAudio");
+                command.losslessVideo = parser.Boolean(L"losslessVideo");
                 Require(command.durationSeconds >= 30 && command.durationSeconds <= 300 && command.durationSeconds % 30 == 0 &&
                     Resolution(command.height) && (command.frameRate == 30 || command.frameRate == 60) && command.quality >= 10 && command.quality <= 100 && command.gameAudio);
                 command.spoolDirectory = parser.Text(L"spoolDirectory");
@@ -331,6 +332,7 @@ namespace recorder::protocol
         case Reason::BufferFull: return "buffer_full"; case Reason::NoKeyframe: return "no_keyframe";
         case Reason::NotReady: return "not_ready"; case Reason::SaveInProgress: return "save_in_progress";
         case Reason::StorageFailed: return "storage_failed"; case Reason::MuxFailed: return "mux_failed";
+        case Reason::LosslessStorageLow: return "lossless_storage_low";
         case Reason::ProtocolError: return "protocol_error"; case Reason::Cancelled: return "cancelled";
         case Reason::CleanupFailed: return "cleanup_failed";
         case Reason::Stopped: return "stopped"; case Reason::ParentClosed: return "parent_closed";
@@ -360,6 +362,7 @@ namespace recorder::protocol
             if (result.media)
             {
                 const auto& media = *result.media;
+                Require(!media.sizeLimited || media.losslessVideo);
                 Require(result.ok && Guid(media.clipId) && media.fileBytes > 0 && media.fileBytes <= MaximumMediaBytes &&
                     Resolution(media.height) && media.width == (media.height == 480 ? 854u : media.height * 16 / 9) &&
                     (media.frameRate == 30 || media.frameRate == 60) && media.start100ns >= 0 && media.end100ns > media.start100ns &&
@@ -376,20 +379,36 @@ namespace recorder::protocol
                 line += ",\"frameRate\":"; Number(line, media.frameRate); line += ",\"start100ns\":"; Number(line, media.start100ns);
                 line += ",\"end100ns\":"; Number(line, media.end100ns);
                 line += media.hasAudio ? ",\"hasAudio\":true" : ",\"hasAudio\":false";
+                line += media.losslessVideo ? ",\"losslessVideo\":true" : ",\"losslessVideo\":false";
+                line += media.sizeLimited ? ",\"sizeLimited\":true" : ",\"sizeLimited\":false";
             }
             line += '}'; Require(line.size() <= MaximumLineBytes); return true;
         }
         catch (...) { line.clear(); return false; }
     }
-    bool SerializeState(std::string_view session, State state, Reason reason, std::string& line) noexcept
+    bool SerializeState(std::string_view session, State state, Reason reason, std::string& line,
+        const LosslessBuffer* losslessBuffer) noexcept
     {
         line.clear();
         try
         {
             const auto* stateName = Name(state); const auto* reasonName = Name(reason);
             Require(stateName != nullptr && reasonName != nullptr);
+            if (losslessBuffer)
+                Require(state == State::Buffering && losslessBuffer->duration100ns > 0 &&
+                    losslessBuffer->duration100ns <= 3000000000ll && losslessBuffer->payloadBytes > 0 &&
+                    losslessBuffer->payloadBytes <= losslessBuffer->budgetBytes &&
+                    losslessBuffer->budgetBytes <= 12ull * 1024 * 1024 * 1024 + 16ull * 1024 * 1024);
             Common(line, session, 0, "state");
-            line += ",\"state\":\""; line += stateName; line += "\",\"reason\":\""; line += reasonName; line += "\"}";
+            line += ",\"state\":\""; line += stateName; line += "\",\"reason\":\""; line += reasonName; line += '"';
+            if (losslessBuffer)
+            {
+                line += ",\"losslessBuffer\":{\"duration100ns\":"; Number(line, losslessBuffer->duration100ns);
+                line += ",\"payloadBytes\":"; Number(line, losslessBuffer->payloadBytes);
+                line += ",\"budgetBytes\":"; Number(line, losslessBuffer->budgetBytes);
+                line += losslessBuffer->sizeLimited ? ",\"sizeLimited\":true}" : ",\"sizeLimited\":false}";
+            }
+            line += '}';
             Require(line.size() <= MaximumLineBytes); return true;
         }
         catch (...) { line.clear(); return false; }

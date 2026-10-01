@@ -20,19 +20,46 @@ namespace recorder::exporting
         void Require(bool value, const char* reason) { if (!value) throw Failure{ reason, E_INVALIDARG }; }
     }
 
+    bool IsPacketSizeSupported(bool audio, size_t bytes, VideoEncoding encoding) noexcept
+    {
+        size_t maximumVideoBytes = 0;
+        switch (encoding)
+        {
+        case VideoEncoding::H264Baseline420: maximumVideoBytes = 16u * 1024 * 1024; break;
+        case VideoEncoding::H264LosslessGbr444: maximumVideoBytes = 64u * 1024 * 1024; break;
+        default: return false;
+        }
+        return bytes > 0 && bytes <= (audio ? aac::MaximumPacketBytes : maximumVideoBytes);
+    }
+
     static const char* ValidateFormat(const VideoFormat& format) noexcept
     {
         if (format.width < 2 || format.height < 2 || format.width > 3840 || format.height > 2160 ||
             (format.width & 1) || (format.height & 1) || format.frameRate == 0 || format.frameRate > 60 ||
-            format.bitrate == 0 || format.profile != eAVEncH264VProfile_Base ||
             format.primaries != MFVideoPrimaries_BT709 || format.transfer != MFVideoTransFunc_709 ||
-            format.matrix != MFVideoTransferMatrix_BT709 || format.nominalRange != MFNominalRange_16_235 ||
             format.pixelAspectNumerator == 0 || format.pixelAspectDenominator == 0 ||
-            format.pixelAspectNumerator > 65535 || format.pixelAspectDenominator > 65535 ||
-            (format.chromaSiting != 0 && format.chromaSiting != MFVideoChromaSubsampling_MPEG2 &&
-             format.chromaSiting != (MFVideoChromaSubsampling_MPEG2 | MFVideoChromaSubsampling_ProgressiveChroma)))
+            format.pixelAspectNumerator > 65535 || format.pixelAspectDenominator > 65535)
             return "export_format_unsupported";
-        return nullptr;
+        switch (format.encoding)
+        {
+        case VideoEncoding::H264Baseline420:
+            if (format.bitrate == 0 || format.profile != eAVEncH264VProfile_Base ||
+                format.matrix != MFVideoTransferMatrix_BT709 || format.nominalRange != MFNominalRange_16_235 ||
+                (format.chromaSiting != 0 && format.chromaSiting != MFVideoChromaSubsampling_MPEG2 &&
+                 format.chromaSiting != (MFVideoChromaSubsampling_MPEG2 | MFVideoChromaSubsampling_ProgressiveChroma)))
+                return "export_format_unsupported";
+            return nullptr;
+        case VideoEncoding::H264LosslessGbr444:
+            // Matrix enum6 is MF's identity mapping; the H264 VUI uses matrix0.
+            // No chroma subsampling or nominal rate target belongs to this mode.
+            if (format.bitrate != 0 || format.profile != eAVEncH264VProfile_444 ||
+                format.matrix != MFVideoTransferMatrix_Identity || format.nominalRange != MFNominalRange_0_255 ||
+                format.chromaSiting != 0)
+                return "export_format_unsupported";
+            return nullptr;
+        default:
+            return "export_format_unsupported";
+        }
     }
 
     const char* ValidateAudio(const AudioTrack& audio, const buffer::Clip& clip) noexcept
@@ -79,7 +106,7 @@ namespace recorder::exporting
         {
             if (packet.timestamp100ns != next || packet.duration100ns <= 0 ||
                 packet.timestamp100ns > (std::numeric_limits<buffer::MediaTime>::max)() - packet.duration100ns ||
-                !packet.payload || packet.payload->Bytes().empty() || packet.payload->Bytes().size() > 16 * 1024 * 1024)
+                !packet.payload || !IsPacketSizeSupported(false, packet.payload->Bytes().size(), format.encoding))
                 return "export_packet_invalid";
             next += packet.duration100ns;
         }
@@ -201,7 +228,8 @@ namespace recorder::exporting
                 format.pixelAspectNumerator, format.pixelAspectDenominator), "export_type_attribute_failed");
             Check(type->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive), "export_type_attribute_failed");
             Check(type->SetUINT32(MF_MT_MPEG2_PROFILE, format.profile), "export_type_attribute_failed");
-            Check(type->SetUINT32(MF_MT_AVG_BITRATE, format.bitrate), "export_type_attribute_failed");
+            if (format.bitrate)
+                Check(type->SetUINT32(MF_MT_AVG_BITRATE, format.bitrate), "export_type_attribute_failed");
             Check(type->SetUINT32(MF_MT_VIDEO_PRIMARIES, format.primaries), "export_type_attribute_failed");
             Check(type->SetUINT32(MF_MT_TRANSFER_FUNCTION, format.transfer), "export_type_attribute_failed");
             Check(type->SetUINT32(MF_MT_YUV_MATRIX, format.matrix), "export_type_attribute_failed");
@@ -269,8 +297,7 @@ namespace recorder::exporting
                         "export_packet_count_or_end_mismatch");
                     return false;
                 }
-                Require(count < expected && packet.data && packet.bytes != 0 &&
-                    packet.bytes <= (isAudio ? aac::MaximumPacketBytes : 16u * 1024 * 1024) &&
+                Require(count < expected && packet.data && IsPacketSizeSupported(isAudio, packet.bytes, format.encoding) &&
                     packet.timestamp100ns == next && packet.duration100ns > 0 &&
                     packet.timestamp100ns <= (std::numeric_limits<LONGLONG>::max)() - packet.duration100ns,
                     "export_packet_invalid");

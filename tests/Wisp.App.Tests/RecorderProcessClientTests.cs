@@ -51,6 +51,7 @@ public sealed class RecorderProcessClientTests
         Assert.False(System.IO.Directory.Exists(config.GetProperty("spoolDirectory").GetString()));
         Assert.True(config.GetProperty("gameAudio").GetBoolean());
         Assert.False(config.GetProperty("systemAudio").GetBoolean());
+        Assert.False(config.GetProperty("losslessVideo").GetBoolean());
         Assert.False(config.GetProperty("borderlessAllowed").GetBoolean());
         Assert.Equal("123", child.Commands[1].GetProperty("window").GetString());
         await client.StopAsync(TestToken);
@@ -68,6 +69,31 @@ public sealed class RecorderProcessClientTests
         Assert.True(child.Commands[0].GetProperty("systemAudio").GetBoolean());
         Assert.True(child.Commands[0].GetProperty("gameAudio").GetBoolean());
         await client.StopAsync(TestToken);
+    }
+
+    [Fact]
+    public async Task LosslessChoiceIsExplicitInTheChildConfiguration()
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild();
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+        await client.OpenAsync(Recording with { LosslessVideo = true }, fixture.Directory, TestToken);
+        Assert.True(child.Commands[0].GetProperty("losslessVideo").GetBoolean());
+        await client.StopAsync(TestToken);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SavedReplyCarriesActualVideoMode(bool lossless)
+    {
+        var session = Guid.NewGuid();
+        var fields = FakeChild.Saved(session.ToString("N"), 1, Guid.NewGuid().ToString("N"), false);
+        fields["losslessVideo"] = lossless;
+        var reply = Assert.IsType<RecorderReply>(RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(fields), session));
+        Assert.Equal(lossless, reply.Media!.LosslessVideo);
+        fields.Remove("losslessVideo");
+        Assert.Throws<RecorderClientException>(() => RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(fields), session));
     }
 
     [Fact]
@@ -261,10 +287,10 @@ public sealed class RecorderProcessClientTests
     {
         var session = Guid.NewGuid();
         var fields = new Dictionary<string, object>
-        { ["v"] = 1, ["session"] = session.ToString("N"), ["request"] = 1, ["type"] = "result", ["ok"] = true, ["reason"] = "none" };
+        { ["v"] = RecorderProtocol.Version, ["session"] = session.ToString("N"), ["request"] = 1, ["type"] = "result", ["ok"] = true, ["reason"] = "none" };
         if (kind == "unknown") fields["privatePath"] = "not-allowed";
         if (kind == "wrong-session") fields["session"] = Guid.NewGuid().ToString("N");
-        if (kind == "wrong-version") fields["v"] = 2;
+        if (kind == "wrong-version") fields["v"] = 1;
         if (kind == "unknown-reason") fields["reason"] = "raw-error";
         if (kind == "wrong-state-request") { fields.Remove("ok"); fields["type"] = "state"; fields["state"] = "buffering"; }
         var json = JsonSerializer.Serialize(fields);
@@ -292,7 +318,7 @@ public sealed class RecorderProcessClientTests
     public void UnsupportedTerminalStatePairsCannotSuppressAnUnexpectedExit(string state, string reason)
     {
         var session = Guid.NewGuid();
-        var line = JsonSerializer.SerializeToUtf8Bytes(new { v = 1, session = session.ToString("N"), request = 0, type = "state", state, reason });
+        var line = JsonSerializer.SerializeToUtf8Bytes(new { v = RecorderProtocol.Version, session = session.ToString("N"), request = 0, type = "state", state, reason });
         var error = Assert.Throws<RecorderClientException>(() => RecorderProtocol.Decode(line, session));
         Assert.Equal("protocol_error", error.Reason);
     }
@@ -338,7 +364,7 @@ public sealed class RecorderProcessClientTests
         internal void CompleteOutput() => _output.Complete();
         internal void Terminal(Guid session, string state, string reason)
         {
-            _output.Push(JsonSerializer.SerializeToUtf8Bytes(new { v = 1, session = session.ToString("N"), request = 0, type = "state", state, reason }).Append((byte)10).ToArray());
+            _output.Push(JsonSerializer.SerializeToUtf8Bytes(new { v = RecorderProtocol.Version, session = session.ToString("N"), request = 0, type = "state", state, reason }).Append((byte)10).ToArray());
             Finish();
         }
         private void Receive(byte[] bytes)
@@ -351,12 +377,12 @@ public sealed class RecorderProcessClientTests
             var session = command.GetProperty("session").GetString()!;
             if (name == "save") File.WriteAllBytes(command.GetProperty("destination").GetString()!, new byte[1024]);
             var reply = name == "save" ? Saved(session, request, command.GetProperty("clipId").GetString()!, SilentSave) :
-                new Dictionary<string, object> { ["v"] = 1, ["session"] = session, ["request"] = request, ["type"] = "result", ["ok"] = true, ["reason"] = "none" };
+                new Dictionary<string, object> { ["v"] = RecorderProtocol.Version, ["session"] = session, ["request"] = request, ["type"] = "result", ["ok"] = true, ["reason"] = "none" };
             _output.Push(JsonSerializer.SerializeToUtf8Bytes(reply).Append((byte)10).ToArray());
         }
         internal static Dictionary<string, object> Saved(string session, long request, string id, bool silent) => new()
         {
-            ["v"] = 1,
+            ["v"] = RecorderProtocol.Version,
             ["session"] = session,
             ["request"] = request,
             ["type"] = "result",
@@ -369,7 +395,9 @@ public sealed class RecorderProcessClientTests
             ["frameRate"] = 60,
             ["start100ns"] = 10_000_000L,
             ["end100ns"] = 20_000_000L,
-            ["hasAudio"] = !silent
+            ["hasAudio"] = !silent,
+            ["losslessVideo"] = false,
+            ["sizeLimited"] = false
         };
         public Task WaitForExitAsync(CancellationToken cancellationToken)
         {

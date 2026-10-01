@@ -101,9 +101,20 @@ namespace recorder::spool
     {
         int tests = 0;
         Limits limits{};
+        Expect(ValidateRetentionBudget({}) == nullptr, tests);
+        Expect(ValidateRetentionBudget({1, 1}) == nullptr, tests);
+        for (std::uint64_t bytes : {0ull, MaximumLosslessVideoBytes + 1, (std::numeric_limits<std::uint64_t>::max)()})
+            Expect(ValidateRetentionBudget({bytes, 1}) != nullptr, tests);
+        for (std::uint64_t bytes : {0ull, MaximumRetainedAudioBytes + 1, (std::numeric_limits<std::uint64_t>::max)()})
+            Expect(ValidateRetentionBudget({1, bytes}) != nullptr, tests);
         Expect(ValidateLimits(limits) != nullptr, tests);
         limits.maximumFileBytes = 4096;
         Expect(ValidateLimits(limits) == nullptr, tests);
+        Expect(limits.maximumPacketBytes == StandardMaximumPacketBytes && StandardMaximumPacketBytes == 16u * 1024 * 1024, tests);
+        for (std::uint32_t bytes : {1u, StandardMaximumPacketBytes + 1, MaximumPacketBytes})
+        { auto changed = limits; changed.maximumPacketBytes = bytes; Expect(ValidateLimits(changed) == nullptr, tests); }
+        for (std::uint32_t bytes : {0u, MaximumPacketBytes + 1})
+        { auto invalid = limits; invalid.maximumPacketBytes = bytes; Expect(ValidateLimits(invalid) != nullptr, tests); }
         for (MediaTime span : { MediaTime{ 0 }, MediaTime{ -1 }, MaximumDuration + 1 })
         { auto invalid = limits; invalid.maximumDuration100ns = span; Expect(ValidateLimits(invalid) != nullptr, tests); }
         for (std::uint64_t bytes : { 0ull, 4095ull, 64ull * 1024 * 1024 * 1024 + 1 })
@@ -135,6 +146,9 @@ namespace recorder::spool
         Expect(!inert.AppendVideo(0, Second, true, byte.data(), byte.size()), tests);
         std::shared_ptr<const Snapshot> snapshot;
         Expect(!inert.Retain(Second, snapshot), tests);
+        AvailablePlan plan;
+        Expect(!inert.PlanAvailable(Second, {}, plan) && plan.bounds.videoPackets == 0, tests);
+        Expect(!inert.RetainAvailable(Second, {}, snapshot, plan) && !snapshot, tests);
         HANDLE file = nullptr;
         Expect(FAILED(inert.CreateNewExport(exportName, file)) && !file, tests);
         Expect(SUCCEEDED(inert.Close()) && inert.Result().closed, tests);
@@ -148,11 +162,115 @@ namespace recorder::spool
         Limits limits{}; limits.maximumFileBytes = 1024 * 1024;
         std::array<std::uint8_t, 256> payload{}; payload.fill(0x5a);
         {
+            const std::vector<std::uint8_t> large(StandardMaximumPacketBytes + 1u, 0x5a);
+            auto largeLimits = limits; largeLimits.maximumFileBytes = 64ull * 1024 * 1024;
+            EncodedSpool standard;
+            Expect(standard.Initialize(Session(parent), largeLimits, Format()), tests);
+            Expect(!standard.AppendVideo(0, Second, true, large.data(), large.size()) &&
+                std::strcmp(standard.Result().reason, "spool_packet_size_invalid") == 0, tests);
+            Expect(standard.Result().committedPackets == 0 && SUCCEEDED(standard.Close()), tests);
+            largeLimits.maximumPacketBytes = MaximumPacketBytes;
+            EncodedSpool lossless;
+            Expect(lossless.Initialize(Session(parent), largeLimits, Format()), tests);
+            Expect(lossless.AppendVideo(0, Second, true, large.data(), large.size()), tests);
+            std::shared_ptr<const Snapshot> snapshot; AvailablePlan plan;
+            Expect(lossless.RetainAvailable(30 * Second, {}, snapshot, plan) && plan.videoPayloadBytes == large.size(), tests);
+            std::unique_ptr<PacketCursor> cursor; Packet packet;
+            Expect(SUCCEEDED(snapshot->OpenCursor(Track::Video, cursor)), tests);
+            Expect(cursor->Next(packet) == ReadResult::Packet && packet.bytes == large, tests);
+            Expect(cursor->Next(packet) == ReadResult::End && SUCCEEDED(cursor->Close()), tests);
+            cursor.reset(); snapshot.reset(); Expect(SUCCEEDED(lossless.Close()), tests);
+        }
+        {
             const auto path = Session(parent);
             Expect(SUCCEEDED(PreflightSessionParent(path)), tests);
             Expect(GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES && GetLastError() == ERROR_FILE_NOT_FOUND, tests);
             Expect(PreflightSessionParent(L"relative\\.wisp-recorder-00000000000000000000000000000000") == E_INVALIDARG, tests);
             Expect(FAILED(PreflightSessionParent(Session(parent + L"\\missing-" + GuidName()))), tests);
+        }
+        {
+            EncodedSpool spool;
+            Expect(spool.Initialize(Session(parent), limits, Format()), tests);
+            AvailablePlan plan;
+            Expect(!spool.PlanAvailable(30 * Second, {}, plan) && plan.bounds.videoPackets == 0 && !plan.sizeLimited, tests);
+            constexpr MediaTime frame = Second / 60;
+            Expect(spool.AppendVideo(0, frame, true, payload.data(), payload.size()), tests);
+            const auto before = spool.Result();
+            Expect(spool.PlanAvailable(30 * Second, {256, 1}, plan) && !plan.sizeLimited &&
+                plan.bounds.start100ns == 0 && plan.bounds.end100ns == frame && plan.bounds.videoPackets == 1 &&
+                plan.videoPayloadBytes == 256 && plan.audioPayloadBytes == 0, tests);
+            const auto after = spool.Result();
+            Expect(before.accountedFileBytes == after.accountedFileBytes && before.ownedFiles == after.ownedFiles &&
+                before.rollingRecords == after.rollingRecords && after.snapshotRecords == 0, tests);
+            std::shared_ptr<const Snapshot> snapshot, duplicate;
+            Expect(spool.RetainAvailable(30 * Second, {256, 1}, snapshot, plan) && !plan.sizeLimited, tests);
+            Expect(spool.PlanAvailable(30 * Second, {256, 1}, plan) && !plan.sizeLimited, tests); // Planning never takes the save's pin.
+            Expect(!spool.RetainAvailable(30 * Second, {256, 1}, duplicate, plan) && !duplicate && plan.bounds.videoPackets == 0, tests);
+            Expect(spool.AppendVideo(frame, frame + 1, false, payload.data(), payload.size()), tests);
+            Expect(!spool.PlanAvailable(30 * Second, {256, 1}, plan) &&
+                std::strcmp(spool.Result().reason, "spool_no_keyframe_within_byte_budget") == 0 && plan.videoPayloadBytes == 0, tests);
+            const MediaTime third = 2 * frame + 1;
+            Expect(spool.AppendVideo(third, frame + 1, true, payload.data(), payload.size()), tests);
+            Expect(spool.PlanAvailable(30 * Second, {256, 1}, plan) && plan.sizeLimited &&
+                plan.bounds.start100ns == third && plan.bounds.end100ns == third + frame + 1 && plan.bounds.videoPackets == 1, tests);
+            Expect(ReadAll(*snapshot, Track::Video, 0x5a, tests) == 1, tests); // The active GOP's retained prefix did not grow.
+            snapshot.reset();
+            Expect(spool.RetainAvailable(30 * Second, {256, 1}, snapshot, plan) && plan.sizeLimited &&
+                snapshot->Range().start100ns == third && snapshot->Range().videoPackets == 1, tests);
+            snapshot.reset(); Expect(SUCCEEDED(spool.Close()), tests);
+        }
+        for (const MediaTime audioStart : { MediaTime{207}, MediaTime{213334}, MediaTime{213335} })
+        {
+            EncodedSpool spool;
+            Expect(spool.Initialize(Session(parent), limits, Format(true)), tests);
+            constexpr MediaTime frame = Second / 60;
+            Expect(spool.AppendVideo(0, frame, true, payload.data(), 1), tests);
+            Expect(spool.AppendVideo(frame, frame + 1, false, payload.data(), 1), tests);
+            Expect(spool.AppendAudio(audioStart, 213333, payload.data(), 1), tests);
+            Expect(spool.AppendAudio(audioStart + 213333, 213334, payload.data(), 1), tests);
+            AvailablePlan plan;
+            std::shared_ptr<const Snapshot> snapshot;
+            Expect(!spool.Retain(30 * Second, snapshot) && !snapshot, tests); // Standard selection is unchanged.
+            if (audioStart <= 213334)
+            {
+                Expect(spool.PlanAvailable(30 * Second, {}, plan) && !plan.sizeLimited &&
+                    plan.bounds.start100ns == 0 && plan.bounds.end100ns == 2 * frame + 1 &&
+                    plan.bounds.audioStart100ns == audioStart && plan.bounds.videoPackets == 2, tests);
+                Expect(spool.RetainAvailable(30 * Second, {}, snapshot, plan) &&
+                    snapshot->Range().start100ns == 0 && snapshot->Range().audioStart100ns == audioStart, tests);
+                Expect(ReadAll(*snapshot, Track::Video, 0x5a, tests) == 2, tests);
+                Expect(ReadAll(*snapshot, Track::Audio, 0x5a, tests) == (audioStart == 207 ? 2u : 1u), tests);
+                snapshot.reset();
+            }
+            else
+            {
+                Expect(!spool.PlanAvailable(30 * Second, {}, plan) && plan.bounds.videoPackets == 0 &&
+                    std::strcmp(spool.Result().reason, "spool_no_keyframe_in_requested_span") == 0, tests);
+                Expect(!spool.RetainAvailable(30 * Second, {}, snapshot, plan) && !snapshot &&
+                    plan.bounds.videoPackets == 0, tests);
+            }
+            Expect(SUCCEEDED(spool.Close()), tests);
+        }
+        {
+            EncodedSpool spool;
+            Expect(spool.Initialize(Session(parent), limits, Format()), tests);
+            for (int frame = 0; frame < 5; ++frame)
+                Expect(spool.AppendVideo(frame * Second, Second, frame % 2 == 0, payload.data(), payload.size()), tests);
+            AvailablePlan plan;
+            Expect(spool.PlanAvailable(30 * Second, {1280, 1}, plan) && !plan.sizeLimited && plan.videoPayloadBytes == 1280, tests);
+            Expect(spool.PlanAvailable(4 * Second, {1280, 1}, plan) && !plan.sizeLimited &&
+                plan.bounds.start100ns == 2 * Second && plan.bounds.end100ns == 5 * Second, tests); // IDR alignment alone is not size limiting.
+            Expect(!spool.PlanAvailable(30 * Second, {255, 1}, plan) && plan.bounds.videoPackets == 0, tests);
+            Expect(!spool.PlanAvailable(0, {}, plan) && plan.bounds.videoPackets == 0, tests);
+            Expect(!spool.PlanAvailable(30 * Second, {0, 1}, plan) && plan.bounds.videoPackets == 0, tests);
+            std::shared_ptr<const Snapshot> snapshot;
+            Expect(spool.RetainAvailable(30 * Second, {768, 1}, snapshot, plan) && plan.sizeLimited &&
+                plan.videoPayloadBytes == 768 && plan.bounds.start100ns == 2 * Second && plan.bounds.end100ns == 5 * Second &&
+                plan.bounds.videoPackets == 3, tests);
+            Expect(ReadAll(*snapshot, Track::Video, 0x5a, tests) == 3, tests);
+            snapshot.reset();
+            Expect(spool.Retain(30 * Second, snapshot) && snapshot->Range().videoPackets == 5, tests); // Explicit lossless planning never evicts source history.
+            snapshot.reset(); Expect(SUCCEEDED(spool.Close()), tests);
         }
         {
             EncodedSpool spool;
@@ -212,6 +330,14 @@ namespace recorder::spool
             Expect(spool.Result().accountedFileBytes <= 4096 && spool.Result().ownedFiles <= constrainedLimits.maximumFiles, tests);
             Expect(!spool.Retain(30 * Second, snapshot) &&
                 std::strcmp(spool.Result().reason, "spool_requested_history_evicted_by_capacity") == 0, tests);
+            AvailablePlan plan;
+            Expect(spool.PlanAvailable(30 * Second, {}, plan) && plan.sizeLimited &&
+                plan.bounds.end100ns == 10 * Second && plan.videoPayloadBytes == payload.size(), tests);
+            Expect(spool.RetainAvailable(30 * Second, {}, snapshot, plan) && plan.sizeLimited &&
+                snapshot->Range().start100ns == plan.bounds.start100ns && snapshot->Range().videoPackets == plan.bounds.videoPackets, tests);
+            Expect(ReadAll(*snapshot, Track::Video, 0x5a, tests) == plan.bounds.videoPackets, tests);
+            snapshot.reset();
+            Expect(spool.PlanAvailable(Second, {}, plan) && !plan.sizeLimited && plan.bounds.start100ns == 9 * Second, tests);
             Expect(SUCCEEDED(spool.Close()), tests);
         }
         {
@@ -245,6 +371,16 @@ namespace recorder::spool
                 snapshot->Range().audioEnd100ns >= snapshot->Range().end100ns &&
                 snapshot->Range().audioEnd100ns - snapshot->Range().end100ns <= 213334, tests);
             Expect(ReadAll(*snapshot, Track::Audio, 0x5a, tests) == 187, tests);
+            snapshot.reset();
+            AvailablePlan plan;
+            Expect(spool.PlanAvailable(5 * Second, {1000, 187}, plan) && !plan.sizeLimited &&
+                plan.bounds.start100ns == 6 * Second && plan.bounds.end100ns == 10 * Second && plan.audioPayloadBytes == 187, tests);
+            Expect(spool.RetainAvailable(5 * Second, {1000, 186}, snapshot, plan) && plan.sizeLimited &&
+                plan.bounds.start100ns == 8 * Second && plan.bounds.end100ns == 10 * Second &&
+                plan.videoPayloadBytes == 2 && plan.audioPayloadBytes == 94 && plan.bounds.audioPackets == 94, tests);
+            Expect(snapshot->Range().audioStart100ns == plan.bounds.audioStart100ns &&
+                snapshot->Range().audioEnd100ns == plan.bounds.audioEnd100ns, tests);
+            Expect(ReadAll(*snapshot, Track::Audio, 0x5a, tests) == 94, tests);
             snapshot.reset(); Expect(SUCCEEDED(spool.Close()), tests);
         }
         {

@@ -7,7 +7,8 @@ using System.Text.Json;
 namespace Wisp.App.Clips;
 
 internal sealed record RecorderTarget(uint ProcessId, ulong Window, ulong CreationFileTime);
-internal sealed record RecorderStateUpdate(string State, string Reason);
+internal sealed record RecorderLosslessBuffer(long Duration100ns, long PayloadBytes, long BudgetBytes, bool SizeLimited);
+internal sealed record RecorderStateUpdate(string State, string Reason, RecorderLosslessBuffer? LosslessBuffer = null);
 internal sealed record RecorderReply(long Request, bool Ok, string Reason, Guid? ClipId = null, FinalizedClipMedia? Media = null);
 internal sealed class RecorderClientException(string reason) : IOException("The clip recorder could not complete the operation.")
 {
@@ -18,6 +19,7 @@ internal sealed class RecorderClientException(string reason) : IOException("The 
 
 internal static class RecorderProtocol
 {
+    internal const int Version = 2;
     internal const int MaximumLineBytes = 16 * 1024;
     internal const int MaximumStderrBytes = 16 * 1024;
     internal static readonly UTF8Encoding Utf8 = new(false, true);
@@ -27,12 +29,12 @@ internal static class RecorderProtocol
         "window_resized", "focus_lost", "fullscreen_required", "unsupported_os", "unsupported_gpu", "unsupported_format", "capture_failed",
         "encoder_failed", "audio_failed", "audio_capture_failed", "audio_unavailable", "buffer_full", "no_keyframe",
         "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error", "cancelled", "stopped", "parent_closed",
-        "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed"
+        "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed", "lossless_storage_low"
     };
     private static readonly HashSet<string> States = new(StringComparer.Ordinal) { "waiting", "reconnecting", "paused", "buffering", "saving", "stopped", "error" };
 
     internal static Dictionary<string, object> Command(Guid session, long request, string command) => new()
-    { ["v"] = 1, ["session"] = session.ToString("N"), ["request"] = request, ["command"] = command };
+    { ["v"] = Version, ["session"] = session.ToString("N"), ["request"] = request, ["command"] = command };
 
     internal static byte[] Encode(Dictionary<string, object> command)
     {
@@ -51,7 +53,7 @@ internal static class RecorderProtocol
             if (root.ValueKind != JsonValueKind.Object) throw new FormatException();
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in root.EnumerateObject()) if (!names.Add(property.Name)) throw new FormatException();
-            if (root.GetProperty("v").GetInt32() != 1 || !Guid.TryParseExact(root.GetProperty("session").GetString(), "N", out var actual) || actual != session)
+            if (root.GetProperty("v").GetInt32() != Version || !Guid.TryParseExact(root.GetProperty("session").GetString(), "N", out var actual) || actual != session)
                 throw new FormatException();
             var request = root.GetProperty("request").GetInt64();
             var reason = root.GetProperty("reason").GetString() ?? "";
@@ -59,13 +61,29 @@ internal static class RecorderProtocol
             var type = root.GetProperty("type").GetString();
             if (type == "state")
             {
-                RequireMembers(names, "v", "session", "request", "type", "state", "reason");
+                var hasBuffer = names.Contains("losslessBuffer");
+                if (hasBuffer) RequireMembers(names, "v", "session", "request", "type", "state", "reason", "losslessBuffer");
+                else RequireMembers(names, "v", "session", "request", "type", "state", "reason");
                 var state = root.GetProperty("state").GetString() ?? "";
                 if (request != 0 || !States.Contains(state)) throw new FormatException();
                 if (state == "paused" && reason is not ("window_minimized" or "focus_lost" or "fullscreen_required") || state == "reconnecting" && reason is not
                     ("target_exited" or "target_changed" or "window_closed" or "window_resized" or "capture_reconnecting" or
                      "encoder_reconnecting" or "audio_reconnecting" or "scheduler_late")) throw new FormatException();
-                return new RecorderStateUpdate(state, reason);
+                RecorderLosslessBuffer? buffer = null;
+                if (hasBuffer)
+                {
+                    if (state != "buffering") throw new FormatException();
+                    var value = root.GetProperty("losslessBuffer");
+                    var fields = value.EnumerateObject().Select(property => property.Name).ToArray();
+                    if (fields.Length != 4) throw new FormatException();
+                    RequireMembers(new HashSet<string>(fields, StringComparer.Ordinal), "duration100ns", "payloadBytes", "budgetBytes", "sizeLimited");
+                    buffer = new(value.GetProperty("duration100ns").GetInt64(), value.GetProperty("payloadBytes").GetInt64(),
+                        value.GetProperty("budgetBytes").GetInt64(), value.GetProperty("sizeLimited").GetBoolean());
+                    if (buffer.Duration100ns is <= 0 or > 3_000_000_000L || buffer.PayloadBytes <= 0 ||
+                        buffer.PayloadBytes > buffer.BudgetBytes || buffer.BudgetBytes > 12L * 1024 * 1024 * 1024 + 16L * 1024 * 1024)
+                        throw new FormatException();
+                }
+                return new RecorderStateUpdate(state, reason, buffer);
             }
             if (type != "result" || request <= 0) throw new FormatException();
             var ok = root.GetProperty("ok").GetBoolean();
@@ -75,11 +93,13 @@ internal static class RecorderProtocol
                 if (ok ? reason != "none" : reason == "none") throw new FormatException();
                 return new RecorderReply(request, ok, reason);
             }
-            RequireMembers(names, "v", "session", "request", "type", "ok", "reason", "clipId", "fileBytes", "width", "height", "frameRate", "start100ns", "end100ns", "hasAudio");
+            RequireMembers(names, "v", "session", "request", "type", "ok", "reason", "clipId", "fileBytes", "width", "height", "frameRate", "start100ns", "end100ns", "hasAudio", "losslessVideo", "sizeLimited");
             if (!ok || !Guid.TryParseExact(root.GetProperty("clipId").GetString(), "N", out var id) || id == Guid.Empty) throw new FormatException();
             var media = new FinalizedClipMedia(root.GetProperty("fileBytes").GetInt64(), root.GetProperty("width").GetInt32(),
                 root.GetProperty("height").GetInt32(), root.GetProperty("frameRate").GetInt32(),
-                root.GetProperty("start100ns").GetInt64(), root.GetProperty("end100ns").GetInt64(), root.GetProperty("hasAudio").GetBoolean());
+                root.GetProperty("start100ns").GetInt64(), root.GetProperty("end100ns").GetInt64(), root.GetProperty("hasAudio").GetBoolean(),
+                root.GetProperty("losslessVideo").GetBoolean(), root.GetProperty("sizeLimited").GetBoolean());
+            if (media.SizeLimited && !media.LosslessVideo) throw new FormatException();
             if (media.HasAudio ? reason != "none" : reason != "audio_unavailable") throw new FormatException();
             if (media.FileBytes is <= 0 or > ClipLibrary.MaximumMediaBytes || !ClipsSettings.ResolutionChoices.Contains(media.Height) ||
                 media.Width != (media.Height == 480 ? 854 : media.Height * 16 / 9) || !ClipsSettings.FrameRateChoices.Contains(media.FrameRate) ||
@@ -250,6 +270,7 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 ["height"] = recording.ResolutionHeight,
                 ["frameRate"] = recording.FrameRate,
                 ["quality"] = recording.Quality,
+                ["losslessVideo"] = recording.LosslessVideo,
                 ["gameAudio"] = true,
                 ["systemAudio"] = recording.CaptureSystemAudio,
                 ["spoolDirectory"] = _buffer.SpoolDirectory,
@@ -382,6 +403,8 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 var message = RecorderProtocol.Decode(line, Session);
                 if (message is RecorderStateUpdate state)
                 {
+                    if (state.LosslessBuffer is not null && _recording?.LosslessVideo != true)
+                        throw new RecorderClientException("protocol_error");
                     // Native sends this terminal transition only after closing the old media session.
                     // Preserve that reason when its following EOF arrives; the service owns recovery.
                     if (state.State is "reconnecting" or "paused")

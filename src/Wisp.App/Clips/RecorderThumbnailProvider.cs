@@ -99,7 +99,7 @@ internal sealed class RecorderThumbnailProvider : IClipThumbnailProvider, IDispo
             if (!file.Exists || file.Length != clip.Media.FileBytes) throw new InvalidDataException("The saved clip has changed.");
             var modified = file.LastWriteTimeUtc.ToFileTimeUtc();
             var request = ClipThumbnailWire.Request(mediaPath, clip, modified);
-            var key = $"{mediaPath.ToUpperInvariant()}|{clip.Media.FileBytes}|{modified}";
+            var key = $"{mediaPath.ToUpperInvariant()}|{clip.Media.FileBytes}|{modified}|{clip.Media.LosslessVideo}";
             return (Request: request, Key: key);
         }, token).ConfigureAwait(false);
         await DecoderGate.WaitAsync(token).ConfigureAwait(false);
@@ -112,7 +112,9 @@ internal sealed class RecorderThumbnailProvider : IClipThumbnailProvider, IDispo
                 var node = Find(metadata.Key);
                 if (node is not null) { _cache.Remove(node); _cache.AddFirst(node); return node.Value.Image; }
             }
-            var pixels = await _decoder.DecodeAsync(metadata.Request, token).ConfigureAwait(false);
+            var pixels = clip.Media.LosslessVideo
+                ? await LosslessThumbnailDecoder.DecodeAsync(clip, mediaPath, token).ConfigureAwait(false)
+                : await _decoder.DecodeAsync(metadata.Request, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             BitmapSource? image = null;
             if (pixels is not null)

@@ -221,6 +221,7 @@ public partial class App : Application
         }
         finally
         {
+            _ = Clips.LosslessVlcRuntime.ShutdownAsync().GetAwaiter().GetResult();
             _overlayHotkey?.Dispose();
             _overlayHotkey = null;
             _recordingHotkey?.Dispose();

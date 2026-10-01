@@ -11,7 +11,8 @@ namespace recorder::spool
 {
     using MediaTime = std::int64_t;
     constexpr MediaTime MaximumDuration = 300ll * 10000000;
-    constexpr std::uint32_t MaximumPacketBytes = 16u * 1024 * 1024;
+    constexpr std::uint32_t StandardMaximumPacketBytes = 16u * 1024 * 1024;
+    constexpr std::uint32_t MaximumPacketBytes = 64u * 1024 * 1024;
     constexpr std::uint32_t OwnershipRecordBytes = 128;
     enum class Track { Video, Audio };
     enum class ReadResult { Packet, End, Failed };
@@ -22,6 +23,7 @@ namespace recorder::spool
         std::uint64_t maximumFileBytes = 0; // Required; includes configuration/record headers and pinned files.
         std::uint32_t maximumRecords = 100000; // Rolling records plus the one snapshot's metadata copy.
         std::uint32_t maximumFiles = 2048; // Physical files: each configuration/chunk and its ownership companion.
+        std::uint32_t maximumPacketBytes = StandardMaximumPacketBytes; // Video only; audio remains bounded to64KiB.
     };
     struct Configuration
     {
@@ -49,6 +51,20 @@ namespace recorder::spool
         MediaTime audioStart100ns = 0, audioEnd100ns = 0;
         std::uint32_t videoPackets = 0, audioPackets = 0;
     };
+    constexpr std::uint64_t MaximumLosslessVideoBytes = 12ull * 1024 * 1024 * 1024;
+    constexpr std::uint64_t MaximumRetainedAudioBytes = 16ull * 1024 * 1024;
+    struct RetentionBudget
+    {
+        std::uint64_t maximumVideoBytes = MaximumLosslessVideoBytes;
+        std::uint64_t maximumAudioBytes = MaximumRetainedAudioBytes;
+    };
+    struct AvailablePlan
+    {
+        Bounds bounds{};
+        std::uint64_t videoPayloadBytes = 0, audioPayloadBytes = 0;
+        bool sizeLimited = false; // Capacity eviction/byte trimming, not startup or IDR alignment.
+    };
+    const char* ValidateRetentionBudget(const RetentionBudget&) noexcept;
     const char* ValidateLimits(const Limits&) noexcept;
     // Syntax-only. Existing local drive parent plus exactly .wisp-recorder-<32 lowercase hex>.
     // Runtime opens the entire parent with OBJ_DONT_REPARSE and creates the new child relative to it.
@@ -126,6 +142,14 @@ namespace recorder::spool
         // Audio packet boundaries must be exactly contiguous. Actual bounds are explicit.
         // Saving is allowed after an append failure using previously committed bytes.
         bool Retain(MediaTime maximumSpan, std::shared_ptr<const Snapshot>&) noexcept;
+        // Explicit byte-limited lossless policy. Planning reads only writer-owned
+        // metadata: no files are read/flushed/pinned and an active save is allowed.
+        // Retaining recomputes the same plan and pins it before returning. The host
+        // must report actual bounds and sizeLimited rather than promise maximumSpan.
+        // A snapshot starts at an IDR; its final complete frame may be in an open GOP.
+        bool PlanAvailable(MediaTime maximumSpan, const RetentionBudget&, AvailablePlan&) noexcept;
+        bool RetainAvailable(MediaTime maximumSpan, const RetentionBudget&,
+            std::shared_ptr<const Snapshot>&, AvailablePlan&) noexcept;
         // Writer-worker call. Creates <32 lowercase hex>.mp4 in the held library
         // parent, never overwrites/deletes. Transfer the returned handle to mux;
         // caller owns checked close, finalization and library registration.
@@ -144,6 +168,7 @@ namespace recorder::spool
         std::unique_ptr<Impl> impl_;
         Evidence evidence_{};
         bool Append(Track, MediaTime, MediaTime, bool, const std::uint8_t*, std::size_t) noexcept;
+        bool RetainInternal(MediaTime, std::shared_ptr<const Snapshot>&, const RetentionBudget*, AvailablePlan*) noexcept;
     };
 
     // Root invokes these explicitly. File contracts create only their new named

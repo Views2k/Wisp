@@ -45,7 +45,8 @@ public sealed class ClipCardItem(ClipEntry entry) : INotifyPropertyChanged
     public ClipEntry Entry { get; private set; } = entry;
     public Guid Id => Entry.Id;
     public string Title => Entry.SavedAtUtc.ToLocalTime().ToString("MMM d · h:mm tt");
-    public string Detail => $"{TimeSpan.FromSeconds(Entry.DurationSeconds):m\\:ss} · {Entry.Media.Height}p · {Entry.Media.FrameRate} fps";
+    public string Detail => $"{TimeSpan.FromSeconds(Entry.DurationSeconds):m\\:ss} · {Entry.Media.Height}p · {Entry.Media.FrameRate} fps" +
+        (Entry.Media.LosslessVideo ? " · Lossless video" : "");
     public string ReviewState => Entry.ExportedAtUtc is not null ? "Exported" : Entry.ViewedAtUtc is not null ? "Viewed" : "New";
     public string PlayLabel => $"Open clip from {Title}, {Detail}";
     public BitmapSource? Thumbnail => _thumbnail;
@@ -131,6 +132,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public bool ShortcutCaptureActive { get; set; }
     public bool IsBusy => _busy;
     public bool CanEditSettings => !_disposed && !IsBusy && !_snapshot.Enabled;
+    public bool CanEditCompressionQuality => CanEditSettings && !LosslessVideo;
     public bool CanToggle => !_disposed && _runtimeActive && !IsBusy && (_snapshot.Enabled || (_snapshot.CanEnable && _library is not null));
     public bool ClippingEnabled => _snapshot.Enabled;
     public bool IsRecording => _snapshot.State == ClipRecorderState.Buffering;
@@ -153,7 +155,9 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public string StorageDirectory => _settings.StorageDirectory;
     public string SuggestedStorageDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Wisp Clips");
     public string StorageText => StorageDirectory.Length == 0 ? "No export folder selected. Saved clips stay in Wisp until you export them." : StorageDirectory;
-    public string LongClipHint => LengthSeconds == 300
+    public string LongClipHint => LosslessVideo
+        ? $"Lossless clips keep up to {LengthSeconds} seconds, within Wisp's size limit. Available history depends on the video and free space. Export keeps the original quality."
+        : LengthSeconds == 300
         ? "Five-minute clips use more memory and storage and can take longer to save. Export keeps the recorded resolution and quality."
         : "Longer clips use more memory and storage. Export keeps the recorded resolution and quality.";
     public string PageText => _pageCount == 0 ? "No saved clips" : $"Page {_pageIndex + 1} of {_pageCount} · {_total} clips";
@@ -194,7 +198,20 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public int Quality
     {
         get => _settings.Quality;
-        set { if (CanEditSettings && value is >= 10 and <= 100 && value != _settings.Quality) { _settings.Quality = value; _qualityPending = true; OnChanged(); } }
+        set { if (CanEditCompressionQuality && value is >= 10 and <= 100 && value != _settings.Quality) { _settings.Quality = value; _qualityPending = true; OnChanged(); } }
+    }
+    public bool LosslessVideo
+    {
+        get => _settings.LosslessVideo;
+        set
+        {
+            if (!CanEditSettings || value == _settings.LosslessVideo) return;
+            CommitQuality();
+            _settings.LosslessVideo = value;
+            Changed();
+            OnChanged(nameof(CanEditCompressionQuality));
+            OnChanged(nameof(LongClipHint));
+        }
     }
     public bool RemindersEnabled
     {
@@ -336,7 +353,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             }
             // The completed card appears before optional disk reconciliation/poster work.
             var duration = TimeSpan.FromTicks(media.ActualEnd100ns - media.ActualStart100ns).TotalSeconds;
-            NoticeText($"Clip saved · {duration:0.0} s. " + (media.HasAudio
+            NoticeText($"Clip saved · {duration:0.0} s. " + (media.SizeLimited ? "Shortened by the lossless size limit. " : "") + (media.HasAudio
                 ? "Select it below to watch or export."
                 : "Game audio was unavailable. Select it below to watch or export."));
             try
@@ -619,7 +636,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         NotifyDashboardNotice();
         ReminderChanged?.Invoke(this, EventArgs.Empty);
     }
-    private ClipRecordingSpec Recording() => new(LengthSeconds, ResolutionHeight, FrameRate, Quality, CaptureSystemAudio);
+    private ClipRecordingSpec Recording() => new(LengthSeconds, ResolutionHeight, FrameRate, Quality, CaptureSystemAudio, LosslessVideo);
     private bool ChangeChoice(int next, IReadOnlyList<int> choices, int current) => CanEditSettings && next != current && choices.Contains(next);
     private void Changed([CallerMemberName] string? name = null) { OnChanged(name); PreferencesChanged?.Invoke(this, EventArgs.Empty); }
     private void ClearSelection()
@@ -662,7 +679,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     }
     private void NotifyState()
     {
-        foreach (var name in new[] { nameof(IsBusy), nameof(IsEmpty), nameof(CanEditSettings), nameof(CanToggle), nameof(ClippingEnabled), nameof(CanSave), nameof(CanRequestSave), nameof(HasQueuedSave), nameof(HasSaveQueueStatus), nameof(SaveQueueStatus), nameof(CanBrowse), nameof(CanExport), nameof(PageText), nameof(PendingText), nameof(CanOpenClipFolder) }) OnChanged(name);
+        foreach (var name in new[] { nameof(IsBusy), nameof(IsEmpty), nameof(CanEditSettings), nameof(CanEditCompressionQuality), nameof(CanToggle), nameof(ClippingEnabled), nameof(CanSave), nameof(CanRequestSave), nameof(HasQueuedSave), nameof(HasSaveQueueStatus), nameof(SaveQueueStatus), nameof(CanBrowse), nameof(CanExport), nameof(PageText), nameof(PendingText), nameof(CanOpenClipFolder) }) OnChanged(name);
         NotifyDashboardNotice();
         foreach (var command in _commands) command.Raise();
     }

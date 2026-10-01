@@ -15,13 +15,20 @@ foreach ($argumentPath in @($developerCommand, $PSScriptRoot, $buildDirectory, $
 }
 $sources = @(
     'RecorderMain', 'RecorderHost', 'RecorderHostPolicyContracts', 'RecorderProtocol',
-    'GameWindowCapture', 'GameScreenCapture', 'HardwareEncoder', 'HardwareVideoSession', 'HdrFrameConverter',
+    'GameWindowCapture', 'GameScreenCapture', 'HardwareEncoder', 'HardwareVideoSession', 'NvencLosslessVideoSession', 'HdrFrameConverter',
     'GpuFrameConverter', 'ProcessAudioCapture', 'AudioTimeline', 'AacEncoder',
     'EncodedSpool', 'OwnedFileStream', 'SpoolMp4Writer', 'Mp4ClipWriter',
     'EncodedClipBuffer', 'ClipThumbnail', 'ClipThumbnailContracts', 'BorderlessAccess'
 )
 foreach ($source in $sources) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot "$source.cpp") -PathType Leaf)) { throw 'Recorder source is incomplete.' }
+}
+$headerStream = [IO.File]::OpenRead((Join-Path $PSScriptRoot 'LosslessProbe\nvEncodeAPI.h'))
+$headerHasher = [Security.Cryptography.SHA256]::Create()
+try { $headerHash = [BitConverter]::ToString($headerHasher.ComputeHash($headerStream)).Replace('-', '').ToLowerInvariant() }
+finally { $headerStream.Dispose(); $headerHasher.Dispose() }
+if ($headerHash -ne '4fe4094541ef0f8a13249d97a8692dc5f835a6e9dd42eeadb3e2f7321d54dc7e') {
+    throw 'Pinned NVIDIA encoder header integrity check failed.'
 }
 [void][IO.Directory]::CreateDirectory($OutputDirectory)
 [void][IO.Directory]::CreateDirectory($buildDirectory)

@@ -11,6 +11,7 @@ namespace recorder::hdr
     constexpr UINT OutputWidth = 1920;
     constexpr UINT OutputHeight = 1080;
     enum class SourceEncoding { LinearScRgbFp16, SrgbBgra8, Unknown };
+    enum class OutputEncoding { Bt709Nv12, PreparedRgbAyuv };
 
     struct Evidence
     {
@@ -20,6 +21,7 @@ namespace recorder::hdr
         bool planeViewsCreated = false;
         UINT submittedFrames = 0;
         conversion::OutputConfiguration output{};
+        OutputEncoding outputEncoding = OutputEncoding::Bt709Nv12;
     };
 
     const char* ValidateConfiguration(UINT width, UINT height, SourceEncoding encoding,
@@ -34,6 +36,10 @@ namespace recorder::hdr
     const char* ValidateSurfaces(const D3D11_TEXTURE2D_DESC& input,
         const D3D11_TEXTURE2D_DESC& output, UINT width, UINT height,
         const conversion::OutputConfiguration& configuration, SourceEncoding encoding) noexcept;
+    const char* ValidateSurfaces(const D3D11_TEXTURE2D_DESC& input,
+        const D3D11_TEXTURE2D_DESC& output, UINT width, UINT height,
+        const conversion::OutputConfiguration& configuration, SourceEncoding encoding,
+        OutputEncoding outputEncoding) noexcept;
 
     // Prototype appearance policy: normalize linear scRGB by the explicitly
     // supplied SDR-white level, preserve luminance through 0.75, then use the
@@ -51,6 +57,10 @@ namespace recorder::hdr
     // Output: exact BT.709 OETF, limited-range BT.709 matrix, progressive NV12
     // with horizontally cosited / vertically centered chroma. Caller must
     // declare these attributes to the encoder and validate its actual output.
+    // Explicit PreparedRgbAyuv instead preserves full-color CodeRgb output:
+    // clamp to [0,1], quantize floor(value*255+0.5), pack Y=G,U=B,V=R,A=255.
+    // This is eight-bit prepared SDR after scaling/appearance mapping, not
+    // original HDR pixels. The encoder must use full-range identity GBR.
     //
     // Requires exclusive use of the recorder device's immediate context during
     // Submit. Mutates graphics state; does not preserve application rendering
@@ -64,6 +74,9 @@ namespace recorder::hdr
         bool Initialize(ID3D11Device* device, UINT sourceWidth, UINT sourceHeight,
             SourceEncoding encoding, float referenceWhiteNits,
             const conversion::OutputConfiguration& output, Evidence& evidence) noexcept;
+        bool Initialize(ID3D11Device* device, UINT sourceWidth, UINT sourceHeight,
+            SourceEncoding encoding, float referenceWhiteNits,
+            const conversion::OutputConfiguration& output, OutputEncoding outputEncoding, Evidence& evidence) noexcept;
         bool Submit(ID3D11Texture2D* source, ID3D11Texture2D* destination, Evidence& evidence) noexcept;
         // Caller must pass these exact geometry/SAR/cadence values to encoding
         // and muxing. Submit does not schedule frames or guarantee this rate.
@@ -72,11 +85,12 @@ namespace recorder::hdr
         UINT sourceWidth_ = 0;
         UINT sourceHeight_ = 0;
         SourceEncoding encoding_ = SourceEncoding::Unknown;
+        OutputEncoding outputEncoding_ = OutputEncoding::Bt709Nv12;
         conversion::OutputConfiguration output_{};
         Microsoft::WRL::ComPtr<ID3D11Device3> device_;
         Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
         Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_;
-        Microsoft::WRL::ComPtr<ID3D11PixelShader> luma_, chroma_;
+        Microsoft::WRL::ComPtr<ID3D11PixelShader> luma_, chroma_, fullColor_;
         Microsoft::WRL::ComPtr<ID3D11Buffer> constants_;
         Microsoft::WRL::ComPtr<ID3D11SamplerState> sampler_;
         Microsoft::WRL::ComPtr<ID3D11RasterizerState> rasterizer_;
