@@ -5,7 +5,7 @@ namespace Wisp.App.Tests;
 public sealed class FeatureTourSessionTests
 {
     [Fact]
-    public void FourStepsSupportBackAndStopAtBothEndsWithoutClosingEarly()
+    public void FiveStepsSupportBackAndStopAtBothEndsWithoutClosingEarly()
     {
         var tour = new FeatureTourSession();
         Assert.False(tour.IsOpen);
@@ -23,7 +23,8 @@ public sealed class FeatureTourSessionTests
         Assert.True(tour.Next());
         Assert.True(tour.Next());
         Assert.True(tour.Next());
-        Assert.Equal(3, tour.StepIndex);
+        Assert.True(tour.Next());
+        Assert.Equal(4, tour.StepIndex);
         Assert.False(tour.Next());
         Assert.True(tour.IsOpen);
     }
@@ -31,6 +32,7 @@ public sealed class FeatureTourSessionTests
     [Theory]
     [InlineData(null, true, false, false, true)]
     [InlineData("older-tour", true, false, false, true)]
+    [InlineData("wisp-interface-2", true, false, false, true)]
     [InlineData(FeatureTourSession.CurrentTourId, true, false, false, false)]
     [InlineData(null, false, false, false, false)]
     [InlineData(null, true, true, false, false)]

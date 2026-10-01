@@ -91,7 +91,7 @@
     <Grid>
         <ScrollViewer x:Name="TuneScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,12" IsEnabled="{Binding CanBrowse}">
             <StackPanel>
-                <WrapPanel Margin="0,0,0,14">
+                <WrapPanel x:Name="TuneWorkspaceControls" Margin="0,0,0,14">
                     <RadioButton Content="Current car" GroupName="TuneWorkspace" Style="{DynamicResource SegmentRadioStyle}" IsChecked="{Binding IsCurrentMode, Mode=OneWay}" Click="Current_Click" Margin="0,0,8,6" />
                     <RadioButton Content="Saved tunes" GroupName="TuneWorkspace" Style="{DynamicResource SegmentRadioStyle}" IsChecked="{Binding IsSavedMode, Mode=OneWay}" Click="Saved_Click" Margin="0,0,8,6" />
                     <RadioButton Content="Compare" GroupName="TuneWorkspace" Style="{DynamicResource SegmentRadioStyle}" IsChecked="{Binding IsCompareMode, Mode=OneWay}" Click="Compare_Click" Margin="0,0,16,6" />

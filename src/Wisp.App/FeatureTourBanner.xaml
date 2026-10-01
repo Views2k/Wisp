@@ -3,8 +3,8 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
  <Border Background="{DynamicResource PanelBrush}" CornerRadius="12" Padding="18,14" BorderThickness="0">
   <StackPanel>
-   <TextBlock Text="Welcome to Wisp 2.0" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
-   <TextBlock Text="Discover the drift gauge, second-screen dashboard and improved Runs workspace." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,10"/>
+   <TextBlock Text="Welcome to Wisp 2.6" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
+   <TextBlock Text="Explore Clips, Tune, the live track map, lap delta and lap review." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,10"/>
    <WrapPanel>
     <Button x:Name="TourStartButton" Content="Take a quick tour" Style="{DynamicResource PrimaryButtonStyle}" Margin="0,0,8,0" Padding="14,8" AutomationProperties.Name="Take a quick tour of Wisp"/>
     <Button x:Name="TourDismissButton" Content="Dismiss" Padding="14,8"/>

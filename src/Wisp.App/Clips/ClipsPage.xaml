@@ -68,7 +68,7 @@
             <TextBlock Text="Fullscreen only, including borderless fullscreen. Clips record everything visible on Forza's screen, including the Wisp HUD and notifications. Recording pauses when you switch away from Forza or minimize it." TextWrapping="Wrap" Margin="0,0,0,16" />
             <Border Style="{DynamicResource CardStyle}" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
-                    <WrapPanel>
+                    <WrapPanel x:Name="ClippingControls">
                         <CheckBox Content="Enable clipping" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding ClippingEnabled, Mode=OneWay}" IsEnabled="{Binding CanToggle}" Click="ClippingToggle_Click" Margin="0,0,16,10" VerticalAlignment="Center" AutomationProperties.Name="Enable clipping" />
                         <Button Content="Save clip" Command="{Binding SaveClipCommand}" Padding="14,7" Margin="0,0,0,10" />
                     </WrapPanel>

@@ -390,7 +390,7 @@
                             </app:OrbitSurface>
                             </Grid>
                             <TextBlock Text="{Binding Status}" Style="{StaticResource RunHint}" FontSize="11" Margin="2,0,2,8" AutomationProperties.LiveSetting="Polite" />
-                            <Expander Header="Lap review" IsExpanded="False" Margin="0,0,0,14"><local:LapReviewView DataContext="{Binding LapReview}" Margin="0,12,0,0" /></Expander>
+                            <Expander x:Name="LapReviewExpander" Header="Lap review" IsExpanded="False" Margin="0,0,0,14"><local:LapReviewView DataContext="{Binding LapReview}" Margin="0,12,0,0" /></Expander>
                             <StackPanel x:Name="RunReportSurface" Visibility="{Binding HasRun, Converter={StaticResource RunVisibility}}">
                                 <TextBlock x:Name="RunHeading" Text="{Binding RunALabel}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding RunDescription}" Style="{StaticResource RunHint}" FontSize="11" Margin="0,4,0,10" />

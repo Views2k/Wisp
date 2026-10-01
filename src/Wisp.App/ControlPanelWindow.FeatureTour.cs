@@ -128,14 +128,15 @@ public abstract partial class ControlPanelWindow
         _featureTourNavigating = true;
         try
         {
-            var page = step switch { 0 => "Appearance", 1 => "Dashboard", 2 => "Runs", _ => "Appearance" };
+            var page = step switch { 0 => "Clips", 1 => "Tune", 2 or 3 => "Appearance", _ => "Runs" };
             RootTabs.SelectedItem = RootTabs.Items.OfType<TabItem>().FirstOrDefault(item => Equals(item.Header, page));
-            if (modern && (step == 0 || step == 3))
+            if (modern && step is 2 or 3)
             {
                 ((MainWindow)this).PrepareAppearanceForFeatureTour();
-                if (FindName(step == 0 ? "AppearanceGaugesCategory" : "AppearanceColorsCategory") is RadioButton category)
+                if (FindName("AppearanceGaugesCategory") is RadioButton category)
                     category.IsChecked = true;
             }
+            if (step == 4) _controller.Runs.ShowSummary();
         }
         finally { _featureTourNavigating = false; }
         _featureTourOverlay.TourProgress.Text = $"{step + 1} of {FeatureTourSession.StepCount} · QUICK TOUR";
@@ -143,33 +144,36 @@ public abstract partial class ControlPanelWindow
         _featureTourOverlay.TourNextButton.Content = step == FeatureTourSession.StepCount - 1 ? "Finish" : "Next";
         (_featureTourOverlay.TourHeading.Text, _featureTourOverlay.TourDescription.Text, _featureTourOverlay.TourLocation.Text) = step switch
         {
-            0 => ("Find your drift angle", "Enable the drift gauge here when you're ready. In Drift Zone mode, the percentage shows the angle bonus, not your total points. The angle stays hidden below 5 mph; speed and your line still matter.", modern ? "Appearance → Gauges → Show drift angle gauge" : "Appearance → Show drift angle gauge"),
-            1 when modern => ("A dashboard for another screen", "Display mode gives your telemetry more room. Press F11 from Dashboard to enter, then Escape to return. Use Resizable in Display mode to fit part of a monitor.", "Dashboard → Display mode"),
-            1 => ("Your live drive, at a glance", "Dashboard keeps speed, power and driving data together. The new interface also includes a borderless, resizable Display mode for a second monitor. You can switch interfaces in Appearance when you choose.", "Dashboard · Your current legacy interface stays selected"),
-            2 => ("Explore and share your runs", "Search saved runs by name or tune label. Select a run, then use Show graphs to compare data and Export for a Wisp run file or CSV. Your names, tune labels and notes save automatically. No recording is needed for this tour.", "Runs → Search · Show graphs · Export"),
-            _ => ("Make Wisp yours", modern ? "The live preview shows your HUD as you customize it. Pick colors, tune the background and turn particles on or off. Save your favorite combination in Profiles. On smaller windows, use Show HUD preview to see it." : "Use the HUD preview while choosing layouts and gauges. Your color controls are in Extras. Save your favorite combination in Profiles so you can switch back to it later.", modern ? "Appearance → Colors · Profiles" : "Appearance → HUD preview · Extras → Colors · Profiles")
+            0 => ("Save a moment with Clips", "Turn on clipping to keep a rolling recording while Forza is fullscreen. Save clip keeps recent footage to watch here or export. Recording includes everything visible on Forza's screen and pauses when you switch away.", "Clips → Enable clipping · Save clip"),
+            1 => ("View and compare tunes", "View the current car's setup, including locked tunes. Save a local snapshot to revisit later, or compare two saved setups side by side. Opening a saved tune only displays it in Wisp.", "Tune → Current car · Saved tunes · Compare"),
+            2 => ("Live track map (beta)", "Follow your car around the circuit. Your first full lap builds the outline; later laps keep the full circuit in view. Turn on the map here and adjust its size to suit your HUD.", modern ? "Appearance → Gauges → Lap delta → More options" : "Appearance → Lap delta → More options"),
+            3 => ("Lap delta (beta)", "Complete a full circuit lap to set a reference, then compare against your session best or previous lap. Negative means ahead; positive means behind. Choose Race / Rivals laps or Time Attack to match your session.", modern ? "Appearance → Gauges → Lap delta" : "Appearance → Lap delta"),
+            _ => ("Review your laps", "Open a saved run, choose a lap and select a reference to compare your line, inputs and time around the circuit. You can also turn on Save completed laps automatically here to keep laps for later review.", "Runs → Lap review")
         };
         var version = ++_featureTourNavigationVersion;
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
             if (!FeatureTour.IsOpen || version != _featureTourNavigationVersion) return;
-            if (step == 2 && modern && RunsSurface.FindName("RunLibraryPane") is FrameworkElement { IsVisible: false } &&
-                RunsSurface.FindName("CompactRunLibraryDrawer") is Expander drawer)
+            var lapSettings = FindName("LapDeltaSettings") as LapDeltaSettingsControl;
+            if (step == 2 && lapSettings?.FindName("MoreOptions") is Expander options)
             {
-                drawer.IsExpanded = true;
+                options.IsExpanded = true;
+                lapSettings.UpdateLayout();
+            }
+            var lapReview = RunsSurface.FindName("LapReviewExpander") as Expander;
+            if (step == 4 && lapReview is not null)
+            {
+                lapReview.IsExpanded = true;
                 RunsSurface.UpdateLayout();
             }
             FrameworkElement? target = step switch
             {
-                0 => (FindName("DriftGaugeSettings") as FrameworkElement)?.FindName("EnabledToggle") as FrameworkElement,
-                1 when modern => FindName("DashboardWindowDisplayButton") as FrameworkElement,
-                1 => FindName("LegacyDashboardHero") as FrameworkElement,
-                2 => RunsSurface.FindName("LibrarySearchControl") as FrameworkElement,
-                _ => FindName(modern ? "ColorTargetSelector" : "HudPreviewSurface") as FrameworkElement
+                0 => ClipsSurface.FindName("ClippingControls") as FrameworkElement,
+                1 => TuneSurface.FindName("TuneWorkspaceControls") as FrameworkElement,
+                2 => lapSettings?.FindName("MapToggle") as FrameworkElement,
+                3 => lapSettings?.FindName("EnabledToggle") as FrameworkElement,
+                _ => (lapReview?.Content as FrameworkElement)?.FindName("LapSelector") as FrameworkElement
             };
-            if (step == 2 && target is not { IsVisible: true })
-                target = RunsSurface.FindName("CompactLibrarySearchControl") as FrameworkElement;
-            if (step == 2 && target is not { IsVisible: true }) target = RunsSurface;
             target?.BringIntoView();
             _featureTourOverlay.SetTarget(target);
             _featureTourOverlay.TourCardScroll.ScrollToTop();

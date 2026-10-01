@@ -48,16 +48,21 @@ internal static class FeatureTourReview
                         settings.DebugLoggingEnabled = false;
                         settings.AnimatedBackground = false;
                         settings.BackgroundParticlesEnabled = false;
-                        settings.CompletedFeatureTourId = null;
+                        settings.CompletedFeatureTourId = "wisp-interface-2";
                         settings.SetupCompletion = CompletedSetup();
                         if (size.Width < 800) settings.ColorTheme = "Purple";
                         var saved = new SettingsService(Path.Combine(output, variant + "-settings.json"));
                         var failSave = false;
+                        var settingsWrites = 0;
                         var controller = new AppController(settings, value =>
                         {
+                            settingsWrites++;
                             if (failSave) throw new IOException("Synthetic unavailable tour settings.");
                             saved.Save(value);
-                        }, new NoStartupRegistration(), runsDirectory: Path.Combine(output, variant + "-runs"));
+                        }, new NoStartupRegistration(), runsDirectory: Path.Combine(output, variant + "-runs"),
+                            shiftCalibrationDirectory: Path.Combine(output, variant + "-shift-calibration"),
+                            clipLibraryDirectory: Path.Combine(output, variant + "-clips"),
+                            tuneLibraryDirectory: Path.Combine(output, variant + "-tunes"));
                         ControlPanelWindow window = legacy ? new LegacyMainWindow(controller) : new MainWindow(controller);
                         window.Activated += (_, _) => activationCount++;
                         var surface = detachSurface(window, controller.ViewModel);
@@ -93,29 +98,35 @@ internal static class FeatureTourReview
                             banner.BringIntoView(); Arrange();
                             Check(Within(banner.TourStartButton) && Within(banner.TourDismissButton), "banner-actions-not-reachable");
                             var originalPreferences = JsonSerializer.Serialize(settings);
+                            var writesBeforeTour = settingsWrites;
                             Click(banner.TourStartButton);
-                            var expectedPages = new[] { "Appearance", "Dashboard", "Runs", "Appearance" };
+                            var expectedPages = new[] { "Clips", "Tune", "Appearance", "Appearance", "Runs" };
+                            var expectedHeadings = new[] { "Save a moment with Clips", "View and compare tunes", "Live track map (beta)", "Lap delta (beta)", "Review your laps" };
                             for (var step = 0; step < FeatureTourSession.StepCount; step++)
                             {
                                 Arrange();
                                 Check(window.FeatureTour.IsOpen && window.FeatureTour.StepIndex == step, "step-route-" + step);
                                 Check(Equals(((TabItem)tabs.SelectedItem).Header, expectedPages[step]), "page-route-" + step);
-                                Check(overlay.TourProgress.Text.StartsWith($"{step + 1} of 4", StringComparison.Ordinal), "progress-" + step);
+                                Check(overlay.TourProgress.Text.StartsWith($"{step + 1} of 5", StringComparison.Ordinal), "progress-" + step);
+                                Check(overlay.TourHeading.Text == expectedHeadings[step], "feature-heading-" + step);
                                 Check(overlay.TourBackButton.IsEnabled == (step > 0), "back-enabled-" + step);
-                                Check(Equals(overlay.TourNextButton.Content, step == 3 ? "Finish" : "Next"), "next-label-" + step);
+                                Check(Equals(overlay.TourNextButton.Content, step == 4 ? "Finish" : "Next"), "next-label-" + step);
                                 Check(KeyboardNavigation.GetTabNavigation(overlay.TourCard) == KeyboardNavigationMode.Cycle, "keyboard-cycle-" + step);
                                 Check(Within(overlay.TourCard), "card-outside-viewport-" + step);
                                 Check(Within(overlay.TourNextButton) && Within(overlay.TourSkipButton) && Within(overlay.TourBackButton), "step-actions-clipped-" + step);
                                 Check(overlay.TourHeading.FontSize >= 18 && overlay.TourDescription.FontSize >= 14, "small-tour-text-" + step);
                                 Check(overlay.TourHighlight.Visibility == Visibility.Visible, "missing-target-highlight-" + step);
+                                Check(Within(TourTarget(step)), "target-outside-viewport-" + step);
                                 Check(overlay.TourNextButton.Style is not null && overlay.TourSkipButton.Style is not null, "unstyled-action-" + step);
                                 Capture("step-" + (step + 1));
                                 Check(originalPreferences == JsonSerializer.Serialize(settings), "tour-changed-preferences-" + step);
+                                Check(settingsWrites == writesBeforeTour, "tour-saved-preferences-" + step);
                                 Check(!controller.Runs.IsRecording && !controller.Runs.IsCountingDown, "tour-started-recording-" + step);
+                                Check(!controller.Clips.ClippingEnabled && !controller.Clips.IsRecording, "tour-started-clipping-" + step);
                                 if (step == 1)
                                 {
                                     Click(overlay.TourBackButton); Arrange();
-                                    Check(window.FeatureTour.StepIndex == 0 && Equals(((TabItem)tabs.SelectedItem).Header, "Appearance"), "back-page-route");
+                                    Check(window.FeatureTour.StepIndex == 0 && Equals(((TabItem)tabs.SelectedItem).Header, "Clips"), "back-page-route");
                                     Click(overlay.TourNextButton); Arrange();
                                 }
                                 Click(overlay.TourNextButton);
@@ -123,6 +134,7 @@ internal static class FeatureTourReview
                             Arrange();
                             Check(!window.FeatureTour.IsOpen && overlay.Visibility == Visibility.Collapsed, "finish-kept-tour-open");
                             Check(saved.Load().CompletedFeatureTourId == FeatureTourSession.CurrentTourId, "finish-not-persisted");
+                            Check(settingsWrites == writesBeforeTour + 1, "finish-receipt-write-count");
                             Check(banner.Visibility == Visibility.Collapsed, "finish-kept-banner");
 
                             Click(Required<Button>(window, "ReplayFeatureTourButton")); Arrange();
@@ -202,6 +214,14 @@ internal static class FeatureTourReview
                             overlay.Reposition();
                             surface.UpdateLayout();
                         }
+                        FrameworkElement TourTarget(int step) => step switch
+                        {
+                            0 => Required<FrameworkElement>(Required<FrameworkElement>(window, "ClipsSurface"), "ClippingControls"),
+                            1 => Required<FrameworkElement>(Required<FrameworkElement>(window, "TuneSurface"), "TuneWorkspaceControls"),
+                            2 => Required<FrameworkElement>(Required<FrameworkElement>(window, "LapDeltaSettings"), "MapToggle"),
+                            3 => Required<FrameworkElement>(Required<FrameworkElement>(window, "LapDeltaSettings"), "EnabledToggle"),
+                            _ => Required<FrameworkElement>((FrameworkElement)Required<Expander>(Required<FrameworkElement>(window, "RunsSurface"), "LapReviewExpander").Content, "LapSelector")
+                        };
                         Rect Bounds(FrameworkElement element) => element.TransformToAncestor(surface).TransformBounds(new Rect(element.RenderSize));
                         bool Within(FrameworkElement element)
                         {
