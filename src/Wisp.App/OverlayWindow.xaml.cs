@@ -499,6 +499,26 @@ public partial class OverlayWindow : Window
         Top = position.Y;
     }
 
+    internal bool TryUseMonitorOfWindow(IntPtr referenceWindow)
+    {
+        if (!WindowZOrder.IsWindowAvailable(referenceWindow)) return false;
+        var monitor = MonitorFromWindow(referenceWindow, 0);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info)) return false;
+
+        var handle = new WindowInteropHelper(this).EnsureHandle();
+        if (MonitorFromWindow(handle, DefaultToNearestMonitor) == monitor) return true;
+        if (!GetWindowRect(handle, out var bounds)) return false;
+
+        // Move in physical pixels first so Windows updates this HWND's DPI before
+        // the existing reference-size and default-position calculations run.
+        const uint flags = 0x0001 | 0x0004 | 0x0010 | 0x0200; // no size, z-order, activation or owner-order change
+        var x = info.Monitor.Left + ((info.Monitor.Right - info.Monitor.Left) - (bounds.Right - bounds.Left)) / 2;
+        var y = info.Monitor.Top + ((info.Monitor.Bottom - info.Monitor.Top) - (bounds.Bottom - bounds.Top)) / 2;
+        return SetWindowPos(handle, IntPtr.Zero, x, y, 0, 0, flags) &&
+               MonitorFromWindow(handle, DefaultToNearestMonitor) == monitor;
+    }
+
     private Rect NativePlacementAnchorBounds()
     {
         var scaleY = Height / RootPanel.Height;
@@ -658,6 +678,14 @@ public partial class OverlayWindow : Window
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo monitorInfo);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr window, out NativeRectangle bounds);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
     private struct MonitorInfo

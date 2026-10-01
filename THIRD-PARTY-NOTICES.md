@@ -28,7 +28,7 @@ Wisp Proprietary Source License.
 
 Wisp is distributed free of charge for personal, non-commercial use.
 
-Forza Horizon 6 Â© Microsoft Corporation. Wisp is an unofficial community
+Forza Horizon 6 © Microsoft Corporation. Wisp is an unofficial community
 project and is not endorsed by or affiliated with Microsoft.
 
 I claim no ownership of or license to Microsoft Game Content. Public

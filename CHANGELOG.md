@@ -11,16 +11,10 @@ Notable changes to Wisp are recorded here.
 - Keep shift-calibration status steady and save measured higher-gear targets independently of missing first-gear coverage.
 - Update the feature tour for Clips, Tune, live map, lap delta and lap review.
 
-## 2.5.3 - 2026-09-29
+## 2.5.3 - 2026-09-30
 
-Private test candidate; not published as a public release.
-
-- HUD profiles now include all HUD and driving settings and saved gauge positions. Older profiles preserve the settings and positions they did not contain. Startup, connections, updates, diagnostics, calibration history and saved runs stay separate.
-- Review recorded laps with a map of the driven line, a shared map/graph cursor, section statistics and position-matched comparison. Pin a saved lap as a review benchmark, or compare laps from the same run. Enable automatic completed-lap saving in Runs when wanted.
-- Shift calibration now considers later usable pulls instead of getting stuck on an earlier wider pull, and distinguishes recorded gears from unresolved shift comparisons.
-- Correct the normalized slip threshold and the independent native/UDP timestamp ordering that could interrupt valid calibration pulls. Keep one calibration guidance label and show the actual last interruption when no usable pull exists.
-- Reuse Runs and lap-review chart drawings during cursor movement. Present sample readings with themed controls and prevent empty lap popups.
-- Include available calibrated wheel data in new automatic lap recordings; explain missing data in older recordings without inventing it.
+- Place a HUD without a saved position on Forza's monitor when the game is first detected. Do not save the temporary startup position before that detection.
+- Make Reset HUD positions move the main HUD to the last detected Forza window's monitor. Existing saved layouts remain unchanged until moved or reset.
 
 ## 2.5.2 - 2026-09-29
 
