@@ -19,13 +19,25 @@ public sealed class NativeTuneCompatibilityLayout
     internal static readonly FrozenDictionary<ulong, (int Width, int Alignment)> RequiredRvaRoles =
         new Dictionary<ulong, (int, int)>
         {
-            [0x640EE78] = (8, 8), [0x6446D18] = (8, 8), [0x64BA6E8] = (4, 4),
-            [0x64FBE80] = (8, 8), [0x65AC730] = (8, 8), [0x6C79E70] = (8, 8),
-            [0x6C7A570] = (8, 8), [0x6C7B3D8] = (8, 8), [0x6C7B9B0] = (8, 8),
-            [0x6C7BC10] = (8, 8), [0x8F12A78] = (8, 8), [0x8F75670] = (1024, 4),
-            [0x8F75A70] = (256, 1), [0xA7DB9E8] = (8, 8), [0xA861342] = (1, 1),
-            [0xA861470] = (128 * 40, 8), [0xA862058] = (8, 8),
-            [0xA862060] = (8, 8), [0xA8AF088] = (8, 8)
+            [0x640EE78] = (8, 8),
+            [0x6446D18] = (8, 8),
+            [0x64BA6E8] = (4, 4),
+            [0x64FBE80] = (8, 8),
+            [0x65AC730] = (8, 8),
+            [0x6C79E70] = (8, 8),
+            [0x6C7A570] = (8, 8),
+            [0x6C7B3D8] = (8, 8),
+            [0x6C7B9B0] = (8, 8),
+            [0x6C7BC10] = (8, 8),
+            [0x8F12A78] = (8, 8),
+            [0x8F75670] = (1024, 4),
+            [0x8F75A70] = (256, 1),
+            [0xA7DB9E8] = (8, 8),
+            [0xA861342] = (1, 1),
+            [0xA861470] = (128 * 40, 8),
+            [0xA862058] = (8, 8),
+            [0xA862060] = (8, 8),
+            [0xA8AF088] = (8, 8)
         }.ToFrozenDictionary();
 
     // Stable names for reviewed ranges, including partial/chained ranges. These

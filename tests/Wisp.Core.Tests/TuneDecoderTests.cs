@@ -221,8 +221,13 @@ public sealed class TuneDecoderTests
         var verification = new TuneVerification(TunePlatform.MicrosoftStore, TuneVerificationProfiles.StoreProfile,
             TuneVerificationProfiles.StoreLayoutSha256, "store-test", 1,
             "Microsoft.ForteBaseGame_3.440.853.0_x64__8wekyb3d8bbwe");
-        var input = Fixture("miata") with { GameVersion = "3.440.853.0", ExecutableSha256 = null,
-            ExecutableVerified = false, Verification = verification };
+        var input = Fixture("miata") with
+        {
+            GameVersion = "3.440.853.0",
+            ExecutableSha256 = null,
+            ExecutableVerified = false,
+            Verification = verification
+        };
         var snapshot = Decode(input);
         var restored = JsonSerializer.Deserialize<TuneSnapshot>(JsonSerializer.Serialize(snapshot, JsonOptions), JsonOptions);
         Assert.NotNull(restored);
@@ -242,8 +247,12 @@ public sealed class TuneDecoderTests
     {
         var verification = new TuneVerification(TunePlatform.Steam, TuneVerificationProfiles.SteamProfile,
             TuneVerificationProfiles.SteamLayoutSha256, "later-reviewed-pack", 2, null);
-        var input = Fixture("miata") with { GameVersion = "6.441.1.0", ExecutableSha256 = new string('A', 64),
-            Verification = verification };
+        var input = Fixture("miata") with
+        {
+            GameVersion = "6.441.1.0",
+            ExecutableSha256 = new string('A', 64),
+            Verification = verification
+        };
         var snapshot = Decode(input);
         Assert.Equal("6.441.1.0", snapshot.Identity.GameVersion);
         Assert.Equal(new string('A', 64), snapshot.Identity.ExecutableSha256);
@@ -256,8 +265,11 @@ public sealed class TuneDecoderTests
     public void AddingVerificationDetailsDoesNotInvalidateALegacySavedSetupComparison()
     {
         var legacy = Decode(Fixture("miata"));
-        var current = Decode(Fixture("miata") with { Verification = new(TunePlatform.Steam,
-            TuneVerificationProfiles.SteamProfile, TuneVerificationProfiles.SteamLayoutSha256, "current", 1, null) });
+        var current = Decode(Fixture("miata") with
+        {
+            Verification = new(TunePlatform.Steam,
+            TuneVerificationProfiles.SteamProfile, TuneVerificationProfiles.SteamLayoutSha256, "current", 1, null)
+        });
         Assert.True(TuneComparison.HaveSameSetupIdentity(legacy, current));
         Assert.True(TuneSnapshotValidator.TryValidate(legacy, out _));
     }
@@ -286,8 +298,13 @@ public sealed class TuneDecoderTests
             SemanticsVersion = 1,
             CompatibilityPackSha256 = new string('C', 64)
         };
-        var input = Fixture("miata") with { GameVersion = "3.441.1.0", ExecutableSha256 = null,
-            ExecutableVerified = false, Verification = verification };
+        var input = Fixture("miata") with
+        {
+            GameVersion = "3.441.1.0",
+            ExecutableSha256 = null,
+            ExecutableVerified = false,
+            Verification = verification
+        };
         Reject(input, TuneDecodeFailure.UnverifiedExecutable);
         var verified = input with { CompatibilityDescriptorVerified = true };
         var snapshot = Decode(verified);
@@ -298,8 +315,11 @@ public sealed class TuneDecoderTests
         Reject(verified with { Verification = verification with { SemanticsVersion = 2 } }, TuneDecodeFailure.UnverifiedExecutable);
         Reject(verified with { Verification = verification with { CompatibilityPackSha256 = null } }, TuneDecodeFailure.UnverifiedExecutable);
         Reject(verified with { Verification = verification with { Method = TuneVerificationMethod.KnownProfile } }, TuneDecodeFailure.UnverifiedExecutable);
-        Assert.True(TuneComparison.HaveSameSetupIdentity(snapshot, snapshot with { Identity = snapshot.Identity with
-        { Verification = verification with { CompatibilityPackSha256 = new string('D', 64), CompatibilityRevision = 4 } } }));
+        Assert.True(TuneComparison.HaveSameSetupIdentity(snapshot, snapshot with
+        {
+            Identity = snapshot.Identity with
+            { Verification = verification with { CompatibilityPackSha256 = new string('D', 64), CompatibilityRevision = 4 } }
+        }));
     }
 
     private static TuneDecodeInput Fixture(string name) => Read<TuneDecodeInput>(name);

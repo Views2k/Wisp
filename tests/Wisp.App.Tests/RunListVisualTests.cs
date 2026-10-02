@@ -30,9 +30,13 @@ public sealed class RunListVisualTests
         var items = new ObservableCollection<SavedRunItem> { manual, first, second, other };
         var view = new ListCollectionView(items);
         view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(SavedRunItem.LibraryGroup)));
-        var list = new ListBox { ItemsSource = view, DisplayMemberPath = nameof(SavedRunItem.Name),
+        var list = new ListBox
+        {
+            ItemsSource = view,
+            DisplayMemberPath = nameof(SavedRunItem.Name),
             Style = Assert.IsType<Style>(resources[typeof(ListBox)]),
-            DataContext = new { SelectedRun = (SavedRunItem?)null, HasLibrarySearch = false } };
+            DataContext = new { SelectedRun = (SavedRunItem?)null, HasLibrarySearch = false }
+        };
         list.GroupStyle.Add(Assert.IsType<GroupStyle>(resources["RunLibraryGroups"]));
         VirtualizingPanel.SetIsVirtualizingWhenGrouping(list, true);
         AppThemeResources.Apply(list.Resources, AppColorThemes.Resolve("Purple"));

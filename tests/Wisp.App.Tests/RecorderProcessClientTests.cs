@@ -362,8 +362,13 @@ public sealed class RecorderProcessClientTests
         var session = Guid.NewGuid();
         var fields = new Dictionary<string, object>
         {
-            ["v"] = RecorderProtocol.Version, ["session"] = session.ToString("N"), ["request"] = 0,
-            ["type"] = "state", ["state"] = "paused", ["reason"] = "focus_lost", ["bufferReady"] = ready
+            ["v"] = RecorderProtocol.Version,
+            ["session"] = session.ToString("N"),
+            ["request"] = 0,
+            ["type"] = "state",
+            ["state"] = "paused",
+            ["reason"] = "focus_lost",
+            ["bufferReady"] = ready
         };
         var state = Assert.IsType<RecorderStateUpdate>(RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(fields), session));
         Assert.Equal(ready, state.BufferReady);

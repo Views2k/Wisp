@@ -65,9 +65,11 @@ public static class TuneDecoder
         }
         snapshot = new(Guid.NewGuid(), input.CapturedAtUtc.ToUniversalTime(),
             new(input.GameVersion, input.ExecutableSha256?.ToUpperInvariant(), ReaderVersion, input.CarOrdinal,
-                input.Drivetrain, input.ObservedGearEntryCount - 1) { Verification = input.Verification }, input.UnitPreference,
+                input.Drivetrain, input.ObservedGearEntryCount - 1)
+            { Verification = input.Verification }, input.UnitPreference,
             input.Parts.Select(part => input.PartLevelsResolved ? part : part with { Level = null })
-                .OrderBy(part => part.Kind).ToImmutableArray(), rows.MoveToImmutable()) { CarName = input.CarName };
+                .OrderBy(part => part.Kind).ToImmutableArray(), rows.MoveToImmutable())
+        { CarName = input.CarName };
         return true;
     }
 

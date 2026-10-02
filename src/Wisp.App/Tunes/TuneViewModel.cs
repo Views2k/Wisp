@@ -397,8 +397,12 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     {
         _currentComparison = _currentValid && _current is { } snapshot && _isCurrent(snapshot) ? new SavedTune
         {
-            Id = _currentComparisonId, Name = "Current car", Description = "",
-            Snapshot = snapshot, SavedAtUtc = snapshot.CapturedAtUtc, ModifiedAtUtc = snapshot.CapturedAtUtc
+            Id = _currentComparisonId,
+            Name = "Current car",
+            Description = "",
+            Snapshot = snapshot,
+            SavedAtUtc = snapshot.CapturedAtUtc,
+            ModifiedAtUtc = snapshot.CapturedAtUtc
         } : null;
         if (IsCompareMode && _currentComparison is not null)
         {

@@ -153,9 +153,12 @@ public sealed class TuneCaptureService : IAsyncDisposable
         }
         var input = NativeTuneCapture.Read(memory, _metadata, cancellationToken, layout);
         if (memory.GameDirectory is { } directory && _metadata.CarNameKey(input.CarOrdinal) is { } car)
-            input = input with { CarName = TuneCarNameResolver.TryResolve(
+            input = input with
+            {
+                CarName = TuneCarNameResolver.TryResolve(
                 Path.Combine(directory, "Media", "Stripped", "StringTables", "EN.zip"),
-                car.Year, car.ModelToken, car.MakeToken, cancellationToken) };
+                car.Year, car.ModelToken, car.MakeToken, cancellationToken)
+            };
         layout.Verify(memory, cancellationToken);
         return input;
     }

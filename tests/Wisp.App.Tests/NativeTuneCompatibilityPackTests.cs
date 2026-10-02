@@ -152,15 +152,22 @@ public sealed class NativeTuneCompatibilityPackTests
         var now = DateTimeOffset.Parse("2026-10-01T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
         var payload = new JsonObject
         {
-            ["format"] = 2, ["purpose"] = "wisp-native-hud-compatibility",
-            ["issuedUtc"] = "2026-10-01T00:00:00Z", ["expiresUtc"] = "2026-10-02T00:00:00Z",
+            ["format"] = 2,
+            ["purpose"] = "wisp-native-hud-compatibility",
+            ["issuedUtc"] = "2026-10-01T00:00:00Z",
+            ["expiresUtc"] = "2026-10-02T00:00:00Z",
             ["packs"] = new JsonArray(Document(false), Document(true))
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
         var signature = key.SignData(NativeCompatibilitySignature.CreateSigningInput(bytes), HashAlgorithmName.SHA256,
             DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
-        var envelope = new JsonObject { ["format"] = 1, ["keyId"] = keyId,
-            ["payload"] = Convert.ToBase64String(bytes), ["signature"] = Convert.ToBase64String(signature) };
+        var envelope = new JsonObject
+        {
+            ["format"] = 1,
+            ["keyId"] = keyId,
+            ["payload"] = Convert.ToBase64String(bytes),
+            ["signature"] = Convert.ToBase64String(signature)
+        };
         var keys = new Dictionary<string, byte[]> { [keyId] = publicKey };
         Assert.All(NativeCompatibilityEnvelope.Verify(JsonSerializer.SerializeToUtf8Bytes(envelope), keys, now).Packs,
             pack => Assert.NotNull(pack.Tune));

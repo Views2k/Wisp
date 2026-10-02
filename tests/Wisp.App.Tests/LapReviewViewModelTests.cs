@@ -126,15 +126,21 @@ public sealed class LapReviewViewModelTests
         using var fixture = new Fixture();
         var pin = Run();
         var run = Run();
-        run = run with { Samples = run.Samples.Select(sample =>
+        run = run with
+        {
+            Samples = run.Samples.Select(sample =>
         {
             var lap = sample.State.Lap!;
-            return sample with { State = sample.State with
+            return sample with
             {
-                CarOrdinal = sample.State.CarOrdinal + (otherCar ? 1 : 0),
-                Lap = lap with { Position = lap.Position with { X = lap.Position.X + (otherCar ? 0 : 1000) } }
-            } };
-        }).ToArray() };
+                State = sample.State with
+                {
+                    CarOrdinal = sample.State.CarOrdinal + (otherCar ? 1 : 0),
+                    Lap = lap with { Position = lap.Position with { X = lap.Position.X + (otherCar ? 0 : 1000) } }
+                }
+            };
+        }).ToArray()
+        };
         await fixture.Store.SaveAsync(pin);
         var settings = Pin(pin);
         using var model = fixture.Model(settings);
@@ -154,8 +160,13 @@ public sealed class LapReviewViewModelTests
     private static AppSettings Pin(RecordedRun run)
     {
         var lap = LapReviewAnalysis.Build(run).Laps.First(lap => lap.IsComplete);
-        return new() { LapReviewBenchmarkRunId = run.Id, LapReviewBenchmarkLapNumber = lap.Number,
-            LapReviewBenchmarkSampleIndex = lap.Points[0].SampleIndex, LapReviewBenchmarkTimingMode = lap.TimingMode };
+        return new()
+        {
+            LapReviewBenchmarkRunId = run.Id,
+            LapReviewBenchmarkLapNumber = lap.Number,
+            LapReviewBenchmarkSampleIndex = lap.Points[0].SampleIndex,
+            LapReviewBenchmarkTimingMode = lap.TimingMode
+        };
     }
 
     [Fact]
