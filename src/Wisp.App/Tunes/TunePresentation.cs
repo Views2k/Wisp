@@ -13,7 +13,13 @@ public sealed record TuneDisplayRow(string Label, string Value, string Range, st
 
 internal static class TunePresentation
 {
-    internal static string Car(TuneSnapshot snapshot) => $"Car {snapshot.Identity.CarOrdinal}";
+    internal static string Car(TuneSnapshot snapshot) => snapshot.CarName ?? $"Car {snapshot.Identity.CarOrdinal}";
+
+    internal static string DefaultName(TuneSnapshot snapshot)
+    {
+        var name = snapshot.CarName ?? $"Car {snapshot.Identity.CarOrdinal} · {snapshot.CapturedAtUtc.ToLocalTime():MMM d HH:mm}";
+        return name.Length <= TuneStore.MaximumNameLength ? name : name[..(TuneStore.MaximumNameLength - 1)] + "…";
+    }
 
     internal static string CaptureStatus(TuneSnapshot snapshot)
     {

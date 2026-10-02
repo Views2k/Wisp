@@ -17,6 +17,9 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     private readonly List<TuneCommand> _commands = [];
     private SavedTune[] _saved = [];
     private SavedTune[] _comparisonExtras = [];
+    private readonly Guid _currentComparisonId = Guid.NewGuid();
+    private SavedTune? _currentComparison;
+    private bool _compareReadsCurrent;
     private CancellationTokenSource? _refreshCancellation;
     private TuneSnapshot? _current, _opened, _dialogSnapshot;
     private SavedTune? _selected, _a, _b;
@@ -24,9 +27,9 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     private TuneWorkspace _workspace;
     private TuneCategoryOption _category = new(TuneCategory.Tires, "Tires");
     private TuneSortOption _sort = new(TuneSort.Newest, "Newest first");
-    private bool _visible, _disposed, _busy, _refreshing, _currentValid, _initialized, _dialogOpen, _openedFromRun;
-    private long _refreshRevision;
-    private Guid? _editingId;
+    private bool _visible, _disposed, _busy, _refreshing, _currentValid, _initialized, _dialogOpen, _openedFromRun, _deleting;
+    private long _refreshRevision, _comparisonSelectionRevision;
+    private Guid? _editingId, _openedSavedId;
     private string _status = "Start Forza to read the current tune.", _error = "", _openedName = "", _openedDescription = "";
     private string _dialogName = "", _dialogDescription = "", _dialogError = "";
 
@@ -34,10 +37,11 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         Func<TuneSnapshot, bool> isCurrent, Dispatcher dispatcher)
     {
         _store = store; _capture = capture; _isCurrent = isCurrent; _dispatcher = dispatcher;
-        RefreshCommand = Command(RefreshAsync, () => IsCurrentMode && !_busy && !_refreshing && !_dialogOpen);
+        RefreshCommand = Command(RefreshAsync, () => (IsCurrentMode || IsCompareMode) && !_busy && !_refreshing && !_dialogOpen);
         SaveCommand = Command(() => { BeginSave(); return Task.CompletedTask; }, () => CanSave);
         LoadCommand = Command(LoadSelectedAsync, () => _selected is not null && !_busy && !_dialogOpen);
         EditCommand = Command(() => { BeginEdit(); return Task.CompletedTask; }, () => _selected is not null && !_busy && !_dialogOpen);
+        DeleteCommand = Command(() => { BeginDelete(); return Task.CompletedTask; }, () => _selected is not null && !_busy && !_dialogOpen);
         ConfirmDialogCommand = Command(ConfirmDialogAsync, () => _dialogOpen && !_busy);
         CancelDialogCommand = Command(() => { CancelDialog(); return Task.CompletedTask; }, () => _dialogOpen && !_busy);
     }
@@ -52,6 +56,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     public ICommand SaveCommand { get; }
     public ICommand LoadCommand { get; }
     public ICommand EditCommand { get; }
+    public ICommand DeleteCommand { get; }
     public ICommand ConfirmDialogCommand { get; }
     public ICommand CancelDialogCommand { get; }
     public bool IsCurrentMode => _workspace == TuneWorkspace.Current;
@@ -69,11 +74,15 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     public bool HasError => _error.Length != 0;
     public bool HasSnapshot => IsCompareMode ? _a is not null || _b is not null : Displayed is not null;
     public bool IsDialogOpen => _dialogOpen;
-    public string DialogTitle => _editingId is null ? "Save tune" : "Edit tune details";
+    public bool IsDeleteDialog => _deleting;
+    public bool IsMetadataDialog => !_deleting;
+    public string DialogTitle => _deleting ? "Delete saved tune" : _editingId is null ? "Save tune" : "Edit tune details";
+    public string DialogConfirmText => _deleting ? "Delete tune" : "Save";
+    public string DeleteMessage => $"Delete \"{_dialogName}\" from saved tunes? Tunes already attached to runs will be kept.";
     public string DialogName { get => _dialogName; set { _dialogName = value ?? ""; Changed(); } }
     public string DialogDescription { get => _dialogDescription; set { _dialogDescription = value ?? ""; Changed(); } }
     public string DialogError => _dialogError;
-    public string Heading => IsCompareMode ? "Compare saved tunes" : IsCurrentMode ? _current is { } current ? TunePresentation.Car(current) : "Current car" : _openedName.Length > 0 ? _openedName : "Saved tunes";
+    public string Heading => IsCompareMode ? "Compare tunes" : IsCurrentMode ? _current is { } current ? TunePresentation.Car(current) : "Current car" : _openedName.Length > 0 ? _openedName : "Saved tunes";
     public string Description => IsSavedMode ? _openedDescription : "";
     public string Context => IsCurrentMode ? _current is { } current
         ? $"{(_currentValid ? "Current car" : "Earlier capture")} · {current.CapturedAtUtc.ToLocalTime():g}" : ""
@@ -99,8 +108,8 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         get => _selected;
         set { if (_selected != value) { _selected = value; Changed(); NotifyCommands(); } }
     }
-    public SavedTune? CompareA { get => _a; set { if (_a != value) { _a = value; Changed(); NotifyView(); } } }
-    public SavedTune? CompareB { get => _b; set { if (_b != value) { _b = value; Changed(); NotifyView(); } } }
+    public SavedTune? CompareA { get => _a; set { if (_a != value) { _comparisonSelectionRevision++; _a = value; Changed(); NotifyView(); } } }
+    public SavedTune? CompareB { get => _b; set { if (_b != value) { _comparisonSelectionRevision++; _b = value; Changed(); NotifyView(); } } }
 
     public async Task InitializeAsync()
     {
@@ -123,10 +132,12 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_disposed || _dialogOpen || _busy || _workspace == workspace) return;
         _workspace = workspace;
-        _status = workspace switch { TuneWorkspace.Saved => "Choose a saved tune to open it in Wisp.", TuneWorkspace.Compare => "Choose two saved tunes.", _ => "Refresh to read the current tune." };
-        if (!IsCurrentMode) CancelRefresh();
+        _compareReadsCurrent = IsCompareMode;
+        _status = workspace switch { TuneWorkspace.Saved => "Choose a saved tune to open it in Wisp.", TuneWorkspace.Compare => "Compare saved tunes, or read the current car without saving it.", _ => "Refresh to read the current tune." };
+        CancelRefresh();
+        RefreshCurrentComparison();
         NotifyView();
-        if (_visible && IsCurrentMode) _ = RefreshAsync();
+        if (_visible && (IsCurrentMode || IsCompareMode)) _ = RefreshCoreAsync(selectA: IsCompareMode && _a is null && _b is null);
     }
 
     public void SetPageVisible(bool visible)
@@ -139,7 +150,8 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     private async Task OpenPageAsync()
     {
         await InitializeAsync();
-        if (!_disposed && _visible && IsCurrentMode && !_dialogOpen) await RefreshAsync();
+        if (!_disposed && _visible && (IsCurrentMode || IsCompareMode && _compareReadsCurrent) && !_dialogOpen)
+            await RefreshCoreAsync(selectA: IsCompareMode && _a is null && _b is null);
     }
 
     public void InvalidateCurrent(bool invalidateRefresh = true)
@@ -147,31 +159,42 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         if (!_dispatcher.CheckAccess()) { _dispatcher.BeginInvoke(new Action(() => InvalidateCurrent(invalidateRefresh))); return; }
         if (_disposed) return;
         if (!invalidateRefresh && _current is { } current && _isCurrent(current)) return;
+        var selectedCurrentA = _a?.Id == _currentComparisonId;
+        var selectedCurrentB = _b?.Id == _currentComparisonId;
         if (invalidateRefresh) CancelRefresh();
         _currentValid = false;
-        if (IsCurrentMode) _status = "The current car changed. Refresh to read its tune.";
+        RefreshCurrentComparison();
+        if (IsCurrentMode || IsCompareMode) _status = "The current car changed. Refresh to read its tune.";
         NotifyView();
-        if (_visible && IsCurrentMode && !_dialogOpen && !_busy && !_refreshing) _ = RefreshAsync();
+        if (_visible && (IsCurrentMode || IsCompareMode && _compareReadsCurrent) && !_dialogOpen && !_busy && !_refreshing)
+            _ = RefreshCoreAsync(selectedCurrentA, selectedCurrentB);
     }
 
-    public async Task RefreshAsync()
+    public Task RefreshAsync() => RefreshCoreAsync(selectA: IsCompareMode &&
+        _a?.Id != _currentComparisonId && _b?.Id != _currentComparisonId);
+
+    private async Task RefreshCoreAsync(bool selectA = false, bool selectB = false)
     {
-        if (_disposed || _busy || _refreshing || _dialogOpen || !IsCurrentMode) return;
+        if (_disposed || _busy || _refreshing || _dialogOpen || !(IsCurrentMode || IsCompareMode)) return;
+        if (IsCompareMode) _compareReadsCurrent = true;
         CancelRefresh();
         var revision = _refreshRevision;
+        var selectionRevision = _comparisonSelectionRevision;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _refreshCancellation = cancellation; _refreshing = true; _status = "Reading current tune…"; SetError(""); NotifyCommands(); Changed(nameof(Status));
         try
         {
             var result = await _capture(cancellation.Token);
-            if (_disposed || cancellation.IsCancellationRequested || revision != _refreshRevision || !IsCurrentMode) return;
+            if (_disposed || cancellation.IsCancellationRequested || revision != _refreshRevision || !(IsCurrentMode || IsCompareMode)) return;
             _current = result.Snapshot; _currentValid = result.Snapshot is { } snapshot && _isCurrent(snapshot);
+            var selectionUnchanged = selectionRevision == _comparisonSelectionRevision;
+            RefreshCurrentComparison(selectA && selectionUnchanged, selectB && selectionUnchanged);
             _status = result.Snapshot is null ? result.Message : TunePresentation.CaptureStatus(result.Snapshot);
             NotifyView();
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception error) when (error is not OutOfMemoryException)
-        { if (revision == _refreshRevision) { _currentValid = false; SetError("Tune data could not be read. Refresh to try again."); } }
+        { if (revision == _refreshRevision) { _currentValid = false; RefreshCurrentComparison(); NotifyView(); SetError("Tune data could not be read. Refresh to try again."); } }
         finally
         {
             if (ReferenceEquals(_refreshCancellation, cancellation)) { _refreshCancellation = null; _refreshing = false; NotifyCommands(); }
@@ -216,10 +239,11 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_disposed || _busy || _dialogOpen || _pendingView is not { } request) return;
         _pendingView = null;
+        _compareReadsCurrent = false;
         if (!request.Compare)
         {
             _workspace = TuneWorkspace.Saved; _opened = request.A;
-            _openedFromRun = true; _selected = null;
+            _openedFromRun = true; _openedSavedId = null; _selected = null;
             _openedName = request.NameA; _openedDescription = request.DescriptionA;
             _status = "Tune attached to this run."; NotifyView(); return;
         }
@@ -242,7 +266,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     private void OpenSaved(SavedTune saved)
     {
         CancelRefresh(); _workspace = TuneWorkspace.Saved; _opened = saved.Snapshot;
-        _openedFromRun = false;
+        _openedFromRun = false; _openedSavedId = saved.Id;
         _openedName = saved.Name; _openedDescription = saved.Description; _selected = saved; NotifyView();
     }
 
@@ -250,20 +274,27 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     {
         if (!CanSave || _current is null) return;
         if (!_isCurrent(_current)) { InvalidateCurrent(); return; }
-        _editingId = null; _dialogSnapshot = _current; _dialogName = $"Car {_current.Identity.CarOrdinal} · {_current.CapturedAtUtc.ToLocalTime():MMM d HH:mm}";
+        _deleting = false; _editingId = null; _dialogSnapshot = _current; _dialogName = TunePresentation.DefaultName(_current);
         _dialogDescription = ""; ShowDialog();
     }
 
     public void BeginEdit()
     {
         if (_selected is null || _busy || _dialogOpen || _disposed) return;
-        _editingId = _selected.Id; _dialogSnapshot = _selected.Snapshot; _dialogName = _selected.Name; _dialogDescription = _selected.Description; ShowDialog();
+        _deleting = false; _editingId = _selected.Id; _dialogSnapshot = _selected.Snapshot; _dialogName = _selected.Name; _dialogDescription = _selected.Description; ShowDialog();
+    }
+
+    public void BeginDelete()
+    {
+        if (_selected is null || _busy || _dialogOpen || _disposed) return;
+        _deleting = true; _editingId = _selected.Id; _dialogSnapshot = _selected.Snapshot; _dialogName = _selected.Name;
+        ShowDialog();
     }
 
     private void ShowDialog()
     {
         _dialogError = ""; _dialogOpen = true;
-        foreach (var property in new[] { nameof(DialogTitle), nameof(DialogName), nameof(DialogDescription), nameof(DialogError), nameof(IsDialogOpen) }) Changed(property);
+        foreach (var property in new[] { nameof(DialogTitle), nameof(DialogConfirmText), nameof(IsDeleteDialog), nameof(IsMetadataDialog), nameof(DeleteMessage), nameof(DialogName), nameof(DialogDescription), nameof(DialogError), nameof(IsDialogOpen) }) Changed(property);
         NotifyCommands();
     }
 
@@ -276,6 +307,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     public async Task ConfirmDialogAsync()
     {
         if (!_dialogOpen || _busy || _disposed || _dialogSnapshot is not { } snapshot) return;
+        if (_deleting) { await ConfirmDeleteAsync(); return; }
         if (string.IsNullOrWhiteSpace(_dialogName) || _dialogName.Trim().Length > 40) { DialogFail("Enter a name between 1 and 40 characters."); return; }
         if (_dialogDescription.Trim().Length > 2000) { DialogFail("Keep the description within 2,000 characters."); return; }
         _busy = true; _dialogError = ""; Changed(nameof(DialogError)); NotifyCommands();
@@ -309,6 +341,29 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         finally { _busy = false; OpenPendingView(); NotifyView(); }
     }
 
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_editingId is not { } id) return;
+        _busy = true; _dialogError = ""; Changed(nameof(DialogError)); NotifyCommands();
+        try
+        {
+            await _store.DeleteAsync(id, _lifetime.Token);
+            if (_disposed) return;
+            _saved = _saved.Where(item => item.Id != id).ToArray();
+            if (_selected?.Id == id) _selected = null;
+            if (_openedSavedId == id)
+            { _opened = null; _openedSavedId = null; _openedName = ""; _openedDescription = ""; }
+            SortLibrary();
+            _dialogOpen = false; _dialogSnapshot = null; _editingId = null;
+            _status = "Saved tune deleted. Attached run snapshots were kept.";
+            Changed(nameof(IsDialogOpen));
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        { DialogFail("The tune could not be deleted. Check local storage and try again."); }
+        finally { _busy = false; OpenPendingView(); NotifyView(); }
+    }
+
     private void SortLibrary()
     {
         var selectedId = _selected?.Id;
@@ -330,11 +385,27 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         }
         while (Library.Count > items.Length) Library.RemoveAt(Library.Count - 1);
         _selected = _saved.FirstOrDefault(value => value.Id == selectedId);
-        var comparisons = items.Concat(_comparisonExtras).ToArray();
+        var comparisons = (_currentComparison is { } current ? new[] { current } : Array.Empty<SavedTune>())
+            .Concat(items).Concat(_comparisonExtras).ToArray();
         ComparisonChoices.Clear(); foreach (var item in comparisons) ComparisonChoices.Add(item);
         _a = comparisons.FirstOrDefault(value => value.Id == aId); _b = comparisons.FirstOrDefault(value => value.Id == bId);
         Changed(nameof(SelectedTune)); Changed(nameof(IsLibraryEmpty)); Changed(nameof(EmptyLibraryText)); NotifyCommands();
         Changed(nameof(CompareA)); Changed(nameof(CompareB));
+    }
+
+    private void RefreshCurrentComparison(bool selectA = false, bool selectB = false)
+    {
+        _currentComparison = _currentValid && _current is { } snapshot && _isCurrent(snapshot) ? new SavedTune
+        {
+            Id = _currentComparisonId, Name = "Current car", Description = "",
+            Snapshot = snapshot, SavedAtUtc = snapshot.CapturedAtUtc, ModifiedAtUtc = snapshot.CapturedAtUtc
+        } : null;
+        if (IsCompareMode && _currentComparison is not null)
+        {
+            if (selectA) _a = _currentComparison;
+            if (selectB) _b = _currentComparison;
+        }
+        SortLibrary();
     }
 
     private void RebuildRows()

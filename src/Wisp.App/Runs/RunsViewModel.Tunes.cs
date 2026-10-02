@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using Wisp.App.Tunes;
 using Wisp.Core.Runs;
 
 namespace Wisp.App.Runs;
@@ -43,7 +44,7 @@ public sealed partial class RunsViewModel
     }, () => CanRecordWithoutTune);
     public string AttachedTuneName => _runA?.TuneAttachment?.Name ?? "";
     public string AttachedTuneDetail => _runA?.TuneAttachment is { } attachment
-        ? $"Car {attachment.Snapshot.Identity.CarOrdinal} · " +
+        ? $"{TunePresentation.Car(attachment.Snapshot)} · " +
             (attachment.Kind == RunTuneAttachmentKind.SavedMatchedAtStart ? "Saved tuning values matched at start · Other upgrades not checked" : "Tune captured at start") +
             (attachment.DrivingContinuityInterrupted ? " · Driving was interrupted" : "")
         : "";
@@ -91,23 +92,47 @@ public sealed partial class RunsViewModel
     {
         try
         {
-            var result = PrepareTune is { } prepare ? await prepare(choice, cancellation.Token)
-                : new RunTunePreparation(null, "Tune reading is unavailable. Record without a tune or try again.");
-            if (_disposed || cancellation.IsCancellationRequested || revision != _tunePreparationRevision || _metadataClosing) return;
-            if (result.Error is not null || result.Attachment is null || ValidatePreparedTune?.Invoke(result.Attachment) != true)
+            RunTuneAttachment? attachment = null;
+            var reason = "The tune could not be verified.";
+            try
             {
-                _tunePreparationFailed = true;
-                Error = result.Error ?? "The car or tune changed. Try again or record without a tune.";
-                return;
+                var result = PrepareTune is { } prepare ? await prepare(choice, cancellation.Token)
+                    : new RunTunePreparation(null, "Tune reading is unavailable.");
+                if (_disposed || cancellation.IsCancellationRequested || revision != _tunePreparationRevision || _metadataClosing) return;
+                if (result.Error is null && result.Attachment is { } prepared && ValidatePreparedTune?.Invoke(prepared) == true)
+                    attachment = prepared;
+                else reason = result.Error ?? "The car or tune changed during the check.";
             }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            { reason = "The tune could not be read."; }
+            if (_disposed || cancellation.IsCancellationRequested || revision != _tunePreparationRevision || _metadataClosing) return;
+
             BeforeStart?.Invoke();
-            if (!_service.Start(new RunRecordingOptions(_activeStopAfter, result.Attachment))) Error = _service.Error ?? _service.Status;
+            var started = _service.Start(new RunRecordingOptions(_activeStopAfter, attachment));
+            // Start rechecks the current car and attachment age under its lock.
+            // A rejected attachment must not block an otherwise available run.
+            // A failed start has no active session; the ordinary start retains
+            // every telemetry, scene, storage and duration check.
+            if (!started && attachment is not null && _service.Error is null && _service.CanStart)
+            {
+                attachment = null;
+                reason = "The car or tune changed before recording started.";
+                started = _service.Start(new RunRecordingOptions(_activeStopAfter));
+            }
+            _tunePreparationFailed = !started && attachment is null;
+            if (!started) Error = _service.Error ?? _service.Status;
+            else if (attachment is null)
+            {
+                _recordingNotice = "No tune attached";
+                Error = "Recording started without a tune. " + reason;
+            }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             if (!_disposed && revision == _tunePreparationRevision)
-            { _tunePreparationFailed = true; Error = "The tune could not be attached. Try again or record without a tune."; }
+            { _tunePreparationFailed = true; Error = "The recording could not start. Check live telemetry and local storage, then try again."; }
         }
         finally
         {

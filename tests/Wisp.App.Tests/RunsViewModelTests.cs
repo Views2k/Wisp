@@ -448,7 +448,7 @@ public sealed class RunsViewModelTests
     });
 
     [Fact]
-    public void FailedTuneCheckOffersOneAttemptWithoutTuneAndKeepsCountdown() => OnDispatcher(async () =>
+    public void FailedTuneCheckAutomaticallyRecordsWithoutTuneAfterCountdown() => OnDispatcher(async () =>
     {
         await WithLiveReceiver(async (receiver, refreshTelemetry) =>
         {
@@ -462,16 +462,51 @@ public sealed class RunsViewModelTests
             await model.ToggleRecordingAsync();
             Assert.True(model.IsCountingDown); Assert.Equal(0, reads);
             clock.Advance(TimeSpan.FromSeconds(3)); await refreshTelemetry(); model.RefreshStatus();
-            Assert.Equal(1, reads); Assert.False(model.IsRecording); Assert.Equal("Setup mismatch", model.Error);
-            Assert.True(model.RecordWithoutTuneCommand.CanExecute(null));
-            model.RecordWithoutTuneCommand.Execute(null);
-            Assert.True(model.IsCountingDown); Assert.False(model.IsRecording);
-            clock.Advance(TimeSpan.FromSeconds(3)); await refreshTelemetry(); model.RefreshStatus();
-            Assert.True(model.IsRecording, model.Error); Assert.Equal(1, reads);
+            Assert.Equal(1, reads); Assert.True(model.IsRecording, model.Error);
+            Assert.Contains("Recording started without a tune", model.Error);
+            Assert.Contains("No tune attached", model.RecordingStatus);
+            Assert.False(model.RecordWithoutTuneCommand.CanExecute(null));
             Assert.Same(RunTuneChoice.Current, model.AttachTuneChoice);
-            await model.ToggleRecordingAsync(); await refreshTelemetry();
+            await refreshTelemetry(); await refreshTelemetry();
+            var recorded = await service.StopAsync();
+            Assert.NotNull(recorded); Assert.NotEmpty(recorded.Samples); Assert.Null(recorded.TuneAttachment);
+            var loaded = await service.Store.LoadAsync(recorded.Id);
+            Assert.Equal(recorded.Samples, loaded.Samples); Assert.Null(loaded.TuneAttachment);
+            await refreshTelemetry(); model.RefreshStatus();
             await model.ToggleRecordingAsync(); clock.Advance(TimeSpan.FromSeconds(3)); await refreshTelemetry(); model.RefreshStatus();
-            Assert.Equal(2, reads); Assert.False(model.IsRecording);
+            Assert.Equal(2, reads); Assert.True(model.IsRecording, model.Error);
+        });
+    });
+
+    [Theory]
+    [InlineData("missing-reader")]
+    [InlineData("read-exception")]
+    [InlineData("stale-validation")]
+    [InlineData("validation-exception")]
+    [InlineData("car-changed-at-start")]
+    public void OptionalTuneFailureCannotBlockAnOtherwiseValidRun(string failure) => OnDispatcher(async () =>
+    {
+        await WithLiveReceiver(async (receiver, refreshTelemetry) =>
+        {
+            await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+            using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+            var attachment = new RunTuneAttachment(TuneUiTestData.ValidSnapshot(), "Current", "", DateTimeOffset.UtcNow,
+                RunTuneAttachmentKind.CurrentAtStart);
+            model.AttachTuneChoice = RunTuneChoice.Current;
+            if (failure != "missing-reader")
+                model.PrepareTune = (_, _) => failure == "read-exception"
+                    ? throw new IOException("Unavailable fixture reader") : Task.FromResult(new RunTunePreparation(attachment));
+            model.ValidatePreparedTune = _ => failure == "validation-exception"
+                ? throw new IOException("Unavailable fixture validator") : failure != "stale-validation";
+            var starts = 0;
+            model.BeforeStart = () => { starts++; service.UpdateContext(new(Stopwatch.GetTimestamp(), 1, DrivetrainType.RearWheelDrive, true)); };
+            await model.ToggleRecordingAsync();
+            Assert.True(model.IsRecording, model.Error); Assert.Equal(1, starts);
+            Assert.False(model.IsPreparingTune); Assert.Contains("No tune attached", model.RecordingStatus);
+            Assert.Same(RunTuneChoice.Current, model.AttachTuneChoice);
+            await refreshTelemetry(); await refreshTelemetry();
+            var recorded = await service.StopAsync();
+            Assert.NotNull(recorded); Assert.NotEmpty(recorded.Samples); Assert.Null(recorded.TuneAttachment);
         });
     });
 

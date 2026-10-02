@@ -24,7 +24,7 @@ public sealed partial class AppController
             snapshot => _tuneCapture?.IsCurrent(snapshot) == true, _dispatcher);
         if (_tuneCapture is not null) _tuneCapture.Invalidated += TuneCaptureInvalidated;
         Runs.LoadTuneChoices = async token => (await _tuneStore.ListAsync(token)).Select(saved =>
-            new RunTuneChoice($"{saved.Name} · Car {saved.Snapshot.Identity.CarOrdinal} · {saved.SavedAtUtc.ToLocalTime():g}", SavedTuneId: saved.Id)).ToArray();
+            new RunTuneChoice($"{saved.Name} · {TunePresentation.Car(saved.Snapshot)} · {saved.SavedAtUtc.ToLocalTime():g}", SavedTuneId: saved.Id)).ToArray();
         Runs.PrepareTune = PrepareRunTuneAsync;
         Runs.ValidatePreparedTune = attachment => _tuneCapture?.IsCurrent(attachment.Snapshot) == true;
         Runs.AttachedTuneRequested += OpenAttachedTune;
@@ -42,10 +42,9 @@ public sealed partial class AppController
         var result = await CaptureTuneAsync(token);
         token.ThrowIfCancellationRequested();
         if (result.Snapshot is not { IsComplete: true } snapshot || _tuneCapture?.IsCurrent(snapshot) != true)
-            return new(null, result.Message.Length > 0 ? result.Message + " Record without a tune or try again."
-                : "The current tune could not be verified. Record without a tune or try again.");
+            return new(null, result.Message.Length > 0 ? result.Message : "The current tune could not be verified.");
         if (saved is not null && !TuneComparison.HaveSameSetupIdentity(saved.Snapshot, snapshot))
-            return new(null, "The selected saved tune does not match this car's current setup. Choose another tune, retry, or record without a tune.");
+            return new(null, "The selected saved tune does not match this car's current setup.");
         var attachment = new RunTuneAttachment(snapshot, saved?.Name ?? "Current car", saved?.Description ?? "",
             DateTimeOffset.UtcNow, saved is null ? RunTuneAttachmentKind.CurrentAtStart : RunTuneAttachmentKind.SavedMatchedAtStart,
             saved?.Id);

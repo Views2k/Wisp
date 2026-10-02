@@ -102,6 +102,20 @@ public sealed class TuneStore
         return updated;
     }, token);
 
+    public Task<bool> DeleteAsync(Guid id, CancellationToken token = default) => InBackground(async () =>
+    {
+        _ = await ReadAsync(id, token).ConfigureAwait(false);
+        var path = TunePath(id);
+        var backup = Path.Combine(_directory, $"{id:N}.bak");
+        CheckPath(path); CheckPath(backup);
+        token.ThrowIfCancellationRequested();
+        // Remove only this entry and its metadata backup. Run attachments own
+        // their snapshots and never refer to these files for playback/review.
+        File.Delete(backup);
+        File.Delete(path);
+        return true;
+    }, token);
+
     internal static (string Name, string Description) NormalizeMetadata(string name, string description)
     {
         if (name is null || description is null) throw new ArgumentException("Enter a name for this tune.");

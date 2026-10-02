@@ -153,8 +153,11 @@ internal static class TuneUiReview
                         model.SelectedSort = model.SortOptions.First(value => value.Sort == TuneSort.NameAscending);
                         model.SelectedCategory = model.Categories.First(value => value.Category == TuneCategory.Gearing);
                         Layout(size, dpi);
-                        Check(model.CompareA?.Name == "Attached run A" && model.CompareB?.Name == "Attached run B" &&
-                            model.Library.Count == 1 && model.ComparisonChoices.Count == 3, "attached-comparison-survives-sort-without-saving");
+                        Check(model.CompareA?.Name == "Attached run A" && model.CompareB?.Name == "Attached run B",
+                            "attached-comparison-survives-sort");
+                        Check(model.Library.Count == 1 && model.ComparisonChoices.Count == 4 &&
+                            model.ComparisonChoices.Count(value => value.Name == "Current car") == 1,
+                            "current-car-and-attached-comparisons-do-not-create-saved-tunes");
                         Check(((ItemsControl)page.FindName("TuneComparison")).Items.Count == model.Rows.Count && model.Rows.Count > 1,
                             "comparison-rows-aligned");
                         CheckSelectors(); Capture(size, dpi);

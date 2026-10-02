@@ -107,7 +107,8 @@ public sealed class RunTuneAttachmentTests : IDisposable
         var runs = new RunStore(Folder("runs"));
         await runs.SaveAsync(run);
         await tunes.UpdateMetadataAsync(original.Id, "Renamed later", "Changed later", TestContext.Current.CancellationToken);
-        File.Delete(Path.Combine(Folder("tunes"), $"{original.Id:N}.wisptune"));
+        Assert.True(await tunes.DeleteAsync(original.Id, TestContext.Current.CancellationToken));
+        Assert.Empty(await tunes.ListAsync(TestContext.Current.CancellationToken));
         var loaded = (await runs.LoadAsync(run.Id)).TuneAttachment!;
         Assert.Equal(original.Name, loaded.Name);
         Assert.Equal(original.Description, loaded.Description);

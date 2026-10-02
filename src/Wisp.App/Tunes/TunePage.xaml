@@ -96,6 +96,7 @@
                     <RadioButton Content="Saved tunes" GroupName="TuneWorkspace" Style="{DynamicResource SegmentRadioStyle}" IsChecked="{Binding IsSavedMode, Mode=OneWay}" Click="Saved_Click" Margin="0,0,8,6" />
                     <RadioButton Content="Compare" GroupName="TuneWorkspace" Style="{DynamicResource SegmentRadioStyle}" IsChecked="{Binding IsCompareMode, Mode=OneWay}" Click="Compare_Click" Margin="0,0,16,6" />
                     <Button Content="Refresh" Command="{Binding RefreshCommand}" Visibility="{Binding IsCurrentMode, Converter={StaticResource TuneVisibility}}" Margin="0,0,8,6" />
+                    <Button Content="Read current car" Command="{Binding RefreshCommand}" Visibility="{Binding IsCompareMode, Converter={StaticResource TuneVisibility}}" Margin="0,0,8,6" />
                     <Button Content="Save tune" Command="{Binding SaveCommand}" Style="{DynamicResource PrimaryButtonStyle}" Visibility="{Binding IsCurrentMode, Converter={StaticResource TuneVisibility}}" Margin="0,0,0,6" />
                 </WrapPanel>
                 <Border Style="{DynamicResource CardStyle}" Padding="16" Margin="0,0,0,14" Visibility="{Binding IsSavedMode, Converter={StaticResource TuneVisibility}}">
@@ -104,7 +105,8 @@
                             <TextBlock Text="Sort by" VerticalAlignment="Center" Margin="0,0,8,6" />
                             <ComboBox ItemsSource="{Binding SortOptions}" DisplayMemberPath="Label" SelectedItem="{Binding SelectedSort}" MinWidth="170" AutomationProperties.Name="Sort saved tunes" Margin="0,0,12,6" />
                             <Button Content="Load" Command="{Binding LoadCommand}" Margin="0,0,8,6" AutomationProperties.Name="Open selected saved tune in Wisp" />
-                            <Button Content="Edit details" Command="{Binding EditCommand}" Margin="0,0,0,6" />
+                            <Button Content="Edit details" Command="{Binding EditCommand}" Margin="0,0,8,6" />
+                            <Button Content="Delete" Command="{Binding DeleteCommand}" Margin="0,0,0,6" AutomationProperties.Name="Delete selected saved tune" />
                         </WrapPanel>
                         <TextBlock Text="{Binding EmptyLibraryText}" Style="{StaticResource TuneHint}" />
                         <ListBox x:Name="SavedTuneList" ItemsSource="{Binding Library}" SelectedItem="{Binding SelectedTune}" ItemContainerStyle="{StaticResource TuneListItem}" MaxHeight="230" MinHeight="45" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Saved tunes" MouseDoubleClick="Saved_DoubleClick" KeyDown="Saved_KeyDown">
@@ -166,7 +168,8 @@
                 <Grid>
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                     <TextBlock Text="{Binding DialogTitle}" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,10" />
-                    <ScrollViewer x:Name="TuneDialogFields" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
+                    <TextBlock Grid.Row="1" Text="{Binding DeleteMessage}" TextWrapping="Wrap" Visibility="{Binding IsDeleteDialog, Converter={StaticResource TuneVisibility}}" />
+                    <ScrollViewer x:Name="TuneDialogFields" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0" Visibility="{Binding IsMetadataDialog, Converter={StaticResource TuneVisibility}}">
                         <StackPanel>
                             <TextBlock Text="Name" Margin="0,0,0,6" />
                             <TextBox x:Name="TuneNameInput" Text="{Binding DialogName, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEditDialog}" AutomationProperties.Name="Tune name" KeyDown="Name_KeyDown" />
@@ -180,7 +183,7 @@
                     </ScrollViewer>
                     <WrapPanel Grid.Row="3" HorizontalAlignment="Right" Margin="0,12,0,0">
                         <Button x:Name="TuneDialogCancel" Content="Cancel" Command="{Binding CancelDialogCommand}" MinWidth="90" Margin="0,0,10,0" />
-                        <Button x:Name="TuneDialogSave" Content="Save" Command="{Binding ConfirmDialogCommand}" Style="{DynamicResource PrimaryButtonStyle}" MinWidth="100" />
+                        <Button x:Name="TuneDialogSave" Content="{Binding DialogConfirmText}" Command="{Binding ConfirmDialogCommand}" Style="{DynamicResource PrimaryButtonStyle}" MinWidth="100" />
                     </WrapPanel>
                 </Grid>
             </Border>

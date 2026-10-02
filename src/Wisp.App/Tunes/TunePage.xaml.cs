@@ -41,7 +41,8 @@ public partial class TunePage : UserControl
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (!IsDialogOpen || Window.GetWindow(this)?.IsActive != true) return;
-                TuneNameInput.Focus(); TuneNameInput.SelectAll();
+                if (Model?.IsDeleteDialog == true) TuneDialogCancel.Focus();
+                else { TuneNameInput.Focus(); TuneNameInput.SelectAll(); }
             }));
         }
         else

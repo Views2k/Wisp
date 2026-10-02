@@ -9,6 +9,20 @@ namespace Wisp.App.Tests;
 
 public sealed class TuneViewModelTests
 {
+    [Fact]
+    public void VerifiedCarNameAppearsAndLongNamesKeepAValidSaveDefault() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var snapshot = Snapshot() with { CarName = "1994 Mazda MX-5 Miata Forza Edition" };
+        using var model = fixture.Model(() => snapshot);
+        await model.InitializeAsync(); await model.RefreshAsync();
+        Assert.Equal(snapshot.CarName, model.Heading);
+        model.BeginSave();
+        Assert.Equal(snapshot.CarName, model.DialogName);
+        Assert.Equal("Car " + snapshot.Identity.CarOrdinal, TunePresentation.Car(snapshot with { CarName = null }));
+        Assert.Equal(TuneStore.MaximumNameLength, TunePresentation.DefaultName(snapshot with { CarName = new string('A', 100) }).Length);
+    });
+
     [Theory]
     [InlineData(TuneFieldStatus.UnsupportedUnit, "imperial game units", "Imperial units required")]
     [InlineData(TuneFieldStatus.UnsupportedConversion, "does not support yet", "Unsupported conversion")]
@@ -290,6 +304,124 @@ public sealed class TuneViewModelTests
     });
 
     private static TuneSnapshot Snapshot(string name = "miata") => TuneUiTestData.ValidSnapshot(name);
+
+    [Fact]
+    public void DeleteRequiresConfirmationAndRemovesOnlyTheSelectedLibraryEntry() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var a = await fixture.Store.SaveAsync(Snapshot(), "Delete this", "");
+        var b = await fixture.Store.SaveAsync(Snapshot(), "Keep this", "");
+        using var model = fixture.Model(() => null);
+        await model.InitializeAsync(); model.SetWorkspace(TuneWorkspace.Saved);
+        model.SelectedTune = model.Library.Single(item => item.Id == a.Id);
+        model.CompareA = model.SelectedTune; model.CompareB = model.Library.Single(item => item.Id == b.Id);
+        model.BeginDelete();
+        Assert.True(model.IsDeleteDialog && model.IsDialogOpen);
+        Assert.Contains(a.Name, model.DeleteMessage); Assert.Equal("Delete tune", model.DialogConfirmText);
+        model.CancelDialog();
+        Assert.Equal(2, (await fixture.Store.ListAsync()).Count);
+        model.BeginDelete(); await model.ConfirmDialogAsync();
+        Assert.False(model.IsDialogOpen, model.DialogError);
+        Assert.Equal(b.Id, Assert.Single(model.Library).Id); Assert.Null(model.SelectedTune);
+        Assert.Null(model.CompareA); Assert.Equal(b.Id, model.CompareB!.Id);
+        Assert.Equal(b.Id, Assert.Single(await fixture.Store.ListAsync()).Id);
+    });
+
+    [Fact]
+    public void DeleteFailureKeepsConfirmationAndSelectedTune() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var saved = await fixture.Store.SaveAsync(Snapshot(), "Keep on failure", "");
+        using var model = fixture.Model(() => null);
+        await model.InitializeAsync(); model.SelectedTune = Assert.Single(model.Library); model.BeginDelete();
+        using var locked = new FileStream(Path.Combine(fixture.Directory, $"{saved.Id:N}.wisptune"), FileMode.Open, FileAccess.Read, FileShare.None);
+        await model.ConfirmDialogAsync();
+        Assert.True(model.IsDialogOpen); Assert.NotEmpty(model.DialogError);
+        Assert.Equal(saved.Id, model.SelectedTune!.Id); Assert.Single(model.Library);
+    });
+
+    [Fact]
+    public void CurrentCarCanBeComparedRefreshedAndInvalidatedWithoutSavingIt() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var current = Snapshot(); var valid = true;
+        var saved = await fixture.Store.SaveAsync(current, "Saved baseline", "");
+        using var model = new TuneViewModel(fixture.Store,
+            _ => Task.FromResult(new TuneCaptureResult(current, TuneCaptureStatus.Ready, "")),
+            _ => valid, Dispatcher.CurrentDispatcher);
+        await model.InitializeAsync(); model.SetWorkspace(TuneWorkspace.Compare);
+        model.CompareB = Assert.Single(model.Library);
+        await model.RefreshAsync();
+        Assert.Equal("Current car", model.CompareA!.Name); Assert.Equal(current.Id, model.CompareA.Snapshot.Id);
+        Assert.Equal(saved.Id, model.CompareB!.Id); Assert.Equal(2, model.ComparisonChoices.Count);
+        Assert.Single(model.Library); Assert.Single(await fixture.Store.ListAsync());
+        var choiceId = model.CompareA.Id;
+        current = current with { Id = Guid.NewGuid(), CapturedAtUtc = current.CapturedAtUtc.AddSeconds(1) };
+        await model.RefreshAsync();
+        Assert.Equal(choiceId, model.CompareA!.Id); Assert.Equal(current.Id, model.CompareA.Snapshot.Id);
+        Assert.Equal(saved.Id, model.CompareB!.Id);
+        valid = false; model.InvalidateCurrent();
+        Assert.Null(model.CompareA); Assert.Equal(saved.Id, model.CompareB.Id);
+        Assert.Single(model.ComparisonChoices); Assert.Single(await fixture.Store.ListAsync());
+    });
+
+    [Fact]
+    public void PendingCurrentReadKeepsNewManualComparisonChoices() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var current = Snapshot();
+        var savedA = await fixture.Store.SaveAsync(current, "Manual A", "");
+        var savedB = await fixture.Store.SaveAsync(current, "Manual B", "");
+        var gate = new TaskCompletionSource<TuneCaptureResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var model = new TuneViewModel(fixture.Store, _ => gate.Task, _ => true, Dispatcher.CurrentDispatcher);
+        await model.InitializeAsync(); model.SetWorkspace(TuneWorkspace.Compare);
+        var refresh = model.RefreshAsync();
+        model.CompareA = model.Library.Single(item => item.Id == savedA.Id);
+        model.CompareB = model.Library.Single(item => item.Id == savedB.Id);
+        gate.SetResult(new(current, TuneCaptureStatus.Ready, "Ready")); await refresh;
+        Assert.Equal(savedA.Id, model.CompareA!.Id); Assert.Equal(savedB.Id, model.CompareB!.Id);
+        Assert.Contains(model.ComparisonChoices, item => item.Name == "Current car");
+    });
+
+    [Fact]
+    public void AutomaticCurrentRefreshPreservesSavedChoicesAndCurrentSide() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var current = Snapshot();
+        var savedA = await fixture.Store.SaveAsync(current, "Saved A", "");
+        var savedB = await fixture.Store.SaveAsync(current, "Saved B", "");
+        using var model = new TuneViewModel(fixture.Store,
+            _ => Task.FromResult(new TuneCaptureResult(current, TuneCaptureStatus.Ready, "Ready")),
+            _ => true, Dispatcher.CurrentDispatcher);
+        await model.InitializeAsync(); model.SetWorkspace(TuneWorkspace.Compare); model.SetPageVisible(true);
+        model.CompareA = model.Library.Single(item => item.Id == savedA.Id);
+        model.CompareB = model.Library.Single(item => item.Id == savedB.Id);
+        model.InvalidateCurrent();
+        Assert.Equal(savedA.Id, model.CompareA!.Id); Assert.Equal(savedB.Id, model.CompareB!.Id);
+        model.CompareB = model.ComparisonChoices.Single(item => item.Name == "Current car");
+        var currentChoiceId = model.CompareB.Id;
+        current = current with { Id = Guid.NewGuid(), CapturedAtUtc = current.CapturedAtUtc.AddSeconds(1) };
+        model.InvalidateCurrent();
+        Assert.Equal(savedA.Id, model.CompareA!.Id); Assert.Equal(currentChoiceId, model.CompareB!.Id);
+        Assert.Equal(current.Id, model.CompareB.Snapshot.Id);
+    });
+
+    [Fact]
+    public void DeletingAnotherSelectedTuneKeepsTheOpenedSavedSnapshot() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var opened = await fixture.Store.SaveAsync(Snapshot(), "Opened A", "Keep these notes");
+        var other = await fixture.Store.SaveAsync(Snapshot(), "Selected B", "");
+        using var model = fixture.Model(() => null);
+        await model.InitializeAsync(); model.SelectedTune = model.Library.Single(item => item.Id == opened.Id);
+        await model.LoadSelectedAsync();
+        model.SelectedTune = model.Library.Single(item => item.Id == other.Id);
+        model.BeginDelete(); await model.ConfirmDialogAsync();
+        Assert.True(model.HasSnapshot); Assert.Equal(opened.Name, model.Heading);
+        Assert.Equal(opened.Description, model.Description); Assert.Equal(opened.Id, Assert.Single(model.Library).Id);
+        model.SelectedTune = Assert.Single(model.Library); model.BeginDelete(); await model.ConfirmDialogAsync();
+        Assert.False(model.HasSnapshot); Assert.Equal("Saved tunes", model.Heading);
+    });
 
     private sealed class PausedStoreWrite : IDisposable
     {
