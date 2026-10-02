@@ -1,6 +1,7 @@
 #include "GpuFrameConverter.h"
 
 #include <dxgi1_2.h>
+#include <cmath>
 #include <new>
 
 namespace recorder::conversion
@@ -122,10 +123,22 @@ namespace recorder::conversion
             videoContext_->VideoProcessorSetStreamAlpha(processor_.Get(), 0, TRUE, 1.0f);
             videoContext_->VideoProcessorSetOutputAlphaFillMode(processor_.Get(), D3D11_VIDEO_PROCESSOR_ALPHA_FILL_MODE_OPAQUE, 0);
             const RECT sourceRect{ 0, 0, static_cast<LONG>(sourceWidth), static_cast<LONG>(sourceHeight) };
-            const RECT destinationRect{ 0, 0, static_cast<LONG>(output_.width), static_cast<LONG>(output_.height) };
+            const auto fit = FitSourceToOutput(sourceWidth, sourceHeight, output_);
+            // The video processor accepts integer rectangles; round the shared
+            // fit to its nearest pixel boundary, with at most one pixel error.
+            RECT destinationRect{ static_cast<LONG>(std::floor(fit.left + 0.5f)),
+                static_cast<LONG>(std::floor(fit.top + 0.5f)),
+                static_cast<LONG>(std::floor(fit.left + fit.width + 0.5f)),
+                static_cast<LONG>(std::floor(fit.top + fit.height + 0.5f)) };
+            if (destinationRect.right == destinationRect.left) ++destinationRect.right;
+            if (destinationRect.bottom == destinationRect.top) ++destinationRect.bottom;
+            const RECT targetRect{ 0, 0, static_cast<LONG>(output_.width), static_cast<LONG>(output_.height) };
+            D3D11_VIDEO_COLOR background{};
+            background.RGBA.A = 1.0f;
+            videoContext_->VideoProcessorSetOutputBackgroundColor(processor_.Get(), FALSE, &background);
             videoContext_->VideoProcessorSetStreamSourceRect(processor_.Get(), 0, TRUE, &sourceRect);
             videoContext_->VideoProcessorSetStreamDestRect(processor_.Get(), 0, TRUE, &destinationRect);
-            videoContext_->VideoProcessorSetOutputTargetRect(processor_.Get(), TRUE, &destinationRect);
+            videoContext_->VideoProcessorSetOutputTargetRect(processor_.Get(), TRUE, &targetRect);
             DXGI_COLOR_SPACE_TYPE observedInput = DXGI_COLOR_SPACE_CUSTOM, observedOutput = DXGI_COLOR_SPACE_CUSTOM;
             videoContext_->VideoProcessorGetStreamColorSpace1(processor_.Get(), 0, &observedInput);
             videoContext_->VideoProcessorGetOutputColorSpace1(processor_.Get(), &observedOutput);

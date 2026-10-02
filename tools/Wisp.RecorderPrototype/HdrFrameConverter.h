@@ -53,6 +53,8 @@ namespace recorder::hdr
     // SDR BGRA8 is explicitly sRGB: bilinear resize in source code values,
     // followed by the piecewise sRGB EOTF and BT.709 OETF. No tone mapping or
     // white scaling applies; referenceWhiteNits must be zero in SDR mode.
+    // The entire source is fitted without cropping into the selected output,
+    // accounting for output pixel aspect. Unused pixels are neutral black.
     //
     // Output: exact BT.709 OETF, limited-range BT.709 matrix, progressive NV12
     // with horizontally cosited / vertically centered chroma. Caller must

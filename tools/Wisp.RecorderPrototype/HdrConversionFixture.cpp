@@ -190,11 +190,11 @@ namespace
     {
         return luminance <= .75 ? luminance : 1 - 1 / (16 * luminance - 8);
     }
-    Rgb ReferenceCode(Rgb input, double referenceWhite)
+    Rgb ReferenceCode(Rgb input, double referenceWhite, bool quantizeSource = true)
     {
         // Independent double-precision reference. FP16 quantization is modeled
         // before the appearance transform because that is the GPU source.
-        input = Quantized(input);
+        if (quantizeSource) input = Quantized(input);
         if (!std::isfinite(input.r) || !std::isfinite(input.g) || !std::isfinite(input.b)) return {};
         const double factor = 80 / referenceWhite;
         input.r *= factor; input.g *= factor; input.b *= factor;
@@ -302,11 +302,12 @@ namespace
             ++passed;
         }
         if (ValidateConfiguration(3840,2160,SourceEncoding::LinearScRgbFp16,80) ||
-            ValidateConfiguration(1920,1080,SourceEncoding::LinearScRgbFp16,1000)) return 0;
+            ValidateConfiguration(1920,1080,SourceEncoding::LinearScRgbFp16,1000) ||
+            ValidateConfiguration(1920,1200,SourceEncoding::LinearScRgbFp16,80)) return 0;
         ++passed;
         if (!ValidateConfiguration(3840,2160,SourceEncoding::Unknown,80) ||
             !ValidateConfiguration(3840,2160,SourceEncoding::LinearScRgbFp16,static_cast<float>(NotFinite)) ||
-            !ValidateConfiguration(1920,1200,SourceEncoding::LinearScRgbFp16,80)) return 0;
+            !ValidateConfiguration(7680,2160,SourceEncoding::LinearScRgbFp16,80)) return 0;
         ++passed;
         if (std::abs(Oetf(.001) - .0045) > 1e-12 || std::abs(Oetf(1) - 1) > 1e-12 ||
             std::abs(Oetf(.018) - .08124794403514046) > 1e-12) return 0;
@@ -440,12 +441,182 @@ namespace
         return passed;
     }
 
+    template<class Guard>
+    void CheckAspectFits(ID3D11Device* device, ID3D11DeviceContext* context, bool sdr,
+        Guard& guard, Measurement& colors, UINT& frames, UINT& blackChecks)
+    {
+        // Reduced-size sources retain the exact reported display ratios. This
+        // exercises the real shaders, not capture or full-resolution throughput.
+        constexpr std::array<std::array<UINT, 2>, 4> sources{{ {344,144}, {512,144}, {192,120}, {192,108} }};
+        constexpr std::array<recorder::conversion::OutputConfiguration, 2> outputs{{
+            {640,360,30,1,1}, {854,480,30,1280,1281}
+        }};
+        const auto sourceColor = [](UINT x, UINT y, UINT width, UINT height) -> Rgb
+        {
+            if (y < height / 2) return x < width / 2 ? Rgb{1,0,0} : Rgb{0,1,0};
+            return x < width / 2 ? Rgb{0,0,1} : Rgb{1,1,1};
+        };
+        for (const auto sourceSize : sources)
+        {
+            const UINT width = sourceSize[0], height = sourceSize[1];
+            D3D11_TEXTURE2D_DESC inputDescription{};
+            inputDescription.Width = width; inputDescription.Height = height;
+            inputDescription.MipLevels = inputDescription.ArraySize = inputDescription.SampleDesc.Count = 1;
+            inputDescription.Format = sdr ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_R16G16B16A16_FLOAT;
+            inputDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            std::vector<Bgra> sdrPixels(sdr ? static_cast<size_t>(width) * height : 0);
+            std::vector<Pixel> hdrPixels(sdr ? 0 : static_cast<size_t>(width) * height);
+            for (UINT y = 0; y < height; ++y)
+                for (UINT x = 0; x < width; ++x)
+                {
+                    const auto color = sourceColor(x,y,width,height);
+                    if (sdr) sdrPixels[static_cast<size_t>(y)*width+x] = {
+                        static_cast<BYTE>(color.b*255), static_cast<BYTE>(color.g*255), static_cast<BYTE>(color.r*255), 255 };
+                    else hdrPixels[static_cast<size_t>(y)*width+x] = Pack(color);
+                }
+            const D3D11_SUBRESOURCE_DATA initial{ sdr ? static_cast<const void*>(sdrPixels.data()) : hdrPixels.data(),
+                width * static_cast<UINT>(sdr ? sizeof(Bgra) : sizeof(Pixel)), 0 };
+            ComPtr<ID3D11Texture2D> input;
+            Check(device->CreateTexture2D(&inputDescription,&initial,&input), "aspect_input_creation_failed");
+            for (const auto output : outputs)
+            {
+                // Independent normalized-display oracle. All declared output
+                // presets display as 16:9, including the non-square 480p pixels.
+                const double sourceAspect = static_cast<double>(width) / height;
+                const double fittedWidth = (std::min)(1.0, sourceAspect / (16.0/9));
+                const double fittedHeight = (std::min)(1.0, (16.0/9) / sourceAspect);
+                const auto reference = [&](int px, int py) -> Rgb
+                {
+                    px = std::clamp(px,0,static_cast<int>(output.width)-1);
+                    py = std::clamp(py,0,static_cast<int>(output.height)-1);
+                    const double u = ((px+.5)/output.width-.5)/fittedWidth+.5;
+                    const double v = ((py+.5)/output.height-.5)/fittedHeight+.5;
+                    if (u < 0 || u >= 1 || v < 0 || v >= 1) return {};
+                    const double sx = u*width-.5, sy = v*height-.5;
+                    const int ix = static_cast<int>(std::floor(sx)), iy = static_cast<int>(std::floor(sy));
+                    const double fx = sx-ix, fy = sy-iy;
+                    Rgb filtered{};
+                    for (int row = 0; row < 2; ++row)
+                        for (int column = 0; column < 2; ++column)
+                        {
+                            const auto color = sourceColor(static_cast<UINT>(std::clamp(ix+column,0,static_cast<int>(width)-1)),
+                                static_cast<UINT>(std::clamp(iy+row,0,static_cast<int>(height)-1)),width,height);
+                            const double weight = (column ? fx : 1-fx)*(row ? fy : 1-fy);
+                            filtered.r += color.r*weight; filtered.g += color.g*weight; filtered.b += color.b*weight;
+                        }
+                    // Source endpoints 0/1 are exact in FP16; filtering occurs
+                    // after source quantization, so do not requantize the blend.
+                    return sdr ? SdrTransfer(filtered) : ReferenceCode(filtered,80,false);
+                };
+                for (const auto encoding : {OutputEncoding::Bt709Nv12,OutputEncoding::PreparedRgbAyuv})
+                {
+                    guard();
+                    const bool fullColor = encoding == OutputEncoding::PreparedRgbAyuv;
+                    HdrFrameConverter converter;
+                    Evidence evidence;
+                    if (!converter.Initialize(device,width,height,sdr ? SourceEncoding::SrgbBgra8 : SourceEncoding::LinearScRgbFp16,
+                        sdr ? 0.0f : 80.0f,output,encoding,evidence)) throw Failure{evidence.reason,evidence.hr};
+                    auto description = inputDescription;
+                    description.Width = output.width; description.Height = output.height;
+                    description.Format = fullColor ? DXGI_FORMAT_AYUV : DXGI_FORMAT_NV12;
+                    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+                    const UINT rowPitch = output.width*(fullColor ? 4u : 1u);
+                    std::vector<BYTE> poison(static_cast<size_t>(rowPitch)*output.height*(fullColor ? 2u : 3u)/2,255);
+                    const D3D11_SUBRESOURCE_DATA poisoned{poison.data(),rowPitch,0};
+                    ComPtr<ID3D11Texture2D> destination;
+                    Check(device->CreateTexture2D(&description,&poisoned,&destination), "aspect_output_creation_failed");
+                    description.BindFlags = 0; description.Usage = D3D11_USAGE_STAGING; description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                    ComPtr<ID3D11Texture2D> staging;
+                    Check(device->CreateTexture2D(&description,nullptr,&staging), "aspect_readback_creation_failed");
+                    const D3D11_QUERY_DESC queryDescription{D3D11_QUERY_EVENT,0};
+                    ComPtr<ID3D11Query> completion;
+                    Check(device->CreateQuery(&queryDescription,&completion), "aspect_completion_query_failed");
+                    if (!converter.Submit(input.Get(),destination.Get(),evidence)) throw Failure{evidence.reason,evidence.hr};
+                    context->CopyResource(staging.Get(),destination.Get()); context->End(completion.Get()); context->Flush();
+                    for (;;)
+                    {
+                        guard();
+                        BOOL ready = FALSE;
+                        const HRESULT hr = context->GetData(completion.Get(),&ready,sizeof(ready),D3D11_ASYNC_GETDATA_DONOTFLUSH);
+                        Check(hr, "aspect_completion_query_failed");
+                        if (hr == S_OK && ready) break;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                    D3D11_MAPPED_SUBRESOURCE mapped{};
+                    Check(context->Map(staging.Get(),0,D3D11_MAP_READ,D3D11_MAP_FLAG_DO_NOT_WAIT,&mapped), "aspect_readback_failed");
+                    struct Unmap { ID3D11DeviceContext* context; ID3D11Texture2D* texture; ~Unmap() { context->Unmap(texture,0); } } unmap{context,staging.Get()};
+                    Require(mapped.pData && mapped.RowPitch >= rowPitch, "aspect_readback_layout_invalid");
+                    const auto* bytes = static_cast<const BYTE*>(mapped.pData);
+                    const auto checkPoint = [&](UINT x, UINT y)
+                    {
+                        const auto expected = reference(static_cast<int>(x),static_cast<int>(y));
+                        if (fullColor)
+                        {
+                            const size_t offset = static_cast<size_t>(mapped.RowPitch)*y+x*4;
+                            for (UINT channel = 0; channel < 4; ++channel)
+                            {
+                                const double value = channel == 0 ? expected.r : channel == 1 ? expected.b : channel == 2 ? expected.g : 1;
+                                Record(colors,bytes[offset+channel],static_cast<UINT>(std::floor(value*255+.5)));
+                            }
+                            if (expected.r == 0 && expected.g == 0 && expected.b == 0)
+                            {
+                                Require(bytes[offset] == 0 && bytes[offset+1] == 0 && bytes[offset+2] == 0 && bytes[offset+3] == 255,
+                                    "aspect_full_color_black_not_exact");
+                                ++blackChecks;
+                            }
+                        }
+                        else
+                        {
+                            const auto observedY = ReadY(mapped,x,y);
+                            Record(colors,observedY,Matrix(expected).y);
+                            if (expected.r == 0 && expected.g == 0 && expected.b == 0)
+                            {
+                                Require(observedY == 16, "aspect_luma_black_not_exact");
+                                ++blackChecks;
+                            }
+                            Rgb filtered{};
+                            for (int row = 0; row < 2; ++row)
+                                for (int column = -1; column <= 1; ++column)
+                                {
+                                    const auto sample = reference(static_cast<int>(x&~1u)+column,static_cast<int>(y&~1u)+row);
+                                    const double weight = column == 0 ? .25 : .125;
+                                    filtered.r += sample.r*weight; filtered.g += sample.g*weight; filtered.b += sample.b*weight;
+                                }
+                            const auto chroma = Matrix(filtered);
+                            const size_t offset = static_cast<size_t>(mapped.RowPitch)*(output.height+y/2)+(x&~1u);
+                            Record(colors,bytes[offset],chroma.u); Record(colors,bytes[offset+1],chroma.v);
+                            if (filtered.r == 0 && filtered.g == 0 && filtered.b == 0)
+                            {
+                                Require(bytes[offset] == 128 && bytes[offset+1] == 128, "aspect_chroma_black_not_exact");
+                                ++blackChecks;
+                            }
+                        }
+                    };
+                    // Scan across every bar boundary and source edge in both
+                    // axes, as well as all four asymmetric color quadrants.
+                    for (UINT y = 0; y < output.height; ++y)
+                    {
+                        if (y % 64 == 0) guard();
+                        checkPoint(output.width/4,y); checkPoint(output.width*3/4,y);
+                    }
+                    for (UINT x = 0; x < output.width; ++x)
+                    {
+                        if (x % 64 == 0) guard();
+                        checkPoint(x,output.height/4); checkPoint(x,output.height*3/4);
+                    }
+                    ++frames;
+                }
+            }
+        }
+        Require(frames == 16 && blackChecks > 0 && colors.maximumError <= Tolerance, "aspect_geometry_or_color_check_failed");
+    }
+
     int Run(const Options& options)
     {
         const bool sdr = options.mode == Mode::SdrFixture;
         Evidence evidence;
-        Measurement patches, ramp, edges, boundaries, toneAnchors;
-        UINT completedFrames = 0;
+        Measurement patches, ramp, edges, boundaries, toneAnchors, aspectColors;
+        UINT completedFrames = 0, aspectFrames = 0, aspectBlackChecks = 0;
         bool completed = false, rampMonotonic = false, highlightsDistinct = false, sdrRangeCorrect = false;
         const auto started = Clock::now(), deadline = started + std::chrono::milliseconds(options.timeoutMs);
         auto lastGameCheck = started - std::chrono::seconds(1);
@@ -606,6 +777,7 @@ namespace
             Require(boundaries.maximumError <= Tolerance, "synthetic_boundary_values_outside_tolerance");
             Require(rampMonotonic && (sdr ? sdrRangeCorrect : highlightsDistinct),
                 sdr ? "sdr_range_or_ramp_check_failed" : "highlight_compression_check_failed");
+            CheckAspectFits(device.Get(),context.Get(),sdr,guard,aspectColors,aspectFrames,aspectBlackChecks);
             guard(); completed = true; evidence.reason = sdr ? "synthetic_sdr_conversion_completed" : "synthetic_hdr_conversion_completed";
         }
         catch (const Failure& failure) { evidence.reason = failure.reason; evidence.hr = failure.hr; }
@@ -633,6 +805,8 @@ namespace
             << ",\"edgeCodeChecks\":" << edges.checked << ",\"edgeMaximumCodeError\":" << edges.maximumError
             << ",\"boundaryCodeChecks\":" << boundaries.checked << ",\"boundaryMaximumCodeError\":" << boundaries.maximumError
             << ",\"toneAnchorCodeChecks\":" << toneAnchors.checked << ",\"toneAnchorMaximumCodeError\":" << toneAnchors.maximumError
+            << ",\"aspectFitFrames\":" << aspectFrames << ",\"aspectFitCodeChecks\":" << aspectColors.checked
+            << ",\"aspectFitMaximumCodeError\":" << aspectColors.maximumError << ",\"aspectFitExactBlackChecks\":" << aspectBlackChecks
             << ",\"allowedCodeError\":" << Tolerance << ",\"rampMonotonic\":" << rampMonotonic
             << ",\"highlightsDistinct\":" << highlightsDistinct << ",\"elapsedMs\":" << elapsed
             << ",\"captureUsed\":false,\"softwareConversionFallback\":false,\"gameAppearanceVerified\":false"
@@ -654,6 +828,7 @@ int wmain(int argc, wchar_t** argv)
             "--sdr-conversion-fixture [--adapter-index 0..15] [--timeout-ms 1000..30000]\n"
             "Defaults: adapter 0, 10000 ms. Reference white is an explicit synthetic input, never a display/content measurement.\n"
             "Three generated 3840x2160 FP16 patterns -> 1920x1080 limited BT709 NV12.\n"
+            "Also checks 21:9-class, 32:9, 16:10 and 16:9 aspect fits at 360p/480p in NV12 and prepared RGB AYUV.\n"
             "SDR mode uses BGRA8 patterns including subpixel variation, ramp, edges and border checks; no reference white or tone mapping.\n"
             "Chosen 0.75-knee shoulder maps reference white to 0.875; appearance still requires visual review.\n"
             "No capture, decode or gameplay performance claim.\n"

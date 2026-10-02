@@ -25,7 +25,11 @@ namespace recorder::hdr
         constexpr char Shader[] = R"hlsl(
 Texture2D<float4> sourceFrame : register(t0);
 SamplerState linearClamp : register(s0);
-cbuffer Configuration : register(b0) { float2 outputSize; float whiteScale; float sourceIsSrgb; };
+cbuffer Configuration : register(b0)
+{
+    float2 outputSize; float whiteScale; float sourceIsSrgb;
+    float2 contentOrigin; float2 contentSize;
+};
 float4 VSMain(uint id : SV_VertexID) : SV_Position
 {
     float2 p = float2((id << 1) & 2, id & 2);
@@ -41,7 +45,9 @@ float SrgbEotf(float value)
 }
 float3 CodeRgb(float2 position)
 {
-    float2 uv = clamp(position, float2(0.5, 0.5), outputSize - 0.5) / outputSize;
+    position = clamp(position, float2(0.5, 0.5), outputSize - 0.5);
+    if (any(position < contentOrigin) || any(position >= contentOrigin + contentSize)) return float3(0, 0, 0);
+    float2 uv = (position - contentOrigin) / contentSize;
     float3 rgb = sourceFrame.SampleLevel(linearClamp, uv, 0).rgb;
     if (!all(isfinite(rgb))) return float3(0, 0, 0);
     if (sourceIsSrgb > 0.5)
@@ -224,8 +230,10 @@ uint4 PSFullColor(float4 position : SV_Position) : SV_Target
             }
             evidence.shadersCreated = true;
             const bool sdr = encoding_ == SourceEncoding::SrgbBgra8;
+            const auto fit = conversion::FitSourceToOutput(width, height, output_);
             const float values[]{ static_cast<float>(output_.width), static_cast<float>(output_.height),
-                sdr ? 1.0f : 80.0f / referenceWhiteNits, sdr ? 1.0f : 0.0f };
+                sdr ? 1.0f : 80.0f / referenceWhiteNits, sdr ? 1.0f : 0.0f,
+                fit.left, fit.top, fit.width, fit.height };
             D3D11_BUFFER_DESC buffer{};
             buffer.ByteWidth = sizeof(values); buffer.Usage = D3D11_USAGE_IMMUTABLE; buffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             const D3D11_SUBRESOURCE_DATA initial{ values, 0, 0 };

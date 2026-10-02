@@ -178,11 +178,12 @@ namespace
             ++passed;
         }
         if (ValidateSource(3840,2160,SourceEncoding::SdrBgraG22P709) ||
-            ValidateSource(1920,1080,SourceEncoding::SdrBgraG22P709)) return 0;
+            ValidateSource(1920,1080,SourceEncoding::SdrBgraG22P709) ||
+            ValidateSource(1920,1200,SourceEncoding::SdrBgraG22P709)) return 0;
         ++passed;
         if (!ValidateSource(3840,2160,SourceEncoding::LinearScRgbFp16) ||
             !ValidateSource(3840,2160,SourceEncoding::Unknown) || !ValidateSource(1921,1080,SourceEncoding::SdrBgraG22P709) ||
-            !ValidateSource(1920,1200,SourceEncoding::SdrBgraG22P709)) return 0;
+            !ValidateSource(7680,2160,SourceEncoding::SdrBgraG22P709)) return 0;
         ++passed;
         GpuFrameConverter converter;
         ConversionEvidence evidence;

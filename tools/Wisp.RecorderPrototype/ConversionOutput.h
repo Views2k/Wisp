@@ -32,11 +32,37 @@ namespace recorder::conversion
 
     inline const char* ValidateSourceGeometry(UINT width, UINT height) noexcept
     {
-        if (width < 2 || height < 2 || width > 3840 || height > 2160 || (width & 1) || (height & 1))
+        // Wider desktop shapes retain the existing maximum pixel allocation.
+        if (width < 2 || height < 2 || width > 7680 || height > 2160 || (width & 1) || (height & 1) ||
+            static_cast<std::uint64_t>(width) * height > 3840ull * 2160)
             return "source_dimensions_unsupported";
-        if (static_cast<std::uint64_t>(width) * 9 != static_cast<std::uint64_t>(height) * 16)
-            return "source_aspect_ratio_unsupported";
         return nullptr;
+    }
+
+    struct ContentRectangle
+    {
+        float left = 0, top = 0, width = 0, height = 0;
+    };
+
+    // Desktop source pixels are square. Fit the complete source into the
+    // selected output's display aspect, including its declared pixel aspect.
+    // Fractional edges avoid introducing a second resize distortion; shaders
+    // sample pixel centers and emit black outside this centered rectangle.
+    inline ContentRectangle FitSourceToOutput(UINT sourceWidth, UINT sourceHeight,
+        const OutputConfiguration& output) noexcept
+    {
+        if (ValidateSourceGeometry(sourceWidth, sourceHeight) || ValidateOutputConfiguration(output)) return {};
+        const auto sourceRatio = static_cast<std::uint64_t>(sourceWidth) * output.height * output.pixelAspectDenominator;
+        const auto outputRatio = static_cast<std::uint64_t>(sourceHeight) * output.width * output.pixelAspectNumerator;
+        double width = output.width, height = output.height;
+        if (sourceRatio > outputRatio)
+            height = static_cast<double>(output.width) * output.pixelAspectNumerator * sourceHeight /
+                (static_cast<double>(sourceWidth) * output.pixelAspectDenominator);
+        else if (sourceRatio < outputRatio)
+            width = static_cast<double>(output.height) * sourceWidth * output.pixelAspectDenominator /
+                (static_cast<double>(sourceHeight) * output.pixelAspectNumerator);
+        return { static_cast<float>((output.width - width) / 2), static_cast<float>((output.height - height) / 2),
+            static_cast<float>(width), static_cast<float>(height) };
     }
 
     // CPU-only contracts, defined in ConversionOutputContracts.cpp. No COM,

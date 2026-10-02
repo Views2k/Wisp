@@ -3,6 +3,7 @@
 #include "HdrFrameConverter.h"
 
 #include <array>
+#include <cmath>
 #include <limits>
 
 namespace recorder::conversion
@@ -85,8 +86,14 @@ namespace recorder::conversion
         test(ValidateSourceGeometry(1921, 1080) != nullptr);
         test(ValidateSourceGeometry(1920, 1081) != nullptr);
         test(ValidateSourceGeometry(7680, 4320) != nullptr);
-        test(ValidateSourceGeometry(1920, 1200) != nullptr);
-        test(ValidateSourceGeometry(854, 480) != nullptr); // No source SAR was declared.
+        test(ValidateSourceGeometry(1920, 1200) == nullptr);
+        test(ValidateSourceGeometry(854, 480) == nullptr); // Square desktop pixels, not output SAR.
+        test(ValidateSourceGeometry(3440, 1440) == nullptr);
+        test(ValidateSourceGeometry(5120, 1440) == nullptr);
+        test(ValidateSourceGeometry(7680, 1080) == nullptr);
+        test(ValidateSourceGeometry(7680, 2160) != nullptr);
+        test(ValidateSourceGeometry(5120, 2160) != nullptr);
+        test(ValidateSourceGeometry(7682, 1080) != nullptr);
         test(ValidateSourceGeometry(0, 0) != nullptr);
         test(ValidateSourceGeometry((std::numeric_limits<UINT>::max)(), 1080) != nullptr);
         test(ValidateSource(1920, 1080, SourceEncoding::LinearScRgbFp16, {}) != nullptr);
@@ -105,6 +112,44 @@ namespace recorder::conversion
         recorder::hdr::Evidence hdrEvidence;
         test(!hdrConverter.Initialize(nullptr, 3840, 2160,
             recorder::hdr::SourceEncoding::LinearScRgbFp16, 80, presets[1], hdrEvidence));
+        constexpr std::array<std::array<UINT, 2>, 7> sources{{
+            { 3840, 2160 }, { 3440, 1440 }, { 5120, 1440 }, { 1920, 1200 },
+            { 1080, 1920 }, { 7680, 1080 }, { 854, 480 }
+        }};
+        for (const auto preset : presets)
+        {
+            for (const auto source : sources)
+            {
+                const auto fit = FitSourceToOutput(source[0], source[1], preset);
+                test(fit.width > 0 && fit.height > 0 && fit.left >= 0 && fit.top >= 0 &&
+                    fit.left + fit.width <= preset.width + 0.001f && fit.top + fit.height <= preset.height + 0.001f);
+                test(std::abs(2 * fit.left + fit.width - preset.width) < 0.001f &&
+                    std::abs(2 * fit.top + fit.height - preset.height) < 0.001f);
+                const double displayedRatio = static_cast<double>(fit.width) * preset.pixelAspectNumerator /
+                    (static_cast<double>(fit.height) * preset.pixelAspectDenominator);
+                test(std::abs(displayedRatio / (static_cast<double>(source[0]) / source[1]) - 1) < 0.000001);
+                test(fit.width == preset.width || fit.height == preset.height);
+                test(ValidateSource(source[0], source[1], SourceEncoding::SdrBgraG22P709, preset) == nullptr);
+                test(recorder::hdr::ValidateConfiguration(source[0], source[1],
+                    recorder::hdr::SourceEncoding::SrgbBgra8, 0, preset) == nullptr);
+                test(recorder::hdr::ValidateConfiguration(source[0], source[1],
+                    recorder::hdr::SourceEncoding::LinearScRgbFp16, 80, preset) == nullptr);
+            }
+            const auto unchanged = FitSourceToOutput(3840, 2160, preset);
+            test(unchanged.left == 0 && unchanged.top == 0 && unchanged.width == preset.width && unchanged.height == preset.height);
+        }
+        const auto ultrawide = FitSourceToOutput(3440, 1440, {});
+        test(ultrawide.left == 0 && ultrawide.width == 1920 && std::abs(ultrawide.height - 803.720930f) < 0.001f);
+        const auto superwide = FitSourceToOutput(5120, 1440, {});
+        test(superwide.left == 0 && superwide.top == 270 && superwide.width == 1920 && superwide.height == 540);
+        const auto taller = FitSourceToOutput(1920, 1200, {});
+        test(taller.left == 96 && taller.top == 0 && taller.width == 1728 && taller.height == 1080);
+        const auto fractional = FitSourceToOutput(1920, 1200, presets[1]);
+        test(std::abs(fractional.left - 42.7f) < 0.001f && fractional.top == 0 &&
+            std::abs(fractional.width - 768.6f) < 0.001f && fractional.height == 480);
+        test(FitSourceToOutput(0, 0, {}).width == 0);
+        output = {}; output.pixelAspectDenominator = 0;
+        test(FitSourceToOutput(1920, 1080, output).width == 0);
         return passed ? checks : 0;
     }
 }
