@@ -10,6 +10,26 @@ public sealed class ShiftCalibrationStoreTests
     private const string Build = "calibration-store-build";
 
     [Fact]
+    public void PartialCalibrationReloadKeepsOnlyMeasuredTargets()
+    {
+        using var temp = new TempDirectory();
+        var store = new ShiftCalibrationStore(temp.Path);
+        var context = new ShiftCalibrationContext(100, "partial-store", [4d, 2, 1.8], configuredOperatingCeilingRpm: 9000);
+        var samples = Enumerable.Range(0, 39).Select(i => 4700 + i * 100d)
+            .Select(rpm => new AccelerationShiftSample(rpm, 1000 - rpm / 10)).ToArray();
+        Assert.True(ShiftCalibrationSession.TryRestore(context, samples, null, 1, 300, out var result));
+        Assert.Equal(ShiftCalibrationStatus.PartiallyReady, result!.Status);
+        Assert.True(store.Save(Build, result, Commit));
+        var restored = store.Load(Build, context);
+        Assert.NotNull(restored);
+        Assert.Equal(ShiftCalibrationStatus.PartiallyReady, restored.Status);
+        Assert.False(restored.Gears[0].HasEstimatedTarget);
+        Assert.Null(restored.Gears[0].EstimatedTargetRpm);
+        Assert.Equal(result.Gears[1].EstimatedTargetRpm, restored.Gears[1].EstimatedTargetRpm);
+        Assert.Null(restored.Profile!.VerifiedOperatingCeilingRpm);
+    }
+
+    [Fact]
     public void ReloadRecalculatesTargetsFromSavedCurveInsteadOfTrustingSuppliedTargets()
     {
         using var temp = new TempDirectory();

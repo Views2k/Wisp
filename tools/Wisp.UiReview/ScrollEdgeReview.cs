@@ -77,7 +77,7 @@ internal static class ScrollEdgeReview
                 var surface = detachSurface(window, controller.ViewModel);
                 VisualTreeHelper.SetRootDpi(surface, new DpiScale(1, 1));
                 var size = legacy ? new Size(980, 750) : new Size(1280, 800);
-                tabs.SelectedIndex = 2;
+                tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Appearance"));
                 if (!legacy) Required<RadioButton>(window, "AppearanceGaugesCategory").IsChecked = true;
                 Arrange(surface, size);
                 var appearance = legacy

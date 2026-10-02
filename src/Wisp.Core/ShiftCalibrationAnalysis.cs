@@ -12,14 +12,13 @@ internal static class ShiftCalibrationAnalysis
         new(context, revision, status, reason, null, Array.Empty<AccelerationShiftResult>(), 0, 0, null);
 
     internal static ShiftCalibrationResult Evaluate(ShiftCalibrationContext context, long revision,
-        ShiftCalibrationPoint[] points, long frequency, string currentReason)
+        ShiftCalibrationPoint[] points, long frequency, string currentReason, string? interruptionReason)
     {
         if (points.Length < 30)
             return Empty(context, revision, points.Length == 0 ? ShiftCalibrationStatus.WaitingForPull : ShiftCalibrationStatus.Collecting,
                 currentReason);
         var eligible = Qualify(points, frequency, context.ConfiguredOperatingCeilingRpm, out var unstableBoost);
-        var bestStart = -1;
-        var bestEnd = -1;
+        var sweeps = new List<(int Start, int End)>();
         var start = -1;
         for (var i = 0; i <= points.Length; i++)
         {
@@ -29,33 +28,58 @@ internal static class ShiftCalibrationAnalysis
             {
                 var end = i - 1;
                 if (end - start >= 29 && Seconds(points[end].Timestamp - points[start].Timestamp, frequency) >= .75 &&
-                    points[end].Rpm - points[start].Rpm >= 700 &&
-                    (bestStart < 0 || points[end].Rpm - points[start].Rpm > points[bestEnd].Rpm - points[bestStart].Rpm))
-                {
-                    bestStart = start;
-                    bestEnd = end;
-                }
+                    points[end].Rpm - points[start].Rpm >= 700)
+                    sweeps.Add((start, end));
                 start = -1;
             }
             if (i < points.Length && eligible[i] && start < 0) start = i;
         }
-        if (bestStart < 0)
+        if (sweeps.Count == 0)
             return Empty(context, revision, unstableBoost ? ShiftCalibrationStatus.UnstableOutput : ShiftCalibrationStatus.Collecting,
                 unstableBoost
                     ? "Boost is still changing. Keep full throttle in a gear with grip until output settles."
-                    : "A longer continuous pull is needed; keep full throttle in one gear with grip.");
+                    : interruptionReason is not null
+                        ? "No usable continuous pull yet. Last interruption: " + interruptionReason
+                        : !points[^1].OutputSettled || points[^1].LimiterActive
+                            ? "Waiting for engine output to settle after a shift or intervention. Continue the pull in a gear with grip."
+                            : !points[^1].Positive
+                                ? "Waiting for consistent positive engine output during the pull."
+                                : "No usable continuous pull yet. Start at low revs in a higher gear with grip and hold full throttle.");
 
-        if (!TryFit(points, bestStart, bestEnd, out var samples, out var fitReason))
+        ShiftCalibrationResult? best = null;
+        foreach (var sweep in sweeps.OrderByDescending(s => points[s.End].Rpm - points[s.Start].Rpm))
+        {
+            var candidate = EvaluateSweep(context, revision, points, eligible, sweep.Start, sweep.End, frequency);
+            // A wider earlier pull must not hide a later usable pull. Each
+            // candidate keeps its own curve, cut boundary and held-out checks;
+            // missing RPM coverage is never filled from another sweep.
+            if (candidate.Status == ShiftCalibrationStatus.Ready) return candidate;
+            if (best is null || candidate.Ready && (!best.Ready || candidate.SupportedGearCount > best.SupportedGearCount) ||
+                !best.Ready && (best.Profile is null && candidate.Profile is not null ||
+                    candidate.Status == ShiftCalibrationStatus.NeedConfirmingUpshift &&
+                    best.Status != ShiftCalibrationStatus.NeedConfirmingUpshift))
+                best = candidate;
+        }
+        return best!;
+    }
+
+    private static ShiftCalibrationResult EvaluateSweep(ShiftCalibrationContext context, long revision,
+        ShiftCalibrationPoint[] points, bool[] eligible, int start, int end, long frequency)
+    {
+        if (!TryFit(points, start, end, out var samples, out var fitReason))
             return Empty(context, revision, ShiftCalibrationStatus.InsufficientCurveCoverage, fitReason);
         var profile = new AccelerationShiftProfile(samples, context.ForwardRatios, context.GearAccelerationFactors);
         if (!ValidCurve(profile))
             return Empty(context, revision, ShiftCalibrationStatus.InsufficientCurveCoverage,
                 "More continuous RPM coverage is needed. Extend the clean pull in one gear.");
-        var observedUpper = ObservedUpper(points, bestEnd, frequency, context.ConfiguredOperatingCeilingRpm);
+        var observedUpper = ObservedUpper(points, end, frequency, context.ConfiguredOperatingCeilingRpm);
         double? upper = observedUpper is { } observed && observed >= profile.Samples[^1].Rpm &&
             observed - profile.Samples[^1].Rpm <= MaximumKnotGap ? profile.Samples[^1].Rpm : null;
-        var confirmations = ConfirmingUpshifts(points, eligible, bestStart, bestEnd, profile, frequency);
-        return Complete(context, revision, profile, upper, bestEnd - bestStart + 1, confirmations);
+        var confirmations = ConfirmingUpshifts(points, eligible, start, end, profile, frequency);
+        return Complete(context, revision, profile, upper, end - start + 1, confirmations) with
+        {
+            CurveGear = points[start].Gear
+        };
     }
 
     internal static ShiftCalibrationResult Complete(ShiftCalibrationContext context, long revision,
@@ -84,7 +108,14 @@ internal static class ShiftCalibrationAnalysis
             gears[gear - 1] = solved;
             if (gear < gears.Length && !solved.HasEstimatedTarget && unresolvedGear == 0) unresolvedGear = gear;
         }
-        var status = unresolvedGear > 0 && gears[unresolvedGear - 1].Status is
+        var supported = gears.Count(gear => gear.HasEstimatedTarget);
+        // Each gear already has its own measured-domain check. A missing
+        // launch-gear comparison must not suppress independently usable targets.
+        // Partial profiles retain missing targets as null, including after reload.
+        var status = supported > 0
+            ? confirmingUpshifts == 0 ? ShiftCalibrationStatus.NeedConfirmingUpshift
+                : unresolvedGear == 0 ? ShiftCalibrationStatus.Ready : ShiftCalibrationStatus.PartiallyReady
+            : unresolvedGear > 0 && gears[unresolvedGear - 1].Status is
             AccelerationShiftStatus.EqualOutputPlateau or AccelerationShiftStatus.NonMonotonicAdvantage or
             AccelerationShiftStatus.AlreadyNextGearBeneficial
             ? ShiftCalibrationStatus.NoDistinctTarget :
@@ -93,8 +124,10 @@ internal static class ShiftCalibrationAnalysis
         var reason = status switch
         {
             ShiftCalibrationStatus.Ready => "Calibration complete for this car and tune. Targets use measured full-load output; driver reaction and shift recovery are not included in the target.",
+            ShiftCalibrationStatus.PartiallyReady => $"Measured targets are ready for {supported} of {gears.Length - 1} shifts. Unmeasured shifts stay off. " +
+                MissingReason(unresolvedGear, gears[unresolvedGear - 1].Status, context, profile),
             ShiftCalibrationStatus.NeedConfirmingUpshift => "The curve is collected. Make one full-throttle upshift and keep accelerating until output settles in the next gear.",
-            _ => MissingReason(unresolvedGear, gears[unresolvedGear - 1].Status)
+            _ => MissingReason(unresolvedGear, gears[unresolvedGear - 1].Status, context, profile)
         };
         return new(context, revision, status, reason, profile, Array.AsReadOnly(gears),
             acceptedSamples, confirmingUpshifts, empiricalUpperRpm);
@@ -106,17 +139,26 @@ internal static class ShiftCalibrationAnalysis
         profile.Samples.All(s => s.Torque is > 1 and <= 100_000) &&
         profile.Samples.Zip(profile.Samples.Skip(1)).All(p => p.Second.Rpm - p.First.Rpm <= MaximumKnotGap);
 
-    private static string MissingReason(int gear, AccelerationShiftStatus status) => status switch
+    private static string MissingReason(int gear, AccelerationShiftStatus status,
+        ShiftCalibrationContext context, AccelerationShiftProfile profile) => status switch
+        {
+            AccelerationShiftStatus.NoCrossoverInDomain => $"The gear {gear} to {gear + 1} comparison still favors holding throughout the measured range. Extend the clean pull in a gear with grip through one brief limiter pulse, then upshift and keep full throttle.",
+            AccelerationShiftStatus.EqualOutputPlateau =>
+                $"Gear {gear} has a range of equal output, rather than one distinct best RPM. This calibration cannot provide a precise shift target for that gear.",
+            AccelerationShiftStatus.NonMonotonicAdvantage =>
+                $"Gear {gear} changes advantage more than once in the measured curve. A single shift target is not supported for this comparison.",
+            AccelerationShiftStatus.AlreadyNextGearBeneficial =>
+                $"The next gear already benefits acceleration at the bottom of gear {gear}'s measured comparison. There is no in-range crossing; lower RPM coverage may locate it.",
+            _ => $"The gear {gear} to {gear + 1} comparison needs measured output down to {RequiredLowerRpm(context, profile, gear):N0} rpm or lower. " +
+                "Collect this in any higher gear that grips; you do not need to drive the missing gear."
+        };
+
+    private static double RequiredLowerRpm(ShiftCalibrationContext context, AccelerationShiftProfile profile, int gear)
     {
-        AccelerationShiftStatus.NoCrossoverInDomain => $"Gear {gear} still benefits from holding. Hold this gear through one brief limiter pulse, then upshift and keep full throttle.",
-        AccelerationShiftStatus.EqualOutputPlateau =>
-            $"Gear {gear} has a range of equal output, rather than one distinct best RPM. This calibration cannot provide a precise shift target for that gear.",
-        AccelerationShiftStatus.NonMonotonicAdvantage =>
-            $"Gear {gear} changes advantage more than once in the measured curve. A single shift target is not supported for this comparison.",
-        AccelerationShiftStatus.AlreadyNextGearBeneficial =>
-            $"The next gear already benefits acceleration at the bottom of gear {gear}'s measured comparison. There is no in-range crossing; lower RPM coverage may locate it.",
-        _ => $"Gear {gear} needs more of the lower/post-shift RPM range. Start the clean pull earlier in the same gear."
-    };
+        var upper = profile.Samples[^1].Rpm;
+        var ratio = context.ForwardRatios[gear] / context.ForwardRatios[gear - 1];
+        return Math.Floor((upper - Math.Max(300, upper * .1)) * ratio / 100) * 100;
+    }
 
     private static bool[] Qualify(ShiftCalibrationPoint[] points, long frequency, double? ceiling, out bool unstableBoost)
     {

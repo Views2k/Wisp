@@ -13,9 +13,15 @@ public sealed record SavedRunItem(RunSummary Summary)
 {
     public Guid Id => Summary.Id;
     public string Name => Summary.Name;
-    public string Detail => $"{Summary.StartedAtUtc.ToLocalTime():MMM d, h:mm tt} · {RunPresentation.Time(Summary.DurationSeconds)}";
+    public bool IsAutomaticLap => Summary.FinishReason is "Completed game lap" or "Completed Time Attack lap";
+    public string LibraryGroup => IsAutomaticLap ? $"Automatic laps · {Summary.StartedAtUtc.ToLocalTime():MMM d, yyyy} · Car {Summary.CarOrdinal}" : "Recorded runs";
+    public string Detail => IsAutomaticLap
+        ? $"{Summary.StartedAtUtc.ToLocalTime():MMM d, h:mm:ss.fff tt} · {RunPresentation.Time(Summary.DurationSeconds)} · Car {Summary.CarOrdinal}"
+        : $"{Summary.StartedAtUtc.ToLocalTime():MMM d, h:mm tt} · {RunPresentation.Time(Summary.DurationSeconds)}";
     public string Tune => string.IsNullOrWhiteSpace(Summary.Tune) ? "No tune label" : Summary.Tune;
     public string Quality => Summary.IsIncomplete ? "Partial recording" : "";
+    public bool HasAttachedTune => Summary.AttachedTuneName is not null;
+    public string AttachedTune => Summary.AttachedTuneName is { } name ? $"Attached tune: {name}" : "";
 }
 
 public sealed class RunFindingItem(string title, string detail, ICommand showCommand, bool canShow) : INotifyPropertyChanged
@@ -110,6 +116,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         InitializeWorkspace();
         InitializeMetadata();
         InitializeLibrarySearch();
+        InitializeLapReview();
         _service.StateChanged += ServiceStateChanged;
         _service.RunSaved += ServiceRunSaved;
         if (settings.SpeedUnit != SpeedUnit.MilesPerHour) { _fromSpeed = "30"; _toSpeed = "100"; }
@@ -128,11 +135,12 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
     public SavedRunItem? ComparisonChoice { get => _comparisonChoice; set { if (RecordingActive) return; Set(ref _comparisonChoice, value); RaiseCommands(); } }
-    public string RecordButtonText => IsCountingDown ? "Cancel countdown" : _service.IsRecording ? "Stop recording" : _service.IsPreparing ? "Saving run…" : "Record run";
-    public bool CanToggleRecording => (!_metadataClosing || _service.IsRecording) && (IsCountingDown || (!_service.IsPreparing && (_service.IsRecording || (_storageOperations == 0 && _service.CanStart))));
+    public string RecordButtonText => IsPreparingTune ? "Cancel tune check" : IsCountingDown ? "Cancel countdown" : _service.IsRecording ? "Stop recording" : _service.IsPreparing ? "Saving run…" : "Record run";
+    public bool CanToggleRecording => (!_metadataClosing || _service.IsRecording) && (IsPreparingTune || IsCountingDown || (!_service.IsPreparing && (_service.IsRecording || (_storageOperations == 0 && _service.CanStart))));
     public bool IsRecording => _service.IsRecording;
-    public string RecordingStatus => IsCountingDown ? $"Recording starts in {CountdownRemainingSeconds}… Return to Forza; the shortcut can cancel."
-        : _service.IsRecording ? $"Recording · {RunPresentation.Time(_service.Elapsed.TotalSeconds)}" + (_activeStopAfter is { } stop ? $" · stops at {RunPresentation.Time(stop.TotalSeconds)}" : "")
+    public string RecordingStatus => IsPreparingTune ? "Checking the tune before recording…"
+        : IsCountingDown ? $"Recording starts in {CountdownRemainingSeconds}… Return to Forza; the shortcut can cancel."
+        : _service.IsRecording ? $"Recording · {RunPresentation.Time(_service.Elapsed.TotalSeconds)}" + (_activeStopAfter is { } stop ? $" · stops at {RunPresentation.Time(stop.TotalSeconds)}" : "") + (_recordingNotice is { } recordingNotice ? $" · {recordingNotice}" : "")
         : _recordingNotice is { } notice ? notice
         : _storageOperations > 0 ? "Finishing library work before the next recording."
         : !_service.CanStart && _service.Status == "Ready to record" && _service.Error is null
@@ -174,7 +182,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
     public string ToSpeed { get => _toSpeed; set { if (!RecordingActive) Set(ref _toSpeed, value); } }
     public string SelectionFrom { get => _selectionFrom; set { if (!RecordingActive) Set(ref _selectionFrom, value); } }
     public string SelectionTo { get => _selectionTo; set { if (!RecordingActive) Set(ref _selectionTo, value); } }
-    public double CursorSeconds { get => _cursor; set { if (Set(ref _cursor, value)) SelectedPointContext = ""; OnChanged(nameof(CursorText)); OnChanged(nameof(CursorVehicleContext)); } }
+    public double CursorSeconds { get => _cursor; set { if (!Set(ref _cursor, value)) return; SelectedPointContext = ""; OnChanged(nameof(CursorText)); OnChanged(nameof(CursorVehicleContext)); } }
     public string CursorText => "Cursor · " + RunPresentation.Time(CursorSeconds);
     public string CursorVehicleContext => _runA is null ? "" : RunCursor.Describe("A", _runA, CursorSeconds + _offsetA, _matchedA) +
         (_runB is null ? "" : "   |   " + RunCursor.Describe("B", _runB, CursorSeconds + _offsetB, _matchedB));
@@ -216,6 +224,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             if (double.TryParse(ToSpeed, out var to) && double.IsFinite(to)) Set(ref _toSpeed, (to * conversion).ToString("0.##", CultureInfo.CurrentCulture), nameof(ToSpeed));
             _lastSpeedUnit = _settings.SpeedUnit; _lastTorqueUnit = _settings.TorqueUnit;
             _lastTemperatureUnit = _settings.TireTemperatureUnit; _lastBoostUnit = _settings.BoostPressureUnit;
+            LapReview.RefreshSettings();
             RequestAnalysis();
         }
         if (_service.IsRecording && !_wasRecording)
@@ -249,7 +258,8 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         Error = "";
         try
         {
-            if (IsCountingDown) { CancelCountdown(); }
+            if (IsPreparingTune) { CancelTunePreparation("Tune check canceled. Nothing was recorded."); }
+            else if (IsCountingDown) { CancelCountdown(); }
             else if (_service.IsRecording) { Status = "Saving your run…"; await _service.StopAsync(); }
             else
             {
@@ -274,6 +284,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         if (!visible && !_disposed) _ = FlushMetadataAsync();
         if (visible)
         {
+            _ = RefreshTuneChoicesAsync();
             var revision = _analysisRevision;
             RefreshStatus();
             if (revision == _analysisRevision) RequestCharts();
@@ -709,10 +720,12 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         run.Samples.LastOrDefault()?.ElapsedSeconds ?? 0, run.Samples.Length, run.Samples.FirstOrDefault()?.State.CarOrdinal ?? 0, run.IsIncomplete, run.FinishReason);
     private void NotifyRun()
     {
+        LapReview.SetRuns(_runA, _runB);
         if (!HasRun) ShowSummary();
         NotifyNavigation();
         SelectedPointContext = "";
         foreach (var property in new[] { nameof(HasRun), nameof(HasComparison), nameof(CanManageRun), nameof(RunALabel), nameof(RunBLabel), nameof(RunDescription), nameof(CarIdentifier), nameof(IntervalLabel), nameof(CursorVehicleContext) }) OnChanged(property);
+        NotifyTuneRecording();
         RefreshMarkers();
         RaiseCommands();
     }
@@ -755,11 +768,12 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
     }
     private void OnChanged([CallerMemberName] string? property = null)
     {
+        if (property == nameof(CursorSeconds)) SynchronizeLapCursor();
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
         if (property is nameof(IsBusy) or nameof(Status) or nameof(IsPreparingCharts) or nameof(IntervalLabel))
             PropertyChanged?.Invoke(this, new(nameof(WorkspaceReadout)));
     }
-    public void Dispose() { DisposeMetadata(); Library.CollectionChanged -= LibraryChanged; CancelCountdown(); ShortcutCaptureActive = false; _pendingSavedRun = null; _disposed = true; _analysisRevision++; _chartRevision++; _selectionRevision++; _service.StateChanged -= ServiceStateChanged; _service.RunSaved -= ServiceRunSaved; }
+    public void Dispose() { LapReview.Dispose(); DisposeMetadata(); Library.CollectionChanged -= LibraryChanged; CancelCountdown(); ShortcutCaptureActive = false; _pendingSavedRun = null; _disposed = true; _analysisRevision++; _chartRevision++; _selectionRevision++; _service.StateChanged -= ServiceStateChanged; _service.RunSaved -= ServiceRunSaved; }
 }
 
 internal sealed class RunUiCommand(Func<Task> execute, Func<bool> canExecute, Action failed) : ICommand

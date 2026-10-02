@@ -98,7 +98,7 @@
             <ComboBoxItem Content="Session best" Tag="{x:Static core:LapDeltaReference.SessionBest}" />
             <ComboBoxItem Content="Previous lap" Tag="{x:Static core:LapDeltaReference.PreviousLap}" />
         </ComboBox>
-        <Expander Header="More options" Style="{StaticResource MoreOptionsStyle}" AutomationProperties.Name="More lap delta options">
+        <Expander x:Name="MoreOptions" Header="More options" Style="{StaticResource MoreOptionsStyle}" AutomationProperties.Name="More lap delta options">
             <StackPanel Margin="0,12,0,0">
                 <CheckBox x:Name="BarToggle" Content="Show delta bar" Style="{DynamicResource ToggleSwitchStyle}"
                           Checked="Options_Changed" Unchecked="Options_Changed" AutomationProperties.Name="Show lap delta bar" />

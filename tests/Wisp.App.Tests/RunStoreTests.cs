@@ -14,6 +14,28 @@ public sealed class RunStoreTests : IDisposable
 
     [Theory]
     [InlineData(null)]
+    [InlineData(LapTimingMode.GameLaps)]
+    [InlineData(LapTimingMode.TimeAttack)]
+    public async Task OptionalLapTimingModeSurvivesSaveAndMetadataChanges(LapTimingMode? timing)
+    {
+        var store = new RunStore(_directory);
+        var run = RunTestData.CreateRun() with { LapTimingMode = timing };
+        await store.SaveAsync(run);
+        await store.UpdateMetadataAsync(run.Id, "Lap", "Tune", "Notes");
+        var loaded = await store.LoadAsync(run.Id);
+        Assert.Equal(timing, loaded.LapTimingMode);
+        Assert.Equal(run.Samples, loaded.Samples);
+    }
+
+    [Fact]
+    public void UnknownLapTimingModeIsRejected()
+    {
+        var run = RunTestData.CreateRun() with { LapTimingMode = (LapTimingMode)999 };
+        Assert.Throws<InvalidDataException>(() => RunStore.Validate(run));
+    }
+
+    [Theory]
+    [InlineData(null)]
     [InlineData(0f)]
     [InlineData(-12.5f)]
     [InlineData(-500f)]
@@ -52,6 +74,7 @@ public sealed class RunStoreTests : IDisposable
         var store = new RunStore(Path.Combine(_directory, "library"));
         var imported = await store.ImportAsync(source);
         var loaded = await store.LoadAsync(imported.Id);
+        Assert.Null(loaded.LapTimingMode);
         Assert.Equal(run.Samples, loaded.Samples);
         Assert.All(loaded.Samples, sample => Assert.Null(sample.State.LocalVelocityYMetersPerSecond));
     }

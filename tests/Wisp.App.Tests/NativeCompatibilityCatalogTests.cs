@@ -892,7 +892,12 @@ public sealed class NativeCompatibilityCatalogTests
         {
             case "empty": members.Clear(); break;
             case "too-many":
-                while (members.Count <= NativeCompatibilityEnvelope.MaximumPacks) members.Add(fixture.Pack());
+                while (members.Count <= NativeCompatibilityEnvelope.MaximumPacks)
+                {
+                    var excess = fixture.LegacyPack();
+                    excess["executableSha256"] = members.Count.ToString("X64", CultureInfo.InvariantCulture);
+                    members.Add(excess);
+                }
                 break;
             case "duplicate": members.Add(members[0]!.DeepClone()); break;
             case "duplicate-revision": members.Add(fixture.Pack(9)); break;
@@ -1111,7 +1116,7 @@ public sealed class NativeCompatibilityCatalogTests
         {
             var members = Enumerable.Range(offset, 8).Select(index =>
             {
-                var pack = fixture.Pack(1);
+                var pack = fixture.LegacyPack(1);
                 pack["executableSha256"] = index.ToString("X64", CultureInfo.InvariantCulture);
                 return pack;
             }).ToArray();
@@ -1181,6 +1186,15 @@ public sealed class NativeCompatibilityCatalogTests
         }
 
         public NativeHudCompatibilityPack ParsePack() => NativeHudCompatibilityPack.Parse(Bytes(Pack()));
+
+        public JsonObject LegacyPack(int? revision = null)
+        {
+            var pack = Pack(revision);
+            pack["schemaVersion"] = 3;
+            pack["readerVersion"] = 3;
+            pack.Remove("tune");
+            return pack;
+        }
 
         public JsonObject StorePack(int revision = 2)
         {

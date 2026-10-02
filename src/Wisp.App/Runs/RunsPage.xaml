@@ -206,6 +206,10 @@
                                                 <TextBlock Text="Stop after" Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,4" />
                                                 <ComboBox ItemsSource="{Binding StopAfterOptions}" DisplayMemberPath="Label" SelectedValuePath="Seconds" SelectedValue="{Binding StopAfterSeconds, Mode=TwoWay}" MinWidth="195" AutomationProperties.Name="Automatic recording duration" />
                                             </StackPanel>
+                                            <StackPanel Margin="0,0,12,10">
+                                                <TextBlock Text="Attach tune" Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,4" />
+                                                <ComboBox ItemsSource="{Binding TuneChoices}" DisplayMemberPath="Label" SelectedItem="{Binding AttachTuneChoice}" MinWidth="195" MaxWidth="280" AutomationProperties.Name="Tune to attach at recording start" />
+                                            </StackPanel>
 
                                         </WrapPanel>
                                         <TextBlock Text="A countdown waits before recording. Mark moments during the run to find them afterward; each run can hold 128 markers." Style="{StaticResource RunHint}" FontSize="11" Margin="0,0,0,12" />
@@ -226,6 +230,7 @@
         </StackPanel>
         <StackPanel Grid.Row="1" Margin="0,0,0,4">
             <TextBlock x:Name="GraphActionError" Text="{Binding Error}" TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" FontSize="12" Margin="2,0,2,4" Visibility="{Binding HasError, Converter={StaticResource RunVisibility}}" AutomationProperties.LiveSetting="Assertive" />
+            <Button Content="Record without tune" Command="{Binding RecordWithoutTuneCommand}" HorizontalAlignment="Left" Margin="2,0,2,8" Visibility="{Binding CanRecordWithoutTune, Converter={StaticResource RunVisibility}}" />
             <local:RunMetadataStatus Margin="2,0,2,4" Visibility="{Binding HasMetadataSaveError, Converter={StaticResource RunVisibility}}" />
             <TextBlock x:Name="GraphExportStatus" Text="{Binding Status}" FontSize="11" Margin="2,0,2,4" AutomationProperties.LiveSetting="Polite">
                 <TextBlock.Style>
@@ -269,7 +274,8 @@
                     <local:RunLibrarySearch x:Name="LibrarySearchControl" />
                 </StackPanel>
                 <TextBlock Text="Nothing recorded yet. A saved run will appear here after you stop recording." Style="{StaticResource RunHint}" Margin="0,0,0,12" Visibility="{Binding IsLibraryEmpty, Converter={StaticResource RunVisibility}}" Grid.Row="3" />
-                <ListBox Grid.Row="4" ItemsSource="{Binding FilteredLibrary}" SelectedItem="{Binding SelectedRun, Mode=TwoWay}" IsEnabled="{Binding CanSelectRun}" ItemContainerStyle="{StaticResource RunLibraryItem}" TextSearch.TextPath="Name" IsTextSearchEnabled="True" IsSynchronizedWithCurrentItem="False" Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" AutomationProperties.Name="Saved runs library" AutomationProperties.HelpText="Opening a saved run sets Run A. Choose Run B in the comparison controls." x:Name="SavedRunList">
+                <ListBox Grid.Row="4" ItemsSource="{Binding GroupedLibrary}" SelectedItem="{Binding SelectedRun, Mode=TwoWay}" IsEnabled="{Binding CanSelectRun}" ItemContainerStyle="{StaticResource RunLibraryItem}" TextSearch.TextPath="Name" IsTextSearchEnabled="True" IsSynchronizedWithCurrentItem="False" Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" AutomationProperties.Name="Saved runs library" AutomationProperties.HelpText="Opening a saved run sets Run A. Choose Run B in the comparison controls." x:Name="SavedRunList" VirtualizingPanel.IsVirtualizingWhenGrouping="True">
+                    <ListBox.GroupStyle><StaticResource ResourceKey="RunLibraryGroups" /></ListBox.GroupStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate DataType="{x:Type local:SavedRunItem}">
                             <StackPanel Margin="0">
@@ -288,6 +294,7 @@
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" FontSize="14" />
                                 <TextBlock Text="{Binding Detail}" FontSize="10" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" Margin="0,6,0,3" />
                                 <TextBlock Text="{Binding Tune}" FontSize="10" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding AttachedTune}" FontSize="10" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" Visibility="{Binding HasAttachedTune, Converter={StaticResource RunVisibility}}" />
                                 <TextBlock Text="{Binding Quality}" Foreground="{DynamicResource WarningBrush}" FontSize="10" TextWrapping="Wrap" />
                             </StackPanel>
                         </DataTemplate>
@@ -304,7 +311,8 @@
                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <local:RunLibrarySearch x:Name="CompactLibrarySearchControl" Grid.ColumnSpan="2" Margin="0,0,0,8" />
-                        <ComboBox x:Name="SavedRunSelector" Grid.Row="1" Margin="0,0,8,0" ItemsSource="{Binding FilteredLibrary}" SelectedItem="{Binding SelectedRun, Mode=TwoWay}" SelectionChanged="SavedRunSelector_SelectionChanged" TextSearch.TextPath="Name" IsEnabled="{Binding CanSelectRun}" MinHeight="30" MaxDropDownHeight="260" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Choose Run A from saved runs">
+                        <ComboBox x:Name="SavedRunSelector" Grid.Row="1" Margin="0,0,8,0" ItemsSource="{Binding GroupedLibrary}" SelectedItem="{Binding SelectedRun, Mode=TwoWay}" SelectionChanged="SavedRunSelector_SelectionChanged" TextSearch.TextPath="Name" IsEnabled="{Binding CanSelectRun}" MinHeight="30" MaxDropDownHeight="260" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Choose Run A from saved runs" VirtualizingPanel.IsVirtualizingWhenGrouping="True">
+                            <ComboBox.GroupStyle><StaticResource ResourceKey="RunLibraryGroups" /></ComboBox.GroupStyle>
                             <ComboBox.ItemTemplate><DataTemplate DataType="{x:Type local:SavedRunItem}"><TextBlock Text="{Binding Name, StringFormat=A · {0}}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" /></DataTemplate></ComboBox.ItemTemplate>
                         </ComboBox>
                         <WrapPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Center">
@@ -384,6 +392,7 @@
                             </app:OrbitSurface>
                             </Grid>
                             <TextBlock Text="{Binding Status}" Style="{StaticResource RunHint}" FontSize="11" Margin="2,0,2,8" AutomationProperties.LiveSetting="Polite" />
+                            <Expander x:Name="LapReviewExpander" Header="Lap review" IsExpanded="False" Margin="0,0,0,14"><local:LapReviewView DataContext="{Binding LapReview}" Margin="0,12,0,0" /></Expander>
                             <StackPanel x:Name="RunReportSurface" Visibility="{Binding HasRun, Converter={StaticResource RunVisibility}}">
                                 <TextBlock x:Name="RunHeading" Text="{Binding RunALabel}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding RunDescription}" Style="{StaticResource RunHint}" FontSize="11" Margin="0,4,0,10" />
@@ -472,6 +481,14 @@
                                             <TextBlock Text="Notes" Style="{StaticResource RunHint}" />
                                             <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" MaxLength="2000" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Height="84" Margin="0,4,0,10" AutomationProperties.Name="Run notes" />
                                             <TextBlock Text="{Binding CarIdentifier}" Style="{StaticResource RunHint}" FontSize="10" Margin="0,0,0,10" />
+                                            <StackPanel Margin="0,0,0,12" Visibility="{Binding HasAttachedTune, Converter={StaticResource RunVisibility}}">
+                                                <TextBlock Text="{Binding AttachedTuneName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding AttachedTuneDetail}" Style="{StaticResource RunHint}" Margin="0,4,0,6" />
+                                                <WrapPanel>
+                                                    <Button Content="View tune" Command="{Binding ViewAttachedTuneCommand}" Margin="0,0,8,6" />
+                                                    <Button Content="Compare tune" Command="{Binding CompareAttachedTuneCommand}" Margin="0,0,0,6" />
+                                                </WrapPanel>
+                                            </StackPanel>
                                             <WrapPanel>
                                                 <Button Content="Remove run" Click="Delete_Click" IsEnabled="{Binding CanManageRun}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" Margin="0,0,0,6" />
                                             </WrapPanel>

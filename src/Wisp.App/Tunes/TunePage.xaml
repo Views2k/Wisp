@@ -1,0 +1,192 @@
+<UserControl x:Class="Wisp.App.Tunes.TunePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Wisp.App.Tunes"
+             xmlns:runs="clr-namespace:Wisp.App.Runs">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="TuneVisibility" />
+        <local:TuneSavedDateConverter x:Key="TuneSavedDate" />
+        <CornerRadius x:Key="TuneControlRadius">12</CornerRadius>
+        <Style x:Key="TuneHint" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBoxItem">
+                <Border x:Name="ItemBorder" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}" CornerRadius="{DynamicResource TuneControlRadius}">
+                    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
+                    <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ItemBorder" Property="Opacity" Value="0.45" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource InputBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}" />
+            <Setter Property="Padding" Value="10,8" /><Setter Property="MinHeight" Value="36" />
+            <Setter Property="IsTextSearchEnabled" Value="True" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+                <Grid x:Name="ComboRoot">
+                    <Border x:Name="ComboBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="{DynamicResource TuneControlRadius}">
+                        <Grid Margin="{TemplateBinding Padding}">
+                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="20" /></Grid.ColumnDefinitions>
+                            <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" VerticalAlignment="Center" IsHitTestVisible="False" />
+                            <Path Grid.Column="1" Data="M0,0 L4,4 L8,0" Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.4" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <ToggleButton Focusable="False" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" ClickMode="Press">
+                        <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent" /></ControlTemplate></ToggleButton.Template>
+                    </ToggleButton>
+                    <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False">
+                        <Border MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="{DynamicResource TuneControlRadius}" Padding="3">
+                            <ScrollViewer CanContentScroll="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" /></ScrollViewer>
+                        </Border>
+                    </Popup>
+                </Grid>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource MutedBrush}" /></Trigger>
+                    <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ComboRoot" Property="Opacity" Value="0.45" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="TuneListItem" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="Padding" Value="12,9" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Margin" Value="0,0,5,5" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+                <Border x:Name="ItemBorder" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="{DynamicResource TuneControlRadius}" Padding="{TemplateBinding Padding}"><ContentPresenter /></Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
+                    <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource RaisedBrush}" /><Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                    <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ItemBorder" Property="BorderThickness" Value="2" /><Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ItemBorder" Property="Opacity" Value="0.45" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="TuneRange" TargetType="ProgressBar">
+            <Setter Property="Focusable" Value="False" /><Setter Property="Height" Value="4" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ProgressBar">
+                <Grid><Border x:Name="PART_Track" Background="{DynamicResource StrokeBrush}" CornerRadius="2" />
+                    <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{DynamicResource AccentBrush}" CornerRadius="2" /></Grid>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <DataTemplate x:Key="TuneChoice">
+            <StackPanel>
+                <TextBlock Text="{Binding Name}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                <WrapPanel>
+                    <TextBlock Text="{Binding Snapshot.Identity.CarOrdinal, StringFormat=Car {0}}" Style="{StaticResource TuneHint}" Margin="0,3,10,0" />
+                    <TextBlock Text="{Binding SavedAtUtc, Converter={StaticResource TuneSavedDate}}" Style="{StaticResource TuneHint}" Margin="0,3,0,0" />
+                </WrapPanel>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+    <Grid>
+        <ScrollViewer x:Name="TuneScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,12" IsEnabled="{Binding CanBrowse}">
+            <StackPanel>
+                <WrapPanel x:Name="TuneWorkspaceControls" Margin="0,0,0,14">
+                    <RadioButton Content="Current car" GroupName="TuneWorkspace" Style="{DynamicResource SegmentRadioStyle}" IsChecked="{Binding IsCurrentMode, Mode=OneWay}" Click="Current_Click" Margin="0,0,8,6" />
+                    <RadioButton Content="Saved tunes" GroupName="TuneWorkspace" Style="{DynamicResource SegmentRadioStyle}" IsChecked="{Binding IsSavedMode, Mode=OneWay}" Click="Saved_Click" Margin="0,0,8,6" />
+                    <RadioButton Content="Compare" GroupName="TuneWorkspace" Style="{DynamicResource SegmentRadioStyle}" IsChecked="{Binding IsCompareMode, Mode=OneWay}" Click="Compare_Click" Margin="0,0,16,6" />
+                    <Button Content="Refresh" Command="{Binding RefreshCommand}" Visibility="{Binding IsCurrentMode, Converter={StaticResource TuneVisibility}}" Margin="0,0,8,6" />
+                    <Button Content="Read current car" Command="{Binding RefreshCommand}" Visibility="{Binding IsCompareMode, Converter={StaticResource TuneVisibility}}" Margin="0,0,8,6" />
+                    <Button Content="Save tune" Command="{Binding SaveCommand}" Style="{DynamicResource PrimaryButtonStyle}" Visibility="{Binding IsCurrentMode, Converter={StaticResource TuneVisibility}}" Margin="0,0,0,6" />
+                </WrapPanel>
+                <Border Style="{DynamicResource CardStyle}" Padding="16" Margin="0,0,0,14" Visibility="{Binding IsSavedMode, Converter={StaticResource TuneVisibility}}">
+                    <StackPanel>
+                        <WrapPanel Margin="0,0,0,8">
+                            <TextBlock Text="Sort by" VerticalAlignment="Center" Margin="0,0,8,6" />
+                            <ComboBox ItemsSource="{Binding SortOptions}" DisplayMemberPath="Label" SelectedItem="{Binding SelectedSort}" MinWidth="170" AutomationProperties.Name="Sort saved tunes" Margin="0,0,12,6" />
+                            <Button Content="Load" Command="{Binding LoadCommand}" Margin="0,0,8,6" AutomationProperties.Name="Open selected saved tune in Wisp" />
+                            <Button Content="Edit details" Command="{Binding EditCommand}" Margin="0,0,8,6" />
+                            <Button Content="Delete" Command="{Binding DeleteCommand}" Margin="0,0,0,6" AutomationProperties.Name="Delete selected saved tune" />
+                        </WrapPanel>
+                        <TextBlock Text="{Binding EmptyLibraryText}" Style="{StaticResource TuneHint}" />
+                        <ListBox x:Name="SavedTuneList" ItemsSource="{Binding Library}" SelectedItem="{Binding SelectedTune}" ItemContainerStyle="{StaticResource TuneListItem}" MaxHeight="230" MinHeight="45" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Saved tunes" MouseDoubleClick="Saved_DoubleClick" KeyDown="Saved_KeyDown">
+                            <ListBox.ItemTemplate><DataTemplate><StackPanel>
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <WrapPanel><TextBlock Text="{Binding Snapshot.Identity.CarOrdinal, StringFormat=Car {0}}" Style="{StaticResource TuneHint}" Margin="0,3,10,0" /><TextBlock Text="{Binding SavedAtUtc, Converter={StaticResource TuneSavedDate}}" Style="{StaticResource TuneHint}" Margin="0,3,0,0" /></WrapPanel>
+                            </StackPanel></DataTemplate></ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+                </Border>
+                <Grid Visibility="{Binding IsCompareMode, Converter={StaticResource TuneVisibility}}" Margin="0,0,0,14">
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="16" /><ColumnDefinition /></Grid.ColumnDefinitions>
+                    <StackPanel><TextBlock Text="Tune A" Foreground="{x:Static runs:RunComparisonColors.RunA}" Margin="0,0,0,6" /><ComboBox ItemsSource="{Binding ComparisonChoices}" ItemTemplate="{StaticResource TuneChoice}" TextSearch.TextPath="Name" SelectedItem="{Binding CompareA}" AutomationProperties.Name="Compare tune A" /><TextBlock Text="{Binding CompareACar}" Style="{StaticResource TuneHint}" Margin="0,6,0,0" /></StackPanel>
+                    <StackPanel Grid.Column="2"><TextBlock Text="Tune B" Foreground="{x:Static runs:RunComparisonColors.RunB}" Margin="0,0,0,6" /><ComboBox ItemsSource="{Binding ComparisonChoices}" ItemTemplate="{StaticResource TuneChoice}" TextSearch.TextPath="Name" SelectedItem="{Binding CompareB}" AutomationProperties.Name="Compare tune B" /><TextBlock Text="{Binding CompareBCar}" Style="{StaticResource TuneHint}" Margin="0,6,0,0" /></StackPanel>
+                </Grid>
+                <TextBlock Text="{Binding Heading}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding Context}" Style="{StaticResource TuneHint}" Margin="0,4,0,0" />
+                <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                <TextBlock Text="{Binding Status}" Style="{StaticResource TuneHint}" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Text="{Binding Error}" Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="{Binding HasError, Converter={StaticResource TuneVisibility}}" AutomationProperties.LiveSetting="Assertive" />
+                <ListBox x:Name="TuneCategories" ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory}" DisplayMemberPath="Label" ItemContainerStyle="{StaticResource TuneListItem}" Background="Transparent" BorderThickness="0" Margin="0,16,0,10" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Tune category">
+                    <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
+                </ListBox>
+                <Border Style="{DynamicResource CardStyle}" Padding="16" Visibility="{Binding HasSnapshot, Converter={StaticResource TuneVisibility}}">
+                    <StackPanel>
+                        <ItemsControl x:Name="TuneValues" ItemsSource="{Binding Rows}">
+                            <ItemsControl.Style><Style TargetType="ItemsControl"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding IsCompareMode}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></ItemsControl.Style>
+                            <ItemsControl.ItemTemplate><DataTemplate>
+                                <Grid MinHeight="62" Margin="0,3,0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="1.2*" /><ColumnDefinition Width="1.5*" /></Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Label}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Visibility="{Binding HasRange, Converter={StaticResource TuneVisibility}}">
+                                        <ProgressBar Value="{Binding RangePosition}" Minimum="0" Maximum="100" Style="{StaticResource TuneRange}" IsHitTestVisible="False" />
+                                        <Grid Margin="0,6,0,0"><TextBlock Text="Low" Style="{StaticResource TuneHint}" /><TextBlock Text="High" Style="{StaticResource TuneHint}" HorizontalAlignment="Right" /></Grid>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Visibility="{Binding IsCompareMode, Converter={StaticResource TuneVisibility}}">
+                            <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="1.5*" /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition Width="0.7*" /></Grid.ColumnDefinitions>
+                                <TextBlock Text="Setting" FontWeight="SemiBold" /><TextBlock Grid.Column="1" Text="{Binding CompareATitle}" Foreground="{x:Static runs:RunComparisonColors.RunA}" TextWrapping="Wrap" Margin="8,0" /><TextBlock Grid.Column="2" Text="{Binding CompareBTitle}" Foreground="{x:Static runs:RunComparisonColors.RunB}" TextWrapping="Wrap" Margin="8,0" /><TextBlock Grid.Column="3" Text="B &#x2212; A" TextWrapping="Wrap" Margin="8,0" />
+                            </Grid>
+                            <ItemsControl x:Name="TuneComparison" ItemsSource="{Binding Rows}"><ItemsControl.ItemTemplate><DataTemplate>
+                                <Border Padding="0,12" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource StrokeBrush}">
+                                    <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding Changed}" Value="True"><Setter Property="Background" Value="{DynamicResource RaisedBrush}" /></DataTrigger></Style.Triggers></Style></Border.Style>
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="1.5*" /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition Width="0.7*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Label}" TextWrapping="Wrap" /><TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="8,0" /><TextBlock Grid.Column="2" Text="{Binding OtherValue}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="8,0" /><TextBlock Grid.Column="3" Text="{Binding Difference}" TextWrapping="Wrap" Margin="8,0" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+        <Grid x:Name="TuneDialog" Background="#ED090C11" Visibility="{Binding IsDialogOpen, Converter={StaticResource TuneVisibility}}" Focusable="True" KeyboardNavigation.TabNavigation="Cycle" KeyDown="Dialog_KeyDown" AutomationProperties.Name="Tune details">
+            <Border x:Name="TuneDialogCard" MaxWidth="500" MaxHeight="460" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Style="{DynamicResource CardStyle}" Padding="16" Margin="12">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <TextBlock Text="{Binding DialogTitle}" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,10" />
+                    <TextBlock Grid.Row="1" Text="{Binding DeleteMessage}" TextWrapping="Wrap" Visibility="{Binding IsDeleteDialog, Converter={StaticResource TuneVisibility}}" />
+                    <ScrollViewer x:Name="TuneDialogFields" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0" Visibility="{Binding IsMetadataDialog, Converter={StaticResource TuneVisibility}}">
+                        <StackPanel>
+                            <TextBlock Text="Name" Margin="0,0,0,6" />
+                            <TextBox x:Name="TuneNameInput" Text="{Binding DialogName, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEditDialog}" AutomationProperties.Name="Tune name" KeyDown="Name_KeyDown" />
+                            <TextBlock Text="Description" Margin="0,16,0,6" />
+                            <TextBox x:Name="TuneDescriptionInput" Text="{Binding DialogDescription, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEditDialog}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90" MaxHeight="160" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Tune description" />
+                        </StackPanel>
+                    </ScrollViewer>
+                    <ScrollViewer Grid.Row="2" MaxHeight="48" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,0">
+                        <ScrollViewer.Style><Style TargetType="ScrollViewer"><Style.Triggers><DataTrigger Binding="{Binding DialogError}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></ScrollViewer.Style>
+                        <TextBlock Text="{Binding DialogError}" Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
+                    </ScrollViewer>
+                    <WrapPanel Grid.Row="3" HorizontalAlignment="Right" Margin="0,12,0,0">
+                        <Button x:Name="TuneDialogCancel" Content="Cancel" Command="{Binding CancelDialogCommand}" MinWidth="90" Margin="0,0,10,0" />
+                        <Button x:Name="TuneDialogSave" Content="{Binding DialogConfirmText}" Command="{Binding ConfirmDialogCommand}" Style="{DynamicResource PrimaryButtonStyle}" MinWidth="100" />
+                    </WrapPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

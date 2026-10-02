@@ -1,0 +1,122 @@
+<UserControl x:Class="Wisp.App.Runs.LapReviewView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:Wisp.App.Runs">
+    <UserControl.Resources>
+        <local:LapReviewMapHeightConverter x:Key="LapReviewMapHeight" />
+        <Style x:Key="LapCursorLabel" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /><Setter Property="Margin" Value="0,0,0,3" /><Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="LapCursorValue" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="FontSize" Value="16" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <DataTemplate x:Key="LapWheelReadout" DataType="{x:Type local:LapReviewWheelReadout}">
+            <Grid Margin="0,5">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="1.6*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Label}" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,8,0" />
+                <TextBlock Grid.Column="1" Text="{Binding FrontLeft}" FontSize="11" TextWrapping="Wrap" />
+                <TextBlock Grid.Column="2" Text="{Binding FrontRight}" FontSize="11" TextWrapping="Wrap" />
+                <TextBlock Grid.Column="3" Text="{Binding RearLeft}" FontSize="11" TextWrapping="Wrap" />
+                <TextBlock Grid.Column="4" Text="{Binding RearRight}" FontSize="11" TextWrapping="Wrap" />
+            </Grid>
+        </DataTemplate>
+    </UserControl.Resources>
+    <StackPanel>
+        <TextBlock Text="Lap review" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,8" />
+        <TextBlock Text="Review your recorded line and inputs. Select a reference lap to see where time changed." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,12" />
+        <CheckBox Content="Save completed laps automatically" IsChecked="{Binding AutomaticRecording}" Style="{DynamicResource ToggleSwitchStyle}" Margin="0,0,0,8" />
+        <TextBlock Text="Uses the lap timing mode chosen in HUD settings. Saves locally while Wisp is running; older run recordings can also be reviewed here." TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,5" />
+        <TextBlock Text="{Binding CaptureStatus}" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MutedBrush}" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8" />
+        <WrapPanel>
+            <StackPanel Margin="0,0,12,8"><TextBlock Text="Review timing" FontSize="11" Margin="0,0,0,4" /><ComboBox Width="180" ItemsSource="{Binding TimingChoices}" SelectedItem="{Binding Timing}" DisplayMemberPath="Label" AutomationProperties.Name="Lap review timing mode" /></StackPanel>
+            <StackPanel Margin="0,0,12,8">
+                <TextBlock Text="Your lap" FontSize="11" Margin="0,0,0,4" />
+                <Grid>
+                    <ComboBox x:Name="LapSelector" MinWidth="205" ItemsSource="{Binding Laps}" SelectedItem="{Binding Lap}" DisplayMemberPath="Label" IsEnabled="{Binding HasItems, RelativeSource={RelativeSource Self}}" AutomationProperties.Name="Lap to review" />
+                    <TextBlock x:Name="EmptyLapHint" Text="No recorded laps" Foreground="{DynamicResource MutedBrush}" Margin="10,0,35,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasItems, ElementName=LapSelector}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+            </StackPanel>
+            <StackPanel Margin="0,0,0,8">
+                <TextBlock Text="Reference lap" FontSize="11" Margin="0,0,0,4" />
+                <Grid>
+                    <ComboBox x:Name="ReferenceSelector" MinWidth="205" ItemsSource="{Binding ReferenceLaps}" SelectedItem="{Binding Reference}" DisplayMemberPath="Label" IsEnabled="{Binding HasItems, RelativeSource={RelativeSource Self}}" AutomationProperties.Name="Reference lap" />
+                    <TextBlock x:Name="EmptyReferenceHint" Text="No reference laps" Foreground="{DynamicResource MutedBrush}" Margin="10,0,35,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasItems, ElementName=ReferenceSelector}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+            </StackPanel>
+        </WrapPanel>
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8" />
+        <WrapPanel Margin="0,0,0,8">
+            <Button Content="Pin this lap as benchmark" Command="{Binding PinCommand}" IsEnabled="{Binding CanPin}" Padding="10,6" Margin="0,0,8,4" />
+            <Button Content="Unpin benchmark" Command="{Binding UnpinCommand}" Padding="10,6" Margin="0,0,8,4" />
+            <TextBlock Text="{Binding ReferenceStatus}" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" />
+        </WrapPanel>
+        <StackPanel IsEnabled="{Binding HasLap}">
+            <WrapPanel Margin="0,0,0,8">
+                <TextBlock Text="Map and graph channel" VerticalAlignment="Center" Margin="0,0,10,0" />
+                <ComboBox Width="190" ItemsSource="{Binding Channels}" SelectedItem="{Binding Channel}" DisplayMemberPath="Label" AutomationProperties.Name="Lap map and graph channel" />
+                <ComboBox Width="145" ItemsSource="{Binding Wheels}" SelectedIndex="{Binding SelectedWheel}" IsEnabled="{Binding IsWheelChannel}" Margin="8,0,0,0" AutomationProperties.Name="Wheel for tire or suspension channel" />
+            </WrapPanel>
+            <local:LapReviewPlot x:Name="Track" Data="{Binding Plot}" IsMap="True" Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource LapReviewMapHeight}}" Margin="0,0,0,8" AutomationProperties.Name="Recorded lap map. Click to select a location; arrow keys move through samples." />
+            <local:LapReviewPlot x:Name="Trace" Data="{Binding Plot}" Height="190" Margin="0,0,0,8" AutomationProperties.Name="Lap channel by distance. Click or use arrow keys to move the shared cursor." />
+            <Slider Minimum="0" Maximum="{Binding MaximumCursor}" Value="{Binding Cursor}" TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="60" AutomationProperties.Name="Lap position cursor" Margin="0,0,0,8" />
+            <Border x:Name="CursorReadout" Background="{DynamicResource InputBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,12">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,12">
+                        <TextBlock Text="At the cursor" FontWeight="SemiBold" Margin="0,0,12,0" />
+                        <TextBlock Text="{Binding CursorDetails.Position}" FontSize="12" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    </DockPanel>
+                    <WrapPanel DataContext="{Binding CursorDetails}">
+                        <StackPanel Width="120" Margin="0,0,12,10"><TextBlock Text="Speed" Style="{StaticResource LapCursorLabel}" /><TextBlock Text="{Binding Speed}" Style="{StaticResource LapCursorValue}" /></StackPanel>
+                        <StackPanel Width="120" Margin="0,0,12,10"><TextBlock Text="Gear / RPM" Style="{StaticResource LapCursorLabel}" /><TextBlock Text="{Binding Powertrain}" Style="{StaticResource LapCursorValue}" /></StackPanel>
+                        <StackPanel Width="120" Margin="0,0,12,10"><TextBlock Text="Throttle input" Style="{StaticResource LapCursorLabel}" /><TextBlock Text="{Binding Throttle}" Style="{StaticResource LapCursorValue}" /></StackPanel>
+                        <StackPanel Width="120" Margin="0,0,12,10"><TextBlock Text="Brake input" Style="{StaticResource LapCursorLabel}" /><TextBlock Text="{Binding Brake}" Style="{StaticResource LapCursorValue}" /></StackPanel>
+                        <StackPanel Width="120" Margin="0,0,12,10"><TextBlock Text="Steering input" Style="{StaticResource LapCursorLabel}" /><TextBlock Text="{Binding Steering}" Style="{StaticResource LapCursorValue}" /></StackPanel>
+                        <StackPanel Width="120" Margin="0,0,12,10"><TextBlock Text="Lateral G" Style="{StaticResource LapCursorLabel}" /><TextBlock Text="{Binding LateralG}" Style="{StaticResource LapCursorValue}" /></StackPanel>
+                        <StackPanel Width="120" Margin="0,0,12,10"><TextBlock Text="Longitudinal G" Style="{StaticResource LapCursorLabel}" /><TextBlock Text="{Binding LongitudinalG}" Style="{StaticResource LapCursorValue}" /></StackPanel>
+                        <StackPanel Width="120" Margin="0,0,12,10"><TextBlock Text="Delta · lap − reference" Style="{StaticResource LapCursorLabel}" /><TextBlock Text="{Binding Delta}" Style="{StaticResource LapCursorValue}" /></StackPanel>
+                    </WrapPanel>
+                    <Expander x:Name="WheelReadings" Header="Tire and suspension readings">
+                        <StackPanel Margin="0,8,0,0">
+                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="1.6*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="1" Text="FL" Style="{StaticResource LapCursorLabel}" /><TextBlock Grid.Column="2" Text="FR" Style="{StaticResource LapCursorLabel}" /><TextBlock Grid.Column="3" Text="RL" Style="{StaticResource LapCursorLabel}" /><TextBlock Grid.Column="4" Text="RR" Style="{StaticResource LapCursorLabel}" />
+                            </Grid>
+                            <ContentControl Content="{Binding CursorDetails.Temperatures}" ContentTemplate="{StaticResource LapWheelReadout}" />
+                            <ContentControl Content="{Binding CursorDetails.SlipRatio}" ContentTemplate="{StaticResource LapWheelReadout}" />
+                            <ContentControl Content="{Binding CursorDetails.SlipAngle}" ContentTemplate="{StaticResource LapWheelReadout}" />
+                            <ContentControl Content="{Binding CursorDetails.Suspension}" ContentTemplate="{StaticResource LapWheelReadout}" />
+                            <TextBlock Text="Suspension is normalized travel. Slip angle is the raw game value." FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,0" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </Border>
+            <WrapPanel Margin="0,0,0,8">
+                <Button Content="Start section here" Command="{Binding SectionStartCommand}" Padding="10,6" Margin="0,0,8,4" />
+                <Button Content="End section here" Command="{Binding SectionEndCommand}" Padding="10,6" Margin="0,0,8,4" />
+                <Button Content="Whole lap" Command="{Binding WholeLapCommand}" Padding="10,6" Margin="0,0,8,4" />
+                <Button Content="Open section in graphs" Command="{Binding ShowGraphsCommand}" Padding="10,6" Margin="0,0,8,4" />
+            </WrapPanel>
+            <TextBlock Text="{Binding SectionText}" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,0,0,12" />
+            <Grid Margin="0,0,0,7"><Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions><TextBlock Text="Selected section" FontWeight="SemiBold" /><TextBlock Grid.Column="1" Text="Your lap" Foreground="{x:Static local:RunComparisonColors.RunA}" /><TextBlock Grid.Column="2" Text="Reference · same positions" Foreground="{x:Static local:RunComparisonColors.RunB}" TextWrapping="Wrap" /></Grid>
+            <ItemsControl ItemsSource="{Binding Metrics}"><ItemsControl.ItemTemplate><DataTemplate DataType="{x:Type local:LapReviewMetric}"><Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1" Padding="0,7"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions><TextBlock Text="{Binding Label}" TextWrapping="Wrap" Margin="0,0,12,0" /><TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" Margin="0,0,12,0" /><TextBlock Grid.Column="2" Text="{Binding Reference}" TextWrapping="Wrap" Foreground="{x:Static local:RunComparisonColors.RunB}" /></Grid></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+            <Expander Header="Braking, throttle pickup and shifts" Margin="0,12,0,0"><ItemsControl ItemsSource="{Binding Events}" Margin="0,8,0,0"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Margin="0,3" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Expander>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

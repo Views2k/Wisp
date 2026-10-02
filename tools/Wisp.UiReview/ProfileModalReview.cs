@@ -50,7 +50,7 @@ internal static class ProfileModalReview
                 try
                 {
                     fixture.Apply(controller.ViewModel, waiting: false);
-                    tabs.SelectedIndex = 2;
+                    tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Appearance"));
                     Arrange();
                     if (variant == "compact-purple")
                     {

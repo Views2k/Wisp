@@ -146,8 +146,10 @@ internal static class OverlayGForcePlacementTests
             }
 
             SetEnabled(false);
+            controller.SaveOverlayPlacement();
             var hiddenPreset = HudPreset.Capture(settings, "Without G-force");
             SetEnabled(true);
+            controller.SaveOverlayPlacement();
             var shownPreset = HudPreset.Capture(settings, "With G-force");
             settings.HudPresets.AddRange([hiddenPreset, shownPreset]);
             Flush(window);

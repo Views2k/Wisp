@@ -1,0 +1,266 @@
+[
+  {
+    "Field": "FrontTirePressure",
+    "Display": "15.0",
+    "Reference": "1.0",
+    "ReferenceFactor": 0.06894756853580475,
+    "NormalizedBits": 0,
+    "RangeBits": 1097859072
+  },
+  {
+    "Field": "RearTirePressure",
+    "Display": "15.3",
+    "Reference": "1.1",
+    "ReferenceFactor": 0.06894756853580475,
+    "NormalizedBits": 1005961933,
+    "RangeBits": 1098173646
+  },
+  {
+    "Field": "FinalDrive",
+    "Display": "2.20",
+    "Reference": "2.20",
+    "ReferenceFactor": null,
+    "NormalizedBits": 0,
+    "RangeBits": 1074580685
+  },
+  {
+    "Field": "Gear1",
+    "Display": "1.76",
+    "Reference": "1.76",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1047360300,
+    "RangeBits": 1071728586
+  },
+  {
+    "Field": "Gear2",
+    "Display": "1.30",
+    "Reference": "1.30",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1041767903,
+    "RangeBits": 1067869832
+  },
+  {
+    "Field": "Gear3",
+    "Display": "1.04",
+    "Reference": "1.04",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1037026570,
+    "RangeBits": 1065688796
+  },
+  {
+    "Field": "Gear4",
+    "Display": "0.85",
+    "Reference": "0.85",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1032406762,
+    "RangeBits": 1062836708
+  },
+  {
+    "Field": "Gear5",
+    "Display": "0.72",
+    "Reference": "0.72",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1026692897,
+    "RangeBits": 1060655672
+  },
+  {
+    "Field": "Gear6",
+    "Display": "0.72",
+    "Reference": "0.72",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1026692897,
+    "RangeBits": 1060655672
+  },
+  {
+    "Field": "FrontCamber",
+    "Display": "0.0",
+    "Reference": "0.0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1056964608,
+    "RangeBits": 0
+  },
+  {
+    "Field": "RearCamber",
+    "Display": "0.0",
+    "Reference": "0.0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1056964608,
+    "RangeBits": 0
+  },
+  {
+    "Field": "FrontToe",
+    "Display": "0.0",
+    "Reference": "0.0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1056964608,
+    "RangeBits": 0
+  },
+  {
+    "Field": "RearToe",
+    "Display": "0.0",
+    "Reference": "0.0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1056964608,
+    "RangeBits": 0
+  },
+  {
+    "Field": "FrontCaster",
+    "Display": "7.0",
+    "Reference": "7.0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1065353216,
+    "RangeBits": 1039807965
+  },
+  {
+    "Field": "FrontAntiroll",
+    "Display": "65.00",
+    "Reference": "65.00",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1065353216,
+    "RangeBits": 1115815936
+  },
+  {
+    "Field": "RearAntiroll",
+    "Display": "65.00",
+    "Reference": "65.00",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1065353216,
+    "RangeBits": 1115815936
+  },
+  {
+    "Field": "FrontSprings",
+    "Display": "107.6",
+    "Reference": "19.2",
+    "ReferenceFactor": 0.10197161961595322,
+    "NormalizedBits": 0,
+    "RangeBits": 1128038824
+  },
+  {
+    "Field": "RearSprings",
+    "Display": "201.8",
+    "Reference": "36.0",
+    "ReferenceFactor": 0.10197161961595322,
+    "NormalizedBits": 908061784,
+    "RangeBits": 1135655356
+  },
+  {
+    "Field": "FrontRideHeight",
+    "Display": "7.9",
+    "Reference": "20.1",
+    "ReferenceFactor": 100.0,
+    "NormalizedBits": 1065353216,
+    "RangeBits": 1045321220
+  },
+  {
+    "Field": "RearRideHeight",
+    "Display": "7.7",
+    "Reference": "19.7",
+    "ReferenceFactor": 100.0,
+    "NormalizedBits": 1065353216,
+    "RangeBits": 1045005808
+  },
+  {
+    "Field": "FrontRebound",
+    "Display": "1.0",
+    "Reference": "1.0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 0,
+    "RangeBits": 1065353216
+  },
+  {
+    "Field": "RearRebound",
+    "Display": "20.0",
+    "Reference": "20.0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1065353216,
+    "RangeBits": 1101004800
+  },
+  {
+    "Field": "FrontBump",
+    "Display": "17.0",
+    "Reference": "17.0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1062704173,
+    "RangeBits": 1099431930
+  },
+  {
+    "Field": "RearBump",
+    "Display": "1.0",
+    "Reference": "1.0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 0,
+    "RangeBits": 1065353216
+  },
+  {
+    "Field": "FrontDownforce",
+    "Display": "64",
+    "Reference": "29",
+    "ReferenceFactor": 1.0,
+    "NormalizedBits": 0,
+    "RangeBits": 1105665720
+  },
+  {
+    "Field": "RearDownforce",
+    "Display": "38",
+    "Reference": "17",
+    "ReferenceFactor": 1.0,
+    "NormalizedBits": 0,
+    "RangeBits": 1099610194
+  },
+  {
+    "Field": "BrakeBalance",
+    "Display": "50",
+    "Reference": "50",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1056964608,
+    "RangeBits": 1112014848
+  },
+  {
+    "Field": "BrakePressure",
+    "Display": "100",
+    "Reference": "100",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1056964608,
+    "RangeBits": 1120403456
+  },
+  {
+    "Field": "FrontDiffAcceleration",
+    "Display": "100",
+    "Reference": "100",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1065353216,
+    "RangeBits": 1120403456
+  },
+  {
+    "Field": "FrontDiffDeceleration",
+    "Display": "0",
+    "Reference": "0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 0,
+    "RangeBits": 0
+  },
+  {
+    "Field": "RearDiffAcceleration",
+    "Display": "100",
+    "Reference": "100",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1065353216,
+    "RangeBits": 1120403456
+  },
+  {
+    "Field": "RearDiffDeceleration",
+    "Display": "0",
+    "Reference": "0",
+    "ReferenceFactor": null,
+    "NormalizedBits": 0,
+    "RangeBits": 0
+  },
+  {
+    "Field": "CenterDiffBalance",
+    "Display": "70",
+    "Reference": "70",
+    "ReferenceFactor": null,
+    "NormalizedBits": 1060354291,
+    "RangeBits": 1116498046
+  }
+]

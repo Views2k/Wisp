@@ -59,11 +59,12 @@ internal static class RunStatisticsPresentation
             Row("distance", "Distance covered", "Speed & distance", item => WithCoverage(item, item.DistanceMeters), distanceLabel,
                 "Distance estimated from ground speed during continuous telemetry. Gaps are excluded.", distanceFactor, 3, isKey: true),
             Row("full-throttle", "Full throttle", "Driver inputs", item => WithCoverage(item, item.FullThrottleSeconds), "s",
-                "Time at approximately 98% throttle or more.", isKey: true),
+                "Time at approximately 98% throttle or more in the selected section. Partial throttle does not count.", isKey: true),
             Row("peak-power", "Peak power", "Engine", item => item.PeakPowerWatts, "hp",
                 "Highest power reported by the game during this section.", 1 / 745.699872, 0, isKey: true),
             Row("wheel-speed-excess", "Average wheel-speed excess", "Speed & distance", item => item.AverageWheelSpeedExcessMetersPerSecond, speedLabel,
-                "Average positive driven-wheel speed above ground speed, using calibrated samples only. This is not a slip percentage.", speedFactor, isKey: true),
+                "Average positive driven-wheel speed above ground speed. Requires a continuous interval with trusted, unchanged tire calibration during recording; missing readings cannot be reconstructed. This is not a slip percentage.",
+                speedFactor, isKey: true, missingValue: static item => item.HasWheelSpeedSamples ? "No valid interval" : "Not recorded"),
             Row("average-speed", "Average ground speed", "Speed & distance", item => item.AverageSpeedMetersPerSecond, speedLabel,
                 "Distance divided by recorded driving time. Pauses and telemetry gaps are excluded.", speedFactor),
             Row("full-throttle-share", "Full-throttle share", "Driver inputs", item => Share(item, item.FullThrottleSeconds), "%",
@@ -107,14 +108,14 @@ internal static class RunStatisticsPresentation
 
         RunStatistic Row(string key, string label, string group, Func<RunStatistics, double?> read, string unit,
             string description, double factor = 1, int digits = 1, double offset = 0,
-            bool signed = false, bool isKey = false, string? differenceUnit = null)
+            bool signed = false, bool isKey = false, string? differenceUnit = null, Func<RunStatistics, string>? missingValue = null)
         {
             var first = Finite(read(a));
             var second = b is null ? null : Finite(read(b));
             var difference = first is { } left && second is { } right ? Finite((right - left) * factor) : null;
             return new(key, label, group,
-                Format(first * factor + offset, unit, digits, signed),
-                b is null ? null : Format(second * factor + offset, unit, digits, signed),
+                first is null ? missingValue?.Invoke(a) ?? "Unavailable" : Format(first * factor + offset, unit, digits, signed),
+                b is null ? null : second is null ? missingValue?.Invoke(b) ?? "Unavailable" : Format(second * factor + offset, unit, digits, signed),
                 b is null ? null : Format(difference, differenceUnit ?? unit, digits, true), description, isKey);
         }
     }

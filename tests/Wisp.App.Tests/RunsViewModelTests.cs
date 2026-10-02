@@ -16,6 +16,77 @@ namespace Wisp.App.Tests;
 
 public sealed class RunsViewModelTests
 {
+    [Theory]
+    [InlineData(8, 8)]
+    [InlineData(2, 6)]
+    [InlineData(15, 10)]
+    public void LapSectionKeepsTheAbsoluteCursorWhenLeavingSameSpeedAlignment(double cursorSeconds, double expected) => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings { SpeedUnit = SpeedUnit.KilometersPerHour }, Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = WithLap(Run("Lap A", 0, 4));
+            var b = WithLap(Run("Lap B", 1, 4));
+            await model.ShowReviewAsync(a, b);
+            await Ready(model);
+            await LapReady();
+            model.FromSpeed = "36"; model.ToSpeed = "72";
+            model.ApplySpeedRangeCommand.Execute(null);
+            await Ready(model);
+            Assert.True(model.SameSpeed);
+
+            model.LapReview.Cursor = 600;
+            model.LapReview.SectionStartCommand.Execute(null);
+            await LapReady();
+            model.LapReview.Cursor = 1000;
+            model.LapReview.SectionEndCommand.Execute(null);
+            await LapReady();
+            model.LapReview.Cursor = (int)(cursorSeconds * 100);
+            Assert.Equal(cursorSeconds - 2.5, model.CursorSeconds, 5);
+            Assert.True(model.LapReview.ShowGraphsCommand.CanExecute(null));
+
+            model.LapReview.ShowGraphsCommand.Execute(null);
+            await Ready(model);
+            Assert.False(model.SameSpeed);
+            Assert.Equal(6, model.SelectionStart);
+            Assert.Equal(10, model.SelectionEnd);
+            Assert.Equal(6, model.ViewStart);
+            Assert.Equal(10, model.ViewEnd);
+            Assert.Equal(expected, model.CursorSeconds, 5);
+            Assert.Equal((int)(expected * 100), model.LapReview.Cursor);
+
+            async Task LapReady()
+            {
+                for (var step = 0; step < 500 && model.LapReview.IsBusy; step++) await Task.Delay(10, TestContext.Current.CancellationToken);
+                Assert.False(model.LapReview.IsBusy);
+                Assert.NotNull(model.LapReview.Lap);
+            }
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+
+        static RecordedRun WithLap(RecordedRun run) => run with
+        {
+            LapTimingMode = LapTimingMode.GameLaps,
+            Samples = run.Samples.Select(sample =>
+            {
+                var time = sample.ElapsedSeconds;
+                var phase = time / 20 * Math.Tau;
+                var number = (ushort)(time >= 20 ? 1 : 0);
+                return sample with
+                {
+                    State = sample.State with
+                    {
+                        Lap = new(new((float)(100 * Math.Cos(phase)), 0, (float)(100 * Math.Sin(phase))),
+                        (float)(time - number * 20), 20, (float)time, number, 1)
+                    }
+                };
+            }).ToArray()
+        };
+    });
+
     [Fact]
     public void SavingRunDetailsKeepsPreparedGraphsAndComparisonArrangementAvailable() => OnDispatcher(async () =>
     {
@@ -373,6 +444,92 @@ public sealed class RunsViewModelTests
             Assert.True(model.ToggleRecordingCommand.CanExecute(null)); Assert.True(model.CanMarkMoment);
             Assert.Contains("stops at 30.0s", model.RecordingStatus);
             await refreshTelemetry(); model.RefreshStatus(); Assert.Equal(1, starts);
+        });
+    });
+
+    [Fact]
+    public void FailedTuneCheckAutomaticallyRecordsWithoutTuneAfterCountdown() => OnDispatcher(async () =>
+    {
+        await WithLiveReceiver(async (receiver, refreshTelemetry) =>
+        {
+            await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+            var clock = new ManualClock();
+            using var model = new RunsViewModel(service, new AppSettings { RecordingCountdownSeconds = 3 }, Dispatcher.CurrentDispatcher, clock);
+            var reads = 0;
+            model.AttachTuneChoice = RunTuneChoice.Current;
+            model.PrepareTune = (_, _) => { reads++; return Task.FromResult(new RunTunePreparation(null, "Setup mismatch")); };
+            model.BeforeStart = () => service.UpdateContext(new(Stopwatch.GetTimestamp(), 1, DrivetrainType.RearWheelDrive, true));
+            await model.ToggleRecordingAsync();
+            Assert.True(model.IsCountingDown); Assert.Equal(0, reads);
+            clock.Advance(TimeSpan.FromSeconds(3)); await refreshTelemetry(); model.RefreshStatus();
+            Assert.Equal(1, reads); Assert.True(model.IsRecording, model.Error);
+            Assert.Contains("Recording started without a tune", model.Error);
+            Assert.Contains("No tune attached", model.RecordingStatus);
+            Assert.False(model.RecordWithoutTuneCommand.CanExecute(null));
+            Assert.Same(RunTuneChoice.Current, model.AttachTuneChoice);
+            await refreshTelemetry(); await refreshTelemetry();
+            var recorded = await service.StopAsync();
+            Assert.NotNull(recorded); Assert.NotEmpty(recorded.Samples); Assert.Null(recorded.TuneAttachment);
+            var loaded = await service.Store.LoadAsync(recorded.Id);
+            Assert.Equal(recorded.Samples, loaded.Samples); Assert.Null(loaded.TuneAttachment);
+            await refreshTelemetry(); model.RefreshStatus();
+            await model.ToggleRecordingAsync(); clock.Advance(TimeSpan.FromSeconds(3)); await refreshTelemetry(); model.RefreshStatus();
+            Assert.Equal(2, reads); Assert.True(model.IsRecording, model.Error);
+        });
+    });
+
+    [Theory]
+    [InlineData("missing-reader")]
+    [InlineData("read-exception")]
+    [InlineData("stale-validation")]
+    [InlineData("validation-exception")]
+    [InlineData("car-changed-at-start")]
+    public void OptionalTuneFailureCannotBlockAnOtherwiseValidRun(string failure) => OnDispatcher(async () =>
+    {
+        await WithLiveReceiver(async (receiver, refreshTelemetry) =>
+        {
+            await using var service = new RunRecordingService(receiver, TemporaryDirectory());
+            using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+            var attachment = new RunTuneAttachment(TuneUiTestData.ValidSnapshot(), "Current", "", DateTimeOffset.UtcNow,
+                RunTuneAttachmentKind.CurrentAtStart);
+            model.AttachTuneChoice = RunTuneChoice.Current;
+            if (failure != "missing-reader")
+                model.PrepareTune = (_, _) => failure == "read-exception"
+                    ? throw new IOException("Unavailable fixture reader") : Task.FromResult(new RunTunePreparation(attachment));
+            model.ValidatePreparedTune = _ => failure == "validation-exception"
+                ? throw new IOException("Unavailable fixture validator") : failure != "stale-validation";
+            var starts = 0;
+            model.BeforeStart = () => { starts++; service.UpdateContext(new(Stopwatch.GetTimestamp(), 1, DrivetrainType.RearWheelDrive, true)); };
+            await model.ToggleRecordingAsync();
+            Assert.True(model.IsRecording, model.Error); Assert.Equal(1, starts);
+            Assert.False(model.IsPreparingTune); Assert.Contains("No tune attached", model.RecordingStatus);
+            Assert.Same(RunTuneChoice.Current, model.AttachTuneChoice);
+            await refreshTelemetry(); await refreshTelemetry();
+            var recorded = await service.StopAsync();
+            Assert.NotNull(recorded); Assert.NotEmpty(recorded.Samples); Assert.Null(recorded.TuneAttachment);
+        });
+    });
+
+    [Fact]
+    public void TunePreparationCanBeCanceledAndLateCompletionCannotStartRecording() => OnDispatcher(async () =>
+    {
+        await WithLiveReceiver(async (receiver, refreshTelemetry) =>
+        {
+            var directory = TemporaryDirectory();
+            await using var service = new RunRecordingService(receiver, directory);
+            using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+            var pending = new TaskCompletionSource<RunTunePreparation>(TaskCreationOptions.RunContinuationsAsynchronously);
+            model.AttachTuneChoice = RunTuneChoice.Current;
+            model.PrepareTune = (_, _) => pending.Task;
+            model.ValidatePreparedTune = _ => true;
+            var starts = 0; model.BeforeStart = () => starts++;
+            await model.ToggleRecordingAsync(); Assert.True(model.IsPreparingTune);
+            Assert.True(model.ToggleRecordingCommand.CanExecute(null)); Assert.False(model.CanEditRecordingOptions);
+            await model.ToggleRecordingAsync(); Assert.False(model.IsPreparingTune);
+            var snapshot = TuneUiTestData.ValidSnapshot();
+            pending.SetResult(new(new(snapshot, "Current", "", DateTimeOffset.UtcNow, RunTuneAttachmentKind.CurrentAtStart)));
+            await refreshTelemetry(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Assert.False(model.IsRecording); Assert.Equal(0, starts); Assert.False(Directory.Exists(directory));
         });
     });
 

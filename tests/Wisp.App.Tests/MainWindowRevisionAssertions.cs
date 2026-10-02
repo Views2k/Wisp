@@ -29,6 +29,8 @@ internal static class MainWindowRevisionAssertions
             VerifyDisplayLayouts(window, surface, tabs);
             VerifyStyleControls(window, surface, tabs, controller);
             VerifyPaletteInitialization(controller);
+            VerifyShortcutCaptureGuard(window, controller);
+            VerifyClipsNotice(window, surface, tabs);
         }
         finally
         {
@@ -48,6 +50,85 @@ internal static class MainWindowRevisionAssertions
         }
     }
 
+    private static void VerifyClipsNotice(MainWindow window, FrameworkElement surface, TabControl tabs)
+    {
+        var notice = Element<Border>(window, "DashboardClipPanel");
+        var previousContext = notice.DataContext;
+        try
+        {
+            notice.DataContext = new
+            {
+                HasDashboardNotice = true,
+                DashboardNoticeTitle = "Clips need attention",
+                DashboardNoticeText = "The clip could not be saved. Open Clips to review the retained files."
+            };
+            foreach (var compact in new[] { false, true })
+            {
+                window.SetResizableDisplay(true);
+                window.SetDashboardDisplayMode(compact);
+                tabs.SelectedIndex = 0;
+                Arrange(surface, compact ? new Size(600, 420) : new Size(720, 440));
+                Assert.Equal(Visibility.Visible, notice.Visibility);
+                Assert.InRange(notice.ActualWidth, 1, 400);
+                var origin = notice.TranslatePoint(new Point(), surface);
+                Assert.InRange(origin.X, 0, surface.ActualWidth - notice.ActualWidth + 0.5);
+                Assert.InRange(origin.Y, 0, surface.ActualHeight - notice.ActualHeight + 0.5);
+                var content = Assert.IsType<StackPanel>(notice.Child);
+                var action = Assert.Single(content.Children.OfType<Button>());
+                action.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.False(window.IsDashboardDisplayMode);
+                Assert.Equal("Clips", Assert.IsType<TabItem>(tabs.SelectedItem).Header);
+            }
+        }
+        finally { notice.DataContext = previousContext; }
+    }
+
+    private static void VerifyShortcutCaptureGuard(MainWindow window, AppController controller)
+    {
+        var previousPanel = controller.ControlPanel;
+        var previousRunsCapture = controller.Runs.ShortcutCaptureActive;
+        var previousClipsCapture = controller.Clips.ShortcutCaptureActive;
+        var button = Element<Button>(window, "OverlayHotkeyCaptureButton");
+        controller.ControlPanel = window;
+        controller.Runs.ShortcutCaptureActive = false;
+        controller.Clips.ShortcutCaptureActive = false;
+        try
+        {
+            Assert.False(controller.ShortcutCaptureActive);
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.True(window.IsCapturingOverlayHotkey);
+            Assert.True(controller.ShortcutCaptureActive);
+
+            // Completion and Escape cancellation share this existing end path.
+            Invoke(window, "EndOverlayHotkeyCapture", typeof(ControlPanelWindow));
+            Assert.False(window.IsCapturingOverlayHotkey);
+            Assert.False(controller.ShortcutCaptureActive);
+
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.True(controller.ShortcutCaptureActive);
+            button.RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice,
+                0, button, window)
+            { RoutedEvent = Keyboard.LostKeyboardFocusEvent });
+            Assert.False(window.IsCapturingOverlayHotkey);
+            Assert.False(controller.ShortcutCaptureActive);
+
+            controller.Runs.ShortcutCaptureActive = true;
+            Assert.True(controller.ShortcutCaptureActive);
+            controller.Clips.ShortcutCaptureActive = true;
+            controller.Runs.ShortcutCaptureActive = false;
+            Assert.True(controller.ShortcutCaptureActive);
+            controller.Clips.ShortcutCaptureActive = false;
+            Assert.False(controller.ShortcutCaptureActive);
+        }
+        finally
+        {
+            Invoke(window, "EndOverlayHotkeyCapture", typeof(ControlPanelWindow));
+            controller.ControlPanel = previousPanel;
+            controller.Runs.ShortcutCaptureActive = previousRunsCapture;
+            controller.Clips.ShortcutCaptureActive = previousClipsCapture;
+        }
+    }
+
     private static void VerifyDisplayLayouts(MainWindow window, FrameworkElement surface, TabControl tabs)
     {
         var toolbar = Element<Grid>(window, "DashboardToolbar");
@@ -56,8 +137,8 @@ internal static class MainWindowRevisionAssertions
         var scale = Assert.IsType<ScaleTransform>(content.LayoutTransform);
         Assert.Same(toolbar.Parent, scroll.Parent);
         Assert.False(content.IsAncestorOf(toolbar));
-        Assert.Equal(0, Grid.GetRow(toolbar));
-        Assert.Equal(1, Grid.GetRow(scroll));
+        Assert.Equal(1, Grid.GetRow(toolbar));
+        Assert.Equal(2, Grid.GetRow(scroll));
         tabs.SelectedIndex = 0;
         Arrange(surface, new Size(1280, 820));
         Invoke(window, "FitToCurrentWorkArea", typeof(ControlPanelWindow));

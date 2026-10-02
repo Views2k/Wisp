@@ -44,6 +44,14 @@ property of their respective owners and are governed by their own terms. Those
 materials are not licensed under this license. See `THIRD-PARTY-NOTICES.md` and
 the notices shipped with Wisp.
 
+For bundled libraries governed by the GNU Lesser General Public License
+(LGPL), the restrictions above do not prevent replacing those libraries with
+modified, interface-compatible versions. You may modify Wisp for your own use
+and reverse engineer it solely as needed to debug modifications involving
+those LGPL libraries. This limited exception does not grant permission to
+redistribute Wisp Materials or change the terms governing other Wisp Materials.
+The LGPL libraries remain governed by their own licenses.
+
 THE WISP MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
 OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. TO THE MAXIMUM EXTENT

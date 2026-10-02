@@ -91,11 +91,11 @@ try {
             throw 'A compatibility pack is not a bounded regular file.'
         }
         $value = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json -AsHashtable
-        if ($value.schemaVersion -notin @(1, 2, 3, 4) -or $value.revision -lt 1 -or
+        if ($value.schemaVersion -notin @(1, 2, 3, 4, 5, 6) -or $value.readerVersion -ne $value.schemaVersion -or $value.revision -lt 1 -or
             $value.gameVersion -notmatch '^\d{1,5}\.\d{1,5}\.\d{1,5}\.\d{1,5}$') {
             throw 'A compatibility pack has invalid release metadata.'
         }
-        $identity = if ($value.schemaVersion -eq 4) {
+        $identity = if ($value.schemaVersion -in @(4, 6)) {
             'store:' + $value.storeIdentity.packageFullName + ':' + $value.imageSize
         } else {
             'steam:' + $value.gameVersion + ':' + $value.executableLength + ':' + $value.executableSha256

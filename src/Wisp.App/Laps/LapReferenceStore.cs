@@ -39,7 +39,11 @@ internal sealed class LapReferenceStore(string path, Func<string?> gameRun)
         try
         {
             if (gameRun() is not { } run || !File.Exists(path)) return null;
-            var kept = JsonSerializer.Deserialize<Kept>(File.ReadAllText(path));
+            // Reset may delete the cache while startup is reading it. Share
+            // deletion so that the reader cannot silently defeat that reset.
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var kept = JsonSerializer.Deserialize<Kept>(reader.ReadToEnd());
             return kept?.GameRun == run ? kept.Session : null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)

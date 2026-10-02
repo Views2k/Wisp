@@ -1,4 +1,5 @@
 using System.Runtime.ExceptionServices;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -8,6 +9,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Xml.Linq;
+using Wisp.App.Runs;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -15,10 +17,54 @@ namespace Wisp.App.Tests;
 public sealed class RunListVisualTests
 {
     [Fact]
+    public void AutomaticLapGroupsKeepEveryItemAndOpenForSelectionOrSearch() => OnSta(() =>
+    {
+        var resources = LoadRunListResources();
+        var time = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        SavedRunItem Item(string reason, int car, int offset) => new(new(Guid.NewGuid(), "Saved lap", "", "",
+            time.AddSeconds(offset), 30, 1800, car, false, reason));
+        var manual = Item("Stopped by user", 100, 0);
+        var first = Item("Completed game lap", 100, 1);
+        var second = Item("Completed Time Attack lap", 100, 2);
+        var other = Item("Completed game lap", 101, 3);
+        var items = new ObservableCollection<SavedRunItem> { manual, first, second, other };
+        var view = new ListCollectionView(items);
+        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(SavedRunItem.LibraryGroup)));
+        var list = new ListBox
+        {
+            ItemsSource = view,
+            DisplayMemberPath = nameof(SavedRunItem.Name),
+            Style = Assert.IsType<Style>(resources[typeof(ListBox)]),
+            DataContext = new { SelectedRun = (SavedRunItem?)null, HasLibrarySearch = false }
+        };
+        list.GroupStyle.Add(Assert.IsType<GroupStyle>(resources["RunLibraryGroups"]));
+        VirtualizingPanel.SetIsVirtualizingWhenGrouping(list, true);
+        AppThemeResources.Apply(list.Resources, AppColorThemes.Resolve("Purple"));
+        var host = new Border { Width = 240, Height = 320, Child = list };
+        Render(host);
+        Expander Group(string name) => Descendants(list).OfType<Expander>()
+            .Single(item => item.DataContext is CollectionViewGroup group && Equals(group.Name, name));
+        Assert.Equal(4, list.Items.Count);
+        Assert.Equal(3, view.Groups!.Count);
+        Assert.True(Group(manual.LibraryGroup).IsExpanded);
+        Assert.False(Group(first.LibraryGroup).IsExpanded);
+        Assert.False(Group(other.LibraryGroup).IsExpanded);
+        list.DataContext = new { SelectedRun = (SavedRunItem?)first, HasLibrarySearch = false };
+        Render(host);
+        Assert.True(Group(first.LibraryGroup).IsExpanded);
+        Assert.False(Group(other.LibraryGroup).IsExpanded);
+        list.DataContext = new { SelectedRun = (SavedRunItem?)first, HasLibrarySearch = true };
+        Render(host);
+        Assert.True(Group(other.LibraryGroup).IsExpanded);
+        Assert.Equal(4, list.Items.Count);
+        Assert.Equal(first.LibraryGroup, second.LibraryGroup);
+        Assert.Contains("Car 100", first.Detail);
+    });
+
+    [Fact]
     public void DisabledSavedRunListKeepsItsThemeAndSelectionThenRestoresVirtualizedScrolling() => OnSta(() =>
     {
-        using var source = File.OpenRead(SourcePath("RunListResources.xaml"));
-        var resources = Assert.IsType<ResourceDictionary>(XamlReader.Load(source));
+        var resources = LoadRunListResources();
         var list = new ListBox
         {
             Style = Assert.IsType<Style>(resources[typeof(ListBox)]),
@@ -78,6 +124,14 @@ public sealed class RunListVisualTests
         Assert.True(scroll.VerticalOffset > 0 && scroll.ExtentHeight > scroll.ViewportHeight);
         Assert.InRange(panel.Children.Count, 1, 199);
     });
+
+    private static ResourceDictionary LoadRunListResources()
+    {
+        // Loose XAML has no owning assembly, unlike the compiled app resource.
+        var source = File.ReadAllText(SourcePath("RunListResources.xaml"))
+            .Replace("clr-namespace:Wisp.App.Runs\"", "clr-namespace:Wisp.App.Runs;assembly=Wisp\"", StringComparison.Ordinal);
+        return Assert.IsType<ResourceDictionary>(XamlReader.Parse(source));
+    }
 
     private static Style LibraryItemStyle()
     {

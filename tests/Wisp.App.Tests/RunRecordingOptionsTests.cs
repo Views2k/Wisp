@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using Wisp.App.Runs;
 using Wisp.Core;
 using Wisp.Core.Runs;
@@ -120,18 +121,97 @@ public sealed class RunRecordingOptionsTests
         Assert.Empty(run.Markers);
     }
 
+    [Fact]
+    public async Task FreshMatchingTuneStartsAndPersistsTheReviewedImmutableSnapshot()
+    {
+        var snapshot = TuneUiTestData.ValidSnapshot("rwd");
+        await using var fixture = await RecordingFixture.CreateAsync(snapshot.Identity.CarOrdinal,
+            (DrivetrainType)snapshot.Identity.Drivetrain);
+        var attachment = new RunTuneAttachment(snapshot, "Reviewed tune", "Captured details",
+            DateTimeOffset.UtcNow, RunTuneAttachmentKind.CurrentAtStart);
+        Assert.True(attachment.IsValid);
+        var snapshotJson = JsonSerializer.Serialize(snapshot, RunStore.JsonOptions);
+        Assert.True(fixture.Service.Start(new(TuneAttachment: attachment)), fixture.Service.Status);
+        var laterSelection = attachment with { Name = "Changed selection", Snapshot = snapshot with { Id = Guid.NewGuid() } };
+        await fixture.SendAsync(10);
+        await fixture.SendAsync(110);
+        var run = await fixture.Service.StopAsync();
+        Assert.NotNull(run);
+        Assert.Equal(RecordedRun.CurrentSchemaVersion, run.SchemaVersion);
+        Assert.NotNull(run.TuneAttachment);
+        Assert.Equal("Reviewed tune", run.TuneAttachment.Name);
+        Assert.NotEqual(laterSelection.Snapshot.Id, run.TuneAttachment.Snapshot.Id);
+        Assert.Equal(snapshotJson, JsonSerializer.Serialize(run.TuneAttachment.Snapshot, RunStore.JsonOptions));
+        var loaded = await fixture.Service.Store.LoadAsync(run.Id);
+        Assert.Equal(snapshotJson, JsonSerializer.Serialize(loaded.TuneAttachment!.Snapshot, RunStore.JsonOptions));
+        Assert.All(loaded.Samples, sample => Assert.Equal(snapshot.Identity.CarOrdinal, sample.State.CarOrdinal));
+        Assert.True(fixture.Receiver.IsRunning);
+    }
+
+    [Theory]
+    [InlineData("stale")]
+    [InlineData("car")]
+    [InlineData("drivetrain")]
+    public async Task AttachmentMismatchOrExpiredCheckIsRejectedBeforeCapture(string mismatch)
+    {
+        var snapshot = TuneUiTestData.ValidSnapshot("rwd");
+        int car = mismatch == "car" ? snapshot.Identity.CarOrdinal + 1 : snapshot.Identity.CarOrdinal;
+        var drivetrain = mismatch == "drivetrain" ? DrivetrainType.AllWheelDrive : (DrivetrainType)snapshot.Identity.Drivetrain;
+        await using var fixture = await RecordingFixture.CreateAsync(car, drivetrain);
+        var attachment = new RunTuneAttachment(snapshot, "Selected tune", "",
+            DateTimeOffset.UtcNow.AddSeconds(mismatch == "stale" ? -3 : 0), RunTuneAttachmentKind.CurrentAtStart);
+        Assert.True(attachment.IsValid);
+        Assert.False(fixture.Service.Start(new(TuneAttachment: attachment)));
+        Assert.Contains("car or tune check changed", fixture.Service.Status, StringComparison.Ordinal);
+        Assert.False(fixture.Service.IsRecording);
+        Assert.Empty(await fixture.Service.Store.ListAsync());
+        var probe = fixture.Receiver.BeginRunCapture(2);
+        fixture.Receiver.EndRunCapture(probe);
+        Assert.True(fixture.Receiver.IsRunning);
+    }
+
+    [Fact]
+    public async Task MissingTelemetryTailMarksTuneContinuityEvenBeforeTheTenSecondWatchdog()
+    {
+        var snapshot = TuneUiTestData.ValidSnapshot("rwd");
+        await using var fixture = await RecordingFixture.CreateAsync(snapshot.Identity.CarOrdinal,
+            (DrivetrainType)snapshot.Identity.Drivetrain);
+        var attachment = new RunTuneAttachment(snapshot, "At start", "",
+            DateTimeOffset.UtcNow, RunTuneAttachmentKind.CurrentAtStart);
+        Assert.True(fixture.Service.Start(new(TuneAttachment: attachment)), fixture.Service.Status);
+        await fixture.SendAsync(10);
+        await fixture.SendAsync(110);
+        await Task.Delay(400, TestContext.Current.CancellationToken);
+        var run = await fixture.Service.StopAsync();
+        Assert.NotNull(run);
+        Assert.Equal("Stopped by you", run.FinishReason);
+        Assert.True(run.IsIncomplete);
+        Assert.True(run.TuneAttachment!.DrivingContinuityInterrupted);
+        Assert.All(run.Samples, sample => Assert.True(sample.IsDriving));
+        Assert.True((await fixture.Service.Store.LoadAsync(run.Id)).TuneAttachment!.DrivingContinuityInterrupted);
+        Assert.True(fixture.Receiver.IsRunning);
+    }
+
     private sealed class RecordingFixture : IAsyncDisposable
     {
         private readonly string _directory = Path.Combine(Path.GetTempPath(), "Wisp.RunOptionsTests", Guid.NewGuid().ToString("N"));
         private readonly UdpClient _sender = new(AddressFamily.InterNetwork);
         private readonly IPEndPoint _endpoint = new(IPAddress.Loopback, AvailablePort());
+        private readonly int _carOrdinal;
+        private readonly DrivetrainType _drivetrain;
         internal TelemetryUdpReceiver Receiver { get; } = new();
         internal RunRecordingService Service { get; }
-        private RecordingFixture() => Service = new(Receiver, _directory);
-
-        internal static async Task<RecordingFixture> CreateAsync()
+        private RecordingFixture(int carOrdinal, DrivetrainType drivetrain)
         {
-            var fixture = new RecordingFixture();
+            _carOrdinal = carOrdinal;
+            _drivetrain = drivetrain;
+            Service = new(Receiver, _directory);
+        }
+
+        internal static async Task<RecordingFixture> CreateAsync(int carOrdinal = 2468,
+            DrivetrainType drivetrain = DrivetrainType.RearWheelDrive)
+        {
+            var fixture = new RecordingFixture(carOrdinal, drivetrain);
             await fixture.Receiver.StartAsync(fixture._endpoint.Port, TestContext.Current.CancellationToken);
             await fixture.SendAsync(0);
             fixture.PublishContext();
@@ -140,7 +220,7 @@ public sealed class RunRecordingOptionsTests
         internal void PublishContext(bool driving = true, bool expired = false)
         {
             var now = Stopwatch.GetTimestamp();
-            Service.UpdateContext(new(now, 2468, DrivetrainType.RearWheelDrive, driving, .35, .35,
+            Service.UpdateContext(new(now, _carOrdinal, _drivetrain, driving, .35, .35,
                 expired ? now - 1 : now + Stopwatch.Frequency / 4));
         }
         internal async Task SendAsync(int timestamp, bool driving = true)
@@ -148,7 +228,7 @@ public sealed class RunRecordingOptionsTests
             PublishContext(driving);
             var bytes = new byte[324];
             Write(0, 1); Write(4, timestamp); Write(8, BitConverter.SingleToInt32Bits(8000));
-            Write(16, BitConverter.SingleToInt32Bits(4000)); Write(212, 2468); Write(224, 1); Write(228, 8);
+            Write(16, BitConverter.SingleToInt32Bits(4000)); Write(212, _carOrdinal); Write(224, (int)_drivetrain); Write(228, 8);
             Write(256, BitConverter.SingleToInt32Bits(20));
             for (var offset = 100; offset <= 112; offset += 4) Write(offset, BitConverter.SingleToInt32Bits(50));
             bytes[319] = 3;

@@ -10,8 +10,10 @@ public sealed partial class AppController
     {
         var enabled = Settings.AccelerationShiftCueEnabled && !Settings.RequiresSetup &&
             !_runtimeSuspended && !_disposed;
-        var lapEnabled = (Settings.LapDeltaEnabled || Settings.LapMapEnabled) && !Settings.RequiresSetup && !_runtimeSuspended && !_disposed;
-        _lapDelta.Configure(lapEnabled, Settings.LapDeltaReference, Settings.LapMapEnabled, Settings.LapTimingMode);
+        var lapEnabled = (Settings.LapDeltaEnabled || Settings.LapMapEnabled || Settings.LapReviewRecordingEnabled) &&
+            !Settings.RequiresSetup && !_runtimeSuspended && !_disposed;
+        _lapDelta.Configure(lapEnabled, Settings.LapDeltaReference, Settings.LapMapEnabled, Settings.LapTimingMode,
+            Settings.LapReviewRecordingEnabled);
         _receiver.ValidatedStateObserver = enabled && lapEnabled ? ObserveLapAndShiftTelemetry :
             enabled ? ViewModel.ObserveShiftCueTelemetry : lapEnabled ? _lapDelta.Observe : null;
         if (!enabled) ViewModel.ResetShiftCueObservations();

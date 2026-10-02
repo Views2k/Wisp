@@ -9,7 +9,7 @@ namespace Wisp.App.Tests;
 public sealed class HudPresetTests
 {
     [Fact]
-    public void CaptureAndApplyUseAnExplicitPresentationAndPaletteAllowlist()
+    public void CaptureAndApplyIncludeDrivingSettingsAndPreserveApplicationAndCalibrationState()
     {
         var source = new AppSettings
         {
@@ -122,29 +122,29 @@ public sealed class HudPresetTests
         Assert.Equal(source.CustomGForceTrailColor, target.CustomGForceTrailColor);
 
         Assert.Equal(5601, target.UdpPort);
-        Assert.Equal(SpeedSourceMode.Fh6VehicleSpeed, target.SpeedSource);
+        Assert.Equal(source.SpeedSource, target.SpeedSource);
         Assert.Equal(WheelAggregationMode.Robust, target.AggregationMode);
-        Assert.Equal(0.91, target.Smoothing);
-        Assert.False(target.OverlayLocked);
+        Assert.Equal(source.Smoothing, target.Smoothing);
+        Assert.Equal(source.OverlayLocked, target.OverlayLocked);
         Assert.False(target.StartWithWindows);
         Assert.True(target.StartWithForza);
         Assert.True(target.StartMinimizedWithForza);
         Assert.False(target.AnimatedBackground);
         Assert.False(target.AutomaticApplicationUpdateChecks);
         Assert.True(target.DebugLoggingEnabled);
-        Assert.False(target.GameAwareVisibility);
-        Assert.True(target.OverlayHotkeyEnabled);
-        Assert.Equal(OverlayHotkeyModifiers.Alt, target.OverlayHotkeyModifiers);
-        Assert.Equal(Key.F8, target.OverlayHotkeyKey);
+        Assert.Equal(source.GameAwareVisibility, target.GameAwareVisibility);
+        Assert.Equal(source.OverlayHotkeyEnabled, target.OverlayHotkeyEnabled);
+        Assert.Equal(source.OverlayHotkeyModifiers, target.OverlayHotkeyModifiers);
+        Assert.Equal(source.OverlayHotkeyKey, target.OverlayHotkeyKey);
         Assert.False(target.AutoMinimizeOnTelemetry);
         Assert.True(target.SidebarCollapsed);
-        Assert.Same(placement, target.Placements["display"]);
+        Assert.Empty(target.Placements);
         Assert.Equal("display", target.LastOverlayPlacementKey);
         Assert.Same(calibration, Assert.Single(target.Calibrations));
     }
 
     [Fact]
-    public void PresetDtoContainsOnlyReviewedHudPresentationFields()
+    public void PresetDtoContainsOnlyReviewedHudAndDrivingFields()
     {
         string[] expected =
         [
@@ -169,7 +169,37 @@ public sealed class HudPresetTests
             "CustomBoostLowColor", "CustomBoostMidColor", "CustomBoostHighColor", "CustomTractionCueColor",
             "CustomGForceColor", "CustomGForceTrailColor",
             "Revision", "CustomParticleColor", "AppBorderColor", "AppTextColor", "AppMutedTextColor",
-            "DriftGaugeEnabled", "DriftGaugeScale", "DriftGaugeDarkMode", "DriftGaugeBackgroundEnabled", "DriftGaugeBackgroundOpacity"
+            "DriftGaugeEnabled", "DriftGaugeScale", "DriftGaugeDarkMode", "DriftGaugeBackgroundEnabled", "DriftGaugeBackgroundOpacity",
+            "SpeedSource",
+            "Smoothing",
+            "OverlayLocked",
+            "GameAwareVisibility",
+            "DriftGaugeGuidanceMode",
+            "DriftTargetDegrees",
+            "DriftToleranceDegrees",
+            "OverlayHotkeyEnabled",
+            "OverlayHotkeyModifiers",
+            "OverlayHotkeyKey",
+            "RecordingShortcutEnabled",
+            "RecordingShortcutModifiers",
+            "RecordingShortcutKey",
+            "RecordingCountdownSeconds",
+            "RecordingStopAfterSeconds",
+            "MarkerShortcutEnabled",
+            "MarkerShortcutModifiers",
+            "MarkerShortcutKey",
+            "RunPurpose",
+            "LapReviewRecordingEnabled",
+            "Placements",
+            "GForcePlacements",
+            "BoostGaugePlacements",
+            "TireTemperatureGaugePlacements",
+            "DriftGaugePlacements",
+            "PowerGaugePlacements",
+            "TorqueGaugePlacements",
+            "LapDeltaPlacements",
+            "LapMapPlacements",
+            "PowerTorqueGaugeRanges"
         ];
 
         var writable = typeof(HudPreset).GetProperties()
@@ -181,10 +211,8 @@ public sealed class HudPresetTests
         Assert.Equal(expected.OrderBy(name => name), writable);
         Assert.DoesNotContain(typeof(HudPreset).GetProperties(), property =>
             property.Name.Contains("Calibration", StringComparison.OrdinalIgnoreCase) ||
-            property.Name.Contains("Placement", StringComparison.OrdinalIgnoreCase) ||
             property.Name.Contains("Update", StringComparison.OrdinalIgnoreCase) ||
-            property.Name.Contains("Debug", StringComparison.OrdinalIgnoreCase) ||
-            property.Name.Contains("Hotkey", StringComparison.OrdinalIgnoreCase));
+            property.Name.Contains("Debug", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

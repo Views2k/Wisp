@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Windows.Input;
 using Wisp.Core;
 
 namespace Wisp.App;
@@ -115,7 +116,39 @@ public sealed class HudPreset
     public bool DriftGaugeDarkMode { get; set; }
     public bool DriftGaugeBackgroundEnabled { get; set; }
     public double DriftGaugeBackgroundOpacity { get; set; } = .5;
-    internal const int CurrentRevision = 1;
+    // Revision 2 includes driving controls and independent copies of every saved HUD arrangement.
+    // Earlier profiles leave the newly added settings and placements unchanged.
+    public SpeedSourceMode SpeedSource { get; set; } = SpeedSourceMode.WheelIndicated;
+    public double Smoothing { get; set; } = 0;
+    public bool OverlayLocked { get; set; } = true;
+    public bool GameAwareVisibility { get; set; } = true;
+    public DriftGaugeGuidanceMode DriftGaugeGuidanceMode { get; set; } = global::Wisp.Core.DriftGaugeGuidanceMode.DriftZoneAngleBonus;
+    public double DriftTargetDegrees { get; set; } = 40;
+    public double DriftToleranceDegrees { get; set; } = 10;
+    public bool OverlayHotkeyEnabled { get; set; } = false;
+    public OverlayHotkeyModifiers OverlayHotkeyModifiers { get; set; } = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+    public Key OverlayHotkeyKey { get; set; } = Key.H;
+    public bool RecordingShortcutEnabled { get; set; } = false;
+    public OverlayHotkeyModifiers RecordingShortcutModifiers { get; set; } = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+    public Key RecordingShortcutKey { get; set; } = Key.R;
+    public int RecordingCountdownSeconds { get; set; } = 0;
+    public int RecordingStopAfterSeconds { get; set; } = 0;
+    public bool MarkerShortcutEnabled { get; set; } = false;
+    public OverlayHotkeyModifiers MarkerShortcutModifiers { get; set; } = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+    public Key MarkerShortcutKey { get; set; } = Key.M;
+    public Wisp.Core.Runs.RunPurpose RunPurpose { get; set; } = Wisp.Core.Runs.RunPurpose.General;
+    public bool LapReviewRecordingEnabled { get; set; } = false;
+    public Dictionary<string, OverlayPlacement>? Placements { get; set; }
+    public Dictionary<string, OverlayPlacement>? GForcePlacements { get; set; }
+    public Dictionary<string, OverlayPlacement>? BoostGaugePlacements { get; set; }
+    public Dictionary<string, OverlayPlacement>? TireTemperatureGaugePlacements { get; set; }
+    public Dictionary<string, OverlayPlacement>? DriftGaugePlacements { get; set; }
+    public Dictionary<string, OverlayPlacement>? PowerGaugePlacements { get; set; }
+    public Dictionary<string, OverlayPlacement>? TorqueGaugePlacements { get; set; }
+    public Dictionary<string, OverlayPlacement>? LapDeltaPlacements { get; set; }
+    public Dictionary<string, OverlayPlacement>? LapMapPlacements { get; set; }
+    public Dictionary<int, PowerTorqueGaugeRange>? PowerTorqueGaugeRanges { get; set; }
+    internal const int CurrentRevision = 2;
 
     [JsonIgnore]
     public string Summary => LayoutMode switch
@@ -140,6 +173,36 @@ public sealed class HudPreset
         {
             Id = id is { } existing && existing != Guid.Empty ? existing : Guid.NewGuid(),
             Name = normalizedName,
+            SpeedSource = settings.SpeedSource,
+            Smoothing = settings.Smoothing,
+            OverlayLocked = settings.OverlayLocked,
+            GameAwareVisibility = settings.GameAwareVisibility,
+            DriftGaugeGuidanceMode = settings.DriftGaugeGuidanceMode,
+            DriftTargetDegrees = settings.DriftTargetDegrees,
+            DriftToleranceDegrees = settings.DriftToleranceDegrees,
+            OverlayHotkeyEnabled = settings.OverlayHotkeyEnabled,
+            OverlayHotkeyModifiers = settings.OverlayHotkeyModifiers,
+            OverlayHotkeyKey = settings.OverlayHotkeyKey,
+            RecordingShortcutEnabled = settings.RecordingShortcutEnabled,
+            RecordingShortcutModifiers = settings.RecordingShortcutModifiers,
+            RecordingShortcutKey = settings.RecordingShortcutKey,
+            RecordingCountdownSeconds = settings.RecordingCountdownSeconds,
+            RecordingStopAfterSeconds = settings.RecordingStopAfterSeconds,
+            MarkerShortcutEnabled = settings.MarkerShortcutEnabled,
+            MarkerShortcutModifiers = settings.MarkerShortcutModifiers,
+            MarkerShortcutKey = settings.MarkerShortcutKey,
+            RunPurpose = settings.RunPurpose,
+            LapReviewRecordingEnabled = settings.LapReviewRecordingEnabled,
+            Placements = CopyPlacements(settings.Placements),
+            GForcePlacements = CopyPlacements(settings.GForcePlacements),
+            BoostGaugePlacements = CopyPlacements(settings.BoostGaugePlacements),
+            TireTemperatureGaugePlacements = CopyPlacements(settings.TireTemperatureGaugePlacements),
+            DriftGaugePlacements = CopyPlacements(settings.DriftGaugePlacements),
+            PowerGaugePlacements = CopyPlacements(settings.PowerGaugePlacements),
+            TorqueGaugePlacements = CopyPlacements(settings.TorqueGaugePlacements),
+            LapDeltaPlacements = CopyPlacements(settings.LapDeltaPlacements),
+            LapMapPlacements = CopyPlacements(settings.LapMapPlacements),
+            PowerTorqueGaugeRanges = new(settings.PowerTorqueGaugeRanges),
             SpeedUnit = settings.SpeedUnit,
             TorqueUnit = settings.TorqueUnit,
             LayoutMode = settings.LayoutMode,
@@ -330,6 +393,37 @@ public sealed class HudPreset
         settings.DriftGaugeDarkMode = DriftGaugeDarkMode;
         settings.DriftGaugeBackgroundEnabled = DriftGaugeBackgroundEnabled;
         settings.DriftGaugeBackgroundOpacity = DriftGaugeBackgroundOpacity;
+        if (Revision < 2) return;
+        settings.SpeedSource = SpeedSource;
+        settings.Smoothing = Smoothing;
+        settings.OverlayLocked = OverlayLocked;
+        settings.GameAwareVisibility = GameAwareVisibility;
+        settings.DriftGaugeGuidanceMode = DriftGaugeGuidanceMode;
+        settings.DriftTargetDegrees = DriftTargetDegrees;
+        settings.DriftToleranceDegrees = DriftToleranceDegrees;
+        settings.OverlayHotkeyEnabled = OverlayHotkeyEnabled;
+        settings.OverlayHotkeyModifiers = OverlayHotkeyModifiers;
+        settings.OverlayHotkeyKey = OverlayHotkeyKey;
+        settings.RecordingShortcutEnabled = RecordingShortcutEnabled;
+        settings.RecordingShortcutModifiers = RecordingShortcutModifiers;
+        settings.RecordingShortcutKey = RecordingShortcutKey;
+        settings.RecordingCountdownSeconds = RecordingCountdownSeconds;
+        settings.RecordingStopAfterSeconds = RecordingStopAfterSeconds;
+        settings.MarkerShortcutEnabled = MarkerShortcutEnabled;
+        settings.MarkerShortcutModifiers = MarkerShortcutModifiers;
+        settings.MarkerShortcutKey = MarkerShortcutKey;
+        settings.RunPurpose = RunPurpose;
+        settings.LapReviewRecordingEnabled = LapReviewRecordingEnabled;
+        if (Placements is not null) settings.Placements = CopyPlacements(Placements);
+        if (GForcePlacements is not null) settings.GForcePlacements = CopyPlacements(GForcePlacements);
+        if (BoostGaugePlacements is not null) settings.BoostGaugePlacements = CopyPlacements(BoostGaugePlacements);
+        if (TireTemperatureGaugePlacements is not null) settings.TireTemperatureGaugePlacements = CopyPlacements(TireTemperatureGaugePlacements);
+        if (DriftGaugePlacements is not null) settings.DriftGaugePlacements = CopyPlacements(DriftGaugePlacements);
+        if (PowerGaugePlacements is not null) settings.PowerGaugePlacements = CopyPlacements(PowerGaugePlacements);
+        if (TorqueGaugePlacements is not null) settings.TorqueGaugePlacements = CopyPlacements(TorqueGaugePlacements);
+        if (LapDeltaPlacements is not null) settings.LapDeltaPlacements = CopyPlacements(LapDeltaPlacements);
+        if (LapMapPlacements is not null) settings.LapMapPlacements = CopyPlacements(LapMapPlacements);
+        if (PowerTorqueGaugeRanges is not null) settings.PowerTorqueGaugeRanges = new(PowerTorqueGaugeRanges);
     }
 
     public bool Normalize()
@@ -344,6 +438,46 @@ public sealed class HudPreset
         {
             Id = Guid.NewGuid();
         }
+        if (!Enum.IsDefined(SpeedSource)) SpeedSource = SpeedSourceMode.WheelIndicated;
+        if (!Enum.IsDefined(DriftGaugeGuidanceMode)) DriftGaugeGuidanceMode = global::Wisp.Core.DriftGaugeGuidanceMode.DriftZoneAngleBonus;
+        if (!Enum.IsDefined(RunPurpose)) RunPurpose = Wisp.Core.Runs.RunPurpose.General;
+        Smoothing = double.IsFinite(Smoothing) ? Math.Clamp(Smoothing, 0, 1) : 0;
+        DriftTargetDegrees = double.IsFinite(DriftTargetDegrees) ? Math.Clamp(DriftTargetDegrees, 10, 75) : 40;
+        DriftToleranceDegrees = double.IsFinite(DriftToleranceDegrees) ? Math.Clamp(DriftToleranceDegrees, 2, 15) : 10;
+        if (RecordingCountdownSeconds is not (0 or 3 or 5 or 10)) RecordingCountdownSeconds = 0;
+        if (RecordingStopAfterSeconds is not (0 or 30 or 60 or 120 or 300 or 600)) RecordingStopAfterSeconds = 0;
+        if (!OverlayHotkeyChord.TryCreate(OverlayHotkeyModifiers, OverlayHotkeyKey, out _, out _))
+        {
+            OverlayHotkeyEnabled = false;
+            OverlayHotkeyModifiers = OverlayHotkeyChord.Default.Modifiers;
+            OverlayHotkeyKey = OverlayHotkeyChord.Default.Key;
+        }
+        if (!OverlayHotkeyChord.TryCreate(RecordingShortcutModifiers, RecordingShortcutKey, out _, out _))
+        {
+            RecordingShortcutEnabled = false;
+            RecordingShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+            RecordingShortcutKey = Key.R;
+        }
+        if (!OverlayHotkeyChord.TryCreate(MarkerShortcutModifiers, MarkerShortcutKey, out _, out _))
+        {
+            MarkerShortcutEnabled = false;
+            MarkerShortcutModifiers = OverlayHotkeyModifiers.Control | OverlayHotkeyModifiers.Shift;
+            MarkerShortcutKey = Key.M;
+        }
+        if (Placements is not null) Placements = CopyPlacements(Placements);
+        if (GForcePlacements is not null) GForcePlacements = CopyPlacements(GForcePlacements);
+        if (BoostGaugePlacements is not null) BoostGaugePlacements = CopyPlacements(BoostGaugePlacements);
+        if (TireTemperatureGaugePlacements is not null) TireTemperatureGaugePlacements = CopyPlacements(TireTemperatureGaugePlacements);
+        if (DriftGaugePlacements is not null) DriftGaugePlacements = CopyPlacements(DriftGaugePlacements);
+        if (PowerGaugePlacements is not null) PowerGaugePlacements = CopyPlacements(PowerGaugePlacements);
+        if (TorqueGaugePlacements is not null) TorqueGaugePlacements = CopyPlacements(TorqueGaugePlacements);
+        if (LapDeltaPlacements is not null) LapDeltaPlacements = CopyPlacements(LapDeltaPlacements);
+        if (LapMapPlacements is not null) LapMapPlacements = CopyPlacements(LapMapPlacements);
+        if (PowerTorqueGaugeRanges is not null)
+            PowerTorqueGaugeRanges = PowerTorqueGaugeRanges.Where(pair => pair.Key > 0 && pair.Value is not null)
+                .TakeLast(512).ToDictionary(pair => pair.Key, pair => new PowerTorqueGaugeRange(
+                    AppSettings.NormalizePowerGaugeMaximum(pair.Value.PowerMaximum),
+                    AppSettings.NormalizeTorqueGaugeMaximum(pair.Value.TorqueMaximumNm)));
         if (!Enum.IsDefined(SpeedUnit)) SpeedUnit = Wisp.Core.SpeedUnit.MilesPerHour;
         if (!Enum.IsDefined(TorqueUnit)) TorqueUnit = Wisp.App.TorqueUnit.NewtonMeters;
         if (!Enum.IsDefined(LayoutMode)) LayoutMode = HudLayoutMode.Minimal;
@@ -454,4 +588,18 @@ public sealed class HudPreset
 
     private static double NormalizeScale(double value) =>
         double.IsFinite(value) ? Math.Clamp(value, 0.5, 2) : 1;
+
+    internal static Dictionary<string, OverlayPlacement> CopyPlacements(
+        IReadOnlyDictionary<string, OverlayPlacement>? placements)
+    {
+        var copy = new Dictionary<string, OverlayPlacement>(StringComparer.Ordinal);
+        if (placements is null) return copy;
+        foreach (var (key, value) in placements.TakeLast(32))
+        {
+            if (string.IsNullOrWhiteSpace(key) || key.Length > 256 || value is null) continue;
+            var placement = new OverlayPlacement(value.Left, value.Top, value.WidthScale, value.HeightScale);
+            if (placement.Normalize()) copy[key] = placement;
+        }
+        return copy;
+    }
 }

@@ -148,8 +148,10 @@ public sealed class PowerTorqueGaugeSettingsTests
         Assert.Equal(250, new HudPreset().PowerTorqueSmoothingMilliseconds);
     }
 
-    [Fact]
-    public void ProfileRoundTripPreservesSeparateAttachmentsOutputOptionsAndColorsWithoutPlacements()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void ProfileRoundTripPreservesSeparateAttachmentsOutputOptionsColorsAndVersionedPlacements(int revision)
     {
         var source = new AppSettings
         {
@@ -165,14 +167,26 @@ public sealed class PowerTorqueGaugeSettingsTests
             CustomTorqueLowColor = "#FF203040",
             CustomTorqueMidColor = "#FF506070",
             CustomTorqueHighColor = "#FF8090A0",
-            PowerGaugePlacements = new() { ["power-display"] = new(10, 20, 1, 1) }
+            PowerGaugePlacements = new() { ["power-display"] = new(10, 20, 1, 1) },
+            TorqueGaugePlacements = new() { ["torque-display"] = new(50, 60, 1.2, 1.4) }
         };
-        var serialized = JsonSerializer.Serialize(HudPreset.Capture(source, "Output options"));
+        var captured = HudPreset.Capture(source, "Output options");
+        Assert.Equal(2, captured.Revision);
+        Assert.NotSame(source.PowerGaugePlacements, captured.PowerGaugePlacements);
+        Assert.NotSame(source.PowerGaugePlacements["power-display"], captured.PowerGaugePlacements!["power-display"]);
+        Assert.NotSame(source.TorqueGaugePlacements, captured.TorqueGaugePlacements);
+        Assert.NotSame(source.TorqueGaugePlacements["torque-display"], captured.TorqueGaugePlacements!["torque-display"]);
+        captured.Revision = revision;
+        var serialized = JsonSerializer.Serialize(captured);
         var preset = JsonSerializer.Deserialize<HudPreset>(serialized)!;
+        var existingPowerPlacement = new OverlayPlacement(30, 40, 1, 1);
+        var existingTorquePlacement = new OverlayPlacement(70, 80, 1, 1);
         var target = new AppSettings
         {
-            PowerGaugePlacements = new() { ["existing-display"] = new(30, 40, 1, 1) },
-            LastPowerGaugePlacementKey = "existing-display"
+            PowerGaugePlacements = new() { ["existing-display"] = existingPowerPlacement },
+            TorqueGaugePlacements = new() { ["existing-torque-display"] = existingTorquePlacement },
+            LastPowerGaugePlacementKey = "existing-display",
+            LastTorqueGaugePlacementKey = "existing-torque-display"
         };
         preset.ApplyTo(target);
         Assert.False(target.PowerGaugeAttached);
@@ -188,8 +202,45 @@ public sealed class PowerTorqueGaugeSettingsTests
         Assert.Equal(source.CustomTorqueMidColor, target.CustomTorqueMidColor);
         Assert.Equal(source.CustomTorqueHighColor, target.CustomTorqueHighColor);
         Assert.Equal("existing-display", target.LastPowerGaugePlacementKey);
-        Assert.Equal(30, Assert.Single(target.PowerGaugePlacements).Value.Left);
-        Assert.DoesNotContain("Placements", serialized);
+        Assert.Equal("existing-torque-display", target.LastTorqueGaugePlacementKey);
+        Assert.Contains("\"PowerGaugePlacements\"", serialized);
+        Assert.Contains("\"TorqueGaugePlacements\"", serialized);
+        if (revision == 1)
+        {
+            Assert.Equal("existing-display", Assert.Single(target.PowerGaugePlacements).Key);
+            Assert.Same(existingPowerPlacement, target.PowerGaugePlacements["existing-display"]);
+            Assert.Equal(30, existingPowerPlacement.Left);
+            Assert.Equal(40, existingPowerPlacement.Top);
+            Assert.Equal("existing-torque-display", Assert.Single(target.TorqueGaugePlacements).Key);
+            Assert.Same(existingTorquePlacement, target.TorqueGaugePlacements["existing-torque-display"]);
+            Assert.Equal(70, existingTorquePlacement.Left);
+            Assert.Equal(80, existingTorquePlacement.Top);
+        }
+        else
+        {
+            var power = Assert.Single(target.PowerGaugePlacements);
+            var torque = Assert.Single(target.TorqueGaugePlacements);
+            Assert.Equal("power-display", power.Key);
+            Assert.Equal("torque-display", torque.Key);
+            Assert.Equal(10, power.Value.Left);
+            Assert.Equal(20, power.Value.Top);
+            Assert.Equal(1, power.Value.WidthScale);
+            Assert.Equal(1, power.Value.HeightScale);
+            Assert.Equal(50, torque.Value.Left);
+            Assert.Equal(60, torque.Value.Top);
+            Assert.Equal(1.2, torque.Value.WidthScale);
+            Assert.Equal(1.4, torque.Value.HeightScale);
+            Assert.NotSame(preset.PowerGaugePlacements, target.PowerGaugePlacements);
+            Assert.NotSame(preset.PowerGaugePlacements!["power-display"], power.Value);
+            Assert.NotSame(preset.TorqueGaugePlacements, target.TorqueGaugePlacements);
+            Assert.NotSame(preset.TorqueGaugePlacements!["torque-display"], torque.Value);
+            power.Value.Left = 99;
+            torque.Value.Left = 199;
+            Assert.Equal(10, preset.PowerGaugePlacements["power-display"].Left);
+            Assert.Equal(50, preset.TorqueGaugePlacements["torque-display"].Left);
+            Assert.Equal(10, source.PowerGaugePlacements["power-display"].Left);
+            Assert.Equal(50, source.TorqueGaugePlacements["torque-display"].Left);
+        }
     }
 
     [Fact]

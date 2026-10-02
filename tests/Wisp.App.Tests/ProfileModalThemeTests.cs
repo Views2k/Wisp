@@ -24,7 +24,7 @@ internal static class ProfileModalThemeTests
         var originalSize = surface.RenderSize;
         try
         {
-            tabs.SelectedIndex = 2;
+            tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Appearance"));
             Arrange();
             var binding = navigation.GetBindingExpression(Selector.SelectedIndexProperty);
             Assert.NotNull(binding);
@@ -59,7 +59,7 @@ internal static class ProfileModalThemeTests
             Assert.True(body.IsEnabled && navigation.IsEnabled);
             Assert.Same(selection, navigation.SelectedItem);
             Assert.Same(binding, navigation.GetBindingExpression(Selector.SelectedIndexProperty));
-            var item = Assert.IsType<ListBoxItem>(navigation.ItemContainerGenerator.ContainerFromIndex(2));
+            var item = Assert.IsType<ListBoxItem>(navigation.ItemContainerGenerator.ContainerFromIndex(tabs.SelectedIndex));
             Assert.True(item.IsEnabled && item.Focusable && item.IsTabStop);
             Assert.Equal(nint.Zero, new WindowInteropHelper(window).Handle);
         }

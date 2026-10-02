@@ -85,7 +85,7 @@ internal static class PowerTorqueReview
                 var size = variant == "large-purple" ? new Size(980, 750) : new Size(1464, 994);
                 try
                 {
-                    ((TabControl)window.FindName("RootTabs")).SelectedIndex = 2;
+                    ((TabControl)window.FindName("RootTabs")).SelectedItem = window.FindName("AppearanceTab");
                     setDpi(surface, dpi);
                     Arrange(surface, size);
                     Capture(surface, size, dpi, variant + "-appearance.png");

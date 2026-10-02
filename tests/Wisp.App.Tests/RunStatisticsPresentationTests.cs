@@ -116,6 +116,27 @@ public sealed class RunStatisticsPresentationTests : IDisposable
     }
 
     [Fact]
+    public void MissingWheelCalibrationIsExplainedAndNotReportedAsZeroExcess()
+    {
+        var rows = Present(new RunStatistics { RecordedSeconds = 1, FullThrottleSeconds = 0 },
+            new RunStatistics { RecordedSeconds = 1, AverageWheelSpeedExcessMetersPerSecond = 0 });
+        var wheel = Find(rows, "wheel-speed-excess");
+        Assert.Equal("Not recorded", wheel.ValueA);
+        Assert.Equal("0.0 km/h", wheel.ValueB);
+        Assert.Equal("Unavailable", wheel.Difference);
+        Assert.Contains("calibration during recording", wheel.Description);
+        Assert.Equal("0.0 s", Find(rows, "full-throttle").ValueA);
+        Assert.Contains("selected section", Find(rows, "full-throttle").Description);
+    }
+
+    [Fact]
+    public void IsolatedWheelReadingsDoNotClaimTheyWereNeverRecorded()
+    {
+        var rows = Present(new RunStatistics { HasWheelSpeedSamples = true });
+        Assert.Equal("No valid interval", Find(rows, "wheel-speed-excess").ValueA);
+    }
+
+    [Fact]
     public void NonFiniteTelemetryIsUnavailableAndSmallDifferencesDoNotShowNegativeZero()
     {
         var first = new RunStatistics { PeakPowerWatts = double.NaN, PeakLongitudinalG = double.PositiveInfinity, PeakLateralG = 1 };

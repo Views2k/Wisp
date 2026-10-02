@@ -1,0 +1,621 @@
+{
+  "schemaVersion": 1,
+  "sourceCompanionStatus": "archives-assembled-source-revision-matched-dependency-build-config-unverified",
+  "scope": "x64 local MP4 lossless H264 GBR444 / AAC playback; HWND output and vmem/PNG thumbnail support",
+  "packages": [
+    {
+      "id": "LibVLCSharp",
+      "version": "3.10.1",
+      "sha256": "b02486d628519115879db93ef6fe0b2d46c62095f6f72114e5dfa8df9a77f332",
+      "sourceCommit": "4896d0e06d19ac40b46802cf7dc167d432f3fd63",
+      "sourceArchiveUrl": "https://github.com/videolan/libvlcsharp/archive/4896d0e06d19ac40b46802cf7dc167d432f3fd63.tar.gz",
+      "sourceArchiveSha256": "856011e4130e210d04cb2feb64b0705cc9cd01b97467ad82aa3e5b49fbb1acbb",
+      "sourceArchiveVerification": "Fetched over HTTPS from the pinned official repository commit; exact archive root checked; SHA256 recorded."
+    },
+    {
+      "id": "VideoLAN.LibVLC.Windows",
+      "version": "3.0.24",
+      "sha256": "3da3f37ee2b2b10e5c788d830a3b513658c36521ea1b0f966ed86eb69f41ef3c",
+      "sourceArchiveUrl": "https://download.videolan.org/pub/videolan/vlc/3.0.24/vlc-3.0.24.tar.xz",
+      "sourceArchiveSha256": "e7cab503d1d7d5849b89d2cf0e1ee60d0ef6d012407791b644b9cfc0cc225fdf",
+      "sourceArchiveBytes": 27620304
+    }
+  ],
+  "nativeFiles": [
+    {
+      "path": "libvlc.dll",
+      "bytes": 192448,
+      "sha256": "c0b1bedbc8e11267b39111733920a6af73d08791e333e4f8902eaffe4daf6db9"
+    },
+    {
+      "path": "libvlccore.dll",
+      "bytes": 3019712,
+      "sha256": "c089f281affe1e85c61edd5996c2b496191f82fa5cdc7ef709b0c09bf754cdbe"
+    },
+    {
+      "path": "plugins/access/libfilesystem_plugin.dll",
+      "bytes": 71104,
+      "sha256": "cd454978665b51c62cd553a02f09797cf0ec4f303d5afa1a040672f358ebc517"
+    },
+    {
+      "path": "plugins/demux/libmp4_plugin.dll",
+      "bytes": 331200,
+      "sha256": "33f66fed655d7ddf12141fad4c49f978bb1c947bda859f5954453187fad53e2a"
+    },
+    {
+      "path": "plugins/packetizer/libpacketizer_h264_plugin.dll",
+      "bytes": 155584,
+      "sha256": "4356b2f7a609f897f2939f382aed97b2e019fb169224565e82f22e6ba17d48ec"
+    },
+    {
+      "path": "plugins/packetizer/libpacketizer_mpeg4audio_plugin.dll",
+      "bytes": 71616,
+      "sha256": "198c3eb393b6377c481855047f5599eb6db5248f679121cfbe753d9a9f735a55"
+    },
+    {
+      "path": "plugins/codec/libavcodec_plugin.dll",
+      "bytes": 18907072,
+      "sha256": "f8af2239f1a1fa99e2b808af852e87a72447c51134a96bfe4ef538629702744e"
+    },
+    {
+      "path": "plugins/codec/libpng_plugin.dll",
+      "bytes": 293312,
+      "sha256": "f03d7fcb57fe0470d3fdf944b025a221726cb2597276d12db0b1e8aeb4494bff"
+    },
+    {
+      "path": "plugins/video_chroma/libswscale_plugin.dll",
+      "bytes": 1778112,
+      "sha256": "a18dec8989ac0ebd7e8db00c9d26f8e4c8e64a53e6d6c5da03624a150d9ac2f8"
+    },
+    {
+      "path": "plugins/video_chroma/libchain_plugin.dll",
+      "bytes": 71616,
+      "sha256": "c73fcf2b70d09a6b909ae586c04d1b05290df47b30789fc12b001d34f1bf6d97"
+    },
+    {
+      "path": "plugins/video_output/libdirect3d11_plugin.dll",
+      "bytes": 444352,
+      "sha256": "ef0e985c6f29b8aedc49d1bebaef9349a96eb45e5544e615ccc8864aeead7820"
+    },
+    {
+      "path": "plugins/video_output/libdrawable_plugin.dll",
+      "bytes": 42432,
+      "sha256": "814adda66b8cc51573c268e0a05120ec0ec3574b50077faf0f1cd9dfcff74038"
+    },
+    {
+      "path": "plugins/video_output/libvmem_plugin.dll",
+      "bytes": 45504,
+      "sha256": "4c24859253d14a778d61fa96ec8cea876e4534b6b7dfdf4358959cb0b5e7d63e"
+    },
+    {
+      "path": "plugins/audio_output/libmmdevice_plugin.dll",
+      "bytes": 71616,
+      "sha256": "1cc801b4eb4ad6eea3227ae668b76469a5e68d6681e39af7540753444522e9e6"
+    },
+    {
+      "path": "plugins/audio_output/libwasapi_plugin.dll",
+      "bytes": 62912,
+      "sha256": "c971dda80399d72bf501f33d62919cd50576588849f9d9c05cbc1e5da74e0d53"
+    },
+    {
+      "path": "plugins/audio_mixer/libfloat_mixer_plugin.dll",
+      "bytes": 42944,
+      "sha256": "08ad9661ca494fcf411d7fa0d9ad0bbbe0d753bbd109ce9996d679e0d3ec28ea"
+    },
+    {
+      "path": "plugins/audio_mixer/libinteger_mixer_plugin.dll",
+      "bytes": 46016,
+      "sha256": "c8e70f51042fac7e5754d7a9d9afe44dd4c291ec82321d9d5ba65ab4c59eea48"
+    },
+    {
+      "path": "plugins/audio_filter/libaudio_format_plugin.dll",
+      "bytes": 67008,
+      "sha256": "99a7d96950c8010d644997a2cb8f97081e43ac7471445ebbdf177f7d876437ce"
+    },
+    {
+      "path": "plugins/audio_filter/libtrivial_channel_mixer_plugin.dll",
+      "bytes": 44992,
+      "sha256": "4d711cde2be59e0df220c0222b0a656e95c9655cee7861b7f727df8401d5af84"
+    },
+    {
+      "path": "plugins/audio_filter/libsimple_channel_mixer_plugin.dll",
+      "bytes": 50624,
+      "sha256": "958db85989e7c5582713c0d1e409aeaf3c41098107dbe77f33afae0310b98ec3"
+    },
+    {
+      "path": "plugins/audio_filter/libspeex_resampler_plugin.dll",
+      "bytes": 53184,
+      "sha256": "f575d257a97d3d12c0c364dfb0b30592fa83cb48572649b13e8347f8ff672cc7"
+    },
+    {
+      "path": "plugins/stream_filter/libcache_read_plugin.dll",
+      "bytes": 46016,
+      "sha256": "927fd970b5b52cb68730edb8f247c5601f6eb29a5b220d7dfcbf23773bb0b2ec"
+    },
+    {
+      "path": "plugins/stream_filter/libcache_block_plugin.dll",
+      "bytes": 45504,
+      "sha256": "15b554df97b50e24d70361fb792a3739403114cfaca2fcbd1fd9c09dd3f7ce2a"
+    },
+    {
+      "path": "plugins/stream_filter/libprefetch_plugin.dll",
+      "bytes": 47040,
+      "sha256": "fc3295355a649e77b5a638c6d0e5f8f4406a1fab725a007567d2b7c07d9fadde"
+    }
+  ],
+  "nativeFileBytes": 26001920,
+  "upstreamSources": [
+    {
+      "component": "ffmpeg",
+      "version": "8.1.2",
+      "archive": "ffmpeg-8.1.2.tar.xz",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "sha512": "b3adc16fe426217bb607da01c4137cee0a9788fc08e077874336db185d2b7287746a7dc94cf0181ea92cd8afcdb06094ee9456e2986112354f84538cb9a5ed0b",
+      "checksumSource": "vlc-3.0.24/contrib/src/ffmpeg/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/ffmpeg/",
+      "scope": "required-codec-and-swscale",
+      "fetchedAndVerified": true,
+      "archiveSha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
+    },
+    {
+      "component": "zlib",
+      "version": "1.3.2",
+      "archive": "zlib-1.3.2.tar.xz",
+      "url": "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.xz",
+      "sha512": "cf3d49fbabddc57cca99858feeca8f910e9de42a16014cddd406814d2d24ee33fee2af3805d7efbb1b04b05f55818092b000daf82502b675df65f2512c353f73",
+      "checksumSource": "vlc-3.0.24/contrib/src/zlib/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/zlib/",
+      "scope": "required-native-dependency",
+      "fetchedAndVerified": true,
+      "archiveSha256": "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3"
+    },
+    {
+      "component": "gsm",
+      "version": "1.0.13",
+      "archive": "libgsm_1.0.13.tar.gz",
+      "url": "https://download.videolan.org/pub/contrib/gsm/libgsm_1.0.13.tar.gz",
+      "sha512": "0d0cf9e1e81e64cd84f588c1e4f0cb74b849d45e41fdebf860f63588084c73c7c5198bfe73a6c976bda5735ee516661d3db00afbb5cc5886a7ee3a7b31d673aa",
+      "checksumSource": "vlc-3.0.24/contrib/src/gsm/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/gsm/",
+      "scope": "ffmpeg-static-dependency",
+      "fetchedAndVerified": true,
+      "archiveSha256": "52c518244d428c2e56c543b98c9135f4a76ff780c32455580b793f60a0a092ad"
+    },
+    {
+      "component": "openjpeg",
+      "version": "2.5.4",
+      "archive": "openjpeg-2.5.4.tar.gz",
+      "url": "https://github.com/uclouvain/openjpeg/archive/v2.5.4.tar.gz",
+      "sha512": "702a10e20caaf8209684ded7c9fcf32f5ba6a972cf2d9fcf2611cdc6a446d2c3bb60324205758e6b6f92278c8cf4ef0fbae511e6ffb45ed6e8df514db0c6ab25",
+      "checksumSource": "vlc-3.0.24/contrib/src/openjpeg/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/openjpeg/",
+      "scope": "ffmpeg-static-dependency",
+      "fetchedAndVerified": true,
+      "archiveSha256": "a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a"
+    },
+    {
+      "component": "png",
+      "version": "1.6.58",
+      "archive": "libpng-1.6.58.tar.xz",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "sha512": "5937d6409d7ad564c9dba7969c5d39eea8bbc01936f433bf5936c872ec290dea353783f89bded91e124b3b3b15518320097de365acd3b0bcc922a0e90c94adc8",
+      "checksumSource": "vlc-3.0.24/contrib/src/png/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/png/",
+      "scope": "selected-png-module",
+      "fetchedAndVerified": true,
+      "archiveSha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775"
+    },
+    {
+      "component": "speexdsp",
+      "version": "1.2.1",
+      "archive": "speexdsp-1.2.1.tar.gz",
+      "url": "https://downloads.xiph.org/releases/speex/speexdsp-1.2.1.tar.gz",
+      "sha512": "41b5f37b48db5cb8c5a0f6437a4a8266d2627a5b7c1088de8549fe0bf0bb3105b7df8024fe207eef194096e0726ea73e2b53e0a4293d8db8e133baa0f8a3bad3",
+      "checksumSource": "vlc-3.0.24/contrib/src/speexdsp/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/speexdsp/",
+      "scope": "selected-audio-resampler",
+      "fetchedAndVerified": true,
+      "archiveSha256": "8c777343e4a6399569c72abc38a95b24db56882c83dbdb6c6424a5f4aeb54d3d"
+    },
+    {
+      "component": "mingw64",
+      "version": "14.0.0",
+      "archive": "mingw-w64-v14.0.0.tar.bz2",
+      "url": "https://downloads.sourceforge.net/project/mingw-w64/mingw-w64/mingw-w64-release/mingw-w64-v14.0.0.tar.bz2",
+      "sha512": "17378a0e2abbbb688468a78cb0ba261f9001a1bc6e7d0270c24c4b8b13e5c6513e8fb8e617d08102fbc772c288ad81ec3a43ca756ed28f17cc5543f717a8bb6d",
+      "checksumSource": "vlc-3.0.24/contrib/src/mingw64/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/mingw64/",
+      "scope": "winpthreads-and-build-headers",
+      "fetchedAndVerified": true,
+      "archiveSha256": "6eaf921d9eb987d3820b364ea9775bc19b965ec81490b6fdd716526c28e1995c"
+    },
+    {
+      "component": "iconv",
+      "version": "1.17",
+      "archive": "libiconv-1.17.tar.gz",
+      "url": "https://ftp.gnu.org/gnu/libiconv/libiconv-1.17.tar.gz",
+      "sha512": "18a09de2d026da4f2d8b858517b0f26d853b21179cf4fa9a41070b2d140030ad9525637dc4f34fc7f27abca8acdc84c6751dfb1d426e78bf92af4040603ced86",
+      "checksumSource": "vlc-3.0.24/contrib/src/iconv/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/iconv/",
+      "scope": "core-static-dependency",
+      "fetchedAndVerified": true,
+      "archiveSha256": "8f74213b56238c85a50a5329f77e06198771e70dd9a739779f4c02f65d971313"
+    },
+    {
+      "component": "gettext",
+      "version": "0.26",
+      "archive": "gettext-0.26.tar.xz",
+      "url": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.xz",
+      "sha512": "544e41c9390695df1c21542842e9ca027a03cb7d4045d8cd759dec1a3dfb624aae900751b458bdb31d6454b37c40c474a952059b884555a03c7c95d6d0e687b1",
+      "checksumSource": "vlc-3.0.24/contrib/src/gettext/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/gettext/",
+      "scope": "core-runtime-intl-build-tools-not-shipped",
+      "fetchedAndVerified": true,
+      "archiveSha256": "d1fb86e260cfe7da6031f94d2e44c0da55903dbae0a2fa0fae78c91ae1b56f00"
+    },
+    {
+      "component": "gcrypt",
+      "version": "1.12.2",
+      "archive": "libgcrypt-1.12.2.tar.bz2",
+      "url": "https://www.gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.12.2.tar.bz2",
+      "sha512": "dc1a4a6c00a0d84d90c8d71f4bd121b968c80df74137d6e8867f1f4cc014a539efb5238c1a1429d7cb95e493a40718fc19252edc592ffe0f43057b372896591c",
+      "checksumSource": "vlc-3.0.24/contrib/src/gcrypt/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/gcrypt/",
+      "scope": "core-static-dependency",
+      "fetchedAndVerified": true,
+      "archiveSha256": "7ce33c2492221a0436f96a8500215e9f3e3dcb5fd26a757cd415e7a843babd5e"
+    },
+    {
+      "component": "gpg-error",
+      "version": "1.61",
+      "archive": "libgpg-error-1.61.tar.bz2",
+      "url": "https://www.gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.61.tar.bz2",
+      "sha512": "3e59eb52d061709fd8dfe56a4b36d2d5b49dd5e0c90c283899669d6a355286cb3a3f851631f8456c78c48b652bb31a4c1f8b081ccdf87e5db64b313d141a7670",
+      "checksumSource": "vlc-3.0.24/contrib/src/gpg-error/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/gpg-error/",
+      "scope": "gcrypt-dependency",
+      "fetchedAndVerified": true,
+      "archiveSha256": "7a85413f2bc354f4f8aa832b718af122e48965e9e0eb9012ee659c13c6385c93"
+    },
+    {
+      "component": "libxml2",
+      "version": "2.15.3",
+      "archive": "libxml2-2.15.3.tar.xz",
+      "url": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.3.tar.xz",
+      "sha512": "6f7f1aabd012454553e851bd1ee548fbd14d21c576f2b2ab9eeedab3dfba51392083f74b34f060e9b538baeea212cdb462b8669c214c711771fb9a897fdc1c60",
+      "checksumSource": "vlc-3.0.24/contrib/src/libxml2/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/libxml2/",
+      "scope": "conservative-gettext-build-closure",
+      "fetchedAndVerified": true,
+      "archiveSha256": "78262a6e7ac170d6528ebfe2efccdf220191a5af6a6cd61ea4a9a9a5042c7a07"
+    },
+    {
+      "component": "lame",
+      "version": "3.100",
+      "archive": "lame-3.100.tar.gz",
+      "url": "https://downloads.sourceforge.net/project/lame/lame-3.100.tar.gz",
+      "sha512": "0844b9eadb4aacf8000444621451277de365041cc1d97b7f7a589da0b7a23899310afd4e4d81114b9912aa97832621d20588034715573d417b2923948c08634b",
+      "checksumSource": "vlc-3.0.24/contrib/src/lame/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/lame/",
+      "scope": "conditional-ffmpeg-encoders-build",
+      "fetchedAndVerified": true,
+      "archiveSha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
+    },
+    {
+      "component": "amf",
+      "version": "1.5.2",
+      "archive": "AMF-1.5.2.tar.gz",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.2/AMF-headers-v1.5.2.tar.gz",
+      "sha512": "b992d4a1f59f7b1c789d03e7bd9876417a569fb239bfe2e2178f2434ae18653bbacc912de2b8a5f8ff0a85fad28b0c1091c2a8d3417407a37c22c1e907e4c159",
+      "checksumSource": "vlc-3.0.24/contrib/src/amf/SHA512SUMS",
+      "patchesAndBuildRecipe": "vlc-3.0.24/contrib/src/amf/",
+      "scope": "conditional-ffmpeg-build-headers",
+      "fetchedAndVerified": true,
+      "archiveSha256": "d3c12eb324edf05e214608b6a395a51dd95770ed9d45520185d6c3a206811c99"
+    }
+  ],
+  "additionalBuildInputs": {
+    "d3d11Headers": "Exact URLs, commit identifiers and per-file SHA512 checksums are preserved in vlc-3.0.24/contrib/src/d3d11/{rules.mak,SHA512SUMS}.",
+    "mingw12Fixes": "Patches are included in vlc-3.0.24/contrib/src/mingw12-fixes/.",
+    "vlcBuildMaterials": [
+      "vlc-3.0.24/configure",
+      "vlc-3.0.24/Makefile.in",
+      "vlc-3.0.24/contrib/bootstrap",
+      "vlc-3.0.24/contrib/src/main.mak",
+      "vlc-3.0.24/extras/package/win32/configure.sh",
+      "vlc-3.0.24/extras/package/win32/package.mak"
+    ]
+  },
+  "requiredBeforeDistribution": [
+    "Fetch upstream archives above and verify recipe checksums; include original license/copyright/NOTICE files for each shipped library.",
+    "Preserve all relevant dependency patches and recipe files from the verified VLC source archive, including build-only header recipes.",
+    "Resolve the official native build configuration against this dependency closure; conditional encoder/build dependencies are recorded conservatively, not claimed as proven runtime contents.",
+    "Matching sources are supplied in the combined companion identified by LICENSES/library-sources-distribution.json; its immutable prerequisite asset is verified by CI and copied into each public release.",
+    "Verify the reduced native allowlist against actual playback, seeking, AAC output and thumbnail paths; no Lua, HTTP plugin files or other architectures are selected."
+  ],
+  "replacement": "LibVLCSharp.dll and libvlc/win-x64 remain separate replaceable files. There is no runtime original-hash requirement.",
+  "networkBoundary": "The avcodec module includes merged FFmpeg I/O code. The application must continue restricting input to held local clip files; excluding HTTP modules is not proof of a network-free binary.",
+  "nvidiaHeader": {
+    "version": "API 13.0 / mirror tag n13.0.19.0",
+    "license": "MIT",
+    "sourceUrl": "https://raw.githubusercontent.com/FFmpeg/nv-codec-headers/e844e5b26f46bb77479f063029595293aa8f812d/include/ffnvcodec/nvEncodeAPI.h",
+    "sha256": "4fe4094541ef0f8a13249d97a8692dc5f835a6e9dd42eeadb3e2f7321d54dc7e",
+    "driverBundled": false
+  },
+  "nativeBuildProvenance": {
+    "method": "Static direct PE constant getters and allowlisted configure switches; no DLL loaded or executed.",
+    "version": "3.0.24 Vetinari",
+    "binaryChangeset": "3.0.24-rc1-0-g6de05adcba",
+    "sourceChangeset": "3.0.24-rc1-0-g6de05adcba",
+    "sourceRevisionMatches": true,
+    "compiler": "gcc version 6.4.0 (GCC)",
+    "target": "x86_64-w64-mingw32",
+    "configureFeatureSwitches": [
+      "--disable-telx",
+      "--enable-avcodec",
+      "--enable-caca",
+      "--enable-dvdread",
+      "--enable-faad",
+      "--enable-flac",
+      "--enable-goom",
+      "--enable-libass",
+      "--enable-libcddb",
+      "--enable-live555",
+      "--enable-lua",
+      "--enable-merge-ffmpeg",
+      "--enable-mmx",
+      "--enable-mpc",
+      "--enable-nls",
+      "--enable-qt",
+      "--enable-shout",
+      "--enable-skins2",
+      "--enable-sse",
+      "--enable-theora",
+      "--enable-update-check",
+      "--enable-zvbi"
+    ],
+    "dependencyConfigureLinesVerified": false,
+    "reproducibleBuildExecuted": false,
+    "limits": [
+      "Feature switches omit machine paths, environment values and service URLs.",
+      "The NuGet package does not carry a native dependency build manifest; preserved release recipes and sources are not a reproduced build."
+    ]
+  },
+  "noticeFiles": [
+    {
+      "path": "ffmpeg/COPYING.LGPLv2.1",
+      "bytes": 26517,
+      "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30"
+    },
+    {
+      "path": "ffmpeg/COPYING.GPLv2",
+      "bytes": 18092,
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "ffmpeg/COPYING.LGPLv3",
+      "bytes": 7651,
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "path": "ffmpeg/COPYING.GPLv3",
+      "bytes": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "ffmpeg/doc/authors.texi",
+      "bytes": 403,
+      "sha256": "fb5fac6dd8f7474033e933814491a8297d8723c52be4dcbcc82eef9c4f008dd2"
+    },
+    {
+      "path": "ffmpeg/LICENSE.md",
+      "bytes": 4346,
+      "sha256": "2e1d16c72fd74e12063776371da757322f8b77589386532f4fd8634bde7de1af"
+    },
+    {
+      "path": "zlib/LICENSE",
+      "bytes": 1002,
+      "sha256": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2"
+    },
+    {
+      "path": "gsm/COPYRIGHT",
+      "bytes": 1450,
+      "sha256": "81c68a3374937ed9b5e4929c709e81a2c4b35b5d1f450ecf8c473e2daea46ff6"
+    },
+    {
+      "path": "openjpeg/AUTHORS.md",
+      "bytes": 712,
+      "sha256": "cf22e984f9fbb9be7550e9a94120595ba8c4a7de0d63f47d3725f4b2e28a4387"
+    },
+    {
+      "path": "openjpeg/LICENSE",
+      "bytes": 2112,
+      "sha256": "a6af136f3e15038a666b61f376612a07d9a4e48cb7c01adbf3e33b3f14ab49b6"
+    },
+    {
+      "path": "png/AUTHORS",
+      "bytes": 1773,
+      "sha256": "0c777e9f2a67bd4058ab91050eb7a56106c92ed038ba8fe5f54c83344f2d93ca"
+    },
+    {
+      "path": "png/LICENSE",
+      "bytes": 5345,
+      "sha256": "bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526"
+    },
+    {
+      "path": "png/ci/LICENSE_MIT.txt",
+      "bytes": 1036,
+      "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1"
+    },
+    {
+      "path": "speexdsp/AUTHORS",
+      "bytes": 502,
+      "sha256": "6e5a9d92c5f9ccd28fe0b15ad59443fbf435bfc6ab2221f532006d3717ddf642"
+    },
+    {
+      "path": "speexdsp/COPYING",
+      "bytes": 1773,
+      "sha256": "2654a4264b2bfe298dedc508748d140111840c315cc8eb646a3a68c13fa75b01"
+    },
+    {
+      "path": "mingw64/AUTHORS",
+      "bytes": 2398,
+      "sha256": "8f308316e7a94b8410f871868bd3948f126526dc1775aeee97a0e365f9a0fd9f"
+    },
+    {
+      "path": "mingw64/COPYING",
+      "bytes": 2326,
+      "sha256": "99a69660981156c21336fdb5661f89341b013c94e4bf9e1c7467b4745718397f"
+    },
+    {
+      "path": "mingw64/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt",
+      "bytes": 12155,
+      "sha256": "1db8da07b436c68833c0673ffee3d9fcb2526047f3820b81661865dfedc79a1f"
+    },
+    {
+      "path": "mingw64/COPYING.MinGW-w64/COPYING.MinGW-w64.txt",
+      "bytes": 5905,
+      "sha256": "f38e6194bd3bfa1b654f118e5acefe0aead437bbe669eee43957ccc65a7127f1"
+    },
+    {
+      "path": "iconv/COPYING.LIB",
+      "bytes": 26530,
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+    },
+    {
+      "path": "iconv/AUTHORS",
+      "bytes": 31,
+      "sha256": "ed10ef2a01effb12849006d43262ffde5cf72a7d5423bbc8aa66fc6959774c0c"
+    },
+    {
+      "path": "iconv/libcharset/COPYING.LIB",
+      "bytes": 26530,
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+    },
+    {
+      "path": "iconv/libcharset/AUTHORS",
+      "bytes": 31,
+      "sha256": "ed10ef2a01effb12849006d43262ffde5cf72a7d5423bbc8aa66fc6959774c0c"
+    },
+    {
+      "path": "iconv/COPYING",
+      "bytes": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "gettext/AUTHORS",
+      "bytes": 2572,
+      "sha256": "b0a47f17ae2fbe64475d144d03076fe3893f7c2a7bb93af357db41beae4b7bda"
+    },
+    {
+      "path": "gettext/gettext-runtime/AUTHORS",
+      "bytes": 109,
+      "sha256": "d013195954f932a5234c357ef74c4e872d0a067c8b60aa1f57ce8e68f8026f4c"
+    },
+    {
+      "path": "gettext/gettext-tools/AUTHORS",
+      "bytes": 60,
+      "sha256": "4027705b723299dd8e6153939ab73395e22685503994cc8de92fa2ebaa432a49"
+    },
+    {
+      "path": "gettext/libtextstyle/AUTHORS",
+      "bytes": 271,
+      "sha256": "71c0580cb05d28848b341e5a4da2761d4a8eb482592358d646dab104648a8303"
+    },
+    {
+      "path": "gettext/COPYING",
+      "bytes": 35151,
+      "sha256": "e79e9c8a0c85d735ff98185918ec94ed7d175efc377012787aebcf3b80f0d90b"
+    },
+    {
+      "path": "gettext/gettext-runtime/COPYING",
+      "bytes": 495,
+      "sha256": "7ef2cdfe58e0c0460657b6598b49af29d4e03c1e41cbaf0e1da1eb8ad74b95d0"
+    },
+    {
+      "path": "gettext/gettext-tools/COPYING",
+      "bytes": 78,
+      "sha256": "5d4cff30d5038f82a0edc79798456049b61e1752fdb7e9ab1f4bfb9fae3a7303"
+    },
+    {
+      "path": "gettext/libtextstyle/COPYING",
+      "bytes": 35151,
+      "sha256": "e79e9c8a0c85d735ff98185918ec94ed7d175efc377012787aebcf3b80f0d90b"
+    },
+    {
+      "path": "gcrypt/COPYING",
+      "bytes": 17984,
+      "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
+    },
+    {
+      "path": "gcrypt/AUTHORS",
+      "bytes": 9112,
+      "sha256": "481225960dca5cdffc76a5d326f8a8227de869c947c1b2a1e3957cce82156758"
+    },
+    {
+      "path": "gcrypt/COPYING.LIB",
+      "bytes": 26419,
+      "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95"
+    },
+    {
+      "path": "gpg-error/COPYING",
+      "bytes": 18002,
+      "sha256": "231f7edcc7352d7734a96eef0b8030f77982678c516876fcb81e25b32d68564c"
+    },
+    {
+      "path": "gpg-error/AUTHORS",
+      "bytes": 2468,
+      "sha256": "341d1631ccd3eb5b8a054177cfdaeb5e16357f27fd985486da5f38faf879db3f"
+    },
+    {
+      "path": "gpg-error/COPYING.LIB",
+      "bytes": 26527,
+      "sha256": "a9bdde5616ecdd1e980b44f360600ee8783b1f99b8cc83a2beb163a0a390e861"
+    },
+    {
+      "path": "libxml2/Copyright",
+      "bytes": 1314,
+      "sha256": "5d4873884a890122a4b9b20ad56ac6f7da1d796a5bfcf04a427970ac96217626"
+    },
+    {
+      "path": "lame/COPYING",
+      "bytes": 25284,
+      "sha256": "bfe4a52dc4645385f356a8e83cc54216a293e3b6f1cb4f79f5fc0277abf937fd"
+    },
+    {
+      "path": "lame/LICENSE",
+      "bytes": 487,
+      "sha256": "7a40cbd8818c57e5285e83c772a459a996d1662c824a879836b97b473c07cae4"
+    },
+    {
+      "path": "lame/mpglib/AUTHORS",
+      "bytes": 604,
+      "sha256": "d8ecf9556aafa8c653796d6be3dc43deea374257680e21c30109a5c3c4484263"
+    },
+    {
+      "path": "lame/debian/copyright",
+      "bytes": 2303,
+      "sha256": "1f27f9f698183275bd615c1140b7bf6e498750e9280597c6eb39790e54ae809b"
+    },
+    {
+      "path": "libvlcsharp/LICENSE",
+      "bytes": 26526,
+      "sha256": "20c17d8b8c48a600800dfd14f95d5cb9ff47066a9641ddeab48dc54aec96e331"
+    },
+    {
+      "path": "vlc/COPYING.LIB",
+      "bytes": 26530,
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+    },
+    {
+      "path": "vlc/COPYING",
+      "bytes": 18092,
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "vlc/AUTHORS",
+      "bytes": 19151,
+      "sha256": "18e4b93b7679fe1f621c0b88d7507a27e9f62d924d9d3eca142de3d31bfe8956"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+using Wisp.App.Tunes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Automation;
@@ -148,7 +149,7 @@ public partial class MainWindow : ControlPanelWindow
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible &&
+        if (HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible && !((TunePage)FindName("TuneSurface")).IsDialogOpen &&
             ((e.Key == Key.F11 && RootTabs.SelectedItem == DashboardTab) || (e.Key == Key.Escape && IsDashboardDisplayMode)))
         {
             SetDashboardDisplayMode(e.Key != Key.Escape && !IsDashboardDisplayMode);
@@ -280,6 +281,13 @@ public partial class MainWindow : ControlPanelWindow
         {
             item.Height = compact ? 50 : 68;
             if (item.Content is not StackPanel content) continue;
+            foreach (var label in content.Children.OfType<TextBlock>())
+            {
+                if (compact)
+                    label.FontSize = 11;
+                else
+                    label.ClearValue(TextBlock.FontSizeProperty);
+            }
             foreach (var icon in content.Children.OfType<System.Windows.Shapes.Path>())
             {
                 if (compact)

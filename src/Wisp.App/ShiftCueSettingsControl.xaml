@@ -15,8 +15,10 @@
                    TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,12,0,8" />
         <TextBlock Text="{Binding ShiftCueStatus}" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}" />
         <TextBlock Text="Calibrate this car and tune" FontSize="16" FontWeight="SemiBold" Margin="0,18,0,8" />
-        <TextBlock Text="On a straight, make a rolling full-throttle pull from low revs in a gear with good grip. Hold through one brief limiter pulse, then upshift and keep accelerating for two seconds. Wisp saves automatically when the measured curve and confirming shift are complete."
+        <TextBlock Text="Start rolling in a higher gear that grips, such as third or fourth. On a straight, hold full throttle from low revs through one brief limiter pulse, then upshift and keep accelerating for two seconds. Wisp saves the supported shift targets after the measured curve and confirming shift pass their checks."
                    TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
+        <TextBlock Text="You do not need a first- or second-gear launch or a separate pull in every gear. Missing gear comparisons stay off without blocking confirmed targets. To cover more gears, calibrate again with a wider RPM range in a gear that grips; the status shows the lower RPM coverage needed."
+                   TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,0" />
         <WrapPanel Margin="0,12,0,0">
             <Button x:Name="CalibrationStart" Content="Calibrate car / tune" Click="Calibrate_Click"
                     IsEnabled="{Binding CanStartShiftCalibration}" Margin="0,0,8,8"

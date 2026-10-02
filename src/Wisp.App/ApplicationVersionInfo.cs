@@ -15,7 +15,14 @@ public static class ApplicationVersionInfo
 
     public static string? DiagnosticBuildLabel { get; } = ReadBuildMetadata("WispDiagnosticBuildLabel");
 
-    private static bool IsPrivateCandidate => ReleaseNotesCatalog.Entries[0].Label == "PRIVATE TEST";
+    internal static bool LapDiagnosticsEnabled { get; } = ShouldEnableLapDiagnostics(
+        DiagnosticBuildId, ReadBuildMetadata("WispLapDiagnosticsEnabled"));
+
+    internal static bool ShouldEnableLapDiagnostics(string? diagnosticBuildId, string? enabledOverride) =>
+        diagnosticBuildId is not null &&
+        (enabledOverride is null || bool.TryParse(enabledOverride, out var enabled) && enabled);
+
+    internal static bool IsPrivateCandidate => ReleaseNotesCatalog.Entries[0].Label is "PRIVATE TEST" or "IN DEVELOPMENT";
 
     public static string FooterText => DiagnosticBuildLabel is { Length: > 0 } label
         ? $"WHEEL-INDICATED SPEED PANEL {label} (private)"

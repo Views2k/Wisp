@@ -401,6 +401,7 @@ public sealed class NativeGameplayVisibilityResolverTests
         document["readerVersion"] = 1;
         document.Remove("gameplayVisibility");
         document.Remove("nativeGauge");
+        document.Remove("tune");
         var pack = NativeHudCompatibilityPack.Parse(System.Text.Encoding.UTF8.GetBytes(document.ToJsonString()));
         var memory = new Memory();
         Assert.Equal(NativeGameplayVisibility.Unknown, new NativeGameplayVisibilityResolver(pack).Resolve(memory, Module));

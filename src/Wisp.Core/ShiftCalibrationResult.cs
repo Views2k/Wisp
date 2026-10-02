@@ -40,7 +40,8 @@ public enum ShiftCalibrationStatus
     NoDistinctTarget,
     Ready,
     ContextChanged,
-    BufferFull
+    BufferFull,
+    PartiallyReady
 }
 
 /// <summary>
@@ -58,7 +59,10 @@ public sealed record ShiftCalibrationResult(
     int ConfirmingUpshifts,
     double? EmpiricalUpperRpm)
 {
-    public bool Ready => Status == ShiftCalibrationStatus.Ready;
+    public IReadOnlyList<int> RecordedGears { get; init; } = Array.Empty<int>();
+    public int? CurveGear { get; init; }
+    public bool Ready => Status is ShiftCalibrationStatus.Ready or ShiftCalibrationStatus.PartiallyReady;
+    public int SupportedGearCount => Gears.Count(gear => gear.HasEstimatedTarget);
     public double? CoveredMinimumRpm => Profile?.Samples[0].Rpm;
     public double? CoveredMaximumRpm => Profile?.Samples[^1].Rpm;
     public double? ConfiguredOperatingCeilingRpm => Context.ConfiguredOperatingCeilingRpm;

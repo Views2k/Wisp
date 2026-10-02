@@ -1,15 +1,106 @@
-Wisp 2.4 Lap Delta Test 1
+Wisp 2.5.3 Borderless Clips Preview 1
+Private build ID: clips-borderless-20260930-01
 
-Enable Appearance > Gauges > Lap Delta > Show lap delta.
-Choose Session best or Previous lap. Complete a full circuit lap to set the reference.
-Negative seconds mean ahead; positive seconds mean behind.
-The bar fills left or right up to two seconds; the number shows the full difference.
-Use Edit HUD layout to move the gauge. Size, bar visibility and colors are in the same panel.
-Enable Show live track map for a separate movable map with your live car position.
-The first full lap builds the circuit outline; later laps keep the full circuit visible.
-Map size adjusts from 50% to 300%. Track, car marker and background colors are independent.
-Reset reference laps starts a new comparison. Rewinds, race restarts, telemetry interruptions
-and car changes reset the session. Profiles retain the delta and map options.
+This private candidate adds Clips and preserves the confirmed shift-coverage hotfix.
+It uses your existing Wisp installation, local settings, calibrations and saved runs.
+It is not a separate installation. It has not been published as a public release.
 
-This private build is for checking lap timing and track-position matching in FH6.
-It keeps Wisp 2.4's existing native HUD and G-SYNC presentation.
+Clips
+Open Clips between Extras and Release Notes. Enable clipping to keep a rolling
+recording. Save clip keeps a moment in Wisp's private library, ready to watch.
+Export copies the selected clip to your export folder. No export folder is needed
+to record. Clipping is off by default; change recording settings while it is off.
+The default is 60 seconds at 1080p60, quality 75. Lengths run from 30 to 300
+seconds in 30-second steps. Select 360p through 2160p and 30 or 60 fps.
+Higher quality and resolution use more storage. Five-minute clips take longer
+to save and need more space. The rolling buffer uses local app data under
+Wisp\ClipBuffer. Saved clips use Wisp\Clips in local app data and appear in Wisp.
+Only Export writes a finished MP4 to your chosen export folder. Repeating an
+export verifies and reuses the existing file, rather than creating a duplicate.
+Changing the export folder does not change your private library or stop recording.
+Existing indexed clips are imported into the private library; originals are kept.
+An existing identical legacy clip in the export folder is reused without a copy.
+
+Enable and assign the two shortcuts separately: toggle clipping and save a clip.
+New shortcut defaults are Ctrl+Alt+F8 and Ctrl+Alt+F9. Existing assignments stay
+unchanged; conflicts identify the unavailable shortcut and let you choose another.
+Early saves wait visibly for playable footage. One additional save can queue
+behind the active save; queued clips include footage through processing time.
+Success shows the actual saved duration. Interruptions cancel queued saves
+with a message instead of saving a different moment after reconnecting.
+Saved clips appear 25 per page; the number of columns adapts to the window.
+Click a clip to watch it in the enlarged player, which fits the available window
+and keeps the video's aspect ratio. The video has an opaque black backing and no
+scroll fade over it. Export copies its recorded resolution and quality;
+it cannot restore detail removed by compression or increase captured detail.
+Dashboard reminders identify clips not yet viewed or exported. Storage or
+recording errors still appear even when reminders are off.
+
+Use Forza in fullscreen or borderless fullscreen mode. Clips record the entire
+game display, including the Wisp HUD and any notifications shown over the game.
+Capture pauses when Forza loses focus, is minimized, or leaves fullscreen.
+Desktop Duplication capture does not use the Windows yellow capture border or
+require borderless-capture permission. It does not require OBS.
+Audio comes from the Forza process by default. Record all app and system audio
+is optional and off by default; it includes other applications' playback too.
+Neither mode directly records microphone input. Wisp pauses its clip preview
+when you leave Wisp while system-audio recording is enabled.
+Clipping stays enabled through recoverable interruptions. Stale frames repeat
+with a visible status. A changed game/audio/video session reconnects with a new
+rolling buffer; footage across incompatible sessions is not stitched together.
+Specific errors include Copy error details. That report excludes raw logs and paths.
+Full gameplay performance, game audio, HDR appearance, interruption recovery,
+one-hour sessions and five-minute recording still need live validation.
+Offline and synthetic checks do not establish the requested under-5% FPS impact.
+
+HUD profiles
+Use Save current HUD as a profile after arranging your HUD. New and updated profiles
+save positions as well as gauges, colors, units, driving guidance and run-recording controls.
+Apply restores saved positions on matching displays and keeps windows on-screen.
+Older profiles keep their original scope until you update them from the current HUD.
+Calibration data, saved runs and application settings stay separate from profiles.
+
+Runs > Lap review
+Save completed laps automatically is off by default. Enable it to save detailed laps
+locally while Wisp is running, including when the lap overlays are hidden.
+Capture uses the lap timing mode selected in HUD settings. Wisp must observe a valid
+start boundary and the following finish; partial laps and interrupted captures are skipped.
+Capture is limited to ten minutes per lap. Watch the capture status for skipped laps
+or storage errors. Manual recording remains available, and existing runs can be reviewed.
+
+Select your lap and a compatible reference, then choose a map and graph channel.
+The map and graphs share a cursor. Tire and suspension channels have a wheel selector.
+Select a section to compare the same route positions or open that section in the run graphs.
+Pin this lap as benchmark keeps a reference for lap review only; it does not change
+the live lap-delta HUD reference. Review timing changes analysis, not capture settings.
+Cursor readings use themed cards; expand Wheel readings for individual tire values.
+Full-throttle time belongs to the selected section and counts about 98% throttle or more.
+New automatic laps save calibrated wheel data when available during recording. Missing
+wheel readings in older recordings remain missing; they cannot be reconstructed reliably.
+
+Shift calibration
+On a straight with good grip, use a rolling third- or fourth-gear full-throttle pull
+from low revs; a first- or second-gear launch is not needed. Hold
+through one brief limiter pulse, then upshift and keep accelerating for two seconds.
+Wisp saves automatically when the measured curve and confirming shift are complete.
+A later qualifying pull can now be used when an earlier, wider pull lacks required evidence.
+Recorded gears show collected inputs separately from the shift comparison that still
+needs evidence. Recording a higher gear alone does not make an earlier shift target ready.
+The existing calibration validation requirements remain in place.
+This build corrects normalized-slip rejection and false interruptions when fresh native
+data arrives between telemetry receipt and processing. The main calibration label stays
+stable while the detailed status explains any remaining missing evidence below it.
+
+This candidate does not automatically write lap diagnostic packet logs.
+Automatic lap saving is the separate opt-in control described above.
+The checks establish specific regression fixes; calibration and interaction during
+actual gameplay still need confirmation with this build.
+
+Shift coverage hotfix
+The idle calibration label no longer alternates on fresh native-data refreshes.
+A confirmed measured curve can enable supported shifts even if lower-gear
+comparisons lack coverage. The saved status lists enabled shifts. Unmeasured
+shifts stay off; this does not invent targets or remove the grip/confirmation checks.
+For broader coverage, recalibrate from lower revs in any higher gear that grips.
+The status gives a numerical lower-RPM coverage goal. On-road behavior still
+needs confirmation in your car; these checks do not certify gameplay.

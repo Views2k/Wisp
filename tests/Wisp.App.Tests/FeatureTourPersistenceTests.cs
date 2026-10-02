@@ -18,14 +18,21 @@ public sealed class FeatureTourPersistenceTests
         Assert.True(settings.CpuRenderingEnabled);
     }
 
-    [Fact]
-    public void SuccessfulReceiptSurvivesARealSettingsReloadAndPreservesOtherPreferences()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SuccessfulReceiptSurvivesARealSettingsReloadAndPreservesOtherPreferences(bool featuresEnabled)
     {
         var directory = NewDirectory();
         try
         {
             var service = new SettingsService(Path.Combine(directory, "settings.json"));
             var settings = Settings();
+            settings.CompletedFeatureTourId = "wisp-interface-2";
+            settings.Clips.Enabled = featuresEnabled;
+            settings.LapMapEnabled = featuresEnabled;
+            settings.LapDeltaEnabled = featuresEnabled;
+            settings.LapReviewRecordingEnabled = featuresEnabled;
             using var fixture = new ControllerFixture(settings, service.Save, directory);
             Assert.True(fixture.Controller.TryCompleteFeatureTour());
 
@@ -37,6 +44,10 @@ public sealed class FeatureTourPersistenceTests
             Assert.True(restored.CpuRenderingEnabled);
             Assert.False(restored.DriftGaugeEnabled);
             Assert.False(restored.BackgroundParticlesEnabled);
+            Assert.Equal(featuresEnabled, restored.Clips.Enabled);
+            Assert.Equal(featuresEnabled, restored.LapMapEnabled);
+            Assert.Equal(featuresEnabled, restored.LapDeltaEnabled);
+            Assert.Equal(featuresEnabled, restored.LapReviewRecordingEnabled);
         }
         finally { Directory.Delete(directory, recursive: true); }
     }
@@ -111,7 +122,11 @@ public sealed class FeatureTourPersistenceTests
     {
         public AppController Controller { get; }
         public ControllerFixture(AppSettings settings, Action<AppSettings> save, string directory) =>
-            Controller = new AppController(settings, save, new NoStartupRegistration(), runsDirectory: Path.Combine(directory, "Runs"));
+            Controller = new AppController(settings, save, new NoStartupRegistration(),
+                runsDirectory: Path.Combine(directory, "Runs"),
+                shiftCalibrationDirectory: Path.Combine(directory, "ShiftCalibration"),
+                clipLibraryDirectory: Path.Combine(directory, "Clips"),
+                tuneLibraryDirectory: Path.Combine(directory, "Tunes"));
         public void Dispose() => Controller.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 

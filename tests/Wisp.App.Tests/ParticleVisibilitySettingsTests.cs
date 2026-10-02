@@ -63,7 +63,7 @@ public sealed class ParticleVisibilitySettingsTests
     {
         var tabs = Assert.IsType<TabControl>(window.FindName("RootTabs"));
         var previousTab = tabs.SelectedIndex;
-        tabs.SelectedIndex = 2;
+        tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Appearance"));
         var content = Assert.IsAssignableFrom<FrameworkElement>(window.Content);
         content.Measure(new Size(1280, 900));
         content.Arrange(new Rect(0, 0, 1280, 900));

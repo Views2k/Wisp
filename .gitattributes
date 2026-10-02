@@ -22,3 +22,12 @@
 /LICENSES/dotnet-runtime-8.0.31-LICENSE.txt -text whitespace=cr-at-eol
 /LICENSES/dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt -text whitespace=cr-at-eol
 /LICENSES/windowsdesktop-runtime-8.0.31-LICENSE.txt -text whitespace=cr-at-eol
+
+# These upstream files are hash-verified and must retain original bytes/spacing.
+/LICENSES/LibVLCThirdParty/** -text -whitespace
+/LICENSES/LGPL-2.1.txt -text -whitespace
+/LICENSES/LGPL-3.0.txt -text -whitespace
+/LICENSES/GPL-3.0.txt -text -whitespace
+/LICENSES/libmpv-thirdparty/** -text -whitespace
+/LICENSES/NVIDIA-nvEncodeAPI-MIT.txt -text -whitespace
+/tools/Wisp.RecorderPrototype/LosslessProbe/nvEncodeAPI.h -text -whitespace

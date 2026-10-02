@@ -10,6 +10,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'ClipDecoderPackaging.ps1')
 
 function Assert-PrivateBuildIdentity {
     param([string]$ProjectText, [string]$ExpectedId, [string]$ExpectedLabel)
@@ -28,7 +29,7 @@ function Assert-PrivateBuildIdentity {
 function Assert-PrivatePayloadFiles {
     param([string]$Directory)
     foreach ($name in @('Wisp.Updater.exe', 'Wisp.exe', 'Wisp.dll', 'Wisp.Core.dll',
-        'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll',
+        'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe',
         'Wisp.deps.json', 'Wisp.runtimeconfig.json', 'hostfxr.dll', 'hostpolicy.dll',
         'coreclr.dll', 'PresentationNative_cor3.dll', 'wpfgfx_cor3.dll')) {
         $path = Join-Path $Directory $name
@@ -55,6 +56,99 @@ function Replace-PrivateDirective {
         throw 'The canonical Inno script changed; review the private packaging adaptation.'
     }
     return $Text.Replace($Old, $New)
+}
+
+function Get-PrivateCompilerSourcePath {
+    param([Parameter(Mandatory)][string]$Directory)
+    if (-not ('WispPrivateCompilerPath' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+using System.Text;
+public static class WispPrivateCompilerPath {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint GetShortPathName(string path, StringBuilder result, uint capacity);
+}
+'@
+    }
+    $buffer = [Text.StringBuilder]::new(32768)
+    $count = [WispPrivateCompilerPath]::GetShortPathName($Directory, $buffer, [uint32]$buffer.Capacity)
+    $compilerPath = if ($count -gt 0 -and $count -lt $buffer.Capacity) { $buffer.ToString() } else { $Directory }
+    foreach ($file in Get-ClipRegularFiles $Directory) {
+        $relative = [IO.Path]::GetRelativePath($Directory, $file.FullName)
+        $alias = Join-Path $compilerPath $relative
+        if ($alias.Length -ge 260) { throw 'The installer source path is too long; use a shorter checkout path.' }
+        if ((Get-FileHash -LiteralPath $alias -Algorithm SHA256).Hash -cne
+            (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash) {
+            throw 'The compiler source alias differs from the validated payload.'
+        }
+    }
+    return $compilerPath
+}
+
+function Assert-PrivateTestOutputDirectory {
+    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$RepositoryRoot)
+    $repositoryRootPath = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
+    $target = [IO.Path]::GetFullPath($Directory).TrimEnd('\', '/')
+    $allowed = @('tests/Wisp.Core.Tests/bin/Release/net8.0-windows', 'tests/Wisp.Telemetry.Tests/bin/Release/net8.0',
+        'tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tests/Wisp.Update.Tests/bin/Release/net8.0-windows',
+        'tests/Wisp.Updater.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows') |
+        ForEach-Object { [IO.Path]::GetFullPath((Join-Path $repositoryRootPath $_)).TrimEnd('\', '/') }
+    if ($target -notin $allowed) { throw 'Private component copies are limited to the six known generated test outputs.' }
+    for ($ancestor = $target; ; $ancestor = [IO.Path]::GetDirectoryName($ancestor)) {
+        $item = Get-Item -LiteralPath $ancestor -Force
+        if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'A private test output ancestor is not a regular directory.'
+        }
+        if ([string]::Equals($ancestor, $repositoryRootPath, [StringComparison]::OrdinalIgnoreCase)) { break }
+        if (-not $ancestor.StartsWith($repositoryRootPath + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'A private test output resolved outside the repository.'
+        }
+    }
+    # Includes existing DLL/EXE/PDB destinations and every nested entry. Complete
+    # this pass for every output before the first product component is copied.
+    $null = @(Get-ClipRegularFiles $target)
+}
+
+function Sync-PrivateLosslessTestPayload {
+    param([Parameter(Mandatory)][string]$PublishDirectory, [Parameter(Mandatory)][string]$TestDirectory,
+        [Parameter(Mandatory)][string]$RepositoryRoot, [Parameter(Mandatory)][hashtable]$ExpectedHashes)
+    $repositoryRootPath = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
+    $target = [IO.Path]::GetFullPath($TestDirectory).TrimEnd('\', '/')
+    $allowed = @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows') |
+        ForEach-Object { [IO.Path]::GetFullPath((Join-Path $repositoryRootPath $_)).TrimEnd('\', '/') }
+    if ($target -notin $allowed) { throw 'Decoder synchronization is limited to the two known generated test outputs.' }
+    # Do not let any existing generated-output ancestor redirect writes or removal.
+    for ($ancestor = $target; ; $ancestor = [IO.Path]::GetDirectoryName($ancestor)) {
+        $item = Get-Item -LiteralPath $ancestor -Force
+        if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'A test output ancestor is not a regular directory.'
+        }
+        if ([string]::Equals($ancestor, $repositoryRootPath, [StringComparison]::OrdinalIgnoreCase)) { break }
+        if (-not $ancestor.StartsWith($repositoryRootPath + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The test output resolved outside the repository.'
+        }
+    }
+    # Inspect the complete destination before mutation. Remove only extra files
+    # in this generated decoder tree; keep unrelated assemblies, data and licenses.
+    $existing = @(Get-ClipRegularFiles $target)
+    foreach ($file in $existing) {
+        $relative = $file.FullName.Substring($target.Length + 1).Replace('\', '/')
+        if (-not ($relative.StartsWith('libvlc/', [StringComparison]::OrdinalIgnoreCase) -or
+            $relative.StartsWith('libmpv/', [StringComparison]::OrdinalIgnoreCase))) { continue }
+        if (-not $ExpectedHashes.ContainsKey($relative)) { Remove-Item -LiteralPath $file.FullName -Force }
+    }
+    foreach ($relative in $ExpectedHashes.Keys) {
+        $source = Join-Path $PublishDirectory $relative
+        $destination = [IO.Path]::GetFullPath((Join-Path $target $relative))
+        if (-not $destination.StartsWith($target + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'A decoder synchronization path escaped its test output.'
+        }
+        [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination)) | Out-Null
+        [IO.File]::Copy($source, $destination, $true)
+        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedHashes[$relative]) {
+            throw 'The test decoder payload differs from the fresh published files.'
+        }
+    }
 }
 
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -133,10 +227,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Private application publish failed.' }
     Assert-InstallerExecutable (Join-Path $publishDirectory 'Wisp.exe') $version 'Wisp' 'Wisp' $version
     Assert-NativeRendererLibrary (Join-Path $publishDirectory 'Wisp.NativeRenderer.dll')
+    $decoderManifest = Join-Path $repository 'LICENSES/libvlc-3.0.24-source-manifest.json'
+    $mpvManifest = Join-Path $repository 'LICENSES/libmpv-source-manifest.json'
+    $mpvDependency = Join-Path $repository 'tools/mpv-dependency.json'
+    $decoderHashes = Assert-ClipDecoders $publishDirectory $decoderManifest $mpvManifest $mpvDependency
     # Validate the exact RID-published components, not a separately compiled copy.
     # Test hosts keep their own dependencies/runtime configuration; only existing
     # Wisp product components are replaced before --no-build test execution.
-    $componentNames = @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll')
+    $componentNames = @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe')
     $testHostDirectories = @(
         'tests/Wisp.Core.Tests/bin/Release/net8.0-windows',
         'tests/Wisp.Telemetry.Tests/bin/Release/net8.0',
@@ -144,6 +242,9 @@ try {
         'tests/Wisp.Update.Tests/bin/Release/net8.0-windows',
         'tests/Wisp.Updater.Tests/bin/Release/net8.0-windows',
         'tools/Wisp.UiReview/bin/Release/net8.0-windows')
+    foreach ($directory in $testHostDirectories) {
+        Assert-PrivateTestOutputDirectory (Join-Path $repository $directory) $repository
+    }
     foreach ($directory in $testHostDirectories) {
         foreach ($name in $componentNames) {
             $destination = Join-Path $repository "$directory/$name"
@@ -156,6 +257,10 @@ try {
             }
         }
     }
+    foreach ($directory in @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows')) {
+        Sync-PrivateLosslessTestPayload $publishDirectory (Join-Path $repository $directory) $repository $decoderHashes
+        $null = Assert-ClipDecoders (Join-Path $repository $directory) $decoderManifest $mpvManifest $mpvDependency
+    }
     & $dotnetExecutable test $solution --configuration Release --no-build --no-restore --nologo --filter $nonAllocationFilter `
         --logger trx --results-directory $testResults --disable-build-servers -m:1 -p:UseSharedCompilation=false
     if ($LASTEXITCODE -ne 0) { throw 'Private candidate full test suite failed.' }
@@ -167,12 +272,19 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Private candidate isolated allocation check failed.' }
         Assert-SinglePassedTestResult (Join-Path $allocationResults 'allocation.trx') 'Private allocation check' $allocationTest
     }
-    foreach ($name in @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll')) {
+    foreach ($name in @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe')) {
         $publishedHash = (Get-FileHash -LiteralPath (Join-Path $publishDirectory $name) -Algorithm SHA256).Hash
         foreach ($testedDirectory in @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows')) {
             if ($publishedHash -cne (Get-FileHash -LiteralPath (Join-Path $repository "$testedDirectory/$name") -Algorithm SHA256).Hash) {
                 throw "Published $name differs from the tested and reviewed assembly."
             }
+        }
+    }
+    foreach ($directory in @($publishDirectory, (Join-Path $repository 'tests/Wisp.App.Tests/bin/Release/net8.0-windows'),
+        (Join-Path $repository 'tools/Wisp.UiReview/bin/Release/net8.0-windows'))) {
+        $verified = Assert-ClipDecoders $directory $decoderManifest $mpvManifest $mpvDependency
+        foreach ($relative in $decoderHashes.Keys) {
+            if ($verified[$relative] -cne $decoderHashes[$relative]) { throw 'The decoder payload changed during private validation.' }
         }
     }
     & $dotnetExecutable publish $updaterProject --configuration Release --runtime win-x64 --self-contained true `
@@ -198,7 +310,8 @@ try {
     $inno = Replace-PrivateDirective $inno '#define MyAppDisplayVersion MyAppVersion' ('#define MyAppDisplayVersion "' + $DiagnosticBuildLabel + ' (private)"')
     $outputVersion = "$version-$DiagnosticBuildId"
     $inno = Replace-PrivateDirective $inno '#define MyAppOutputVersion MyAppVersion' ('#define MyAppOutputVersion "' + $outputVersion + '"')
-    $inno = Replace-PrivateDirective $inno 'Source: "..\artifacts\publish\*"' ('Source: "' + (Join-Path $publishDirectory '*') + '"')
+    $compilerSourceDirectory = Get-PrivateCompilerSourcePath $publishDirectory
+    $inno = Replace-PrivateDirective $inno 'Source: "..\artifacts\publish\*"' ('Source: "' + (Join-Path $compilerSourceDirectory '*') + '"')
     $inno = Replace-PrivateDirective $inno 'SetupIconFile=..\src\Wisp.App\Assets\Wisp.ico' ('SetupIconFile=' + (Join-Path $repository 'src/Wisp.App/Assets/Wisp.ico'))
     $privateInno = Join-Path $stageDirectory 'Wisp.Private.iss'
     [IO.File]::WriteAllText($privateInno, $inno, [Text.UTF8Encoding]::new($false))

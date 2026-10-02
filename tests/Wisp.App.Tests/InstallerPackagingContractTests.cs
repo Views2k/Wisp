@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Xml.Linq;
 using Wisp.App;
 using Xunit;
 
@@ -134,6 +135,15 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("wisp-candidate-${{ github.sha }}", workflow, StringComparison.Ordinal);
         Assert.Contains("Test-InstallerLifecycle.ps1", workflow[package..publish], StringComparison.Ordinal);
         Assert.Contains("needs: [test, package-review]", workflow[publish..], StringComparison.Ordinal);
+        Assert.Contains("release_sources.py prepare --directory outputs", workflow[..package], StringComparison.Ordinal);
+        Assert.Contains("release_sources.py verify --directory outputs", workflow[package..publish], StringComparison.Ordinal);
+        Assert.Contains("release_sources.py verify --directory outputs", workflow[publish..], StringComparison.Ordinal);
+        Assert.Contains("\"${sources}.sha256\"", workflow[publish..], StringComparison.Ordinal);
+        var script = InstallerScript();
+        var decoderValidation = script.IndexOf("$null = Assert-ClipDecoders $publishFullPath", StringComparison.Ordinal);
+        Assert.True(decoderValidation > script.IndexOf("& $dotnetExecutable publish $project", StringComparison.Ordinal));
+        Assert.True(decoderValidation < script.IndexOf("& $innoExecutable", StringComparison.Ordinal));
+        Assert.Contains("Assert-RecorderExecutable (Assert-ReleasePath", script, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -302,6 +312,20 @@ public sealed class InstallerPackagingContractTests
     }
 
     [Fact]
+    public void ApplicationUpdaterAndInstallerShareTheMachineVersion()
+    {
+        var version = ApplicationVersionInfo.MachineVersion;
+        foreach (var projectName in new[] { "Wisp.App", "Wisp.Updater" })
+        {
+            var project = XDocument.Load(Path.Combine(RepositoryRoot(), "src", projectName, $"{projectName}.csproj"));
+            Assert.Equal(version, Assert.Single(project.Descendants("Version")).Value);
+            Assert.Equal($"{version}.0", Assert.Single(project.Descendants("FileVersion")).Value);
+            Assert.Equal($"{version}.0", Assert.Single(project.Descendants("AssemblyVersion")).Value);
+        }
+        Assert.Contains($"#define MyAppVersion \"{version}\"", InnoScript(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PublicInstallerUsesReleaseIdentityAndRequiresNormalUpdateSwitch()
     {
         var packaging = InstallerScript();
@@ -311,7 +335,7 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("$artifactVersion = $projectVersion", packaging, StringComparison.Ordinal);
         Assert.Contains("& $innoExecutable \"/O$stageDirectory\" $innoScript", packaging, StringComparison.Ordinal);
         Assert.Contains("Write-BuildProvenance $repository $publishFullPath", packaging, StringComparison.Ordinal);
-        Assert.Contains("#define MyAppVersion \"2.5.3\"", inno, StringComparison.Ordinal);
+        Assert.Contains($"#define MyAppVersion \"{ApplicationVersionInfo.MachineVersion}\"", inno, StringComparison.Ordinal);
         Assert.Contains("#define MyAppOutputVersion MyAppVersion", inno, StringComparison.Ordinal);
         Assert.Contains("UpdatingExistingInstallation := UpdateSwitchPresent() and ExistingInstallationPresent();", inno,
             StringComparison.Ordinal);

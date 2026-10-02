@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 4,
-  "readerVersion": 4,
+  "schemaVersion": 6,
+  "readerVersion": 6,
   "id": "fh6-store-3.440.853.0-x64",
-  "revision": 1,
+  "revision": 2,
   "gameVersion": "3.440.853.0",
   "imageSize": 188420096,
   "sourceVectorRva": 176851648,
@@ -229,5 +229,487 @@
         "sha256": "96B6ED2BB5106F084603288896D88BC2E758BF29F858FCAEA4725E356DDAA4FE"
       }
     ]
+  },
+  "tune": {
+    "semanticsVersion": 1,
+    "profileId": "fh6-tune-imperial-v1",
+    "rvas": {
+      "0640EE78": 104844488,
+      "06446D18": 105073496,
+      "064BA6E8": 105547096,
+      "064FBE80": 105815680,
+      "065AC730": 106538464,
+      "06C79E70": 113676848,
+      "06C7A570": 113678640,
+      "06C7B3D8": 113682328,
+      "06C7B9B0": 113683824,
+      "06C7BC10": 113684432,
+      "08F12A78": 150002296,
+      "08F75670": 150405792,
+      "08F75A70": 150406816,
+      "0A7DB9E8": 175990040,
+      "0A861342": 176533906,
+      "0A861470": 176534208,
+      "0A862058": 176537696,
+      "0A862060": 176537704,
+      "0A8AF088": 176846904
+    },
+    "codeGuards": [
+      {
+        "role": "store-range-004C1890",
+        "rva": 4987024,
+        "length": 51,
+        "sha256": "7F672051FD905E321E1EACBCA79C5C8EE07E3D70CBF6076619885963BE0AED28"
+      },
+      {
+        "role": "store-range-004C4140",
+        "rva": 4997440,
+        "length": 16,
+        "sha256": "FBB3FD20AEC066BBB9B4A4E0FA35619A61A75571631F001B6A16B4B4D603DC91"
+      },
+      {
+        "role": "store-range-0075C530",
+        "rva": 7718192,
+        "length": 19,
+        "sha256": "A56E91C4E7DF22D485BCC245CBF8F5E1272FA5DCB664F68FCFC8ED9A2D378949"
+      },
+      {
+        "role": "store-range-0075EC90",
+        "rva": 7728272,
+        "length": 7,
+        "sha256": "C3EBE0EDA1A93EC38BC6F12D20BCC19248E3E7B68A53A20B495C5DB7C2EED7D4"
+      },
+      {
+        "role": "store-range-0076D470",
+        "rva": 7787632,
+        "length": 4555,
+        "sha256": "A98B5BF96F65DA999C882DBD3CD4D028215E782EAC4DF278A418B9BA1FA35283"
+      },
+      {
+        "role": "store-range-007AE5A0",
+        "rva": 8054176,
+        "length": 7,
+        "sha256": "DB1B05C90E941B70D59D4B28DDC3954E22E3D6DA1FB765E65BE6EC6947CD95F3"
+      },
+      {
+        "role": "store-range-0087BC00",
+        "rva": 8895488,
+        "length": 77,
+        "sha256": "423139FF1E85F7FDB4B2BA0556B7A31EAD1F64E4A8FAE1AB28BAA27F876474D4"
+      },
+      {
+        "role": "store-range-0087BC50",
+        "rva": 8895568,
+        "length": 77,
+        "sha256": "886582FA8B68FAE4623297FB12C71260128BC2309742F7C41BDA66CF10D16815"
+      },
+      {
+        "role": "store-range-009F86C0",
+        "rva": 10454720,
+        "length": 415,
+        "sha256": "C67CD620FC0BBA111A2316D7F4A428F897D3F3984FF26FE3E4EE4BD818E1D2CA"
+      },
+      {
+        "role": "store-range-009FB3C0",
+        "rva": 10466240,
+        "length": 32,
+        "sha256": "22E1B26478959A3D13DD9860092EBE76F38D3E8F8403E935F5AE74BF0A52A0BA"
+      },
+      {
+        "role": "store-range-009FCC00",
+        "rva": 10472448,
+        "length": 58,
+        "sha256": "C44CE88BD19423E43E665B15D98352FD2A90279306256B7AD91C97C0DA9E4EB2"
+      },
+      {
+        "role": "store-range-009FCC40",
+        "rva": 10472512,
+        "length": 207,
+        "sha256": "015FCD0218DC08C660DBC5E50ACBB36C84BE7B42B92F9F66D4F5DA973474DC27"
+      },
+      {
+        "role": "store-range-009FCD10",
+        "rva": 10472720,
+        "length": 58,
+        "sha256": "30382F12A6EDCA9E547100D982D20247A1F2FA9663531C9D859FA979961C4266"
+      },
+      {
+        "role": "store-range-009FCD50",
+        "rva": 10472784,
+        "length": 34,
+        "sha256": "CC228412DCA0F027CBB9FDBEE3815EDAA6A59EF3CDF9282C8CF7018F494F8E51"
+      },
+      {
+        "role": "store-range-009FCFC0",
+        "rva": 10473408,
+        "length": 112,
+        "sha256": "BBEC12469F7675B66A24C5427CA78DA6A75FE441C275EA92BAB1995C3F8FFC8C"
+      },
+      {
+        "role": "store-range-009FD0A0",
+        "rva": 10473632,
+        "length": 28,
+        "sha256": "A69FE4925D3E9FCAC414729D7EB5A0C3CDBB7AE102086E2985F11806EFD0A02C"
+      },
+      {
+        "role": "store-range-009FD0C0",
+        "rva": 10473664,
+        "length": 79,
+        "sha256": "2943ED17420DBE9CEFDB87B4F2194CEF74C44628F99819BDBF0155E09990AB2B"
+      },
+      {
+        "role": "store-range-009FDEC0",
+        "rva": 10477248,
+        "length": 78,
+        "sha256": "A5F1B9DEDE7926B051D3FCCCC3C622311C53DC32A50FFAB57C6CA5CAEA6C0789"
+      },
+      {
+        "role": "store-range-009FF210",
+        "rva": 10482192,
+        "length": 155,
+        "sha256": "20B77B39DE35571CEA747C02BC673BCE927F10B7B9D946D020F0F3128772C6F8"
+      },
+      {
+        "role": "store-range-009FF340",
+        "rva": 10482496,
+        "length": 39,
+        "sha256": "F1BF7038E251BE3A357B37665AA352FFA4BF7F61E27E51B204809D84383BE675"
+      },
+      {
+        "role": "store-range-00A006C0",
+        "rva": 10487488,
+        "length": 950,
+        "sha256": "A8FFEB2507E3DE46D34D4BF1F7420BBC5DD29DE6AEFB383417582DE3A30D2CEB"
+      },
+      {
+        "role": "store-range-00A029B0",
+        "rva": 10496432,
+        "length": 32,
+        "sha256": "D6C04F499605E44625F9B1921C66E47F67D155CFC8BE37CF3FBAC9F6831FC118"
+      },
+      {
+        "role": "store-range-00A02EB0",
+        "rva": 10497712,
+        "length": 32,
+        "sha256": "498593AD45B8F7DB24C724DCCE43C3800568ACC4AD3E1BBB8DC198A11C63EC79"
+      },
+      {
+        "role": "store-range-00A02ED0",
+        "rva": 10497744,
+        "length": 32,
+        "sha256": "9CE68640CD4424919A8CF3096E8967348A4D55E26C8570FFB42E3C916523772A"
+      },
+      {
+        "role": "store-range-00A02EF0",
+        "rva": 10497776,
+        "length": 32,
+        "sha256": "C07F69E4EDD036FC3AD37227D0E95E86B2420CAFCAFC3A34AB4E59E06D6E8401"
+      },
+      {
+        "role": "store-range-00A02F10",
+        "rva": 10497808,
+        "length": 32,
+        "sha256": "66D4067DCB62E97026DDCE4B809CC3DB52142CA78A7DCB0FBCDECF62E785AF5D"
+      },
+      {
+        "role": "store-range-0179C280",
+        "rva": 24756864,
+        "length": 138,
+        "sha256": "4DC7FDFD9D6A6980A46A1CE654B16EF33B5AF8DA29DAA9EF63AB14F13B3DF311"
+      },
+      {
+        "role": "store-range-0179C30A",
+        "rva": 24757002,
+        "length": 268,
+        "sha256": "9D95B1DC4D177F2DA71D41FC18747AE84BB1D6D96BB3A1F354F1397033986B45"
+      },
+      {
+        "role": "store-range-0179C416",
+        "rva": 24757270,
+        "length": 174,
+        "sha256": "910BAEDCD71E9D858DA4F122B773F8DF48F5CDBB7D74146AF5C51D10D754021F"
+      },
+      {
+        "role": "store-range-0179C4C4",
+        "rva": 24757444,
+        "length": 35,
+        "sha256": "FB6BC2BC533AE913FA67CD80123C47B3D23C8D9DE7A39C0306C3AE9B65004A3D"
+      },
+      {
+        "role": "store-range-0179CAF0",
+        "rva": 24759024,
+        "length": 54,
+        "sha256": "885854757B70D97067A710E74793C3E6924787403EC13A7BBB9DEA84A8787012"
+      },
+      {
+        "role": "store-range-0179D400",
+        "rva": 24761344,
+        "length": 269,
+        "sha256": "7B86CAFF95C6DCD70992BC94946976ED79F0A81940D3EDDFCA902154D685A06E"
+      },
+      {
+        "role": "store-range-0179DAD0",
+        "rva": 24763088,
+        "length": 166,
+        "sha256": "5346FAE6FE8D1CACF9DB642EC57A685BE95AB844D2306567E231894438C57C4A"
+      },
+      {
+        "role": "store-range-0179FAE0",
+        "rva": 24771296,
+        "length": 809,
+        "sha256": "C671FA7E29200BBAB99C6F96EDD17F6ED663B8EDD4DD1033EEEDB60AABF10556"
+      },
+      {
+        "role": "store-range-017A3100",
+        "rva": 24785152,
+        "length": 93,
+        "sha256": "F42290F0B3C0D56F7BC28C9DFFB8C9B190C5FB798C646BA02F02CE0F798C9497"
+      },
+      {
+        "role": "store-range-017A3160",
+        "rva": 24785248,
+        "length": 69,
+        "sha256": "A337175F441C346B9E64F6E3825D3B63AC2C99A55D2789B751FE1B97CA3C49F4"
+      },
+      {
+        "role": "store-range-017A31D0",
+        "rva": 24785360,
+        "length": 59,
+        "sha256": "924F8E709F2C61102332982DB2C8E7EA1C6BEC80360DCA3A5D4A3C4400DB77FE"
+      },
+      {
+        "role": "store-range-02A10E70",
+        "rva": 44109424,
+        "length": 4412,
+        "sha256": "0551D181FB762FFDB3F3788B09C4677F0A588C897A3D3C6DC1094F90A2773399"
+      },
+      {
+        "role": "store-range-02A16030",
+        "rva": 44130352,
+        "length": 2950,
+        "sha256": "FB14197D590EE6C4404482C109A10459B501AF11FC11CA3FD8184169F91EA572"
+      },
+      {
+        "role": "store-range-02A22BC0",
+        "rva": 44182464,
+        "length": 8,
+        "sha256": "5C9FCC3479A40381BA020087B2E3ABD6128C3D9BB0755EC1EB6B4B7656E29BA0"
+      },
+      {
+        "role": "store-range-02A22BD0",
+        "rva": 44182480,
+        "length": 73,
+        "sha256": "C9D4C5C34DCD6D78B3AC7D970472E82EFB5CC5C9D14167853D735345B7445D29"
+      },
+      {
+        "role": "store-range-02A22C50",
+        "rva": 44182608,
+        "length": 8,
+        "sha256": "A73A7EDF9D44E71BCD78E8C619CE8EADEAD0E280A0C6C172E88D6B34DB6E0B25"
+      },
+      {
+        "role": "store-range-02A29280",
+        "rva": 44208768,
+        "length": 3340,
+        "sha256": "FD23770D5C8ACE9B480B68A07515E7A441AA8029E2C0D3C0CD2E991D7AD3DE14"
+      },
+      {
+        "role": "store-range-02B25E40",
+        "rva": 45243968,
+        "length": 79,
+        "sha256": "584DDC01EB57390C772F6A32E9D685899145B1EDDD44E754CD346787D9F92B29"
+      },
+      {
+        "role": "store-range-02B4D8B0",
+        "rva": 45406384,
+        "length": 45,
+        "sha256": "7B693ACCA091050877C368DD8D361DA54B976F5C9C9817ADA0E876BACE969E59"
+      },
+      {
+        "role": "store-range-030A4750",
+        "rva": 51005264,
+        "length": 12,
+        "sha256": "A1DAFE6761AD09FE5BB0ACE484ECD32B8D4E4B5AAB37742E762E4F5140D4256F"
+      },
+      {
+        "role": "store-range-0312DAF0",
+        "rva": 51567344,
+        "length": 7,
+        "sha256": "98C1B4A615C8ED08839421FC66BD1A5728A69109C052EE6BA54FB4F9D76A2E81"
+      },
+      {
+        "role": "store-range-0312DE80",
+        "rva": 51568256,
+        "length": 9,
+        "sha256": "547A252761AF1C1DE2C7045020784A166A27CCC6DAF02BFD2FFE32DD0E0BC66E"
+      },
+      {
+        "role": "store-range-0347DF20",
+        "rva": 55041824,
+        "length": 183,
+        "sha256": "63CFE0CF3F64555C746C031C8AEF917164D6177D029C6D5E4D1F40F979143B9B"
+      },
+      {
+        "role": "store-range-03483990",
+        "rva": 55064976,
+        "length": 73,
+        "sha256": "C20D8C2D75E6B5C82A9A2D333D96DCCD2DB89258F2096B2C00DB5E355414C545"
+      },
+      {
+        "role": "store-range-03483E20",
+        "rva": 55066144,
+        "length": 77,
+        "sha256": "02A458F8206B94D5FC50AEE3D936D539D93C49CE5D55F8D13269C0B53CEEECEE"
+      },
+      {
+        "role": "store-range-03483E70",
+        "rva": 55066224,
+        "length": 13,
+        "sha256": "B8575FCC00173991E849C7568B4CF33B17189C6478C5AB64038D580460DD2BDA"
+      },
+      {
+        "role": "store-range-03483E7D",
+        "rva": 55066237,
+        "length": 46,
+        "sha256": "47A3FA02CF9143E2B2B2D533069364E4FFCA73FF4BA0EA01CC45F3429F96AB08"
+      },
+      {
+        "role": "store-range-03485CD0",
+        "rva": 55074000,
+        "length": 465,
+        "sha256": "6E01D8297C5D4B96F2C6F2FD4C8EC79A0A230FA104CAFBDFBD62F04A60E72FB9"
+      },
+      {
+        "role": "store-range-03489BC0",
+        "rva": 55090112,
+        "length": 183,
+        "sha256": "A93657C19B0283D66176E7536CADFE69F778D4BAB2E458E15384B2438F18CDCE"
+      },
+      {
+        "role": "store-range-0348CAE0",
+        "rva": 55102176,
+        "length": 5,
+        "sha256": "A1DAC09F5CC282A00BAB87FAD1374A847503F5C28A98C13A483166FB7AFFA453"
+      },
+      {
+        "role": "store-range-03491010",
+        "rva": 55119888,
+        "length": 218,
+        "sha256": "70639C8A790190E040D8B2ACC7354944ABFB3DF92B4AB184EFC11586D5450120"
+      },
+      {
+        "role": "store-range-034910F0",
+        "rva": 55120112,
+        "length": 643,
+        "sha256": "F7174986C63B100584792DE5184F68FA4224F20473CEDA58EC483C65C6B6A94E"
+      },
+      {
+        "role": "store-range-03491850",
+        "rva": 55122000,
+        "length": 91,
+        "sha256": "3F7BEBCFF49D2733A88A72E177825ACF67286C826DF218338FEE77067BB5817F"
+      },
+      {
+        "role": "store-range-034918B0",
+        "rva": 55122096,
+        "length": 60,
+        "sha256": "C2ED4C8FEF7807DD11FB85C22996290CBAA892D88D329FF1189B3E767F0C16AD"
+      },
+      {
+        "role": "store-range-03493F60",
+        "rva": 55132000,
+        "length": 181,
+        "sha256": "7CB46BDFDA36AD0512B30002E80763C19565C74AA58F6AA1D1ED328FED83511A"
+      },
+      {
+        "role": "store-range-03494020",
+        "rva": 55132192,
+        "length": 76,
+        "sha256": "02EF47F5C9171DD4CFC1A4B2F257F2100E88520C4E7167906CAFF37048830D07"
+      },
+      {
+        "role": "store-range-03494070",
+        "rva": 55132272,
+        "length": 34,
+        "sha256": "95275014D921F22B5FA34D3A046DD8EE893D28AAC656A1A7C4D86B50FC800480"
+      },
+      {
+        "role": "store-range-034940A0",
+        "rva": 55132320,
+        "length": 40,
+        "sha256": "F87B7310A348988814F0D8EB61F98FA0BB97547FB455BE4D193B23D521827731"
+      },
+      {
+        "role": "store-range-034940D0",
+        "rva": 55132368,
+        "length": 223,
+        "sha256": "EA6708431BC13A2C91510D7CDDB51F2743E92930CAC84536F4A4CEC961B3BD86"
+      }
+    ],
+    "providerSlots": [
+      {
+        "offset": 4840,
+        "targetRva": 51568256
+      },
+      {
+        "offset": 0,
+        "targetRva": 51005264
+      }
+    ],
+    "asset": {
+      "minimumLength": 16221184,
+      "maximumLength": 17269760,
+      "headerPageCount": 15409,
+      "parts": {
+        "Engine": {
+          "count": 3017,
+          "rowsSha256": "79D1BFE7DA2780931D6137D743CB19FF6F0DC8E443E4681ACCF1B13FC02CD226"
+        },
+        "Drivetrain": {
+          "count": 1375,
+          "rowsSha256": "EC51BA165ECCA66BB98F524689F38D1A18FCB22FD4F9A48DFF6B3B2C15DCE9F9"
+        },
+        "CarBody": {
+          "count": 790,
+          "rowsSha256": "07657E94C9EE2C9CE2C36B9B0F81744E253001BFAFE94EDDF39D9C20DC6E22DB"
+        },
+        "Motor": {
+          "count": 33,
+          "rowsSha256": "B3E3B5F6E081DFE302E19C83995D69DD0A049F12612D816D63A15E7527C67731"
+        },
+        "Brakes": {
+          "count": 1689,
+          "rowsSha256": "8EF8E68C52274C79F4787333AE2EF350EDFA046F985EDDA98F708E8F86321ACE"
+        },
+        "SpringDamper": {
+          "count": 2752,
+          "rowsSha256": "0B1466548BAC66BE2CA2B7BD64DABB4A42C18F869A180F5A0038D9A85AEBB869"
+        },
+        "FrontAntiroll": {
+          "count": 1541,
+          "rowsSha256": "C66C582A721C2F63AC1A41998F6A8819488B0E400FD6E17F35B6A9C55E0617FC"
+        },
+        "RearAntiroll": {
+          "count": 1578,
+          "rowsSha256": "001B3E9D30A1EB5FD2495E433ECC838E93412C1A62263E90304C25BC9C2C5EA3"
+        },
+        "RearAero": {
+          "count": 1669,
+          "rowsSha256": "F1AA81C45C123632A7CA41E2ACC43992B5A12A6601D46CB0DF5A3F9903C1C497"
+        },
+        "Transmission": {
+          "count": 5069,
+          "rowsSha256": "7B4C56864B70E571E86AD14BF3CA546C8B774B44F0335BAC20A62314A3D2117A"
+        },
+        "Differential": {
+          "count": 3491,
+          "rowsSha256": "B4FC1799AB299D9F8BE360C688E122C924EE381AE7A0960E0623ACF493B24B1F"
+        },
+        "FrontAero": {
+          "count": 1761,
+          "rowsSha256": "A32536BA8A277A74710AA18D9CBB6EE5E71DFFB86C596CCCE6620587FB6EB002"
+        }
+      }
+    }
   }
 }

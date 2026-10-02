@@ -156,8 +156,14 @@ public sealed class AppSettings
     public Key OverlayHotkeyKey { get; set; } = Key.H;
     public Wisp.Core.Runs.RunPurpose RunPurpose { get; set; }
     public Runs.RunWorkspaceSettings RunWorkspace { get; set; } = new();
+    public global::Wisp.App.Clips.ClipsSettings Clips { get; set; } = new();
     public Runs.RunStatisticsView RunStatisticsView { get; set; }
     public bool LapMapEnabled { get; set; }
+    public bool LapReviewRecordingEnabled { get; set; }
+    public Guid? LapReviewBenchmarkRunId { get; set; }
+    public int LapReviewBenchmarkLapNumber { get; set; }
+    public int LapReviewBenchmarkSampleIndex { get; set; }
+    public LapTimingMode LapReviewBenchmarkTimingMode { get; set; }
     public double LapMapScale { get; set; } = 1;
     public string? LapDeltaAheadColor { get; set; }
     public string? LapDeltaBehindColor { get; set; }
@@ -311,6 +317,8 @@ public sealed class AppSettings
         ApplicationStyle.Normalize();
         RunWorkspace ??= new Runs.RunWorkspaceSettings();
         RunWorkspace.Normalize();
+        Clips ??= new global::Wisp.App.Clips.ClipsSettings();
+        Clips.Normalize();
         if (!Enum.IsDefined(RunStatisticsView)) RunStatisticsView = Runs.RunStatisticsView.Cards;
         NormalizeLapDeltaSettings();
         NormalizeDriftGaugeSettings();
@@ -749,6 +757,8 @@ public sealed class SettingsService
         settings.ApplicationStyle.Normalize();
         settings.RunWorkspace ??= new Runs.RunWorkspaceSettings();
         settings.RunWorkspace.Normalize();
+        settings.Clips ??= new global::Wisp.App.Clips.ClipsSettings();
+        settings.Clips.Normalize();
         if (!Enum.IsDefined(settings.RunStatisticsView)) settings.RunStatisticsView = Runs.RunStatisticsView.Cards;
         settings.NormalizeLapDeltaSettings();
         settings.NormalizeDriftGaugeSettings();

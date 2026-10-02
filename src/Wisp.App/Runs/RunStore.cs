@@ -10,7 +10,8 @@ namespace Wisp.App.Runs;
 
 public sealed record RunSummary(Guid Id, string Name, string Tune, string Notes,
     DateTimeOffset StartedAtUtc, double DurationSeconds, int SampleCount, int CarOrdinal,
-    bool IsIncomplete, string FinishReason);
+    bool IsIncomplete, string FinishReason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? AttachedTuneName = null);
 
 public sealed partial class RunStore
 {
@@ -254,7 +255,7 @@ public sealed partial class RunStore
         var lines = new BoundedLineReader(reader);
         var header = await lines.ReadLineAsync(131_072).ConfigureAwait(false) ?? throw new InvalidDataException("The run is empty.");
         var run = JsonSerializer.Deserialize<RecordedRun>(header, JsonOptions) ?? throw new InvalidDataException("The run header is invalid.");
-        if (run.SchemaVersion != RecordedRun.CurrentSchemaVersion || run.Samples is null || run.Samples.Length != 0 || run.Markers is null || run.Markers.Length > MaximumMarkers)
+        if (!ValidSchema(run) || run.Samples is null || run.Samples.Length != 0 || run.Markers is null || run.Markers.Length > MaximumMarkers)
             throw new InvalidDataException("The run format is unsupported.");
         var samples = new List<RunSample>();
         while (await lines.ReadLineAsync(8192).ConfigureAwait(false) is { } line)
@@ -362,7 +363,14 @@ public sealed partial class RunStore
                 }
                 if (samples.Count == 0) continue;
                 if (!File.Exists(RunPath(header.Id)))
-                    await WriteAsync(header with { Samples = samples.ToArray(), Markers = markers.ToArray(), IsIncomplete = true, FinishReason = "Recovered after Wisp closed before the run finished" }, false).ConfigureAwait(false);
+                    await WriteAsync(header with
+                    {
+                        Samples = samples.ToArray(),
+                        Markers = markers.ToArray(),
+                        IsIncomplete = true,
+                        TuneAttachment = header.TuneAttachment is { } attachment ? attachment with { DrivingContinuityInterrupted = true } : null,
+                        FinishReason = "Recovered after Wisp closed before the run finished"
+                    }, false).ConfigureAwait(false);
                 reader.Dispose();
                 file.Dispose();
                 File.Delete(path);
@@ -377,18 +385,21 @@ public sealed partial class RunStore
 
     internal static RunSummary Summarize(RecordedRun run) => new(run.Id, run.Name, run.Tune, run.Notes,
         run.StartedAtUtc, run.Samples.Length == 0 ? 0 : run.Samples[^1].ElapsedSeconds,
-        run.Samples.Length, run.Samples.Length == 0 ? 0 : run.Samples[0].State.CarOrdinal, run.IsIncomplete, run.FinishReason);
+        run.Samples.Length, run.Samples.Length == 0 ? 0 : run.Samples[0].State.CarOrdinal, run.IsIncomplete, run.FinishReason,
+        run.TuneAttachment?.Name);
 
     private static bool ValidSummary(RunSummary value) => value.Id != Guid.Empty &&
         ValidText(value.Name, 100, false) && !string.IsNullOrWhiteSpace(value.Name) && ValidText(value.Tune, 150, false) &&
         ValidText(value.Notes, 4000, true) && ValidText(value.FinishReason, 200, false) &&
+        (value.AttachedTuneName is null || ValidText(value.AttachedTuneName, 40, false) && !string.IsNullOrWhiteSpace(value.AttachedTuneName)) &&
         double.IsFinite(value.DurationSeconds) && value.DurationSeconds is >= 0 and <= 600 &&
         value.SampleCount is > 0 and <= MaximumSamples && value.CarOrdinal is > 0 and <= 10_000_000;
 
     internal static void Validate(RecordedRun run)
     {
-        if (run.SchemaVersion != RecordedRun.CurrentSchemaVersion || run.Samples is null || run.Samples.Length is 0 or > MaximumSamples ||
+        if (!ValidSchema(run) || run.Samples is null || run.Samples.Length is 0 or > MaximumSamples ||
             run.Markers is null || run.Markers.Length > MaximumMarkers ||
+            run.LapTimingMode is { } timing && !Enum.IsDefined(timing) ||
             run.RejectedDatagrams < 0 || run.DroppedDatagrams < 0 ||
             run.StartedAtUtc < new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero) || run.StartedAtUtc > DateTimeOffset.UtcNow.AddDays(1))
             throw new InvalidDataException("The run metadata, version, or sample count is invalid.");
@@ -401,6 +412,10 @@ public sealed partial class RunStore
             previous = sample;
         }
         if (!ValidSummary(Summarize(run))) throw new InvalidDataException("The run metadata is invalid.");
+        if (run.TuneAttachment is { } attachment &&
+            (attachment.Snapshot.Identity.CarOrdinal != run.Samples[0].State.CarOrdinal ||
+             (int)attachment.Snapshot.Identity.Drivetrain != (int)run.Samples[0].State.Drivetrain))
+            throw new InvalidDataException("The attached tune belongs to a different car.");
         RunMarker? previousMarker = null;
         foreach (var marker in run.Markers)
         {
@@ -410,6 +425,13 @@ public sealed partial class RunStore
     }
 
     internal static bool ValidMarkerLabel(string label) => ValidText(label, MaximumMarkerLabelLength, false) && !string.IsNullOrWhiteSpace(label);
+
+    private static bool ValidSchema(RecordedRun run) => run.SchemaVersion switch
+    {
+        RecordedRun.BaseSchemaVersion => run.TuneAttachment is null,
+        RecordedRun.CurrentSchemaVersion => run.TuneAttachment is { IsValid: true },
+        _ => false
+    };
 
     private static void ValidateMarker(RunMarker marker, RunMarker? previous, double duration)
     {

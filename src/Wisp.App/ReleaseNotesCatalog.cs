@@ -15,16 +15,41 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
-            "2.5.3",
-            "September 30, 2026",
-            "MONITOR PLACEMENT HOTFIX",
-            "Place a new HUD on Forza's monitor and let Reset HUD positions recover an existing wrong-screen placement.",
+            "2.6",
+            "October 1, 2026",
+            "TUNE, CLIPS AND LAP REVIEW",
+            "Save a clip of your drive, keep a copy of your tune, and review where a lap gained or lost time.",
             true,
             [
+                Group("Clips",
+                    "Save recent gameplay, watch it in Wisp and export an MP4 with the filename and location you choose. Previews wait for Play.",
+                    "Choose a clip length from 30 seconds to 5 minutes, 360p to 2160p, 30 or 60 fps and quality from 10 to 100. Saves keep up to the available history. The default is one minute at 1080p60. Supported NVIDIA encoders also offer lossless video.",
+                    "Record Forza audio or include other apps and system sounds. Set separate toggle and save shortcuts with optional sound feedback, choose an export folder and enable reminders for new clips.",
+                    "Clipping records the display containing fullscreen Forza, including the Wisp HUD and anything else on that screen. Switching away pauses recording and keeps available footage ready to save."),
+                Group("Tune",
+                    "View the settings fitted to your current car, including locked tunes on Steam. Save named setups with descriptions, compare saved setups or the current car side by side, and delete saved tunes you no longer need. Tunes attached to runs are kept.",
+                    "Browse tires, gearing, alignment, antiroll bars, springs, damping, aero, brakes and differential settings. Current-car reading supports Steam and Xbox app FH6 with imperial game units.",
+                    "Attach a checked tune snapshot to a recorded run to keep the setup with its results."),
+                Group("Lap review",
+                    "Review the line you drove with a shared map and graph cursor. Inspect speed, inputs, G-force, RPM, gear and wheel telemetry, or compare a section with another lap or a pinned benchmark.",
+                    "Section statistics show time, distance, entry, minimum and exit speed, and driving inputs. Events mark braking, throttle pickup and shifts. Automatic laps are grouped by day and car; choosing Run B takes priority over a compatible pinned benchmark."),
+                Group("Live map and lap delta",
+                    "Follow your car around the learned circuit and compare progress with your session best or previous lap. Both overlays remain beta features with adjustable colors, size and position."),
+                Group("Profiles and guidance",
+                    "Profiles include HUD and driving settings and saved gauge positions.",
+                    "Shift calibration keeps a steady status and saves measured higher-gear targets without requiring first-gear coverage.",
+                    "The updated feature tour introduces Clips, Tune, live map, lap delta and lap review.")
+            ]),
+        new(
+            "2.5.3",
+            "September 30, 2026",
+            "HUD PLACEMENT",
+            "First-time HUD placement follows the Forza screen while preserving saved and manually placed layouts.",
+            false,
+            [
                 Group("HUD placement",
-                    "Place a HUD without a saved position on Forza's monitor when the game is first detected. A temporary position used before detection is no longer saved as the final layout.",
-                    "Reset HUD positions moves the main HUD to the last detected Forza window's monitor. Focus the game once before using Reset if Wisp has not detected it yet.",
-                    "Keep saved positions unchanged until you move or reset them. You can still use Edit HUD layout to place gauges on another screen.")
+                    "New layouts use the monitor containing Forza. Saved positions and gauges dragged to another monitor keep their placement.",
+                    "Reset HUD positions returns the gauges to the Forza screen.")
             ]),
         new(
             "2.5.2",

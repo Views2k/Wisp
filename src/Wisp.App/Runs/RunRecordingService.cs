@@ -65,7 +65,8 @@ public sealed class RunRecordingService : IAsyncDisposable
             _error = null;
             if (!options.IsValid)
             {
-                _status = "Choose a recording time above zero and no longer than ten minutes.";
+                _status = options.TuneAttachment is { IsValid: false } ? "Read the current tune again before recording." :
+                    "Choose a recording time above zero and no longer than ten minutes.";
                 return false;
             }
             if (!CanStart)
@@ -87,6 +88,13 @@ public sealed class RunRecordingService : IAsyncDisposable
                 (context.DrivingValidUntilTimestamp is { } deadline && now > deadline))
             {
                 _status = "Waiting for a confirmed driving scene; return to free roam.";
+                return false;
+            }
+            if (options.TuneAttachment is { } tune &&
+                (tune.Snapshot.Identity.CarOrdinal != state.CarOrdinal || (int)tune.Snapshot.Identity.Drivetrain != (int)state.Drivetrain ||
+                 DateTimeOffset.UtcNow - tune.AttachedAtUtc is { TotalSeconds: < 0 or > 2 }))
+            {
+                _status = "The car or tune check changed. Read the current tune again before recording.";
                 return false;
             }
             var reservation = Store.TryReserveJournalStart();
@@ -218,7 +226,9 @@ public sealed class RunRecordingService : IAsyncDisposable
             var header = new RecordedRun
             {
                 StartedAtUtc = session.StartedAtUtc,
-                Name = $"Run {session.StartedAtUtc.ToLocalTime():MMM d, h:mm tt}"
+                Name = $"Run {session.StartedAtUtc.ToLocalTime():MMM d, h:mm tt}",
+                SchemaVersion = session.TuneAttachment is null ? RecordedRun.BaseSchemaVersion : RecordedRun.CurrentSchemaVersion,
+                TuneAttachment = session.TuneAttachment
             };
             long rejected = 0;
             var lastFlush = session.StartedTimestamp;
@@ -299,15 +309,19 @@ public sealed class RunRecordingService : IAsyncDisposable
                 journal.RemoveAfterSave();
                 return null;
             }
+            var incomplete = session.Incomplete || builder.HasGap || rejected > 0 || session.Capture.DroppedDatagrams > 0 ||
+                Stopwatch.GetElapsedTime(Interlocked.Read(ref session.LastValidTimestamp), EndTimestamp(session)).TotalMilliseconds > 300;
             saved = header with
             {
                 Samples = samples.ToArray(),
                 Markers = markers.ToArray(),
                 FinishReason = session.Reason,
-                IsIncomplete = session.Incomplete || builder.HasGap || rejected > 0 || session.Capture.DroppedDatagrams > 0 ||
-                    Stopwatch.GetElapsedTime(Interlocked.Read(ref session.LastValidTimestamp), EndTimestamp(session)).TotalMilliseconds > 300,
+                IsIncomplete = incomplete,
                 RejectedDatagrams = rejected,
-                DroppedDatagrams = session.Capture.DroppedDatagrams
+                DroppedDatagrams = session.Capture.DroppedDatagrams,
+                TuneAttachment = header.TuneAttachment is { } attached
+                    ? attached with { DrivingContinuityInterrupted = incomplete || samples.Any(sample => !sample.IsDriving) }
+                    : null
             };
             await Store.SaveAsync(saved).ConfigureAwait(false);
             try
@@ -389,6 +403,7 @@ public sealed class RunRecordingService : IAsyncDisposable
     {
         internal readonly RunDatagramCapture Capture = capture;
         internal readonly RunJournalStartReservation JournalReservation = reservation;
+        internal readonly RunTuneAttachment? TuneAttachment = options.TuneAttachment;
         internal readonly int CarOrdinal = carOrdinal;
         internal readonly DrivetrainType Drivetrain = drivetrain;
         internal readonly long StartedTimestamp = Stopwatch.GetTimestamp();

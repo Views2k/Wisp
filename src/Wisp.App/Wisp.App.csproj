@@ -11,15 +11,56 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp</AssemblyTitle>
     <Description>Wheel-indicated speed and G-force display for Forza Horizon 6.</Description>
-    <Version>2.5.3</Version>
-    <FileVersion>2.5.3.0</FileVersion>
-    <AssemblyVersion>2.5.3.0</AssemblyVersion>
+    <Version>2.6.0</Version>
+    <FileVersion>2.6.0.0</FileVersion>
+    <AssemblyVersion>2.6.0.0</AssemblyVersion>
+    <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyMetadata Include="WispLapDiagnosticsEnabled" Value="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="LibVLCSharp" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" />
+    <VlcWindowsX64IncludeFiles Include="libvlc.dll;libvlccore.dll" />
+    <VlcWindowsX64IncludeFiles Include="plugins\access\libfilesystem_plugin.dll;plugins\demux\libmp4_plugin.dll" />
+    <VlcWindowsX64IncludeFiles Include="plugins\packetizer\libpacketizer_h264_plugin.dll;plugins\packetizer\libpacketizer_mpeg4audio_plugin.dll" />
+    <VlcWindowsX64IncludeFiles Include="plugins\codec\libavcodec_plugin.dll;plugins\codec\libpng_plugin.dll" />
+    <VlcWindowsX64IncludeFiles Include="plugins\video_chroma\libswscale_plugin.dll;plugins\video_chroma\libchain_plugin.dll" />
+    <VlcWindowsX64IncludeFiles Include="plugins\video_output\libdirect3d11_plugin.dll;plugins\video_output\libdrawable_plugin.dll;plugins\video_output\libvmem_plugin.dll" />
+    <VlcWindowsX64IncludeFiles Include="plugins\audio_output\libmmdevice_plugin.dll;plugins\audio_output\libwasapi_plugin.dll" />
+    <VlcWindowsX64IncludeFiles Include="plugins\audio_mixer\libfloat_mixer_plugin.dll;plugins\audio_mixer\libinteger_mixer_plugin.dll" />
+    <VlcWindowsX64IncludeFiles Include="plugins\audio_filter\libaudio_format_plugin.dll;plugins\audio_filter\libtrivial_channel_mixer_plugin.dll;plugins\audio_filter\libsimple_channel_mixer_plugin.dll;plugins\audio_filter\libspeex_resampler_plugin.dll" />
+    <VlcWindowsX64IncludeFiles Include="plugins\stream_filter\libcache_read_plugin.dll;plugins\stream_filter\libcache_block_plugin.dll;plugins\stream_filter\libprefetch_plugin.dll" />
     <ProjectReference Include="..\Wisp.Core\Wisp.Core.csproj" />
     <ProjectReference Include="..\Wisp.Telemetry\Wisp.Telemetry.csproj" />
     <ProjectReference Include="..\Wisp.Update\Wisp.Update.csproj" />
   </ItemGroup>
+  <Target Name="KeepLosslessDecoderReplaceable" BeforeTargets="_ComputeFilesToBundle">
+    <ItemGroup>
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'LibVLCSharp.dll' or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('libvlc')) or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('libmpv'))">
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+  <PropertyGroup>
+    <MpvDependencyDirectory>$(MSBuildProjectDirectory)\..\..\work\dependencies\libmpv\7e349cc9589b7ced492ed0207c24808f7c328a0ffa96cdae6a069861a1a856a4</MpvDependencyDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(MpvDependencyDirectory)\libmpv-2.dll" Link="libmpv\win-x64\libmpv-2.dll"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\..\LICENSES\library-sources-distribution.json" Link="Licenses\library-sources-distribution.json"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\tools\mpv-dependency.json" Link="Licenses\mpv-dependency.json"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="RestoreWispMpvDependency" BeforeTargets="PrepareForBuild"
+          Condition="'$(OS)' == 'Windows_NT' and '$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Restore-MpvDependency.ps1&quot;" />
+  </Target>
   <PropertyGroup>
     <NativeRendererOutputDirectory>$(MSBuildProjectDirectory)\..\Wisp.NativeRenderer\bin\$(Configuration)\x64</NativeRendererOutputDirectory>
     <NativeRendererDll>$(NativeRendererOutputDirectory)\Wisp.NativeRenderer.dll</NativeRendererDll>
@@ -35,6 +76,22 @@
           Condition="'$(OS)' == 'Windows_NT' and '$(DesignTimeBuild)' != 'true'">
     <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\Wisp.NativeRenderer\Build-NativeRenderer.ps1&quot; -OutputDirectory &quot;$(NativeRendererOutputDirectory)&quot;" />
   </Target>
+  <PropertyGroup>
+    <RecorderSourceDirectory>$(MSBuildProjectDirectory)\..\..\tools\Wisp.RecorderPrototype</RecorderSourceDirectory>
+    <RecorderOutputDirectory>$(RecorderSourceDirectory)\bin\$(Configuration)\x64</RecorderOutputDirectory>
+    <RecorderExecutable>$(RecorderOutputDirectory)\Wisp.Recorder.exe</RecorderExecutable>
+  </PropertyGroup>
+  <ItemGroup>
+    <RecorderInputs Include="$(RecorderSourceDirectory)\*.cpp;$(RecorderSourceDirectory)\*.h;$(RecorderSourceDirectory)\LosslessProbe\nvEncodeAPI.h;$(RecorderSourceDirectory)\Build-RecorderHost.ps1" />
+    <Content Include="$(RecorderExecutable)" Link="Wisp.Recorder.exe"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true" />
+  </ItemGroup>
+  <Target Name="BuildWispRecorder" BeforeTargets="PrepareForBuild"
+          Inputs="@(RecorderInputs)" Outputs="$(RecorderExecutable)"
+          Condition="'$(OS)' == 'Windows_NT' and '$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(RecorderSourceDirectory)\Build-RecorderHost.ps1&quot; -OutputDirectory &quot;$(RecorderOutputDirectory)&quot;" />
+  </Target>
   <ItemGroup>
     <Resource Include="Assets\Wisp-logo.png" />
     <Resource Include="Assets\Native\**\*.png" />
@@ -49,6 +106,14 @@
     <Content Include="..\..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\fh6-time-attack-tracker-LICENSE.txt" Link="Licenses\fh6-time-attack-tracker-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\LGPL-2.1.txt" Link="Licenses\LGPL-2.1.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\NVIDIA-nvEncodeAPI-MIT.txt" Link="Licenses\NVIDIA-nvEncodeAPI-MIT.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\LibVLCThirdParty\**\*" Link="Licenses\LibVLCThirdParty\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\libvlc-3.0.24-source-manifest.json" Link="Licenses\libvlc-3.0.24-source-manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\LGPL-3.0.txt" Link="Licenses\LGPL-3.0.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\GPL-3.0.txt" Link="Licenses\GPL-3.0.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\libmpv-thirdparty\**\*" Link="Licenses\libmpv-thirdparty\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSES\libmpv-source-manifest.json" Link="Licenses\libmpv-source-manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\dotnet-runtime-8.0.31-LICENSE.txt" Link="Licenses\dotnet-runtime-8.0.31-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt" Link="Licenses\dotnet-runtime-8.0.31-THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSES\windowsdesktop-runtime-8.0.31-LICENSE.txt" Link="Licenses\windowsdesktop-runtime-8.0.31-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

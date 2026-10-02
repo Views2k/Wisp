@@ -110,6 +110,8 @@ public sealed class WpfStyleRuntimeTests
                 Check(nameof(TachNeedleDiagnosticsTests), TachNeedleDiagnosticsTests.AssertOnCurrentDispatcher);
                 Check(nameof(OverlayPresentationTests), OverlayPresentationTests.AssertOnCurrentDispatcher);
                 Check(nameof(OverlayGForcePlacementTests), OverlayGForcePlacementTests.AssertOnCurrentDispatcher);
+                Check(nameof(HudProfilePlacementTests), HudProfilePlacementTests.AssertOnCurrentDispatcher);
+                Check(nameof(LapReviewUiRuntimeTests), LapReviewUiRuntimeTests.AssertOnCurrentDispatcher);
                 Check(nameof(OverlayElectricGaugePlacementTests), OverlayElectricGaugePlacementTests.AssertOnCurrentDispatcher);
                 Check("NativeRendererIntegrationTests hardware", () => NativeRendererIntegrationTests.AssertOnCurrentDispatcher());
                 Check("NativeRendererIntegrationTests WARP", () => NativeRendererIntegrationTests.AssertOnCurrentDispatcher(cpuRendering: true));
@@ -124,6 +126,7 @@ public sealed class WpfStyleRuntimeTests
                 Check(nameof(DriftGaugeTargetRangeTests), DriftGaugeTargetRangeTests.AssertOnCurrentDispatcher);
                 Check(nameof(DriftGaugeZoneVisualTests), DriftGaugeZoneVisualTests.AssertOnCurrentDispatcher);
                 Check(nameof(DriftGaugeSettingsUiTests), DriftGaugeSettingsUiTests.AssertOnCurrentDispatcher);
+                Check(nameof(TuneUiRuntimeTests), TuneUiRuntimeTests.AssertOnCurrentDispatcher);
                 Check(nameof(ApplicationUpdateCheckPolicyTests), ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher);
                 Check(nameof(NativeGaugeLifecycleTests), NativeGaugeLifecycleTests.AssertConsumersOnCurrentDispatcher);
                 Check(nameof(NativeRenderLifetimeTests), () => NativeRenderLifetimeTests.AssertConsumersOnCurrentDispatcher(_output.WriteLine));
@@ -417,7 +420,7 @@ public sealed class WpfStyleRuntimeTests
                 ProfileModalThemeTests.Verify(mainWindow);
                 MaintenancePersistenceTests.AssertProfileSaveRetryOnCurrentDispatcher();
 
-                tabs.SelectedIndex = 3;
+                tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(item => Equals(item.Header, "Diagnostics"));
                 surface.UpdateLayout();
                 mainWindow.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.DataBind);
                 var logo = Assert.IsType<System.Windows.Shapes.Rectangle>(mainWindow.FindName("HeaderLogo"));

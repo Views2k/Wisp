@@ -3,8 +3,8 @@ namespace Wisp.App;
 /// <summary>A feature receipt is independent of the patch version that delivered it.</summary>
 internal sealed class FeatureTourSession
 {
-    internal const string CurrentTourId = "wisp-interface-2";
-    internal const int StepCount = 4;
+    internal const string CurrentTourId = "wisp-features-2.6";
+    internal const int StepCount = 5;
     internal int StepIndex { get; private set; }
     internal bool IsOpen { get; private set; }
     internal bool HasPendingReceipt { get; private set; }
