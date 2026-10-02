@@ -38,7 +38,7 @@
     <ProjectReference Include="..\Wisp.Telemetry\Wisp.Telemetry.csproj" />
     <ProjectReference Include="..\Wisp.Update\Wisp.Update.csproj" />
   </ItemGroup>
-  <Target Name="KeepLosslessDecoderReplaceable" AfterTargets="ComputeFilesToPublish">
+  <Target Name="KeepLosslessDecoderReplaceable" BeforeTargets="_ComputeFilesToBundle">
     <ItemGroup>
       <ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
                              Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'LibVLCSharp.dll' or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('libvlc')) or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('libmpv'))">
