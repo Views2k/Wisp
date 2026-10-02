@@ -5,8 +5,10 @@ Notable changes to Wisp are recorded here.
 ## 2.6.0 - 2026-10-01
 
 - Save recent gameplay with Clips, watch it in Wisp and export an MP4 with a chosen filename and location. Select 30 seconds to 5 minutes, 360p to 2160p, 30 or 60 fps, quality, audio scope, shortcuts and reminders. Supported NVIDIA encoders also offer lossless video.
-- View current tuning values, including locked tunes, save named setups, compare saved tunes and attach a checked snapshot to a run. Current-car reading supports Steam FH6 with imperial game units.
+- Keep recorded footage and in-progress saves when switching away from Forza. Preserve ultrawide and 16:10 proportions, add optional shortcut sounds and recover unfinished saves.
+- View current tuning values, including locked tunes on Steam, save or delete named setups, compare saved tunes or the current car, and attach a checked snapshot to a run. Current-car reading supports Steam and Xbox app FH6 with imperial game units. An unsuccessful optional tune check no longer blocks recording.
 - Review recorded laps on the driven line with linked telemetry graphs, section statistics, events and reference-lap comparisons. Save completed laps automatically when enabled.
+- Group automatic laps by day and car, and respect an explicit Run B choice before a pinned benchmark.
 - Save HUD and driving settings, including gauge positions, in profiles. Preserve first-time Forza-monitor placement and manual placement on other monitors.
 - Keep shift-calibration status steady and save measured higher-gear targets independently of missing first-gear coverage.
 - Update the feature tour for Clips, Tune, live map, lap delta and lap review.

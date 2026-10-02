@@ -10,25 +10,29 @@ Enable clipping to keep a rolling recording, then press **Save clip** or your sh
 - Record at 360p, 480p, 720p, 1080p, 1440p or 2160p, at 30 or 60 fps. The default is 1080p60.
 - Adjust quality from 10 to 100, or choose lossless video with a supported NVIDIA encoder. Lossless preserves the prepared full-color SDR video; recordings can be large, and available history depends on storage and the scene.
 - Record Forza audio by default, or include other apps and system sounds.
-- Set separate shortcuts for toggling clipping and saving a clip.
+- Set separate shortcuts for toggling clipping and saving a clip, with optional sound feedback.
 - Browse thumbnails, watch and seek through clips, and keep track of new, viewed and exported clips. Playback starts when you press Play.
 - Choose a default export folder and enable dashboard reminders for new clips. Export keeps the recorded resolution and quality.
 
-Clipping records the display containing fullscreen Forza, including the Wisp HUD and anything else visible on that screen. It pauses when you leave the game. Five-minute clips and higher recording settings use more storage and take longer to save.
+Clipping records the display containing fullscreen Forza, including the Wisp HUD and anything else visible on that screen. Switching away pauses recording and keeps available footage ready to save. Ultrawide and 16:10 recordings keep their proportions with black bars. Five-minute clips and higher recording settings use more storage and take longer to save.
+
+With clipping off, recover unfinished saves or dismiss their notice while keeping retained files.
 
 ## Tune
 
-View the tuning settings fitted to your current car, **including locked tunes**. Save a named setup with a description, open it later in Wisp, or compare two saved setups side by side.
+View the tuning settings fitted to your current car, **including locked tunes on Steam**. Save a named setup with a description, open it later in Wisp, or compare saved setups or the current car side by side. Delete saved tunes you no longer need; snapshots attached to runs are kept.
 
 The Tune menu covers tires, gearing, alignment, antiroll bars, springs, damping, aero, brakes and differential settings. Comparisons highlight the values that changed. Attach a checked tune snapshot when recording a run to keep its setup with the results.
 
-Current-car reading supports the Steam edition of FH6 with imperial game units. Saved setups can be viewed with the game closed.
+Current-car reading supports Steam and Xbox app / Microsoft Store FH6 with imperial game units. Saved setups can be viewed with the game closed. Wisp checks for updated Forza support automatically. If an optional tune check fails before a run, the run still records without that attachment.
 
 ## Lap review
 
 Open a recorded lap in Runs to see the line you drove and inspect its telemetry. Move one cursor across the map and graphs, choose a section, and compare it with another lap or a pinned benchmark.
 
 Review speed, throttle, braking, steering, G-force, RPM, gear, tire temperatures, slip and suspension travel. Section statistics include entry, minimum and exit speed, time, distance and driving inputs. Events mark braking, throttle pickup and shifts. Enable **Save completed laps automatically** to keep completed laps for review.
+
+Automatic laps are grouped by day and car, with precise times in new names. Choosing Run B takes priority over a compatible pinned benchmark.
 
 ## Live map and lap delta
 
