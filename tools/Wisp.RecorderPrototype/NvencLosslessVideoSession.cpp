@@ -35,7 +35,7 @@ namespace recorder::lossless
             explicit DeviceLock(ID3D10Multithread* target) : value(target) { value->Enter(); }
             ~DeviceLock() { value->Leave(); }
         };
-        enum class Stage { Free, GpuPending, Encoding };
+        enum class Stage { Free, GpuPending, DeclinedGpuPending, Encoding };
         struct Slot
         {
             ComPtr<ID3D11Texture2D> texture;
@@ -109,7 +109,7 @@ namespace recorder::lossless
                     bool gpuComplete = true;
                     for (const auto& slot : slots)
                     {
-                        if (slot.stage != Stage::GpuPending) continue;
+                        if (slot.stage != Stage::GpuPending && slot.stage != Stage::DeclinedGpuPending) continue;
                         BOOL complete = FALSE; HRESULT status;
                         { DeviceLock lock(multithread.Get()); status = context->GetData(slot.completed.Get(), &complete, sizeof(complete), D3D11_ASYNC_GETDATA_DONOTFLUSH); }
                         Check(status, "lossless_cleanup_gpu_failed");
@@ -388,6 +388,13 @@ namespace recorder::lossless
                 // Even a failed writer may have queued partial GPU work on the borrowed surface.
                 value.context->End(slot.completed.Get()); value.context->Flush();
             }
+            if (written == S_FALSE)
+            {
+                // Keep ownership until even a partial GPU conversion retires.
+                // This slot never enters NVENC or advances its media index.
+                slot.stage = Stage::DeclinedGpuPending;
+                return encoder::SubmitResult::WouldBlock;
+            }
             Check(written, "lossless_frame_writer_failed");
             Require(written == S_OK, "lossless_frame_not_written", E_UNEXPECTED);
             ++value.nextSubmit; ++evidence_.submitted;
@@ -407,6 +414,14 @@ namespace recorder::lossless
             for (const auto& slot : value.slots)
                 if (slot.stage != Stage::Free)
                     Require(GetTickCount64() - slot.began < value.options.operationTimeoutMs, "lossless_slot_timeout", HRESULT_FROM_WIN32(ERROR_TIMEOUT));
+            for (auto& slot : value.slots)
+            {
+                if (slot.stage != Stage::DeclinedGpuPending) continue;
+                BOOL completed = FALSE; HRESULT status;
+                { DeviceLock lock(value.multithread.Get()); status = value.context->GetData(slot.completed.Get(), &completed, sizeof(completed), D3D11_ASYNC_GETDATA_DONOTFLUSH); }
+                Check(status, "lossless_declined_gpu_completion_failed");
+                if (status == S_OK && completed) slot.stage = Stage::Free;
+            }
             for (UINT work = 0; work < SurfaceCount && value.nextEncode < value.nextSubmit; ++work)
             {
                 auto& slot = value.slots[value.nextEncode % SurfaceCount];

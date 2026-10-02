@@ -110,7 +110,7 @@ $provenance = [ordered]@{ source = $Source; revision = $sourceRevision; baseline
     baselineUnmodified = ($Source -eq 'baseline' -and -not $Timing); timingInstrumented = [bool]$Timing;
     nativeSourcesBeforeInstrumentation = $beforeInventory; nativeSources = $inventory;
     fixtureSources = @(Get-ChildItem -LiteralPath $fixtureSource -File | ForEach-Object { [ordered]@{ path = $_.Name; sha256 = Get-Sha256 $_.FullName } });
-    executableSha256 = Get-Sha256 $exe; diagnosticVariants = @('baseline_save_at_thirty_five_seconds', 'high_output_eight_seconds_no_save', 'varying_8x8_eight_seconds_no_save');
+    executableSha256 = Get-Sha256 $exe; diagnosticVariants = @('baseline_save_at_thirty_five_seconds', 'high_output_eight_seconds_no_save', 'varying_8x8_eight_seconds_no_save', 'pause_save_resume_same_epoch');
     selectedVariantRecordedIn = 'fixture.json'; desktopCaptureLinked = $false; windowsCreated = $false; executionPerformed = $false }
 [IO.File]::WriteAllText((Join-Path $output 'build-provenance.json'), ($provenance | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
 [ordered]@{ built = $true; source = $Source; sha256 = $provenance.executableSha256; testsRun = $false; captureActivated = $false } | ConvertTo-Json -Compress

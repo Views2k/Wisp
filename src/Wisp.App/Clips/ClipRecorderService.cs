@@ -15,6 +15,8 @@ internal interface IRecorderSession : IAsyncDisposable
     event EventHandler<RecorderStateUpdate>? StateChanged;
     Task OpenAsync(ClipRecordingSpec recording, string storage, CancellationToken cancellationToken);
     Task StartAsync(RecorderTarget target, CancellationToken cancellationToken);
+    Task PauseAsync(CancellationToken cancellationToken);
+    Task ResumeAsync(RecorderTarget target, CancellationToken cancellationToken);
     Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken);
     Task StopAsync(CancellationToken cancellationToken);
 }
@@ -27,6 +29,8 @@ internal sealed class ProcessRecorderSession(string installedHelperPath) : IReco
     public event EventHandler<RecorderStateUpdate>? StateChanged { add => _client.StateChanged += value; remove => _client.StateChanged -= value; }
     public Task OpenAsync(ClipRecordingSpec recording, string storage, CancellationToken cancellationToken) => _client.OpenAsync(recording, storage, cancellationToken);
     public Task StartAsync(RecorderTarget target, CancellationToken cancellationToken) => _client.StartAsync(target, cancellationToken);
+    public Task PauseAsync(CancellationToken cancellationToken) => _client.PauseAsync(cancellationToken);
+    public Task ResumeAsync(RecorderTarget target, CancellationToken cancellationToken) => _client.ResumeAsync(target, cancellationToken);
     public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken) => _client.SaveAsync(target, cancellationToken);
     public Task StopAsync(CancellationToken cancellationToken) => _client.StopAsync(cancellationToken);
     public ValueTask DisposeAsync() => _client.DisposeAsync();
@@ -53,6 +57,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private CancellationTokenSource? _sessionLifetime;
     private EventHandler<RecorderStateUpdate>? _sessionHandler;
     private RecorderStateUpdate? _nativeState;
+    private bool _capturePaused;
+    private long _nativePauseSequence;
     private ClipRecordingSpec? _recording;
     private string? _storage, _fault;
     private FailureReportState? _failureReport;
@@ -150,8 +156,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         get { lock (_sync) return _enabled && Volatile.Read(ref _disposed) == 0 ? _targetObservationGeneration : 0; }
     }
 
-    // Monitor capture is eligible only while the exact game window is focused
-    // and fullscreen. Ineligible observations stop the current media session.
+    // An unavailable observation pauses acquisition without discarding recent
+    // footage. A different process/window still requires a new media session.
     internal void ObserveTarget(RecorderTargetObservation? observation, long generation)
     {
         if (observation is not null && (observation.Epoch < 0 || observation.Target.ProcessId == 0 ||
@@ -161,12 +167,14 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         {
             if (Volatile.Read(ref _disposed) != 0 || !_enabled || generation == 0 ||
                 generation != _targetObservationGeneration || Equals(_observed, observation)) return;
-            if (_session is not null && _sessionLifetime?.IsCancellationRequested == false)
-                RememberReset(observation is null ? "target_observation_unavailable" : "target_observation_changed", _session);
+            var replacement = observation is not null && _activeObservation is not null &&
+                observation.Target != _activeObservation.Target;
+            if (replacement && _session is not null && _sessionLifetime?.IsCancellationRequested == false)
+                RememberReset("target_observation_changed", _session);
             _observed = observation; _revision++;
             CancelRecoveryLocked();
             _recoveryAttempt = 0;
-            _sessionLifetime?.Cancel();
+            if (replacement) _sessionLifetime?.Cancel();
         }
         Signal();
     }
@@ -245,7 +253,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         lock (_sync)
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            if (!_enabled || _saving || _session is null || _nativeState?.State != "buffering") throw new RecorderClientException("not_ready");
+            if (!_enabled || _saving || _session is null || _sessionLifetime!.IsCancellationRequested ||
+                !NativeCanSave(_nativeState)) throw new RecorderClientException("not_ready") { SaveCompletedWithoutMedia = true };
             session = _session; sessionToken = _sessionLifetime!.Token; _saving = true;
         }
         PublishNativeState();
@@ -299,14 +308,72 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             ClipRecordingSpec? recording;
             string? storage;
             bool enabled, blocked, recoveryWaiting;
-            long revision;
+            IRecorderSession? retainedSession;
+            CancellationToken retainedToken;
+            bool paused;
+            long revision, pauseSequence;
             lock (_sync)
             {
                 observed = _observed; recording = _recording; storage = _storage; enabled = _enabled;
                 recoveryWaiting = _recoveryWaiting;
-                blocked = Equals(observed, _blockedObservation); revision = _revision;
-                if (enabled && observed is not null && !blocked && _session is not null &&
-                    !_sessionLifetime!.IsCancellationRequested && Equals(_activeObservation, observed)) return;
+                blocked = _blockedObservation is not null && Equals(observed, _blockedObservation); revision = _revision;
+                retainedSession = enabled && !blocked && _session is not null && !_sessionLifetime!.IsCancellationRequested &&
+                    (observed is null || observed.Target == _activeObservation?.Target) ? _session : null;
+                retainedToken = retainedSession is null ? default : _sessionLifetime!.Token;
+                paused = _capturePaused; pauseSequence = _nativePauseSequence;
+            }
+            if (retainedSession is not null)
+            {
+                var controlRevision = revision;
+                try
+                {
+                    if (observed is null && !paused) await retainedSession.PauseAsync(retainedToken).ConfigureAwait(false);
+                    else if (observed is not null && paused)
+                    {
+                        await retainedSession.ResumeAsync(observed.Target, retainedToken).ConfigureAwait(false);
+                        var confirmPause = false;
+                        lock (_sync)
+                        {
+                            if (ReferenceEquals(_session, retainedSession) && !retainedToken.IsCancellationRequested)
+                            {
+                                // Saving can suppress buffering until mux completes. The
+                                // acknowledgment still means capture may now be running.
+                                if (pauseSequence == _nativePauseSequence) _capturePaused = false;
+                                else if (_capturePaused)
+                                {
+                                    // A paused event raced the acknowledgment. Require
+                                    // fresh eligibility and keep acquisition stopped.
+                                    InvalidateObservedTargetLocked();
+                                    controlRevision = _revision;
+                                    confirmPause = true;
+                                }
+                            }
+                        }
+                        if (confirmPause) await retainedSession.PauseAsync(retainedToken).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException) when (retainedToken.IsCancellationRequested) { }
+                catch (RecorderClientException error) when (IsPausedTarget(error.Reason))
+                {
+                    lock (_sync)
+                    {
+                        if (observed is not null && paused && revision == _revision &&
+                            ReferenceEquals(_session, retainedSession) && !retainedToken.IsCancellationRequested)
+                        {
+                            _capturePaused = true;
+                            InvalidateObservedTargetLocked();
+                        }
+                    }
+                }
+                catch (Exception error) when (error is not OutOfMemoryException)
+                {
+                    var reason = error is RecorderClientException recorder ? recorder.Reason : "capture_failed";
+                    if (IsRecoverable(reason)) RequestRecovery(reason, retainedSession, controlRevision);
+                    else SetFault(reason, retainedSession, controlRevision);
+                }
+                lock (_sync) { if (revision != _revision) continue; }
+                PublishNativeState();
+                return;
             }
             await CloseSessionAsync().ConfigureAwait(false);
             lock (_sync) { if (revision != _revision) continue; }
@@ -334,7 +401,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 lock (_sync)
                 {
                     _session = session; _sessionLifetime = lifetime; _activeObservation = observed;
-                    _sessionHandler = handler; _nativeState = null;
+                    _sessionHandler = handler; _nativeState = null; _capturePaused = false; _nativePauseSequence = 0;
                     _sessionStarted = Stopwatch.GetTimestamp();
                     _bufferingSince = 0;
                     if (revision != _revision) lifetime.Cancel();
@@ -361,12 +428,22 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private void OnNativeState(IRecorderSession session, RecorderStateUpdate state)
     {
         var transition = false;
+        var pausedTransition = false;
         long revision;
         lock (_sync)
         {
             if (!ReferenceEquals(_session, session) || _sessionLifetime!.IsCancellationRequested || !_enabled || Volatile.Read(ref _disposed) != 0) return;
+            pausedTransition = state.State == "paused" && !_capturePaused;
+            if (state.State == "paused") { _capturePaused = true; _nativePauseSequence++; }
+            else if (state.State == "buffering") _capturePaused = false;
             _nativeState = state;
-            if ((state.State is "waiting" or "paused" or "reconnecting" or "stopped" or "error") && IsTargetTransition(state.Reason))
+            if (pausedTransition)
+            {
+                _bufferingSince = 0;
+                // Native may detect focus loss before the UI observation.
+                InvalidateObservedTargetLocked();
+            }
+            if ((state.State is "waiting" or "reconnecting" or "stopped" or "error") && IsTargetTransition(state.Reason))
             {
                 RememberReset(state.Reason, session);
                 _blockedObservation = _activeObservation; _fault = state.Reason; _revision++;
@@ -389,7 +466,19 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         }
         else if ((state.State is "error" or "stopped" or "reconnecting") && IsRecoverable(state.Reason)) RequestRecovery(state.Reason, session, revision);
         else if (state.State is "error" or "stopped") SetFault(state.Reason, session, revision);
-        else PublishNativeState();
+        else
+        {
+            PublishNativeState();
+            if (pausedTransition) Signal();
+        }
+    }
+
+    private void InvalidateObservedTargetLocked()
+    {
+        if (_observed is null) return;
+        _targetObservationGeneration = checked(_targetObservationGeneration + 1);
+        _observed = null;
+        _revision++;
     }
 
     private void PublishNativeState()
@@ -407,6 +496,9 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 snapshot = new(ClipRecorderState.Buffering, true, true, true, BufferingStatus(_nativeState));
             }
             else if (_nativeState?.State == "waiting") snapshot = new(ClipRecorderState.Preparing, true, true, false, "Preparing game capture…");
+            else if (_nativeState?.State == "paused") snapshot = new(ClipRecorderState.Paused, true, true,
+                _nativeState.BufferReady, ReasonText(_nativeState.Reason) +
+                (_nativeState.BufferReady ? " Your recent recording is kept and can be saved." : " No clip is ready yet."));
             session = _session; revision = _revision;
         }
         if (snapshot is not null) Publish(snapshot, revision, session);
@@ -421,6 +513,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         {
             session = _session; lifetime = _sessionLifetime; handler = _sessionHandler;
             _session = null; _sessionLifetime = null; _sessionHandler = null; _activeObservation = null; _nativeState = null; _saving = false;
+            _capturePaused = false; _nativePauseSequence = 0;
             _sessionStarted = 0;
         }
         if (session is null) return;
@@ -605,6 +698,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         if (previous != snapshot || reportCleared) StateChanged?.Invoke(this, EventArgs.Empty);
     }
     private void Signal() { try { _wake.Release(); } catch (SemaphoreFullException) { } }
+    private static bool NativeCanSave(RecorderStateUpdate? state) => state?.State == "buffering" ||
+        state is { State: "paused", BufferReady: true };
     private static bool IsPausedTarget(string? reason) => reason is "window_minimized" or "focus_lost" or "fullscreen_required";
     private static bool IsTargetTransition(string reason) => reason is "target_exited" or "target_changed" or "window_closed" || IsPausedTarget(reason);
     internal static string BufferingStatus(RecorderStateUpdate state)
@@ -624,6 +719,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         "window_resized" or "target_changed" => "The game window changed. Waiting for Forza to be focused and fullscreen.",
         "unsupported_os" => "This Windows version cannot record game clips.",
         "unsupported_gpu" => "A compatible hardware video encoder is unavailable.",
+        "lossless_encoder_unsupported" => "Lossless video needs a supported NVIDIA encoder. Turn off Lossless video to use standard recording.",
         "unsupported_format" => "The screen color format, orientation or recording settings are unsupported. Copy error details to report this.",
         "capture_stale" or "capture_reconnecting" or "encoder_reconnecting" or "audio_reconnecting" or "scheduler_late" => RecoveryStatus(reason),
         "capture_failed" => "Game capture failed. Enable clipping to try again.",

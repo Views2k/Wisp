@@ -19,6 +19,8 @@ namespace recorder::encoder
         // Borrowed free NV12 pool surface. Entire call is inside the device's
         // multithread lock. Submit GPU work only: no waits, MF calls, retention
         // of this surface or re-entry. The caller retains any captured source.
+        // S_FALSE declines this frame before encoder input, without advancing
+        // its frame index or poisoning the session (for an explicit pause).
         virtual HRESULT Fill(UINT frameIndex, ID3D11Texture2D* destination) noexcept = 0;
     };
     struct PacketObserver

@@ -61,7 +61,7 @@ namespace recorder::audio
     {
         slice = {};
         if (evidence_.failed) return TimelineResult::Failed;
-        if (!evidence_.initialized) return Fail("audio_timeline_not_usable");
+        if (!evidence_.initialized || evidence_.paused) return Fail("audio_timeline_not_usable");
         if (packet.frames == 0 || packet.frames > MaximumFeedFrames ||
             packet.samples.size() != static_cast<std::size_t>(packet.frames) * Channels)
             return Fail("audio_timeline_packet_shape_invalid");
@@ -117,7 +117,7 @@ namespace recorder::audio
             std::uint64_t firstRetainedTime = 0;
             if (!TimelineFrameTime(packet.qpc100ns, skip, firstRetainedTime) || firstRetainedTime < options_.videoEpochQpc100ns)
                 return Fail("audio_timeline_initial_trim_invalid");
-            audioEpoch = static_cast<std::int64_t>(firstRetainedTime - options_.videoEpochQpc100ns);
+            if (!resumeAnchor_) audioEpoch = static_cast<std::int64_t>(firstRetainedTime - options_.videoEpochQpc100ns);
         }
         std::uint64_t encodedEnd = 0;
         if (!TimelineFrameTime(static_cast<std::uint64_t>(audioEpoch), evidence_.retainedFrames + retained, encodedEnd))
@@ -127,6 +127,7 @@ namespace recorder::audio
         slice.samples = packet.samples.data() + static_cast<std::size_t>(skip) * Channels;
         slice.frames = retained; slice.skippedPrefixFrames = skip;
         slice.firstFrameIndex = evidence_.retainedFrames; slice.audioEpochTime100ns = audioEpoch;
+        if (!TimelineFrameTime(packet.qpc100ns, skip, slice.sourceTime100ns)) return Fail("audio_timeline_clock_overflow");
         if (!evidence_.anchored)
         {
             sourceAnchorQpc100ns_ = packet.qpc100ns; sourceFramesSinceAnchor_ = 0;
@@ -140,5 +141,23 @@ namespace recorder::audio
         previousQpc100ns_ = packet.qpc100ns; havePreviousPacket_ = true;
         evidence_.reason = "audio_slice_ready";
         return TimelineResult::Feed;
+    }
+    bool AudioTimeline::Pause() noexcept
+    {
+        if (!evidence_.initialized || evidence_.failed || evidence_.paused) return false;
+        evidence_.paused = true;
+        return true;
+    }
+    bool AudioTimeline::Resume(std::uint64_t minimumSourceTime, std::int64_t initialMediaTime) noexcept
+    {
+        if (!evidence_.initialized || evidence_.failed || !evidence_.paused || !minimumSourceTime ||
+            minimumSourceTime > MaximumTime || minimumSourceTime <= previousQpc100ns_ || initialMediaTime < 0)
+            return false;
+        if (!evidence_.retainedFrames) evidence_.audioEpochTime100ns = initialMediaTime;
+        options_.videoEpochQpc100ns = minimumSourceTime;
+        havePreviousPacket_ = false; sourceAnchorQpc100ns_ = 0; sourceFramesSinceAnchor_ = 0;
+        resumeAnchor_ = true; evidence_.anchored = false; evidence_.paused = false;
+        evidence_.reason = "audio_timeline_resuming";
+        return true;
     }
 }

@@ -10,7 +10,7 @@ namespace recorder::protocol
 {
     constexpr std::size_t MaximumLineBytes = 16384;
     constexpr std::uint64_t MaximumMediaBytes = 16ull * 1024 * 1024 * 1024;
-    enum class CommandKind { Invalid, Config, Start, Save, Stop };
+    enum class CommandKind { Invalid, Config, Start, Pause, Resume, Save, Stop };
     struct Command
     {
         CommandKind kind = CommandKind::Invalid;
@@ -34,7 +34,7 @@ namespace recorder::protocol
     enum class Reason
     {
         None, WaitingForGame, TargetExited, TargetChanged, WindowClosed, WindowMinimized,
-        WindowResized, FocusLost, FullscreenRequired, UnsupportedOs, UnsupportedGpu, UnsupportedFormat,
+        WindowResized, FocusLost, FullscreenRequired, UnsupportedOs, UnsupportedGpu, LosslessEncoderUnsupported, UnsupportedFormat,
         CaptureFailed, EncoderFailed, AudioFailed, AudioCaptureFailed, AudioUnavailable,
         CaptureStale, CaptureReconnecting, EncoderReconnecting, AudioReconnecting, SchedulerLate,
         BufferFull, NoKeyframe, NotReady, SaveInProgress, StorageFailed, LosslessStorageLow, MuxFailed,
@@ -78,5 +78,5 @@ namespace recorder::protocol
     // error text, paths or target identity. Output is cleared on any refusal.
     bool SerializeResult(const Result& result, std::string& line) noexcept;
     bool SerializeState(std::string_view session, State state, Reason reason, std::string& line,
-        const LosslessBuffer* losslessBuffer = nullptr) noexcept;
+        const LosslessBuffer* losslessBuffer = nullptr, bool bufferReady = false) noexcept;
 }

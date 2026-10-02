@@ -25,6 +25,7 @@ namespace recorder::capture
 {
     int RunSyntheticShaderCheck() noexcept;
     void ConfigureSyntheticPattern(UINT cellSize) noexcept;
+    std::uint64_t SyntheticFrameCount() noexcept;
 }
 
 namespace
@@ -263,6 +264,11 @@ namespace
         std::string pending;
         std::uint64_t bytes = 0;
         std::uint64_t payloadBytes = 0, payloadDuration100ns = 0, bufferSamples = 0;
+        bool pauseMode = false, pausedReady = false, resumeAccepted = false, resumedBuffering = false;
+        bool pauseBeforeFirstSave = false;
+        unsigned pauseAcknowledgments = 0;
+        std::array<bool, 3> pauseSaves{};
+        std::array<std::uint64_t, 3> pauseStarts{}, pauseEnds{};
         static std::uint64_t Number(const std::string& text, const char* key)
         {
             const auto at = text.find(key); Need(at != std::string::npos, "buffer_scalar_missing");
@@ -296,13 +302,38 @@ namespace
                     {
                         const bool okay = line.find("\"ok\":true") != std::string::npos;
                         if (line.find("\"request\":2,") != std::string::npos) start = okay;
-                        if (line.find("\"request\":3,") != std::string::npos)
+                        if (pauseMode)
+                        {
+                            const auto request = Number(line, "\"request\":");
+                            Need(okay, "pause_fixture_command_refused");
+                            if (request == 3 || request == 5 || request == 8)
+                            {
+                                const std::size_t index = request == 3 ? 0 : request == 5 ? 1 : 2;
+                                Need(line.find("\"hasAudio\":true") != std::string::npos, "pause_fixture_audio_missing");
+                                Need(Number(line, "\"fileBytes\":") > 0, "pause_fixture_media_missing");
+                                pauseSaves[index] = true;
+                                pauseStarts[index] = Number(line, "\"start100ns\":");
+                                pauseEnds[index] = Number(line, "\"end100ns\":");
+                                saved = audio = pauseSaves[0] && pauseSaves[1] && pauseSaves[2];
+                            }
+                            if (request == 4 || request == 7)
+                            {
+                                if (request == 4) pauseBeforeFirstSave = !pauseSaves[0];
+                                ++pauseAcknowledgments;
+                            }
+                            if (request == 6) resumeAccepted = true;
+                            if (request == 9) stopped = true;
+                        }
+                        else if (line.find("\"request\":3,") != std::string::npos)
                         { saveResult = true; saved = okay && line.find("\"fileBytes\":") != std::string::npos; audio = line.find("\"hasAudio\":true") != std::string::npos; }
-                        if (line.find("\"request\":4,") != std::string::npos) stopped = okay;
+                        if (!pauseMode && line.find("\"request\":4,") != std::string::npos) stopped = okay;
                     }
+                    if (line.find("\"state\":\"paused\"") != std::string::npos)
+                        pausedReady = line.find("\"bufferReady\":true") != std::string::npos;
                     if (line.find("\"state\":\"buffering\"") != std::string::npos)
                     {
                         buffering = true;
+                        if (resumeAccepted) resumedBuffering = true;
                         bufferingAudio |= line.find("\"reason\":\"none\"") != std::string::npos;
                         if (line.find("\"losslessBuffer\":{") != std::string::npos)
                         {
@@ -331,9 +362,11 @@ int wmain(int argc, wchar_t** argv)
         const int result = recorder::capture::RunSyntheticShaderCheck();
         (void)SetEvent(stop.value); limit.join(); return result;
     }
-    if ((argc != 5 && argc != 7) || std::wcscmp(argv[1], L"--output") != 0 || std::wcscmp(argv[3], L"--mode") != 0 ||
+    if ((argc != 5 && argc != 6 && argc != 7) || std::wcscmp(argv[1], L"--output") != 0 || std::wcscmp(argv[3], L"--mode") != 0 ||
         (std::wcscmp(argv[4], L"lossless") != 0 && std::wcscmp(argv[4], L"compressed") != 0))
-    { std::puts("--output <fresh checkout work directory> --mode lossless|compressed [--pattern high-output|varying-8x8]"); return 1; }
+    { std::puts("--output <fresh checkout work directory> --mode lossless|compressed [--pause-resume | --pattern high-output|varying-8x8]"); return 1; }
+    const bool pauseMode = argc == 6 && std::wcscmp(argv[5], L"--pause-resume") == 0;
+    if (argc == 6 && !pauseMode) return 1;
     const bool highOutput = argc == 7;
     if (highOutput && (std::wcscmp(argv[5], L"--pattern") != 0 ||
         (std::wcscmp(argv[6], L"high-output") != 0 && std::wcscmp(argv[6], L"varying-8x8") != 0) ||
@@ -357,6 +390,11 @@ int wmain(int argc, wchar_t** argv)
     ULONGLONG startAt = 0, checkedAt = 0;
     const ULONGLONG began = GetTickCount64();
     Observation observations, diagnostics;
+    observations.pauseMode = pauseMode;
+    bool pausedSaveSent = false, resumeSent = false, finalPauseSent = false;
+    ULONGLONG pausedAt = 0, resumedAt = 0;
+    std::uint64_t frozenFrames = 0;
+    bool pauseFramesUnchanged = false;
     try
     {
         Need(AppsClosed(), "apps_must_be_closed");
@@ -385,18 +423,54 @@ int wmain(int argc, wchar_t** argv)
                 // interval and any in-flight native writes before termination.
                 if (maximumBytes >= 6 * GiB) Kill(126);
             }
-            if (!highOutput && startAt && now - startAt >= 35000 && !saveSent && !stopSent)
+            if (pauseMode && startAt && !stopSent)
+            {
+                const auto save = [&](int request, const char* clip)
+                {
+                    Command(input.write.value, Common(request, "save") + ",\"clipId\":\"" + clip + "\",\"destination\":" +
+                        JsonPath(output.path + L"\\" + std::wstring(clip, clip + 32) + L".mp4") + '}');
+                };
+                if (!saveSent && observations.bufferingAudio && now - startAt >= 4000)
+                {
+                    save(3, Clip);
+                    Command(input.write.value, Common(4, "pause") + '}');
+                    saveSent = true;
+                }
+                if (observations.pauseAcknowledgments && observations.pausedReady && !pausedAt)
+                { pausedAt = now; frozenFrames = recorder::capture::SyntheticFrameCount(); }
+                if (pausedAt && !resumeSent)
+                {
+                    Need(recorder::capture::SyntheticFrameCount() == frozenFrames, "capture_advanced_while_paused");
+                    if (!pausedSaveSent && observations.pauseSaves[0] && now - pausedAt >= 1000)
+                    { save(5, "33333333333343338333333333333333"); pausedSaveSent = true; }
+                    if (observations.pauseSaves[1] && now - pausedAt >= 2000)
+                    {
+                        pauseFramesUnchanged = true;
+                        Command(input.write.value, Common(6, "resume") + ",\"processId\":" + std::to_string(GetCurrentProcessId()) +
+                            ",\"window\":\"1\",\"creationFileTime\":\"" + std::to_string(Creation()) + "\"}");
+                        resumeSent = true;
+                    }
+                }
+                if (observations.resumedBuffering && !resumedAt) resumedAt = now;
+                if (resumedAt && !finalPauseSent && now - resumedAt >= 3000)
+                {
+                    Command(input.write.value, Common(7, "pause") + '}');
+                    save(8, "44444444444444448444444444444444"); finalPauseSent = true;
+                }
+            }
+            if (!pauseMode && !highOutput && startAt && now - startAt >= 35000 && !saveSent && !stopSent)
             {
                 Command(input.write.value, Common(3, "save") + ",\"clipId\":\"" + Clip + "\",\"destination\":" +
                     JsonPath(output.path + L"\\" + std::wstring(Clip, Clip + 32) + L".mp4") + '}');
                 saveSent = true;
             }
             const bool plannedEnd = highOutput && startAt && now - startAt >= 8000;
-            if (!stopSent && (plannedEnd || observations.saveResult || maximumBytes >= 4 * GiB || now - began >= 45000))
+            if (!stopSent && (plannedEnd || observations.saveResult || (pauseMode && observations.pauseSaves[2]) ||
+                maximumBytes >= 4 * GiB || now - began >= (pauseMode ? 25000ull : 45000ull)))
             {
-                stopTrigger = maximumBytes >= 4 * GiB ? "output_soft_limit" : now - began >= 45000 ? "process_deadline" :
-                    plannedEnd ? "planned_eight_seconds" : "save_result";
-                Command(input.write.value, Common(4, "stop") + '}'); stopSent = true;
+                stopTrigger = maximumBytes >= 4 * GiB ? "output_soft_limit" : now - began >= (pauseMode ? 25000ull : 45000ull) ? "process_deadline" :
+                    plannedEnd ? "planned_eight_seconds" : pauseMode ? "pause_resume_saves_complete" : "save_result";
+                Command(input.write.value, Common(pauseMode ? 9 : 4, "stop") + '}'); stopSent = true;
             }
             Sleep(5);
         }
@@ -414,7 +488,13 @@ int wmain(int argc, wchar_t** argv)
     }
     if (redirected)
     { (void)SetStdHandle(STD_INPUT_HANDLE, oldInput); (void)SetStdHandle(STD_OUTPUT_HANDLE, oldOutput); (void)SetStdHandle(STD_ERROR_HANDLE, oldError); }
-    const bool runSatisfied = highOutput ? !saveSent && observations.bufferingAudio && observations.bufferSamples > 0 &&
+    const bool pauseSatisfied = pauseFramesUnchanged && observations.pauseAcknowledgments == 2 && observations.resumeAccepted &&
+        observations.resumedBuffering && observations.pauseSaves[0] && observations.pauseSaves[1] && observations.pauseSaves[2] &&
+        observations.pauseStarts[2] == observations.pauseStarts[0] && observations.pauseEnds[1] >= observations.pauseEnds[0] &&
+        observations.pauseEnds[2] >= observations.pauseEnds[1] + 20000000 &&
+        observations.pauseEnds[2] <= observations.pauseEnds[1] + 40000000 &&
+        std::strcmp(stopTrigger, "pause_resume_saves_complete") == 0;
+    const bool runSatisfied = pauseMode ? pauseSatisfied : highOutput ? !saveSent && observations.bufferingAudio && observations.bufferSamples > 0 &&
         observations.payloadDuration100ns >= 6ull * 10000000 && std::strcmp(stopTrigger, "planned_eight_seconds") == 0 :
         saveSent && observations.saved && observations.audio;
     const bool completed = std::strcmp(failure, "none") == 0 && hostExit == 0 && runSatisfied && observations.stopped;
@@ -428,7 +508,7 @@ int wmain(int argc, wchar_t** argv)
                 Write(timings.value, recorder::synthetic_timing::Report());
             }
             const std::string result = "{\"mode\":\"synthetic_host\",\"completed\":" + std::string(completed ? "true" : "false") +
-                ",\"variant\":\"" + (detailCellSize == 8 ? "varying_8x8_eight_seconds_no_save" :
+                ",\"variant\":\"" + (pauseMode ? "pause_save_resume_same_epoch" : detailCellSize == 8 ? "varying_8x8_eight_seconds_no_save" :
                     highOutput ? "high_output_eight_seconds_no_save" : "baseline_save_at_thirty_five_seconds") +
                 "\",\"stopTrigger\":\"" + stopTrigger + "\",\"selectedDurationSeconds\":30" +
                 ",\"frameVaryingDetailCellSide\":" + std::to_string(detailCellSize) +
@@ -441,6 +521,9 @@ int wmain(int argc, wchar_t** argv)
                 ",\"lastBufferDuration100ns\":" + std::to_string(observations.payloadDuration100ns) +
                 ",\"sampledPayloadBytesPerSecond\":" + std::to_string(observations.payloadDuration100ns ? observations.payloadBytes * 10000000 / observations.payloadDuration100ns : 0) +
                 ",\"bufferStatusSamples\":" + std::to_string(observations.bufferSamples) +
+                ",\"pauseFramesUnchanged\":" + (pauseFramesUnchanged ? "true" : "false") +
+                ",\"pauseBeforeFirstSaveCompleted\":" + (observations.pauseBeforeFirstSave ? "true" : "false") +
+                ",\"pauseResumeHistoryVerified\":" + (pauseSatisfied ? "true" : "false") +
                 ",\"timingInstrumented\":" + (recorder::synthetic_timing::Enabled() ? "true" : "false") +
                 ",\"desktopCapture\":false,\"windowsCreated\":false,\"selfProcessAudioOnly\":true,\"managedRecoveryTested\":false}\n";
             Write(report.value, result);

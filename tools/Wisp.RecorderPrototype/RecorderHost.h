@@ -36,6 +36,10 @@ namespace recorder::host
     bool FrameTime(std::uint64_t epoch, std::uint32_t index, std::uint32_t rate,
         std::uint64_t& due100ns, std::int64_t& pts100ns) noexcept;
     bool SchedulingAllowed(std::uint64_t now, std::uint64_t due) noexcept;
+    // A resumed audio sample preserves its existing media index. Only the wall
+    // scheduler origin changes, within the normal bounded A/V scheduling gap.
+    bool RebasePausedClock(std::uint64_t source100ns, std::int64_t media100ns,
+        std::uint32_t nextFrame, std::uint32_t frameRate, std::uint64_t& epoch100ns) noexcept;
     // Receipt age measures local liveness. Presentation time remains the media
     // epoch. False signals visible stale-frame repetition, not a buffer reset.
     bool FrameFresh(std::uint64_t now, std::uint64_t presentation, std::uint64_t received,

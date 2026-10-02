@@ -119,7 +119,7 @@ namespace recorder::encoder::detail
     void VerifyOutput(HardwareSession&, const EncodeConfig&, Evidence&);
     void CreateTextures(ID3D11Device*, const std::shared_ptr<SharedState>&, UINT bindFlags,
         const EncodeConfig&, bool provider);
-    void Submit(HardwareSession&, const std::shared_ptr<SharedState>&, UINT slot, UINT frame,
+    bool Submit(HardwareSession&, const std::shared_ptr<SharedState>&, UINT slot, UINT frame,
         const EncodeConfig&, FixtureFrameProvider*, ID3D10Multithread*, Evidence&,
         LONGLONG time100ns, LONGLONG duration100ns);
     void ReadOutput(HardwareSession&, const EncodeConfig&, Evidence&, FixtureObserver*,

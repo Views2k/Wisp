@@ -149,6 +149,74 @@ namespace recorder::audio
                 test(timeline.Inspect(MakePacket(Epoch), slice) == TimelineResult::Feed);
                 test(timeline.Inspect(MakePacket(adjustment == 0 ? Epoch : Epoch - 1), slice) == TimelineResult::Failed);
             }
+            {
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions));
+                test(timeline.Inspect(MakePacket(Epoch + 208), slice) == TimelineResult::Feed);
+                test(slice.firstFrameIndex == 0 && slice.audioEpochTime100ns == 208 && slice.sourceTime100ns == Epoch + 208);
+                test(!timeline.Resume(Epoch + 10000000)); // Re-anchoring needs an explicit pause.
+                test(timeline.Pause() && timeline.Result().paused);
+                test(!timeline.Pause());
+                constexpr auto resumed = Epoch + 3000000000ull;
+                test(timeline.Resume(resumed + 1) && !timeline.Result().paused && !timeline.Result().anchored);
+                auto packet = MakePacket(resumed); packet.discontinuity = true;
+                test(timeline.Inspect(packet, slice) == TimelineResult::Feed);
+                test(slice.firstFrameIndex == 480 && slice.frames == 479 && slice.skippedPrefixFrames == 1 &&
+                    slice.audioEpochTime100ns == 208 && slice.sourceTime100ns == resumed + 208);
+                test(timeline.Inspect(MakePacket(resumed + 100000), slice) == TimelineResult::Feed &&
+                    slice.firstFrameIndex == 959 && timeline.Result().lastResidual100ns == 0);
+                // A second wall-clock gap keeps every previous AAC frame index.
+                test(timeline.Pause() && timeline.Resume(resumed + 10000000));
+                test(timeline.Inspect(MakePacket(resumed + 10000000), slice) == TimelineResult::Feed &&
+                    slice.firstFrameIndex == 1439 && slice.audioEpochTime100ns == 208);
+                packet = MakePacket(resumed + 10100000); packet.discontinuity = true;
+                test(timeline.Inspect(packet, slice) == TimelineResult::Failed);
+                test(!timeline.Pause() && !timeline.Resume(resumed + 20000000));
+            }
+            {
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions) && timeline.Pause());
+                test(!timeline.Resume(0) && !timeline.Resume(maximum + 1) && !timeline.Resume(Epoch + 1, -1));
+                test(timeline.Result().paused && timeline.Result().retainedFrames == 0);
+                test(timeline.Resume(Epoch + 10000000, 333333));
+                test(timeline.Inspect(MakePacket(Epoch + 10000000), slice) == TimelineResult::Feed &&
+                    slice.firstFrameIndex == 0 && slice.audioEpochTime100ns == 333333);
+                test(timeline.Pause());
+                test(!timeline.Resume(Epoch + 10000000));
+                test(timeline.Inspect(MakePacket(Epoch + 10100000), slice) == TimelineResult::Failed);
+            }
+            {
+                // Startup can hold an accepted slice until video bootstrap.
+                // A resume preview must not accept a second slice ahead of it.
+                AudioTimeline timeline; FeedSlice held, previewSlice, actual;
+                const auto first = MakePacket(Epoch + 208);
+                test(timeline.Initialize(FixtureOptions) && timeline.Inspect(first, held) == TimelineResult::Feed);
+                constexpr auto resumed = Epoch + 10000000;
+                test(timeline.Pause() && timeline.Resume(resumed + 1));
+                auto packet = MakePacket(resumed);
+                auto preview = timeline;
+                test(preview.Inspect(packet, previewSlice) == TimelineResult::Feed);
+                test(timeline.Result().retainedFrames == 480 && timeline.Result().acceptedPackets == 1 &&
+                    !timeline.Result().anchored && held.firstFrameIndex == 0 && held.frames == 480);
+                test(previewSlice.firstFrameIndex == 480 && previewSlice.skippedPrefixFrames == 1 &&
+                    previewSlice.audioEpochTime100ns == 208 && previewSlice.sourceTime100ns == resumed + 208);
+                test(timeline.Inspect(packet, actual) == TimelineResult::Feed &&
+                    actual.firstFrameIndex == previewSlice.firstFrameIndex && actual.frames == previewSlice.frames &&
+                    actual.audioEpochTime100ns == previewSlice.audioEpochTime100ns && actual.sourceTime100ns == previewSlice.sourceTime100ns);
+                test(timeline.Result().retainedFrames == 959 && timeline.Result().acceptedPackets == 2);
+
+                // A second pause abandons only the unaccepted preview packet.
+                test(timeline.Pause() && timeline.Resume(resumed + 10000000));
+                preview = timeline;
+                packet = MakePacket(resumed + 10000000);
+                test(preview.Inspect(packet, previewSlice) == TimelineResult::Feed && previewSlice.firstFrameIndex == 959);
+                test(timeline.Pause() && timeline.Resume(resumed + 20000000));
+                packet = MakePacket(resumed + 20000000);
+                preview = timeline;
+                test(preview.Inspect(packet, previewSlice) == TimelineResult::Feed && previewSlice.firstFrameIndex == 959);
+                test(timeline.Inspect(packet, actual) == TimelineResult::Feed && actual.firstFrameIndex == 959 &&
+                    actual.sourceTime100ns == previewSlice.sourceTime100ns && timeline.Result().retainedFrames == 1439);
+            }
         }
         catch (...) { if (failedCheck) *failedCheck = checks + 1; return 0; }
         if (failedCheck) *failedCheck = failure;

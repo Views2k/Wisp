@@ -9,12 +9,18 @@
 #include <array>
 #include <chrono>
 #include <cwchar>
+#include <cstring>
 #include <limits>
 #include <new>
 #include <vector>
 
 namespace recorder::capture
 {
+    bool IsScreenPauseReason(const char* reason) noexcept
+    {
+        return reason && (std::strcmp(reason, "target_focus_lost") == 0 ||
+            std::strcmp(reason, "target_window_minimized") == 0 || std::strcmp(reason, "target_not_fullscreen") == 0);
+    }
     SourceEncoding ScreenSourceEncoding(DXGI_COLOR_SPACE_TYPE color, DXGI_FORMAT format) noexcept
     {
         if (color == DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 && format == DXGI_FORMAT_B8G8R8A8_UNORM)
@@ -213,13 +219,15 @@ namespace recorder::capture
         winrt::com_ptr<IDXGIOutputDuplication> duplication;
         winrt::com_ptr<ID3D11Texture2D> latest;
         bool frameHeld = false;
+        bool latestAvailable = false;
         FrameInfo frame{};
         std::uint64_t frequency = 0;
+        LONGLONG resumedAfter100ns = 0;
         Clock::time_point nextAcquire = Clock::time_point::min();
         Clock::time_point lastDisplayCheck = Clock::time_point::min();
         std::chrono::nanoseconds period{};
 
-        void ValidateBasic() const
+        void ValidateIdentity() const
         {
             Require(ownerThread == GetCurrentThreadId(), "wrong_capture_worker");
             Require(WaitForSingleObject(process, 0) == WAIT_TIMEOUT, "target_process_exited");
@@ -227,12 +235,16 @@ namespace recorder::capture
             Require(GetWindowThreadProcessId(target.window, &processId) != 0 && IsWindow(target.window) &&
                 processId == target.processId && GetAncestor(target.window, GA_ROOT) == target.window,
                 "target_window_identity_changed");
-            Require(IsWindowVisible(target.window) != FALSE, "target_window_hidden");
+        }
+        void ValidateBasic() const
+        {
+            ValidateIdentity();
             Require(IsIconic(target.window) == FALSE, "target_window_minimized");
+            Require(GetForegroundWindow() == target.window, "target_focus_lost");
+            Require(IsWindowVisible(target.window) != FALSE, "target_window_hidden");
             DWORD cloaked = 0;
             Check(DwmGetWindowAttribute(target.window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked)), "target_cloak_query_failed");
             Require(cloaked == 0, "target_window_hidden");
-            Require(GetForegroundWindow() == target.window, "target_focus_lost");
             Require(MonitorFromWindow(target.window, MONITOR_DEFAULTTONULL) == monitor, "target_monitor_changed");
             MONITORINFO description{}; description.cbSize = sizeof(description);
             CheckWin32(GetMonitorInfoW(monitor, &description), "monitor_description_failed");
@@ -281,6 +293,15 @@ namespace recorder::capture
     GameScreenCapture::~GameScreenCapture() { (void)Close(); }
     bool GameScreenCapture::Fail(const char* reason, HRESULT hr) noexcept
     {
+        // A desktop transition may invalidate duplication before the next
+        // foreground guard. Preserve history only when focus loss is observed;
+        // a focused access loss still follows normal capture recovery.
+        if (evidence_.started && impl_ && hr == DXGI_ERROR_ACCESS_LOST &&
+            WaitForSingleObject(impl_->process, 0) == WAIT_TIMEOUT && IsWindow(impl_->target.window) &&
+            GetForegroundWindow() != impl_->target.window)
+            reason = "target_focus_lost";
+        if (evidence_.started && IsScreenPauseReason(reason) && Pause())
+        { evidence_.reason = reason; evidence_.hr = S_FALSE; return false; }
         if (!evidence_.stopped) { evidence_.reason = reason; evidence_.hr = hr; evidence_.stopped = true; }
         return false;
     }
@@ -394,6 +415,7 @@ namespace recorder::capture
     {
         if (!impl_ || closed_ || !evidence_.initialized) return Fail("capture_not_initialized", E_UNEXPECTED);
         if (evidence_.stopped) return false;
+        if (paused_) return false;
         auto& value = *impl_;
         try
         {
@@ -441,6 +463,12 @@ namespace recorder::capture
             LONGLONG raw = 0, normalized = 0; bool clamped = false;
             Require(ScreenQpcTo100ns(static_cast<std::uint64_t>(frame.LastPresentTime.QuadPart), value.frequency, raw) &&
                 NormalizeFrameTimestamp(raw, value.frame.timestamp100ns, normalized, clamped), "capture_timestamp_invalid");
+            if (value.resumedAfter100ns && raw < value.resumedAfter100ns)
+            {
+                const HRESULT released = RecordRelease(value.Release(), evidence_, false);
+                Check(released, "duplication_release_failed");
+                return true;
+            }
             Require(value.frame.version != (std::numeric_limits<std::uint64_t>::max)() &&
                 (!clamped || evidence_.timestampClamps != (std::numeric_limits<std::uint64_t>::max)()), "capture_counter_limit");
             {
@@ -452,6 +480,7 @@ namespace recorder::capture
                 value.frame.timestamp100ns = normalized; value.frame.rawTimestamp100ns = raw;
                 value.frame.receivedQpc = static_cast<std::uint64_t>(received.QuadPart);
                 ++value.frame.version;
+                value.latestAvailable = true;
                 if (clamped) ++evidence_.timestampClamps;
             }
             // Commands are ordered on this owned immediate context. Release the
@@ -479,12 +508,13 @@ namespace recorder::capture
         info = {};
         if (!impl_ || closed_ || !evidence_.started || impl_->ownerThread != GetCurrentThreadId()) return E_UNEXPECTED;
         if (evidence_.stopped) return FAILED(evidence_.hr) ? evidence_.hr : E_ABORT;
+        if (paused_) return S_FALSE;
         if (!destination) return E_INVALIDARG;
         try
         {
             auto& value = *impl_;
             value.ValidateBasic(); value.ValidateDisplay(false);
-            if (!value.frame.version) return S_FALSE;
+            if (!value.latestAvailable) return S_FALSE;
             const HRESULT result = consumer.Submit(value.latest.get(), destination);
             Check(result, "capture_conversion_failed");
             value.ValidateBasic(); value.ValidateDisplay(false);
@@ -494,9 +524,69 @@ namespace recorder::capture
         catch (const Failure& error) { Fail(error.reason, error.hr); }
         catch (const winrt::hresult_error& error) { Fail("capture_conversion_failed", error.code()); }
         catch (...) { Fail("capture_conversion_failed", E_FAIL); }
-        return evidence_.hr;
+        return paused_ ? S_FALSE : evidence_.hr;
+    }
+    bool GameScreenCapture::Pause() noexcept
+    {
+        if (!impl_ || closed_ || evidence_.stopped || impl_->ownerThread != GetCurrentThreadId()) return false;
+        if (paused_) return true;
+        auto& value = *impl_;
+        const HRESULT released = RecordRelease(value.Release(), evidence_, true);
+        if (FAILED(released))
+        {
+            evidence_.cleanupHr = released; evidence_.hr = released;
+            evidence_.reason = "duplication_release_failed"; evidence_.stopped = true;
+            return false;
+        }
+        value.duplication = nullptr; value.latestAvailable = false; value.nextAcquire = Clock::time_point::min();
+        evidence_.reason = "target_focus_lost"; evidence_.hr = S_FALSE;
+        paused_ = true;
+        return true;
+    }
+    bool GameScreenCapture::Resume(const TargetIdentity& target) noexcept
+    {
+        if (!impl_ || closed_ || evidence_.stopped || !paused_ || !evidence_.started) return false;
+        auto& value = *impl_;
+        try
+        {
+            Require(target.window == value.target.window && target.processId == value.target.processId &&
+                target.creationTime == value.target.creationTime, "target_window_identity_changed");
+            value.ValidateBasic();
+            const DXGI_FORMAT formats[]{ DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_B8G8R8A8_UNORM };
+            const HRESULT duplicated = value.display.output->DuplicateOutput1(value.device.get(), 0,
+                static_cast<UINT>(std::size(formats)), formats, value.duplication.put());
+            Check(duplicated, DuplicationFailure(duplicated));
+            value.lastDisplayCheck = Clock::time_point::min();
+            value.ValidateDisplay(true); value.ValidateBasic();
+            LARGE_INTEGER now{};
+            CheckWin32(QueryPerformanceCounter(&now), "capture_clock_failed");
+            Require(now.QuadPart > 0 && ScreenQpcTo100ns(static_cast<std::uint64_t>(now.QuadPart),
+                value.frequency, value.resumedAfter100ns), "capture_clock_invalid");
+            paused_ = false; evidence_.reason = "capture_resumed"; evidence_.hr = S_OK;
+            return true;
+        }
+        catch (const Failure& error)
+        {
+            value.duplication = nullptr;
+            return Fail(error.reason, error.hr);
+        }
+        catch (const winrt::hresult_error& error) { value.duplication = nullptr; return Fail("capture_resume_failed", error.code()); }
+        catch (...) { value.duplication = nullptr; return Fail("capture_resume_failed", E_FAIL); }
     }
     Evidence GameScreenCapture::Result() const noexcept { return evidence_; }
+    bool GameScreenCapture::HasFrame() const noexcept
+    { return impl_ && !closed_ && !paused_ && !evidence_.stopped && impl_->latestAvailable; }
+    bool GameScreenCapture::IsForeground() const noexcept
+    { return impl_ && !closed_ && GetForegroundWindow() == impl_->target.window && IsIconic(impl_->target.window) == FALSE; }
+    HWND GameScreenCapture::TargetWindow() const noexcept
+    { return impl_ && !closed_ ? impl_->target.window : nullptr; }
+    bool GameScreenCapture::CheckIdentity() noexcept
+    {
+        if (!impl_ || closed_ || evidence_.stopped) return false;
+        try { impl_->ValidateIdentity(); return true; }
+        catch (const Failure& error) { return Fail(error.reason, error.hr); }
+        catch (...) { return Fail("target_window_identity_changed", E_FAIL); }
+    }
     HRESULT GameScreenCapture::Close() noexcept
     {
         if (closed_) return evidence_.cleanupHr;
@@ -527,6 +617,10 @@ namespace recorder::capture
     {
         UINT count = 0; bool passed = true;
         const auto test = [&](bool value) { ++count; passed = passed && value; };
+        test(IsScreenPauseReason("target_focus_lost") && IsScreenPauseReason("target_window_minimized") &&
+            IsScreenPauseReason("target_not_fullscreen"));
+        test(!IsScreenPauseReason(nullptr) && !IsScreenPauseReason("target_process_exited") &&
+            !IsScreenPauseReason("capture_device_removed") && !IsScreenPauseReason("display_color_changed"));
         test(ScreenSourceEncoding(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, DXGI_FORMAT_B8G8R8A8_UNORM) == SourceEncoding::SrgbBgra8);
         test(ScreenSourceEncoding(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, DXGI_FORMAT_R16G16B16A16_FLOAT) == SourceEncoding::LinearScRgbFp16);
         test(ScreenSourceEncoding(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, DXGI_FORMAT_R10G10B10A2_UNORM) == SourceEncoding::Unknown);

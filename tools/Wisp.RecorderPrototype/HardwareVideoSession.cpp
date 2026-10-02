@@ -401,8 +401,8 @@ namespace recorder::encoder
                 HRESULT Fill(UINT frame, UINT, ID3D11Texture2D* destination) noexcept override
                 { return writer.Fill(frame, destination); }
             } adapter{ writer };
-            Submit(value.session, value.state, static_cast<UINT>(slot), frameIndex, value.configuration,
-                &adapter, value.multithread.Get(), evidence_, time, duration);
+            if (!Submit(value.session, value.state, static_cast<UINT>(slot), frameIndex, value.configuration,
+                &adapter, value.multithread.Get(), evidence_, time, duration)) return SubmitResult::WouldBlock;
             if (evidence_.submitted == 0) firstInputTime_ = time;
             lastInputTime_ = time;
             ++evidence_.submitted;

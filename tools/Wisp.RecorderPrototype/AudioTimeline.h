@@ -17,11 +17,12 @@ namespace recorder::audio
         std::uint32_t frames = 0, skippedPrefixFrames = 0;
         std::uint64_t firstFrameIndex = 0; // Continuous AAC input index, starting0.
         std::int64_t audioEpochTime100ns = 0; // Nonnegative offset from the common video epoch.
+        std::uint64_t sourceTime100ns = 0; // QPC of the first retained sample in this slice.
     };
     struct TimelineEvidence
     {
         const char* reason = "not_started";
-        bool initialized = false, anchored = false, failed = false;
+        bool initialized = false, anchored = false, failed = false, paused = false;
         bool initialDiscontinuityObserved = false;
         std::uint64_t policyAllowance100ns = 0;
         std::uint64_t sourcePackets = 0, acceptedPackets = 0, beforeEpochPackets = 0;
@@ -39,9 +40,10 @@ namespace recorder::audio
     bool TimelineFrameTime(std::uint64_t anchorQpc100ns, std::uint64_t nominalFrames, std::uint64_t& time100ns) noexcept;
 
     // One caller-owned worker. No PCM storage, mutation, generated silence,
-    // resampling, gap repair or repeated clock re-anchoring. Saving does not
-    // reset this timeline. A discontinuity/error after the first retained sample
-    // is terminal; the orchestrator must end the synchronized recorder epoch.
+    // resampling or gap repair. An explicit stopped-source pause/resume may
+    // replace the source QPC anchor while preserving the continuous AAC index;
+    // within each source segment discontinuities remain terminal. Saving does
+    // not reset this timeline.
     // Valid samples before the common video epoch are explicitly discarded;
     // an overlapping packet is trimmed at the first nominal PCM boundary on or
     // after it. The first retained sample sets AAC's epoch, with index0. Once
@@ -50,6 +52,11 @@ namespace recorder::audio
     {
     public:
         bool Initialize(const TimelineOptions&) noexcept;
+        bool Pause() noexcept;
+        // Call only after stopping/joining the old producer. Consume any last
+        // accepted slice before inspecting the new source. Pre-resume source
+        // samples are trimmed; the old AAC index and media origin are retained.
+        bool Resume(std::uint64_t minimumSourceTime100ns, std::int64_t initialMediaTime100ns = 0) noexcept;
         TimelineResult Inspect(const Packet&, FeedSlice&) noexcept;
         const TimelineEvidence& Result() const noexcept { return evidence_; }
     private:
@@ -57,6 +64,7 @@ namespace recorder::audio
         TimelineOptions options_{};
         TimelineEvidence evidence_{};
         bool havePreviousPacket_ = false;
+        bool resumeAnchor_ = false;
         std::uint64_t previousQpc100ns_ = 0;
         // Original first retained PACKET timestamp plus its source-frame count.
         // Keep the trim phase separate from AAC's rounded epoch/index clock.

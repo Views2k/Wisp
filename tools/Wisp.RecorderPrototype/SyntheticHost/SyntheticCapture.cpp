@@ -5,6 +5,7 @@
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -20,6 +21,7 @@ namespace recorder::capture
     {
         constexpr UINT Width = 3840, Height = 2160;
         UINT DetailCellSize = 0; // Configured before the host thread starts.
+        std::atomic<std::uint64_t> CapturedFrames{0};
         constexpr char Shader[] = R"(
 cbuffer Clock : register(b0) { uint frame; uint highOutput; uint cellSize; uint padding; };
 float4 VS(uint id : SV_VertexID) : SV_POSITION {
@@ -60,6 +62,7 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
         ComPtr<ID3D11PixelShader> pixel;
         ComPtr<ID3D11Buffer> clock;
         FrameInfo frame{};
+        TargetIdentity identity{};
         std::uint64_t frequency = 0, began = 0, lastIndex = UINT64_MAX;
     };
     GameScreenCapture::GameScreenCapture() noexcept = default;
@@ -67,6 +70,7 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
     bool GameScreenCapture::Fail(const char* reason, HRESULT hr) noexcept
     { evidence_.reason = reason; evidence_.hr = hr; return false; }
     void ConfigureSyntheticPattern(UINT cellSize) noexcept { DetailCellSize = cellSize; }
+    std::uint64_t SyntheticFrameCount() noexcept { return CapturedFrames.load(); }
 
     bool GameScreenCapture::Initialize(const TargetIdentity& identity, const Options& options) noexcept
     {
@@ -82,6 +86,7 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
             stage = "fixture_allocation_failed";
             impl_ = std::make_unique<Impl>();
             auto& v = *impl_;
+            v.identity = identity;
             LARGE_INTEGER frequency{};
             if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) return Fail("fixture_clock_failed", E_FAIL);
             v.frequency = static_cast<std::uint64_t>(frequency.QuadPart);
@@ -129,6 +134,9 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
     bool GameScreenCapture::CheckTarget() noexcept
     {
         if (!impl_ || closed_) return Fail("fixture_closed", E_UNEXPECTED);
+#if defined(WISP_CAPTURE_PAUSE_API)
+        if (paused_) return false;
+#endif
         if (!evidence_.started) return true;
         LARGE_INTEGER now{};
         if (!QueryPerformanceCounter(&now) || now.QuadPart <= 0) return Fail("fixture_clock_failed", E_FAIL);
@@ -155,16 +163,42 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
         v.lastIndex = index;
         const auto timestamp = ticks / v.frequency * 10000000 + ticks % v.frequency * 10000000 / v.frequency;
         v.frame = { ++evidence_.copiedFrames, static_cast<LONGLONG>(timestamp), static_cast<LONGLONG>(timestamp), ticks };
+        CapturedFrames.fetch_add(1);
         return true;
     }
     ID3D11Device* GameScreenCapture::Device() const noexcept { return impl_ ? impl_->device.Get() : nullptr; }
     const SourceDescription& GameScreenCapture::Source() const noexcept { return source_; }
     HRESULT GameScreenCapture::SubmitLatestLocked(ID3D11Texture2D* destination, FrameConsumer& consumer, FrameInfo& frame) noexcept
     {
+#if defined(WISP_CAPTURE_PAUSE_API)
+        if (paused_) return S_FALSE;
+#endif
         if (!impl_ || closed_ || !evidence_.started || !evidence_.copiedFrames || !destination) return E_UNEXPECTED;
         frame = impl_->frame; return consumer.Submit(impl_->texture.Get(), destination);
     }
     Evidence GameScreenCapture::Result() const noexcept { return evidence_; }
+#if defined(WISP_CAPTURE_PAUSE_API)
+    bool GameScreenCapture::Pause() noexcept
+    {
+        if (!impl_ || closed_) return false;
+        paused_ = true; impl_->frame = {}; evidence_.reason = "target_focus_lost"; evidence_.hr = S_FALSE;
+        return true;
+    }
+    bool GameScreenCapture::Resume(const TargetIdentity& target) noexcept
+    {
+        if (!impl_ || closed_ || !paused_ || target.window != impl_->identity.window ||
+            target.processId != impl_->identity.processId || target.creationTime != impl_->identity.creationTime) return false;
+        paused_ = false; impl_->lastIndex = UINT64_MAX; evidence_.reason = "fixture_resumed"; evidence_.hr = S_OK;
+        return true;
+    }
+    bool GameScreenCapture::HasFrame() const noexcept
+    { return impl_ && !closed_ && !paused_ && impl_->frame.version != 0; }
+    bool GameScreenCapture::CheckIdentity() noexcept
+    { return impl_ && !closed_ && impl_->identity.processId == GetCurrentProcessId(); }
+    bool GameScreenCapture::IsForeground() const noexcept
+    { return impl_ && !closed_ && !paused_; }
+    HWND GameScreenCapture::TargetWindow() const noexcept { return nullptr; } // Explicit no-window/self-audio fixture.
+#endif
     HRESULT GameScreenCapture::Close() noexcept
     {
         if (closed_) return evidence_.cleanupHr;

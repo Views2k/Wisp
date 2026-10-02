@@ -134,9 +134,6 @@ public sealed class RecorderProcessClientTests
 
     [Theory]
     [InlineData("reconnecting", "capture_reconnecting")]
-    [InlineData("paused", "window_minimized")]
-    [InlineData("paused", "focus_lost")]
-    [InlineData("paused", "fullscreen_required")]
     public async Task TerminalRecoveryDoesNotBecomeUnexpectedExitOrSendAStopCommand(string terminalState, string reason)
     {
         using var fixture = new Fixture();
@@ -323,6 +320,79 @@ public sealed class RecorderProcessClientTests
         Assert.Equal("protocol_error", error.Reason);
     }
 
+    [Theory]
+    [InlineData("window_minimized")]
+    [InlineData("focus_lost")]
+    [InlineData("fullscreen_required")]
+    public async Task PauseKeepsAnActiveSaveAndAllowsResumeOnTheSameChild(string reason)
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild { HoldSave = true };
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+        await client.OpenAsync(Recording, fixture.Directory, TestToken);
+        var target = new RecorderTarget(42, 123, 456);
+        await client.StartAsync(target, TestToken);
+        var paused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.StateChanged += (_, state) => { if (state.State == "paused" && state.BufferReady) paused.TrySetResult(); };
+        var id = Guid.NewGuid();
+        var saving = client.SaveAsync(new(id, DateTimeOffset.UtcNow, Recording, Path.Combine(fixture.Directory, $"{id:N}.mp4")), TestToken);
+        await child.SaveArrived.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        child.Pause(client.Session, reason);
+        await paused.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.False(saving.IsCompleted);
+        Assert.False(child.Exited);
+        await client.PauseAsync(TestToken);
+        await client.ResumeAsync(target, TestToken);
+        Assert.False(saving.IsCompleted);
+        var resume = Assert.Single(child.Commands, command => command.GetProperty("command").GetString() == "resume");
+        Assert.Equal(target.ProcessId, resume.GetProperty("processId").GetUInt32());
+        Assert.Equal("123", resume.GetProperty("window").GetString());
+        Assert.Equal("456", resume.GetProperty("creationFileTime").GetString());
+        child.CompleteSave();
+        var media = await saving;
+        Assert.Equal(1024, media.FileBytes);
+        await client.StopAsync(TestToken);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PausedStateRequiresExplicitBufferAvailability(bool ready)
+    {
+        var session = Guid.NewGuid();
+        var fields = new Dictionary<string, object>
+        {
+            ["v"] = RecorderProtocol.Version, ["session"] = session.ToString("N"), ["request"] = 0,
+            ["type"] = "state", ["state"] = "paused", ["reason"] = "focus_lost", ["bufferReady"] = ready
+        };
+        var state = Assert.IsType<RecorderStateUpdate>(RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(fields), session));
+        Assert.Equal(ready, state.BufferReady);
+        fields.Remove("bufferReady");
+        Assert.Throws<RecorderClientException>(() => RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(fields), session));
+        fields["bufferReady"] = "true";
+        Assert.Throws<RecorderClientException>(() => RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(fields), session));
+    }
+
+    [Theory]
+    [InlineData("no_keyframe", false, true)]
+    [InlineData("mux_failed", false, true)]
+    [InlineData("mux_failed", true, false)]
+    [InlineData("cancelled", false, false)]
+    public async Task OnlyAcknowledgedEmptyNativeFailuresMayDropReservations(string reason, bool leavesFile, bool expectedEmpty)
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild { RejectSaveReason = reason, RejectedSaveLeavesFile = leavesFile };
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+        await client.OpenAsync(Recording, fixture.Directory, TestToken);
+        var id = Guid.NewGuid();
+        var error = await Assert.ThrowsAsync<RecorderClientException>(() => client.SaveAsync(
+            new(id, DateTimeOffset.UtcNow, Recording, Path.Combine(fixture.Directory, $"{id:N}.mp4")), TestToken));
+        Assert.Equal(reason, error.Reason);
+        Assert.Equal(expectedEmpty, error.SaveCompletedWithoutMedia);
+        Assert.False(child.Exited);
+        await client.StopAsync(TestToken);
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), "WispRecorderClientTests", Guid.NewGuid().ToString("N"));
@@ -343,6 +413,8 @@ public sealed class RecorderProcessClientTests
         internal bool SilentSave { get; init; }
         internal bool WrongRequest { get; init; }
         internal bool HoldSave { get; init; }
+        internal string? RejectSaveReason { get; init; }
+        internal bool RejectedSaveLeavesFile { get; init; }
         internal bool DelayDiagnosticUntilWait { get; init; }
         internal byte[]? ExitDiagnostic { get; init; }
         internal int Kills { get; private set; }
@@ -362,6 +434,15 @@ public sealed class RecorderProcessClientTests
             Input = new CommandStream(Receive, () => { if (!IgnoreClose) Finish(); });
         }
         internal void CompleteOutput() => _output.Complete();
+        internal void Pause(Guid session, string reason) => _output.Push(JsonSerializer.SerializeToUtf8Bytes(new
+        { v = RecorderProtocol.Version, session = session.ToString("N"), request = 0, type = "state", state = "paused", reason, bufferReady = true }).Append((byte)10).ToArray());
+        internal void CompleteSave()
+        {
+            var command = Commands.Last(value => value.GetProperty("command").GetString() == "save");
+            File.WriteAllBytes(command.GetProperty("destination").GetString()!, new byte[1024]);
+            var reply = Saved(command.GetProperty("session").GetString()!, command.GetProperty("request").GetInt64(), command.GetProperty("clipId").GetString()!, false);
+            _output.Push(JsonSerializer.SerializeToUtf8Bytes(reply).Append((byte)10).ToArray());
+        }
         internal void Terminal(Guid session, string state, string reason)
         {
             _output.Push(JsonSerializer.SerializeToUtf8Bytes(new { v = RecorderProtocol.Version, session = session.ToString("N"), request = 0, type = "state", state, reason }).Append((byte)10).ToArray());
@@ -375,6 +456,12 @@ public sealed class RecorderProcessClientTests
             if (name == "save") { SaveArrived.TrySetResult(); if (HoldSave) return; }
             var request = command.GetProperty("request").GetInt64() + (WrongRequest ? 1 : 0);
             var session = command.GetProperty("session").GetString()!;
+            if (name == "save" && RejectSaveReason is not null)
+            {
+                if (RejectedSaveLeavesFile) File.WriteAllBytes(command.GetProperty("destination").GetString()!, new byte[4]);
+                _output.Push(JsonSerializer.SerializeToUtf8Bytes(new { v = RecorderProtocol.Version, session, request, type = "result", ok = false, reason = RejectSaveReason }).Append((byte)10).ToArray());
+                return;
+            }
             if (name == "save") File.WriteAllBytes(command.GetProperty("destination").GetString()!, new byte[1024]);
             var reply = name == "save" ? Saved(session, request, command.GetProperty("clipId").GetString()!, SilentSave) :
                 new Dictionary<string, object> { ["v"] = RecorderProtocol.Version, ["session"] = session, ["request"] = request, ["type"] = "result", ["ok"] = true, ["reason"] = "none" };

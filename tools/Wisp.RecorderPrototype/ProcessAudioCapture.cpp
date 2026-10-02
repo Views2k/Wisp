@@ -450,8 +450,15 @@ namespace recorder::audio
             }
         }
 
+        void CheckForeground(HWND window, DWORD processId)
+        {
+            if (!window) return;
+            DWORD actual = 0;
+            Require(GetWindowThreadProcessId(window, &actual) != 0 && actual == processId &&
+                GetForegroundWindow() == window && IsIconic(window) == FALSE, "audio_focus_lost");
+        }
         void Drain(AudioResources& audio, HANDLE process, const Target& target, HANDLE stop,
-            PacketQueue& queue, const std::optional<Clock::time_point>& deadline)
+            PacketQueue& queue, const std::optional<Clock::time_point>& deadline, HWND foreground)
         {
             // Finite work per notification; cancellation is checked per packet.
             // A pathological continuously replenished backlog fails explicitly.
@@ -459,6 +466,7 @@ namespace recorder::audio
             {
                 CheckStop(stop);
                 ValidateTarget(process, target);
+                CheckForeground(foreground, target.processId);
                 if (deadline && Clock::now() >= *deadline) return;
                 UINT32 pending = 0;
                 Check(audio.capture->GetNextPacketSize(&pending), "audio_next_packet_failed");
@@ -473,6 +481,7 @@ namespace recorder::audio
                 Check(hr, "audio_get_buffer_failed");
                 Require(frames != 0, "audio_empty_success_packet");
                 BufferLease lease{ audio.capture.Get(), frames, audio.evidence.releaseBufferHr };
+                CheckForeground(foreground, target.processId);
                 const QueueResult queued = queue.Push(data, frames, flags, devicePosition, qpc100ns);
                 lease.Release();
                 Check(audio.evidence.releaseBufferHr, "audio_release_buffer_failed");
@@ -528,6 +537,7 @@ namespace recorder::audio
                 Require(bufferFrames > 0 && bufferFrames <= SampleRate, "audio_endpoint_buffer_limit");
                 Check(audio.client->GetService(IID_PPV_ARGS(&audio.capture)), "audio_capture_service_failed");
                 ValidateTarget(process.value, target);
+                CheckForeground(options.requiredForegroundWindow, target.processId);
                 CheckStop(stop.value);
                 Check(audio.client->Start(), "audio_start_failed");
                 audio.started = true;
@@ -540,6 +550,7 @@ namespace recorder::audio
                 {
                     CheckStop(stop.value);
                     ValidateTarget(process.value, target);
+                    CheckForeground(options.requiredForegroundWindow, target.processId);
                     DWORD waitMs = 100;
                     if (deadline)
                     {
@@ -556,7 +567,8 @@ namespace recorder::audio
                     if (wait == WAIT_OBJECT_0) throw Cancelled{};
                     if (wait == WAIT_OBJECT_0 + 1) throw Failure{ "target_exited", HRESULT_FROM_WIN32(ERROR_PROCESS_ABORTED) };
                     if (wait == WAIT_FAILED) throw Failure{ "audio_wait_failed", HRESULT_FROM_WIN32(GetLastError()) };
-                    if (wait == WAIT_OBJECT_0 + 2) Drain(audio, process.value, target, stop.value, queue, deadline);
+                    if (wait == WAIT_OBJECT_0 + 2)
+                        Drain(audio, process.value, target, stop.value, queue, deadline, options.requiredForegroundWindow);
                 }
             }
         }

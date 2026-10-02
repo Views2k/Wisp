@@ -283,10 +283,11 @@ namespace recorder::protocol
                 command.spoolDirectory = parser.Text(L"spoolDirectory");
                 Require(PathBase(command.spoolDirectory) == Wide(".wisp-recorder-" + command.session));
             }
-            else if (kind == L"start")
+            else if (kind == L"start" || kind == L"resume")
             {
                 parser.Keys({ L"v", L"session", L"request", L"command", L"processId", L"window", L"creationFileTime" });
-                command.kind = CommandKind::Start; command.processId = U32(parser.Integer(L"processId"));
+                command.kind = kind == L"start" ? CommandKind::Start : CommandKind::Resume;
+                command.processId = U32(parser.Integer(L"processId"));
                 command.window = Decimal(parser.Text(L"window")); command.creationFileTime = Decimal(parser.Text(L"creationFileTime"));
             }
             else if (kind == L"save")
@@ -296,7 +297,11 @@ namespace recorder::protocol
                 command.destination = parser.Text(L"destination");
                 Require(PathBase(command.destination) == Wide(command.clipId + ".mp4"));
             }
-            else if (kind == L"stop") { parser.Keys({ L"v", L"session", L"request", L"command" }); command.kind = CommandKind::Stop; }
+            else if (kind == L"stop" || kind == L"pause")
+            {
+                parser.Keys({ L"v", L"session", L"request", L"command" });
+                command.kind = kind == L"stop" ? CommandKind::Stop : CommandKind::Pause;
+            }
             else throw Invalid{};
             result = std::move(command); return true;
         }
@@ -323,6 +328,7 @@ namespace recorder::protocol
         case Reason::WindowResized: return "window_resized"; case Reason::FocusLost: return "focus_lost";
         case Reason::FullscreenRequired: return "fullscreen_required";
         case Reason::UnsupportedOs: return "unsupported_os"; case Reason::UnsupportedGpu: return "unsupported_gpu";
+        case Reason::LosslessEncoderUnsupported: return "lossless_encoder_unsupported";
         case Reason::UnsupportedFormat: return "unsupported_format"; case Reason::CaptureFailed: return "capture_failed";
         case Reason::EncoderFailed: return "encoder_failed"; case Reason::AudioFailed: return "audio_failed";
         case Reason::AudioCaptureFailed: return "audio_capture_failed"; case Reason::AudioUnavailable: return "audio_unavailable";
@@ -387,20 +393,22 @@ namespace recorder::protocol
         catch (...) { line.clear(); return false; }
     }
     bool SerializeState(std::string_view session, State state, Reason reason, std::string& line,
-        const LosslessBuffer* losslessBuffer) noexcept
+        const LosslessBuffer* losslessBuffer, bool bufferReady) noexcept
     {
         line.clear();
         try
         {
             const auto* stateName = Name(state); const auto* reasonName = Name(reason);
             Require(stateName != nullptr && reasonName != nullptr);
+            Require(!bufferReady || state == State::Paused);
             if (losslessBuffer)
-                Require(state == State::Buffering && losslessBuffer->duration100ns > 0 &&
+                Require((state == State::Buffering || (state == State::Paused && bufferReady)) && losslessBuffer->duration100ns > 0 &&
                     losslessBuffer->duration100ns <= 3000000000ll && losslessBuffer->payloadBytes > 0 &&
                     losslessBuffer->payloadBytes <= losslessBuffer->budgetBytes &&
                     losslessBuffer->budgetBytes <= 12ull * 1024 * 1024 * 1024 + 16ull * 1024 * 1024);
             Common(line, session, 0, "state");
             line += ",\"state\":\""; line += stateName; line += "\",\"reason\":\""; line += reasonName; line += '"';
+            if (state == State::Paused) line += bufferReady ? ",\"bufferReady\":true" : ",\"bufferReady\":false";
             if (losslessBuffer)
             {
                 line += ",\"losslessBuffer\":{\"duration100ns\":"; Number(line, losslessBuffer->duration100ns);

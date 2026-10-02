@@ -8,13 +8,15 @@ namespace Wisp.App.Clips;
 
 internal sealed record RecorderTarget(uint ProcessId, ulong Window, ulong CreationFileTime);
 internal sealed record RecorderLosslessBuffer(long Duration100ns, long PayloadBytes, long BudgetBytes, bool SizeLimited);
-internal sealed record RecorderStateUpdate(string State, string Reason, RecorderLosslessBuffer? LosslessBuffer = null);
+internal sealed record RecorderStateUpdate(string State, string Reason, RecorderLosslessBuffer? LosslessBuffer = null, bool BufferReady = false);
 internal sealed record RecorderReply(long Request, bool Ok, string Reason, Guid? ClipId = null, FinalizedClipMedia? Media = null);
 internal sealed class RecorderClientException(string reason) : IOException("The clip recorder could not complete the operation.")
 {
     internal string Reason { get; } = reason;
     internal string? StorageStage { get; init; }
     internal int? StorageHResult { get; init; }
+    internal bool NativeRequestRejected { get; init; }
+    internal bool SaveCompletedWithoutMedia { get; init; }
 }
 
 internal static class RecorderProtocol
@@ -29,7 +31,7 @@ internal static class RecorderProtocol
         "window_resized", "focus_lost", "fullscreen_required", "unsupported_os", "unsupported_gpu", "unsupported_format", "capture_failed",
         "encoder_failed", "audio_failed", "audio_capture_failed", "audio_unavailable", "buffer_full", "no_keyframe",
         "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error", "cancelled", "stopped", "parent_closed",
-        "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed", "lossless_storage_low"
+        "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed", "lossless_storage_low", "lossless_encoder_unsupported"
     };
     private static readonly HashSet<string> States = new(StringComparer.Ordinal) { "waiting", "reconnecting", "paused", "buffering", "saving", "stopped", "error" };
 
@@ -62,9 +64,12 @@ internal static class RecorderProtocol
             if (type == "state")
             {
                 var hasBuffer = names.Contains("losslessBuffer");
-                if (hasBuffer) RequireMembers(names, "v", "session", "request", "type", "state", "reason", "losslessBuffer");
-                else RequireMembers(names, "v", "session", "request", "type", "state", "reason");
                 var state = root.GetProperty("state").GetString() ?? "";
+                var expected = new List<string> { "v", "session", "request", "type", "state", "reason" };
+                if (hasBuffer) expected.Add("losslessBuffer");
+                if (state == "paused") expected.Add("bufferReady");
+                RequireMembers(names, expected.ToArray());
+                var bufferReady = state == "paused" && root.GetProperty("bufferReady").GetBoolean();
                 if (request != 0 || !States.Contains(state)) throw new FormatException();
                 if (state == "paused" && reason is not ("window_minimized" or "focus_lost" or "fullscreen_required") || state == "reconnecting" && reason is not
                     ("target_exited" or "target_changed" or "window_closed" or "window_resized" or "capture_reconnecting" or
@@ -72,7 +77,7 @@ internal static class RecorderProtocol
                 RecorderLosslessBuffer? buffer = null;
                 if (hasBuffer)
                 {
-                    if (state != "buffering") throw new FormatException();
+                    if (state != "buffering" && !(state == "paused" && bufferReady)) throw new FormatException();
                     var value = root.GetProperty("losslessBuffer");
                     var fields = value.EnumerateObject().Select(property => property.Name).ToArray();
                     if (fields.Length != 4) throw new FormatException();
@@ -83,7 +88,7 @@ internal static class RecorderProtocol
                         buffer.PayloadBytes > buffer.BudgetBytes || buffer.BudgetBytes > 12L * 1024 * 1024 * 1024 + 16L * 1024 * 1024)
                         throw new FormatException();
                 }
-                return new RecorderStateUpdate(state, reason, buffer);
+                return new RecorderStateUpdate(state, reason, buffer, bufferReady);
             }
             if (type != "result" || request <= 0) throw new FormatException();
             var ok = root.GetProperty("ok").GetBoolean();
@@ -186,7 +191,8 @@ internal sealed class RecorderProcessChild : IRecorderChild
     public void Dispose() => _process.Dispose();
 }
 
-// One owned helper, one request at a time, no frame IPC and no automatic retry.
+// One owned helper, serialized command writes and bounded pending replies. Pause
+// and resume remain responsive while a save is writing; media never crosses IPC.
 // The controller adapts observed native states to IClipRecorder; acknowledgments
 // here intentionally do not fabricate buffering or a completed saved clip.
 internal sealed class RecorderProcessClient : IAsyncDisposable
@@ -200,8 +206,8 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
     private readonly object _sync = new();
     private IRecorderChild? _child;
     private Task? _output, _error;
-    private TaskCompletionSource<RecorderReply>? _pending;
-    private long _pendingId, _nextRequest;
+    private readonly Dictionary<long, TaskCompletionSource<RecorderReply>> _pending = new();
+    private long _nextRequest;
     private bool _stopping, _configured;
     private int _opened, _disposed, _lifetimeDisposed;
     private string? _terminalReason, _storage;
@@ -290,11 +296,21 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
         }
     }
 
-    internal Task StartAsync(RecorderTarget target, CancellationToken cancellationToken)
+    internal Task StartAsync(RecorderTarget target, CancellationToken cancellationToken) => SendTargetAsync("start", target, cancellationToken);
+
+    internal Task ResumeAsync(RecorderTarget target, CancellationToken cancellationToken) => SendTargetAsync("resume", target, cancellationToken);
+
+    internal Task PauseAsync(CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+        return SendAsync("pause", new(), TimeSpan.FromSeconds(15), cancellationToken);
+    }
+
+    private Task SendTargetAsync(string command, RecorderTarget target, CancellationToken cancellationToken)
     {
         EnsureConfigured();
         if (target.ProcessId == 0 || target.Window == 0 || target.CreationFileTime == 0) throw new ArgumentException("The game capture identity is invalid.", nameof(target));
-        return SendAsync("start", new()
+        return SendAsync(command, new()
         {
             ["processId"] = target.ProcessId,
             ["window"] = target.Window.ToString(CultureInfo.InvariantCulture),
@@ -315,8 +331,19 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
         try
         {
             var buffer = _buffer ?? throw new RecorderClientException("buffer_storage_unavailable");
-            var result = await SendAsync("save", new() { ["clipId"] = target.Id.ToString("N"), ["destination"] = buffer.PrivateMediaPath(target.Id) },
-                TimeSpan.FromMinutes(5), publication.Token).ConfigureAwait(false);
+            RecorderReply result;
+            try
+            {
+                result = await SendAsync("save", new() { ["clipId"] = target.Id.ToString("N"), ["destination"] = buffer.PrivateMediaPath(target.Id) },
+                    TimeSpan.FromMinutes(5), publication.Token).ConfigureAwait(false);
+            }
+            catch (RecorderClientException error) when (error.NativeRequestRejected && error.Reason is not ("cancelled" or "stopped" or "parent_closed"))
+            {
+                var empty = false;
+                try { empty = await buffer.IsEmptyAsync(target.Id, publication.Token).ConfigureAwait(false); }
+                catch (Exception checkError) when (checkError is not OutOfMemoryException) { }
+                throw new RecorderClientException(error.Reason) { NativeRequestRejected = true, SaveCompletedWithoutMedia = empty };
+            }
             var media = result.Media;
             if (result.ClipId != target.Id || media is null || media.Height != _recording!.ResolutionHeight || media.FrameRate != _recording.FrameRate)
             {
@@ -361,7 +388,8 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 child = _child ?? throw new RecorderClientException("helper_exited");
                 request = checked(++_nextRequest);
                 pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                _pending = pending; _pendingId = request;
+                if (_pending.Count >= 3) throw new RecorderClientException("protocol_error");
+                _pending.Add(request, pending);
             }
             var message = RecorderProtocol.Command(Session, request, command);
             foreach (var field in fields) message.Add(field.Key, field.Value);
@@ -369,8 +397,9 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
             await child.Input.WriteAsync(bytes, operation.Token).ConfigureAwait(false);
             await child.Input.WriteAsync(new byte[] { (byte)'\n' }, operation.Token).ConfigureAwait(false);
             await child.Input.FlushAsync(operation.Token).ConfigureAwait(false);
+            _commands.Release(); entered = false;
             var reply = await pending.Task.WaitAsync(operation.Token).ConfigureAwait(false);
-            if (!reply.Ok) throw new RecorderClientException(reply.Reason);
+            if (!reply.Ok) throw new RecorderClientException(reply.Reason) { NativeRequestRejected = true };
             if (command != "save" && reply.Media is not null) throw new RecorderClientException("protocol_error");
             return reply;
         }
@@ -407,13 +436,13 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                         throw new RecorderClientException("protocol_error");
                     // Native sends this terminal transition only after closing the old media session.
                     // Preserve that reason when its following EOF arrives; the service owns recovery.
-                    if (state.State is "reconnecting" or "paused")
+                    if (state.State == "reconnecting")
                     {
                         lock (_sync)
                         {
                             _recovering = true; _configured = false;
                             _terminalReason ??= state.Reason;
-                            _pending?.TrySetException(new RecorderClientException(state.Reason)); _pending = null;
+                            FailPending(state.Reason);
                         }
                     }
                     StateChanged?.Invoke(this, state); continue;
@@ -422,8 +451,7 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 TaskCompletionSource<RecorderReply>? pending;
                 lock (_sync)
                 {
-                    if (_pending is null || reply.Request != _pendingId) throw new RecorderClientException("protocol_error");
-                    pending = _pending; _pending = null;
+                    if (!_pending.Remove(reply.Request, out pending)) throw new RecorderClientException("protocol_error");
                 }
                 pending.TrySetResult(reply);
             }
@@ -431,11 +459,11 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
             {
                 if (_recovering)
                 {
-                    _pending?.TrySetException(new RecorderClientException("capture_reconnecting")); _pending = null;
+                    FailPending("capture_reconnecting");
                     _configured = false;
                     return;
                 }
-                if (_stopping && _pending is null) return;
+                if (_stopping && _pending.Count == 0) return;
             }
             Fail("helper_exited");
         }
@@ -482,14 +510,21 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
         IRecorderChild? child;
         lock (_sync)
         {
-            if (_terminalReason is not null || (_stopping && _pending is null)) return;
+            if (_terminalReason is not null || (_stopping && _pending.Count == 0)) return;
             _terminalReason = reason;
-            _pending?.TrySetException(new RecorderClientException(reason)); _pending = null;
+            FailPending(reason);
             child = _child;
         }
         _lifetime.Cancel();
         try { child?.Kill(); } catch (Exception error) when (error is not OutOfMemoryException) { }
         StateChanged?.Invoke(this, new("error", reason));
+    }
+
+    // Caller owns _sync. Continuations always run outside this lock.
+    private void FailPending(string reason)
+    {
+        foreach (var pending in _pending.Values) pending.TrySetException(new RecorderClientException(reason));
+        _pending.Clear();
     }
 
     private async Task ShutdownAsync()
@@ -501,7 +536,7 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
             lock (_sync)
             {
                 _stopping = true; _configured = false; child = _child;
-                _pending?.TrySetException(new RecorderClientException("stopped")); _pending = null;
+                FailPending("stopped");
             }
             if (child is null)
             {

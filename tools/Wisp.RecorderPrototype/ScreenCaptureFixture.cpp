@@ -106,6 +106,27 @@ namespace
         }
         return DefWindowProcW(window, message, wp, lp);
     }
+    bool TestMonitorBounds(HMONITOR monitor, RECT& bounds) noexcept
+    {
+        MONITORINFOEXW info{}; info.cbSize = sizeof(info);
+        DEVMODEW mode{}; mode.dmSize = sizeof(mode);
+        if (!GetMonitorInfoW(monitor, reinterpret_cast<MONITORINFO*>(&info)) ||
+            !EnumDisplaySettingsExW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode, 0) ||
+            mode.dmDisplayOrientation != DMDO_DEFAULT) return false;
+        const LONG width = info.rcMonitor.right - info.rcMonitor.left;
+        const LONG height = info.rcMonitor.bottom - info.rcMonitor.top;
+        if (width < 640 || height < 360 || width < height ||
+            recorder::conversion::ValidateSourceGeometry(static_cast<UINT>(width), static_cast<UINT>(height))) return false;
+        bounds = info.rcMonitor;
+        return true;
+    }
+    struct TestMonitorSelection { bool found = false; RECT bounds{}; };
+    BOOL CALLBACK FindTestMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
+    {
+        auto& selection = *reinterpret_cast<TestMonitorSelection*>(parameter);
+        selection.found = TestMonitorBounds(monitor, selection.bounds);
+        return selection.found ? FALSE : TRUE;
+    }
     struct Windows
     {
         static constexpr wchar_t Name[] = L"Wisp.OwnScreenCaptureFixture";
@@ -116,17 +137,24 @@ namespace
         LONGLONG ownedFrameMinimum100ns = 0;
         ULONGLONG began = GetTickCount64(), nextProcessCheck = 0, nextPaint = 0;
         HRESULT cleanup = S_OK;
-        bool restoreEligible = false, restored = false;
+        bool restoreEligible = false, restored = false, restoreRequestAccepted = false, restorationChecked = false;
         bool startupShowHidden = false, visibleAfterFirstShow = false, visibleAfterExplicitShow = false;
         bool foregroundInitiallyGranted = false, activationGateUsed = false;
-        ULONGLONG activationWaitMs = 0;
+        bool foregroundMonitorUsed = false;
+        ULONGLONG activationWaitMs = 0, restoreWaitMs = 0;
         ~Windows() { Close(); }
         void Create()
         {
             original = GetForegroundWindow(); Require(original != nullptr, "initial_foreground_missing");
             const HMONITOR monitor = MonitorFromWindow(original, MONITOR_DEFAULTTONULL);
-            MONITORINFO info{}; info.cbSize = sizeof(info);
-            Win32(GetMonitorInfoW(monitor, &info), "monitor_query_failed"); bounds = info.rcMonitor;
+            foregroundMonitorUsed = TestMonitorBounds(monitor, bounds);
+            if (!foregroundMonitorUsed)
+            {
+                TestMonitorSelection selection;
+                (void)EnumDisplayMonitors(nullptr, nullptr, FindTestMonitor, reinterpret_cast<LPARAM>(&selection));
+                Require(selection.found, "no_supported_test_monitor");
+                bounds = selection.bounds;
+            }
             WNDCLASSEXW cls{}; cls.cbSize = sizeof(cls); cls.hInstance = instance;
             cls.lpfnWndProc = Procedure; cls.lpszClassName = Name;
             atom = RegisterClassExW(&cls); Require(atom != 0, "class_registration_failed");
@@ -209,11 +237,31 @@ namespace
         void Close() noexcept
         {
             if (!target && !other && !atom) return;
-            const HWND current = GetForegroundWindow();
-            restoreEligible = current == target || current == other;
-            if (restoreEligible && original && IsWindow(original))
+            const bool checkRestoration = !restorationChecked;
+            restorationChecked = true;
+            if (checkRestoration)
             {
-                if (!SetForegroundWindow(original)) Remember(cleanup, E_FAIL);
+                const HWND current = GetForegroundWindow();
+                restoreEligible = current == target || current == other;
+            }
+            if (checkRestoration && restoreEligible && original && IsWindow(original))
+            {
+                restoreRequestAccepted = SetForegroundWindow(original) != FALSE;
+                if (!restoreRequestAccepted) Remember(cleanup, E_FAIL);
+                // Cross-thread activation completes on the destination queue.
+                // Observe it briefly without issuing another activation request.
+                const auto restoreBegan = GetTickCount64();
+                while (restoreRequestAccepted && GetForegroundWindow() != original && IsWindow(original))
+                {
+                    const HWND foreground = GetForegroundWindow();
+                    if ((foreground && foreground != target && foreground != other) ||
+                        GetTickCount64() - restoreBegan >= 500) break;
+                    MSG message{};
+                    for (UINT i = 0; i < 64 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++i)
+                    { TranslateMessage(&message); DispatchMessageW(&message); }
+                    Sleep(5);
+                }
+                restoreWaitMs = GetTickCount64() - restoreBegan;
                 restored = GetForegroundWindow() == original;
                 if (!restored) Remember(cleanup, E_FAIL);
             }
@@ -378,12 +426,25 @@ namespace
                 Require(GetForegroundWindow() == windows.other, "owned_focus_transition_failed");
                 const bool accepted = capture.CheckTarget();
                 result.focusRejected = !accepted && std::strcmp(capture.Result().reason, "target_focus_lost") == 0 &&
-                    capture.Result().copiedFrames == result.copied;
+                    capture.Result().copiedFrames == result.copied && capture.Paused() && !capture.HasFrame() &&
+                    !capture.Result().stopped && capture.Device() == device.get();
                 Require(result.focusRejected, "focus_loss_not_rejected");
-                Check(capture.Close(), "capture_close_failed");
+                Require(!capture.Resume({ windows.target, GetCurrentProcessId(), born }) && capture.Paused(),
+                    "unfocused_resume_not_rejected");
                 Require(GetForegroundWindow() == windows.other, "foreground_changed_during_owned_transition");
                 ShowWindow(windows.other, SW_HIDE);
                 Win32(SetForegroundWindow(windows.target), "owned_refocus_failed"); windows.Guard();
+                Require(capture.Resume({ windows.target, GetCurrentProcessId(), born }) && !capture.HasFrame() &&
+                    capture.Device() == device.get(), "focused_resume_failed");
+                const auto resumeBegan = GetTickCount64();
+                while (!capture.HasFrame())
+                {
+                    windows.Guard();
+                    Require(capture.CheckTarget(), "resumed_capture_failed");
+                    Require(GetTickCount64() - resumeBegan < 1000, "resumed_frame_deadline");
+                    Sleep(2);
+                }
+                Require(capture.Result().copiedFrames > result.copied, "resumed_frame_not_new");
             }
             Check(capture.Close(), "capture_close_failed");
             result.cleanup = capture.Result().cleanupHr;
@@ -439,11 +500,15 @@ namespace
             first.focusRejected && windows.restored && !windows.target && !windows.other && !windows.atom;
         std::printf("{\"mode\":\"own_screen_capture\",\"completed\":%s,\"passed\":%s,\"reason\":\"%s\","
             "\"hr\":\"0x%08lX\",\"cleanupHr\":\"0x%08lX\",\"foregroundRestored\":%s,"
+            "\"restoreRequestAccepted\":%s,\"restoreWaitMs\":%llu,"
+            "\"foregroundMonitorUsed\":%s,"
             "\"startupShowHidden\":%s,\"visibleAfterFirstShow\":%s,\"visibleAfterExplicitShow\":%s,"
             "\"foregroundInitiallyGranted\":%s,\"activationGateUsed\":%s,\"activationWaitMs\":%llu,"
             "\"wgcUsed\":false,\"permissionRequested\":false,\"gameCaptured\":false,\"pixelsRetained\":false,",
             complete ? "true" : "false", passed ? "true" : "false", reason,
             static_cast<unsigned long>(hr), static_cast<unsigned long>(cleanup), windows.restored ? "true" : "false",
+            windows.restoreRequestAccepted ? "true" : "false", static_cast<unsigned long long>(windows.restoreWaitMs),
+            windows.foregroundMonitorUsed ? "true" : "false",
             windows.startupShowHidden ? "true" : "false", windows.visibleAfterFirstShow ? "true" : "false",
             windows.visibleAfterExplicitShow ? "true" : "false", windows.foregroundInitiallyGranted ? "true" : "false",
             windows.activationGateUsed ? "true" : "false", static_cast<unsigned long long>(windows.activationWaitMs));
@@ -463,7 +528,7 @@ int wmain(int argc, wchar_t** argv)
     {
         const UINT count = recorder::capture::RunScreenCaptureContracts();
         std::printf("{\"mode\":\"screen_capture_cpu_contracts\",\"passed\":%u,\"captureUsed\":false}\n", count);
-        return count == 19 ? 0 : 1;
+        return count == 21 ? 0 : 1;
     }
     std::puts("Screen capture diagnostic. Explicit --own-screen-check required. Default/help creates no graphics, capture, windows or COM resources.");
     return argc == 1 || (argc == 2 && std::wcscmp(argv[1], L"--help") == 0) ? 0 : 2;

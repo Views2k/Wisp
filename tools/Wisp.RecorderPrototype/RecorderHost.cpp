@@ -120,6 +120,21 @@ namespace recorder::host
     }
     bool SchedulingAllowed(std::uint64_t now, std::uint64_t due) noexcept
     { return now <= due || now - due <= MaximumLateness100ns; }
+    bool RebasePausedClock(std::uint64_t source, std::int64_t media, std::uint32_t frame,
+        std::uint32_t rate, std::uint64_t& epoch) noexcept
+    {
+        epoch = 0;
+        constexpr auto maximum = static_cast<std::uint64_t>((std::numeric_limits<std::int64_t>::max)());
+        std::uint64_t due = 0; std::int64_t video = 0;
+        if (media < 0 || source > maximum || source <= static_cast<std::uint64_t>(media) ||
+            !FrameTime(1, frame, rate, due, video)) return false;
+        const auto skew = media > video ? media - video : video - media;
+        if (static_cast<std::uint64_t>(skew) > MaximumLateness100ns) return false;
+        const auto origin = source - static_cast<std::uint64_t>(media);
+        if (!FrameTime(origin, frame, rate, due, video)) return false;
+        epoch = origin;
+        return true;
+    }
     bool FrameFresh(std::uint64_t now, std::uint64_t presentation, std::uint64_t received, std::uint64_t allowance) noexcept
     {
         constexpr auto maximum = static_cast<std::uint64_t>((std::numeric_limits<std::int64_t>::max)());
@@ -448,11 +463,16 @@ namespace recorder::host
         }
         Reason AudioReason(HRESULT hr, const char* reason) noexcept
         {
+            if (reason && std::strcmp(reason, "audio_focus_lost") == 0) return Reason::FocusLost;
             if (AudioInvalidated(hr)) return Reason::AudioReconnecting;
             if (reason && (std::strcmp(reason, "target_exited") == 0 || std::strcmp(reason, "target_creation_changed") == 0))
                 return Reason::TargetExited;
             return Reason::AudioCaptureFailed;
         }
+        bool IsFocusPause(Reason reason) noexcept
+        { return reason == Reason::FocusLost || reason == Reason::WindowMinimized || reason == Reason::FullscreenRequired; }
+        bool SameTarget(const protocol::Command& left, const protocol::Command& right) noexcept
+        { return left.processId == right.processId && left.window == right.window && left.creationFileTime == right.creationFileTime; }
         Reason CaptureReason(const char* reason, HRESULT hr) noexcept
         {
             if (DeviceReset(hr)) return Reason::CaptureReconnecting;
@@ -515,6 +535,8 @@ namespace recorder::host
                 shared_(shared), config_(configuration), policy_(policy) {}
             ~MediaSession() { (void)Close(false); }
             bool Start(const protocol::Command& command) noexcept;
+            bool Pause(Reason reason = Reason::FocusLost) noexcept;
+            bool Resume(const protocol::Command& command) noexcept;
             bool Tick() noexcept;
             bool BeginSave(const protocol::Command& command) noexcept;
             bool CollectSave(protocol::Result& result, bool wait);
@@ -524,6 +546,9 @@ namespace recorder::host
             bool Saving() const noexcept { return save_ != nullptr; }
             bool HasAudio() const noexcept { return audioEnabled_; }
             bool SourceStale() const noexcept { return sourceStale_; }
+            bool Paused() const noexcept { return paused_ || resumeAnchoring_; }
+            Reason PauseReason() const noexcept { return pauseReason_; }
+            bool Failed() const noexcept { return failed_; }
             const protocol::LosslessBuffer* LosslessBufferStatus() const noexcept
             { return losslessBuffer_ ? &*losslessBuffer_ : nullptr; }
             bool BufferStatusChanged() const noexcept { return losslessBufferDirty_; }
@@ -546,6 +571,11 @@ namespace recorder::host
             std::uint64_t Now();
             void CheckTarget();
             void ProcessAudio(UINT maximumPackets);
+            void StartAudioSource();
+            void FeedPendingAudio();
+            bool TakeNextPcm();
+            audio::TimelineResult InspectPcm(audio::AudioTimeline&, const audio::Packet&, audio::FeedSlice&);
+            void AnchorResumedAudio(const audio::FeedSlice&);
             void InitializeSpool();
             void CheckReadiness();
             void UpdateLosslessBuffer();
@@ -567,6 +597,7 @@ namespace recorder::host
             exporting::VideoFormat VideoFormat() const noexcept;
             Shared& shared_;
             protocol::Command config_;
+            protocol::Command target_;
             Policy policy_;
             LosslessStoragePolicy losslessStorage_{};
             std::optional<protocol::LosslessBuffer> losslessBuffer_;
@@ -579,13 +610,13 @@ namespace recorder::host
             lossless::NvencLosslessVideoSession losslessVideo_;
             aac::Encoder audioEncoder_;
             audio::AudioTimeline timeline_;
-            audio::PacketQueue audioQueue_;
+            std::unique_ptr<audio::PacketQueue> audioQueue_;
             audio::Evidence audioEvidence_{};
             Event audioStop_;
             Handle process_;
             std::thread audioThread_;
             std::atomic<bool> audioDone_{ false };
-            std::unique_ptr<const audio::Packet> pendingPcm_;
+            std::unique_ptr<const audio::Packet> pendingPcm_, resumedPcm_;
             audio::FeedSlice pendingSlice_{};
             spool::EncodedSpool spool_;
             std::optional<MediaPacket> bootstrap_;
@@ -593,6 +624,7 @@ namespace recorder::host
             aac::CodecConfiguration audioConfiguration_{};
             std::unique_ptr<SaveWork> save_;
             std::uint64_t frequency_ = 0, qpcRounding_ = 0, epoch_ = 0, previousVersion_ = 0, duplicateFrames_ = 0;
+            std::uint64_t scheduleEpoch_ = 0;
             std::uint64_t videoPackets_ = 0, audioPackets_ = 0;
             LONGLONG videoEnd_ = 0, audioEnd_ = 0;
             UINT nextFrame_ = 0;
@@ -601,6 +633,9 @@ namespace recorder::host
             bool audioEnabled_ = false, audioInitialized_ = false, spoolInitialized_ = false;
             bool ready_ = false, readinessDirty_ = false, failed_ = false, closed_ = false, mfStarted_ = false, runtimeStarted_ = false;
             bool preserveBuffer_ = false, cleanupSucceeded_ = false, sourceStale_ = false;
+            bool paused_ = false, resumeAnchoring_ = false, resumeAudioPending_ = false;
+            Reason pauseReason_ = Reason::FocusLost;
+            ULONGLONG resumeBegan_ = 0;
             const char* diagnosticStage_ = "not_started";
             FailureDiagnostic firstFailure_{};
             bool diagnosticWritten_ = false, schedulerLagKnown_ = false, sourceAgeKnown_ = false, localFrameAgeKnown_ = false;
@@ -670,6 +705,7 @@ namespace recorder::host
         {
             try
             {
+                target_ = command;
                 began_ = GetTickCount64();
                 diagnosticStage_ = "storage_preflight";
                 Check(spool::PreflightSessionParent(config_.spoolDirectory), Reason::StorageFailed);
@@ -717,24 +753,16 @@ namespace recorder::host
                 {
                     encode.bitrate = 0; encode.chromaSiting = 0;
                     if (!losslessVideo_.Initialize(capture_.Device(), encode, { options.operationTimeoutMs, 0 }, shared_.abort, *this))
-                        throw Failure{ VideoReason(VideoError(), Reason::UnsupportedGpu), VideoError() };
+                        throw Failure{ VideoReason(VideoError(), Reason::LosslessEncoderUnsupported), VideoError() };
                 }
                 else if (!video_.Initialize(capture_.Device(), encode, options, shared_.abort, *this))
                     throw Failure{ VideoReason(VideoError(), Reason::UnsupportedGpu), VideoError() };
                 if (config_.gameAudio)
                 {
                     diagnosticStage_ = "audio_initialize";
-                    audio::Target audioTarget{ process_.value, command.processId, command.creationFileTime };
-                    audioThread_ = std::thread([this, audioTarget]
-                    {
-                        audio::Options settings;
-                        settings.source = config_.systemAudio ? audio::LoopbackSource::SystemPlayback : audio::LoopbackSource::GameProcess;
-                        settings.mode = audio::CaptureMode::UntilStopped; settings.maximumCaptureMs = 0;
-                        audioEvidence_ = audio::RunProcessLoopback(audioTarget, settings, audioStop_.value, audioQueue_);
-                        audioDone_.store(true); shared_.wake.Signal();
-                    });
+                    StartAudioSource();
                     const auto waitBegan = GetTickCount64();
-                    while (!audioQueue_.TryPop(pendingPcm_) && !audioDone_.load())
+                    while (!audioQueue_->TryPop(pendingPcm_) && !audioDone_.load())
                     {
                         Require(!shared_.abort.load(), Reason::ParentClosed);
                         CheckTarget();
@@ -762,6 +790,78 @@ namespace recorder::host
         HRESULT MediaSession::Submit(ID3D11Texture2D* source, ID3D11Texture2D* destination) noexcept
         { return converter_.Submit(source, destination, conversionEvidence_) ? S_OK : E_FAIL; }
 
+        void MediaSession::StartAudioSource()
+        {
+            Require(!audioThread_.joinable(), Reason::CleanupFailed);
+            Require(ResetEvent(audioStop_.value) != FALSE, Reason::AudioFailed);
+            audioQueue_ = std::make_unique<audio::PacketQueue>();
+            audioEvidence_ = {}; audioDone_.store(false);
+            const audio::Target audioTarget{ process_.value, target_.processId, target_.creationFileTime };
+            const HWND foreground = capture_.TargetWindow();
+            audioThread_ = std::thread([this, audioTarget, foreground]
+            {
+                audio::Options settings;
+                settings.source = config_.systemAudio ? audio::LoopbackSource::SystemPlayback : audio::LoopbackSource::GameProcess;
+                settings.mode = audio::CaptureMode::UntilStopped; settings.maximumCaptureMs = 0;
+                settings.requiredForegroundWindow = foreground;
+                audioEvidence_ = audio::RunProcessLoopback(audioTarget, settings, audioStop_.value, *audioQueue_);
+                audioDone_.store(true); shared_.wake.Signal();
+            });
+        }
+
+        bool MediaSession::Pause(Reason reason) noexcept
+        {
+            if (paused_) return true;
+            try
+            {
+                Require(!failed_ && !closed_ && IsFocusPause(reason), Reason::ProtocolError);
+                diagnosticStage_ = "capture_pause";
+                Require(capture_.Pause(), CaptureReason(capture_.Result().reason, capture_.Result().hr), capture_.Result().hr);
+                Require(StopAudio(), Reason::CleanupFailed);
+                // Only the already-inspected slice belongs to the accepted
+                // media timeline. Discard the bounded, unconsumed source queue.
+                if (!pendingSlice_.frames) pendingPcm_.reset();
+                resumedPcm_.reset(); // A preview packet has not entered the accepted timeline.
+                audioQueue_.reset();
+                paused_ = true;
+                InitializeSpool(); FeedPendingAudio();
+                if (timeline_.Result().initialized) Require(timeline_.Pause(), Reason::AudioFailed);
+                resumeAnchoring_ = false; resumeAudioPending_ = false;
+                pauseReason_ = reason; shared_.startup.store(0);
+                return true;
+            }
+            catch (const Failure& value) { return Fail(value.reason, value.hr); }
+            catch (...) { return Fail(Reason::CaptureFailed); }
+        }
+
+        bool MediaSession::Resume(const protocol::Command& command) noexcept
+        {
+            try
+            {
+                Require(!failed_ && !closed_ && SameTarget(command, target_), Reason::TargetChanged);
+                if (!paused_) return true;
+                const capture::TargetIdentity target{ reinterpret_cast<HWND>(static_cast<UINT_PTR>(command.window)),
+                    command.processId, command.creationFileTime };
+                diagnosticStage_ = "capture_resume";
+                if (!capture_.Resume(target))
+                {
+                    const auto reason = CaptureReason(capture_.Result().reason, capture_.Result().hr);
+                    if (IsFocusPause(reason)) { pauseReason_ = reason; return false; }
+                    throw Failure{ reason, capture_.Result().hr };
+                }
+                std::uint64_t due = 0; std::int64_t next = 0;
+                Require(FrameTime(1, nextFrame_, policy_.frameRate, due, next), Reason::EncoderFailed);
+                if (timeline_.Result().initialized)
+                    Require(timeline_.Resume(Now(), next), Reason::AudioFailed);
+                paused_ = false; resumeAnchoring_ = true; resumeAudioPending_ = audioEnabled_;
+                resumeBegan_ = GetTickCount64(); began_ = resumeBegan_;
+                previousVersion_ = 0;
+                return true;
+            }
+            catch (const Failure& value) { return Fail(value.reason, value.hr); }
+            catch (...) { return Fail(Reason::CaptureFailed); }
+        }
+
         HRESULT MediaSession::Fill(UINT, ID3D11Texture2D* destination) noexcept
         {
             try
@@ -769,6 +869,7 @@ namespace recorder::host
                 diagnosticStage_ = "capture_submit";
                 capture::FrameInfo frame;
                 const HRESULT hr = capture_.SubmitLatestLocked(destination, *this, frame);
+                if (hr == S_FALSE) return S_FALSE;
                 Require(hr == S_OK, CaptureReason(capture_.Result().reason, hr), FAILED(hr) ? hr : E_PENDING);
                 const auto now = Now();
                 diagnosticStage_ = "capture_freshness";
@@ -791,7 +892,7 @@ namespace recorder::host
                 {
                     // The first desktop image may predate capture. Start this
                     // recording at submission; preserve raw image age above.
-                    epoch_ = now;
+                    epoch_ = now; scheduleEpoch_ = now;
                     Require(timeline_.Initialize({ epoch_, frequency_ }), Reason::AudioFailed);
                 }
                 if (frame.version == previousVersion_)
@@ -883,36 +984,84 @@ namespace recorder::host
             return S_OK;
         }
 
+        void MediaSession::FeedPendingAudio()
+        {
+            if (!pendingSlice_.frames || !spoolInitialized_) return;
+            if (!paused_)
+                Require(capture_.IsForeground(), Reason::FocusLost);
+            diagnosticStage_ = "audio_encode";
+            if (!audioEncoder_.Feed(pendingSlice_.samples, pendingSlice_.frames, pendingSlice_.firstFrameIndex))
+                throw Failure{ Reason::AudioFailed, audioEncoder_.Result().hr };
+            pendingSlice_ = {}; pendingPcm_.reset();
+        }
+        bool MediaSession::TakeNextPcm()
+        {
+            if (pendingPcm_) return true;
+            if (resumedPcm_) { pendingPcm_ = std::move(resumedPcm_); return true; }
+            return audioQueue_ && audioQueue_->TryPop(pendingPcm_);
+        }
+        audio::TimelineResult MediaSession::InspectPcm(audio::AudioTimeline& timeline, const audio::Packet& packet, audio::FeedSlice& slice)
+        {
+            diagnosticStage_ = "audio_timeline";
+            const auto status = timeline.Inspect(packet, slice);
+            if (status == audio::TimelineResult::Failed)
+            {
+                const auto* reason = timeline.Result().reason;
+                const bool discontinuity = std::strcmp(reason, "audio_timeline_source_discontinuity") == 0 ||
+                    std::strcmp(reason, "audio_timeline_timestamp_unavailable") == 0 ||
+                    std::strcmp(reason, "audio_timeline_timestamp_not_increasing") == 0 ||
+                    std::strcmp(reason, "audio_timeline_clock_outside_policy") == 0;
+                throw Failure{ discontinuity ? Reason::AudioReconnecting : Reason::AudioFailed, E_FAIL };
+            }
+            return status;
+        }
+        void MediaSession::AnchorResumedAudio(const audio::FeedSlice& slice)
+        {
+            LONGLONG mediaTime = 0;
+            Require(aac::FrameTime(slice.audioEpochTime100ns, slice.firstFrameIndex, mediaTime) &&
+                RebasePausedClock(slice.sourceTime100ns, mediaTime, nextFrame_, policy_.frameRate, scheduleEpoch_),
+                Reason::AudioReconnecting);
+            resumeAnchoring_ = false;
+        }
         void MediaSession::ProcessAudio(UINT maximumPackets)
         {
-            if (!audioEnabled_ || !epoch_) return;
+            if (!audioEnabled_ || !epoch_ || paused_ || resumeAudioPending_) return;
             diagnosticStage_ = "audio_source";
             if (audioDone_.load()) throw Failure{ AudioReason(audioEvidence_.hr, audioEvidence_.reason), audioEvidence_.hr };
             for (UINT count = 0; count < maximumPackets; ++count)
             {
                 if (pendingSlice_.frames)
                 {
-                    if (!spoolInitialized_) return;
-                    diagnosticStage_ = "audio_encode";
-                    if (!audioEncoder_.Feed(pendingSlice_.samples, pendingSlice_.frames, pendingSlice_.firstFrameIndex))
-                        throw Failure{ Reason::AudioFailed, audioEncoder_.Result().hr };
-                    pendingSlice_ = {}; pendingPcm_.reset();
+                    if (!spoolInitialized_)
+                    {
+                        // Input 2 may be needed before the first video output.
+                        // Preview one bounded new-source packet without accepting
+                        // it, so the real resume clock can unblock that input.
+                        if (resumeAnchoring_)
+                        {
+                            if (!resumedPcm_ && (!audioQueue_ || !audioQueue_->TryPop(resumedPcm_))) return;
+                            Require(capture_.IsForeground(), Reason::FocusLost);
+                            auto preview = timeline_;
+                            audio::FeedSlice slice;
+                            if (InspectPcm(preview, *resumedPcm_, slice) == audio::TimelineResult::BeforeVideoEpoch)
+                            {
+                                (void)InspectPcm(timeline_, *resumedPcm_, slice);
+                                resumedPcm_.reset();
+                                continue;
+                            }
+                            AnchorResumedAudio(slice);
+                        }
+                        return;
+                    }
+                    FeedPendingAudio();
                 }
-                if (!pendingPcm_ && !audioQueue_.TryPop(pendingPcm_)) return;
+                if (!TakeNextPcm()) return;
+                Require(capture_.IsForeground(), Reason::FocusLost);
                 audio::FeedSlice slice;
-                diagnosticStage_ = "audio_timeline";
-                const auto status = timeline_.Inspect(*pendingPcm_, slice);
-                if (status == audio::TimelineResult::Failed)
-                {
-                    const auto* reason = timeline_.Result().reason;
-                    const bool discontinuity = std::strcmp(reason, "audio_timeline_source_discontinuity") == 0 ||
-                        std::strcmp(reason, "audio_timeline_timestamp_unavailable") == 0 ||
-                        std::strcmp(reason, "audio_timeline_timestamp_not_increasing") == 0 ||
-                        std::strcmp(reason, "audio_timeline_clock_outside_policy") == 0;
-                    throw Failure{ discontinuity ? Reason::AudioReconnecting : Reason::AudioFailed, E_FAIL };
-                }
+                const auto status = InspectPcm(timeline_, *pendingPcm_, slice);
                 if (status == audio::TimelineResult::BeforeVideoEpoch) { pendingPcm_.reset(); continue; }
                 pendingSlice_ = slice;
+                if (resumeAnchoring_) AnchorResumedAudio(slice);
                 if (!audioInitialized_)
                 {
                     aac::Configuration options;
@@ -1000,24 +1149,51 @@ namespace recorder::host
             try
             {
                 Require(!failed_ && !closed_ && !shared_.abort.load(), reason_ == Reason::None ? Reason::ParentClosed : reason_);
+                if (paused_)
+                {
+                    Require(capture_.CheckIdentity(), CaptureReason(capture_.Result().reason, capture_.Result().hr));
+                    // Retire only already-submitted GPU work. No capture call,
+                    // audio source, CFR repetition or new encoder input here.
+                    if (!PumpVideo()) throw Failure{ VideoReason(VideoError()), VideoError() };
+                    InitializeSpool(); FeedPendingAudio(); CheckReadiness(); UpdateLosslessBuffer();
+                    shared_.progress.store(GetTickCount64());
+                    return true;
+                }
                 diagnosticStage_ = "capture_target";
                 CheckTarget();
+                if (resumeAnchoring_ && capture_.HasFrame())
+                {
+                    if (resumeAudioPending_) { StartAudioSource(); resumeAudioPending_ = false; }
+                    if (!audioEnabled_ || !epoch_)
+                    {
+                        std::uint64_t due = 0; std::int64_t next = 0;
+                        Require(FrameTime(1, nextFrame_, policy_.frameRate, due, next) &&
+                            RebasePausedClock(Now(), next, nextFrame_, policy_.frameRate, scheduleEpoch_), Reason::EncoderFailed);
+                        resumeAnchoring_ = false;
+                    }
+                }
                 diagnosticStage_ = "video_pump";
                 if (!PumpVideo()) throw Failure{ failed_ ? reason_ : VideoReason(VideoError()), VideoError() };
                 ProcessAudio(8); InitializeSpool(); ProcessAudio(8);
+                if (resumeAnchoring_)
+                {
+                    Require(GetTickCount64() - resumeBegan_ < 3500, Reason::CaptureReconnecting);
+                    shared_.progress.store(GetTickCount64());
+                    return true;
+                }
                 for (UINT submitted = 0; submitted < 2; ++submitted)
                 {
                     // Do not depend on first H264 output to submit input2: a
                     // low-latency MFT may still need more than one input. The
                     // existing three tracked textures bound in-flight inputs.
                     if (nextFrame_ && audioEnabled_ && !audioInitialized_) break;
-                    if (capture_.Result().copiedFrames == 0) break;
+                    if (!capture_.HasFrame()) break;
                     std::uint64_t due = 0; std::int64_t pts = 0;
                     diagnosticStage_ = "video_schedule";
                     const auto now = Now();
                     if (nextFrame_)
                     {
-                        Require(FrameTime(epoch_, nextFrame_, policy_.frameRate, due, pts), Reason::EncoderFailed);
+                        Require(FrameTime(scheduleEpoch_, nextFrame_, policy_.frameRate, due, pts), Reason::EncoderFailed);
                         schedulerLagKnown_ = true;
                         schedulerLag100ns_ = static_cast<std::int64_t>(now) - static_cast<std::int64_t>(due);
                         if (now < due) break;
@@ -1029,7 +1205,12 @@ namespace recorder::host
                         video_.TrySubmit(nextFrame_, pts, *this);
                     diagnosticStage_ = "video_submit";
                     Require(status != encoder::SubmitResult::Failed, failed_ ? reason_ : VideoReason(VideoError()), VideoError());
-                    if (status == encoder::SubmitResult::WouldBlock) break;
+                    if (status == encoder::SubmitResult::WouldBlock)
+                    {
+                        if (capture_.Paused())
+                            return Pause(CaptureReason(capture_.Result().reason, capture_.Result().hr));
+                        break;
+                    }
                     Require(nextFrame_ != (std::numeric_limits<UINT>::max)(), Reason::EncoderFailed);
                     ++nextFrame_;
                     ProcessAudio(8); InitializeSpool();
@@ -1045,7 +1226,8 @@ namespace recorder::host
                 shared_.progress.store(GetTickCount64());
                 return true;
             }
-            catch (const Failure& value) { return Fail(value.reason, value.hr); }
+            catch (const Failure& value)
+            { return IsFocusPause(value.reason) ? Pause(value.reason) : Fail(value.reason, value.hr); }
             catch (...) { return Fail(Reason::EncoderFailed); }
         }
 
@@ -1053,9 +1235,12 @@ namespace recorder::host
         {
             try
             {
+                if (paused_)
+                    return (config_.losslessVideo ? losslessVideo_.Result().outputSamples : video_.Result().outputSamples) < nextFrame_ ? 5 : 100;
+                if (resumeAnchoring_) return 5;
                 if (!epoch_ || !spoolInitialized_) return 5;
                 std::uint64_t due = 0; std::int64_t pts = 0;
-                if (!FrameTime(epoch_, nextFrame_, policy_.frameRate, due, pts)) return 1;
+                if (!FrameTime(scheduleEpoch_, nextFrame_, policy_.frameRate, due, pts)) return 1;
                 const auto now = Now();
                 if (due <= now) return 1;
                 return static_cast<DWORD>((std::min)(10ull, (std::max)(1ull, (due - now) / 10000)));
@@ -1176,7 +1361,7 @@ namespace recorder::host
             if (!stoppedAudio && audioThread_.joinable()) TerminateSelf();
             bool cleanupOkay = stoppedAudio;
             okay = stoppedAudio && okay;
-            if (clean && audioEnabled_ && audioDone_.load())
+            if (clean && audioEnabled_ && audioDone_.load() && !Paused())
                 okay = audioEvidence_.completed && SUCCEEDED(audioEvidence_.hr) && okay;
             if (save_)
             {
@@ -1195,7 +1380,7 @@ namespace recorder::host
                 {
                     for (UINT count = 0; count < 129; ++count)
                     {
-                        if (!pendingSlice_.frames && !pendingPcm_ && !audioQueue_.TryPop(pendingPcm_)) break;
+                        if (!pendingSlice_.frames && !TakeNextPcm()) break;
                         if (!audioEnabled_) { pendingPcm_.reset(); pendingSlice_ = {}; break; }
                         if (!pendingSlice_.frames)
                         {
@@ -1223,7 +1408,7 @@ namespace recorder::host
             cleanupOkay = SUCCEEDED(videoClose) && cleanupOkay;
             cleanupOkay = SUCCEEDED(audioEncoder_.Close()) && cleanupOkay;
             converter_ = hdr::HdrFrameConverter{};
-            pendingPcm_.reset(); pendingSlice_ = {}; bootstrap_.reset();
+            pendingPcm_.reset(); resumedPcm_.reset(); pendingSlice_ = {}; bootstrap_.reset();
             cleanupOkay = process_.Close() && cleanupOkay;
             if (mfStarted_) { cleanupOkay = SUCCEEDED(MFShutdown()) && cleanupOkay; mfStarted_ = false; }
             okay = cleanupOkay && okay;
@@ -1246,11 +1431,19 @@ namespace recorder::host
             shared.Emit(std::move(line));
         }
         void EmitState(Shared& shared, const std::string& session, protocol::State state, Reason reason,
-            const protocol::LosslessBuffer* losslessBuffer = nullptr)
+            const protocol::LosslessBuffer* losslessBuffer = nullptr, bool bufferReady = false)
         {
             std::string line;
-            Require(protocol::SerializeState(session, state, reason, line, losslessBuffer), Reason::ProtocolError);
+            Require(protocol::SerializeState(session, state, reason, line, losslessBuffer, bufferReady), Reason::ProtocolError);
             shared.Emit(std::move(line));
+        }
+        void EmitMediaState(Shared& shared, const std::string& session, MediaSession& media)
+        {
+            EmitState(shared, session, media.Paused() ? protocol::State::Paused : protocol::State::Buffering,
+                media.Paused() ? media.PauseReason() : media.SourceStale() ? Reason::CaptureStale :
+                    (media.HasAudio() ? Reason::None : Reason::AudioUnavailable),
+                media.LosslessBufferStatus(), media.Paused() && media.Ready());
+            media.BufferStatusAnnounced();
         }
     }
 
@@ -1318,14 +1511,30 @@ namespace recorder::host
         std::unique_ptr<Shared> shared;
         std::unique_ptr<MediaSession> media;
         protocol::Command config;
+        protocol::Command originalTarget;
         Policy policy;
         Reason recoverableShutdown = Reason::None;
         std::int64_t lastRequest = 0, activeRequest = 0;
         bool configured = false, started = false, announcedReady = false, announcedStale = false, stopping = false;
+        bool initialPaused = false, announcedPaused = false, announcedBufferReady = false;
+        Reason initialPauseReason = Reason::FocusLost;
         int exitCode = 0;
         try
         {
             shared = std::make_unique<Shared>(); shared->Start();
+            const auto startMedia = [&](const protocol::Command& target)
+            {
+                shared->startup.store(GetTickCount64()); shared->mediaActive.store(true);
+                media = std::make_unique<MediaSession>(*shared, config, policy);
+                if (media->Start(target)) { initialPaused = false; return true; }
+                const auto reason = media->Error();
+                if (!IsFocusPause(reason)) throw Failure{ reason, E_FAIL };
+                (void)media->Close(false);
+                Require(media->CleanupSucceeded(), Reason::CleanupFailed);
+                media.reset(); initialPaused = true; initialPauseReason = reason;
+                shared->startup.store(0); shared->mediaActive.store(false);
+                return false;
+            };
             for (;;)
             {
                 if (shared->abort.load()) throw Failure{ shared->eof.load() ? Reason::ParentClosed : Reason::ProtocolError, E_ABORT };
@@ -1348,14 +1557,41 @@ namespace recorder::host
                         break;
                     case protocol::CommandKind::Start:
                         Require(configured && !started, Reason::ProtocolError);
-                        started = true; shared->startup.store(GetTickCount64()); shared->mediaActive.store(true);
-                        media = std::make_unique<MediaSession>(*shared, config, policy);
-                        if (!media->Start(command)) throw Failure{ media->Error(), E_FAIL };
+                        started = true; originalTarget = command;
+                        (void)startMedia(command);
                         EmitResult(*shared, { config.session, command.request, true, Reason::None, std::nullopt });
+                        if (initialPaused) EmitState(*shared, config.session, protocol::State::Paused, initialPauseReason);
                         break;
+                    case protocol::CommandKind::Pause:
+                        Require(configured && started && (media || initialPaused), Reason::ProtocolError);
+                        if (media && !media->Pause()) throw Failure{ media->Error(), E_FAIL };
+                        EmitResult(*shared, { config.session, command.request, true, Reason::None, std::nullopt });
+                        if (media)
+                        {
+                            EmitMediaState(*shared, config.session, *media);
+                            announcedReady = true; announcedPaused = true; announcedBufferReady = media->Ready();
+                        }
+                        else EmitState(*shared, config.session, protocol::State::Paused, initialPauseReason);
+                        break;
+                    case protocol::CommandKind::Resume:
+                    {
+                        Require(configured && started && SameTarget(command, originalTarget), Reason::TargetChanged);
+                        const bool resumed = initialPaused ? startMedia(command) : media && media->Resume(command);
+                        if (media && media->Failed()) throw Failure{ media->Error(), E_FAIL };
+                        const auto reason = resumed ? Reason::None : media ? media->PauseReason() : initialPauseReason;
+                        EmitResult(*shared, { config.session, command.request, resumed, reason, std::nullopt });
+                        if (!resumed)
+                        {
+                            if (media) EmitMediaState(*shared, config.session, *media);
+                            else EmitState(*shared, config.session, protocol::State::Paused, initialPauseReason);
+                        }
+                        break;
+                    }
                     case protocol::CommandKind::Save:
-                        Require(configured && started && media, Reason::ProtocolError);
-                        if (media->Saving())
+                        Require(configured && started && (media || initialPaused), Reason::ProtocolError);
+                        if (!media)
+                            EmitResult(*shared, { config.session, command.request, false, Reason::NotReady, std::nullopt });
+                        else if (media->Saving())
                             EmitResult(*shared, { config.session, command.request, false, Reason::SaveInProgress, std::nullopt });
                         else if (!media->Ready())
                             EmitResult(*shared, { config.session, command.request, false, Reason::NotReady, std::nullopt });
@@ -1384,25 +1620,22 @@ namespace recorder::host
                 if (media)
                 {
                     if (!media->Tick()) throw Failure{ media->Error(), E_FAIL };
-                    if (media->Ready() && !media->Saving() &&
-                        (!announcedReady || announcedStale != media->SourceStale() || media->BufferStatusChanged()))
+                    if ((media->Ready() || media->Paused()) && !media->Saving() &&
+                        (!announcedReady || announcedPaused != media->Paused() || announcedBufferReady != media->Ready() ||
+                            announcedStale != media->SourceStale() || media->BufferStatusChanged()))
                     {
                         announcedReady = true;
+                        announcedPaused = media->Paused(); announcedBufferReady = media->Ready();
                         announcedStale = media->SourceStale();
-                        EmitState(*shared, config.session, protocol::State::Buffering,
-                            announcedStale ? Reason::CaptureStale : (media->HasAudio() ? Reason::None : Reason::AudioUnavailable),
-                            media->LosslessBufferStatus());
-                        media->BufferStatusAnnounced();
+                        EmitMediaState(*shared, config.session, *media);
                     }
                     protocol::Result result;
                     if (media->CollectSave(result, false))
                     {
                         EmitResult(*shared, result);
+                        announcedPaused = media->Paused(); announcedBufferReady = media->Ready();
                         announcedStale = media->SourceStale();
-                        EmitState(*shared, config.session, protocol::State::Buffering,
-                            announcedStale ? Reason::CaptureStale : (media->HasAudio() ? Reason::None : Reason::AudioUnavailable),
-                            media->LosslessBufferStatus());
-                        media->BufferStatusAnnounced();
+                        EmitMediaState(*shared, config.session, *media);
                     }
                 }
                 shared->progress.store(GetTickCount64());

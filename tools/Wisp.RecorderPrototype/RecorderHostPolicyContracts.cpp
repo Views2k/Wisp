@@ -71,6 +71,22 @@ namespace recorder::host
         test(SchedulingAllowed(100, 100) && SchedulingAllowed(99, 100));
         test(SchedulingAllowed(100 + MaximumLateness100ns, 100));
         test(!SchedulingAllowed(101 + MaximumLateness100ns, 100));
+        std::uint64_t resumedEpoch = 0;
+        constexpr std::uint64_t resumedSource = 5000000000ull;
+        test(RebasePausedClock(resumedSource, 10000000, 60, 60, resumedEpoch) &&
+            resumedEpoch == resumedSource - 10000000);
+        test(FrameTime(resumedEpoch, 60, 60, due, pts) && due == resumedSource && pts == 10000000);
+        test(RebasePausedClock(resumedSource, 10000208, 60, 60, resumedEpoch) &&
+            FrameTime(resumedEpoch, 60, 60, due, pts) && due == resumedSource - 208 && pts == 10000000);
+        test(RebasePausedClock(resumedSource, 7500000, 60, 60, resumedEpoch));
+        test(!RebasePausedClock(resumedSource, 7499999, 60, 60, resumedEpoch) && resumedEpoch == 0);
+        test(RebasePausedClock(resumedSource, 12500000, 60, 60, resumedEpoch));
+        test(!RebasePausedClock(resumedSource, 12500001, 60, 60, resumedEpoch));
+        test(!RebasePausedClock(10000000, 10000000, 60, 60, resumedEpoch));
+        test(!RebasePausedClock(resumedSource, -1, 60, 60, resumedEpoch));
+        test(!RebasePausedClock(maximum + 1, 10000000, 60, 60, resumedEpoch));
+        test(!RebasePausedClock(resumedSource, 10000000, 60, 59, resumedEpoch));
+        test(!RebasePausedClock(resumedSource, 10000000, (std::numeric_limits<std::uint32_t>::max)(), 60, resumedEpoch));
         // A newly acquired static desktop can carry an older presentation time.
         // Its first-submit clock starts PTS0 now, without altering image age or
         // backdating frame1 into an already missed scheduler interval.

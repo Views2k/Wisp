@@ -2,6 +2,8 @@
 
 #include "GameWindowCapture.h"
 
+#define WISP_CAPTURE_PAUSE_API 1
+
 namespace recorder::capture
 {
     // Pure policy contracts. Pixel format and monitor color space are distinct;
@@ -9,6 +11,7 @@ namespace recorder::capture
     SourceEncoding ScreenSourceEncoding(DXGI_COLOR_SPACE_TYPE, DXGI_FORMAT) noexcept;
     bool ScreenFullscreenBounds(const RECT& client, const RECT& monitor) noexcept;
     bool ScreenQpcTo100ns(std::uint64_t ticks, std::uint64_t frequency, LONGLONG& value) noexcept;
+    bool IsScreenPauseReason(const char*) noexcept;
     UINT RunScreenCaptureContracts() noexcept;
 
     // Captures the whole exact monitor occupied by the verified fullscreen FH6
@@ -33,6 +36,15 @@ namespace recorder::capture
         GameScreenCapture& operator=(const GameScreenCapture&) = delete;
         bool Initialize(const TargetIdentity&, const Options&) noexcept;
         bool Start() noexcept;
+        // Releases duplication without releasing the encoder's device. Resume
+        // requires the original identity and a newly presented focused frame.
+        bool Pause() noexcept;
+        bool Resume(const TargetIdentity&) noexcept;
+        bool Paused() const noexcept { return paused_; }
+        bool HasFrame() const noexcept;
+        bool CheckIdentity() noexcept; // No focus checks, acquisition or display work.
+        bool IsForeground() const noexcept;
+        HWND TargetWindow() const noexcept;
         bool CheckTarget() noexcept;
         ID3D11Device* Device() const noexcept;
         const SourceDescription& Source() const noexcept;
@@ -47,6 +59,7 @@ namespace recorder::capture
         SourceDescription source_{};
         Evidence evidence_{};
         bool closed_ = false;
+        bool paused_ = false;
         bool Fail(const char*, HRESULT) noexcept;
     };
 }

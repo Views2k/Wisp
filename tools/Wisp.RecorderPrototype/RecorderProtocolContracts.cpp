@@ -83,6 +83,15 @@ namespace
         Check(!Accepted(borderless), "borderless_rejects_duplicate");
         Check(!Accepted(CommandLine("stop", ",\"borderlessAllowed\":true")), "borderless_config_only");
         Check(ParseCommand(Start(), command) && command.kind == CommandKind::Start && command.processId == 42 && command.window == 123 && command.creationFileTime == 456, "start_exact_target_identity");
+        Check(ParseCommand(CommandLine("pause"), command) && command.kind == CommandKind::Pause,
+            "pause_has_no_payload");
+        Check(!Accepted(CommandLine("pause", ",\"processId\":42")), "pause_rejects_target_payload");
+        auto resume = Start(); Replace(resume, "\"start\"", "\"resume\"");
+        Check(ParseCommand(resume, command) && command.kind == CommandKind::Resume && command.processId == 42 &&
+            command.window == 123 && command.creationFileTime == 456, "resume_exact_target_identity");
+        Check(!Accepted(CommandLine("resume")), "resume_requires_verified_identity");
+        Replace(resume, "\"window\":\"123\"", "\"window\":\"0\"");
+        Check(!Accepted(resume), "resume_rejects_zero_window");
         Check(ParseCommand(Save(), command) && command.kind == CommandKind::Save && command.clipId == Clip, "save_guid_destination");
         Check(Accepted(Config(std::string("\\\\server\\share\\.wisp-recorder-") + Session)), "unc_storage_syntax_accepted");
         Check(ParseCommand(CommandLine("stop"), command) && command.kind == CommandKind::Stop && command.destination.empty(), "stop_has_no_payload");
@@ -186,6 +195,10 @@ namespace
         Check(!SerializeState(Session, static_cast<State>(999), Reason::None, line) && line.empty(), "unknown_state_rejected");
         Check(SerializeState(Session, State::Paused, Reason::WindowMinimized, line) && line.find("\"state\":\"paused\"") != std::string::npos,
             "minimized_paused_state");
+        Check(line.find("\"bufferReady\":false") != std::string::npos, "initial_pause_not_saveable");
+        Check(SerializeState(Session, State::Paused, Reason::FocusLost, line, nullptr, true) &&
+            line.find("\"bufferReady\":true") != std::string::npos, "paused_standard_buffer_remains_saveable");
+        Check(!SerializeState(Session, State::Buffering, Reason::None, line, nullptr, true), "readiness_override_only_paused");
         Check(SerializeState(Session, State::Buffering, Reason::CaptureStale, line) && line.find("capture_stale") != std::string::npos,
             "stale_frames_remain_buffering");
         Check(line.find("losslessBuffer") == std::string::npos, "standard_state_omits_lossless_buffer");
@@ -193,7 +206,11 @@ namespace
         Check(SerializeState(Session, State::Buffering, Reason::None, line, &buffer) &&
             line.find("\"losslessBuffer\":{\"duration100ns\":166666,\"payloadBytes\":1234,\"budgetBytes\":4096,\"sizeLimited\":true}") != std::string::npos,
             "lossless_buffer_exact_scalar_object");
-        Check(!SerializeState(Session, State::Saving, Reason::None, line, &buffer) && line.empty(), "lossless_buffer_only_buffering");
+        Check(!SerializeState(Session, State::Saving, Reason::None, line, &buffer) && line.empty(), "saving_omits_lossless_buffer");
+        Check(!SerializeState(Session, State::Paused, Reason::FocusLost, line, &buffer), "unready_pause_cannot_report_buffer");
+        Check(SerializeState(Session, State::Paused, Reason::FocusLost, line, &buffer, true) &&
+            line.find("\"bufferReady\":true") != std::string::npos && line.find("\"losslessBuffer\":{") != std::string::npos,
+            "paused_lossless_buffer_preserves_bounds");
         buffer.duration100ns = 0;
         Check(!SerializeState(Session, State::Buffering, Reason::None, line, &buffer), "lossless_buffer_empty_duration_rejected");
         buffer.duration100ns = -1;
@@ -212,6 +229,9 @@ namespace
         Check(SerializeState(Session, State::Error, Reason::LosslessStorageLow, line) &&
             line.find("lossless_storage_low") != std::string::npos && !IsRecoverable(Reason::LosslessStorageLow),
             "lossless_storage_low_specific_and_not_retried");
+        Check(SerializeState(Session, State::Error, Reason::LosslessEncoderUnsupported, line) &&
+            line.find("lossless_encoder_unsupported") != std::string::npos && !IsRecoverable(Reason::LosslessEncoderUnsupported),
+            "unsupported_lossless_encoder_specific_and_not_retried");
         Check(!IsRecoverable(Reason::CaptureStale) && IsRecoverable(Reason::SchedulerLate) && IsRecoverable(Reason::AudioReconnecting),
             "interruption_recovery_allowlist");
         Check(!IsRecoverable(Reason::CleanupFailed) && !IsRecoverable(Reason::ProtocolError) &&

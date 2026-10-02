@@ -349,7 +349,7 @@ namespace recorder::encoder
             }
         }
 
-        void Submit(HardwareSession& session, const std::shared_ptr<SharedState>& state, UINT slot, UINT frame,
+        bool Submit(HardwareSession& session, const std::shared_ptr<SharedState>& state, UINT slot, UINT frame,
             const EncodeConfig&, FixtureFrameProvider* provider, ID3D10Multithread* multithread, Evidence& evidence,
             LONGLONG time100ns, LONGLONG duration100ns)
         {
@@ -365,7 +365,17 @@ namespace recorder::encoder
                         explicit GraphicsLock(ID3D10Multithread* resource) : value(resource) { value->Enter(); }
                         ~GraphicsLock() { value->Leave(); }
                     } lock{ multithread };
-                    Check(provider->Fill(frame, slot, state->textures[slot].Get()), "fixture_frame_provider_failed");
+                    const HRESULT written = provider->Fill(frame, slot, state->textures[slot].Get());
+                    if (written == S_FALSE)
+                    {
+                        // No sample reached the encoder. Any partial conversion
+                        // remains ordered before this surface's next GPU use.
+                        std::lock_guard<std::mutex> guard(state->mutex);
+                        Require(state->ownership.Release(slot), "unsubmitted_surface_release_failed");
+                        return false;
+                    }
+                    Check(written, "fixture_frame_provider_failed");
+                    Require(written == S_OK, "fixture_frame_not_written");
                     ++evidence.providerFramesFilled;
                 }
                 ComPtr<IMFMediaBuffer> buffer;
@@ -397,6 +407,7 @@ namespace recorder::encoder
                 Check(session.transform->ProcessInput(session.inputId, sample.Get(), 0), "hardware_process_input_failed");
                 // All local sample references die here. Only the tracked-sample
                 // completion callback can release this surface slot afterwards.
+                return true;
             }
             catch (...)
             {

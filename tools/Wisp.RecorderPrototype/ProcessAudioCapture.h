@@ -107,6 +107,7 @@ namespace recorder::audio
         DWORD maximumCaptureMs = 10000; // Timed fixture: 1..60000; UntilStopped requires 0.
         CaptureMode mode = CaptureMode::TimedFixture;
         LoopbackSource source = LoopbackSource::GameProcess;
+        HWND requiredForegroundWindow = nullptr; // Production monitor capture only; fixtures omit it.
     };
     bool ValidateOptions(const Options& options) noexcept;
 

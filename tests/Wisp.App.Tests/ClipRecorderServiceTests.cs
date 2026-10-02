@@ -317,6 +317,7 @@ public sealed class ClipRecorderServiceTests
         await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         first.Emit("buffering", "none");
         service.ObserveTarget(null, service.TargetObservationGeneration);
+        first.Emit("stopped", "window_closed");
         await first.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         Assert.True(service.Snapshot.Enabled);
         service.ObserveTarget(new(new(43, 321, 789), 2), service.TargetObservationGeneration);
@@ -324,7 +325,7 @@ public sealed class ClipRecorderServiceTests
         await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         Assert.Equal(2, factory.Count);
         second.Emit("buffering", "none");
-        Assert.Contains("Reset 1: target_observation_unavailable", service.FailureReport, StringComparison.Ordinal);
+        Assert.Contains("Reset 1: window_closed", service.FailureReport, StringComparison.Ordinal);
         Assert.Single(service.FailureReport.Split('\n'), line => line.StartsWith("Reset ", StringComparison.Ordinal));
     }
 
@@ -365,7 +366,7 @@ public sealed class ClipRecorderServiceTests
         first.Emit("buffering", "none");
         var revisionField = typeof(ClipRecorderService).GetField("_revision", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var oldRevision = Assert.IsType<long>(revisionField.GetValue(service));
-        service.ObserveTarget(new(Target, 2), service.TargetObservationGeneration);
+        service.ObserveTarget(new(new(43, 321, 789), 2), service.TargetObservationGeneration);
         var second = await factory.NextAsync();
         await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         var currentRevision = Assert.IsType<long>(revisionField.GetValue(service));
@@ -433,9 +434,6 @@ public sealed class ClipRecorderServiceTests
 
     [Theory]
     [InlineData("off_on")]
-    [InlineData("focus_lost")]
-    [InlineData("fullscreen_required")]
-    [InlineData("window_minimized")]
     [InlineData("window_closed")]
     public async Task NewDemandBetweenVisibilityTicksStillClearsTheStableWindow(string transition)
     {
@@ -584,8 +582,11 @@ public sealed class ClipRecorderServiceTests
         Assert.False(service.Snapshot.Enabled);
     }
 
-    [Fact]
-    public async Task MinimizedTargetPausesWithoutRetryingUntilRestoredObservation()
+    [Theory]
+    [InlineData("window_minimized")]
+    [InlineData("focus_lost")]
+    [InlineData("fullscreen_required")]
+    public async Task PausedTargetKeepsSaveableHistoryAndResumesWithoutNewHelper(string reason)
     {
         using var fixture = new Fixture();
         var factory = new SessionFactory();
@@ -595,21 +596,192 @@ public sealed class ClipRecorderServiceTests
         service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
         var first = await factory.NextAsync();
         await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
-        first.Emit("paused", "window_minimized");
-        await first.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        first.Emit("buffering", "none");
+        var oldGeneration = service.TargetObservationGeneration;
+        first.Emit("paused", reason);
         await ReconcileAsync(service);
         Assert.Equal(ClipRecorderState.Paused, service.Snapshot.State);
         Assert.True(service.Snapshot.Enabled);
+        Assert.True(service.Snapshot.CanSave);
+        Assert.Contains("kept and can be saved", service.Snapshot.Status, StringComparison.Ordinal);
+        Assert.False(first.Disposed.Task.IsCompleted);
         Assert.Equal(0, delays.Count);
         Assert.Equal(1, factory.Count);
-        service.ObserveTarget(null, service.TargetObservationGeneration);
+        Assert.True(service.TargetObservationGeneration > oldGeneration);
+        service.ObserveTarget(new(Target, 1), oldGeneration);
+        await ReconcileAsync(service);
+        Assert.Equal(0, first.Resumes);
+        var target = new ClipSaveTarget(Guid.NewGuid(), DateTimeOffset.UtcNow, Recording, "unused");
+        var expected = new FinalizedClipMedia(1024, 1920, 1080, 60, 0, 100_000_000, true);
+        first.Saved.SetResult(expected);
+        Assert.Equal(expected, await service.SaveAsync(target, TestToken));
         service.ObserveTarget(new(Target, 2), service.TargetObservationGeneration);
-        var restored = await factory.NextAsync();
-        await restored.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
-        restored.Emit("buffering", "none");
+        await ReconcileAsync(service);
+        Assert.Equal(1, first.Resumes);
+        Assert.Equal(1, factory.Count);
+        Assert.False(first.Disposed.Task.IsCompleted);
         Assert.True(service.Snapshot.CanSave);
-        Assert.Contains("Reset 1: window_minimized", service.FailureReport, StringComparison.Ordinal);
-        Assert.Single(service.FailureReport.Split('\n'), line => line.StartsWith("Reset ", StringComparison.Ordinal));
+        Assert.Empty(service.FailureReport);
+    }
+
+    [Fact]
+    public async Task SaveStartedWhilePausedCanResumeAndPauseAgainBeforeSaveCompletes()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        session.Emit("paused", "focus_lost");
+        await ReconcileAsync(service);
+        var generation = service.TargetObservationGeneration;
+        var saving = service.SaveAsync(new(Guid.NewGuid(), DateTimeOffset.UtcNow, Recording, "unused"), TestToken);
+        session.Emit("saving", "none");
+        // Native may repeat its retained paused state after a save/control event.
+        session.Emit("paused", "focus_lost");
+        Assert.Equal(generation, service.TargetObservationGeneration);
+        session.Emit("saving", "none");
+        session.ResumeEmitsBuffering = false; // Native suppresses this during mux.
+        service.ObserveTarget(new(Target, 2), generation);
+        await ReconcileAsync(service);
+        Assert.Equal(1, session.Resumes);
+        Assert.False(saving.IsCompleted);
+        Assert.Equal(ClipRecorderState.Saving, service.Snapshot.State);
+        Assert.Equal(generation, service.TargetObservationGeneration);
+        service.ObserveTarget(null, generation);
+        await ReconcileAsync(service);
+        Assert.Equal(1, session.Pauses);
+        Assert.False(saving.IsCompleted);
+        Assert.False(session.Disposed.Task.IsCompleted);
+        var expected = new FinalizedClipMedia(1024, 1920, 1080, 60, 0, 100_000_000, true);
+        session.Saved.SetResult(expected);
+        Assert.Equal(expected, await saving);
+        session.Emit("paused", "focus_lost");
+        await ReconcileAsync(service);
+        Assert.Equal(generation, service.TargetObservationGeneration);
+        Assert.Equal(1, factory.Count);
+        Assert.True(service.Snapshot.CanSave);
+        Assert.Empty(service.FailureReport);
+    }
+
+    [Theory]
+    [InlineData("focus_lost")]
+    [InlineData("window_minimized")]
+    [InlineData("fullscreen_required")]
+    public async Task RefusedResumeRequiresFreshGenerationEvenWhenExternalObservationIsUnchanged(string reason)
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        var observation = new RecorderTargetObservation(Target, 1);
+        service.ObserveTarget(observation, service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        session.Emit("paused", "focus_lost");
+        await ReconcileAsync(service);
+        var rejectedGeneration = service.TargetObservationGeneration;
+        session.ResumeFailureReason = reason;
+        service.ObserveTarget(observation, rejectedGeneration);
+        await ReconcileAsync(service);
+        Assert.Equal(1, session.Resumes);
+        Assert.True(service.TargetObservationGeneration > rejectedGeneration);
+        Assert.Equal(ClipRecorderState.Paused, service.Snapshot.State);
+        Assert.True(service.Snapshot.CanSave);
+        Assert.False(session.Disposed.Task.IsCompleted);
+        var freshGeneration = service.TargetObservationGeneration;
+        session.Emit("paused", reason);
+        service.ObserveTarget(observation, rejectedGeneration);
+        await ReconcileAsync(service);
+        Assert.Equal(1, session.Resumes);
+        Assert.Equal(freshGeneration, service.TargetObservationGeneration);
+        session.ResumeFailureReason = null;
+        service.ObserveTarget(observation, freshGeneration);
+        await ReconcileAsync(service);
+        Assert.Equal(2, session.Resumes);
+        Assert.Equal(1, factory.Count);
+        Assert.Equal(ClipRecorderState.Buffering, service.Snapshot.State);
+        Assert.Empty(service.FailureReport);
+    }
+
+    [Fact]
+    public async Task PausedEventRacingSuccessfulResumeAcknowledgmentRemainsPausedUntilFreshEligibility()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        session.Emit("paused", "focus_lost");
+        await ReconcileAsync(service);
+        var generation = service.TargetObservationGeneration;
+        session.PauseBeforeResumeReply = true;
+        service.ObserveTarget(new(Target, 2), generation);
+        await ReconcileAsync(service);
+        Assert.Equal(1, session.Resumes);
+        Assert.Equal(1, session.Pauses);
+        Assert.True(service.TargetObservationGeneration > generation);
+        Assert.Equal(ClipRecorderState.Paused, service.Snapshot.State);
+        Assert.True(service.Snapshot.CanSave);
+        await ReconcileAsync(service);
+        Assert.Equal(1, session.Resumes);
+        Assert.Equal(1, session.Pauses);
+        Assert.Equal(1, factory.Count);
+        Assert.Empty(service.FailureReport);
+    }
+
+    [Fact]
+    public async Task LosingFocusDuringSaveDoesNotCancelTheWrite()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        var target = new ClipSaveTarget(Guid.NewGuid(), DateTimeOffset.UtcNow, Recording, "unused");
+        var saving = service.SaveAsync(target, TestToken);
+        service.ObserveTarget(null, service.TargetObservationGeneration);
+        await ReconcileAsync(service);
+        Assert.Equal(1, session.Pauses);
+        Assert.False(saving.IsCompleted);
+        Assert.False(session.Disposed.Task.IsCompleted);
+        var expected = new FinalizedClipMedia(1024, 1920, 1080, 60, 0, 100_000_000, true);
+        session.Saved.SetResult(expected);
+        Assert.Equal(expected, await saving);
+        Assert.Equal(ClipRecorderState.Paused, service.Snapshot.State);
+        Assert.True(service.Snapshot.CanSave);
+        Assert.Empty(service.FailureReport);
+    }
+
+    [Fact]
+    public async Task PauseBeforeFirstFrameIsNotSaveableAndDoesNotRestart()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("paused", "focus_lost");
+        await ReconcileAsync(service);
+        Assert.Equal(ClipRecorderState.Paused, service.Snapshot.State);
+        Assert.False(service.Snapshot.CanSave);
+        session.Emit("paused", "focus_lost");
+        await ReconcileAsync(service);
+        Assert.Equal(0, session.Resumes);
+        Assert.Equal(1, factory.Count);
+        Assert.False(session.Disposed.Task.IsCompleted);
     }
 
     [Fact]
@@ -731,13 +903,37 @@ public sealed class ClipRecorderServiceTests
         internal RecorderFailureDiagnostic? DiagnosticAfterDisposal { get; set; }
         public RecorderFailureDiagnostic? FailureDiagnostic => Disposed.Task.IsCompleted ? DiagnosticAfterDisposal : null;
         internal int Stops { get; private set; }
+        internal int Pauses { get; private set; }
+        internal int Resumes { get; private set; }
+        internal bool ResumeEmitsBuffering { get; set; } = true;
+        internal bool PauseBeforeResumeReply { get; set; }
+        internal string? ResumeFailureReason { get; set; }
+        private bool _bufferReady;
         internal RecorderTarget? StartedTarget { get; private set; }
         public event EventHandler<RecorderStateUpdate>? StateChanged;
-        internal void Emit(string state, string reason) => StateChanged?.Invoke(this, new(state, reason));
+        internal void Emit(string state, string reason)
+        {
+            if (state == "buffering") _bufferReady = true;
+            StateChanged?.Invoke(this, new(state, reason, BufferReady: state == "paused" && _bufferReady));
+        }
         public Task OpenAsync(ClipRecordingSpec recording, string storage, CancellationToken cancellationToken)
         { cancellationToken.ThrowIfCancellationRequested(); BorderlessAllowedAtOpen = BorderlessAllowed; Emit("waiting", "waiting_for_game"); return Task.CompletedTask; }
         public Task StartAsync(RecorderTarget target, CancellationToken cancellationToken)
         { cancellationToken.ThrowIfCancellationRequested(); StartedTarget = target; Started.TrySetResult(); return Task.CompletedTask; }
+        public Task PauseAsync(CancellationToken cancellationToken)
+        { cancellationToken.ThrowIfCancellationRequested(); Pauses++; Emit("paused", "focus_lost"); return Task.CompletedTask; }
+        public Task ResumeAsync(RecorderTarget target, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested(); Assert.Equal(StartedTarget, target); Resumes++;
+            if (ResumeFailureReason is { } reason)
+            {
+                Emit("paused", reason);
+                return Task.FromException(new RecorderClientException(reason) { NativeRequestRejected = true });
+            }
+            if (PauseBeforeResumeReply) Emit("paused", "focus_lost");
+            else if (ResumeEmitsBuffering) Emit("buffering", "none");
+            return Task.CompletedTask;
+        }
         public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken) => Saved.Task.WaitAsync(cancellationToken);
         public Task StopAsync(CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); Stops++; return Task.CompletedTask; }
         public ValueTask DisposeAsync()
