@@ -5,6 +5,7 @@ namespace Wisp.App;
 public sealed partial class AppController
 {
     private ClipRecorderService _clipRecorder = null!;
+    private readonly ClipShortcutFeedback _clipShortcutFeedback = new();
     private Func<bool, OverlayHotkeyChord, OverlayHotkeyRegistrationResult>? _clipToggleRegistration, _clipSaveRegistration;
     private long _clipsRuntimeRevision;
     private long _clipTargetObservationGeneration;
@@ -24,11 +25,18 @@ public sealed partial class AppController
             helperPath is null ? null : new RecorderThumbnailProvider(helperPath), libraryDirectory: libraryDirectory);
         Clips.SetRuntimeActive(false);
         Clips.SetShortcutRegistration(ConfigureClipShortcut);
+        if (helperPath is not null) Clips.ShortcutFeedbackRequested += OnClipShortcutFeedbackRequested;
         Clips.PreferencesChanged += (_, _) =>
         {
             Settings.Clips = Clips.Preferences;
             ScheduleSettingsSave();
         };
+    }
+
+    private void OnClipShortcutFeedbackRequested(ClipShortcutFeedbackKind kind)
+    {
+        if (!_disposed && !_runtimeSuspended && !Settings.RequiresSetup)
+            _clipShortcutFeedback.Play(kind, Clips.ShortcutSoundsEnabled);
     }
 
     internal void SetClipHotkeyRegistrations(
@@ -123,6 +131,7 @@ public sealed partial class AppController
         ++_clipsRuntimeRevision;
         _forzaFocusService.CaptureRequested = false;
         UnregisterClipShortcuts();
+        Clips.ShortcutFeedbackRequested -= OnClipShortcutFeedbackRequested;
         Clips.Dispose();
         return _clipRecorder.DisposeAsync().AsTask();
     }

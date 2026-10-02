@@ -10,6 +10,120 @@ namespace Wisp.App.Tests;
 public sealed class ClipsViewModelTests
 {
     [Fact]
+    public void ConfirmedEmptyFailureClearsReservationButKeepsTheFailureVisible() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder { SaveFailure = new RecorderClientException("not_ready") { SaveCompletedWithoutMedia = true } };
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        await model.SaveClipAsync();
+        Assert.True(model.HasError);
+        Assert.False(model.HasPendingSaves);
+        Assert.Empty(await new ClipLibrary(fixture.Directory).ListPendingAsync(TestContext.Current.CancellationToken));
+        await model.LoadPageAsync(0);
+        Assert.False(model.HasDashboardNotice);
+    });
+
+    [Fact]
+    public void OldPendingNoticeDoesNotHideNewClipsAndCanBeDismissedWithoutDeletingData() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var library = new ClipLibrary(fixture.Directory);
+        var unfinished = await library.ReserveSaveAsync(new(60, 1080, 60, 75), TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(unfinished.MediaPath, FakeRecorder.Bytes, TestContext.Current.CancellationToken);
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        Assert.False(model.CanRecoverPending);
+        await model.SaveClipAsync();
+        Assert.True(model.HasPendingSaves);
+        Assert.Equal("New clips", model.DashboardNoticeTitle);
+        model.RemindersEnabled = false;
+        Assert.Equal("Unfinished clip saves", model.DashboardNoticeTitle);
+        await model.DismissPendingAsync();
+        Assert.False(model.HasDashboardNotice);
+        Assert.True(model.HasPendingSaves);
+        Assert.Single(await library.ListPendingAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(FakeRecorder.Bytes, await File.ReadAllBytesAsync(unfinished.MediaPath, TestContext.Current.CancellationToken));
+        recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Off"));
+        Assert.True(model.CanRecoverPending);
+        await model.LoadPageAsync(0);
+        Assert.False(model.HasDashboardNotice);
+    });
+
+    [Fact]
+    public void StartupPreferenceWaitsForRecordingAndClearsAfterTerminalFailure() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Disabled, false, true, false, "Clipping is off"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        await model.ToggleAsync();
+        Assert.True(model.ClippingEnabled);
+        Assert.False(model.Preferences.Enabled);
+        recorder.Set(new(ClipRecorderState.Error, false, true, false, "Lossless video needs NVIDIA."));
+        Assert.False(model.Preferences.Enabled);
+        await model.RestoreEnabledPreferenceAsync();
+        Assert.Equal(1, recorder.ToggleCalls);
+        await model.ToggleAsync();
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        Assert.True(model.Preferences.Enabled);
+        recorder.Set(new(ClipRecorderState.Paused, true, true, true, "Paused"));
+        Assert.True(model.Preferences.Enabled);
+        recorder.Set(new(ClipRecorderState.Error, false, true, false, "Storage is full."));
+        Assert.False(model.Preferences.Enabled);
+    });
+
+    [Fact]
+    public void ShortcutSoundWaitsForCommittedClipAndButtonsRemainSilent() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recorder = new FakeRecorder { SaveGate = gate };
+        recorder.Set(new(ClipRecorderState.Paused, true, true, true, "Recording paused; footage kept."));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        var outcomes = new List<ClipShortcutFeedbackKind>();
+        model.ShortcutFeedbackRequested += outcomes.Add;
+        Assert.True(model.CanRequestSave);
+        var saving = model.SaveClipFromShortcutAsync();
+        await recorder.SaveEntered.Task;
+        Assert.Empty(outcomes);
+        gate.SetResult();
+        await saving;
+        Assert.Single(model.Clips);
+        Assert.Equal(new[] { ClipShortcutFeedbackKind.Saved }, outcomes);
+        await model.SaveClipAsync();
+        Assert.Equal(2, model.Clips.Count);
+        Assert.Single(outcomes);
+        model.ShortcutSoundsEnabled = false;
+        await model.SaveClipFromShortcutAsync();
+        Assert.Equal(3, model.Clips.Count);
+        Assert.Single(outcomes);
+    });
+
+    [Fact]
+    public void FailedOrRejectedShortcutNeverPlaysSuccess() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder { FailSave = true };
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync();
+        var outcomes = new List<ClipShortcutFeedbackKind>();
+        model.ShortcutFeedbackRequested += outcomes.Add;
+        await model.SaveClipFromShortcutAsync();
+        Assert.Equal(new[] { ClipShortcutFeedbackKind.Failed }, outcomes);
+        recorder.Set(new(ClipRecorderState.Paused, true, true, false, "No frames yet"));
+        await model.SaveClipFromShortcutAsync();
+        Assert.Equal(new[] { ClipShortcutFeedbackKind.Failed, ClipShortcutFeedbackKind.Failed }, outcomes);
+        Assert.Empty(model.Clips);
+    });
+
+    [Fact]
     public void LosslessChoiceReachesRecorderAndPreservesCompressedQuality() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
@@ -750,8 +864,8 @@ public sealed class ClipsViewModelTests
         Assert.Equal(0, recorder.ToggleCalls);
         Assert.False(model.ClippingEnabled);
         Assert.Equal(directory, model.Preferences.StorageDirectory);
-        Assert.True(model.Preferences.Enabled);
-        Assert.Equal(0, commits);
+        Assert.False(model.Preferences.Enabled);
+        Assert.Equal(1, commits);
         Assert.True(model.HasSelection);
         Assert.True(model.CanExport);
 

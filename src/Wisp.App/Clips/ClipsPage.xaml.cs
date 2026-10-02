@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -201,7 +200,7 @@ public partial class ClipsPage : UserControl
     {
         Title = "Export clip",
         Filter = "MP4 video (*.mp4)|*.mp4",
-        FileName = $"Wisp-{clip.SavedAtUtc.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{clip.Id:N}.mp4",
+        FileName = clip.SuggestedExportName,
         DefaultExt = ".mp4",
         AddExtension = true,
         CheckPathExists = true,

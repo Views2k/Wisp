@@ -28,6 +28,7 @@ public sealed class ClipsSettings
     public int FrameRate { get; set; } = 60;
     public int Quality { get; set; } = 75;
     public bool RemindersEnabled { get; set; } = true;
+    public bool ShortcutSoundsEnabled { get; set; } = true;
     public string StorageDirectory { get; set; } = "";
     public bool UsesPrivateLibrary { get; set; }
     public string LegacyLibraryDirectory { get; set; } = "";

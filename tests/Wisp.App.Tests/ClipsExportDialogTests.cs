@@ -17,7 +17,7 @@ public sealed class ClipsExportDialogTests : IDisposable
         Directory.CreateDirectory(_directory);
         var dialog = ClipsPage.CreateExportDialog(_directory, Clip);
         Assert.Equal(_directory, dialog.InitialDirectory);
-        Assert.Equal("Wisp-20261001-142345-baea6f2c8d2a4e2fa0bc3c1f73f7c900.mp4", dialog.FileName);
+        Assert.Equal(FormattableString.Invariant($"Wisp-{Clip.SavedAtUtc.ToLocalTime():yyyyMMdd-HHmmss}-baea6f2c.mp4"), dialog.FileName);
         Assert.Equal("MP4 video (*.mp4)|*.mp4", dialog.Filter);
         Assert.Equal("mp4", dialog.DefaultExt);
         Assert.True(dialog.AddExtension);

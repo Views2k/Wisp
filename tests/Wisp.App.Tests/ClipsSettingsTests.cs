@@ -21,6 +21,7 @@ public sealed class ClipsSettingsTests
         Assert.Equal(60, settings.FrameRate);
         Assert.Equal(75, settings.Quality);
         Assert.True(settings.RemindersEnabled);
+        Assert.True(settings.ShortcutSoundsEnabled);
         Assert.Equal("", settings.StorageDirectory);
         Assert.False(settings.ToggleShortcutEnabled);
         Assert.False(settings.SaveShortcutEnabled);
@@ -35,6 +36,17 @@ public sealed class ClipsSettingsTests
         Assert.Equal(Enumerable.Range(1, 10).Select(value => value * 30), ClipsSettings.LengthChoices);
         Assert.Equal(new[] { 360, 480, 720, 1080, 1440, 2160 }, ClipsSettings.ResolutionChoices);
         Assert.Equal(new[] { 30, 60 }, ClipsSettings.FrameRateChoices);
+    }
+
+    [Fact]
+    public void ShortcutSoundsDefaultOnAndDisabledPreferenceSurvivesCloneAndRoundTrip()
+    {
+        var settings = JsonSerializer.Deserialize<ClipsSettings>("{}")!;
+        Assert.True(settings.ShortcutSoundsEnabled);
+        settings.ShortcutSoundsEnabled = false;
+        var restored = JsonSerializer.Deserialize<ClipsSettings>(JsonSerializer.Serialize(settings.Clone()))!;
+        restored.Normalize();
+        Assert.False(restored.ShortcutSoundsEnabled);
     }
 
     [Fact]

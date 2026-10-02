@@ -19,7 +19,7 @@ internal sealed class ClipBufferCommitReceipt(Action<SafeFileHandle> validate, A
     internal void Commit() => commit();
 }
 
-internal sealed class ClipBufferStore : IAsyncDisposable
+internal sealed partial class ClipBufferStore : IAsyncDisposable
 {
     internal const string OwnerName = "owner.json", LeaseName = "lease";
     private const string Format = "wisp.clip-buffer";

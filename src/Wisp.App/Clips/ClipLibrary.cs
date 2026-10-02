@@ -25,14 +25,20 @@ public sealed record ClipEntry(Guid Id, DateTimeOffset SavedAtUtc, ClipRecording
 {
     [JsonIgnore]
     public double DurationSeconds => (Media.ActualEnd100ns - Media.ActualStart100ns) / 10_000_000d;
+
+    [JsonIgnore]
+    public string SuggestedExportName => $"Wisp-{SavedAtUtc.ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{Id.ToString("N")[..8]}.mp4";
 }
 
 public sealed record ClipLibraryPage(IReadOnlyList<ClipEntry> Clips, int PageIndex, int PageCount,
-    int TotalClips, int PendingSaves, int UnviewedClips, int UnexportedClips, int NewClips);
+    int TotalClips, int PendingSaves, int UnviewedClips, int UnexportedClips, int NewClips)
+{
+    public int PendingNotices { get; init; } = PendingSaves;
+}
 public sealed record ClipExportResult(bool FileCreated, bool ExportStateSaved);
 public sealed record ClipImportResult(int Imported, int AlreadyPresent, int Remaining, int PendingLegacySaves);
 
-public sealed class ClipLibrary
+public sealed partial class ClipLibrary
 {
     public const int PageSize = 25;
     public const int MaximumEntries = 5000;
@@ -69,7 +75,8 @@ public sealed class ClipLibrary
             return new ClipLibraryPage(ordered.Skip(selectedPage * PageSize).Take(PageSize).ToArray(), selectedPage,
                 pages, ordered.Length, index.Pending.Count, ordered.Count(clip => clip.ViewedAtUtc is null),
                 ordered.Count(clip => clip.ExportedAtUtc is null),
-                ordered.Count(clip => clip.ViewedAtUtc is null && clip.ExportedAtUtc is null));
+                ordered.Count(clip => clip.ViewedAtUtc is null && clip.ExportedAtUtc is null))
+            { PendingNotices = index.Pending.Count(item => !item.NoticeDismissed) };
         }, cancellationToken);
     }
 
@@ -160,8 +167,7 @@ public sealed class ClipLibrary
         ValidateId(id);
         if (!ClipsSettings.TryNormalizeDirectory(directory, out var normalized))
             throw new ArgumentException("Choose an export folder using a full path.", nameof(directory));
-        return ExportCoreAsync(id, clip => Path.Combine(normalized,
-            $"Wisp-{clip.SavedAtUtc.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{clip.Id:N}.mp4"), reuseIdentical: true, cancellationToken);
+        return ExportCoreAsync(id, clip => Path.Combine(normalized, clip.SuggestedExportName), reuseIdentical: true, cancellationToken);
     }
 
     private Task<ClipExportResult> ExportCoreAsync(Guid id, Func<ClipEntry, string> destinationFor, bool reuseIdentical, CancellationToken cancellationToken) =>
@@ -355,7 +361,7 @@ public sealed class ClipLibrary
             throw new InvalidDataException("The clip recording settings are invalid.");
     }
 
-    private static void ValidateMedia(FinalizedClipMedia media, ClipRecordingSpec recording)
+    internal static void ValidateMedia(FinalizedClipMedia media, ClipRecordingSpec recording)
     {
         ArgumentNullException.ThrowIfNull(media);
         // 480p uses an even 854-pixel width; all other choices are exact 16:9.
@@ -440,5 +446,6 @@ public sealed class ClipLibrary
         public bool WasPersisted { get; set; }
     }
 
-    private sealed record PendingClip(Guid Id, DateTimeOffset RequestedAtUtc, ClipRecordingSpec Recording);
+    private sealed record PendingClip(Guid Id, DateTimeOffset RequestedAtUtc, ClipRecordingSpec Recording,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool NoticeDismissed = false);
 }

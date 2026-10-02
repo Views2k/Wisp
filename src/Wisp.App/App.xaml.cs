@@ -84,13 +84,13 @@ public partial class App : Application
         _clipToggleHotkey.Pressed += async (_, _) =>
         {
             if (_controller is not null && _runtimeActive && !_controller.ShortcutCaptureActive)
-                await _controller.Clips.ToggleAsync();
+                await _controller.Clips.ToggleFromShortcutAsync();
         };
         _clipSaveHotkey = new OverlayHotkeyService();
         _clipSaveHotkey.Pressed += async (_, _) =>
         {
             if (_controller is not null && _runtimeActive && !_controller.ShortcutCaptureActive)
-                await _controller.Clips.SaveClipAsync();
+                await _controller.Clips.SaveClipFromShortcutAsync();
         };
         _controller.SetClipHotkeyRegistrations(_clipToggleHotkey.Apply, _clipSaveHotkey.Apply);
         if (ApplicationUpdateLauncher.TryConsumeResult(out var updateResult))

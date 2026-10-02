@@ -15,6 +15,17 @@ public sealed class ClipLibraryTests : IDisposable
     private static FinalizedClipMedia Media => new(MediaBytes.Length, 1920, 1080, 60, 10_000_000, 610_000_000, true);
 
     [Fact]
+    public void ExportSuggestionUsesTheCardLocalClockAndShortStableIdentity()
+    {
+        var saved = new DateTimeOffset(2026, 10, 1, 14, 5, 9, TimeSpan.Zero);
+        var id = Guid.Parse("12345678-1234-1234-1234-123456789abc");
+        var clip = new ClipEntry(id, saved, Recording, Media);
+        var localStamp = saved.ToLocalTime().ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        Assert.Equal($"Wisp-{localStamp}-12345678.mp4", clip.SuggestedExportName);
+        Assert.DoesNotContain(id.ToString("N"), clip.SuggestedExportName, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PendingReservationSurvivesRestartButNeverAppearsAsPlayable()
     {
         var first = new ClipLibrary(_directory);
@@ -128,7 +139,7 @@ public sealed class ClipLibraryTests : IDisposable
         Assert.Equal(new ClipExportResult(true, true), await library.ExportToDirectoryAsync(saved.Id, folder, TestContext.Current.CancellationToken));
         var exported = Assert.Single(Directory.EnumerateFiles(folder));
         Assert.StartsWith("Wisp-", Path.GetFileName(exported), StringComparison.Ordinal);
-        Assert.EndsWith($"-{saved.Id:N}.mp4", exported, StringComparison.Ordinal);
+        Assert.EndsWith($"-{saved.Id.ToString("N")[..8]}.mp4", exported, StringComparison.Ordinal);
         var timestamp = Assert.Single((await library.GetPageAsync(0, TestContext.Current.CancellationToken)).Clips).ExportedAtUtc;
         Assert.Equal(new ClipExportResult(false, true), await library.ExportToDirectoryAsync(saved.Id, folder, TestContext.Current.CancellationToken));
         Assert.Equal(exported, Assert.Single(Directory.EnumerateFiles(folder)));
