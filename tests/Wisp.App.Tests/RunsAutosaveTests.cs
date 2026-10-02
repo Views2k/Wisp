@@ -166,7 +166,7 @@ public sealed class RunsAutosaveTests
         model.ComparisonChoice = model.Library.Single(item => item.Id == fixture.B.Id);
         model.CompareCommand.Execute(null); await Ready(model);
         var aList = new ListBox(); var bList = new ComboBox();
-        aList.SetBinding(ItemsControl.ItemsSourceProperty, new Binding(nameof(RunsViewModel.FilteredLibrary)) { Source = model });
+        aList.SetBinding(ItemsControl.ItemsSourceProperty, new Binding(nameof(RunsViewModel.GroupedLibrary)) { Source = model });
         aList.SetBinding(System.Windows.Controls.Primitives.Selector.SelectedItemProperty,
             new Binding(nameof(RunsViewModel.SelectedRun)) { Source = model, Mode = BindingMode.TwoWay });
         bList.SetBinding(ItemsControl.ItemsSourceProperty, new Binding(nameof(RunsViewModel.Library)) { Source = model });

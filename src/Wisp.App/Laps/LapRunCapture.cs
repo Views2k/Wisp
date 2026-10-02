@@ -88,7 +88,7 @@ internal sealed class LapRunCapture
             {
                 var run = new RecordedRun
                 {
-                    Name = $"Lap {_samples[0].State.ReceivedAtUtc.ToLocalTime():MMM d, h:mm tt}",
+                    Name = AutomaticLapName(_samples[0].State, timing),
                     StartedAtUtc = _samples[0].State.ReceivedAtUtc,
                     FinishReason = timing == LapTimingMode.TimeAttack ? "Completed Time Attack lap" : "Completed game lap",
                     LapTimingMode = timing,
@@ -124,6 +124,9 @@ internal sealed class LapRunCapture
             _lastLapSeconds = frame.Lap.CurrentLapSeconds;
         }
     }
+
+    internal static string AutomaticLapName(VehicleState first, LapTimingMode timing) =>
+        $"{(timing == LapTimingMode.TimeAttack ? "Time Attack lap" : "Game lap")} · Car {first.CarOrdinal} · {first.ReceivedAtUtc.ToLocalTime():MMM d, h:mm:ss.fff tt}";
 
     private bool Add(VehicleState state, RunRecordingContext? context)
     {

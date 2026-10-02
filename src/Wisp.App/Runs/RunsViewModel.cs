@@ -13,7 +13,11 @@ public sealed record SavedRunItem(RunSummary Summary)
 {
     public Guid Id => Summary.Id;
     public string Name => Summary.Name;
-    public string Detail => $"{Summary.StartedAtUtc.ToLocalTime():MMM d, h:mm tt} · {RunPresentation.Time(Summary.DurationSeconds)}";
+    public bool IsAutomaticLap => Summary.FinishReason is "Completed game lap" or "Completed Time Attack lap";
+    public string LibraryGroup => IsAutomaticLap ? $"Automatic laps · {Summary.StartedAtUtc.ToLocalTime():MMM d, yyyy} · Car {Summary.CarOrdinal}" : "Recorded runs";
+    public string Detail => IsAutomaticLap
+        ? $"{Summary.StartedAtUtc.ToLocalTime():MMM d, h:mm:ss.fff tt} · {RunPresentation.Time(Summary.DurationSeconds)} · Car {Summary.CarOrdinal}"
+        : $"{Summary.StartedAtUtc.ToLocalTime():MMM d, h:mm tt} · {RunPresentation.Time(Summary.DurationSeconds)}";
     public string Tune => string.IsNullOrWhiteSpace(Summary.Tune) ? "No tune label" : Summary.Tune;
     public string Quality => Summary.IsIncomplete ? "Partial recording" : "";
     public bool HasAttachedTune => Summary.AttachedTuneName is not null;
@@ -136,7 +140,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
     public bool IsRecording => _service.IsRecording;
     public string RecordingStatus => IsPreparingTune ? "Checking the tune before recording…"
         : IsCountingDown ? $"Recording starts in {CountdownRemainingSeconds}… Return to Forza; the shortcut can cancel."
-        : _service.IsRecording ? $"Recording · {RunPresentation.Time(_service.Elapsed.TotalSeconds)}" + (_activeStopAfter is { } stop ? $" · stops at {RunPresentation.Time(stop.TotalSeconds)}" : "")
+        : _service.IsRecording ? $"Recording · {RunPresentation.Time(_service.Elapsed.TotalSeconds)}" + (_activeStopAfter is { } stop ? $" · stops at {RunPresentation.Time(stop.TotalSeconds)}" : "") + (_recordingNotice is { } recordingNotice ? $" · {recordingNotice}" : "")
         : _recordingNotice is { } notice ? notice
         : _storageOperations > 0 ? "Finishing library work before the next recording."
         : !_service.CanStart && _service.Status == "Ready to record" && _service.Error is null

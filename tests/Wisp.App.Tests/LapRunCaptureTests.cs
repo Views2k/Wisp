@@ -12,6 +12,19 @@ namespace Wisp.App.Tests;
 public sealed class LapRunCaptureTests
 {
     [Fact]
+    public void AutomaticLapLabelsDistinguishSameMinuteAndUseRecordedCarAndTiming()
+    {
+        var first = State(0) with { CarOrdinal = 4197 };
+        var next = first with { ReceivedAtUtc = first.ReceivedAtUtc.AddMilliseconds(1) };
+        var game = LapRunCapture.AutomaticLapName(first, LapTimingMode.GameLaps);
+        var attack = LapRunCapture.AutomaticLapName(first, LapTimingMode.TimeAttack);
+        Assert.NotEqual(game, LapRunCapture.AutomaticLapName(next, LapTimingMode.GameLaps));
+        Assert.StartsWith("Game lap · Car 4197 · ", game);
+        Assert.StartsWith("Time Attack lap · Car 4197 · ", attack);
+        Assert.Contains(first.ReceivedAtUtc.ToLocalTime().ToString("h:mm:ss.fff tt"), game);
+    }
+
+    [Fact]
     public async Task OptInIsRequiredEvenWhenTheTrackerCompletesALap()
     {
         var saved = new List<RecordedRun>();
@@ -29,6 +42,7 @@ public sealed class LapRunCaptureTests
         var states = Drive(capture, new(), 0, 600);
         await capture.CompleteAsync();
         var run = Assert.Single(saved);
+        Assert.Equal(LapRunCapture.AutomaticLapName(states[0], LapTimingMode.GameLaps), run.Name);
         Assert.Equal(LapTimingMode.GameLaps, run.LapTimingMode);
         Assert.False(run.IsIncomplete);
         Assert.Equal(states.Length, run.Samples.Length);

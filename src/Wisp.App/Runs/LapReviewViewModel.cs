@@ -91,6 +91,7 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
             Changed(nameof(MaximumCursor)); Changed(nameof(Cursor)); Changed(nameof(HasLap)); Changed(nameof(CanPin));
             RaiseCommands();
             if (_applying) RefreshCursor();
+            else if (_comparisonRun is null && _settings.LapReviewBenchmarkRunId is not null) _ = LoadAsync();
             else RefreshComparison();
         }
     }
@@ -133,7 +134,7 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
         {
             RecordedRun? pinned = null;
             var pinMissing = false;
-            if (pin is { } id)
+            if (comparisonRun is null && pin is { } id)
             {
                 try { pinned = await _store.LoadAsync(id); }
                 catch (Exception error) when (error is System.IO.IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException) { pinMissing = true; }
@@ -141,9 +142,16 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
             var result = await Task.Run(() =>
             {
                 var a = run is null ? new LapReviewResult([], "Record a lap, then open it here.") : LapReviewAnalysis.Build(run, timing, cancel.Token);
-                var referenceRun = pinMissing ? null : pinned ?? comparisonRun ?? run;
-                var b = referenceRun is null ? new LapReviewResult([], "") : LapReviewAnalysis.Build(referenceRun, pinned is null ? referenceRun.LapTimingMode ?? timing : pinMode, cancel.Token);
-                return (a, b);
+                var current = selected is null ? null : a.Laps.FirstOrDefault(lap => lap.RunId == selected.RunId && lap.TimingMode == selected.TimingMode &&
+                    lap.Points.FirstOrDefault()?.SampleIndex == selected.Points.FirstOrDefault()?.SampleIndex);
+                current ??= a.Laps.LastOrDefault(lap => lap.IsComplete) ?? a.Laps.LastOrDefault();
+                var b = comparisonRun is null ? a : LapReviewAnalysis.Build(comparisonRun, comparisonRun.LapTimingMode ?? timing, cancel.Token);
+                var pinnedLap = pinned is null ? null : LapReviewAnalysis.Build(pinned, pinMode, cancel.Token).Laps
+                    .FirstOrDefault(lap => UsableBenchmark(lap) && lap.Number == pinNumber && lap.Points.FirstOrDefault()?.SampleIndex == pinSample);
+                var pinMatch = current is null || pinnedLap is null ? null : LapReviewAnalysis.Compare(current, pinnedLap, cancel.Token);
+                var usePin = pinMatch?.CanCompare == true;
+                if (usePin) b = new([pinnedLap!], "");
+                return (a, b, current, usePin, pinMatch);
             }, cancel.Token);
             if (_disposed || cancel.IsCancellationRequested) return;
             _applying = true;
@@ -151,24 +159,23 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
             {
                 Laps.Clear(); foreach (var lap in result.a.Laps) Laps.Add(lap);
                 ReferenceLaps.Clear(); foreach (var lap in result.b.Laps) ReferenceLaps.Add(lap);
-                Reference = pinned is null ? ReferenceLaps.Where(UsableBenchmark).MinBy(lap => lap.DurationSeconds) :
-                    ReferenceLaps.FirstOrDefault(lap => UsableBenchmark(lap) && lap.Number == pinNumber && lap.Points.FirstOrDefault()?.SampleIndex == pinSample);
-                Lap = selected is null ? null : Laps.FirstOrDefault(lap => lap.RunId == selected.RunId && lap.TimingMode == selected.TimingMode &&
-                    lap.Points.FirstOrDefault()?.SampleIndex == selected.Points.FirstOrDefault()?.SampleIndex);
-                if (Lap is not null)
+                Reference = ReferenceLaps.Where(UsableBenchmark).MinBy(lap => lap.DurationSeconds);
+                Lap = result.current;
+                if (Lap is not null && selected is not null && Lap.RunId == selected.RunId &&
+                    Lap.TimingMode == selected.TimingMode && Lap.Points.FirstOrDefault()?.SampleIndex == selected.Points.FirstOrDefault()?.SampleIndex)
                 {
                     _cursor = Math.Clamp(selection.Cursor, 0, MaximumCursor);
                     _sectionStart = Math.Clamp(selection.Start, 0, MaximumCursor);
                     _sectionEnd = Math.Clamp(selection.End, _sectionStart, MaximumCursor);
                     Changed(nameof(Cursor));
                 }
-                else Lap = Laps.LastOrDefault(lap => lap.IsComplete) ?? Laps.LastOrDefault();
             }
             finally { _applying = false; }
-            ReferenceStatus = pinMissing ? "Pinned run is unavailable. Choose another saved run or unpin it."
-                : pinned is not null ? Reference is null ? "The pinned lap is unavailable in this recording. Unpin it to choose another benchmark."
-                    : $"Pinned: {pinned.Name} · lap {pinNumber}"
-                : comparisonRun is not null ? $"Reference run: {comparisonRun.Name}" : "Reference laps from this run. Choose Run B above to compare another saved run.";
+            ReferenceStatus = comparisonRun is not null ? $"Run B: {comparisonRun.Name}." + (pin is not null ? " Pinned benchmark is not used while Run B is selected." : "")
+                : result.usePin ? $"Pinned: {pinned!.Name} · lap {pinNumber}"
+                : pin is null ? "Reference laps from this run. Choose Run B above to compare another saved run."
+                : pinMissing || result.pinMatch is null ? "Pinned benchmark is unavailable. Reference laps are from this run; the pin is kept."
+                : $"Pinned benchmark is not used: {result.pinMatch.Message} Reference laps are from this run; the pin is kept.";
             Status = result.a.Message;
             RefreshComparison();
         }

@@ -78,7 +78,7 @@ public sealed class LapReviewViewModelTests
     });
 
     [Fact]
-    public void MissingPinnedRunDoesNotFallbackAndCanBeUnpinnedWithoutALap() => OnDispatcher(async () =>
+    public void MissingPinnedRunFallsBackAndCanBeUnpinnedWithoutALap() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();
         var settings = new AppSettings { LapReviewBenchmarkRunId = Guid.NewGuid() };
@@ -86,7 +86,7 @@ public sealed class LapReviewViewModelTests
         var run = Run();
         model.SetRuns(run, null);
         await Ready(model);
-        Assert.True(model.HasLap); Assert.Null(model.Reference);
+        Assert.True(model.HasLap); Assert.Equal(run.Id, model.Reference!.RunId);
         Assert.Contains("unavailable", model.ReferenceStatus);
         model.SetRuns(run with { Samples = [] }, null);
         await Ready(model);
@@ -97,6 +97,66 @@ public sealed class LapReviewViewModelTests
         Assert.Null(settings.LapReviewBenchmarkRunId);
         Assert.False(model.UnpinCommand.CanExecute(null));
     });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExplicitComparisonWinsOverPresentOrMissingPin(bool missing) => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var pin = Run() with { Name = "Pinned run" };
+        if (!missing) await fixture.Store.SaveAsync(pin);
+        var settings = Pin(pin);
+        using var model = fixture.Model(settings);
+        var comparison = Run() with { Name = "Chosen comparison" };
+        model.SetRuns(Run(), comparison);
+        await Ready(model);
+        Assert.Equal(comparison.Id, model.Reference!.RunId);
+        Assert.All(model.ReferenceLaps, lap => Assert.Equal(comparison.Id, lap.RunId));
+        Assert.Contains("Run B: Chosen comparison", model.ReferenceStatus);
+        Assert.Contains("not used", model.ReferenceStatus);
+        Assert.Equal(pin.Id, settings.LapReviewBenchmarkRunId);
+    });
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void IncompatiblePinKeepsCurrentLapReviewAndOwnRunReferences(bool otherCar) => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var pin = Run();
+        var run = Run();
+        run = run with { Samples = run.Samples.Select(sample =>
+        {
+            var lap = sample.State.Lap!;
+            return sample with { State = sample.State with
+            {
+                CarOrdinal = sample.State.CarOrdinal + (otherCar ? 1 : 0),
+                Lap = lap with { Position = lap.Position with { X = lap.Position.X + (otherCar ? 0 : 1000) } }
+            } };
+        }).ToArray() };
+        await fixture.Store.SaveAsync(pin);
+        var settings = Pin(pin);
+        using var model = fixture.Model(settings);
+        model.SetRuns(run, null);
+        await Ready(model);
+        Assert.True(model.HasLap);
+        Assert.Equal(run.Id, model.Reference!.RunId);
+        Assert.True(model.Plot.Comparison!.CanCompare);
+        Assert.Contains("Pinned benchmark is not used", model.ReferenceStatus);
+        Assert.Equal(pin.Id, settings.LapReviewBenchmarkRunId);
+        model.SetRuns(pin, null);
+        await Ready(model);
+        Assert.Equal(pin.Id, model.Reference!.RunId);
+        Assert.StartsWith("Pinned:", model.ReferenceStatus);
+    });
+
+    private static AppSettings Pin(RecordedRun run)
+    {
+        var lap = LapReviewAnalysis.Build(run).Laps.First(lap => lap.IsComplete);
+        return new() { LapReviewBenchmarkRunId = run.Id, LapReviewBenchmarkLapNumber = lap.Number,
+            LapReviewBenchmarkSampleIndex = lap.Points[0].SampleIndex, LapReviewBenchmarkTimingMode = lap.TimingMode };
+    }
 
     [Fact]
     public void PinnedLapUsesTheOriginalSampleIdentityWhenLapNumbersRepeat() => OnDispatcher(async () =>

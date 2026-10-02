@@ -170,11 +170,12 @@
                     <TextBlock Text="Nothing recorded yet. A saved run will appear here after you stop recording."
                                Style="{StaticResource RunHint}" Margin="0,10,0,0" Visibility="{Binding IsLibraryEmpty, Converter={StaticResource RunVisibility}}" />
                     <local:RunLibrarySearch x:Name="LibrarySearchControl" Margin="0,10,0,0" />
-                    <ComboBox x:Name="SavedRunSelector" ItemsSource="{Binding FilteredLibrary}" SelectedItem="{Binding SelectedRun, Mode=TwoWay}"
+                    <ComboBox x:Name="SavedRunSelector" ItemsSource="{Binding GroupedLibrary}" SelectedItem="{Binding SelectedRun, Mode=TwoWay}"
                               TextSearch.TextPath="Name"
                               IsEnabled="{Binding CanSelectRun}"
                               Margin="0,10,0,0" MinHeight="46" MaxDropDownHeight="340" HorizontalContentAlignment="Stretch"
-                              AutomationProperties.Name="Choose a saved run">
+                              AutomationProperties.Name="Choose a saved run" VirtualizingPanel.IsVirtualizingWhenGrouping="True">
+                        <ComboBox.GroupStyle><StaticResource ResourceKey="RunLibraryGroups" /></ComboBox.GroupStyle>
                         <ComboBox.ItemTemplate>
                             <DataTemplate DataType="{x:Type local:SavedRunItem}">
                                 <StackPanel Margin="2,3">

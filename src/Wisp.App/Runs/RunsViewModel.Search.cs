@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 
@@ -11,6 +13,7 @@ public sealed partial class RunsViewModel
     private int _libraryMatchCount;
     private bool _searchRefreshPending;
     public ObservableCollection<SavedRunItem> FilteredLibrary { get; } = [];
+    public ICollectionView GroupedLibrary { get; private set; } = null!;
     public ICommand ClearLibrarySearchCommand { get; private set; } = null!;
     public string LibrarySearch
     {
@@ -24,6 +27,8 @@ public sealed partial class RunsViewModel
 
     private void InitializeLibrarySearch()
     {
+        GroupedLibrary = new ListCollectionView(FilteredLibrary);
+        GroupedLibrary.GroupDescriptions.Add(new PropertyGroupDescription(nameof(SavedRunItem.LibraryGroup)));
         ClearLibrarySearchCommand = Command(() => { LibrarySearch = ""; return Task.CompletedTask; }, () => HasLibrarySearch);
         Library.CollectionChanged += LibraryChanged;
     }
@@ -43,6 +48,8 @@ public sealed partial class RunsViewModel
     {
         var query = LibrarySearch.Trim();
         return query.Length == 0 || item.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase) ||
+            item.LibraryGroup.Contains(query, StringComparison.CurrentCultureIgnoreCase) ||
+            item.Summary.CarOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture).Contains(query, StringComparison.Ordinal) ||
             item.Summary.Tune.Contains(query, StringComparison.CurrentCultureIgnoreCase);
     }
 
