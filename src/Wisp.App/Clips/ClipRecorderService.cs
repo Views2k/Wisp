@@ -172,8 +172,11 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             if (replacement && _session is not null && _sessionLifetime?.IsCancellationRequested == false)
                 RememberReset("target_observation_changed", _session);
             _observed = observation; _revision++;
-            CancelRecoveryLocked();
-            _recoveryAttempt = 0;
+            if (!_cleanupFailed)
+            {
+                CancelRecoveryLocked();
+                _recoveryAttempt = 0;
+            }
             if (replacement) _sessionLifetime?.Cancel();
         }
         Signal();
@@ -223,8 +226,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         lock (_sync)
         {
             _enabled = false; _observed = null;
-            CancelRecoveryLocked();
-            if (!_cleanupFailed) _fault = null; _revision++; _sessionLifetime?.Cancel();
+            if (!_cleanupFailed) CancelRecoveryLocked();
+            _fault = null; _revision++; _sessionLifetime?.Cancel();
             stoppingRevision = _revision; stoppingSession = _session;
         }
         Publish(new(ClipRecorderState.Stopping, true, true, false, "Stopping clip recording…"), stoppingRevision, stoppingSession);
@@ -307,7 +310,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             RecorderTargetObservation? observed;
             ClipRecordingSpec? recording;
             string? storage;
-            bool enabled, blocked, recoveryWaiting;
+            bool enabled, blocked, recoveryWaiting, cleanupFailed;
             IRecorderSession? retainedSession;
             CancellationToken retainedToken;
             bool paused;
@@ -316,12 +319,14 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             {
                 observed = _observed; recording = _recording; storage = _storage; enabled = _enabled;
                 recoveryWaiting = _recoveryWaiting;
+                cleanupFailed = _cleanupFailed;
                 blocked = _blockedObservation is not null && Equals(observed, _blockedObservation); revision = _revision;
                 retainedSession = enabled && !blocked && _session is not null && !_sessionLifetime!.IsCancellationRequested &&
                     (observed is null || observed.Target == _activeObservation?.Target) ? _session : null;
                 retainedToken = retainedSession is null ? default : _sessionLifetime!.Token;
                 paused = _capturePaused; pauseSequence = _nativePauseSequence;
             }
+            if (cleanupFailed && recoveryWaiting) { PublishOff(); return; }
             if (retainedSession is not null)
             {
                 var controlRevision = revision;
@@ -511,20 +516,27 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         EventHandler<RecorderStateUpdate>? handler;
         lock (_sync)
         {
-            session = _session; lifetime = _sessionLifetime; handler = _sessionHandler;
+            // A failed disposal retains ownership of the old helper. Retry only
+            // after the backoff; never create another helper until exit is confirmed.
+            if (_unconfirmedSession is not null && _recoveryWaiting && Volatile.Read(ref _disposed) == 0) return;
+            session = _session ?? _unconfirmedSession; lifetime = _sessionLifetime; handler = _sessionHandler;
             _session = null; _sessionLifetime = null; _sessionHandler = null; _activeObservation = null; _nativeState = null; _saving = false;
             _capturePaused = false; _nativePauseSequence = 0;
             _sessionStarted = 0;
         }
         if (session is null) return;
         if (handler is not null) session.StateChanged -= handler;
-        lifetime!.Cancel();
+        lifetime?.Cancel();
         var cleanupFailed = false;
-        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        try { await session.StopAsync(stop.Token).ConfigureAwait(false); }
-        catch (RecorderClientException error) when (error.Reason == "helper_shutdown_failed") { cleanupFailed = true; }
-        catch (Exception error) when (error is not OutOfMemoryException) { }
-        try { await session.DisposeAsync().ConfigureAwait(false); cleanupFailed = false; }
+        if (lifetime is not null)
+        {
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try { await session.StopAsync(stop.Token).ConfigureAwait(false); }
+            catch (Exception error) when (error is not OutOfMemoryException) { }
+        }
+        // The stop reply describes native cleanup. Disposal independently
+        // confirms the process exited, including after a failed stop reply.
+        try { await session.DisposeAsync().ConfigureAwait(false); }
         catch (Exception error) when (error is not OutOfMemoryException) { cleanupFailed = true; }
         var reportUpdated = false;
         lock (_sync)
@@ -541,18 +553,29 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             {
                 var reset = _resetHistory[index];
                 if (!ReferenceEquals(reset.Detail.Owner, session)) continue;
-                var detail = reset.Detail with { Owner = null, Diagnostic = reset.Detail.Diagnostic ?? session.FailureDiagnostic };
+                var detail = reset.Detail with { Owner = cleanupFailed ? session : null, Diagnostic = reset.Detail.Diagnostic ?? session.FailureDiagnostic };
                 _resetHistory[index] = reset with { Detail = detail };
                 reportUpdated = true;
             }
+            if (cleanupFailed)
+            {
+                _cleanupFailed = true;
+                _unconfirmedSession = session;
+                RememberFailure("helper_shutdown_failed", session);
+                if (Volatile.Read(ref _disposed) == 0) ScheduleRecoveryLocked();
+            }
+            else if (ReferenceEquals(_unconfirmedSession, session))
+            {
+                _unconfirmedSession = null;
+                _cleanupFailed = false;
+                if (_fault is "helper_shutdown_failed" or "cleanup_failed") _fault = null;
+                CancelRecoveryLocked();
+                _revision++;
+            }
         }
         if (reportUpdated && Volatile.Read(ref _disposed) == 0) StateChanged?.Invoke(this, EventArgs.Empty);
-        lifetime.Dispose();
-        if (cleanupFailed)
-        {
-            lock (_sync) { _cleanupFailed = true; _unconfirmedSession = session; }
-            SetFault("helper_shutdown_failed");
-        }
+        lifetime?.Dispose();
+        if (cleanupFailed) PublishOff();
     }
 
     private void SetFault(string reason, IRecorderSession? expectedSession = null, long? expectedRevision = null)
@@ -561,7 +584,6 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         {
             if (expectedRevision is not null && (_revision != expectedRevision || !ReferenceEquals(_session, expectedSession))) return;
             RememberFailure(reason, _session);
-            if (reason is "cleanup_failed" or "helper_shutdown_failed") _cleanupFailed = true;
             _fault = reason; _enabled = false; _revision++;
             CancelRecoveryLocked();
             _sessionLifetime?.Cancel();
@@ -572,8 +594,6 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private void RequestRecovery(string reason, IRecorderSession? expectedSession, long expectedRevision)
     {
         long revision;
-        CancellationTokenSource cancellation;
-        TimeSpan delay;
         lock (_sync)
         {
             if (!_enabled || _revision != expectedRevision || !ReferenceEquals(_session, expectedSession) ||
@@ -582,17 +602,24 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             RememberReset(reason, expectedSession);
             if (_bufferingSince != 0 && Stopwatch.GetElapsedTime(_bufferingSince) >= TimeSpan.FromSeconds(30))
                 _recoveryAttempt = 0;
-            CancelRecoveryLocked();
-            _recoveryAttempt = Math.Min(_recoveryAttempt + 1, 6);
-            delay = TimeSpan.FromSeconds(Math.Min(30, 1 << (_recoveryAttempt - 1)));
-            _fault = reason; _blockedObservation = null; _recoveryWaiting = true; revision = ++_revision;
+            _fault = reason; _blockedObservation = null;
             _sessionLifetime?.Cancel();
-            cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-            _recoveryCancellation = cancellation;
+            ScheduleRecoveryLocked();
+            revision = _revision;
         }
         Publish(new(ClipRecorderState.Reconnecting, true, true, false, RecoveryStatus(reason)), revision, expectedSession);
         Signal();
-        lock (_sync) _recoveryTask = RetryAfterDelayAsync(revision, delay, cancellation);
+    }
+
+    private void ScheduleRecoveryLocked()
+    {
+        CancelRecoveryLocked();
+        _recoveryAttempt = Math.Min(_recoveryAttempt + 1, 6);
+        var delay = TimeSpan.FromSeconds(Math.Min(30, 1 << (_recoveryAttempt - 1)));
+        _recoveryWaiting = true;
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _recoveryCancellation = cancellation;
+        _recoveryTask = RetryAfterDelayAsync(++_revision, delay, cancellation);
     }
 
     private async Task RetryAfterDelayAsync(long revision, TimeSpan delay, CancellationTokenSource cancellation)
@@ -602,7 +629,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             await _recoveryDelay(delay, cancellation.Token).ConfigureAwait(false);
             lock (_sync)
             {
-                if (cancellation.IsCancellationRequested || !_enabled || _revision != revision || Volatile.Read(ref _disposed) != 0) return;
+                if (cancellation.IsCancellationRequested || !ReferenceEquals(_recoveryCancellation, cancellation) ||
+                    (!_cleanupFailed && (!_enabled || _revision != revision)) || Volatile.Read(ref _disposed) != 0) return;
                 _recoveryWaiting = false;
                 _recoveryCancellation = null;
             }
@@ -621,7 +649,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
 
     private static bool IsRecoverable(string reason) => reason is "capture_stale" or "capture_reconnecting" or
         "encoder_reconnecting" or "audio_reconnecting" or "scheduler_late" or "capture_failed" or
-        "audio_failed" or "audio_capture_failed" or "helper_exited" or "helper_timeout" or "not_ready" or "window_resized";
+        "audio_failed" or "audio_capture_failed" or "helper_exited" or "helper_timeout" or "not_ready" or "window_resized" or
+        "cleanup_failed" or "helper_shutdown_failed";
 
     private static string RecoveryStatus(string reason) => (reason switch
     {
@@ -664,6 +693,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         lock (_sync)
         {
             if (!_helperAvailable) return new(ClipRecorderState.Unavailable, false, false, false, "Clip recording is unavailable in this build.");
+            if (_cleanupFailed) return new(ClipRecorderState.Reconnecting, _enabled, false, false, ReasonText("helper_shutdown_failed"));
             if (_fault is not null) return new(ClipRecorderState.Error, false, !_cleanupFailed, false, ReasonText(_fault));
             return new(ClipRecorderState.Disabled, false, !_cleanupFailed, false, "Clipping is off.");
         }
@@ -741,7 +771,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         "save_in_progress" => "A clip is already being saved. Wait for it to finish.",
         "cancelled" => "The clip operation was cancelled. Any unfinished save and its file have been kept.",
         "buffer_full" => "The recording buffer is full. Enable clipping again to start a new buffer.",
-        "helper_shutdown_failed" or "cleanup_failed" => "The recorder did not confirm shutdown. Restart Wisp before enabling clips again.",
+        "helper_shutdown_failed" or "cleanup_failed" => "Waiting for the previous recorder to close. Retrying automatically.",
         _ => "Recording stopped. Enable clipping to try again."
     };
 

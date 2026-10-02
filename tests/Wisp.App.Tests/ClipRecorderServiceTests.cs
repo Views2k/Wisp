@@ -391,12 +391,169 @@ public sealed class ClipRecorderServiceTests
         var session = await factory.NextAsync();
         await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         await service.SetEnabledAsync(false, Recording, TestToken);
-        Assert.Equal(ClipRecorderState.Error, service.Snapshot.State);
         Assert.False(service.Snapshot.CanEnable);
+        Assert.False(service.Snapshot.CanSave);
         await Assert.ThrowsAsync<RecorderClientException>(() => service.SetEnabledAsync(true, Recording, TestToken));
         Assert.Equal(1, factory.Count);
         session.FailCleanup = false;
         await service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task NativeCleanupFailureWithConfirmedDisposalRecoversWithoutRestartingWisp()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var first = await factory.NextAsync();
+        await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        first.Emit("buffering", "none");
+        first.StopFailureReason = "cleanup_failed";
+        first.Emit("error", "cleanup_failed");
+
+        Assert.True((await first.NextDisposalAsync()).Succeeded);
+        await ReconcileAsync(service);
+        Assert.True(service.Snapshot.Enabled);
+        Assert.True(service.Snapshot.CanEnable);
+        Assert.False(service.Snapshot.CanSave);
+        Assert.Equal(1, factory.Count);
+        Assert.Contains("cleanup_failed", service.FailureReport, StringComparison.Ordinal);
+
+        var retry = await delays.NextActiveAsync();
+        retry.Resume.TrySetResult();
+        var second = await factory.NextAsync();
+        await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.True(first.CleanupConfirmed.Task.IsCompletedSuccessfully);
+        Assert.Equal(0, factory.UnconfirmedOverlaps);
+        second.Emit("buffering", "none");
+        Assert.True(service.Snapshot.CanSave);
+    }
+
+    [Theory]
+    [InlineData("error", "cleanup_failed")]
+    [InlineData("reconnecting", "target_exited")]
+    [InlineData("reconnecting", "window_closed")]
+    public async Task LateConfirmedCleanupAutomaticallyStartsTheNewGameIdentity(string state, string reason)
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var first = await factory.NextAsync();
+        await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        first.FailCleanup = true;
+        try
+        {
+            first.Emit("buffering", "none");
+            first.Emit(state, reason);
+            Assert.False((await first.NextDisposalAsync()).Succeeded);
+            await ReconcileAsync(service);
+            Assert.False(service.Snapshot.CanEnable);
+            Assert.False(service.Snapshot.CanSave);
+            Assert.False(first.CleanupConfirmed.Task.IsCompleted);
+
+            var replacement = new RecorderTarget(43, 321, 789);
+            service.ObserveTarget(new(replacement, 2), service.TargetObservationGeneration);
+            await ReconcileAsync(service);
+            Assert.Equal(1, factory.Count);
+            first.FailCleanup = false;
+            var retry = await delays.NextActiveAsync();
+            retry.Resume.TrySetResult();
+
+            var second = await factory.NextAsync();
+            await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            Assert.True(first.DisposalCount >= 2);
+            Assert.True(first.CleanupConfirmed.Task.IsCompletedSuccessfully);
+            Assert.Equal(replacement, second.StartedTarget);
+            Assert.Equal(0, factory.UnconfirmedOverlaps);
+            second.Emit("buffering", "none");
+            Assert.True(service.Snapshot.Enabled);
+            Assert.True(service.Snapshot.CanSave);
+        }
+        finally { first.FailCleanup = false; }
+    }
+
+    [Theory]
+    [InlineData("error", "cleanup_failed")]
+    [InlineData("reconnecting", "target_exited")]
+    [InlineData("reconnecting", "window_closed")]
+    public async Task DisablingDuringPendingCleanupStaysDisabledAfterLateConfirmation(string state, string reason)
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var first = await factory.NextAsync();
+        await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        first.FailCleanup = true;
+        try
+        {
+            first.Emit(state, reason);
+            Assert.False((await first.NextDisposalAsync()).Succeeded);
+            await ReconcileAsync(service);
+            await service.SetEnabledAsync(false, Recording, TestToken);
+            Assert.False(service.Snapshot.Enabled);
+            Assert.False(service.Snapshot.CanEnable);
+            Assert.Equal(0, service.TargetObservationGeneration);
+
+            first.FailCleanup = false;
+            var retry = await delays.NextActiveAsync();
+            retry.Resume.TrySetResult();
+            await first.CleanupConfirmed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            await ReconcileAsync(service);
+            Assert.Equal(ClipRecorderState.Disabled, service.Snapshot.State);
+            Assert.False(service.Snapshot.Enabled);
+            Assert.True(service.Snapshot.CanEnable);
+            Assert.False(service.Snapshot.CanSave);
+            Assert.Equal(1, factory.Count);
+            Assert.Equal(0, factory.UnconfirmedOverlaps);
+        }
+        finally { first.FailCleanup = false; }
+    }
+
+    [Fact]
+    public async Task RepeatedUnconfirmedCleanupBacksOffWithoutCreatingOverlappingHelpers()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var first = await factory.NextAsync();
+        await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        first.FailCleanup = true;
+        try
+        {
+            first.Emit("error", "cleanup_failed");
+            Assert.False((await first.NextDisposalAsync()).Succeeded);
+            await ReconcileAsync(service);
+            var previousDelay = TimeSpan.Zero;
+            for (var attempt = 0; attempt < 8; attempt++)
+            {
+                var retry = await delays.NextActiveAsync();
+                Assert.InRange(retry.Delay.TotalSeconds, 1, 30);
+                Assert.True(retry.Delay >= previousDelay);
+                previousDelay = retry.Delay;
+                retry.Resume.TrySetResult();
+                Assert.False((await first.NextDisposalAsync()).Succeeded);
+                await ReconcileAsync(service);
+                Assert.False(first.CleanupConfirmed.Task.IsCompleted);
+                Assert.False(service.Snapshot.CanEnable);
+                Assert.False(service.Snapshot.CanSave);
+                Assert.Equal(1, factory.Count);
+                Assert.Equal(0, factory.UnconfirmedOverlaps);
+            }
+            Assert.Equal(TimeSpan.FromSeconds(30), previousDelay);
+        }
+        finally { first.FailCleanup = false; }
     }
 
     [Fact]
@@ -839,17 +996,25 @@ public sealed class ClipRecorderServiceTests
 
     private sealed class RecoveryClock
     {
-        internal sealed record Retry(TimeSpan Delay, TaskCompletionSource Resume);
+        internal sealed record Retry(TimeSpan Delay, TaskCompletionSource Resume, CancellationToken Cancellation);
         private readonly Channel<Retry> _delays = Channel.CreateUnbounded<Retry>();
         internal int Count { get; private set; }
         internal Task DelayAsync(TimeSpan delay, CancellationToken token)
         {
             Count++;
             var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _delays.Writer.TryWrite(new(delay, resume));
+            _delays.Writer.TryWrite(new(delay, resume, token));
             return resume.Task.WaitAsync(token);
         }
         internal Task<Retry> NextAsync() => _delays.Reader.ReadAsync(TestToken).AsTask().WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        internal async Task<Retry> NextActiveAsync()
+        {
+            while (true)
+            {
+                var retry = await NextAsync();
+                if (!retry.Cancellation.IsCancellationRequested) return retry;
+            }
+        }
     }
 
     private static async Task ReconcileAsync(ClipRecorderService service)
@@ -883,11 +1048,17 @@ public sealed class ClipRecorderServiceTests
     {
         private readonly Channel<FakeSession> _created = Channel.CreateUnbounded<FakeSession>();
         private int _count;
+        private int _unconfirmedOverlaps;
+        private FakeSession? _previous;
         internal int Count => Volatile.Read(ref _count);
+        internal int UnconfirmedOverlaps => Volatile.Read(ref _unconfirmedOverlaps);
         internal bool FailCleanup { get; init; }
         internal IRecorderSession Create()
         {
             var session = new FakeSession { FailCleanup = FailCleanup };
+            var previous = Interlocked.Exchange(ref _previous, session);
+            if (previous is not null && !previous.CleanupConfirmed.Task.IsCompletedSuccessfully)
+                Interlocked.Increment(ref _unconfirmedOverlaps);
             Interlocked.Increment(ref _count); _created.Writer.TryWrite(session); return session;
         }
         internal async Task<FakeSession> NextAsync() => await _created.Reader.ReadAsync(TestToken).AsTask().WaitAsync(TimeSpan.FromSeconds(3), TestToken);
@@ -898,6 +1069,10 @@ public sealed class ClipRecorderServiceTests
         internal bool BorderlessAllowedAtOpen { get; private set; }
         internal readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource Disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource CleanupConfirmed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Channel<(int Attempt, bool Succeeded)> _disposals = Channel.CreateUnbounded<(int, bool)>();
+        private int _disposalCount;
+        internal int DisposalCount => Volatile.Read(ref _disposalCount);
         internal readonly TaskCompletionSource<FinalizedClipMedia> Saved = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal bool FailCleanup { get; set; }
         internal RecorderFailureDiagnostic? DiagnosticAfterDisposal { get; set; }
@@ -908,6 +1083,7 @@ public sealed class ClipRecorderServiceTests
         internal bool ResumeEmitsBuffering { get; set; } = true;
         internal bool PauseBeforeResumeReply { get; set; }
         internal string? ResumeFailureReason { get; set; }
+        internal string? StopFailureReason { get; set; }
         private bool _bufferReady;
         internal RecorderTarget? StartedTarget { get; private set; }
         public event EventHandler<RecorderStateUpdate>? StateChanged;
@@ -935,11 +1111,21 @@ public sealed class ClipRecorderServiceTests
             return Task.CompletedTask;
         }
         public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken) => Saved.Task.WaitAsync(cancellationToken);
-        public Task StopAsync(CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); Stops++; return Task.CompletedTask; }
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested(); Stops++;
+            return StopFailureReason is { } reason ? Task.FromException(new RecorderClientException(reason)) : Task.CompletedTask;
+        }
+        internal Task<(int Attempt, bool Succeeded)> NextDisposalAsync() =>
+            _disposals.Reader.ReadAsync(TestToken).AsTask().WaitAsync(TimeSpan.FromSeconds(3), TestToken);
         public ValueTask DisposeAsync()
         {
+            var attempt = Interlocked.Increment(ref _disposalCount);
+            var succeeded = !FailCleanup;
             Disposed.TrySetResult();
-            return FailCleanup ? ValueTask.FromException(new RecorderClientException("helper_shutdown_failed")) : ValueTask.CompletedTask;
+            if (succeeded) CleanupConfirmed.TrySetResult();
+            _disposals.Writer.TryWrite((attempt, succeeded));
+            return succeeded ? ValueTask.CompletedTask : ValueTask.FromException(new RecorderClientException("helper_shutdown_failed"));
         }
     }
 }
