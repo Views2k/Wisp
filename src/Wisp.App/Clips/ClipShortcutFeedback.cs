@@ -18,7 +18,9 @@ internal sealed class ClipShortcutFeedback(Action<bool>? play = null)
         }
     }
 
-    private static void PlaySystemSound(bool failed) =>
+    private static void PlaySystemSound(bool failed)
+    {
         // SystemSound.Play is asynchronous and respects the Windows sound scheme.
         (failed ? SystemSounds.Exclamation : SystemSounds.Asterisk).Play();
+    }
 }
