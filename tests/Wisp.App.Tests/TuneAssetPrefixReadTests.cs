@@ -15,7 +15,7 @@ public sealed class TuneAssetPrefixReadTests
         using var memory = new AssetMemory(length);
 
         var error = Assert.Throws<InvalidDataException>(() =>
-            TuneAssetCapture.ReadDecoded(memory, TestContext.Current.CancellationToken));
+            TuneAssetCapture.ReadDecoded(memory, TestContext.Current.CancellationToken, NativeTuneLayout.Steam));
 
         Assert.Equal("The game's tuning metadata could not be verified.", error.Message);
         Assert.Equal((int)length, memory.BulkBytesRead);
@@ -29,7 +29,7 @@ public sealed class TuneAssetPrefixReadTests
         using var memory = new AssetMemory(TuneAssetCapture.ExpectedLength - 1);
 
         Assert.Throws<TuneAssetStreamValidationException>(() =>
-            TuneAssetCapture.ReadDecoded(memory, TestContext.Current.CancellationToken));
+            TuneAssetCapture.ReadDecoded(memory, TestContext.Current.CancellationToken, NativeTuneLayout.Steam));
 
         Assert.Equal(0, memory.BulkBytesRead);
     }
@@ -40,7 +40,7 @@ public sealed class TuneAssetPrefixReadTests
         using var memory = new AssetMemory(16222208, chunkCount: 123);
 
         Assert.Throws<InvalidDataException>(() =>
-            TuneAssetCapture.ReadDecoded(memory, TestContext.Current.CancellationToken));
+            TuneAssetCapture.ReadDecoded(memory, TestContext.Current.CancellationToken, NativeTuneLayout.Steam));
 
         Assert.Equal(0, memory.BulkBytesRead);
     }

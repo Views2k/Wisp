@@ -27,8 +27,11 @@ public enum TunePartId
     RearAero, Transmission, Differential, FrontAero
 }
 
-public sealed record TuneIdentity(string GameVersion, string ExecutableSha256, string ReaderVersion,
-    int CarOrdinal, TuneDrivetrain Drivetrain, int ForwardGearCount);
+public sealed record TuneIdentity(string GameVersion, string? ExecutableSha256, string ReaderVersion,
+    int CarOrdinal, TuneDrivetrain Drivetrain, int ForwardGearCount)
+{
+    public TuneVerification? Verification { get; init; }
+}
 public sealed record TunePart(TunePartId Kind, int InstalledId, int? Level);
 public readonly record struct TuneRange(float Minimum, float Maximum);
 public sealed record TuneConversion(int UnitId, double Factor, bool HasCallback);
@@ -47,6 +50,7 @@ public sealed record TuneSnapshot(Guid Id, DateTimeOffset CapturedAtUtc, TuneIde
     int UnitPreference, ImmutableArray<TunePart> Parts, ImmutableArray<TuneField> Fields)
 {
     public const int SchemaVersion = 1;
+    public string? CarName { get; init; }
     public bool IsComplete => !Fields.IsDefault && Fields.Length == TuneDecoder.FieldCount && Fields.All(field => field is not null && field.Status is
         TuneFieldStatus.Available or TuneFieldStatus.NotApplicable or TuneFieldStatus.NotAdjustable);
 }
@@ -56,8 +60,11 @@ public sealed record TuneDecodeInput
 {
     public required DateTimeOffset CapturedAtUtc { get; init; }
     public required string GameVersion { get; init; }
-    public required string ExecutableSha256 { get; init; }
+    public required string? ExecutableSha256 { get; init; }
     public required bool ExecutableVerified { get; init; }
+    public TuneVerification? Verification { get; init; }
+    public string? CarName { get; init; }
+    public bool CompatibilityDescriptorVerified { get; init; }
     public required bool CaptureComplete { get; init; }
     public required bool Coherent { get; init; }
     public required int LocalProviderCount { get; init; }

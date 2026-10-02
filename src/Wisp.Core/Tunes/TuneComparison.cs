@@ -26,7 +26,8 @@ public static class TuneComparison
     public static bool HaveSameSetupIdentity(TuneSnapshot a, TuneSnapshot b)
     {
         if (!TuneSnapshotValidator.TryValidate(a, out _) || !TuneSnapshotValidator.TryValidate(b, out _)
-            || !a.IsComplete || !b.IsComplete || a.Identity != b.Identity
+            || !a.IsComplete || !b.IsComplete ||
+            (a.Identity with { Verification = null }) != (b.Identity with { Verification = null })
             || !a.Parts.OrderBy(part => part.Kind).SequenceEqual(b.Parts.OrderBy(part => part.Kind))) return false;
         return Compare(a, b).All(row => row.RawEqual);
     }

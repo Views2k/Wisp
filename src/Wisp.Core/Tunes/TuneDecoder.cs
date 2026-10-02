@@ -64,10 +64,10 @@ public static class TuneDecoder
                 conversion.Factor, display, definition.Decimals, FormatNumber(display, definition.Decimals)));
         }
         snapshot = new(Guid.NewGuid(), input.CapturedAtUtc.ToUniversalTime(),
-            new(input.GameVersion, input.ExecutableSha256.ToUpperInvariant(), ReaderVersion, input.CarOrdinal,
-                input.Drivetrain, input.ObservedGearEntryCount - 1), input.UnitPreference,
+            new(input.GameVersion, input.ExecutableSha256?.ToUpperInvariant(), ReaderVersion, input.CarOrdinal,
+                input.Drivetrain, input.ObservedGearEntryCount - 1) { Verification = input.Verification }, input.UnitPreference,
             input.Parts.Select(part => input.PartLevelsResolved ? part : part with { Level = null })
-                .OrderBy(part => part.Kind).ToImmutableArray(), rows.MoveToImmutable());
+                .OrderBy(part => part.Kind).ToImmutableArray(), rows.MoveToImmutable()) { CarName = input.CarName };
         return true;
     }
 
@@ -140,11 +140,15 @@ public static class TuneDecoder
     private static TuneDecodeFailure ValidateInput(TuneDecodeInput? input)
     {
         if (input is null || !input.CaptureComplete) return TuneDecodeFailure.IncompleteCapture;
-        if (input.GameVersion != SupportedGameVersion) return TuneDecodeFailure.UnsupportedBuild;
-        if (!input.ExecutableVerified || !string.Equals(input.ExecutableSha256, SupportedExecutableSha256,
-            StringComparison.OrdinalIgnoreCase)) return TuneDecodeFailure.UnverifiedExecutable;
+        if (input.Verification is null && input.GameVersion != SupportedGameVersion)
+            return TuneDecodeFailure.UnsupportedBuild;
+        if (!TuneVerificationProfiles.IsSupported(input.GameVersion, input.ExecutableSha256, input.Verification) ||
+            input.ExecutableVerified != (input.Verification?.Platform != TunePlatform.MicrosoftStore) ||
+            input.Verification?.Method == TuneVerificationMethod.AuthenticatedCompatibilityDescriptor && !input.CompatibilityDescriptorVerified)
+            return TuneDecodeFailure.UnverifiedExecutable;
         if (input.LocalProviderCount != 1) return TuneDecodeFailure.AmbiguousVehicle;
         if (!input.Coherent) return TuneDecodeFailure.IncoherentCapture;
+        if (!TuneSnapshotValidator.ValidCarName(input.CarName)) return TuneDecodeFailure.InvalidIdentity;
         if (input.CarOrdinal <= 0 || !Enum.IsDefined(input.Drivetrain) || input.ObservedGearEntryCount is < 2 or > 11
             || input.UnitPreference is < 0 or > 6 || input.CapturedAtUtc == default) return TuneDecodeFailure.InvalidIdentity;
         if (input.NormalizedCopies.IsDefault || input.NormalizedCopies.Length != 3

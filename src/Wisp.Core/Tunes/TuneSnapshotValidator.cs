@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Wisp.Core.Tunes;
 
 public static class TuneSnapshotValidator
@@ -8,13 +10,13 @@ public static class TuneSnapshotValidator
         if (snapshot is null || snapshot.Id == Guid.Empty || snapshot.CapturedAtUtc == default
             || snapshot.CapturedAtUtc.Offset != TimeSpan.Zero || snapshot.Identity is not { } identity)
             return false;
-        if (identity.GameVersion != TuneDecoder.SupportedGameVersion || identity.ReaderVersion != TuneDecoder.ReaderVersion
-            || !string.Equals(identity.ExecutableSha256, TuneDecoder.SupportedExecutableSha256, StringComparison.OrdinalIgnoreCase))
+        if (identity.ReaderVersion != TuneDecoder.ReaderVersion ||
+            !TuneVerificationProfiles.IsSupported(identity.GameVersion, identity.ExecutableSha256, identity.Verification))
         {
             reason = "This tune uses an unsupported game build or reader.";
             return false;
         }
-        if (identity.CarOrdinal <= 0 || !Enum.IsDefined(identity.Drivetrain) || identity.ForwardGearCount is < 1 or > 10
+        if (!ValidCarName(snapshot.CarName) || identity.CarOrdinal <= 0 || !Enum.IsDefined(identity.Drivetrain) || identity.ForwardGearCount is < 1 or > 10
             || snapshot.UnitPreference is < 0 or > 6 || !TuneDecoder.ValidParts(snapshot.Parts, false)
             || snapshot.Fields.IsDefault || snapshot.Fields.Length != TuneDecoder.FieldCount)
             return false;
@@ -68,4 +70,9 @@ public static class TuneSnapshotValidator
         reason = string.Empty;
         return true;
     }
+
+    internal static bool ValidCarName(string? value) => value is null ||
+        value.Length is > 0 and <= 200 && value == value.Trim() && !value.Any(character =>
+            char.GetUnicodeCategory(character) is UnicodeCategory.Control or UnicodeCategory.Format or
+                UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator);
 }

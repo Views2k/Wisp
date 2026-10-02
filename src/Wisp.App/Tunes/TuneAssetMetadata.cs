@@ -4,11 +4,16 @@ using Wisp.Core.Tunes;
 namespace Wisp.App.Tunes;
 
 internal sealed record TuneAssetRow(TunePartId Kind, int Parent, int Id, int? Level, int? ChildParent);
+internal sealed record TuneCarNameKey(int CarOrdinal, int Year, ulong ModelToken, ulong MakeToken);
 
-internal sealed class TuneAssetMetadata(IEnumerable<TuneAssetRow> rows)
+internal sealed class TuneAssetMetadata(IEnumerable<TuneAssetRow> rows, IEnumerable<TuneCarNameKey>? cars = null)
 {
     private readonly ImmutableDictionary<(TunePartId Kind, int Parent, int Id), TuneAssetRow> _rows =
         rows.ToImmutableDictionary(row => (row.Kind, row.Parent, row.Id));
+    private readonly ImmutableDictionary<int, TuneCarNameKey> _cars =
+        (cars ?? []).ToImmutableDictionary(car => car.CarOrdinal);
+
+    internal TuneCarNameKey? CarNameKey(int ordinal) => _cars.GetValueOrDefault(ordinal);
 
     internal ImmutableArray<TunePart> Resolve(int carOrdinal, ImmutableArray<TunePart> parts)
     {

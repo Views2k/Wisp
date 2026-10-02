@@ -11,11 +11,11 @@ namespace Wisp.App.Tests;
 public sealed class NativeTuneCaptureTests
 {
     [Fact]
-    public void TuneCapabilityDoesNotInheritOtherSteamOrStoreSupport()
+    public void KnownTuneBuildsIncludeVerifiedSteamAndStore()
     {
         Assert.True(NativeTuneCapture.Supports(NativeHudBuildContract.BuiltIn));
         Assert.False(NativeTuneCapture.Supports(NativeHudBuildContract.PreviousSteamBuiltIn));
-        Assert.False(NativeTuneCapture.Supports(NativeHudBuildContract.StoreBuiltIn));
+        Assert.True(NativeTuneCapture.Supports(NativeHudBuildContract.StoreBuiltIn));
     }
 
     [Fact]
@@ -70,6 +70,18 @@ public sealed class NativeTuneCaptureTests
     {
         Assert.Throws<ArgumentException>(() => new TuneAssetMetadata([
             new(TunePartId.Brakes, 1, 2, 3, null), new(TunePartId.Brakes, 1, 2, 4, null)]));
+    }
+
+    [Fact]
+    public void OptionalNameKeysUseExactOrdinalAndVerifiedTokenDomains()
+    {
+        var key = new TuneCarNameKey(4197, 1994, 4847093599797921720, 8687362392245618592);
+        var metadata = new TuneAssetMetadata([], [key]);
+        Assert.Equal(key, metadata.CarNameKey(4197));
+        Assert.Null(metadata.CarNameKey(4198));
+        Assert.Equal(key.ModelToken, TuneAssetSqlite.NameToken("_&4847093599797921720", 0x434455F2));
+        Assert.Throws<InvalidDataException>(() => TuneAssetSqlite.NameToken("4847093599797921720", 0x434455F2));
+        Assert.Throws<InvalidDataException>(() => TuneAssetSqlite.NameToken("_&4847093599797921720", 0x788FB611));
     }
 
     [Fact]
@@ -145,6 +157,46 @@ public sealed class NativeTuneCaptureTests
         Assert.False(service.NeedsGameObservation);
         Assert.Equal(1, notifications);
         Assert.Equal(1, factory.Opens);
+    }
+
+    [Fact]
+    public async Task CompatibilityChangeAfterFirstUnsupportedReadNotifiesOnceWithoutGamePolling()
+    {
+        var factory = new Factory { Available = false };
+        await using var service = new TuneCaptureService(factory, (_, _) => Input());
+        var notifications = 0;
+        service.Invalidated += (_, _) => notifications++;
+        Assert.Equal(TuneCaptureStatus.UnsupportedBuild,
+            (await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Status);
+        Assert.False(service.NeedsGameObservation);
+        service.ObserveCompatibilityGeneration();
+        Assert.Equal(0, notifications);
+        factory.Available = true;
+        factory.Generation++;
+        service.ObserveCompatibilityGeneration();
+        service.ObserveCompatibilityGeneration();
+        Assert.Equal(1, notifications);
+        Assert.Equal(1, factory.Opens);
+        Assert.False(service.NeedsGameObservation);
+        var result = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        Assert.True(result.Success);
+        Assert.True(service.IsCurrent(result.Snapshot!));
+        service.ObserveCompatibilityGeneration();
+        Assert.Equal(1, notifications);
+        Assert.Equal(2, factory.Opens);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnsupportedCatalogAndTuneLayoutExplainAutomaticCompatibilityUpdates(bool admitted)
+    {
+        await using var service = new TuneCaptureService(new Factory { Available = admitted },
+            (_, _) => throw new TuneLayoutException());
+        var result = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        Assert.Null(result.Snapshot);
+        Assert.Equal(TuneCaptureStatus.UnsupportedBuild, result.Status);
+        Assert.Equal("Tune reading isn't ready for this Forza update. Wisp checks for compatibility updates automatically.", result.Message);
     }
 
     [Fact]
@@ -242,10 +294,12 @@ public sealed class NativeTuneCaptureTests
         internal int Opens;
         internal string Session = "test-session";
         internal long Generation;
+        internal bool Available = true;
         public long CompatibilityGeneration => Generation;
         public bool TryOpen(out INativeHudProcessMemory? memory, out NativeAssistProviderStatus status)
         {
             Interlocked.Increment(ref Opens);
+            if (!Available) { memory = null; status = NativeAssistProviderStatus.UnsupportedBuild; return false; }
             memory = new Memory { SessionIdentity = Session };
             status = NativeAssistProviderStatus.Ready;
             return true;

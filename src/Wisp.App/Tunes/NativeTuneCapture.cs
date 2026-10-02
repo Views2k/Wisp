@@ -9,14 +9,17 @@ internal static class NativeTuneCapture
 {
     internal const string SupportedHash = "FEC4A63CDEAD26F6528564F0E33C3D7FD02CD887337ED6E1AEACA79EB2843FCD";
     internal static bool Supports(NativeHudCompatibilityPack pack) =>
-        pack.GameVersion == "6.440.853.0" && pack.ExecutableLength == 184055768 &&
-        pack.ImageSize == 188497920 && string.Equals(pack.ExecutableSha256, SupportedHash, StringComparison.OrdinalIgnoreCase);
+        pack.Tune is not null || (pack.GameVersion == "6.440.853.0" && pack.ExecutableLength == 184055768 &&
+        pack.ImageSize == 188497920 && string.Equals(pack.ExecutableSha256, SupportedHash, StringComparison.OrdinalIgnoreCase)) ||
+        (pack.GameVersion == "3.440.853.0" && pack.ImageSize == 188420096 &&
+        pack.StoreIdentity is { TimeDateStamp: 1788432457, PackageFullName: "Microsoft.ForteBaseGame_3.440.853.0_x64__8wekyb3d8bbwe" });
 
     internal static TuneDecodeInput Read(INativeHudProcessMemory memory, TuneAssetMetadata metadata,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, NativeTuneLayout? layout = null)
     {
+        var verifyLayout = layout is null;
+        layout ??= NativeTuneLayout.Resolve(memory, cancellationToken);
         var pack = memory.CompatibilityPack;
-        if (!Supports(pack)) throw new InvalidDataException("Tune reading is unavailable for this game build.");
         var read = new NativeTuneRead(memory, cancellationToken);
         var module = memory.ModuleBase;
         var fields = pack.Fields;
@@ -75,7 +78,7 @@ internal static class NativeTuneCapture
         var copies = new[] { source + 0x71F4, otherDescriptor + 0x1A0, descriptor + 0x1A0 }
             .Select(address => Words(read.Bytes(address, 0xB8))).ToImmutableArray();
 
-        var global = read.Pointer(module + 0xA7DB9E8);
+        var global = read.Pointer(module + layout.Rva(0xA7DB9E8));
         TuneRange Range(ulong owner, ulong low, ulong high) => new(read.Single(owner + low), read.Single(owner + high));
         var bounds = new TuneGlobalBounds(Range(global, 0x43C, 0x440), Range(global, 0x444, 0x448),
             Range(global, 0x47C, 0x480), Range(global, 0x484, 0x488),
@@ -88,7 +91,7 @@ internal static class NativeTuneCapture
         var scale = read.Single(selected - 0x570 + 8);
         Require(scale is > 0 and < 10000000);
 
-        var locale = read.Pointer(module + 0xA862060);
+        var locale = read.Pointer(module + layout.Rva(0xA862060));
         var preference = read.Int32(locale + 0x34);
         if (preference == -1)
         {
@@ -97,8 +100,8 @@ internal static class NativeTuneCapture
             preference = read.Int32(locale + (ulong)profileIndex * 0x94 + 0x9C);
         }
         Require(preference is >= 0 and < 7);
-        var units = read.Pointer(module + 0xA862058);
-        Require(read.Bytes(module + 0xA861342, 1)[0] == 1);
+        var units = read.Pointer(module + layout.Rva(0xA862058));
+        Require(read.Bytes(module + layout.Rva(0xA861342), 1)[0] == 1);
         var conversions = ImmutableDictionary.CreateBuilder<TuneQuantity, TuneConversion>();
         foreach (var (quantity, category) in Quantities)
         {
@@ -112,16 +115,16 @@ internal static class NativeTuneCapture
             else entry = units + ((ulong)preference * 0x26 + category) * 20 + 8;
             var unitId = read.Int32(entry + 4);
             Require(unitId is >= 0 and < 128);
-            var conversion = module + 0xA861470 + (ulong)unitId * 40;
+            var conversion = module + layout.Rva(0xA861470) + (ulong)unitId * 40;
             Require(read.Int32(conversion) == unitId);
             var factor = read.Double(conversion + 0x10);
             var callback = read.UInt64(conversion + 0x18);
             Require(callback == 0 || callback >= module && callback < module + pack.ImageSize);
             conversions.Add(quantity, new TuneConversion(unitId, factor, callback != 0));
         }
-        var format = new TuneFormatConstants(read.Single(module + 0x64BA6E8), read.Double(module + 0x6446D18),
-            read.Double(module + 0x65AC730), read.Double(module + 0x64FBE80), read.Double(module + 0x640EE78));
-        var indices = read.Pointer(module + 0x8F12A78);
+        var format = new TuneFormatConstants(read.Single(module + layout.Rva(0x64BA6E8)), read.Double(module + layout.Rva(0x6446D18)),
+            read.Double(module + layout.Rva(0x65AC730)), read.Double(module + layout.Rva(0x64FBE80)), read.Double(module + layout.Rva(0x640EE78)));
+        var indices = read.Pointer(module + layout.Rva(0x8F12A78));
         var installed = ImmutableArray.CreateBuilder<TunePart>();
         foreach (var (kind, category) in PartCategories)
         {
@@ -132,12 +135,15 @@ internal static class NativeTuneCapture
         var resolved = metadata.Resolve(ordinal, installed.ToImmutable());
         Require(resolved.All(part => part.Level.HasValue));
         read.VerifyStable();
+        if (verifyLayout) layout.Verify(memory, cancellationToken);
         return new TuneDecodeInput
         {
             CapturedAtUtc = DateTimeOffset.UtcNow,
             GameVersion = pack.GameVersion,
-            ExecutableSha256 = pack.ExecutableSha256,
-            ExecutableVerified = true,
+            ExecutableSha256 = pack.StoreIdentity is null ? pack.ExecutableSha256 : null,
+            ExecutableVerified = pack.StoreIdentity is null,
+            Verification = layout.Provenance(pack),
+            CompatibilityDescriptorVerified = layout.Descriptor is not null,
             CaptureComplete = true,
             Coherent = true,
             LocalProviderCount = 1,

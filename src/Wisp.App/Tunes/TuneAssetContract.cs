@@ -35,10 +35,21 @@ internal static class TuneAssetContract
             throw new InvalidDataException("The required tuning table schema does not match the supported build.");
     }
 
-    internal static void ValidateRows(TunePartId kind, IReadOnlyCollection<TuneAssetRow> rows)
+    internal static void ValidateRows(TunePartId kind, IReadOnlyCollection<TuneAssetRow> rows,
+        NativeTuneCompatibilityLayout.AssetContract? asset = null)
     {
-        if (!Required.TryGetValue(kind, out var expected) || rows.Count != expected.Count ||
-            HashRows(kind, rows) != expected.RowsHash)
+        if (!Required.TryGetValue(kind, out var expected))
+            throw new InvalidDataException("The required tuning values do not match the supported build.");
+        var count = expected.Count;
+        var hash = expected.RowsHash;
+        if (asset is not null)
+        {
+            if (!asset.Parts.TryGetValue(kind, out var described))
+                throw new InvalidDataException("The required tuning projection is missing.");
+            count = described.Count;
+            hash = described.RowsSha256;
+        }
+        if (rows.Count != count || HashRows(kind, rows) != hash)
             throw new InvalidDataException("The required tuning values do not match the supported build.");
     }
 

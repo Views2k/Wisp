@@ -18,6 +18,7 @@ import re
 import struct
 import sys
 from typing import Any
+from tune_compatibility import validate_tune
 
 
 MAX_EXE_BYTES = 512 * 1024 * 1024
@@ -74,6 +75,7 @@ LEGACY_PACK_KEYS = {
 }
 PACK_KEYS = LEGACY_PACK_KEYS | {"gameplayVisibility"}
 PACK_V3_KEYS = PACK_KEYS | {"nativeGauge"}
+PACK_STORE_KEYS = (PACK_V3_KEYS - {"executableLength", "executableSha256"}) | {"storeIdentity"}
 GAMEPLAY_VISIBILITY_RVA_KEYS = (
     "uiServiceRva", "uiServiceVtableRva", "dependencyVtableRva",
     "transitionManagerVtableRva", "hudPageVtableRva",
@@ -256,13 +258,14 @@ def parse_pack(data: bytes) -> dict[str, Any]:
     if not isinstance(pack, dict) or not {"schemaVersion", "readerVersion"} <= set(pack):
         fail("pack_keys_invalid", "The pack must contain its schema and reader versions.")
     schema = pack["schemaVersion"]
-    if type(schema) is not int or schema not in (1, 2, 3):
-        fail("pack_version_unsupported", "Only matching schema/reader pairs 1 through 3 are supported.")
-    expected_keys = LEGACY_PACK_KEYS if schema == 1 else PACK_KEYS if schema == 2 else PACK_V3_KEYS
+    if type(schema) is not int or schema not in (1, 2, 3, 4, 5, 6):
+        fail("pack_version_unsupported", "Only matching schema/reader pairs 1 through 6 are supported.")
+    expected_keys = {1: LEGACY_PACK_KEYS, 2: PACK_KEYS, 3: PACK_V3_KEYS, 4: PACK_STORE_KEYS,
+                     5: PACK_V3_KEYS | {"tune"}, 6: PACK_STORE_KEYS | {"tune"}}[schema]
     if set(pack) != expected_keys:
         fail("pack_keys_invalid", "The pack does not have the exact keys for its schema.")
     if type(pack["readerVersion"]) is not int or pack["readerVersion"] != schema:
-        fail("pack_version_unsupported", "Only matching schema/reader pairs 1 through 3 are supported.")
+        fail("pack_version_unsupported", "Only matching schema/reader pairs 1 through 6 are supported.")
     if not safe_id(pack["id"]):
         fail("pack_id_invalid", "The pack id violates the runtime's bounded safe-filename rules.")
     integer(pack["revision"], "revision", 1, 2_147_483_647)
@@ -270,10 +273,14 @@ def parse_pack(data: bytes) -> dict[str, Any]:
     if (not isinstance(version, str) or not re.fullmatch(r"\d{1,5}(?:\.\d{1,5}){3}", version, re.ASCII)
             or any(int(part) > 65535 for part in version.split("."))):
         fail("pack_game_version_invalid", "gameVersion must contain four bounded numeric components.")
-    integer(pack["executableLength"], "executableLength", 4096, MAX_EXECUTABLE_LENGTH)
-    if not isinstance(pack["executableSha256"], str) or not re.fullmatch(r"[0-9A-Fa-f]{64}", pack["executableSha256"]):
-        fail("pack_hash_invalid", "executableSha256 must contain exactly 64 hexadecimal characters.")
     image_size = integer(pack["imageSize"], "imageSize", 4096, MAX_IMAGE_SIZE)
+    store = schema in (4, 6)
+    if store:
+        validate_store_identity(pack["storeIdentity"], version, image_size)
+    else:
+        integer(pack["executableLength"], "executableLength", 4096, MAX_EXECUTABLE_LENGTH)
+        if not isinstance(pack["executableSha256"], str) or not re.fullmatch(r"[0-9A-Fa-f]{64}", pack["executableSha256"]):
+            fail("pack_hash_invalid", "executableSha256 must contain exactly 64 hexadecimal characters.")
     for key, length, alignment in (
         ("sourceVectorRva", 24, 8), ("thresholdRva", 4, 4),
         ("leadVtableRva", max(SLOTS) + 8, 8),
@@ -317,9 +324,34 @@ def parse_pack(data: bytes) -> dict[str, Any]:
         integer(slot["targetRva"], "slot.targetRva", 1, image_size - 1)
     if schema >= 2:
         validate_gameplay_visibility(pack["gameplayVisibility"], image_size)
-    if schema == 3:
+    if schema >= 3 and (not store or pack["nativeGauge"] is not None):
         validate_native_gauge(pack["nativeGauge"], image_size)
+    if schema >= 5 and pack["tune"] is not None:
+        try:
+            validate_tune(pack["tune"], image_size, pack["leadVtableRva"], store)
+        except ValueError:
+            fail("pack_tune_invalid", "The Tune descriptor does not match the fixed reader contract.")
     return pack
+
+
+def validate_store_identity(identity: Any, version: str, image_size: int) -> None:
+    if (not isinstance(identity, dict) or set(identity) != {"packageFullName", "timeDateStamp", "codeGuards"}
+            or identity["packageFullName"] != f"Microsoft.ForteBaseGame_{version}_x64__8wekyb3d8bbwe"):
+        fail("pack_store_identity_invalid", "The Store package identity is invalid.")
+    integer(identity["timeDateStamp"], "store.timeDateStamp", 1, UINT32_MAX)
+    guards = identity["codeGuards"]
+    if not isinstance(guards, list) or not 2 <= len(guards) <= 8:
+        fail("pack_store_guards_invalid", "The Store identity requires two to eight code guards.")
+    spans: list[tuple[int, int]] = []
+    for guard in guards:
+        if not isinstance(guard, dict) or set(guard) != {"rva", "length", "sha256"}:
+            fail("pack_store_guards_invalid", "A Store code guard has invalid fields.")
+        rva = integer(guard["rva"], "store.guard.rva", 4096, image_size - 1)
+        length = integer(guard["length"], "store.guard.length", 16, 256)
+        if (length > image_size - rva or any(rva < end and start < rva + length for start, end in spans)
+                or not isinstance(guard["sha256"], str) or not re.fullmatch(r"[0-9A-Fa-f]{64}", guard["sha256"])):
+            fail("pack_store_guards_invalid", "A Store code guard overlaps or exceeds its bounds.")
+        spans.append((rva, rva + length))
 
 
 def validate_gameplay_visibility(layout: Any, image_size: int) -> None:
@@ -507,7 +539,7 @@ class PEImage:
         pe_offset = self.unpack("<I", 0x3C)[0]
         if pe_offset < 0x40 or self.slice_file(pe_offset, 4) != b"PE\0\0":
             fail("pe_signature_invalid", "The PE signature or offset is invalid.")
-        machine, count, _, _, _, optional_size, _ = self.unpack("<HHIIIHH", pe_offset + 4)
+        machine, count, self.timestamp, _, _, optional_size, _ = self.unpack("<HHIIIHH", pe_offset + 4)
         if machine != 0x8664 or not 1 <= count <= 96:
             fail("pe_architecture_invalid", "Only bounded AMD64 PE32+ section tables are supported.")
         optional = pe_offset + 24
@@ -709,13 +741,40 @@ def verify_image(image: PEImage, pack: dict[str, Any]) -> dict[str, Any]:
     report = report_base("verify")
     actual = image.fingerprint()
     fingerprint_checks = []
-    for key in ("gameVersion", "executableLength", "executableSha256", "imageSize"):
+    store = "storeIdentity" in pack
+    for key in (("gameVersion", "imageSize") if store else ("gameVersion", "executableLength", "executableSha256", "imageSize")):
         expected = pack[key].upper() if key == "executableSha256" else pack[key]
         fingerprint_checks.append({
             "name": key, "status": "passed" if actual[key] == expected else "failed",
             "expected": expected, "actual": actual[key],
         })
     checks = []
+    if store:
+        expected_timestamp = pack["storeIdentity"]["timeDateStamp"]
+        fingerprint_checks.append({"name": "timeDateStamp", "expected": expected_timestamp,
+                                   "actual": image.timestamp, "status": "passed" if image.timestamp == expected_timestamp else "failed"})
+        report["packageProvenance"] = "not_observable_offline"
+
+    def code_guard(guard: dict[str, Any]) -> dict[str, Any]:
+        location = image.executable_span(guard["rva"], guard["length"])
+        if not location["readable"] or location["writable"] or not location["fileBacked"]:
+            fail("guard_section_invalid", "A guard must be file-backed readable executable nonwritable code.")
+        actual_hash = hashlib.sha256(image.read_rva(guard["rva"], guard["length"])).hexdigest().upper()
+        return {"status": "passed" if actual_hash == guard["sha256"].upper() else "failed", "location": location}
+
+    if store:
+        for index, guard in enumerate(pack["storeIdentity"]["codeGuards"]):
+            checks.append(check_result(f"storeCodeGuard{index}", lambda guard=guard: code_guard(guard)))
+    tune = pack.get("tune")
+    if tune is not None:
+        for guard in tune["codeGuards"]:
+            checks.append(check_result(guard["role"], lambda guard=guard: code_guard(guard)))
+        for slot in tune["providerSlots"]:
+            def tune_slot(slot: dict[str, int] = slot) -> dict[str, Any]:
+                actual_target = vtable_target(image, pack["leadVtableRva"], slot["offset"])
+                return {"status": "passed" if actual_target == slot["targetRva"] else "failed"}
+            checks.append(check_result(f"tuneProviderSlot{slot['offset']:04X}", tune_slot))
+        report["tuneAssetProjections"] = "not_observable_in_executable_copy"
 
     def vector() -> dict[str, Any]:
         location = image.span(pack["sourceVectorRva"], 24)

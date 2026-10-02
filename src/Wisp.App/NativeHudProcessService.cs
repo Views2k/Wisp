@@ -555,6 +555,7 @@ public interface INativeHudProcessMemory : IReadOnlyProcessMemory, IDisposable
     ulong ModuleBase { get; }
     NativeHudCompatibilityPack CompatibilityPack => NativeHudBuildContract.BuiltIn;
     string SessionIdentity => string.Empty;
+    string? GameDirectory => null;
 }
 
 public interface INativeHudProcessMemoryFactory

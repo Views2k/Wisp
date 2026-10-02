@@ -215,6 +215,93 @@ public sealed class TuneDecoderTests
     }
 
     private static TuneField Field(TuneSnapshot snapshot, TuneFieldId id) => snapshot.Fields.Single(field => field.Id == id);
+    [Fact]
+    public void StoreProvenancePersistsWithoutAnInventedExecutableHash()
+    {
+        var verification = new TuneVerification(TunePlatform.MicrosoftStore, TuneVerificationProfiles.StoreProfile,
+            TuneVerificationProfiles.StoreLayoutSha256, "store-test", 1,
+            "Microsoft.ForteBaseGame_3.440.853.0_x64__8wekyb3d8bbwe");
+        var input = Fixture("miata") with { GameVersion = "3.440.853.0", ExecutableSha256 = null,
+            ExecutableVerified = false, Verification = verification };
+        var snapshot = Decode(input);
+        var restored = JsonSerializer.Deserialize<TuneSnapshot>(JsonSerializer.Serialize(snapshot, JsonOptions), JsonOptions);
+        Assert.NotNull(restored);
+        Assert.True(TuneSnapshotValidator.TryValidate(restored, out _));
+        Assert.Null(restored.Identity.ExecutableSha256);
+        Assert.Equal(verification, restored.Identity.Verification);
+        Assert.Equal(Decode(Fixture("miata")).Fields.ToArray(), restored.Fields.ToArray());
+        Reject(input with { ExecutableVerified = true }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(input with { ExecutableSha256 = TuneDecoder.SupportedExecutableSha256 }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(input with { Verification = verification with { PackageFullName = null } }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(input with { Verification = verification with { ProfileId = "unknown" } }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(input with { Verification = verification with { LayoutSha256 = new string('A', 64) } }, TuneDecodeFailure.UnverifiedExecutable);
+    }
+
+    [Fact]
+    public void VerifiedProfileProvenanceKeepsObservedVersionAndFileHash()
+    {
+        var verification = new TuneVerification(TunePlatform.Steam, TuneVerificationProfiles.SteamProfile,
+            TuneVerificationProfiles.SteamLayoutSha256, "later-reviewed-pack", 2, null);
+        var input = Fixture("miata") with { GameVersion = "6.441.1.0", ExecutableSha256 = new string('A', 64),
+            Verification = verification };
+        var snapshot = Decode(input);
+        Assert.Equal("6.441.1.0", snapshot.Identity.GameVersion);
+        Assert.Equal(new string('A', 64), snapshot.Identity.ExecutableSha256);
+        Reject(input with { Verification = null }, TuneDecodeFailure.UnsupportedBuild);
+        Reject(input with { Verification = verification with { Platform = TunePlatform.MicrosoftStore } }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(input with { Verification = verification with { CompatibilityRevision = 0 } }, TuneDecodeFailure.UnverifiedExecutable);
+    }
+
+    [Fact]
+    public void AddingVerificationDetailsDoesNotInvalidateALegacySavedSetupComparison()
+    {
+        var legacy = Decode(Fixture("miata"));
+        var current = Decode(Fixture("miata") with { Verification = new(TunePlatform.Steam,
+            TuneVerificationProfiles.SteamProfile, TuneVerificationProfiles.SteamLayoutSha256, "current", 1, null) });
+        Assert.True(TuneComparison.HaveSameSetupIdentity(legacy, current));
+        Assert.True(TuneSnapshotValidator.TryValidate(legacy, out _));
+    }
+
+    [Fact]
+    public void OptionalCarNamePersistsButNeverChangesSetupIdentity()
+    {
+        var legacy = Decode(Fixture("miata"));
+        var named = Decode(Fixture("miata") with { CarName = "1994 Mazda MX-5 Miata Forza Edition" });
+        Assert.Equal("1994 Mazda MX-5 Miata Forza Edition", named.CarName);
+        Assert.True(TuneComparison.HaveSameSetupIdentity(legacy, named));
+        var restored = JsonSerializer.Deserialize<TuneSnapshot>(JsonSerializer.Serialize(named, JsonOptions), JsonOptions);
+        Assert.Equal(named.CarName, restored!.CarName);
+        Assert.True(TuneSnapshotValidator.TryValidate(restored, out _));
+        Reject(Fixture("miata") with { CarName = "bad\nname" }, TuneDecodeFailure.InvalidIdentity);
+        Assert.False(TuneSnapshotValidator.TryValidate(named with { CarName = new string('x', 201) }, out _));
+    }
+
+    [Fact]
+    public void DescriptorFingerprintAloneCannotAuthorizeDecodingAndProvenanceSurvivesOfflineStorage()
+    {
+        var verification = new TuneVerification(TunePlatform.MicrosoftStore, TuneVerificationProfiles.DescriptorProfile,
+            new string('B', 64), "reviewed-store-pack", 3, "Microsoft.ForteBaseGame_3.441.1.0_x64__8wekyb3d8bbwe")
+        {
+            Method = TuneVerificationMethod.AuthenticatedCompatibilityDescriptor,
+            SemanticsVersion = 1,
+            CompatibilityPackSha256 = new string('C', 64)
+        };
+        var input = Fixture("miata") with { GameVersion = "3.441.1.0", ExecutableSha256 = null,
+            ExecutableVerified = false, Verification = verification };
+        Reject(input, TuneDecodeFailure.UnverifiedExecutable);
+        var verified = input with { CompatibilityDescriptorVerified = true };
+        var snapshot = Decode(verified);
+        var restored = JsonSerializer.Deserialize<TuneSnapshot>(JsonSerializer.Serialize(snapshot, JsonOptions), JsonOptions);
+        Assert.True(TuneSnapshotValidator.TryValidate(restored, out _));
+        Assert.Equal(verification, restored!.Identity.Verification);
+        Reject(verified with { Verification = verification with { ProfileId = "unknown-reader" } }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(verified with { Verification = verification with { SemanticsVersion = 2 } }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(verified with { Verification = verification with { CompatibilityPackSha256 = null } }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(verified with { Verification = verification with { Method = TuneVerificationMethod.KnownProfile } }, TuneDecodeFailure.UnverifiedExecutable);
+        Assert.True(TuneComparison.HaveSameSetupIdentity(snapshot, snapshot with { Identity = snapshot.Identity with
+        { Verification = verification with { CompatibilityPackSha256 = new string('D', 64), CompatibilityRevision = 4 } } }));
+    }
+
     private static TuneDecodeInput Fixture(string name) => Read<TuneDecodeInput>(name);
     private static T Read<T>(string name)
     {

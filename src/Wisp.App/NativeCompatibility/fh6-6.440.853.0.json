@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 3,
-  "readerVersion": 3,
+  "schemaVersion": 5,
+  "readerVersion": 5,
   "id": "fh6-steam-6.440.853.0-x64",
-  "revision": 1,
+  "revision": 2,
   "gameVersion": "6.440.853.0",
   "executableLength": 184055768,
   "executableSha256": "FEC4A63CDEAD26F6528564F0E33C3D7FD02CD887337ED6E1AEACA79EB2843FCD",
@@ -205,5 +205,445 @@
       "offset": 4216,
       "targetRva": 52089872
     }
-  ]
+  ],
+  "tune": {
+    "semanticsVersion": 1,
+    "profileId": "fh6-tune-imperial-v1",
+    "rvas": {
+      "0640EE78": 104918648,
+      "06446D18": 105147672,
+      "064BA6E8": 105621224,
+      "064FBE80": 105889408,
+      "065AC730": 106612528,
+      "06C79E70": 113745520,
+      "06C7A570": 113747312,
+      "06C7B3D8": 113751000,
+      "06C7B9B0": 113752496,
+      "06C7BC10": 113753104,
+      "08F12A78": 150022776,
+      "08F75670": 150427248,
+      "08F75A70": 150428272,
+      "0A7DB9E8": 176011752,
+      "0A861342": 176558914,
+      "0A861470": 176559216,
+      "0A862058": 176562264,
+      "0A862060": 176562272,
+      "0A8AF088": 176877704
+    },
+    "codeGuards": [
+      {
+        "role": "steam-range-007D4830",
+        "rva": 8210480,
+        "length": 19,
+        "sha256": "D0290C7CFD15275FBAA2D8ABD8CC8E135900870388B1046BB440FEB921B3BF0C"
+      },
+      {
+        "role": "steam-range-007D6F90",
+        "rva": 8220560,
+        "length": 7,
+        "sha256": "C3EBE0EDA1A93EC38BC6F12D20BCC19248E3E7B68A53A20B495C5DB7C2EED7D4"
+      },
+      {
+        "role": "steam-range-007E5770",
+        "rva": 8279920,
+        "length": 4555,
+        "sha256": "4AAB3DC4E02550AA6467481156AEE5FCAB15C9C93EEBD7617A601CC77656C9EF"
+      },
+      {
+        "role": "steam-range-008268A0",
+        "rva": 8546464,
+        "length": 7,
+        "sha256": "DB1B05C90E941B70D59D4B28DDC3954E22E3D6DA1FB765E65BE6EC6947CD95F3"
+      },
+      {
+        "role": "steam-range-008F3790",
+        "rva": 9385872,
+        "length": 77,
+        "sha256": "347EAB8DD8277918CAD82DF9C7B5F4D0119F0C4E54B3EAB3C027ECFD8B24E3D9"
+      },
+      {
+        "role": "steam-range-008F37E0",
+        "rva": 9385952,
+        "length": 77,
+        "sha256": "886582FA8B68FAE4623297FB12C71260128BC2309742F7C41BDA66CF10D16815"
+      },
+      {
+        "role": "steam-range-00A702F0",
+        "rva": 10945264,
+        "length": 415,
+        "sha256": "6C6B166E93B828023D18A4F1F2B40B6AE0775AF5BEF84AD95517DC5B584A0D95"
+      },
+      {
+        "role": "steam-range-00A72FF0",
+        "rva": 10956784,
+        "length": 32,
+        "sha256": "AA63F29EAAC1EAFCCBDCE1BCF41717254BA0A9276D78C4DD4BCE0D8868F1B008"
+      },
+      {
+        "role": "steam-range-00A74830",
+        "rva": 10962992,
+        "length": 58,
+        "sha256": "C44CE88BD19423E43E665B15D98352FD2A90279306256B7AD91C97C0DA9E4EB2"
+      },
+      {
+        "role": "steam-range-00A74870",
+        "rva": 10963056,
+        "length": 207,
+        "sha256": "3C456031CE49E4135869A36533046D8DA592222F29193527AC8FC88E8BDE2EF1"
+      },
+      {
+        "role": "steam-range-00A74940",
+        "rva": 10963264,
+        "length": 58,
+        "sha256": "30382F12A6EDCA9E547100D982D20247A1F2FA9663531C9D859FA979961C4266"
+      },
+      {
+        "role": "steam-range-00A74980",
+        "rva": 10963328,
+        "length": 34,
+        "sha256": "CC228412DCA0F027CBB9FDBEE3815EDAA6A59EF3CDF9282C8CF7018F494F8E51"
+      },
+      {
+        "role": "steam-range-00A74BF0",
+        "rva": 10963952,
+        "length": 112,
+        "sha256": "BBEC12469F7675B66A24C5427CA78DA6A75FE441C275EA92BAB1995C3F8FFC8C"
+      },
+      {
+        "role": "steam-range-00A74CD0",
+        "rva": 10964176,
+        "length": 28,
+        "sha256": "A04691AEF8C6270B70A42ED9A578A455223F98C7F91A95E3929D8783BBF1C629"
+      },
+      {
+        "role": "steam-range-00A74CF0",
+        "rva": 10964208,
+        "length": 79,
+        "sha256": "2943ED17420DBE9CEFDB87B4F2194CEF74C44628F99819BDBF0155E09990AB2B"
+      },
+      {
+        "role": "steam-range-00A75AF0",
+        "rva": 10967792,
+        "length": 78,
+        "sha256": "29618B9B7579CF80B41E379F0D7F73078FE89C163440B899336D37C28C3C1949"
+      },
+      {
+        "role": "steam-range-00A76E40",
+        "rva": 10972736,
+        "length": 155,
+        "sha256": "20B77B39DE35571CEA747C02BC673BCE927F10B7B9D946D020F0F3128772C6F8"
+      },
+      {
+        "role": "steam-range-00A76F70",
+        "rva": 10973040,
+        "length": 39,
+        "sha256": "1D27B23758A315B7FD69E6016F2A121B70E0028098B3817A33033D54A10732FD"
+      },
+      {
+        "role": "steam-range-00A782F0",
+        "rva": 10978032,
+        "length": 950,
+        "sha256": "738B3D5ABAA13D231CC52CF8272037B43F474E99C29EC16CB5F4A7CA4DBA3E81"
+      },
+      {
+        "role": "steam-range-00A7A5E0",
+        "rva": 10986976,
+        "length": 32,
+        "sha256": "F0AB0819DAC56DE2DB95AF7CB8D9257DE4B870D20BC7F5C66F8D256BB0D09135"
+      },
+      {
+        "role": "steam-range-00A7AAE0",
+        "rva": 10988256,
+        "length": 32,
+        "sha256": "30C326F534C1459B05F8E1DB5F14AF0B8FF273305CBDFAD0D43B37600C52B7BF"
+      },
+      {
+        "role": "steam-range-00A7AB00",
+        "rva": 10988288,
+        "length": 32,
+        "sha256": "DD1B68AA561F6815478B7433C771D29BB8447A3F2184B5FF59FEC97060A2FADD"
+      },
+      {
+        "role": "steam-range-00A7AB20",
+        "rva": 10988320,
+        "length": 32,
+        "sha256": "50FB39104427BDDADA85497C410C47F882B20101CF4E4E3FBA998BADF642D99B"
+      },
+      {
+        "role": "steam-range-00A7AB40",
+        "rva": 10988352,
+        "length": 32,
+        "sha256": "43E4914ED1BEBAF599A43D1DF709984A0318A4B65AC93B27C8D5EEB10EB69487"
+      },
+      {
+        "role": "steam-range-01812E20",
+        "rva": 25243168,
+        "length": 138,
+        "sha256": "FD85C4DF74D740455F5EFBA01D9DF3857FD3434E96F63A1FB8A8EFA87749A295"
+      },
+      {
+        "role": "steam-range-01812EAA",
+        "rva": 25243306,
+        "length": 268,
+        "sha256": "EE438D075C0B6B2059E1A1EE1E143756764D9289702A6157BCAA8A1F603AF1F4"
+      },
+      {
+        "role": "steam-range-01812FB6",
+        "rva": 25243574,
+        "length": 174,
+        "sha256": "3636BE7C282F2F5A75A8B1C2AA96860728B913AD93D93D885188C613E7304F80"
+      },
+      {
+        "role": "steam-range-01813064",
+        "rva": 25243748,
+        "length": 35,
+        "sha256": "FB6BC2BC533AE913FA67CD80123C47B3D23C8D9DE7A39C0306C3AE9B65004A3D"
+      },
+      {
+        "role": "steam-range-01813690",
+        "rva": 25245328,
+        "length": 54,
+        "sha256": "D2CA5051391E709638D261D900C5A7A83496B20AEDDA5F2152703DADA853476B"
+      },
+      {
+        "role": "steam-range-01813FA0",
+        "rva": 25247648,
+        "length": 269,
+        "sha256": "E191350F5C16DBF7D53D145951BC96BC2658CB37E8D403B6D04ABE4E7C22B87C"
+      },
+      {
+        "role": "steam-range-01814670",
+        "rva": 25249392,
+        "length": 166,
+        "sha256": "83585168307CD679DAC71D4CE1F382E3DC7886278B494609B103A9DE827435CB"
+      },
+      {
+        "role": "steam-range-01816680",
+        "rva": 25257600,
+        "length": 809,
+        "sha256": "C45228CA7AA214023E0038014784A2139A23D8CE0AE4C5E1B07FDEBA68F0642D"
+      },
+      {
+        "role": "steam-range-01819680",
+        "rva": 25269888,
+        "length": 93,
+        "sha256": "F2B4BD557C6B088D32220E0687458C769677EFC9D6104C6B508827F004F3C91C"
+      },
+      {
+        "role": "steam-range-018196E0",
+        "rva": 25269984,
+        "length": 69,
+        "sha256": "0E9876310D36E337B07BC175EF4FF82C5DBF997F74B14C6F6E055F4142117398"
+      },
+      {
+        "role": "steam-range-01819750",
+        "rva": 25270096,
+        "length": 59,
+        "sha256": "DB69535955A0AB1272E4EA248D30C707BE37A6466B6BCF374AF40CD782DCFF8B"
+      },
+      {
+        "role": "steam-range-02A9FBD0",
+        "rva": 44694480,
+        "length": 8,
+        "sha256": "5C9FCC3479A40381BA020087B2E3ABD6128C3D9BB0755EC1EB6B4B7656E29BA0"
+      },
+      {
+        "role": "steam-range-02A9FBE0",
+        "rva": 44694496,
+        "length": 73,
+        "sha256": "C9D4C5C34DCD6D78B3AC7D970472E82EFB5CC5C9D14167853D735345B7445D29"
+      },
+      {
+        "role": "steam-range-02A9FC60",
+        "rva": 44694624,
+        "length": 8,
+        "sha256": "A73A7EDF9D44E71BCD78E8C619CE8EADEAD0E280A0C6C172E88D6B34DB6E0B25"
+      },
+      {
+        "role": "steam-range-02BCEB40",
+        "rva": 45935424,
+        "length": 45,
+        "sha256": "7B693ACCA091050877C368DD8D361DA54B976F5C9C9817ADA0E876BACE969E59"
+      },
+      {
+        "role": "steam-range-03123480",
+        "rva": 51524736,
+        "length": 12,
+        "sha256": "A1DAFE6761AD09FE5BB0ACE484ECD32B8D4E4B5AAB37742E762E4F5140D4256F"
+      },
+      {
+        "role": "steam-range-031AC820",
+        "rva": 52086816,
+        "length": 7,
+        "sha256": "98C1B4A615C8ED08839421FC66BD1A5728A69109C052EE6BA54FB4F9D76A2E81"
+      },
+      {
+        "role": "steam-range-031ACBB0",
+        "rva": 52087728,
+        "length": 9,
+        "sha256": "547A252761AF1C1DE2C7045020784A166A27CCC6DAF02BFD2FFE32DD0E0BC66E"
+      },
+      {
+        "role": "steam-range-034E5090",
+        "rva": 55464080,
+        "length": 183,
+        "sha256": "D7DF92C1A0D8FB00A2B8A3F5E340BF6B17F6C49A1703C7DF9622F7E80AE403FC"
+      },
+      {
+        "role": "steam-range-034EAB00",
+        "rva": 55487232,
+        "length": 73,
+        "sha256": "0ACA8A2CBA95245D45F6EB61412DB266DA5A497490D07E43117513A27930ACAF"
+      },
+      {
+        "role": "steam-range-034EAFE0",
+        "rva": 55488480,
+        "length": 13,
+        "sha256": "651395F50B65AB1D8FD04CFBE0A49082690C011FB3C4A28FC2CEF341131176C2"
+      },
+      {
+        "role": "steam-range-034EAFED",
+        "rva": 55488493,
+        "length": 46,
+        "sha256": "47A3FA02CF9143E2B2B2D533069364E4FFCA73FF4BA0EA01CC45F3429F96AB08"
+      },
+      {
+        "role": "steam-range-034ECE40",
+        "rva": 55496256,
+        "length": 465,
+        "sha256": "81572C9BA61DD504DB9DF297A2D1D7694E8B7917657E573D1F1683A900980C43"
+      },
+      {
+        "role": "steam-range-034F0D30",
+        "rva": 55512368,
+        "length": 183,
+        "sha256": "C674C5D3E043E7EDFF8F47D1D7AA7B0D0CF85E3B227176052C8E5BBF09125C8E"
+      },
+      {
+        "role": "steam-range-034F3C50",
+        "rva": 55524432,
+        "length": 5,
+        "sha256": "A1DAC09F5CC282A00BAB87FAD1374A847503F5C28A98C13A483166FB7AFFA453"
+      },
+      {
+        "role": "steam-range-034F8180",
+        "rva": 55542144,
+        "length": 218,
+        "sha256": "DB0E8EA4723090E07758CC77A28D10313EC1DAE7D0A18AC393F70453363C8C5D"
+      },
+      {
+        "role": "steam-range-034F8260",
+        "rva": 55542368,
+        "length": 643,
+        "sha256": "1282637A0B2B87DF8FE487625568BE7ACDC02327179075A1DB64A65FB4E75623"
+      },
+      {
+        "role": "steam-range-034F89C0",
+        "rva": 55544256,
+        "length": 91,
+        "sha256": "3F7BEBCFF49D2733A88A72E177825ACF67286C826DF218338FEE77067BB5817F"
+      },
+      {
+        "role": "steam-range-034F8A20",
+        "rva": 55544352,
+        "length": 60,
+        "sha256": "5D5CA66E1E95899AFA7800EF1E8BBCEC8376072E07872603B8C35C6B94A44931"
+      },
+      {
+        "role": "steam-range-034FB0D0",
+        "rva": 55554256,
+        "length": 181,
+        "sha256": "5E8F5A584E69FC01B6CCCC30CCE20E9CEFE2B2E28758FF0F2474014096524A9E"
+      },
+      {
+        "role": "steam-range-034FB190",
+        "rva": 55554448,
+        "length": 76,
+        "sha256": "B6A0549E9125E4B6BC19223690479F0F31F718D6125809ABE72A8FA5EF188F5A"
+      },
+      {
+        "role": "steam-range-034FB1E0",
+        "rva": 55554528,
+        "length": 34,
+        "sha256": "FD3C528C0660B2A3E36D7A1065B6964B4BEA3A516A49C6029600B90FF1B67C47"
+      },
+      {
+        "role": "steam-range-034FB210",
+        "rva": 55554576,
+        "length": 40,
+        "sha256": "DA985D01B6B0DD8C1529B52C8B71C331CD64C90BE97B5D1BC3A956819E3DF596"
+      },
+      {
+        "role": "steam-range-034FB240",
+        "rva": 55554624,
+        "length": 223,
+        "sha256": "279A5067ECCF7C637CE1C0CA821456D9E6C181FAEB306757CC0CA9F0D279B84A"
+      }
+    ],
+    "providerSlots": [
+      {
+        "offset": 4840,
+        "targetRva": 52087728
+      },
+      {
+        "offset": 0,
+        "targetRva": 51524736
+      }
+    ],
+    "asset": {
+      "minimumLength": 16221184,
+      "maximumLength": 17269760,
+      "headerPageCount": 15409,
+      "parts": {
+        "Engine": {
+          "count": 3017,
+          "rowsSha256": "79D1BFE7DA2780931D6137D743CB19FF6F0DC8E443E4681ACCF1B13FC02CD226"
+        },
+        "Drivetrain": {
+          "count": 1375,
+          "rowsSha256": "EC51BA165ECCA66BB98F524689F38D1A18FCB22FD4F9A48DFF6B3B2C15DCE9F9"
+        },
+        "CarBody": {
+          "count": 790,
+          "rowsSha256": "07657E94C9EE2C9CE2C36B9B0F81744E253001BFAFE94EDDF39D9C20DC6E22DB"
+        },
+        "Motor": {
+          "count": 33,
+          "rowsSha256": "B3E3B5F6E081DFE302E19C83995D69DD0A049F12612D816D63A15E7527C67731"
+        },
+        "Brakes": {
+          "count": 1689,
+          "rowsSha256": "8EF8E68C52274C79F4787333AE2EF350EDFA046F985EDDA98F708E8F86321ACE"
+        },
+        "SpringDamper": {
+          "count": 2752,
+          "rowsSha256": "0B1466548BAC66BE2CA2B7BD64DABB4A42C18F869A180F5A0038D9A85AEBB869"
+        },
+        "FrontAntiroll": {
+          "count": 1541,
+          "rowsSha256": "C66C582A721C2F63AC1A41998F6A8819488B0E400FD6E17F35B6A9C55E0617FC"
+        },
+        "RearAntiroll": {
+          "count": 1578,
+          "rowsSha256": "001B3E9D30A1EB5FD2495E433ECC838E93412C1A62263E90304C25BC9C2C5EA3"
+        },
+        "RearAero": {
+          "count": 1669,
+          "rowsSha256": "F1AA81C45C123632A7CA41E2ACC43992B5A12A6601D46CB0DF5A3F9903C1C497"
+        },
+        "Transmission": {
+          "count": 5069,
+          "rowsSha256": "7B4C56864B70E571E86AD14BF3CA546C8B774B44F0335BAC20A62314A3D2117A"
+        },
+        "Differential": {
+          "count": 3491,
+          "rowsSha256": "B4FC1799AB299D9F8BE360C688E122C924EE381AE7A0960E0623ACF493B24B1F"
+        },
+        "FrontAero": {
+          "count": 1761,
+          "rowsSha256": "A32536BA8A277A74710AA18D9CBB6EE5E71DFFB86C596CCCE6620587FB6EB002"
+        }
+      }
+    }
+  }
 }

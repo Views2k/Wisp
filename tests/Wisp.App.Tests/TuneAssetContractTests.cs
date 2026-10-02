@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.IO;
+using Wisp.App;
 using Wisp.App.Tunes;
 using Wisp.Core.Tunes;
 using Xunit;
@@ -82,6 +83,34 @@ public sealed class TuneAssetContractTests
         Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateSchema(TunePartId.Engine, "CREATE TABLE List_UpgradeEngine(Id INTEGER, Ordinal INTEGER, Level INTEGER)"));
         var rows = Enumerable.Range(0, 3017).Select(id => new TuneAssetRow(TunePartId.Engine, 1, id, 0, null)).ToArray();
         Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Engine, rows));
+    }
+
+    [Fact]
+    public void DescriptorChangesOnlyTheDeclaredAssetExpectations()
+    {
+        var rows = new[] { new TuneAssetRow(TunePartId.Engine, 1, 2, 3, null) };
+        var parts = new Dictionary<TunePartId, NativeTuneCompatibilityLayout.PartExpectation>
+        {
+            [TunePartId.Engine] = new(1, TuneAssetContract.HashRows(TunePartId.Engine, rows))
+        };
+        var asset = new NativeTuneCompatibilityLayout.AssetContract(1024, 2048, 1, parts);
+        TuneAssetContract.ValidateRows(TunePartId.Engine, rows, asset);
+        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Engine, rows));
+        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Engine,
+            [rows[0] with { Level = 4 }], asset));
+        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Brakes, [], asset));
+        var header = Header(1024);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(28), 1);
+        TuneAssetCapture.ValidateHeader(header, asset);
+        header[18] = 2;
+        Assert.Throws<InvalidDataException>(() => TuneAssetCapture.ValidateHeader(header, asset));
+        Assert.Throws<InvalidDataException>(() => TuneAssetCapture.ValidateHeader(new byte[64], asset with { MinimumLength = 1 }));
+        TuneAssetCapture.ValidateStreamShape(0, 1024, 1024, 1024, 8, asset);
+        Assert.Throws<TuneAssetStreamValidationException>(() =>
+            TuneAssetCapture.ValidateStreamShape(0, 1024, 1024, 1024, 8));
+        Assert.Throws<TuneAssetStreamValidationException>(() => TuneAssetCapture.ValidateStreamShape(0, 1024,
+            (uint)TuneAssetCapture.MaximumLength + 1024, (ulong)TuneAssetCapture.MaximumLength + 1024, 8,
+            asset with { MaximumLength = int.MaxValue }));
     }
 
     private static byte[] Header(int length = TuneAssetCapture.ExpectedLength)

@@ -250,6 +250,9 @@ public sealed class NativeHudStoreBuildIdentityTests
     {
         var store = ParsePack(StorePackDocument());
         var steam = NativeHudBuildContract.BuiltIn;
+        Assert.Equal(4, store.SchemaVersion);
+        Assert.Equal(4, store.ReaderVersion);
+        Assert.Null(store.Tune);
         Assert.NotNull(store.StoreIdentity);
         Assert.Equal(0, store.ExecutableLength);
         Assert.Equal(string.Empty, store.ExecutableSha256);
@@ -314,6 +317,7 @@ public sealed class NativeHudStoreBuildIdentityTests
         var document = JsonNode.Parse(stream)!.AsObject();
         document["schemaVersion"] = 4;
         document["readerVersion"] = 4;
+        document.Remove("tune");
         document["gameVersion"] = StoreVersion;
         document.Remove("executableLength");
         document.Remove("executableSha256");

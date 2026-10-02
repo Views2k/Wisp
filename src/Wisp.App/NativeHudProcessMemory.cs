@@ -187,7 +187,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 return false;
             }
 
-            memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity));
+            memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath));
             handle = null;
             status = NativeAssistProviderStatus.Ready;
             return true;
@@ -233,7 +233,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 return false;
             }
 
-            var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack, SessionToken(identity));
+            var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath));
             if (!storeBuild.MatchesImage(candidate, identity.ModuleBase))
             {
                 status = NativeAssistProviderStatus.UnsupportedBuild;
@@ -294,7 +294,7 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
     private readonly SafeProcessHandle _handle;
 
     internal NativeHudProcessMemory(SafeProcessHandle handle, ulong moduleBase, NativeHudCompatibilityPack compatibilityPack,
-        string sessionIdentity = "")
+        string sessionIdentity = "", string? gameDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(handle);
         ArgumentNullException.ThrowIfNull(compatibilityPack);
@@ -307,11 +307,13 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
         ModuleBase = moduleBase;
         CompatibilityPack = compatibilityPack;
         SessionIdentity = sessionIdentity;
+        GameDirectory = gameDirectory;
     }
 
     public ulong ModuleBase { get; }
     public NativeHudCompatibilityPack CompatibilityPack { get; }
     public string SessionIdentity { get; }
+    public string? GameDirectory { get; }
 
     public static bool TryOpen(out NativeHudProcessMemory? memory, out NativeAssistProviderStatus status) =>
         DefaultFactory.Value.TryOpenConcrete(out memory, out status);

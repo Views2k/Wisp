@@ -13,6 +13,7 @@ public sealed record TuneCaptureResult(TuneSnapshot? Snapshot, TuneCaptureStatus
 
 public sealed class TuneCaptureService : IAsyncDisposable
 {
+    internal const string CompatibilityUnavailableMessage = "Tune reading isn't ready for this Forza update. Wisp checks for compatibility updates automatically.";
     private readonly object _gate = new();
     private readonly INativeHudProcessMemoryFactory _factory;
     private readonly Func<INativeHudProcessMemory, CancellationToken, TuneDecodeInput> _capture;
@@ -22,9 +23,13 @@ public sealed class TuneCaptureService : IAsyncDisposable
     private readonly HashSet<Flight> _activeFlights = [];
     private TuneAssetMetadata? _metadata;
     private string _metadataSession = string.Empty;
+    private string _metadataLayout = string.Empty;
+    private string _metadataPack = string.Empty;
+    private long _metadataCompatibility = -1;
     private Flight? _flight;
     private long _generation;
     private long _compatibilityGeneration = -1;
+    private long _observedCompatibilityGeneration;
     private string _session = string.Empty;
     private int _carOrdinal;
     private bool _disposed;
@@ -35,6 +40,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
         Func<INativeHudProcessMemory, CancellationToken, TuneDecodeInput>? capture)
     {
         _factory = factory;
+        _observedCompatibilityGeneration = factory.CompatibilityGeneration;
         _capture = capture ?? Read;
     }
 
@@ -50,8 +56,10 @@ public sealed class TuneCaptureService : IAsyncDisposable
         var changed = false;
         lock (_gate)
         {
-            if (!_disposed && _session.Length != 0 && _compatibilityGeneration != _factory.CompatibilityGeneration)
+            var compatibility = _factory.CompatibilityGeneration;
+            if (!_disposed && _observedCompatibilityGeneration != compatibility)
             {
+                _observedCompatibilityGeneration = compatibility;
                 _generation++;
                 _session = string.Empty;
                 _carOrdinal = 0;
@@ -126,17 +134,30 @@ public sealed class TuneCaptureService : IAsyncDisposable
 
     private TuneDecodeInput Read(INativeHudProcessMemory memory, CancellationToken cancellationToken)
     {
-        if (_metadata is null || _metadataSession != memory.SessionIdentity)
+        var layout = NativeTuneLayout.Resolve(memory, cancellationToken);
+        var compatibility = _factory.CompatibilityGeneration;
+        if (_metadata is null || _metadataSession != memory.SessionIdentity ||
+            _metadataLayout != layout.Digest || _metadataPack != memory.CompatibilityPack.Fingerprint ||
+            _metadataCompatibility != compatibility)
         {
-            var decoded = TuneAssetCapture.ReadDecoded(memory, cancellationToken);
+            var decoded = TuneAssetCapture.ReadDecoded(memory, cancellationToken, layout);
             try
             {
-                _metadata = TuneAssetSqlite.Extract(decoded, cancellationToken);
+                _metadata = TuneAssetSqlite.Extract(decoded, cancellationToken, layout.Descriptor?.Asset);
                 _metadataSession = memory.SessionIdentity;
+                _metadataLayout = layout.Digest;
+                _metadataPack = memory.CompatibilityPack.Fingerprint;
+                _metadataCompatibility = compatibility;
             }
             finally { Array.Clear(decoded); }
         }
-        return NativeTuneCapture.Read(memory, _metadata, cancellationToken);
+        var input = NativeTuneCapture.Read(memory, _metadata, cancellationToken, layout);
+        if (memory.GameDirectory is { } directory && _metadata.CarNameKey(input.CarOrdinal) is { } car)
+            input = input with { CarName = TuneCarNameResolver.TryResolve(
+                Path.Combine(directory, "Media", "Stripped", "StringTables", "EN.zip"),
+                car.Year, car.ModelToken, car.MakeToken, cancellationToken) };
+        layout.Verify(memory, cancellationToken);
+        return input;
     }
 
     private async Task<TuneCaptureResult> CaptureAsync(long generation, CancellationToken cancellationToken)
@@ -151,11 +172,9 @@ public sealed class TuneCaptureService : IAsyncDisposable
                 return Fail(status == NativeAssistProviderStatus.GameNotRunning ? TuneCaptureStatus.GameNotRunning :
                     status == NativeAssistProviderStatus.UnsupportedBuild ? TuneCaptureStatus.UnsupportedBuild : TuneCaptureStatus.Unavailable,
                     status == NativeAssistProviderStatus.GameNotRunning ? "Open Forza to read the current car." :
-                    status == NativeAssistProviderStatus.UnsupportedBuild ? "Tune reading is unavailable for this game build." :
+                    status == NativeAssistProviderStatus.UnsupportedBuild ? CompatibilityUnavailableMessage :
                     "The current car could not be read. Refresh and try again.", generation);
             using var memory = opened;
-            if (!NativeTuneCapture.Supports(memory.CompatibilityPack))
-                return Fail(TuneCaptureStatus.UnsupportedBuild, "Tune reading is unavailable for this game build.", generation);
             if (string.IsNullOrEmpty(memory.SessionIdentity))
                 return Fail(TuneCaptureStatus.Unavailable, "The current game session could not be verified.", generation);
             var input = _capture(memory, cancellationToken);
@@ -182,6 +201,10 @@ public sealed class TuneCaptureService : IAsyncDisposable
             return new(snapshot, TuneCaptureStatus.Ready, snapshot.IsComplete ? string.Empty : "Some settings are unavailable for this tune.");
         }
         catch (OperationCanceledException) { return new(null, TuneCaptureStatus.Cancelled, "Tune reading was cancelled."); }
+        catch (TuneLayoutException)
+        {
+            return Fail(TuneCaptureStatus.UnsupportedBuild, CompatibilityUnavailableMessage, generation);
+        }
         catch (TuneChangedException) { return Fail(TuneCaptureStatus.Changed, "The car or tune changed while reading. Refresh and try again.", generation); }
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or
             System.ComponentModel.Win32Exception or DllNotFoundException or EntryPointNotFoundException or

@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace Wisp.App;
@@ -33,6 +34,11 @@ public sealed class NativeHudCompatibilityPack
         .Except(new[] { "executableLength", "executableSha256" })
         .Append("storeIdentity")
         .ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> TuneSteamPackProperties = VersionThreePackProperties
+        .Append("tune").ToFrozenSet(StringComparer.Ordinal);
+    private static readonly FrozenSet<string> TuneStorePackProperties = StorePackProperties
+        .Append("tune").ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> SlotProperties = new[]
     {
@@ -196,8 +202,9 @@ public sealed class NativeHudCompatibilityPack
         })
         .ToFrozenSet(StringComparer.Ordinal);
 
-    private NativeHudCompatibilityPack(JsonElement root)
+    private NativeHudCompatibilityPack(JsonElement root, string fingerprint)
     {
+        Fingerprint = fingerprint;
         var properties = ReadPackObject(root);
         SchemaVersion = ReadInt32(properties["schemaVersion"]);
         ReaderVersion = ReadInt32(properties["readerVersion"]);
@@ -224,7 +231,7 @@ public sealed class NativeHudCompatibilityPack
             throw new FormatException("The game version must contain four numeric version parts.");
         }
 
-        if (SchemaVersion != 4)
+        if (SchemaVersion is not (4 or 6))
         {
             ExecutableLength = ReadInt64(properties["executableLength"]);
             if (ExecutableLength is < 4096 or > MaximumExecutableLength)
@@ -246,7 +253,7 @@ public sealed class NativeHudCompatibilityPack
             throw new FormatException("The image size is outside the supported bounds.");
         }
 
-        StoreIdentity = SchemaVersion == 4
+        StoreIdentity = SchemaVersion is 4 or 6
             ? NativeHudStoreBuildIdentity.Parse(properties["storeIdentity"], GameVersion, ImageSize)
             : null;
 
@@ -271,13 +278,17 @@ public sealed class NativeHudCompatibilityPack
         NativeGauge = SchemaVersion >= 3 && properties["nativeGauge"].ValueKind != JsonValueKind.Null
             ? ReadNativeGauge(properties["nativeGauge"], ImageSize)
             : null;
-        if (SchemaVersion == 3 && NativeGauge is null)
+        if ((SchemaVersion is 3 or 5) && NativeGauge is null)
         {
             throw new FormatException("The native gauge layout is required by schema three.");
         }
+        Tune = SchemaVersion >= 5 && properties["tune"].ValueKind != JsonValueKind.Null
+            ? NativeTuneCompatibilityLayout.Parse(properties["tune"], ImageSize, LeadVtableRva, StoreIdentity is not null)
+            : null;
     }
 
     public int SchemaVersion { get; }
+    public string Fingerprint { get; }
     public int ReaderVersion { get; }
     public string Id { get; }
     public int Revision { get; }
@@ -294,6 +305,7 @@ public sealed class NativeHudCompatibilityPack
     public IReadOnlyDictionary<ulong, ulong> RequiredVtableSlots { get; }
     public NativeGameplayVisibilityLayout? GameplayVisibility { get; }
     public NativeGaugeLayout? NativeGauge { get; }
+    public NativeTuneCompatibilityLayout? Tune { get; }
 
     public static NativeHudCompatibilityPack Parse(ReadOnlySpan<byte> json)
     {
@@ -308,9 +320,9 @@ public sealed class NativeHudCompatibilityPack
             {
                 AllowTrailingCommas = false,
                 CommentHandling = JsonCommentHandling.Disallow,
-                MaxDepth = 4
+                MaxDepth = 5
             });
-            return new NativeHudCompatibilityPack(document.RootElement);
+            return new NativeHudCompatibilityPack(document.RootElement, Convert.ToHexString(SHA256.HashData(json)));
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException)
         {
@@ -337,6 +349,8 @@ public sealed class NativeHudCompatibilityPack
             2 => VersionTwoPackProperties,
             3 => VersionThreePackProperties,
             4 => StorePackProperties,
+            5 => TuneSteamPackProperties,
+            6 => TuneStorePackProperties,
             _ => throw new FormatException("The compatibility pack schema or reader version is unsupported.")
         };
         return ReadObject(root, expectedProperties);

@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace Wisp.App.Tunes;
 
@@ -9,10 +11,11 @@ namespace Wisp.App.Tunes;
 // schemas and numeric projections become metadata; mutable unrelated game state is discarded.
 internal static class TuneAssetSqlite
 {
-    internal static TuneAssetMetadata Extract(byte[] decoded, CancellationToken token)
+    internal static TuneAssetMetadata Extract(byte[] decoded, CancellationToken token,
+        NativeTuneCompatibilityLayout.AssetContract? asset = null)
     {
         token.ThrowIfCancellationRequested();
-        TuneAssetCapture.ValidateHeader(decoded);
+        TuneAssetCapture.ValidateHeader(decoded, asset);
         var beforeHash = SHA256.HashData(decoded);
         nint database = 0;
         var pinned = GCHandle.Alloc(decoded, GCHandleType.Pinned);
@@ -41,6 +44,8 @@ internal static class TuneAssetSqlite
                 Require(sqlite3_step(verify.Value) == 100 && Integer(verify.Value, 0) == 1 &&
                     sqlite3_step(verify.Value) == 101, "sqlite-query-only-not-enabled");
             var allowed = TuneAssetMetadata.Tables.Select(row => row.Table).ToHashSet(StringComparer.Ordinal);
+            allowed.Add("Data_Car");
+            allowed.Add("List_CarMake");
             authorizer = (_, action, first, second, _, origin) =>
             {
                 if (origin != 0) return 1; // No view or trigger evaluation.
@@ -90,11 +95,11 @@ internal static class TuneAssetSqlite
                         rows.Add(new(kind, owner.Value, id.Value, Integer(query.Value, 2), Integer(query.Value, 3)));
                     }
                 }
-                TuneAssetContract.ValidateRows(kind, rows);
+                TuneAssetContract.ValidateRows(kind, rows, asset);
                 result.AddRange(rows);
             }
             token.ThrowIfCancellationRequested();
-            return new TuneAssetMetadata(result);
+            return new TuneAssetMetadata(result, TryReadCarNames(database, token));
         }
         finally
         {
@@ -106,6 +111,59 @@ internal static class TuneAssetSqlite
             Require(closed, "sqlite-close-failed");
             Require(beforeHash.AsSpan().SequenceEqual(SHA256.HashData(decoded)), "sqlite-borrowed-buffer-changed");
         }
+    }
+
+    private static IReadOnlyList<TuneCarNameKey> TryReadCarNames(nint database, CancellationToken token)
+    {
+        try
+        {
+            foreach (var (table, hash) in new[]
+            {
+                ("Data_Car", "E51C352B57860E6571351B252F21A9A5D32A0F5B37207CB9CBF73EBDCB639336"),
+                ("List_CarMake", "8F3AB5FFF14F82043BF0565FFAE313C998CE6EFD01A8EF22475C2FE147B67127")
+            })
+            {
+                using var schema = Prepare(database, $"SELECT type,sql FROM sqlite_schema WHERE name='{table}'");
+                Require(sqlite3_step(schema.Value) == 100 && Text(schema.Value, 0) == "table" &&
+                    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Text(schema.Value, 1)))) == hash &&
+                    sqlite3_step(schema.Value) == 101, "name-schema-unavailable");
+                using var integrity = Prepare(database, $"PRAGMA integrity_check(\"{table}\")");
+                Require(sqlite3_step(integrity.Value) == 100 && Text(integrity.Value, 0) == "ok" &&
+                    sqlite3_step(integrity.Value) == 101, "name-integrity-unavailable");
+            }
+            var result = new List<TuneCarNameKey>();
+            var identities = new HashSet<int>();
+            using var query = Prepare(database, "SELECT c.Id,c.Year,c.DisplayName,m.DisplayName FROM Data_Car c JOIN List_CarMake m ON m.ID=c.MakeID");
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                var code = sqlite3_step(query.Value);
+                if (code == 101) break;
+                Check(code == 100 ? 0 : code, "name-read");
+                var ordinal = Integer(query.Value, 0);
+                var year = Integer(query.Value, 1);
+                Require(result.Count < 4096 && ordinal is > 0 && year is >= 1800 and <= 9999 &&
+                    identities.Add(ordinal.Value), "name-identity-unavailable");
+                var model = NameToken(Text(query.Value, 2), 0x434455F2);
+                var make = NameToken(Text(query.Value, 3), 0x788FB611);
+                result.Add(new(ordinal!.Value, year!.Value, model, make));
+            }
+            return result;
+        }
+        catch (InvalidDataException)
+        {
+            token.ThrowIfCancellationRequested();
+            return []; // Names are optional; verified tuning controls remain usable.
+        }
+    }
+
+    internal static ulong NameToken(string text, uint domain)
+    {
+        if (!text.StartsWith("_&", StringComparison.Ordinal) || text.Length > 22 ||
+            !ulong.TryParse(text.AsSpan(2), NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
+            value >> 32 != domain)
+            throw new InvalidDataException("The car name token is unavailable.");
+        return value;
     }
 
     private static int? Integer(nint statement, int column)

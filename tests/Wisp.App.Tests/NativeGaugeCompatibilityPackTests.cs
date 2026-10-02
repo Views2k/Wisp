@@ -18,18 +18,20 @@ public sealed class NativeGaugeCompatibilityPackTests
         "outerPrimaryVtableRva", "outerSecondaryVtableRva", "childVtableRva"
     ];
 
-    [Fact]
-    public void VersionThreePreservesEveryNativeGaugeGuard()
+    [Theory]
+    [InlineData(3)]
+    [InlineData(5)]
+    public void VersionThreeAndFivePreserveEveryNativeGaugeGuard(int schema)
     {
-        var document = BuiltInDocument();
+        var document = schema == 3 ? LegacyVersionThreeDocument() : BuiltInDocument();
         var pack = Parse(document);
         var layout = Assert.IsType<NativeGaugeLayout>(pack.NativeGauge);
         var expected = document["nativeGauge"]!.AsObject();
 
-        Assert.Equal(3, pack.SchemaVersion);
-        Assert.Equal(3, pack.ReaderVersion);
+        Assert.Equal(schema, pack.SchemaVersion);
+        Assert.Equal(schema, pack.ReaderVersion);
         Assert.Equal("6.440.853.0", pack.GameVersion);
-        Assert.Equal(1, pack.Revision);
+        Assert.Equal(2, pack.Revision);
         foreach (var property in typeof(NativeGaugeLayout).GetProperties()
                      .Where(property => property.PropertyType == typeof(ulong)))
         {
@@ -94,7 +96,7 @@ public sealed class NativeGaugeCompatibilityPackTests
     [Fact]
     public void EarlierSchemasRemainReadableWithoutClaimingNativeGaugeSupport()
     {
-        var versionTwo = BuiltInDocument();
+        var versionTwo = LegacyVersionThreeDocument();
         versionTwo["schemaVersion"] = 2;
         versionTwo["readerVersion"] = 2;
         versionTwo.Remove("nativeGauge");
@@ -115,7 +117,7 @@ public sealed class NativeGaugeCompatibilityPackTests
     [InlineData("\"native\"")]
     public void VersionThreeRequiresANativeGaugeObject(string rawJson)
     {
-        var document = BuiltInDocument();
+        var document = LegacyVersionThreeDocument();
         document["nativeGauge"] = JsonNode.Parse(rawJson);
 
         Assert.Throws<FormatException>(() => Parse(document));
@@ -469,6 +471,15 @@ public sealed class NativeGaugeCompatibilityPackTests
 
     private static NativeHudCompatibilityPack Parse(JsonObject document) =>
         NativeHudCompatibilityPack.Parse(JsonSerializer.SerializeToUtf8Bytes(document));
+
+    private static JsonObject LegacyVersionThreeDocument()
+    {
+        var document = BuiltInDocument();
+        document["schemaVersion"] = 3;
+        document["readerVersion"] = 3;
+        document.Remove("tune");
+        return document;
+    }
 
     private static JsonObject BuiltInDocument()
     {
