@@ -1,17 +1,72 @@
 [![Watch the Wisp demonstration in Forza Horizon 6](docs/images/wisp-demo-thumbnail.jpg)](https://www.youtube.com/watch?v=RCR6KQ1_OlQ)
 
 <p align="center">
-  <strong>A customizable HUD, drift angle gauge, second-screen dashboard, and run analysis tool for Forza Horizon 6.</strong><br>
+  <strong>A customizable HUD, gameplay clips, tune viewing and lap analysis for Forza Horizon 6.</strong><br>
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
   <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to the latest release.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.5.3/Wisp-Setup-2.5.3.zip"><strong>Download Wisp 2.5.3</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.0/Wisp-Setup-2.6.0.zip"><strong>Download Wisp 2.6</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
   Support Wisp: <a href="https://ko-fi.com/views2k">Ko-fi</a> ·
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
+
+## Wisp 2.6
+
+Save a clip of your drive, keep a copy of your tune, and review where a lap gained or lost time.
+
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6 release notes](docs/releases/Wisp-2.6.0-release-notes.md)
+
+### Clips
+
+Enable clipping to keep a rolling recording, then press **Save clip** or your shortcut to keep a moment. Saved clips stay in Wisp, ready to watch or export as MP4. Choose the filename and folder when exporting; the recording keeps its original resolution and quality.
+
+| Recording option | Choices |
+| --- | --- |
+| Clip length | 30 seconds to 5 minutes, in 30-second steps. Default: one minute. |
+| Resolution | 360p, 480p, 720p, 1080p, 1440p or 2160p. Default: 1080p. |
+| Frame rate | 30 or 60 fps. Default: 60 fps. |
+| Compressed video quality | 10–100. Default: 75. |
+| Lossless video | Optional, off by default; requires a supported NVIDIA encoder. |
+| Audio | Forza audio by default, or all app and system audio. Microphone input is not recorded. |
+| Shortcuts | Separate optional shortcuts to toggle clipping and save a clip. |
+| Shortcut sounds | Optional sounds for shortcut results. On by default. |
+| Reminders | Dashboard reminders for new clips, on by default. |
+| Export folder | Choose a default local folder, or another destination when exporting. |
+
+Clipping is off by default. Turn it off before changing recording settings. It records the screen containing fullscreen or borderless-fullscreen Forza, including the Wisp HUD and anything else visible there. Switching away or minimizing pauses recording and keeps available footage ready to save. Ultrawide and 16:10 recordings keep their proportions with black bars.
+
+Saves contain up to the selected length of available history. Lossless preserves full-color SDR video after scaling and HDR conversion; audio remains compressed. It can use substantial storage, and the available history depends on the scene and free space.
+
+Browse saved clips by thumbnail and see which are new, viewed or exported. Playback waits for **Play**; pause, seek, adjust volume or export from the player.
+
+![Clips in Wisp 2.6](https://wispoverlay.com/images/wisp-2.6-clips.webp)
+
+### Tune
+
+View the tuning settings fitted to your current car, **including locked tunes on Steam**. Save a named setup with a description, open it later in Wisp, or compare saved setups or the current car side by side. Comparisons highlight changed values. Delete saved tunes you no longer need; snapshots attached to runs are kept.
+
+Browse tires, gearing, alignment, antiroll bars, springs, damping, aero, brakes and differential settings. Attach a checked tune snapshot when recording a run to keep its setup with the results.
+
+Current-car reading supports **Steam and Xbox app / Microsoft Store FH6 with imperial game units**. Saved setups are local snapshots for viewing and comparison, and can be opened with the game closed. Wisp checks for updated Forza support automatically.
+
+![Tune in Wisp 2.6](https://wispoverlay.com/images/wisp-2.6-tune.webp)
+
+### Lap review
+
+Open a saved run in **Runs → Lap review** to inspect the line you drove. Move one cursor across the map and graphs to review speed, inputs, G-force, RPM, gear and wheel readings. Choose a section and compare its time, distance and inputs with another lap or a pinned benchmark. Events mark braking, throttle pickup and shifts.
+
+Turn on **Save completed laps automatically** to keep laps for later review, grouped by day and car. It uses the timing mode selected in HUD settings while Wisp is running. Choosing Run B takes priority over a compatible pinned benchmark.
+
+### Live map and lap delta
+
+The **live track map** follows your car around the circuit learned from your first full lap. **Lap delta** compares your progress with your session best or previous lap at the same place on the track. Negative means ahead; positive means behind.
+
+Both remain beta features. Enable them in **Appearance → Gauges → Lap delta** and adjust their colors, size and position. Choose Race / Rivals timing, or Time Attack at Legend Island, Hokubu, Soni and Sekibe.
+
+HUD profiles now include driving settings and saved gauge positions. The optional quick tour introduces Clips, Tune, live map, lap delta and lap review.
 
 ## Wisp 2.5.3
 
@@ -178,16 +233,16 @@ Common settings stay visible, with detailed adjustments under **More options**.
 Click the connection status to check game detection, incoming telemetry, and
 HUD visibility. The panel includes help for the current connection state.
 
-An optional quick tour introduces the drift gauge, Display mode, Runs, and
-Appearance. Start from the welcome banner or choose **Replay the quick tour**
+An optional quick tour introduces Clips, Tune, live map, lap delta and lap
+review. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.5.3](https://github.com/Views2k/Wisp/releases/download/v2.5.3/Wisp-Setup-2.5.3.zip) ·
-[2.5 release notes](docs/releases/Wisp-2.5.0-release-notes.md) ·
+[Download Wisp 2.6](https://github.com/Views2k/Wisp/releases/download/v2.6.0/Wisp-Setup-2.6.0.zip) ·
+[2.6 release notes](docs/releases/Wisp-2.6.0-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
-Interface screenshots show the build used to develop Wisp 2.0. Their original
-version labels are retained; the gameplay gallery also shows the new 2.1 gauges.
+Older interface screenshots retain their original version labels. The gameplay
+gallery also shows the 2.1 gauges.
 
 ## Wheel-indicated speed
 
@@ -200,6 +255,10 @@ rolling radius of the current tires and calculates speed from the driven wheels
 for FWD, RWD, or AWD. The result appears in the Windows overlay.
 
 ## Features
+
+- [Clips](#clips): save recent gameplay, watch it in Wisp and export an MP4.
+- [Tune](#tune): view current settings, including locked tunes on Steam, save setups and compare them.
+- [Lap review](#lap-review): inspect your line and telemetry, compare sections and save completed laps automatically when enabled.
 
 - Wheel-indicated speed with separate front and rear calibration for staggered
   AWD setups.
@@ -223,7 +282,7 @@ for FWD, RWD, or AWD. The result appears in the Windows overlay.
 - Lap delta against your best or previous lap, and a live track map (both in beta).
 - Drift angle and angle-bonus guidance, or a custom target and tolerance.
 - Application styling, individual G-force dot and trail colors, and saved HUD
-  profiles for layouts and gauge colors.
+  profiles for HUD and driving settings, gauge colors and positions.
 - Local run recording, configurable graphs, overlaid or side-by-side comparisons,
   report images, CSV, shareable run files, and whole-library backup and import.
 - Optional update checks whenever Wisp opens and daily while running, a
@@ -306,8 +365,8 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open the [Wisp 2.5.3 release](https://github.com/Views2k/Wisp/releases/tag/v2.5.3).
-2. Download and extract [Wisp-Setup-2.5.3.zip](https://github.com/Views2k/Wisp/releases/download/v2.5.3/Wisp-Setup-2.5.3.zip).
+1. Open the [Wisp 2.6 release](https://github.com/Views2k/Wisp/releases/tag/v2.6.0).
+2. Download and extract [Wisp-Setup-2.6.0.zip](https://github.com/Views2k/Wisp/releases/download/v2.6.0/Wisp-Setup-2.6.0.zip).
 3. Keep the installer and its `.sha256` file together.
 4. Verify the installer checksum, then run the installer.
 5. Complete the required setup wizard on first launch.
@@ -429,6 +488,8 @@ To build the self-contained installer:
 ```
 
 ## Documentation
+
+- [Wisp 2.6 release notes](docs/releases/Wisp-2.6.0-release-notes.md)
 
 - [Boost Gauge](docs/BOOST-GAUGE.md)
 - [Tire Temperature](docs/TIRE-TEMPERATURE.md)
