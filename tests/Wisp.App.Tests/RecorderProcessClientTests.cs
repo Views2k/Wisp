@@ -315,7 +315,17 @@ public sealed class RecorderProcessClientTests
     public void UnsupportedTerminalStatePairsCannotSuppressAnUnexpectedExit(string state, string reason)
     {
         var session = Guid.NewGuid();
-        var line = JsonSerializer.SerializeToUtf8Bytes(new { v = RecorderProtocol.Version, session = session.ToString("N"), request = 0, type = "state", state, reason });
+        var fields = new Dictionary<string, object>
+        {
+            ["v"] = RecorderProtocol.Version,
+            ["session"] = session.ToString("N"),
+            ["request"] = 0,
+            ["type"] = "state",
+            ["state"] = state,
+            ["reason"] = reason
+        };
+        if (state == "paused") fields["bufferReady"] = true;
+        var line = JsonSerializer.SerializeToUtf8Bytes(fields);
         var error = Assert.Throws<RecorderClientException>(() => RecorderProtocol.Decode(line, session));
         Assert.Equal("protocol_error", error.Reason);
     }

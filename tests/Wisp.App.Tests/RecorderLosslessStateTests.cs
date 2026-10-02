@@ -38,16 +38,30 @@ public sealed class RecorderLosslessStateTests
     [Theory]
     [InlineData("stopped", "stopped")]
     [InlineData("paused", "window_minimized")]
-    public void MetricsCannotLeakIntoStoppedOrPausedState(string stateName, string reason)
+    public void MetricsCannotLeakIntoStoppedOrUnreadyPausedState(string stateName, string reason)
     {
         var session = Guid.NewGuid();
         var fields = Fields(session);
         fields["state"] = stateName;
         fields["reason"] = reason;
+        if (stateName == "paused") fields["bufferReady"] = false;
         Assert.Throws<RecorderClientException>(() => RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(fields), session));
         fields.Remove("losslessBuffer");
         var stopped = Assert.IsType<RecorderStateUpdate>(RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(fields), session));
         Assert.Null(stopped.LosslessBuffer);
+    }
+
+    [Fact]
+    public void PausedStateKeepsMetricsWhenRecordedHistoryIsReady()
+    {
+        var session = Guid.NewGuid();
+        var fields = Fields(session);
+        fields["state"] = "paused";
+        fields["reason"] = "focus_lost";
+        fields["bufferReady"] = true;
+        var paused = Assert.IsType<RecorderStateUpdate>(RecorderProtocol.Decode(JsonSerializer.SerializeToUtf8Bytes(fields), session));
+        Assert.True(paused.BufferReady);
+        Assert.Equal(new RecorderLosslessBuffer(580_000_000, 1_048_576, 2_097_152, true), paused.LosslessBuffer);
     }
 
     [Theory]

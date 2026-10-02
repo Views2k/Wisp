@@ -691,6 +691,7 @@ public sealed class NativeGaugeDirectResolverTests
         document["schemaVersion"] = 2;
         document["readerVersion"] = 2;
         document.Remove("nativeGauge");
+        document.Remove("tune");
         var pack = NativeHudCompatibilityPack.Parse(
             System.Text.Encoding.UTF8.GetBytes(document.ToJsonString()));
         var memory = new Memory();
