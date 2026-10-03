@@ -39,6 +39,52 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 7 && (args[0] is "--clips-hdr-thumbnail-check" or "--clips-hdr-thumbnail-mpv-check" or "--clips-hdr-thumbnail-production-check") && args[1] == "--source" && args[3] == "--fixture-sha" && args[5] == "--output")
+                return HdrThumbnailReview.Run(args[2], args[4], PrepareOutput(args[6]), args[0] == "--clips-hdr-thumbnail-mpv-check", args[0] == "--clips-hdr-thumbnail-production-check");
+            if (args.Length == 7 && args[0] == "--clips-hdr-player-check" && args[1] == "--source" && args[3] == "--fixture-sha" && args[5] == "--output")
+                return HdrPlayerReview.Run(args[2], args[4], PrepareOutput(args[6]));
+            if (args.Length == 5 && args[0] == "--clips-reported-hdr-player-check" && args[1] == "--source" && args[3] == "--output")
+                return HdrPlayerReview.Run(args[2], "", PrepareOutput(args[4]), reportedClip: true);
+            if (args.Length == 7 && args[0] == "--clips-reported-hdr-player-check" && args[1] == "--source" && args[3] == "--output" && args[5] == "--profile")
+            {
+                var profile = args[6] switch
+                {
+                    "baseline" => ReportedPlaybackProfile.Baseline,
+                    "null-audio" => ReportedPlaybackProfile.NullAudio,
+                    "no-cache-pause" => ReportedPlaybackProfile.NoCachePause,
+                    "half-speed" => ReportedPlaybackProfile.HalfSpeed,
+                    "output-frame-drop" => ReportedPlaybackProfile.OutputFrameDrop,
+                    "compatible-preview" => ReportedPlaybackProfile.CompatiblePreview,
+                    "compatible-preview-eight-threads" => ReportedPlaybackProfile.CompatiblePreviewEightThreads,
+                    "product-playback-copy" => ReportedPlaybackProfile.ProductPlaybackCopy,
+                    _ => throw new ArgumentException("Unknown reported playback profile.")
+                };
+                return HdrPlayerReview.Run(args[2], "", PrepareOutput(args[4]), reportedClip: true, profile: profile);
+            }
+            if (args.Length == 9 && args[0] == "--clips-hdr-playback-color-check" && args[1] == "--source" && args[3] == "--helper" && args[5] == "--output" && args[7] == "--fixture-sha")
+                return PlaybackColorReview.Run(args[2], args[4], PrepareOutput(args[6]), args[8]);
+            if (args.Length == 5 && args[0] == "--clips-playback-version-check" && args[1] == "--helper" && args[3] == "--output")
+                return PlaybackColorReview.CheckVersion(args[2], PrepareOutput(args[4]));
+            if (args.Length == 7 && args[0] == "--clips-playback-color-check" && args[1] == "--source" && args[3] == "--helper" && args[5] == "--output")
+                return PlaybackColorReview.Run(args[2], args[4], PrepareOutput(args[6]));
+            if (args.Length == 3 && args[0] == "--clips-export-capabilities" && args[1] == "--output")
+                return ClipExportReview.Capabilities(PrepareOutput(args[2]));
+            if (args.Length == 5 && args[0] == "--clips-compatible-export-check" && args[1] == "--source" && args[3] == "--output")
+                return ClipExportReview.CompatibleCopy(args[2], PrepareOutput(args[4]));
+            if (args.Length == 5 && args[0] == "--clips-compatible-export-context" && args[1] == "--source" && args[3] == "--output")
+                return ClipExportReview.NativeFailureContext(args[2], PrepareOutput(args[4]));
+            if (args.Length == 5 && args[0] == "--clips-compatible-export-library-check" && args[1] == "--source" && args[3] == "--output")
+                return ClipExportReview.LibraryCompatibleCopy(args[2], PrepareOutput(args[4]));
+            if (args.Length == 5 && args[0] == "--clips-compatible-export-cancel-check" && args[1] == "--source" && args[3] == "--output")
+                return ClipExportReview.CancelCompatibleCopy(args[2], PrepareOutput(args[4]));
+            if (args.Length == 9 && (args[0] is "--clips-lossless-product-latest-check" or "--clips-lossless-quick-start-check" or "--clips-lossless-fresh-save-check") &&
+                args[1] == "--source" && args[3] == "--oracle" && args[5] == "--oracle-sha256" && args[7] == "--output")
+            {
+                var output = PrepareOutput(args[8]);
+                return LosslessProductReview.Run(args[2], output, () => LoadApplicationResources(output, out _),
+                    latestReportedClip: true, oraclePath: args[4], oracleSha256: args[6],
+                    immediateStart: args[0] != "--clips-lossless-product-latest-check", freshSave: args[0] == "--clips-lossless-fresh-save-check");
+            }
             if (args.Length == 5 && (args[0] is "--clips-lossless-product-check" or "--clips-lossless-product-aac-check" or "--clips-lossless-product-reported-check") &&
                 args[1] == "--source" && args[3] == "--output")
             {
@@ -60,11 +106,13 @@ internal static class Program
                 var output = PrepareOutput(args[4]);
                 return ClipsPlaybackUiReview.Run(args[2], output, () => LoadApplicationResources(output, out _));
             }
-            if (args.Length == 7 && args[0] == "--clips-large-playback-check" && args[1] == "--source" &&
+            if (args.Length == 7 && (args[0] is "--clips-large-playback-check" or "--clips-quick-start-check" or "--clips-fresh-save-check" or "--clips-fresh-save-baseline-check") && args[1] == "--source" &&
                 args[3] == "--metadata" && args[5] == "--output")
             {
                 var output = PrepareOutput(args[6]);
-                return ClipsLargePlaybackReview.Run(args[2], args[4], output, () => LoadApplicationResources(output, out _));
+                return ClipsLargePlaybackReview.Run(args[2], args[4], output, () => LoadApplicationResources(output, out _),
+                    immediateStart: args[0] != "--clips-large-playback-check", freshSave: args[0].StartsWith("--clips-fresh-save", StringComparison.Ordinal),
+                    baselineStartup: args[0] == "--clips-fresh-save-baseline-check");
             }
             if (args.Length == 3 && args[0] == "--clips-check" && args[1] == "--output")
             {
@@ -181,6 +229,7 @@ internal static class Program
                 Console.WriteLine("--clips-lossless-product-check --source <pinned synthetic MP4> --output <new workspace directory> checks the actual Clips page's lossless thumbnail and paused transport, replay and cleanup. Fixed silent 128-frame/60-fps fixture; isolated library, passive window, 20-second work budget and 30-second hard limit. Requires Forza and Wisp closed. No screenshots, gameplay, A/V sync or performance claim.");
                 Console.WriteLine("--clips-lossless-product-aac-check uses the same arguments and guards with the separately pinned generated-AAC fixture. Checks AAC decoder format and advancing audio clock after explicit playback while volume remains zero. No audible-output or A/V-sync claim.");
                 Console.WriteLine("--clips-lossless-product-reported-check uses the same arguments with the exact reported 4K clip SHA/size, read-only source and isolated library. Muted passive window, paused/play/seek/replay/cleanup, two decoded RGB sample hashes. 40-second work budget/50-second hard limit; no screenshot files, capture or physical presentation claim. Requires Forza and Wisp closed.");
+                Console.WriteLine("--clips-lossless-product-latest-check --source <pinned f7cacb51 MP4> --oracle <complete RGB24 FFmpeg framehash file> --oracle-sha256 <pinned oracle SHA256> --output <new workspace directory> checks the October 2 reported 408-frame 4K clip through the actual ClipsPage player. Four paused seek samples and one sample after uninterrupted replay past 3.25 seconds match independent RGB hashes, plus muted transport and cleanup. 50-second work budget/60-second hard limit; same closed-app and nonactivating-window guards; no displayed-pixel or audible-output claim.");
                 Console.WriteLine("--clips-lossless-playback-check --source <generated checkout fixture.mp4> --sha256 <verified fixture hash> --output <new workspace directory> checks current WPF decoder opening and brief muted transport after independent lossless pixel verification. Fixed 1280x720, 16-frame/60-fps source, at most 128 MiB. Requires Forza and Wisp closed; passive window, 10-second decoder budget and 20-second hard limit. No screenshots or pixel-readback claim.");
                 Console.WriteLine("--lap-review-check --output <new workspace directory> captures actual expanded lap review with synthetic completed A/B laps, map/graph channels and selected sections at 980x750 and 720x440. Checks themed selectors and routed keyboard actions; no window, controller, listener, settings load or saved-run access.");
                 Console.WriteLine("--ev-wrap-check --output <new workspace directory> captures actual EV overlay and modern/legacy Appearance previews at 100%/75% gauge scale and 96 DPI. Synthetic sample only; no displayed window or live services.");

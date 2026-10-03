@@ -113,7 +113,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _cpuRenderingEnabled;
     private string _cpuRenderingChangeStatus = "";
     private bool _debugLoggingEnabled;
-    private string _debugLoggingStatus = "Off — no debug files are created";
+    private string _debugLoggingStatus = "Detailed logging off";
     private bool _tractionCueEnabled;
     private bool _isTractionCueActive;
     private bool _canRelearnCurrentTires;

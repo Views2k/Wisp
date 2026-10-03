@@ -6,9 +6,11 @@ namespace Wisp.App.Tunes;
 
 internal static class TuneAssetCapture
 {
-    internal const int ExpectedLength = 16221184;
-    internal const int MaximumLength = ExpectedLength + 1024 * 1024;
-    // Retained fixture identities; live acceptance uses exact required table projections.
+    internal const int ExpectedLength = 16221184; // Retained offline fixture size.
+    internal const int MinimumLength = 1024 * 1024;
+    internal const int MaximumLength = 64 * 1024 * 1024;
+    internal const int MaximumReadBytes = MaximumLength + 2 * 1024 * 1024;
+    // Retained fixture identities; live acceptance validates required schemas and projections.
     internal const string EncodedHash = "8A529AAFC28DFC39EC18230E75297D56CF219F4E0A64EEE2C1134E8526BCC369";
     internal const string DecodedHash = "E0E5979B99ED4BEABA8405634E0484CF1C46BB51FEC4F1E8F22109535242F9C6";
     internal const string CrcHash = "12F3E0576D447EB37B36D82BA0C1C5481B8F0D12FDC70347CE4A076B229D4C86";
@@ -20,7 +22,8 @@ internal static class TuneAssetCapture
     {
         var verifyLayout = layout is null;
         layout ??= NativeTuneLayout.Resolve(memory, cancellationToken);
-        var read = new NativeTuneRead(memory, cancellationToken, 20 * 1024 * 1024, TimeSpan.FromSeconds(5));
+        // The bounded overhead covers the chunk vector and the remembered pointer rechecks.
+        var read = new NativeTuneRead(memory, cancellationToken, MaximumReadBytes, TimeSpan.FromSeconds(5));
         var module = memory.ModuleBase;
         var owner = read.Pointer(module + layout.Rva(0xA8AF088));
         var wrapper = read.Pointer(owner + 0x160);
@@ -85,8 +88,8 @@ internal static class TuneAssetCapture
     internal static void ValidateStreamShape(byte flag, uint chunkSize, uint allocated, ulong length, long vectorBytes,
         NativeTuneCompatibilityLayout.AssetContract? asset = null)
     {
-        if (flag != 0 || length is < 1024 or > MaximumLength || length < (ulong)(asset?.MinimumLength ?? ExpectedLength) ||
-            length > (ulong)(asset?.MaximumLength ?? MaximumLength) || length % 1024 != 0 ||
+        // Descriptor lengths describe a retained asset, not the mutable live database size.
+        if (flag != 0 || length is < MinimumLength or > MaximumLength || length % 1024 != 0 ||
             chunkSize is < 1024 or > 64 * 1024 * 1024 || allocated < length || allocated > 64 * 1024 * 1024 ||
             vectorBytes is < 8 or > 512 * 1024 || vectorBytes % 8 != 0)
             throw new TuneAssetStreamValidationException(flag, chunkSize, allocated, length, vectorBytes);
@@ -96,9 +99,8 @@ internal static class TuneAssetCapture
         NativeTuneCompatibilityLayout.AssetContract? asset = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Require(encoded.Length is >= 1024 and <= MaximumLength && encoded.Length >= (asset?.MinimumLength ?? ExpectedLength) &&
-            encoded.Length <= (asset?.MaximumLength ?? MaximumLength) && encoded.Length % 1024 == 0 &&
-            crcBytes.Length == 1024 && fold.Length == 256 &&
+        ValidateLength(encoded.Length, TuneAssetFailureCode.DecodeLength);
+        Require(crcBytes.Length == 1024 && fold.Length == 256 &&
             Convert.ToHexString(SHA256.HashData(crcBytes)) == CrcHash &&
             Convert.ToHexString(SHA256.HashData(fold)) == FoldHash);
         var crc = new uint[256];
@@ -128,15 +130,24 @@ internal static class TuneAssetCapture
 
     internal static void ValidateHeader(byte[] decoded, NativeTuneCompatibilityLayout.AssetContract? asset = null)
     {
-        Require(decoded.Length is >= 1024 and <= MaximumLength && decoded.Length >= (asset?.MinimumLength ?? ExpectedLength) &&
-            decoded.Length <= (asset?.MaximumLength ?? MaximumLength) && decoded.Length % 1024 == 0 &&
-            decoded.AsSpan(0, 16).SequenceEqual("SQLite format 3\0"u8) &&
+        ValidateLength(decoded.Length, TuneAssetFailureCode.HeaderLength,
+            decoded.Length >= 32 ? BinaryPrimitives.ReadUInt32BigEndian(decoded.AsSpan(28)) : null);
+        var pageCount = BinaryPrimitives.ReadUInt32BigEndian(decoded.AsSpan(28));
+        if (!(decoded.AsSpan(0, 16).SequenceEqual("SQLite format 3\0"u8) &&
             BinaryPrimitives.ReadUInt16BigEndian(decoded.AsSpan(16)) == 1024 &&
             decoded[18] == 1 && decoded[19] == 1 && decoded[20] == 0 &&
             decoded[21] == 64 && decoded[22] == 32 && decoded[23] == 32 &&
-            BinaryPrimitives.ReadUInt32BigEndian(decoded.AsSpan(28)) == (asset?.HeaderPageCount ?? 15409) &&
             BinaryPrimitives.ReadUInt32BigEndian(decoded.AsSpan(44)) == 4 &&
-            BinaryPrimitives.ReadUInt32BigEndian(decoded.AsSpan(56)) == 1);
+            BinaryPrimitives.ReadUInt32BigEndian(decoded.AsSpan(56)) == 1))
+            throw new TuneAssetValidationException(TuneAssetFailureCode.HeaderFormat, (ulong)decoded.Length, pageCount);
+        if (pageCount == 0 || pageCount > (uint)(decoded.Length / 1024))
+            throw new TuneAssetValidationException(TuneAssetFailureCode.HeaderPageCount, (ulong)decoded.Length, pageCount);
+    }
+
+    private static void ValidateLength(int length, TuneAssetFailureCode code, uint? pageCount = null)
+    {
+        if (length is < MinimumLength or > MaximumLength || length % 1024 != 0)
+            throw new TuneAssetValidationException(code, (ulong)length, pageCount);
     }
 
     private static void ExpectTable(NativeTuneRead read, ulong owner, ulong expected) => Require(read.UInt64(owner) == expected);
@@ -144,8 +155,20 @@ internal static class TuneAssetCapture
     private static void Fail() => throw new InvalidDataException("The game's tuning metadata could not be verified.");
 }
 
+internal enum TuneAssetFailureCode { StreamShape, DecodeLength, HeaderLength, HeaderFormat, HeaderPageCount }
+
+internal class TuneAssetValidationException(TuneAssetFailureCode failureCode, ulong actualSizeBytes,
+    uint? actualPageCount = null, string message = "The game's tuning metadata could not be verified.") : IOException(message)
+{
+    internal TuneAssetFailureCode FailureCode { get; } = failureCode;
+    internal ulong ActualSizeBytes { get; } = actualSizeBytes;
+    internal int MaximumSizeBytes => TuneAssetCapture.MaximumLength;
+    internal uint? ActualPageCount { get; } = actualPageCount;
+}
+
 internal sealed class TuneAssetStreamValidationException(byte flag, uint chunkSize, uint allocated, ulong length,
-    long vectorBytes) : IOException("The tuning asset stream shape does not match the supported layout.")
+    long vectorBytes) : TuneAssetValidationException(TuneAssetFailureCode.StreamShape, length,
+        message: "The tuning asset stream shape does not match the supported layout.")
 {
     internal byte Flag { get; } = flag;
     internal uint ChunkSize { get; } = chunkSize;

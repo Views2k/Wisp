@@ -41,16 +41,20 @@ internal static class TuneAssetContract
         if (!Required.TryGetValue(kind, out var expected))
             throw new InvalidDataException("The required tuning values do not match the supported build.");
         var count = expected.Count;
-        var hash = expected.RowsHash;
         if (asset is not null)
         {
             if (!asset.Parts.TryGetValue(kind, out var described))
                 throw new InvalidDataException("The required tuning projection is missing.");
             count = described.Count;
-            hash = described.RowsSha256;
         }
-        if (rows.Count != count || HashRows(kind, rows) != hash)
-            throw new InvalidDataException("The required tuning values do not match the supported build.");
+        // Live databases may add or change rows. Reject implausibly incomplete projections;
+        // SQLite still verifies each table, and the selected car must resolve every part.
+        if (count <= 0 || rows.Count < ((long)count + 1) / 2 || rows.Count > 250000)
+            throw new InvalidDataException("The required tuning projection has an invalid row count.");
+        var identities = new HashSet<(int Parent, int Id)>();
+        foreach (var row in rows)
+            if (row.Kind != kind || !identities.Add((row.Parent, row.Id)))
+                throw new InvalidDataException("The required tuning values contain an invalid or duplicate identity.");
     }
 
     internal static string HashRows(TunePartId kind, IReadOnlyCollection<TuneAssetRow> rows)

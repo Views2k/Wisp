@@ -4,7 +4,8 @@
   "workflowRun": 36640285359,
   "variant": "x86_64-w64-mingw32-lgpl",
   "archive": {
-    "url": "https://github.com/mpv-player/mpv/releases/download/git-release/libmpv-v0.41.0-dev-ga1f50f2c3-36640285359-x86_64-w64-mingw32-lgpl.zip",
+    "url": "https://github.com/Views2k/Wisp/releases/download/playback-runtime-a1f50f2c3/libmpv-v0.41.0-dev-ga1f50f2c3-36640285359-x86_64-w64-mingw32-lgpl.zip",
+    "upstreamUrl": "https://github.com/mpv-player/mpv/releases/download/git-release/libmpv-v0.41.0-dev-ga1f50f2c3-36640285359-x86_64-w64-mingw32-lgpl.zip",
     "bytes": 56076756,
     "sha256": "7e349cc9589b7ced492ed0207c24808f7c328a0ffa96cdae6a069861a1a856a4"
   },

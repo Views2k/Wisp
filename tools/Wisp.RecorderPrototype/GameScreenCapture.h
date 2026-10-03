@@ -24,7 +24,8 @@ namespace recorder::capture
     // negotiates resources; no frame is acquired until Start. CheckTarget must
     // be called each host tick outside the D3D lock: it acquires at most once per
     // requested frame interval, waits at most 1 ms, and repeats the latest image
-    // on timeout. Display-color/white queries retain the 250 ms validation cadence.
+    // on timeout. Display-color queries retain the 250 ms validation cadence;
+    // SDR-content white is startup metadata, not an HDR exposure/reset trigger.
     // The host must sleep between ticks and retain its external API watchdog.
     // No WGC, permission requests, audio, window activation, readback or files.
     class GameScreenCapture final

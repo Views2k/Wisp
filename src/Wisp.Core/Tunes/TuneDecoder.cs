@@ -24,9 +24,10 @@ public static class TuneDecoder
         if (failure != TuneDecodeFailure.None || input is null) return false;
         var parts = input.Parts.ToDictionary(part => part.Kind);
         var rows = ImmutableArray.CreateBuilder<TuneField>(FieldCount);
+        var words = input.ActiveNormalizedWords.IsDefault ? input.NormalizedCopies[0] : input.ActiveNormalizedWords;
         foreach (var definition in Definitions)
         {
-            uint bits = input.NormalizedCopies[0][definition.Offset / 4];
+            uint bits = words[definition.Offset / 4];
             float normalized = BitConverter.UInt32BitsToSingle(bits);
             bool applicable = IsApplicable(definition.Id, input.Drivetrain, input.ObservedGearEntryCount - 1);
             bool? adjustable = IsAdjustable(definition, parts, input.PartLevelsResolved);
@@ -153,9 +154,13 @@ public static class TuneDecoder
         if (!TuneSnapshotValidator.ValidCarName(input.CarName)) return TuneDecodeFailure.InvalidIdentity;
         if (input.CarOrdinal <= 0 || !Enum.IsDefined(input.Drivetrain) || input.ObservedGearEntryCount is < 2 or > 11
             || input.UnitPreference is < 0 or > 6 || input.CapturedAtUtc == default) return TuneDecodeFailure.InvalidIdentity;
-        if (input.NormalizedCopies.IsDefault || input.NormalizedCopies.Length != 3
-            || input.NormalizedCopies.Any(copy => copy.IsDefault || copy.Length != NormalizedWordCount)
-            || input.Bounds is null || input.Conversions is null || input.CarRanges is null)
+        bool hasActiveSource = !input.ActiveNormalizedWords.IsDefault;
+        if (hasActiveSource
+            ? input.ActiveNormalizedWords.Length != NormalizedWordCount || !input.NormalizedCopies.IsDefaultOrEmpty
+            : input.NormalizedCopies.IsDefault || input.NormalizedCopies.Length != 3
+                || input.NormalizedCopies.Any(copy => copy.IsDefault || copy.Length != NormalizedWordCount))
+            return TuneDecodeFailure.InvalidStructure;
+        if (input.Bounds is null || input.Conversions is null || input.CarRanges is null)
             return TuneDecodeFailure.InvalidStructure;
         if (input.Format is null || input.Format.PositiveHalf != .5 || input.Format.NegativeHalf != -.5
             || input.Format.OneTenth != .1 || input.Format.Ten != 10
@@ -170,10 +175,11 @@ public static class TuneDecoder
                 || conversion.UnitId is < 0 or >= 128 || !double.IsFinite(conversion.Factor) || conversion.Factor <= 0)
                 return TuneDecodeFailure.InvalidConversion;
         }
+        var words = hasActiveSource ? input.ActiveNormalizedWords : input.NormalizedCopies[0];
         foreach (var definition in Definitions)
         {
-            uint bits = input.NormalizedCopies[0][definition.Offset / 4];
-            if (input.NormalizedCopies.Any(copy => copy[definition.Offset / 4] != bits))
+            uint bits = words[definition.Offset / 4];
+            if (!hasActiveSource && input.NormalizedCopies.Any(copy => copy[definition.Offset / 4] != bits))
                 return TuneDecodeFailure.IncoherentCapture;
             float value = BitConverter.UInt32BitsToSingle(bits);
             if (!float.IsFinite(value) || (value != -1 && value is < 0 or > 1)) return TuneDecodeFailure.InvalidValue;

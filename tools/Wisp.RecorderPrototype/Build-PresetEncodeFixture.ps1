@@ -15,7 +15,7 @@ foreach ($argumentPath in @($developerCommand, $PSScriptRoot, $buildDirectory, $
 }
 $sources = @(
     'PresetEncodeFixture', 'RecorderHost', 'RecorderHostPolicyContracts', 'RecorderProtocol',
-    'GameWindowCapture', 'GameScreenCapture', 'HardwareEncoder', 'HardwareVideoSession', 'HdrFrameConverter',
+    'GameWindowCapture', 'GameScreenCapture', 'HardwareEncoder', 'HardwareVideoSession', 'NvencLosslessVideoSession', 'CudaPlanarInput', 'HdrFrameConverter',
     'GpuFrameConverter', 'ProcessAudioCapture', 'AudioTimeline', 'AacEncoder',
     'EncodedSpool', 'OwnedFileStream', 'SpoolMp4Writer', 'Mp4ClipWriter',
     'EncodedClipBuffer', 'ClipThumbnail', 'ClipThumbnailContracts'

@@ -384,7 +384,7 @@ internal sealed partial class ClipBufferStore : IAsyncDisposable
 
     // All destructive operations are relative to held local directory handles.
     // OBJ_DONT_REPARSE rejects links during the actual open, including ancestors.
-    private static class NativeFile
+    internal static class NativeFile
     {
         internal const uint DeleteAccess = 0x10000, ReadAccess = 0x81, ReadWriteDelete = 0x10083, DirectoryAccess = 0xA7;
         internal sealed record Stamp(ulong Volume, ulong FileIdLow, ulong FileIdHigh, ulong Bytes, ulong LastWrite);
@@ -452,8 +452,10 @@ internal sealed partial class ClipBufferStore : IAsyncDisposable
             try { Marshal.WriteByte(data, 1); if (!SetFileInformationByHandle(file, 4, data, 1)) throw Error((uint)Marshal.GetLastWin32Error()); }
             finally { Marshal.FreeHGlobal(data); }
         }
-        internal static void RenameNew(SafeFileHandle file, SafeFileHandle parent, string name)
+        internal static void RenameNew(SafeFileHandle file, SafeFileHandle parent, string name, bool replaceExisting = false)
         {
+            if (!ClipsSettings.IsSafePathComponent(name) || name.IndexOfAny(['\\', '/', ':']) >= 0)
+                throw new IOException("The clip storage entry is invalid.");
             var bytes = Encoding.Unicode.GetBytes(name);
             var offset = Marshal.OffsetOf<RenameInformation>(nameof(RenameInformation.FirstCharacter)).ToInt32();
             var size = checked(Marshal.SizeOf<RenameInformation>() + bytes.Length);
@@ -463,11 +465,12 @@ internal sealed partial class ClipBufferStore : IAsyncDisposable
             {
                 parent.DangerousAddRef(ref held);
                 for (var index = 0; index < size; index++) Marshal.WriteByte(pointer, index, 0);
+                Marshal.WriteByte(pointer, 0, replaceExisting ? (byte)1 : (byte)0);
                 Marshal.WriteIntPtr(pointer, Marshal.OffsetOf<RenameInformation>(nameof(RenameInformation.Root)).ToInt32(), parent.DangerousGetHandle());
                 Marshal.WriteInt32(pointer, Marshal.OffsetOf<RenameInformation>(nameof(RenameInformation.Bytes)).ToInt32(), bytes.Length);
                 Marshal.Copy(bytes, 0, IntPtr.Add(pointer, offset), bytes.Length);
                 // Native FileRenameInformation resolves this single name against the held
-                // parent, without Win32 path conversion or replacement of an existing file.
+                // parent, without Win32 path conversion. Replacement requires explicit opt-in.
                 var status = NtSetInformationFile(file, out _, pointer, (uint)size, 10);
                 if (status < 0) throw Error(RtlNtStatusToDosError(status));
             }

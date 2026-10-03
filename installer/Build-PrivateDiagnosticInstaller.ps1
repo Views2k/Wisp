@@ -26,6 +26,26 @@ function Assert-PrivateBuildIdentity {
     }
 }
 
+function Invoke-WithPrivateTestIdentity {
+    param([string]$ExpectedId, [string]$ExpectedLabel, [scriptblock]$Action)
+    if ([string]::IsNullOrWhiteSpace($ExpectedId) -or [string]::IsNullOrWhiteSpace($ExpectedLabel) -or $null -eq $Action) {
+        throw 'Private tests require an explicit expected diagnostic ID, label, and test action.'
+    }
+    $idVariable = 'WISP_TEST_EXPECTED_DIAGNOSTIC_BUILD_ID'
+    $labelVariable = 'WISP_TEST_EXPECTED_DIAGNOSTIC_BUILD_LABEL'
+    $previousId = [Environment]::GetEnvironmentVariable($idVariable, 'Process')
+    $previousLabel = [Environment]::GetEnvironmentVariable($labelVariable, 'Process')
+    try {
+        [Environment]::SetEnvironmentVariable($idVariable, $ExpectedId, 'Process')
+        [Environment]::SetEnvironmentVariable($labelVariable, $ExpectedLabel, 'Process')
+        & $Action
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable($idVariable, $previousId, 'Process')
+        [Environment]::SetEnvironmentVariable($labelVariable, $previousLabel, 'Process')
+    }
+}
+
 function Assert-PrivatePayloadFiles {
     param([string]$Directory)
     foreach ($name in @('Wisp.Updater.exe', 'Wisp.exe', 'Wisp.dll', 'Wisp.Core.dll',
@@ -261,16 +281,18 @@ try {
         Sync-PrivateLosslessTestPayload $publishDirectory (Join-Path $repository $directory) $repository $decoderHashes
         $null = Assert-ClipDecoders (Join-Path $repository $directory) $decoderManifest $mpvManifest $mpvDependency
     }
-    & $dotnetExecutable test $solution --configuration Release --no-build --no-restore --nologo --filter $nonAllocationFilter `
-        --logger trx --results-directory $testResults --disable-build-servers -m:1 -p:UseSharedCompilation=false
-    if ($LASTEXITCODE -ne 0) { throw 'Private candidate full test suite failed.' }
-    foreach ($allocationTest in $allocationTests) {
-        $allocationResults = Join-Path $testResults $allocationTest.Split('.')[-1]
-        & $dotnetExecutable test $appTestsProject --configuration Release --no-build --no-restore --nologo `
-            --filter "FullyQualifiedName=$allocationTest" --logger 'trx;LogFileName=allocation.trx' `
-            --results-directory $allocationResults --disable-build-servers -m:1 -p:UseSharedCompilation=false
-        if ($LASTEXITCODE -ne 0) { throw 'Private candidate isolated allocation check failed.' }
-        Assert-SinglePassedTestResult (Join-Path $allocationResults 'allocation.trx') 'Private allocation check' $allocationTest
+    Invoke-WithPrivateTestIdentity $DiagnosticBuildId $DiagnosticBuildLabel {
+        & $dotnetExecutable test $solution --configuration Release --no-build --no-restore --nologo --filter $nonAllocationFilter `
+            --logger trx --results-directory $testResults --disable-build-servers -m:1 -p:UseSharedCompilation=false
+        if ($LASTEXITCODE -ne 0) { throw 'Private candidate full test suite failed.' }
+        foreach ($allocationTest in $allocationTests) {
+            $allocationResults = Join-Path $testResults $allocationTest.Split('.')[-1]
+            & $dotnetExecutable test $appTestsProject --configuration Release --no-build --no-restore --nologo `
+                --filter "FullyQualifiedName=$allocationTest" --logger 'trx;LogFileName=allocation.trx' `
+                --results-directory $allocationResults --disable-build-servers -m:1 -p:UseSharedCompilation=false
+            if ($LASTEXITCODE -ne 0) { throw 'Private candidate isolated allocation check failed.' }
+            Assert-SinglePassedTestResult (Join-Path $allocationResults 'allocation.trx') 'Private allocation check' $allocationTest
+        }
     }
     foreach ($name in @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe')) {
         $publishedHash = (Get-FileHash -LiteralPath (Join-Path $publishDirectory $name) -Algorithm SHA256).Hash

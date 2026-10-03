@@ -19,7 +19,13 @@ namespace recorder::capture
     using Microsoft::WRL::ComPtr;
     namespace
     {
-        constexpr UINT Width = 3840, Height = 2160;
+#if defined(WISP_SYNTHETIC_HOST_HDR)
+        constexpr UINT Width = 1920, Height = 1080, HdrPattern = 1;
+        constexpr DXGI_FORMAT InputFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+#else
+        constexpr UINT Width = 3840, Height = 2160, HdrPattern = 0;
+        constexpr DXGI_FORMAT InputFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
+#endif
         UINT DetailCellSize = 0; // Configured before the host thread starts.
         std::atomic<std::uint64_t> CapturedFrames{0};
         constexpr char Shader[] = R"(
@@ -29,6 +35,12 @@ float4 VS(uint id : SV_VertexID) : SV_POSITION {
 }
 float4 PS(float4 p : SV_POSITION) : SV_TARGET {
     uint2 q = uint2(p.xy);
+    if (padding != 0) {
+        uint mx = (q.x + frame * 5) % 1920;
+        float3 radiance = float3(float(mx) / 1920.0, float(q.y) / 1080.0, 0.25) * 3.5;
+        if ((mx % 240) < 16) radiance = float3(7.5, 7.5, 7.5);
+        return float4(radiance, 1);
+    }
     uint x = (q.x + frame * 3) % 3840;
     uint y = (q.y + frame) % 2160;
     uint h = ((x / 8) * 73856093u) ^ ((y / 8) * 19349663u);
@@ -100,7 +112,7 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
             if (!v.multithread->GetMultithreadProtected()) return Fail("fixture_device_lock_failed", E_FAIL);
             D3D11_TEXTURE2D_DESC texture{};
             texture.Width = Width; texture.Height = Height; texture.MipLevels = texture.ArraySize = texture.SampleDesc.Count = 1;
-            texture.Format = DXGI_FORMAT_B8G8R8A8_UNORM; texture.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+            texture.Format = InputFormat; texture.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
             stage = "fixture_texture_creation_failed";
             Check(v.device->CreateTexture2D(&texture, nullptr, &v.texture));
             stage = "fixture_render_target_creation_failed";
@@ -118,8 +130,13 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
             D3D11_BUFFER_DESC buffer{}; buffer.ByteWidth = 16; buffer.Usage = D3D11_USAGE_DEFAULT; buffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             stage = "fixture_clock_buffer_creation_failed";
             Check(v.device->CreateBuffer(&buffer, nullptr, &v.clock));
-            source_ = { Width, Height, DXGI_FORMAT_B8G8R8A8_UNORM, SourceEncoding::SrgbBgra8,
+#if defined(WISP_SYNTHETIC_HOST_HDR)
+            source_ = { Width, Height, InputFormat, SourceEncoding::LinearScRgbFp16,
+                DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, true, false, 0 };
+#else
+            source_ = { Width, Height, InputFormat, SourceEncoding::SrgbBgra8,
                 DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, false, false, 0 };
+#endif
             evidence_.initialized = true; evidence_.source = source_; evidence_.reason = "fixture_initialized";
             return true;
         }
@@ -146,7 +163,7 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
         const auto index = (ticks - v.began) * 60 / v.frequency;
         if (index == v.lastIndex) return true;
         ContextLock lock(v.multithread.Get());
-        const std::array<UINT, 4> values{ static_cast<UINT>(index), DetailCellSize ? 1u : 0u, DetailCellSize, 0 };
+        const std::array<UINT, 4> values{ static_cast<UINT>(index), DetailCellSize ? 1u : 0u, DetailCellSize, HdrPattern };
         v.context->UpdateSubresource(v.clock.Get(), 0, nullptr, values.data(), 0, 0);
         ID3D11Buffer* buffer = v.clock.Get();
         v.context->PSSetConstantBuffers(0, 1, &buffer);
@@ -214,8 +231,15 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
         {
             std::string previous = Shader;
             std::size_t replacements = 0;
+#if defined(WISP_SYNTHETIC_HOST_HDR)
+            for (auto at = previous.find("radiance"); at != std::string::npos; at = previous.find("radiance", at + 6))
+            { previous.replace(at, 8, "linear"); ++replacements; }
+            const bool identifierOnly = replacements == 3;
+#else
             for (auto at = previous.find("detail"); at != std::string::npos; at = previous.find("detail", at + 7))
             { previous.replace(at, 6, "texture"); ++replacements; }
+            const bool identifierOnly = replacements == 2;
+#endif
             const auto compile = [](const char* source, std::size_t length, const char* entry, const char* profile)
             {
                 ComPtr<ID3DBlob> code, errors;
@@ -225,9 +249,9 @@ float4 PS(float4 p : SV_POSITION) : SV_TARGET {
             const HRESULT beforePs = compile(previous.data(), previous.size(), "PS", "ps_5_0");
             const HRESULT afterVs = compile(Shader, sizeof(Shader) - 1, "VS", "vs_5_0");
             const HRESULT afterPs = compile(Shader, sizeof(Shader) - 1, "PS", "ps_5_0");
-            const bool confirmed = replacements == 2 && FAILED(beforeVs) && FAILED(beforePs) && SUCCEEDED(afterVs) && SUCCEEDED(afterPs);
+            const bool confirmed = identifierOnly && FAILED(beforeVs) && FAILED(beforePs) && SUCCEEDED(afterVs) && SUCCEEDED(afterPs);
             std::printf("{\"mode\":\"synthetic_shader_check\",\"identifierOnly\":%s,\"beforeVertexHr\":%lu,\"beforePixelHr\":%lu,\"afterVertexHr\":%lu,\"afterPixelHr\":%lu,\"confirmed\":%s,\"graphicsActivated\":false,\"audioActivated\":false}\n",
-                replacements == 2 ? "true" : "false", static_cast<unsigned long>(beforeVs), static_cast<unsigned long>(beforePs),
+                identifierOnly ? "true" : "false", static_cast<unsigned long>(beforeVs), static_cast<unsigned long>(beforePs),
                 static_cast<unsigned long>(afterVs), static_cast<unsigned long>(afterPs), confirmed ? "true" : "false");
             return confirmed ? 0 : 3;
         }

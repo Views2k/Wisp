@@ -299,12 +299,16 @@ namespace
             return S_OK;
         }
     };
-    double ExpectedLuma(BYTE shade, bool hdr)
+    double ExpectedLuma(BYTE shade, bool hdr, float sourceSdrWhiteNits)
     {
         const double code = static_cast<double>(shade) / 255;
+        if (!hdr) return 16.0 + 219.0 * code;
         double linear = code <= .04045 ? code / 12.92 : std::pow((code + .055) / 1.055, 2.4);
-        if (hdr && linear > .75) linear = 1.0 - .0625 / (linear - .5);
-        const double transferred = linear < .018 ? 4.5 * linear : 1.099 * std::pow(linear, .45) - .099;
+        // This is an SDR test window displayed inside the HDR desktop. Windows
+        // scales its source light to SDR-content white; real HDR pixels instead
+        // already carry absolute light. Neutral primary matrices cancel.
+        linear *= sourceSdrWhiteNits / 300.0;
+        const double transferred = std::pow(linear/(1+linear),1.0/2.4);
         return 16.0 + 219.0 * transferred;
     }
     struct Arm
@@ -331,6 +335,8 @@ namespace
             const auto source = capture.Source();
             result.format = static_cast<UINT>(source.format); result.encoding = static_cast<UINT>(source.encoding);
             result.hdr = source.hdr; result.whiteMilliNits = static_cast<UINT>(source.referenceWhiteNits * 1000.0f);
+            Require(!source.hdr || source.referenceWhiteQueried,
+                "fixture_SDR_window_white_metadata_unavailable");
             Converted converted;
             capture.Device()->GetImmediateContext(converted.context.put());
             winrt::com_ptr<ID3D11Device> device; device.copy_from(capture.Device());
@@ -400,7 +406,7 @@ namespace
                         if (valid)
                         {
                             const auto* bytes = static_cast<const BYTE*>(mapped.pData);
-                            const int expected = static_cast<int>(std::lround(ExpectedLuma(Shades[i], source.hdr)));
+                            const int expected = static_cast<int>(std::lround(ExpectedLuma(Shades[i], source.hdr, source.referenceWhiteNits)));
                             for (UINT y = 0; y < Tile; ++y) for (UINT x = 0; x < Tile; ++x)
                                 error = (std::max)(error, static_cast<UINT>(std::abs(static_cast<int>(bytes[y * mapped.RowPitch + x]) - expected)));
                             for (UINT y = 0; y < Tile / 2; ++y) for (UINT x = 0; x < Tile; ++x)

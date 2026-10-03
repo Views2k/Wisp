@@ -10,6 +10,9 @@ public sealed class TuneAssetPrefixReadTests
     [Theory]
     [InlineData(16221184U)]
     [InlineData(16222208U)]
+    [InlineData(1048576U)]
+    [InlineData(17270784U)]
+    [InlineData(67108864U)]
     public void MutableLengthReadsBoundedCurrentStreamAndStillRejectsUnverifiedTransform(uint length)
     {
         using var memory = new AssetMemory(length);
@@ -21,12 +24,14 @@ public sealed class TuneAssetPrefixReadTests
         Assert.Equal((int)length, memory.BulkBytesRead);
         Assert.Equal((ulong)length, memory.HighestBulkEnd);
         Assert.False(memory.ReadPastStream);
+        Assert.InRange(memory.TotalBytesRead, (long)length + 1, TuneAssetCapture.MaximumReadBytes);
+        Assert.True(memory.SawRepeatedHeaderRead);
     }
 
     [Fact]
     public void ShorterStreamIsRejectedBeforeAnyAssetBytesAreRead()
     {
-        using var memory = new AssetMemory(TuneAssetCapture.ExpectedLength - 1);
+        using var memory = new AssetMemory(TuneAssetCapture.MinimumLength - 1024);
 
         Assert.Throws<TuneAssetStreamValidationException>(() =>
             TuneAssetCapture.ReadDecoded(memory, TestContext.Current.CancellationToken, NativeTuneLayout.Steam));
@@ -50,17 +55,21 @@ public sealed class TuneAssetPrefixReadTests
         private const uint ChunkSize = 131072;
         private const ulong BulkStart = 0x2000000;
         private readonly Dictionary<ulong, byte[]> _headers = [];
+        private readonly HashSet<ulong> _readHeaders = [];
         private readonly ulong _bulkCapacity;
         private readonly uint _length;
         internal int BulkBytesRead { get; private set; }
         internal ulong HighestBulkEnd { get; private set; }
         internal bool ReadPastStream { get; private set; }
+        internal long TotalBytesRead { get; private set; }
+        internal bool SawRepeatedHeaderRead { get; private set; }
         public ulong ModuleBase => 0x140000000;
 
-        internal AssetMemory(uint length, int chunkCount = 124)
+        internal AssetMemory(uint length, int? chunkCount = null)
         {
             _length = length;
-            _bulkCapacity = (ulong)chunkCount * ChunkSize;
+            var count = chunkCount ?? checked((int)((length + (ulong)ChunkSize - 1) / ChunkSize));
+            _bulkCapacity = (ulong)count * ChunkSize;
             Put(ModuleBase + 0xA8AF088, 0x100000);
             Put(0x100160, 0x110000);
             Put(0x110000, ModuleBase + 0x6C7A570);
@@ -84,9 +93,9 @@ public sealed class TuneAssetPrefixReadTests
             Put(0x1B0034, length);
             Put(0x1B0040, length);
             Put(0x1B0048, 0x1C0000);
-            Put(0x1B0050, 0x1C0000 + (ulong)chunkCount * 8);
+            Put(0x1B0050, 0x1C0000 + (ulong)count * 8);
             Put(0x1B0060, 0);
-            for (var i = 0; i < chunkCount; i++)
+            for (var i = 0; i < count; i++)
                 Put(0x1C0000 + (ulong)i * 8, BulkStart + (ulong)i * ChunkSize);
             _headers[ModuleBase + 0x8F75670] = new byte[1024];
             _headers[ModuleBase + 0x8F75A70] = new byte[256];
@@ -95,8 +104,10 @@ public sealed class TuneAssetPrefixReadTests
         private void Put(ulong address, ulong value) => _headers[address] = BitConverter.GetBytes(value);
         public bool TryReadBytes(ulong address, Span<byte> destination)
         {
+            TotalBytesRead += destination.Length;
             if (_headers.TryGetValue(address, out var bytes) && bytes.Length >= destination.Length)
             {
+                SawRepeatedHeaderRead |= !_readHeaders.Add(address);
                 bytes.AsSpan(0, destination.Length).CopyTo(destination);
                 return true;
             }

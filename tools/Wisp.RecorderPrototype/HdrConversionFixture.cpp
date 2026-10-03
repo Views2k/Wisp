@@ -115,7 +115,7 @@ namespace
         return { XMConvertHalfToFloat(pixel[0]), XMConvertHalfToFloat(pixel[1]), XMConvertHalfToFloat(pixel[2]) };
     }
     UINT ColorIndex(UINT patch, UINT frame) { return (patch + frame * 7) % static_cast<UINT>(Colors.size()); }
-    Rgb Generated(UINT x, UINT y, UINT frame, UINT whiteNits = 80)
+    Rgb Generated(UINT x, UINT y, UINT frame, UINT /*sourceSdrWhiteNits*/ = 80)
     {
         Rgb result{};
         if (frame < 2)
@@ -129,15 +129,13 @@ namespace
             result = { value, value, value };
         }
         else result = ((x / 7 + y / 5) & 1) ? Rgb{4,0,0} : Rgb{0,0,4};
-        // The same normalized contrast/highlight range is tested at each
-        // explicit synthetic white level, before source FP16 quantization.
-        const double scale = whiteNits / 80.0;
-        return { result.r * scale, result.g * scale, result.b * scale };
+        // Absolute scRGB pixels must not change with the Windows SDR-content
+        // brightness metadata. Runs at 80 and 280 nits use identical inputs.
+        return result;
     }
-    double Oetf(double value)
+    double SrgbCode(double value)
     {
-        // ITU-R BT.709-6 section 1.2, including its specified breakpoint.
-        return value < .018 ? 4.5 * value : 1.099 * std::pow(value, .45) - .099;
+        return value <= .0031308 ? 12.92 * value : 1.055 * std::pow(value,1.0/2.4) - .055;
     }
     using Bgra = std::array<BYTE, 4>;
     constexpr std::array<Bgra, 16> SdrColors{{ {0,0,0,255}, {255,255,255,255},
@@ -165,10 +163,6 @@ namespace
     {
         return value <= .04045 ? value / 12.92 : std::pow((value + .055) / 1.055, 2.4);
     }
-    Rgb SdrTransfer(Rgb code)
-    {
-        return { Oetf(SrgbLinear(code.r)), Oetf(SrgbLinear(code.g)), Oetf(SrgbLinear(code.b)) };
-    }
     Rgb SdrReferenceCode(UINT x, UINT y, UINT frame)
     {
         // A normalized output pixel center maps to (2*x+.5,2*y+.5) in
@@ -184,35 +178,31 @@ namespace
                 filtered.g += pixel[1] / 1020.0;
                 filtered.b += pixel[0] / 1020.0;
             }
-        return SdrTransfer(filtered);
+        return filtered;
     }
-    double ShoulderReference(double luminance)
-    {
-        return luminance <= .75 ? luminance : 1 - 1 / (16 * luminance - 8);
-    }
-    Rgb ReferenceCode(Rgb input, double referenceWhite, bool quantizeSource = true)
+    Rgb ReferenceCode(Rgb input, double /*sourceSdrWhiteNits*/, bool quantizeSource = true)
     {
         // Independent double-precision reference. FP16 quantization is modeled
         // before the appearance transform because that is the GPU source.
         if (quantizeSource) input = Quantized(input);
         if (!std::isfinite(input.r) || !std::isfinite(input.g) || !std::isfinite(input.b)) return {};
-        const double factor = 80 / referenceWhite;
-        input.r *= factor; input.g *= factor; input.b *= factor;
-        const double luminance = .2126 * input.r + .7152 * input.g + .0722 * input.b;
-        if (!std::isfinite(luminance) || luminance <= 0) return {};
-        const double neutral = ShoulderReference(luminance);
-        const double scale = neutral / luminance;
-        std::array<double, 3> channels{ input.r * scale, input.g * scale, input.b * scale };
-        double compression = 1;
-        for (const double channel : channels)
+        const double scale = 80.0 / 300.0;
+        const std::array<double,3> linear2020{{
+            scale*(.62740389593469903*input.r+.32928303837788370*input.g+.043313065687417225*input.b),
+            scale*(.069097289358232075*input.r+.91954039507545871*input.g+.011362315566309178*input.b),
+            scale*(.016391438875150280*input.r+.088013307877225749*input.g+.89559525324762401*input.b) }};
+        std::array<double,3> mapped{};
+        for (UINT i = 0; i < mapped.size(); ++i)
         {
-            const double delta = channel - neutral;
-            if (delta > 0) compression = (std::min)(compression, (1 - neutral) / delta);
-            else if (delta < 0) compression = (std::min)(compression, -neutral / delta);
+            const double light = (std::max)(0.0,linear2020[i]);
+            mapped[i] = SrgbLinear(std::pow(light/(1+light),1.0/2.4));
         }
-        for (auto& channel : channels)
-            channel = Oetf(std::clamp(neutral + compression * (channel - neutral), 0.0, 1.0));
-        return { channels[0], channels[1], channels[2] };
+        const std::array<double,3> linear709{{
+            1.6604910021084345*mapped[0]-.58764113878854951*mapped[1]-.072849863319884883*mapped[2],
+            -.12455047452159074*mapped[0]+1.1328998971259603*mapped[1]-.0083494226043694768*mapped[2],
+            -.018150763354905303*mapped[0]-.10057889800800739*mapped[1]+1.1187296613629127*mapped[2] }};
+        return { SrgbCode(std::clamp(linear709[0],0.0,1.0)), SrgbCode(std::clamp(linear709[1],0.0,1.0)),
+            SrgbCode(std::clamp(linear709[2],0.0,1.0)) };
     }
     struct Yuv { UINT y, u, v; };
     Yuv Matrix(Rgb code)
@@ -303,41 +293,45 @@ namespace
         }
         if (ValidateConfiguration(3840,2160,SourceEncoding::LinearScRgbFp16,80) ||
             ValidateConfiguration(1920,1080,SourceEncoding::LinearScRgbFp16,1000) ||
-            ValidateConfiguration(1920,1200,SourceEncoding::LinearScRgbFp16,80)) return 0;
+            ValidateConfiguration(1920,1200,SourceEncoding::LinearScRgbFp16,80) ||
+            ValidateConfiguration(1920,1080,SourceEncoding::LinearScRgbFp16,0)) return 0;
         ++passed;
         if (!ValidateConfiguration(3840,2160,SourceEncoding::Unknown,80) ||
             !ValidateConfiguration(3840,2160,SourceEncoding::LinearScRgbFp16,static_cast<float>(NotFinite)) ||
             !ValidateConfiguration(7680,2160,SourceEncoding::LinearScRgbFp16,80)) return 0;
         ++passed;
-        if (std::abs(Oetf(.001) - .0045) > 1e-12 || std::abs(Oetf(1) - 1) > 1e-12 ||
-            std::abs(Oetf(.018) - .08124794403514046) > 1e-12) return 0;
+        if (std::abs(SrgbCode(.001) - .01292) > 1e-12 || std::abs(SrgbCode(1) - 1) > 1e-12 ||
+            std::abs(SrgbCode(.018) - .1428256813030392) > 1e-12) return 0;
         ++passed;
         const auto black = Matrix(ReferenceCode({0,0,0},80));
         const auto white = Matrix(ReferenceCode({1,1,1},80));
-        if (black.y != 16 || black.u != 128 || black.v != 128 || white.y != 221 || white.u != 128 || white.v != 128) return 0;
+        if (black.y != 16 || black.u != 128 || black.v != 128 || white.y != 130 || white.u != 128 || white.v != 128) return 0;
         ++passed;
-        const std::array<std::array<double,2>,8> toneAnchors{{ {0,0}, {.018,.018}, {.18,.18}, {.5,.5},
-            {.75,.75}, {1,7.0/8}, {2,23.0/24}, {4,55.0/56} }};
+        // Neutral primaries cancel. This scalar identity is an independent
+        // oracle that does not repeat the shader's matrices or sRGB stages.
+        const std::array<double,8> toneAnchors{{0,.018,.18,.5,.75,1,2,4}};
         for (const auto& point : toneAnchors)
         {
-            if (std::abs(ShoulderReference(point[0])-point[1]) > 1e-12) return 0;
+            const auto code = ReferenceCode({point,point,point},80,false);
+            const double reference = std::pow(point/(point+3.75),1.0/2.4);
+            if (std::abs(code.r-reference) > 1e-12 || std::abs(code.g-reference) > 1e-12 ||
+                std::abs(code.b-reference) > 1e-12) return 0;
             ++passed;
         }
-        constexpr double step = 1e-6;
-        const double leftSlope = (.75-ShoulderReference(.75-step))/step;
-        const double rightSlope = (ShoulderReference(.75+step)-.75)/step;
-        if (std::abs(leftSlope-1) > 1e-8 || std::abs(rightSlope-1) > 1e-5) return 0;
-        ++passed;
-        for (const auto color : std::array<Rgb,4>{{ {.001,.001,.001}, {.18,.18,.18}, {.5,.25,.125}, {.1,.3,.6} }})
+        const std::array<std::pair<Rgb,Rgb>,4> colorAnchors{{
+            {{4,0,0},{.8274693285783914,.23784788357932074,.12915317602353804}},
+            {{0,4,0},{.43937780978744045,.7665988373951503,.27553180960006773}},
+            {{0,0,4},{.24886375367637553,.11569505626621734,.7781174963398488}},
+            {{.5,.25,.125},{.41276179534756063,.3154543410331486,.24021348633611728}} }};
+        for (const auto& point : colorAnchors)
         {
-            const auto quantized = Quantized(color);
-            const auto code = ReferenceCode(color,80);
-            if (std::abs(code.r-Oetf(quantized.r)) > 1e-12 || std::abs(code.g-Oetf(quantized.g)) > 1e-12 ||
-                std::abs(code.b-Oetf(quantized.b)) > 1e-12) return 0;
+            const auto code = ReferenceCode(point.first,80,false);
+            if (std::abs(code.r-point.second.r) > 1e-12 || std::abs(code.g-point.second.g) > 1e-12 ||
+                std::abs(code.b-point.second.b) > 1e-12) return 0;
             ++passed;
         }
-        const std::array<std::pair<double,UINT>,10> lumaAnchors{{ {0,16}, {.001,17}, {.018,34}, {.18,106},
-            {.5,171}, {.75,206}, {1,221}, {2,230}, {4,233}, {12.5,234} }};
+        const std::array<std::pair<double,UINT>,10> lumaAnchors{{ {0,16}, {.001,23}, {.018,40}, {.18,77},
+            {.5,106}, {.75,120}, {1,130}, {2,157}, {4,182}, {12.5,212} }};
         for (const auto& point : lumaAnchors)
         {
             const auto yuv = Matrix(ReferenceCode({point.first,point.first,point.first},80));
@@ -355,9 +349,13 @@ namespace
             if (i >= 12 && i <= 14 && (code.r != 0 || code.g != 0 || code.b != 0)) return 0;
         }
         ++passed;
-        const auto normalized = ReferenceCode({2,2,2},160);
-        if (std::abs(normalized.r - diffuse.r) > 1e-12) return 0;
-        ++passed;
+        for (const double sourceWhite : {0.0,80.0,160.0,280.0,480.0,1000.0})
+            for (const auto& point : colorAnchors)
+            {
+                const auto a = ReferenceCode(point.first,80), b = ReferenceCode(point.first,sourceWhite);
+                if (a.r != b.r || a.g != b.g || a.b != b.b) return 0;
+                ++passed;
+            }
         // A left-sited edge must differ from a centered 2x2 chroma box.
         const auto left = ReferenceChroma(6,600,2,80);
         const auto a = ReferenceCode(Generated(6,600,2),80), b = ReferenceCode(Generated(7,600,2),80);
@@ -414,13 +412,13 @@ namespace
         if (std::abs(SrgbLinear(.04) - .04/12.92) > 1e-12 ||
             std::abs(SrgbLinear(.5) - .21404114048223255) > 1e-12 || SrgbLinear(1) != 1) return 0;
         ++passed;
-        const auto sdrBlack = Matrix(SdrTransfer({0,0,0})), sdrWhite = Matrix(SdrTransfer({1,1,1}));
-        const auto middle = Matrix(SdrTransfer({128/255.0,128/255.0,128/255.0}));
-        if (sdrBlack.y != 16 || sdrWhite.y != 235 || middle.y != 115 ||
+        const auto sdrBlack = Matrix({0,0,0}), sdrWhite = Matrix({1,1,1});
+        const auto middle = Matrix(SdrReferenceCode(OutputWidth/8,OutputHeight*7/8,0));
+        if (sdrBlack.y != 16 || sdrWhite.y != 235 || middle.y != 126 ||
             sdrBlack.u != 128 || sdrBlack.v != 128 || sdrWhite.u != 128 || sdrWhite.v != 128 ||
             middle.u != 128 || middle.v != 128) return 0;
         ++passed;
-        const auto red = Matrix(SdrTransfer({1,0,0})), blue = Matrix(SdrTransfer({0,0,1}));
+        const auto red = Matrix({1,0,0}), blue = Matrix({0,0,1});
         if (red.y != 63 || red.u != 102 || red.v != 240 || blue.y != 32 || blue.u != 240 || blue.v != 118) return 0;
         ++passed;
         // Ensure the subpixel pattern distinguishes the intended code-value
@@ -435,7 +433,7 @@ namespace
                 incorrectLinearAverage.b += SrgbLinear(pixel[0]/255.0)/4;
             }
         const auto correctResize = Matrix(SdrReferenceCode(0,0,1));
-        const auto incorrectResize = Matrix({Oetf(incorrectLinearAverage.r),Oetf(incorrectLinearAverage.g),Oetf(incorrectLinearAverage.b)});
+        const auto incorrectResize = Matrix({SrgbCode(incorrectLinearAverage.r),SrgbCode(incorrectLinearAverage.g),SrgbCode(incorrectLinearAverage.b)});
         if (std::abs(static_cast<int>(correctResize.y)-static_cast<int>(incorrectResize.y)) <= 10) return 0;
         ++passed;
         return passed;
@@ -451,10 +449,10 @@ namespace
         constexpr std::array<recorder::conversion::OutputConfiguration, 2> outputs{{
             {640,360,30,1,1}, {854,480,30,1280,1281}
         }};
-        const auto sourceColor = [](UINT x, UINT y, UINT width, UINT height) -> Rgb
+        const auto sourceColor = [sdr](UINT x, UINT y, UINT width, UINT height) -> Rgb
         {
             if (y < height / 2) return x < width / 2 ? Rgb{1,0,0} : Rgb{0,1,0};
-            return x < width / 2 ? Rgb{0,0,1} : Rgb{1,1,1};
+            return x < width / 2 ? Rgb{0,0,1} : sdr ? Rgb{128/255.0,128/255.0,128/255.0} : Rgb{1,1,1};
         };
         for (const auto sourceSize : sources)
         {
@@ -506,7 +504,7 @@ namespace
                         }
                     // Source endpoints 0/1 are exact in FP16; filtering occurs
                     // after source quantization, so do not requantize the blend.
-                    return sdr ? SdrTransfer(filtered) : ReferenceCode(filtered,80,false);
+                    return sdr ? filtered : ReferenceCode(filtered,80,false);
                 };
                 for (const auto encoding : {OutputEncoding::Bt709Nv12,OutputEncoding::PreparedRgbAyuv})
                 {
@@ -547,6 +545,23 @@ namespace
                     struct Unmap { ID3D11DeviceContext* context; ID3D11Texture2D* texture; ~Unmap() { context->Unmap(texture,0); } } unmap{context,staging.Get()};
                     Require(mapped.pData && mapped.RowPitch >= rowPitch, "aspect_readback_layout_invalid");
                     const auto* bytes = static_cast<const BYTE*>(mapped.pData);
+                    if (sdr)
+                    {
+                        // Source gray 128 must remain RGB 128, or limited Y 126.
+                        // These fixed anchors deliberately bypass the transfer oracle.
+                        const UINT x = static_cast<UINT>(output.width*(.5+.25*fittedWidth)) & ~1u;
+                        const UINT y = static_cast<UINT>(output.height*(.5+.25*fittedHeight)) & ~1u;
+                        const size_t offset = static_cast<size_t>(mapped.RowPitch)*y+x*(fullColor ? 4u : 1u);
+                        if (fullColor)
+                            Require(bytes[offset] == 128 && bytes[offset+1] == 128 && bytes[offset+2] == 128 && bytes[offset+3] == 255,
+                                "sdr_source_rgb_code_not_preserved");
+                        else
+                        {
+                            const size_t uv = static_cast<size_t>(mapped.RowPitch)*(output.height+y/2)+x;
+                            Require(bytes[offset] == 126 && bytes[uv] == 128 && bytes[uv+1] == 128,
+                                "sdr_source_luma_code_not_preserved");
+                        }
+                    }
                     const auto checkPoint = [&](UINT x, UINT y)
                     {
                         const auto expected = reference(static_cast<int>(x),static_cast<int>(y));
@@ -617,7 +632,7 @@ namespace
         Evidence evidence;
         Measurement patches, ramp, edges, boundaries, toneAnchors, aspectColors;
         UINT completedFrames = 0, aspectFrames = 0, aspectBlackChecks = 0;
-        bool completed = false, rampMonotonic = false, highlightsDistinct = false, sdrRangeCorrect = false;
+        bool completed = false, rampMonotonic = false, highlightsDistinct = false, sdrRangeCorrect = false, sdrMidtoneCorrect = false;
         const auto started = Clock::now(), deadline = started + std::chrono::milliseconds(options.timeoutMs);
         auto lastGameCheck = started - std::chrono::seconds(1);
         const auto guard = [&]()
@@ -735,11 +750,14 @@ namespace
                                 CheckPoint(mapped,x,y,frame,options.whiteNits,patches,sdr);
                     }
                     if (sdr && frame == 0)
+                    {
                         sdrRangeCorrect = ReadY(mapped,OutputWidth/8,OutputHeight/8) == 16 &&
                             ReadY(mapped,OutputWidth/4+OutputWidth/8,OutputHeight/8) == 235;
+                        sdrMidtoneCorrect = ReadY(mapped,OutputWidth/8,OutputHeight*7/8) == 126;
+                    }
                     if (!sdr && frame == 0)
                     {
-                        constexpr std::array<UINT,8> expected{{16,17,34,106,221,230,233,234}};
+                        constexpr std::array<UINT,8> expected{{16,23,40,77,130,157,182,212}};
                         for (UINT patch = 0; patch < expected.size(); ++patch)
                             CheckNeutralAnchor(mapped,(patch%4)*(OutputWidth/4)+OutputWidth/8,
                                 (patch/4)*(OutputHeight/4)+OutputHeight/8,expected[patch],toneAnchors);
@@ -759,8 +777,8 @@ namespace
                     }
                     if (!sdr)
                     {
-                        CheckNeutralAnchor(mapped,60,100,171,toneAnchors);
-                        CheckNeutralAnchor(mapped,90,100,206,toneAnchors);
+                        CheckNeutralAnchor(mapped,60,100,106,toneAnchors);
+                        CheckNeutralAnchor(mapped,90,100,120,toneAnchors);
                         const UINT a = ReadY(mapped,120,100), b = ReadY(mapped,240,100), c = ReadY(mapped,480,100), d = ReadY(mapped,1500,100);
                         highlightsDistinct = a < b && b < c && c < d;
                     }
@@ -771,6 +789,7 @@ namespace
             }
             Require(completedFrames == 3 && patches.checked == 6144 && ramp.checked == 768 && edges.checked == 3840, "synthetic_conversion_incomplete");
             Require(!sdr || boundaries.checked == 72, "synthetic_sdr_boundary_checks_incomplete");
+            Require(!sdr || sdrMidtoneCorrect, "sdr_source_luma_code_not_preserved");
             Require(sdr || (toneAnchors.checked == 30 && toneAnchors.maximumError <= Tolerance), "hdr_contrast_policy_check_failed");
             Require(patches.maximumError <= Tolerance && ramp.maximumError <= Tolerance && edges.maximumError <= Tolerance,
                 "synthetic_code_values_outside_tolerance");
@@ -791,12 +810,13 @@ namespace
             << ",\"sourceEncoding\":\"" << (sdr ? "sRGB_BGRA8" : "linear_scRGB_P709") << "\",\"referenceWhiteNits\":" << options.whiteNits;
         if (sdr)
             std::cout << ",\"referenceWhiteOrigin\":\"not_applicable\",\"toneCurve\":\"none\",\"gamutPolicy\":\"none\""
-                << ",\"resizeFilter\":\"bilinear_code_values_before_srgb_decode\",\"sdrBlackWhiteExact\":" << sdrRangeCorrect;
+                << ",\"resizeFilter\":\"bilinear_source_code_values\",\"sdrBlackWhiteExact\":" << sdrRangeCorrect
+                << ",\"sdrGray128Luma126Exact\":" << sdrMidtoneCorrect;
         else
-            std::cout << ",\"referenceWhiteOrigin\":\"explicit_fixture_parameter\",\"toneCurve\":\"identity_then_smooth_shoulder\""
-                << ",\"toneKnee\":0.75,\"mappedReferenceWhite\":0.875"
-                << ",\"gamutPolicy\":\"neutral_axis_compression\",\"nonfinitePolicy\":\"black\",\"nonpositiveLuminancePolicy\":\"black\"";
-        std::cout << ",\"invalidPixelCountCollected\":false,\"outputTransfer\":\"BT709\",\"outputMatrix\":\"BT709\""
+            std::cout << ",\"referenceWhiteOrigin\":\"source_SDR_metadata_only\",\"toneCurve\":\"Rec2020_Reinhard_gamma24\""
+                << ",\"automaticSdrReferenceNits\":300,\"sourcePixelsIndependentOfSdrWhite\":true"
+                << ",\"gamutPolicy\":\"Rec2020_then_SDR_gamut_clamp\",\"nonfinitePolicy\":\"black\",\"negativeWorkingLightPolicy\":\"zero\"";
+        std::cout << ",\"invalidPixelCountCollected\":false,\"outputTransfer\":\"sRGB\",\"outputMatrix\":\"BT709\""
             << ",\"outputRange\":\"limited_16_235_16_240\",\"chromaSiting\":\"horizontal_left_vertical_center\""
             << ",\"shadersCreated\":" << evidence.shadersCreated << ",\"planeViewsCreated\":" << evidence.planeViewsCreated
             << ",\"submittedFrames\":" << evidence.submittedFrames << ",\"completedGpuFrames\":" << completedFrames
@@ -830,7 +850,7 @@ int wmain(int argc, wchar_t** argv)
             "Three generated 3840x2160 FP16 patterns -> 1920x1080 limited BT709 NV12.\n"
             "Also checks 21:9-class, 32:9, 16:10 and 16:9 aspect fits at 360p/480p in NV12 and prepared RGB AYUV.\n"
             "SDR mode uses BGRA8 patterns including subpixel variation, ramp, edges and border checks; no reference white or tone mapping.\n"
-            "Chosen 0.75-knee shoulder maps reference white to 0.875; appearance still requires visual review.\n"
+            "Automatic 300-nit Rec.2020 Reinhard/gamma2.4 HDR-to-SDR mapping; source SDR-white metadata does not alter exposure.\n"
             "No capture, decode or gameplay performance claim.\n"
             "Requires Forza closed. Ctrl+C cancels. Use an external API-call watchdog.\n";
         return 0;

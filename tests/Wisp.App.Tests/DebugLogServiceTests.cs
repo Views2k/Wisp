@@ -37,7 +37,8 @@ public sealed class DebugLogServiceTests
         {
             var now = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
             var exportPath = Path.Combine(root, "debug.zip");
-            await using var service = new DebugLogService(Path.Combine(root, "logs"), () => now);
+            await using var service = new DebugLogService(Path.Combine(root, "logs"), () => now,
+                tachSnapshot: () => null, componentReports: new ComponentDiagnosticHistory());
             Assert.True(service.TryEnable(now + DebugLogService.EnableDuration));
             service.TryLogSample(Sample(now));
             service.TryLogEvent(new DebugEvent(
@@ -49,7 +50,7 @@ public sealed class DebugLogServiceTests
 
             using var archive = ZipFile.OpenRead(exportPath);
             Assert.Equal(
-                ["events.ndjson", "health.ndjson", "manifest.json", "samples.ndjson", "summary.txt"],
+                ["component-reports.json", "crash-reports.json", "events.ndjson", "health-context.json", "health.ndjson", "manifest.json", "samples.ndjson", "summary.txt"],
                 archive.Entries.Select(entry => entry.FullName).OrderBy(name => name).ToArray());
             var samples = ReadEntry(archive, "samples.ndjson");
             Assert.Contains("\"telemetry_processed_hz\":60", samples, StringComparison.Ordinal);
@@ -90,8 +91,29 @@ public sealed class DebugLogServiceTests
             }
 
             using var manifest = JsonDocument.Parse(ReadEntry(archive, "manifest.json"));
+            string[] expectedManifestFields =
+            [
+                "schema_version", "created_at_utc", "wisp_version", "current_build_version", "private_build_id",
+                "module_version_id", "runtime_version", "windows_version", "process_architecture", "samples", "events",
+                "health_samples", "recent_context_samples", "recent_context_breadcrumbs", "crash_reports",
+                "crash_reports_available", "component_reports", "omitted_records", "dropped_records", "game_fps",
+                "game_fps_status", "local_only"
+            ];
+            Assert.Equal(expectedManifestFields.OrderBy(name => name, StringComparer.Ordinal),
+                manifest.RootElement.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal));
+            Assert.Equal(2, manifest.RootElement.GetProperty("schema_version").GetInt32());
+            Assert.Equal("1.0.10", manifest.RootElement.GetProperty("wisp_version").GetString());
+            Assert.Equal(ApplicationVersionInfo.MachineVersion, manifest.RootElement.GetProperty("current_build_version").GetString());
+            Assert.Equal(typeof(App).Assembly.ManifestModule.ModuleVersionId, manifest.RootElement.GetProperty("module_version_id").GetGuid());
+            Assert.Equal(0, manifest.RootElement.GetProperty("component_reports").GetInt32());
+            Assert.Equal(0, manifest.RootElement.GetProperty("crash_reports").GetInt32());
+            Assert.False(manifest.RootElement.GetProperty("crash_reports_available").GetBoolean());
             Assert.True(manifest.RootElement.GetProperty("local_only").GetBoolean());
             Assert.Equal(JsonValueKind.Null, manifest.RootElement.GetProperty("game_fps").ValueKind);
+            using var components = JsonDocument.Parse(ReadEntry(archive, "component-reports.json"));
+            Assert.Empty(components.RootElement.EnumerateArray());
+            using var crashes = JsonDocument.Parse(ReadEntry(archive, "crash-reports.json"));
+            Assert.Empty(crashes.RootElement.EnumerateArray());
         }
         finally
         {

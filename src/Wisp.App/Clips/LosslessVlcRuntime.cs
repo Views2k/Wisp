@@ -90,7 +90,8 @@ internal static class LosslessVlcRuntime
 
     internal static FileStream HoldSource(ClipEntry clip, string path)
     {
-        if (!clip.Media.LosslessVideo || !clip.Recording.LosslessVideo) throw new InvalidDataException("This clip is not lossless video.");
+        if (!clip.Media.RequiresMpvPlayer || clip.Media.LosslessVideo != clip.Recording.LosslessVideo)
+            throw new InvalidDataException("This clip's playback format is invalid.");
         _ = ClipThumbnailWire.Request(path, clip, 1);
         ClipLibrary.CheckPath(path);
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);

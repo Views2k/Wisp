@@ -15,6 +15,7 @@ public sealed class DebugLoggingSettingsTests
         Assert.Equal(9, settings.SettingsRevision);
         Assert.False(settings.DebugLoggingEnabled);
         Assert.Null(settings.DebugLoggingExpiresAtUtc);
+        Assert.Equal("Detailed logging off", new DiagnosticsViewModel(settings).DebugLoggingStatus);
     }
 
     [Fact]

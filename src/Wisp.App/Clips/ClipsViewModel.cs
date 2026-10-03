@@ -46,7 +46,7 @@ public sealed class ClipCardItem(ClipEntry entry) : INotifyPropertyChanged
     public Guid Id => Entry.Id;
     public string Title => Entry.SavedAtUtc.ToLocalTime().ToString("MMM d · h:mm tt");
     public string Detail => $"{TimeSpan.FromSeconds(Entry.DurationSeconds):m\\:ss} · {Entry.Media.Height}p · {Entry.Media.FrameRate} fps" +
-        (Entry.Media.LosslessVideo ? " · Lossless video" : "");
+        (Entry.Media.LosslessVideo ? " · Lossless video" : "") + (Entry.Media.HdrVideo ? " · HDR" : "");
     public string ReviewState => Entry.ExportedAtUtc is not null ? "Exported" : Entry.ViewedAtUtc is not null ? "Viewed" : "New";
     public string PlayLabel => $"Open clip from {Title}, {Detail}";
     public BitmapSource? Thumbnail => _thumbnail;
@@ -95,8 +95,14 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private Func<bool, bool, OverlayHotkeyChord, string?>? _registerShortcut;
     private string _error = "", _notice = "", _shortcutStatus = "Shortcuts are off.";
     private string _libraryWarning = "";
+    private string? _dismissedDashboardNotice;
     private string _previewExportStatus = "";
+    private string _exportFailureDetails = "";
     private bool _previewExportSucceeded;
+    private bool _preparingPlaybackCopy;
+    private CancellationTokenSource? _exportWork;
+    private bool _exportProgressKnown;
+    private double _exportProgress;
     private int _pageIndex, _pageCount, _total, _pending, _pendingNotices, _newClips;
     private long _selectionRevision;
     private CancellationTokenSource? _thumbnailWork;
@@ -104,19 +110,22 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private bool _galleryActive;
     internal Task ThumbnailCompletion { get; private set; } = Task.CompletedTask;
 
-    public ClipsViewModel(ClipsSettings settings, IClipRecorder recorder, Dispatcher dispatcher, IClipThumbnailProvider? thumbnails = null, string? libraryDirectory = null)
+    public ClipsViewModel(ClipsSettings settings, IClipRecorder recorder, Dispatcher dispatcher, IClipThumbnailProvider? thumbnails = null,
+        string? libraryDirectory = null, ICompatibleClipExporter? compatibleExporter = null)
     {
         _token = _lifetime.Token; _settings = settings.Clone(); _settings.Normalize();
         _recorder = recorder; _dispatcher = dispatcher; _thumbnails = thumbnails;
         _snapshot = recorder.Snapshot;
         _libraryDirectory = libraryDirectory ?? ClipsSettings.DefaultLibraryDirectory;
-        if (_libraryDirectory.Length > 0) _library = new ClipLibrary(_libraryDirectory);
+        if (_libraryDirectory.Length > 0) _library = new ClipLibrary(_libraryDirectory, compatibleExporter);
         SaveClipCommand = Command(SaveClipAsync, () => CanRequestSave);
         PreviousPageCommand = Command(() => LoadPageAsync(_pageIndex - 1), () => !IsBusy && _pageIndex > 0);
         NextPageCommand = Command(() => LoadPageAsync(_pageIndex + 1), () => !IsBusy && _pageIndex + 1 < _pageCount);
         RefreshCommand = Command(() => LoadPageAsync(_pageIndex), () => !IsBusy && _library is not null);
         RecoverPendingCommand = Command(RecoverPendingAsync, () => CanRecoverPending);
         DismissPendingCommand = Command(DismissPendingAsync, () => !IsBusy && _pendingNotices > 0);
+        DismissDashboardNoticeCommand = Command(DismissDashboardNoticeAsync, () => !_disposed && HasDashboardNotice && (!PendingDashboardNotice || !IsBusy));
+        DisableDashboardNoticesCommand = Command(() => { RemindersEnabled = false; return Task.CompletedTask; }, () => !_disposed && CanDisableDashboardNotice);
         _recorder.StateChanged += RecorderChanged;
     }
 
@@ -131,6 +140,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RefreshCommand { get; }
     public ICommand RecoverPendingCommand { get; }
     public ICommand DismissPendingCommand { get; }
+    public ICommand DismissDashboardNoticeCommand { get; }
+    public ICommand DisableDashboardNoticesCommand { get; }
     public ClipsSettings Preferences => _settings.Clone();
     public IReadOnlyList<int> LengthChoices => ClipsSettings.LengthChoices;
     public IReadOnlyList<int> ResolutionChoices => ClipsSettings.ResolutionChoices;
@@ -163,10 +174,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public string SuggestedStorageDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Wisp Clips");
     public string StorageText => StorageDirectory.Length == 0 ? "No export folder selected. Saved clips stay in Wisp until you export them." : StorageDirectory;
     public string LongClipHint => LosslessVideo
-        ? $"Lossless clips keep up to {LengthSeconds} seconds, within Wisp's size limit. Available history depends on the video and free space. Export keeps the original quality."
+        ? $"Lossless clips keep up to {LengthSeconds} seconds, within Wisp's size limit. Available history depends on the video and free space. Export can create a compatible copy or keep the original lossless video."
         : LengthSeconds == 300
-        ? "Five-minute clips use more memory and storage and can take longer to save. Export keeps the recorded resolution and quality."
-        : "Longer clips use more memory and storage. Export keeps the recorded resolution and quality.";
+        ? "Five-minute clips use more memory and storage and can take longer to save. Original exports keep recorded quality; compatible copies use H.264 for easier sharing."
+        : "Longer clips use more memory and storage. Original exports keep recorded quality; compatible copies use H.264 for easier sharing.";
     public string PageText => _pageCount == 0 ? "No saved clips" : $"Page {_pageIndex + 1} of {_pageCount} · {_total} clips";
     public string PendingText => _pending == 0 ? "" : $"{_pending} unfinished save(s) retained in Wisp's private clip storage. Your completed clips are kept.";
     public bool HasPendingSaves => _pending > 0;
@@ -176,16 +187,34 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public bool CanOpenClipFolder => !_disposed && !IsBusy && StorageDirectory.Length > 0;
     public bool IsEmpty => !IsBusy && Clips.Count == 0;
     public bool HasSelection => _selected is not null;
-    public bool CanExport => HasSelection && !IsBusy && !_previewExportSucceeded;
+    public bool CanExport => HasSelection && !IsBusy && !_previewExportSucceeded && !_preparingPlaybackCopy;
+    public bool SelectedIsLossless => _selected?.Entry.Media.LosslessVideo == true;
+    public bool HasPlaybackFormatNote => _selected?.Entry.Media.RequiresMpvPlayer == true;
+    public string LosslessPlaybackNote => _selected?.Entry.Media.HdrVideo == true
+        ? SelectedIsLossless
+            ? "Playback uses a compressed HDR copy. The original lossless clip is unchanged and can be exported."
+            : "Play HDR video in Wisp, export the original, or choose a compatible H.264 copy for sharing in SDR."
+        : "Original lossless video requires a player that supports H.264 4:4:4. Play it in Wisp or mpv, or export a compatible MP4 copy. The original stays in Wisp.";
+    public bool IsExporting => _exportWork is not null;
+    public bool CanCancelExport => _exportWork is { IsCancellationRequested: false };
+    public bool ExportProgressIndeterminate => !_exportProgressKnown;
+    public double ExportProgress => _exportProgress;
+    public string ExportProgressText => !CanCancelExport ? "Cancelling…" : _exportProgressKnown ? $"{_exportProgress:0}%" : "Copying…";
     public string PreviewExportStatus => _previewExportStatus;
     public bool HasPreviewExportStatus => _previewExportStatus.Length > 0;
+    public string ExportFailureDetails => _exportFailureDetails;
+    public bool HasExportFailureDetails => _exportFailureDetails.Length > 0;
     public ClipCardItem? SelectedClip => _selected;
     public string SelectedTitle => _selected?.Title ?? "Choose a clip to play";
     public int NewClipCount => _newClips;
     public bool HasReminder => _settings.RemindersEnabled && _newClips > 0;
     public string ReminderText => _newClips == 1 ? "You have a new clip to review or export." : $"You have {_newClips} new clips to review or export.";
     private bool RecorderNeedsAttention => _snapshot.State == ClipRecorderState.Error;
-    public bool HasDashboardNotice => HasError || RecorderNeedsAttention || _pendingNotices > 0 || HasReminder;
+    private string? DashboardNoticeKey => HasError ? $"error:{Error}" : RecorderNeedsAttention ? $"recorder:{RecorderStatus}"
+        : HasReminder ? $"new:{_newClips}" : _pendingNotices > 0 ? $"pending:{_pendingNotices}:{_pending}" : null;
+    private bool PendingDashboardNotice => !HasError && !RecorderNeedsAttention && !HasReminder && _pendingNotices > 0;
+    public bool HasDashboardNotice => DashboardNoticeKey is { } key && key != _dismissedDashboardNotice;
+    public bool CanDisableDashboardNotice => HasDashboardNotice && !HasError && !RecorderNeedsAttention && HasReminder;
     public string DashboardNoticeTitle => HasError || RecorderNeedsAttention ? "Clips need attention" : HasReminder ? "New clips" : "Unfinished clip saves";
     public string DashboardNoticeText => HasError ? Error : RecorderNeedsAttention ? RecorderStatus : HasReminder ? ReminderText : PendingText;
     public string ShortcutStatus => _shortcutStatus;
@@ -229,10 +258,41 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             OnChanged(nameof(LongClipHint));
         }
     }
+    public bool PreserveHdrRecording
+    {
+        get => _settings.PreserveHdrRecording;
+        set
+        {
+            if (!CanEditSettings || value == _settings.PreserveHdrRecording) return;
+            _settings.PreserveHdrRecording = value;
+            Changed();
+        }
+    }
     public bool RemindersEnabled
     {
         get => _settings.RemindersEnabled;
-        set { if (_settings.RemindersEnabled != value) { _settings.RemindersEnabled = value; Changed(); OnChanged(nameof(HasReminder)); NotifyDashboardNotice(); ReminderChanged?.Invoke(this, EventArgs.Empty); } }
+        set
+        {
+            if (_disposed || _settings.RemindersEnabled == value) return;
+            _settings.RemindersEnabled = value;
+            if (_dismissedDashboardNotice?.StartsWith("new:", StringComparison.Ordinal) == true) _dismissedDashboardNotice = null;
+            Changed(); OnChanged(nameof(HasReminder)); NotifyDashboardNotice(); ReminderChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    internal Task DismissDashboardNoticeAsync()
+    {
+        if (_disposed || !HasDashboardNotice) return Task.CompletedTask;
+        if (PendingDashboardNotice)
+            return Operation(async () =>
+            {
+                await _library!.DismissPendingNoticesAsync(_token);
+                await RefreshReminderAsync();
+            }, "The notice could not be dismissed. Existing files are kept.", !IsBusy && _library is not null);
+        _dismissedDashboardNotice = DashboardNoticeKey;
+        NotifyDashboardNotice();
+        ReminderChanged?.Invoke(this, EventArgs.Empty);
+        return Task.CompletedTask;
     }
 
     public Task InitializeAsync() => _initialization ??= Operation(async () =>
@@ -453,6 +513,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public Task LoadPageAsync(int pageIndex) => Operation(() => ReadPageAsync(Math.Max(0, pageIndex)),
         "The clip library could not be read. Its files have been kept.", !IsBusy && !_disposed);
 
+    internal Task RefreshGalleryOnActivationAsync() => Operation(() => ReadPageAsync(_pageIndex),
+        "The clip library could not be read. Its files have been kept.",
+        _initialization is { IsCompletedSuccessfully: true } && _galleryActive && !HasSelection && !IsBusy && _library is not null);
+
     public Task RecoverPendingAsync() => Operation(async () =>
     {
         var result = await _library!.ReconcilePendingAsync(_token);
@@ -513,8 +577,9 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             var candidate = await _library.GetMediaPathAsync(item.Id, _token);
             if (revision != _selectionRevision || _disposed) return;
             _selected?.Select(false); _selected = item; item.Select(true);
+            SetPreparingPlaybackCopy(false);
             SetPreviewExportStatus("", false);
-            foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport) }) OnChanged(name);
+            foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport), nameof(SelectedIsLossless), nameof(HasPlaybackFormatNote), nameof(LosslessPlaybackNote) }) OnChanged(name);
             path = candidate;
         }, "This clip could not be opened. Its file has been kept.", true);
         return path;
@@ -553,42 +618,73 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         }
         return ExportSelectedAsync(StorageDirectory, useDirectory: true);
     }
-    public Task ExportSelectedAsync(string destination) => ExportSelectedAsync(destination, useDirectory: false);
-    private Task ExportSelectedAsync(string destination, bool useDirectory)
+    public Task ExportSelectedAsync(string destination, ClipExportFormat format = ClipExportFormat.Original) => ExportSelectedAsync(destination, useDirectory: false, format);
+    public void CancelExport()
+    {
+        if (!CanCancelExport) return;
+        _exportWork!.Cancel(); NotifyExport();
+    }
+    private Task ExportSelectedAsync(string destination, bool useDirectory, ClipExportFormat format = ClipExportFormat.Original)
     {
         var selected = _selected;
         var revision = _selectionRevision;
-        const string failure = "Export failed. Check folder access and free space, then try again. Existing files are never overwritten.";
+        var failure = format == ClipExportFormat.Compatible
+            ? "Export failed. The compatible copy could not be created. Try again, or export the original video. Existing files are kept."
+            : "Export failed. Check folder access and free space, then try again. Existing files are never overwritten.";
         return Operation(async () =>
         {
-            if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus("Exporting clip…", false);
-            var library = _library!;
-            var result = useDirectory ? await library.ExportToDirectoryAsync(selected!.Id, destination, _token) : await library.ExportAsync(selected!.Id, destination, _token);
-            var message = !result.ExportStateSaved ? "Export successful. The file is ready, but Wisp could not update its saved status."
-                : result.FileCreated ? "Export successful." : "Export successful. This clip is already in your export folder; no duplicate was created.";
-            if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(message, true);
-            NoticeText(message);
-            if (result.ExportStateSaved)
+            using var operation = CancellationTokenSource.CreateLinkedTokenSource(_token);
+            _exportWork = operation; _exportProgress = 0; _exportProgressKnown = format == ClipExportFormat.Compatible;
+            NotifyExport();
+            try
             {
-                try
+                if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus("Exporting clip…", false);
+                var library = _library!;
+                var progress = new Progress<double>(value =>
                 {
-                    var page = await library.GetPageAsync(_pageIndex, _token);
-                    var updated = page.Clips.FirstOrDefault(item => item.Id == selected.Id);
-                    if (updated is not null) selected.Update(updated);
-                    SetReminder(page);
-                }
-                catch (OperationCanceledException) when (_token.IsCancellationRequested) { throw; }
-                catch (Exception error) when (error is not OutOfMemoryException)
+                    if (_disposed || !ReferenceEquals(_exportWork, operation) || !double.IsFinite(value)) return;
+                    _exportProgress = Math.Max(_exportProgress, Math.Clamp(value, 0, 100)); NotifyExport();
+                });
+                var result = format == ClipExportFormat.Compatible
+                    ? await library.ExportCompatibleAsync(selected!.Id, destination, progress, operation.Token)
+                    : useDirectory ? await library.ExportToDirectoryAsync(selected!.Id, destination, operation.Token)
+                    : await library.ExportAsync(selected!.Id, destination, operation.Token);
+                var message = !result.ExportStateSaved ? "Export successful. The file is ready, but Wisp could not update its saved status."
+                    : result.FileCreated ? "Export successful." : "Export successful. This clip is already in your export folder; no duplicate was created.";
+                if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(message, true);
+                NoticeText(message);
+                if (result.ExportStateSaved)
                 {
-                    const string saved = "Export successful. The file is ready, but Wisp could not refresh its saved status.";
-                    if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(saved, true);
-                    NoticeText(saved);
+                    try
+                    {
+                        var page = await library.GetPageAsync(_pageIndex, _token);
+                        var updated = page.Clips.FirstOrDefault(item => item.Id == selected.Id);
+                        if (updated is not null) selected.Update(updated);
+                        SetReminder(page);
+                    }
+                    catch (OperationCanceledException) when (_token.IsCancellationRequested) { throw; }
+                    catch (Exception error) when (error is not OutOfMemoryException)
+                    {
+                        const string saved = "Export successful. The file is ready, but Wisp could not refresh its saved status.";
+                        if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(saved, true);
+                        NoticeText(saved);
+                    }
                 }
             }
-        }, failure, CanExport, _ =>
+            catch (OperationCanceledException) when (operation.IsCancellationRequested && !_token.IsCancellationRequested)
+            {
+                const string cancelled = "Export cancelled. The original clip is kept.";
+                if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(cancelled, false);
+                if (!_disposed) NoticeText(cancelled);
+            }
+            finally { _exportWork = null; if (!_disposed) NotifyExport(); }
+        }, failure, CanExport, error =>
         {
-            if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(failure, false);
-            return failure;
+            if (revision != _selectionRevision || _disposed || selected is null) return "";
+            var report = ClipExportFailureReport.Create(error, selected.Entry, format);
+            SetPreviewExportStatus(report.Message, false);
+            SetExportFailureDetails(report.Details);
+            return report.Message;
         });
     }
 
@@ -706,20 +802,38 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         NotifyDashboardNotice();
         ReminderChanged?.Invoke(this, EventArgs.Empty);
     }
-    private ClipRecordingSpec Recording() => new(LengthSeconds, ResolutionHeight, FrameRate, Quality, CaptureSystemAudio, LosslessVideo);
+    private ClipRecordingSpec Recording() => new(LengthSeconds, ResolutionHeight, FrameRate, Quality, CaptureSystemAudio, LosslessVideo, PreserveHdrRecording);
     private bool ChangeChoice(int next, IReadOnlyList<int> choices, int current) => CanEditSettings && next != current && choices.Contains(next);
     private void Changed([CallerMemberName] string? name = null) { OnChanged(name); PreferencesChanged?.Invoke(this, EventArgs.Empty); }
     private void ClearSelection()
     {
         ++_selectionRevision; _selected?.Select(false); _selected = null;
+        SetPreparingPlaybackCopy(false);
         SetPreviewExportStatus("", false);
-        foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport) }) OnChanged(name);
+        foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport), nameof(SelectedIsLossless), nameof(HasPlaybackFormatNote), nameof(LosslessPlaybackNote) }) OnChanged(name);
+    }
+    internal void SetPreparingPlaybackCopy(bool preparing)
+    {
+        if (_preparingPlaybackCopy == preparing) return;
+        _preparingPlaybackCopy = preparing;
+        OnChanged(nameof(CanExport));
+    }
+    private void NotifyExport()
+    {
+        foreach (var name in new[] { nameof(IsExporting), nameof(CanCancelExport), nameof(ExportProgressIndeterminate), nameof(ExportProgress), nameof(ExportProgressText) }) OnChanged(name);
     }
     private void SetPreviewExportStatus(string message, bool succeeded)
     {
+        SetExportFailureDetails("");
         _previewExportStatus = message;
         _previewExportSucceeded = succeeded;
         OnChanged(nameof(PreviewExportStatus)); OnChanged(nameof(HasPreviewExportStatus)); OnChanged(nameof(CanExport));
+    }
+    private void SetExportFailureDetails(string details)
+    {
+        if (_exportFailureDetails == details) return;
+        _exportFailureDetails = details;
+        OnChanged(nameof(ExportFailureDetails)); OnChanged(nameof(HasExportFailureDetails));
     }
     private async Task Operation(Func<Task> action, string errorText, bool allowed, Func<Exception, string?>? failureText = null)
     {
@@ -762,7 +876,11 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void ErrorText(string text) { _error = text; OnChanged(nameof(Error)); OnChanged(nameof(HasError)); NotifyDashboardNotice(); }
     private void NotifyDashboardNotice()
     {
+        if (DashboardNoticeKey != _dismissedDashboardNotice) _dismissedDashboardNotice = null;
         OnChanged(nameof(HasDashboardNotice)); OnChanged(nameof(DashboardNoticeTitle)); OnChanged(nameof(DashboardNoticeText));
+        OnChanged(nameof(CanDisableDashboardNotice));
+        ((ClipCommand)DismissDashboardNoticeCommand).Raise();
+        ((ClipCommand)DisableDashboardNoticesCommand).Raise();
     }
     private void NoticeText(string text) { _notice = text; OnChanged(nameof(Notice)); }
     private void OnChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));

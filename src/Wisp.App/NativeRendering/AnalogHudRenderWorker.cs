@@ -129,6 +129,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             if (_disposed) return;
             _stop.Set();
         }
+        HealthContextRecorder.Current.RecordRendererFailure(error);
         _status(false, error);
     }
 
@@ -576,6 +577,13 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             int drawCommands = 0, DirectCompositionDrawMetrics drawMetrics = default,
             DirectCompositionPresentMetrics presentMetrics = default, int dropped = 0, int hResult = 0)
         {
+            if (dropped > 0) HealthContextRecorder.Current.RecordQueueDrop(dropped);
+            if (result == "error") HealthContextRecorder.Current.RecordRendererFailure(hResult);
+            if (stage == "present")
+                HealthContextRecorder.Current.RecordPresent(result == "submitted" ? HealthPresentResult.Submitted :
+                    result == "occluded" ? HealthPresentResult.Occluded :
+                    result == "error" ? HealthPresentResult.Failed : HealthPresentResult.Busy,
+                    pending?.QueuedTimestamp ?? queuedTimestamp, Stopwatch.GetTimestamp());
             if (started == 0 || !TachDiagnostics.IsEnabled) return;
             var hasWaitDetails = stage == "frame_wait" && (measuredWaitCompleted || waitMetrics.TotalTicks > 0);
             var diagnostic = new TachRendererDiagnostic

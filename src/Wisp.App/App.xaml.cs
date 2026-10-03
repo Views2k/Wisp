@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using Wisp.App.CrashDiagnostics;
 using Wisp.Update;
 
 namespace Wisp.App;
@@ -31,6 +32,32 @@ public partial class App : Application
     private bool _applicationUpdateHandoffActive;
     private bool _closePreparationActive;
     private bool _exiting;
+    private readonly CrashReportStore _crashReports;
+    private readonly CrashExceptionMonitor _crashMonitor;
+    private readonly CrashReport? _previousCrashReport;
+    private RunExitMarkerStore? _runExitMarker;
+    private CancellationTokenSource? _previousRunCancellation;
+    private int _fatalExit;
+
+    public App()
+    {
+        _crashReports = CrashReportStore.Current;
+        _crashMonitor = new CrashExceptionMonitor(_crashReports, runId: () => _runExitMarker?.RunId);
+        DispatcherUnhandledException += OnUnhandledUiException;
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledBackgroundException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        _previousCrashReport = _crashReports.LatestPending();
+    }
+
+    private void OnUnhandledUiException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    { Interlocked.Exchange(ref _fatalExit, 1); _crashMonitor.UiException(e.Exception); }
+    private void OnUnhandledBackgroundException(object sender, UnhandledExceptionEventArgs e)
+    {
+        if (e.IsTerminating) Interlocked.Exchange(ref _fatalExit, 1);
+        _crashMonitor.BackgroundException(e.ExceptionObject, e.IsTerminating);
+    }
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e) =>
+        _crashMonitor.UnobservedTaskException(e);
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -47,6 +74,7 @@ public partial class App : Application
             return;
         }
 
+        _runExitMarker = RunExitMarkerStore.BeginCurrent();
         _activationEvent = new EventWaitHandle(
             initialState: false,
             EventResetMode.AutoReset,
@@ -56,6 +84,12 @@ public partial class App : Application
         var settingsService = new SettingsService();
         var settings = settingsService.Load();
         _controller = new AppController(settings, settingsService);
+        _controller.ViewModel.InitializeCrashReport(_previousCrashReport, _crashReports.AcknowledgeThrough);
+        if (_runExitMarker?.Previous is { } previous)
+        {
+            _previousRunCancellation = new CancellationTokenSource();
+            _ = RecoverPreviousRunAsync(previous, _runExitMarker.StartedAtUtc, _previousRunCancellation.Token);
+        }
         _overlayHotkey = new OverlayHotkeyService();
         _overlayHotkey.Pressed += (_, _) =>
         {
@@ -202,9 +236,25 @@ public partial class App : Application
         mainWindow.Closing += OnControlPanelClosing;
     }
 
+    private async Task RecoverPreviousRunAsync(RunExitMarker previous, DateTimeOffset startedAtUtc, CancellationToken cancellationToken)
+    {
+        var model = _controller!.ViewModel;
+        var generation = model.CrashReportNoticeGeneration;
+        try
+        {
+            var report = await new PreviousRunRecovery(_crashReports, new WindowsFaultEventReader())
+                .RecoverAsync(previous, startedAtUtc, cancellationToken).ConfigureAwait(true);
+            if (report is not null && !cancellationToken.IsCancellationRequested && !_exiting && !Dispatcher.HasShutdownStarted)
+                model.TryInitializeRecoveredCrashReport(report, generation, _crashReports.AcknowledgeThrough);
+        }
+        catch (Exception) { } // Diagnostics and shutdown races must not interrupt startup.
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         _exiting = true;
+        _previousRunCancellation?.Cancel();
+        var shutdownCompleted = false;
         _forzaStartupTimer?.Stop();
         _startupTray?.Dispose();
         _startupTray = null;
@@ -218,25 +268,38 @@ public partial class App : Application
             }
 
             _controller?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            shutdownCompleted = true;
         }
         finally
         {
-            _ = Clips.LosslessVlcRuntime.ShutdownAsync().GetAwaiter().GetResult();
-            _ = Clips.LosslessMpvRuntime.ShutdownAsync().GetAwaiter().GetResult();
-            _overlayHotkey?.Dispose();
-            _overlayHotkey = null;
-            _recordingHotkey?.Dispose();
-            _recordingHotkey = null;
-            _markerHotkey?.Dispose();
-            _markerHotkey = null;
-            _clipToggleHotkey?.Dispose();
-            _clipToggleHotkey = null;
-            _clipSaveHotkey?.Dispose();
-            _clipSaveHotkey = null;
-            _activationCancellation?.Dispose();
-            _activationEvent?.Dispose();
-            _instanceMutex?.Dispose();
-            base.OnExit(e);
+            try
+            {
+                var nativeCleanupCompleted = Clips.LosslessVlcRuntime.ShutdownAsync().GetAwaiter().GetResult();
+                nativeCleanupCompleted &= Clips.LosslessMpvRuntime.ShutdownAsync().GetAwaiter().GetResult();
+                _overlayHotkey?.Dispose();
+                _overlayHotkey = null;
+                _recordingHotkey?.Dispose();
+                _recordingHotkey = null;
+                _markerHotkey?.Dispose();
+                _markerHotkey = null;
+                _clipToggleHotkey?.Dispose();
+                _clipToggleHotkey = null;
+                _clipSaveHotkey?.Dispose();
+                _clipSaveHotkey = null;
+                _activationCancellation?.Dispose();
+                _activationEvent?.Dispose();
+                base.OnExit(e);
+                DispatcherUnhandledException -= OnUnhandledUiException;
+                AppDomain.CurrentDomain.UnhandledException -= OnUnhandledBackgroundException;
+                TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
+                if (shutdownCompleted && nativeCleanupCompleted && Volatile.Read(ref _fatalExit) == 0) _runExitMarker?.MarkClean();
+            }
+            finally
+            {
+                _runExitMarker?.Dispose();
+                _previousRunCancellation?.Dispose();
+                _instanceMutex?.Dispose();
+            }
         }
     }
 

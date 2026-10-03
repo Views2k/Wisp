@@ -5,6 +5,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>Wisp.UiReview</AssemblyName>
     <RootNamespace>Wisp.UiReview</RootNamespace>
+    <ApplicationManifest>..\..\src\Wisp.App\app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Wisp.App\Wisp.App.csproj" />

@@ -45,7 +45,8 @@ public sealed class NativeTuneCaptureTests
     [Fact]
     public void AssetDecoderRejectsUnexpectedBytesBeforeOpeningSQLite()
     {
-        Assert.Throws<InvalidDataException>(() => TuneAssetCapture.Decode(new byte[4], new byte[1024], new byte[256], TestContext.Current.CancellationToken));
+        Assert.Equal(TuneAssetFailureCode.DecodeLength, Assert.Throws<TuneAssetValidationException>(() =>
+            TuneAssetCapture.Decode(new byte[4], new byte[1024], new byte[256], TestContext.Current.CancellationToken)).FailureCode);
     }
 
     [Fact]
@@ -189,14 +190,16 @@ public sealed class NativeTuneCaptureTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task UnsupportedCatalogAndTuneLayoutExplainAutomaticCompatibilityUpdates(bool admitted)
+    public async Task CatalogRejectionAndAdmittedLayoutFailureHaveDifferentMessages(bool admitted)
     {
         await using var service = new TuneCaptureService(new Factory { Available = admitted },
             (_, _) => throw new TuneLayoutException());
         var result = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
         Assert.Null(result.Snapshot);
         Assert.Equal(TuneCaptureStatus.UnsupportedBuild, result.Status);
-        Assert.Equal("Tune reading isn't ready for this Forza update. Wisp checks for compatibility updates automatically.", result.Message);
+        Assert.Equal(admitted
+            ? "Wisp could not verify this game's tune data. Copy details to report the problem."
+            : "Tune reading isn't ready for this Forza update. Wisp checks for compatibility updates automatically.", result.Message);
     }
 
     [Fact]

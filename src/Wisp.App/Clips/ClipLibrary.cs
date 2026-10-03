@@ -7,15 +7,22 @@ using System.Text.Json.Serialization;
 namespace Wisp.App.Clips;
 
 public sealed record ClipRecordingSpec(int LengthSeconds, int ResolutionHeight, int FrameRate, int Quality,
-    bool CaptureSystemAudio = false, bool LosslessVideo = false);
+    bool CaptureSystemAudio = false, bool LosslessVideo = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool PreserveHdrRecording = false);
 public sealed record ClipSaveTarget(Guid Id, DateTimeOffset RequestedAtUtc, ClipRecordingSpec Recording, string MediaPath);
 
 // The native writer supplies this only after successful mux finalization and
 // closing its file. Container/codec validation remains the native writer's
 // contract; this library validates ownership, size and the reported metadata.
 public sealed record FinalizedClipMedia(long FileBytes, int Width, int Height, int FrameRate,
-    long ActualStart100ns, long ActualEnd100ns, bool HasAudio, bool LosslessVideo = false, bool SizeLimited = false)
+    long ActualStart100ns, long ActualEnd100ns, bool HasAudio, bool LosslessVideo = false, bool SizeLimited = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool HdrVideo = false)
 {
+    // HDR clips use HEVC with BT.2020/PQ color. Existing records omit this flag
+    // and retain their H.264 SDR interpretation.
+    [JsonIgnore]
+    public bool RequiresMpvPlayer => LosslessVideo || HdrVideo;
+
     [JsonIgnore]
     internal ClipBufferCommitReceipt? PublicationReceipt { get; init; }
 }
@@ -55,12 +62,14 @@ public sealed partial class ClipLibrary
         MaxDepth = 12
     };
     private readonly string _directory;
+    private readonly ICompatibleClipExporter _compatibleExporter;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public ClipLibrary(string directory)
+    public ClipLibrary(string directory, ICompatibleClipExporter? compatibleExporter = null)
     {
         if (!ClipsSettings.TryNormalizeStorageDirectory(directory, out _directory))
             throw new ArgumentException("Choose a clip folder on a local drive using a full path.", nameof(directory));
+        _compatibleExporter = compatibleExporter ?? new CompatibleClipExporter();
     }
 
     public Task<ClipLibraryPage> GetPageAsync(int pageIndex, CancellationToken cancellationToken = default)
@@ -69,6 +78,7 @@ public sealed partial class ClipLibrary
         return InBackground(async token =>
         {
             var index = await ReadIndexAsync(token).ConfigureAwait(false);
+            await ReconcileMissingClipsAsync(index, token).ConfigureAwait(false);
             var ordered = index.Clips.OrderByDescending(clip => clip.SavedAtUtc).ThenBy(clip => clip.Id).ToArray();
             var pages = (ordered.Length + PageSize - 1) / PageSize;
             var selectedPage = Math.Min(pageIndex, Math.Max(0, pages - 1));
@@ -79,6 +89,28 @@ public sealed partial class ClipLibrary
             { PendingNotices = index.Pending.Count(item => !item.NoticeDismissed) };
         }, cancellationToken);
     }
+
+    private async Task ReconcileMissingClipsAsync(LibraryIndex index, CancellationToken token)
+    {
+        if (index.Clips.Count == 0) return;
+        // Probe only indexed names relative to a verified, held directory. A
+        // missing path/device or an unreadable file is not proof of deletion.
+        using var directory = ClipLibraryFiles.OpenDirectory(_directory, create: false);
+        var missing = new HashSet<Guid>();
+        foreach (var clip in index.Clips)
+        {
+            token.ThrowIfCancellationRequested();
+            try { using var media = ClipLibraryFiles.OpenRead(directory, $"{clip.Id:N}.mp4"); }
+            catch (IOException error) when (IsConfirmedMissingClipFile(error)) { missing.Add(clip.Id); }
+            catch (Exception error) when (IsFileError(error)) { /* Keep inaccessible or otherwise unverified entries. */ }
+        }
+        if (missing.Count == 0) return;
+        token.ThrowIfCancellationRequested();
+        index.Clips.RemoveAll(clip => missing.Contains(clip.Id));
+        await WriteIndexAsync(index, token).ConfigureAwait(false);
+    }
+
+    internal static bool IsConfirmedMissingClipFile(IOException error) => (error.HResult & 0xffff) == 2;
 
     public Task<IReadOnlyList<ClipSaveTarget>> ListPendingAsync(CancellationToken cancellationToken = default) =>
         InBackground<IReadOnlyList<ClipSaveTarget>>(async token =>
@@ -179,17 +211,59 @@ public sealed partial class ClipLibrary
             await using var source = OpenMedia(id, clip.Media.FileBytes);
             var created = await ClipLibraryFiles.CopyOrVerifyAsync(source, Path.GetDirectoryName(destination)!, Path.GetFileName(destination), reuseIdentical, token,
                 reuseIdentical ? $"{id:N}.mp4" : null).ConfigureAwait(false);
-            if (clip.ExportedAtUtc is not null) return new ClipExportResult(created, true);
-            index.Clips[index.Clips.IndexOf(clip)] = clip with { ExportedAtUtc = DateTimeOffset.UtcNow };
+            return await SaveExportStateAsync(index, clip, created).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public Task<ClipExportResult> ExportCompatibleAsync(Guid id, string newFilePath, IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(id);
+        var destination = ValidateExportPath(newFilePath);
+        return InBackground(async token =>
+        {
+            var index = await ReadIndexAsync(token).ConfigureAwait(false);
+            var clip = Find(index, id);
+            if (!clip.Media.LosslessVideo && !clip.Media.HdrVideo) throw new InvalidOperationException("This clip already uses compatible video.");
+            if (File.Exists(destination) || Directory.Exists(destination)) throw new IOException("The export filename is already in use.");
+            using var directory = ClipLibraryFiles.OpenDirectory(_directory, create: false);
+            await using var source = OpenMedia(id, clip.Media.FileBytes);
+            var temporary = Path.Combine(_directory, $".wisp-compatible-{Guid.NewGuid():N}.mp4");
+            var created = false;
             try
             {
-                // The complete export exists, including a verified prior export.
-                // A metadata failure must not turn that into an absent-file claim.
-                await WriteIndexAsync(index, CancellationToken.None).ConfigureAwait(false);
-                return new ClipExportResult(created, true);
+                CheckPath(temporary);
+                await using (var staged = new FileStream(temporary, FileMode.CreateNew, FileAccess.ReadWrite,
+                    FileShare.ReadWrite, 65536, FileOptions.Asynchronous))
+                {
+                    created = true;
+                    await _compatibleExporter.ExportAsync(clip, MediaPath(id), temporary, progress, token).ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+                    if (staged.Length is <= 0 or > MaximumMediaBytes) throw new InvalidDataException("The compatible copy is incomplete.");
+                    await staged.FlushAsync(token).ConfigureAwait(false); staged.Flush(flushToDisk: true);
+                    await ClipLibraryFiles.CopyOrVerifyAsync(staged, Path.GetDirectoryName(destination)!, Path.GetFileName(destination),
+                        reuseIdentical: false, token).ConfigureAwait(false);
+                }
+                var result = await SaveExportStateAsync(index, clip, created: true).ConfigureAwait(false);
+                progress?.Report(100);
+                return result;
             }
-            catch (Exception error) when (IsFileError(error)) { return new ClipExportResult(created, false); }
+            finally { if (created) DeleteOwnTemporary(temporary); }
         }, cancellationToken);
+    }
+
+    private async Task<ClipExportResult> SaveExportStateAsync(LibraryIndex index, ClipEntry clip, bool created)
+    {
+        if (clip.ExportedAtUtc is not null) return new(created, true);
+        index.Clips[index.Clips.IndexOf(clip)] = clip with { ExportedAtUtc = DateTimeOffset.UtcNow };
+        try
+        {
+            // Publication is complete; a later cancellation/index failure must
+            // not turn the existing destination into an absent-file claim.
+            await WriteIndexAsync(index, CancellationToken.None).ConfigureAwait(false);
+            return new(created, true);
+        }
+        catch (Exception error) when (IsFileError(error)) { return new(created, false); }
+    }
 
     // Only entries named by a valid existing legacy index are imported. The
     // original index remains held read-only throughout the bounded batch.
@@ -388,8 +462,8 @@ public sealed partial class ClipLibrary
                 throw new InvalidDataException("The clip index contains invalid or duplicate records.");
             ValidateRecording(clip.Recording);
             ValidateMedia(clip.Media, clip.Recording);
-            if (index.Version == 1 && clip.Recording.LosslessVideo)
-                throw new InvalidDataException("The legacy clip index cannot describe lossless video. Its file has been kept.");
+            if (index.Version == 1 && (clip.Recording.LosslessVideo || clip.Media.HdrVideo))
+                throw new InvalidDataException("The legacy clip index cannot describe lossless or HDR video. Its file has been kept.");
         }
         foreach (var pending in index.Pending)
         {

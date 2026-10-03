@@ -16,6 +16,7 @@ public sealed class ClipsSettingsTests
         Assert.False(settings.ShowCaptureBorder);
         Assert.False(settings.CaptureSystemAudio);
         Assert.False(settings.LosslessVideo);
+        Assert.False(settings.PreserveHdrRecording);
         Assert.Equal(60, settings.LengthSeconds);
         Assert.Equal(1080, settings.ResolutionHeight);
         Assert.Equal(60, settings.FrameRate);
@@ -36,6 +37,17 @@ public sealed class ClipsSettingsTests
         Assert.Equal(Enumerable.Range(1, 10).Select(value => value * 30), ClipsSettings.LengthChoices);
         Assert.Equal(new[] { 360, 480, 720, 1080, 1440, 2160 }, ClipsSettings.ResolutionChoices);
         Assert.Equal(new[] { 30, 60 }, ClipsSettings.FrameRateChoices);
+    }
+
+    [Fact]
+    public void ExistingSettingsUseSdrAndExplicitHdrChoiceSurvivesCloneAndRoundTrip()
+    {
+        var settings = JsonSerializer.Deserialize<ClipsSettings>("{}")!;
+        Assert.False(settings.PreserveHdrRecording);
+        settings.PreserveHdrRecording = true;
+        var restored = JsonSerializer.Deserialize<ClipsSettings>(JsonSerializer.Serialize(settings.Clone()))!;
+        restored.Normalize();
+        Assert.True(restored.PreserveHdrRecording);
     }
 
     [Fact]
@@ -182,6 +194,8 @@ public sealed class ClipsSettingsTests
         Assert.Equal(JsonSerializer.Serialize(settings), JsonSerializer.Serialize(loaded));
         Assert.False(Directory.Exists(folder));
         var clone = loaded.Clone();
+        Assert.False(loaded.RemindersEnabled);
+        Assert.False(clone.RemindersEnabled);
         clone.LengthSeconds = 30;
         Assert.Equal(300, loaded.LengthSeconds);
     }

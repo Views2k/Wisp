@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.IO;
 using Wisp.App;
 using Wisp.App.Tunes;
@@ -35,7 +36,8 @@ public sealed class TuneAssetContractTests
     {
         var bytes = Header();
         bytes[offset] ^= 1;
-        Assert.Throws<InvalidDataException>(() => TuneAssetCapture.ValidateHeader(bytes));
+        var error = Assert.Throws<TuneAssetValidationException>(() => TuneAssetCapture.ValidateHeader(bytes));
+        Assert.Equal(offset == 28 ? TuneAssetFailureCode.HeaderPageCount : TuneAssetFailureCode.HeaderFormat, error.FailureCode);
     }
 
     [Fact]
@@ -78,39 +80,140 @@ public sealed class TuneAssetContractTests
     }
 
     [Fact]
-    public void ArbitrarySchemaAndPlausibleSizedValuesCannotReplacePinnedMetadata()
+    public void ArbitrarySchemaIsRejectedButMutableRowsNoLongerRequireAWholeTableHash()
     {
         Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateSchema(TunePartId.Engine, "CREATE TABLE List_UpgradeEngine(Id INTEGER, Ordinal INTEGER, Level INTEGER)"));
         var rows = Enumerable.Range(0, 3017).Select(id => new TuneAssetRow(TunePartId.Engine, 1, id, 0, null)).ToArray();
-        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Engine, rows));
+        TuneAssetContract.ValidateRows(TunePartId.Engine, rows);
+        rows[0] = rows[0] with { Level = 1 };
+        TuneAssetContract.ValidateRows(TunePartId.Engine, rows);
+        TuneAssetContract.ValidateRows(TunePartId.Engine, [.. rows, new(TunePartId.Engine, 1, 3017, 2, null)]);
     }
 
     [Fact]
-    public void DescriptorChangesOnlyTheDeclaredAssetExpectations()
+    public void DescriptorRowCountsProvideASanityFloorWithoutPinningMutableLengthsPagesOrRows()
     {
         var rows = new[] { new TuneAssetRow(TunePartId.Engine, 1, 2, 3, null) };
         var parts = new Dictionary<TunePartId, NativeTuneCompatibilityLayout.PartExpectation>
         {
             [TunePartId.Engine] = new(1, TuneAssetContract.HashRows(TunePartId.Engine, rows))
         };
-        var asset = new NativeTuneCompatibilityLayout.AssetContract(1024, 2048, 1, parts);
+        var asset = new NativeTuneCompatibilityLayout.AssetContract(TuneAssetCapture.ExpectedLength,
+            TuneAssetCapture.ExpectedLength + 1024 * 1024, 15409, parts);
         TuneAssetContract.ValidateRows(TunePartId.Engine, rows, asset);
         Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Engine, rows));
-        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Engine,
-            [rows[0] with { Level = 4 }], asset));
+        TuneAssetContract.ValidateRows(TunePartId.Engine, [rows[0] with { Level = 4 }], asset);
         Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Brakes, [], asset));
-        var header = Header(1024);
-        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(28), 1);
+        var header = Header(TuneAssetCapture.MinimumLength);
         TuneAssetCapture.ValidateHeader(header, asset);
         header[18] = 2;
-        Assert.Throws<InvalidDataException>(() => TuneAssetCapture.ValidateHeader(header, asset));
-        Assert.Throws<InvalidDataException>(() => TuneAssetCapture.ValidateHeader(new byte[64], asset with { MinimumLength = 1 }));
-        TuneAssetCapture.ValidateStreamShape(0, 1024, 1024, 1024, 8, asset);
+        Assert.Throws<TuneAssetValidationException>(() => TuneAssetCapture.ValidateHeader(header, asset));
+        Assert.Throws<TuneAssetValidationException>(() => TuneAssetCapture.ValidateHeader(new byte[64], asset with { MinimumLength = 1 }));
+        TuneAssetCapture.ValidateStreamShape(0, 1024, TuneAssetCapture.MinimumLength, TuneAssetCapture.MinimumLength, 8192, asset);
         Assert.Throws<TuneAssetStreamValidationException>(() =>
             TuneAssetCapture.ValidateStreamShape(0, 1024, 1024, 1024, 8));
         Assert.Throws<TuneAssetStreamValidationException>(() => TuneAssetCapture.ValidateStreamShape(0, 1024,
             (uint)TuneAssetCapture.MaximumLength + 1024, (ulong)TuneAssetCapture.MaximumLength + 1024, 8,
             asset with { MaximumLength = int.MaxValue }));
+    }
+
+    [Theory]
+    [InlineData(TuneAssetCapture.MinimumLength, 1U)]
+    [InlineData(TuneAssetCapture.MinimumLength, 1024U)]
+    [InlineData(TuneAssetCapture.ExpectedLength, 15410U)]
+    [InlineData(TuneAssetCapture.MaximumLength, 65536U)]
+    public void MutablePageCountMustFitTheBoundedCopiedStream(int length, uint pageCount)
+    {
+        var bytes = Header(length);
+        BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(28), pageCount);
+        TuneAssetCapture.ValidateHeader(bytes);
+    }
+
+    [Theory]
+    [InlineData(0U)]
+    [InlineData(1025U)]
+    [InlineData(uint.MaxValue)]
+    public void ZeroOrOutOfStreamPageCountsAreRejectedWithNumericDetails(uint pageCount)
+    {
+        var bytes = Header(TuneAssetCapture.MinimumLength);
+        BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(28), pageCount);
+        var error = Assert.Throws<TuneAssetValidationException>(() => TuneAssetCapture.ValidateHeader(bytes));
+        Assert.Equal(TuneAssetFailureCode.HeaderPageCount, error.FailureCode);
+        Assert.Equal((ulong)bytes.Length, error.ActualSizeBytes);
+        Assert.Equal(TuneAssetCapture.MaximumLength, error.MaximumSizeBytes);
+        Assert.Equal(pageCount, error.ActualPageCount);
+    }
+
+    [Theory]
+    [InlineData(TuneAssetCapture.MinimumLength - 1024)]
+    [InlineData(TuneAssetCapture.MinimumLength + 1)]
+    [InlineData(TuneAssetCapture.MaximumLength + 1024)]
+    public void HeaderAndDecoderShareTheHardLengthBounds(int length)
+    {
+        var bytes = new byte[length];
+        var header = Assert.Throws<TuneAssetValidationException>(() => TuneAssetCapture.ValidateHeader(bytes));
+        var decode = Assert.Throws<TuneAssetValidationException>(() =>
+            TuneAssetCapture.Decode(bytes, [], [], TestContext.Current.CancellationToken));
+        Assert.Equal(TuneAssetFailureCode.HeaderLength, header.FailureCode);
+        Assert.Equal(TuneAssetFailureCode.DecodeLength, decode.FailureCode);
+        Assert.Equal((ulong)length, header.ActualSizeBytes);
+        Assert.Equal((ulong)length, decode.ActualSizeBytes);
+    }
+
+    [Theory]
+    [InlineData(31, null)]
+    [InlineData(32, 123U)]
+    public void InvalidHeaderLengthRetainsOnlyAnAvailablePageCount(int length, uint? pageCount)
+    {
+        var bytes = new byte[length];
+        if (pageCount.HasValue) BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(28), pageCount.Value);
+        var error = Assert.Throws<TuneAssetValidationException>(() => TuneAssetCapture.ValidateHeader(bytes));
+        Assert.Equal(TuneAssetFailureCode.HeaderLength, error.FailureCode);
+        Assert.Equal((ulong)length, error.ActualSizeBytes);
+        Assert.Equal(pageCount, error.ActualPageCount);
+    }
+
+    [Fact]
+    public void AtLeastHalfOfExpectedRowsAreRequiredAndIdentitiesStillMustBeUnique()
+    {
+        // The retained Motor projection has 33 rows: the minimum is 17, not 16.
+        var rows = Enumerable.Range(0, 17).Select(id => new TuneAssetRow(TunePartId.Motor, 1, id, 0, null)).ToArray();
+        TuneAssetContract.ValidateRows(TunePartId.Motor, rows);
+        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Motor, rows[..16]));
+        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Motor, [.. rows, rows[0]]));
+        rows[0] = rows[0] with { Kind = TunePartId.Engine };
+        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Motor, rows));
+    }
+
+    [Fact]
+    public void DescriptorFloorAndHardRowLimitStillApply()
+    {
+        var parts = new Dictionary<TunePartId, NativeTuneCompatibilityLayout.PartExpectation>
+        {
+            [TunePartId.Motor] = new(35, new string('0', 64))
+        };
+        var asset = new NativeTuneCompatibilityLayout.AssetContract(1024, 2048, 1, parts);
+        var rows = Enumerable.Range(0, 18).Select(id => new TuneAssetRow(TunePartId.Motor, 1, id, 0, null)).ToArray();
+        TuneAssetContract.ValidateRows(TunePartId.Motor, rows, asset);
+        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Motor, rows[..17], asset));
+        var excessive = Enumerable.Range(0, 250001).Select(id => new TuneAssetRow(TunePartId.Motor, 1, id, 0, null)).ToArray();
+        Assert.Throws<InvalidDataException>(() => TuneAssetContract.ValidateRows(TunePartId.Motor, excessive, asset));
+    }
+
+    [Fact]
+    public void MutableRowsDoNotMakeMissingOrInvalidSelectedCarPartsResolvable()
+    {
+        var parts = Enum.GetValues<TunePartId>().Select(kind => new TunePart(kind, 7, null)).ToImmutableArray();
+        var rows = parts.Select(part => new TuneAssetRow(part.Kind,
+            part.Kind is TunePartId.Transmission or TunePartId.Differential ? 77 : part.Kind == TunePartId.FrontAero ? 88 : 10,
+            part.InstalledId, 1, part.Kind == TunePartId.Drivetrain ? 77 : part.Kind == TunePartId.CarBody ? 88 : null)).ToArray();
+        Assert.All(new TuneAssetMetadata(rows).Resolve(10, parts), part => Assert.Equal(1, part.Level));
+        var missing = new TuneAssetMetadata(rows.Where(row => row.Kind != TunePartId.Engine)).Resolve(10, parts);
+        Assert.Null(Assert.Single(missing, part => part.Kind == TunePartId.Engine).Level);
+        var invalid = new TuneAssetMetadata(rows.Select(row => row.Kind == TunePartId.Brakes ? row with { Level = 101 } : row))
+            .Resolve(10, parts);
+        Assert.Null(Assert.Single(invalid, part => part.Kind == TunePartId.Brakes).Level);
+        Assert.All(new TuneAssetMetadata(rows).Resolve(11, parts), part => Assert.Null(part.Level));
     }
 
     private static byte[] Header(int length = TuneAssetCapture.ExpectedLength)
@@ -120,7 +223,7 @@ public sealed class TuneAssetContractTests
         BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(16), 1024);
         bytes[18] = bytes[19] = 1;
         bytes[21] = 64; bytes[22] = bytes[23] = 32;
-        BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(28), 15409);
+        BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(28), Math.Min(15409U, (uint)(length / 1024)));
         BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(44), 4);
         BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(56), 1);
         return bytes;

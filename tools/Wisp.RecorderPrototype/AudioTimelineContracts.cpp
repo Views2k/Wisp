@@ -26,9 +26,9 @@ namespace recorder::audio
         try
         {
             std::uint64_t allowance = 0, time = 0;
-            test(TimelineAllowance(10000000, allowance) && allowance == 212);
-            test(TimelineAllowance(3125000, allowance) && allowance == 215);
-            test(TimelineAllowance(48000, allowance) && allowance == 420);
+            test(TimelineAllowance(10000000, allowance) && allowance == 213337);
+            test(TimelineAllowance(3125000, allowance) && allowance == 213340);
+            test(TimelineAllowance(48000, allowance) && allowance == 213545);
             test(!TimelineAllowance(47999, allowance) && allowance == 0);
             test(!TimelineAllowance(0, allowance));
             test(!TimelineAllowance((std::numeric_limits<std::uint64_t>::max)(), allowance));
@@ -75,11 +75,76 @@ namespace recorder::audio
                 packet = MakePacket(Epoch); packet.discontinuity = true;
                 test(timeline.Inspect(packet, slice) == TimelineResult::Feed && slice.firstFrameIndex == 0 && slice.audioEpochTime100ns == 0);
                 packet = MakePacket(Epoch + 100000); packet.discontinuity = true;
-                test(timeline.Inspect(packet, slice) == TimelineResult::Failed &&
-                    std::strcmp(timeline.Result().reason, "audio_timeline_source_discontinuity") == 0);
-                packet.discontinuity = false;
+                test(timeline.Inspect(packet, slice) == TimelineResult::Feed && slice.firstFrameIndex == 480 &&
+                    slice.frames == 480 && slice.audioEpochTime100ns == 0 && !timeline.Result().failed);
+                packet = MakePacket(Epoch + 200000);
+                test(timeline.Inspect(packet, slice) == TimelineResult::Feed && slice.firstFrameIndex == 960 &&
+                    timeline.Result().retainedFrames == 1440 && timeline.Result().generatedSilenceFrames == 0);
+            }
+            {
+                // A flagged half-second capture gap fills through bounded chunks
+                // without replacing the AAC epoch or accepting the packet twice.
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions));
+                test(timeline.Inspect(MakePacket(Epoch), slice) == TimelineResult::Feed);
+                auto packet = MakePacket(Epoch + 5100000); packet.discontinuity = true;
+                bool continuous = true;
+                std::uint64_t nextIndex = 480;
+                unsigned chunks = 0;
+                auto result = timeline.Inspect(packet, slice);
+                while (result == TimelineResult::NeedsSilence && chunks < 6)
+                {
+                    const auto needed = slice.silenceFramesNeeded;
+                    continuous = continuous && needed > 0 && needed <= 4800 &&
+                        timeline.Result().sourcePackets == 1 && timeline.Result().acceptedPackets == 1;
+                    continuous = timeline.AdvanceSilence(needed, slice) && continuous &&
+                        slice.generatedSilence && slice.firstFrameIndex == nextIndex && slice.audioEpochTime100ns == 0;
+                    nextIndex += slice.frames; ++chunks;
+                    result = timeline.Inspect(packet, slice);
+                }
+                test(continuous && chunks == 5 && result == TimelineResult::Feed &&
+                    slice.firstFrameIndex == 24480 && slice.frames == 480 && slice.samples == packet.samples.data());
+                test(timeline.Result().generatedSilenceFrames == 24000 && timeline.Result().retainedFrames == 24960 &&
+                    timeline.Result().sourcePackets == 2 && timeline.Result().acceptedPackets == 2 && !timeline.Result().failed);
+                packet = MakePacket(Epoch + 5200000);
+                test(timeline.Inspect(packet, slice) == TimelineResult::Feed && slice.firstFrameIndex == 24960 &&
+                    slice.audioEpochTime100ns == 0 && timeline.Result().lastResidual100ns == 0);
+            }
+            {
+                // A valid flagged overlap must not replay samples already sent
+                // to AAC. A subsequently covered packet is harmless as well.
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions));
+                test(timeline.Inspect(MakePacket(Epoch, 4800), slice) == TimelineResult::Feed);
+                auto packet = MakePacket(Epoch + 500000, 4800); packet.discontinuity = true;
+                test(timeline.Inspect(packet, slice) == TimelineResult::Feed && slice.firstFrameIndex == 4800 &&
+                    slice.skippedPrefixFrames == 2400 && slice.frames == 2400 && slice.samples == packet.samples.data() + 2400 * Channels);
+                packet = MakePacket(Epoch + 600000); packet.discontinuity = true;
+                test(timeline.Inspect(packet, slice) == TimelineResult::CoveredByTimeline &&
+                    slice.skippedPrefixFrames == 480 && slice.samples == nullptr && timeline.Result().retainedFrames == 7200);
+                packet = MakePacket(Epoch + 1500000); packet.discontinuity = true;
+                test(timeline.Inspect(packet, slice) == TimelineResult::Feed && slice.firstFrameIndex == 7200 &&
+                    slice.audioEpochTime100ns == 0 && timeline.Result().discardedFrames == 2880 && !timeline.Result().failed);
+            }
+            for (int invalid = 0; invalid < 6; ++invalid)
+            {
+                // The data-discontinuity flag never overrides an unusable clock.
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions) && timeline.Inspect(MakePacket(Epoch), slice) == TimelineResult::Feed);
+                auto packet = MakePacket(Epoch + 100000); packet.discontinuity = true;
+                if (invalid == 0) packet.timestampError = true;
+                if (invalid == 1) packet.timestampValid = false;
+                if (invalid == 2) packet.qpc100ns = 0;
+                if (invalid == 3) packet.qpc100ns = Epoch;
+                if (invalid == 4) packet.qpc100ns = Epoch - 1;
+                if (invalid == 5) packet.qpc100ns = maximum;
                 test(timeline.Inspect(packet, slice) == TimelineResult::Failed && slice.samples == nullptr &&
-                    std::strcmp(timeline.Result().reason, "audio_timeline_source_discontinuity") == 0);
+                    timeline.Result().retainedFrames == 480 && timeline.Result().sourcePackets == 1);
+                const auto* expected = invalid <= 2 ? "audio_timeline_timestamp_unavailable" :
+                    invalid <= 4 ? "audio_timeline_timestamp_not_increasing" : "audio_timeline_clock_overflow";
+                test(std::strcmp(timeline.Result().reason, expected) == 0);
+                test(timeline.Inspect(MakePacket(Epoch + 200000), slice) == TimelineResult::Failed &&
+                    std::strcmp(timeline.Result().reason, expected) == 0 && slice.samples == nullptr);
             }
             {
                 AudioTimeline timeline; FeedSlice slice;
@@ -119,17 +184,144 @@ namespace recorder::audio
                     const auto nominal = Epoch + index * 100000ull;
                     const auto observed = sign > 0 ? nominal + index * 100ull : nominal - index * 100ull;
                     const auto status = timeline.Inspect(MakePacket(observed), slice);
-                    test(status == (index < 3 ? TimelineResult::Feed : TimelineResult::Failed));
+                    test(status == TimelineResult::Feed);
                 }
                 test(timeline.Result().maximumAbsoluteResidual100ns == 300 && timeline.Result().residualChecks == 3 &&
-                    std::strcmp(timeline.Result().reason, "audio_timeline_clock_outside_policy") == 0);
+                    timeline.Result().retainedFrames == 1920 && !timeline.Result().failed);
             }
             {
                 AudioTimeline timeline; FeedSlice slice;
                 test(timeline.Initialize(FixtureOptions));
                 test(timeline.Inspect(MakePacket(Epoch), slice) == TimelineResult::Feed);
                 test(timeline.Inspect(MakePacket(Epoch + 100000 + 212), slice) == TimelineResult::Feed);
-                test(timeline.Inspect(MakePacket(Epoch + 200000 + 213), slice) == TimelineResult::Failed);
+                test(timeline.Inspect(MakePacket(Epoch + 200000 + 213), slice) == TimelineResult::Feed &&
+                    slice.firstFrameIndex == 960 && slice.audioEpochTime100ns == 0);
+                test(timeline.Inspect(MakePacket(Epoch + 300000), slice) == TimelineResult::Feed &&
+                    slice.firstFrameIndex == 1440 && timeline.Result().generatedSilenceFrames == 0);
+            }
+            {
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions));
+                test(timeline.Inspect(MakePacket(Epoch), slice) == TimelineResult::Feed);
+                const auto packet = MakePacket(Epoch + 100000 + 213338);
+                test(timeline.Inspect(packet, slice) == TimelineResult::NeedsSilence && slice.silenceFramesNeeded == 1025 &&
+                    timeline.Result().retainedFrames == 480 && !timeline.Result().failed);
+                test(timeline.AdvanceSilence(slice.silenceFramesNeeded, slice) && slice.generatedSilence &&
+                    slice.firstFrameIndex == 480 && slice.frames == 1025 && slice.samples == nullptr);
+                test(timeline.Inspect(packet, slice) == TimelineResult::Feed && slice.firstFrameIndex == 1505 &&
+                    slice.skippedPrefixFrames == 1 && slice.frames == 479 && slice.samples == packet.samples.data() + Channels);
+            }
+            for (int sign : { -1, 1 })
+            {
+                // Ten seconds with 1% source drift: corrections bound endpoint
+                // error instead of allowing residual to grow with recording length.
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions));
+                std::uint64_t nextIndex = 0, lastSourceEnd = 0;
+                bool bounded = true;
+                for (unsigned index = 0; index <= 1000 && bounded; ++index)
+                {
+                    const auto nominal = Epoch + index * 100000ull;
+                    auto packet = MakePacket(sign > 0 ? nominal + index * 1000ull : nominal - index * 1000ull);
+                    auto status = timeline.Inspect(packet, slice);
+                    unsigned corrections = 0;
+                    while (status == TimelineResult::NeedsSilence && corrections++ < 2)
+                    {
+                        bounded = timeline.AdvanceSilence(slice.silenceFramesNeeded, slice) &&
+                            slice.firstFrameIndex == nextIndex && slice.frames <= 4800;
+                        nextIndex += slice.frames;
+                        if (!bounded) break;
+                        status = timeline.Inspect(packet, slice);
+                    }
+                    if (status == TimelineResult::Feed)
+                    {
+                        bounded = bounded && slice.firstFrameIndex == nextIndex && !slice.generatedSilence;
+                        nextIndex += slice.frames;
+                    }
+                    else bounded = bounded && status == TimelineResult::CoveredByTimeline;
+                    std::uint64_t endpoint = 0;
+                    bounded = bounded && TimelineFrameTime(0, nextIndex, endpoint) && TimelineFrameTime(packet.qpc100ns, packet.frames, lastSourceEnd);
+                    const auto sourceEnd = lastSourceEnd - Epoch;
+                    const auto error = endpoint > sourceEnd ? endpoint - sourceEnd : sourceEnd - endpoint;
+                    bounded = bounded && error <= timeline.Result().policyAllowance100ns + 209 && !timeline.Result().failed;
+                }
+                test(bounded && nextIndex == timeline.Result().retainedFrames && timeline.Result().sourcePackets == 1001);
+                test(sign < 0 ? timeline.Result().discardedFrames > 0 : timeline.Result().generatedSilenceFrames > 0);
+            }
+            {
+                // An established track keeps its AAC index through an arbitrary
+                // paused wall-clock gap, silence fallback, and a late source return.
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions));
+                test(timeline.Inspect(MakePacket(Epoch, 4800), slice) == TimelineResult::Feed);
+                constexpr auto resumed = Epoch + 100000000;
+                test(timeline.Pause() && timeline.Resume(resumed));
+                test(timeline.AnchorResumedSilence(resumed, 1000000));
+                test(timeline.AdvanceSilence(4800, slice) && slice.firstFrameIndex == 4800 &&
+                    slice.audioEpochTime100ns == 0 && slice.sourceTime100ns == resumed);
+                auto covered = MakePacket(resumed); covered.discontinuity = true;
+                test(timeline.Inspect(covered, slice) == TimelineResult::CoveredByTimeline &&
+                    slice.skippedPrefixFrames == 480 && timeline.Result().retainedFrames == 9600);
+                auto returning = MakePacket(resumed + 500000, 4800);
+                test(timeline.Inspect(returning, slice) == TimelineResult::Feed && slice.firstFrameIndex == 9600 &&
+                    slice.skippedPrefixFrames == 2400 && slice.frames == 2400 && slice.audioEpochTime100ns == 0 &&
+                    slice.samples == returning.samples.data() + 2400 * Channels);
+                test(timeline.Result().retainedFrames == 12000 && timeline.Result().generatedSilenceFrames == 4800 &&
+                    !timeline.Result().failed);
+            }
+            for (const std::int64_t videoTime : { 900000ll, 1100000ll })
+            {
+                // Preserve a pre-pause 10ms AAC lead/lag while rebasing to video;
+                // neither paused wall time nor a second video rebase enters AAC.
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions) && timeline.Inspect(MakePacket(Epoch, 4800), slice) == TimelineResult::Feed);
+                constexpr auto resumed = Epoch + 100000000;
+                test(timeline.Pause() && timeline.Resume(resumed));
+                test(!timeline.AnchorResumedSilence(resumed - 1, videoTime));
+                test(timeline.AnchorResumedSilence(resumed, videoTime));
+                test(timeline.AdvanceSilence(480, slice) && slice.firstFrameIndex == 4800 &&
+                    slice.audioEpochTime100ns == 0 && slice.sourceTime100ns == resumed + 1000000 - videoTime);
+                std::uint64_t end = 0;
+                test(TimelineFrameTime(0, timeline.Result().retainedFrames, end) && end == 1100000);
+                const auto packetTime = resumed + end - videoTime;
+                test(timeline.Inspect(MakePacket(packetTime), slice) == TimelineResult::Feed &&
+                    slice.firstFrameIndex == 5280 && slice.skippedPrefixFrames == 0);
+            }
+            {
+                std::uint32_t frames = 0;
+                test(TimelineSilenceBudget(0, 0, 0, 4800, frames) && frames == 1024);
+                test(TimelineSilenceBudget(0, 1024, 0, 4800, frames) && frames == 0);
+                test(TimelineSilenceBudget(0, 0, 1000000000, 99999, frames) && frames == 4800);
+                test(TimelineSilenceBudget(0, 0, 1000000000, 17, frames) && frames == 17);
+                test(!TimelineSilenceBudget(-1, 0, 0, 4800, frames));
+                test(!TimelineSilenceBudget(0, 0, -1, 4800, frames));
+                test(!TimelineSilenceBudget(0, 0, static_cast<std::int64_t>(maximum), 4800, frames));
+                test(!TimelineSilenceBudget(0, (std::numeric_limits<std::uint64_t>::max)(), 0, 4800, frames));
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions) && timeline.Inspect(MakePacket(Epoch), slice) == TimelineResult::Feed);
+                test(!timeline.AdvanceSilence(4801, slice) && timeline.Result().failed);
+            }
+            {
+                // The budget bounds every generated endpoint, including rounds
+                // which need several AAC input chunks to catch up with video.
+                std::uint64_t retained = 0, end = 0;
+                bool bounded = true;
+                for (std::int64_t video = 0; video <= 100000000 && bounded; video += 166666)
+                {
+                    std::uint32_t frames = 0;
+                    bounded = TimelineSilenceBudget(0, retained, video, 4800, frames);
+                    retained += frames;
+                    bounded = bounded && frames <= 4800 && TimelineFrameTime(0, retained, end) &&
+                        end <= static_cast<std::uint64_t>(video) + 213334 &&
+                        end + 209 >= static_cast<std::uint64_t>(video) + 213334;
+                }
+                test(bounded);
+                AudioTimeline timeline; FeedSlice slice;
+                test(timeline.Initialize(FixtureOptions) && timeline.Inspect(MakePacket(Epoch), slice) == TimelineResult::Feed);
+                test(timeline.Pause() && timeline.Resume(maximum - 100000));
+                test(!timeline.AnchorResumedSilence(maximum, 0));
+                test(timeline.AnchorResumedSilence(maximum - 100000, 100000));
+                test(!timeline.AdvanceSilence(481, slice) && timeline.Result().failed);
             }
             for (int bad = 0; bad < 6; ++bad)
             {
@@ -170,8 +362,9 @@ namespace recorder::audio
                 test(timeline.Inspect(MakePacket(resumed + 10000000), slice) == TimelineResult::Feed &&
                     slice.firstFrameIndex == 1439 && slice.audioEpochTime100ns == 208);
                 packet = MakePacket(resumed + 10100000); packet.discontinuity = true;
-                test(timeline.Inspect(packet, slice) == TimelineResult::Failed);
-                test(!timeline.Pause() && !timeline.Resume(resumed + 20000000));
+                test(timeline.Inspect(packet, slice) == TimelineResult::Feed && slice.firstFrameIndex == 1919 &&
+                    slice.audioEpochTime100ns == 208 && !timeline.Result().failed);
+                test(timeline.Pause() && timeline.Resume(resumed + 20000000));
             }
             {
                 AudioTimeline timeline; FeedSlice slice;

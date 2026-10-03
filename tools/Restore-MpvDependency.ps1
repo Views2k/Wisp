@@ -63,6 +63,7 @@ function Receive-Archive([string]$Url, [string]$Destination, [long]$ExpectedByte
     $handler = [Net.Http.HttpClientHandler]::new(); $handler.AllowAutoRedirect = $false
     $client = [Net.Http.HttpClient]::new($handler)
     $deadline = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(120))
+    $failureReason = 'request-failed'
     try {
         $uri = [Uri]$Url
         for ($redirect = 0; $redirect -le 5; $redirect++) {
@@ -74,8 +75,14 @@ function Receive-Archive([string]$Url, [string]$Destination, [long]$ExpectedByte
                     if ($null -eq $response.Headers.Location) { throw 'mpv redirect is missing.' }
                     $uri = [Uri]::new($uri, $response.Headers.Location); continue
                 }
-                if (-not $response.IsSuccessStatusCode -or ($null -ne $response.Content.Headers.ContentLength -and
-                    $response.Content.Headers.ContentLength -ne $ExpectedBytes)) { throw 'mpv archive response is invalid.' }
+                if (-not $response.IsSuccessStatusCode) {
+                    $failureReason = 'http-' + [int]$response.StatusCode
+                    throw 'mpv archive response is invalid.'
+                }
+                if ($null -ne $response.Content.Headers.ContentLength -and $response.Content.Headers.ContentLength -ne $ExpectedBytes) {
+                    $failureReason = 'response-size-mismatch'
+                    throw 'mpv archive response is invalid.'
+                }
                 $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
                 $outputStream = $null
                 try {
@@ -93,14 +100,18 @@ function Receive-Archive([string]$Url, [string]$Destination, [long]$ExpectedByte
             } finally { $response.Dispose() }
         }
         throw 'mpv redirect limit exceeded.'
-    } catch { throw 'Pinned mpv download failed. Use a verified local archive or retry when the official artifact is reachable.' }
+    } catch {
+        if ($deadline.IsCancellationRequested) { $failureReason = 'timeout' }
+        throw ('Pinned mpv download failed ({0}). Use a verified local archive or retry when the pinned artifact is reachable.' -f $failureReason)
+    }
     finally { $deadline.Dispose(); $client.Dispose(); $handler.Dispose() }
 }
 try {
     $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
     if ($manifest.schemaVersion -ne 1 -or $manifest.archive.bytes -le 0 -or $manifest.archive.bytes -gt 128MB -or
         [string]$manifest.archive.sha256 -cnotmatch '^[a-f0-9]{64}$' -or
-        [string]$manifest.archive.url -cnotmatch '^https://github\.com/mpv-player/mpv/releases/download/[^/?#]+/[^/?#]+\.zip$' -or
+        ([string]$manifest.archive.url -cnotmatch '^https://github\.com/mpv-player/mpv/releases/download/[^/?#]+/[^/?#]+\.zip$' -and
+            [string]$manifest.archive.url -cne 'https://github.com/Views2k/Wisp/releases/download/playback-runtime-a1f50f2c3/libmpv-v0.41.0-dev-ga1f50f2c3-36640285359-x86_64-w64-mingw32-lgpl.zip') -or
         $manifest.binary.entry -cne 'libmpv-2.dll' -or $manifest.binary.bytes -le 0 -or $manifest.binary.bytes -gt 256MB -or
         [string]$manifest.binary.sha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'mpv dependency manifest is invalid.' }
     $cache = [IO.Path]::GetFullPath($CacheRoot)

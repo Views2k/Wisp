@@ -8,6 +8,7 @@
 
 #include <mfapi.h>
 #include <mferror.h>
+#include <mfreadwrite.h>
 #include <codecapi.h>
 #include <d3d10.h>
 #include <dxgi1_2.h>
@@ -317,7 +318,7 @@ namespace
         if (!exporting::ValidateClip(bad, format)) return false;
         bad = *clip; bad.configuration.h264SequenceHeader.reset();
         if (!exporting::ValidateClip(bad, format)) return false;
-        format.transfer = MFVideoTransFunc_sRGB;
+        format.transfer = MFVideoTransFunc_Unknown;
         if (!exporting::ValidateClip(*clip, format)) return false;
         format = FormatFor(); format.frameRate = 0;
         if (!exporting::ValidateClip(*clip, format)) return false;
@@ -325,6 +326,67 @@ namespace
         if (!exporting::ValidateClip(*clip, format)) return false;
         format = FormatFor(); format.chromaSiting = 0xffffffff;
         return exporting::ValidateClip(*clip, format) != nullptr;
+    }
+    UINT ColorMetadataContracts()
+    {
+        buffer::EncodedClipBuffer rolling({ 20000000, 1024 });
+        const BYTE data[]{ 0, 0, 0, 1, 9 };
+        if (rolling.BeginEpoch(1, data, sizeof(data)) != buffer::Result::Accepted ||
+            rolling.Append(1, 0, 333333, true, data, sizeof(data)) != buffer::Result::Accepted ||
+            rolling.Retain() != buffer::Result::Accepted) return 0;
+        const auto clip = rolling.Retained();
+        exporting::ClipDescription description;
+        description.h264SequenceHeader.assign(data, data + sizeof(data));
+        description.end100ns = 333333; description.videoPackets = 1;
+        UINT checks = 0;
+        const auto check = [&](const exporting::VideoFormat& format, bool accepted)
+        {
+            if ((exporting::ValidateClip(*clip, format) == nullptr) != accepted ||
+                (exporting::ValidateDescription(description, format) == nullptr) != accepted) return false;
+            checks += 2;
+            return true;
+        };
+        for (const bool lossless : { false, true })
+        {
+            auto format = FormatFor();
+            if (lossless)
+            {
+                format.bitrate = 0; format.profile = eAVEncH264VProfile_444;
+                format.matrix = MFVideoTransferMatrix_Identity; format.nominalRange = MFNominalRange_0_255;
+                format.chromaSiting = 0; format.encoding = exporting::VideoEncoding::H264LosslessGbr444;
+            }
+            for (const UINT transfer : { MFVideoTransFunc_sRGB, MFVideoTransFunc_709 })
+            {
+                format.transfer = transfer;
+                if (!check(format, true)) return 0;
+            }
+            for (const UINT transfer : { MFVideoTransFunc_Unknown, MFVideoTransFunc_2084 })
+            {
+                format.transfer = transfer;
+                if (!check(format, false)) return 0;
+            }
+        }
+        return checks;
+    }
+    HRESULT VerifyExportColorMetadata(const wchar_t* path, const exporting::VideoFormat& format) noexcept
+    {
+        ComPtr<IMFSourceReader> reader;
+        HRESULT hr = MFCreateSourceReaderFromURL(path, nullptr, &reader);
+        if (FAILED(hr)) return hr;
+        ComPtr<IMFMediaType> type;
+        hr = reader->GetNativeMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM), 0, &type);
+        if (FAILED(hr)) return hr;
+        const std::array<std::pair<GUID, UINT32>, 5> required{{
+            {MF_MT_MPEG2_PROFILE, format.profile}, {MF_MT_VIDEO_PRIMARIES, format.primaries},
+            {MF_MT_TRANSFER_FUNCTION, format.transfer}, {MF_MT_YUV_MATRIX, format.matrix},
+            {MF_MT_VIDEO_NOMINAL_RANGE, format.nominalRange} }};
+        for (const auto& attribute : required)
+        {
+            UINT32 value = 0;
+            if (FAILED(hr = type->GetUINT32(attribute.first, &value))) return hr;
+            if (value != attribute.second) return MF_E_INVALIDMEDIATYPE;
+        }
+        return S_OK;
     }
     UINT AudioCpuContracts()
     {
@@ -482,12 +544,14 @@ int wmain(int argc, wchar_t** argv)
         const UINT liveChecks = encoder::RunLiveContractTests();
         const UINT outputChecks = conversion::RunOutputContractTests();
         const UINT streamChecks = StreamCpuContracts();
-        const bool passed = CpuContracts() && encoderChecks > 0 && providerChecks > 0 && audioChecks > 0 && liveChecks > 0 && outputChecks > 0 && streamChecks > 0;
+        const UINT colorChecks = ColorMetadataContracts();
+        const bool passed = CpuContracts() && encoderChecks > 0 && providerChecks > 0 && audioChecks > 0 && liveChecks > 0 && outputChecks > 0 && streamChecks > 0 && colorChecks > 0;
         std::cout << "{\"mode\":\"mp4_export_cpu_contracts\",\"passed\":" << (passed ? 10 : 0)
             << ",\"encoderContracts\":" << encoderChecks << ",\"providerContracts\":" << providerChecks
             << ",\"audioMuxContracts\":" << audioChecks
             << ",\"liveSessionContracts\":" << liveChecks << ",\"conversionOutputContracts\":" << outputChecks
             << ",\"streamContracts\":" << streamChecks
+            << ",\"colorMetadataContracts\":" << colorChecks
             << ",\"graphicsInitialized\":false}\n";
         return passed ? 0 : 1;
     }
@@ -531,6 +595,7 @@ int wmain(int argc, wchar_t** argv)
     exporting::FileExportEvidence fileExport;
     HRESULT spoolClose = S_OK;
     HRESULT exportMfShutdown = S_OK;
+    HRESULT exportColorMetadata = E_PENDING;
     aac::Evidence audioEvidence;
     AudioCollector audioCollector;
     if (encoded.completed && (hdrMode ? collector.expectedPatches.size() : collector.expectedLuma.size()) == options.frames &&
@@ -552,6 +617,15 @@ int wmain(int argc, wchar_t** argv)
                     exported = recorder::exporting::WriteMp4(argv[2], *collector.rolling.Retained(), format, cancelled,
                         audioMode ? &audioCollector.track : nullptr);
                 else { exported.reason = "synthetic_audio_encoding_failed"; exported.hr = audioEvidence.hr; }
+                if (exported.completed)
+                {
+                    exportColorMetadata = VerifyExportColorMetadata(argv[2], format);
+                    if (FAILED(exportColorMetadata))
+                    {
+                        exported.completed = false; exported.reason = "export_color_metadata_mismatch";
+                        exported.hr = exportColorMetadata;
+                    }
+                }
                 exportMfShutdown = MFShutdown();
                 if (FAILED(exportMfShutdown))
                 {
@@ -573,6 +647,8 @@ int wmain(int argc, wchar_t** argv)
         << ",\"cursorCloseHresult\":" << static_cast<UINT>(fileExport.cursorCloseHr)
         << ",\"spoolCloseHresult\":" << static_cast<UINT>(spoolClose) << ",\"fileBytes\":" << fileExport.fileBytes
         << ",\"exportMfShutdownHresult\":" << static_cast<UINT>(exportMfShutdown)
+        << ",\"exportColorMetadataHresult\":" << static_cast<UINT>(exportColorMetadata)
+        << ",\"exportColorMetadataMatched\":" << SUCCEEDED(exportColorMetadata)
         << ",\"framesRequested\":" << options.frames << ",\"configurationNegotiated\":" << encoded.configurationNegotiated
         << ",\"requestedGopFrames\":" << encoded.requestedGopFrames << ",\"negotiatedGopFrames\":" << encoded.negotiatedGopFrames
         << ",\"observedGopIntervals\":" << encoded.observedGopIntervals << ",\"maximumObservedGopFrames\":" << encoded.maximumObservedGopFrames

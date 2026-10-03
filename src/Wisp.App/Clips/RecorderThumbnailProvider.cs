@@ -99,7 +99,7 @@ internal sealed class RecorderThumbnailProvider : IClipThumbnailProvider, IDispo
             if (!file.Exists || file.Length != clip.Media.FileBytes) throw new InvalidDataException("The saved clip has changed.");
             var modified = file.LastWriteTimeUtc.ToFileTimeUtc();
             var request = ClipThumbnailWire.Request(mediaPath, clip, modified);
-            var key = $"{mediaPath.ToUpperInvariant()}|{clip.Media.FileBytes}|{modified}|{clip.Media.LosslessVideo}";
+            var key = $"{mediaPath.ToUpperInvariant()}|{clip.Media.FileBytes}|{modified}|{clip.Media.LosslessVideo}|{clip.Media.HdrVideo}";
             return (Request: request, Key: key);
         }, token).ConfigureAwait(false);
         await DecoderGate.WaitAsync(token).ConfigureAwait(false);
@@ -112,7 +112,9 @@ internal sealed class RecorderThumbnailProvider : IClipThumbnailProvider, IDispo
                 var node = Find(metadata.Key);
                 if (node is not null) { _cache.Remove(node); _cache.AddFirst(node); return node.Value.Image; }
             }
-            var pixels = clip.Media.LosslessVideo
+            var pixels = clip.Media.HdrVideo
+                ? await HdrThumbnailDecoder.DecodeAsync(clip, mediaPath, token).ConfigureAwait(false)
+                : clip.Media.LosslessVideo
                 ? await LosslessThumbnailDecoder.DecodeAsync(clip, mediaPath, token).ConfigureAwait(false)
                 : await _decoder.DecodeAsync(metadata.Request, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();

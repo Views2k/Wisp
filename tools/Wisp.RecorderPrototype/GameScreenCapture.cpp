@@ -163,7 +163,13 @@ namespace recorder::capture
                     result.luid = description.AdapterLuid;
                     result.color = color.ColorSpace;
                     if (result.color == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)
-                        result.whiteLevel = ReadWhiteLevel(monitor, result.luid);
+                    {
+                        // Diagnostic metadata only. HDR exposure is determined
+                        // by absolute scRGB units, so an unavailable SDR-window
+                        // white query must not prevent gameplay recording.
+                        try { result.whiteLevel = ReadWhiteLevel(monitor, result.luid); }
+                        catch (const Failure&) { result.whiteLevel = 0; }
+                    }
                     return result;
                 }
             }
@@ -266,7 +272,7 @@ namespace recorder::capture
                 mode.ModeDesc.Scaling == duplicationDescription.ModeDesc.Scaling &&
                 mode.Rotation == duplicationDescription.Rotation, "duplication_mode_changed");
             const auto now = Clock::now();
-            // GetDesc1 and display-path/white queries retain the existing 250 ms
+            // GetDesc1 color queries retain the existing 250 ms
             // cadence. Factory/mode/actual-texture guards still bracket frames.
             if (!queryColor || (lastDisplayCheck != Clock::time_point::min() &&
                 now - lastDisplayCheck < std::chrono::milliseconds(250))) return;
@@ -277,8 +283,8 @@ namespace recorder::capture
             Require(current.Rotation == outputDescription.Rotation, "display_rotation_changed");
             Require(current.ColorSpace == display.color && current.BitsPerColor == outputDescription.BitsPerColor,
                 "display_color_changed");
-            if (display.color == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)
-                Require(ReadWhiteLevel(monitor, display.luid) == display.whiteLevel, "display_white_changed");
+            // Windows SDR-content white does not change absolute HDR scRGB
+            // units. Its adjustment must not discard the current clip buffer.
             lastDisplayCheck = now;
         }
         HRESULT Release() noexcept
@@ -378,7 +384,7 @@ namespace recorder::capture
             source_.encoding = ScreenSourceEncoding(value.display.color, source_.format);
             Require(source_.encoding != SourceEncoding::Unknown, "duplication_format_unsupported");
             source_.hdr = source_.encoding == SourceEncoding::LinearScRgbFp16;
-            source_.referenceWhiteQueried = source_.hdr;
+            source_.referenceWhiteQueried = source_.hdr && value.display.whiteLevel != 0;
             source_.referenceWhiteNits = source_.hdr ? static_cast<float>(value.display.whiteLevel) * 80.0f / 1000.0f : 0.0f;
             D3D11_TEXTURE2D_DESC texture{};
             texture.Width = source_.width; texture.Height = source_.height;

@@ -85,7 +85,8 @@ public sealed class TachDiagnosticExportTests
                 RendererOverwritten = 5,
                 NativeContexts = [new TachNativeContext(100, "fh6-steam-test", 1, "6.440.853.0", 1, 4, false, true)]
             };
-            await using var service = new DebugLogService(logs, () => Now, tachSnapshot: () => capture);
+            await using var service = new DebugLogService(logs, () => Now, tachSnapshot: () => capture,
+                componentReports: new ComponentDiagnosticHistory());
             Assert.True(service.TryEnable(Now + DebugLogService.EnableDuration));
             service.TryLogTachInterval(Interval(OldCaptureId, Now.AddMinutes(-1), 177777));
             service.TryLogTachInterval(Interval(CurrentCaptureId, Now, 123));
@@ -93,7 +94,13 @@ public sealed class TachDiagnosticExportTests
             Assert.True(await service.ExportAsync(destination, ApplicationVersionInfo.MachineVersion));
 
             using var archive = ZipFile.OpenRead(destination);
-            Assert.Equal(18, archive.Entries.Count);
+            AssertArchiveEntries(archive,
+                "tach-intervals.ndjson", "tach-manifest.json", "tach-report.txt",
+                "tach-input-startup.ndjson", "tach-input-recent.ndjson",
+                "tach-native-startup.ndjson", "tach-native-recent.ndjson",
+                "tach-needle-startup.ndjson", "tach-needle-recent.ndjson",
+                "tach-renderer-startup.ndjson", "tach-renderer-recent.ndjson",
+                "tach-lifecycle.ndjson", "tach-native-context.ndjson");
             var report = Read(archive, "tach-report.txt");
             Assert.Contains(CurrentCaptureId, report);
             Assert.DoesNotContain("177777", report);
@@ -153,11 +160,12 @@ public sealed class TachDiagnosticExportTests
             File.WriteAllText(Path.Combine(logs, "segment-retained.ndjson"),
                 Envelope("tach_interval", Interval(CurrentCaptureId, Now, 321)) + "\n" +
                 Envelope("tach_interval", Interval(OldCaptureId, Now.AddMinutes(-1), 177777)) + "\n");
-            await using var service = new DebugLogService(logs, () => Now, tachSnapshot: () => null);
+            await using var service = new DebugLogService(logs, () => Now, tachSnapshot: () => null,
+                componentReports: new ComponentDiagnosticHistory());
             var destination = Path.Combine(root, "capture.zip");
             Assert.True(await service.ExportAsync(destination, ApplicationVersionInfo.MachineVersion));
             using var archive = ZipFile.OpenRead(destination);
-            Assert.Equal(8, archive.Entries.Count);
+            AssertArchiveEntries(archive, "tach-intervals.ndjson", "tach-manifest.json", "tach-report.txt");
             Assert.Null(archive.GetEntry("tach-input-recent.ndjson"));
             Assert.Null(archive.GetEntry("tach-renderer-recent.ndjson"));
             var report = Read(archive, "tach-report.txt");
@@ -186,11 +194,12 @@ public sealed class TachDiagnosticExportTests
                 {"kind":"health","payload":{"timestamp_utc":"2026-09-08T12:00:00Z","session_id":"private-sentinel","native_status":"private-sentinel","extra":"private-sentinel"}}
                 {"kind":"tach_interval","payload":{"capture_id":"private-sentinel","interval_milliseconds":1000,"native_reads":[],"needles":[]}}
                 """);
-            await using var service = new DebugLogService(logs, () => Now, tachSnapshot: () => null);
+            await using var service = new DebugLogService(logs, () => Now, tachSnapshot: () => null,
+                componentReports: new ComponentDiagnosticHistory());
             var destination = Path.Combine(root, "capture.zip");
             Assert.True(await service.ExportAsync(destination, ApplicationVersionInfo.MachineVersion));
             using var archive = ZipFile.OpenRead(destination);
-            Assert.Equal(5, archive.Entries.Count);
+            AssertArchiveEntries(archive);
             Assert.All(archive.Entries, entry => Assert.DoesNotContain("private-sentinel", Read(archive, entry.FullName)));
             using var sample = JsonDocument.Parse(Read(archive, "samples.ndjson"));
             Assert.False(sample.RootElement.TryGetProperty("extra", out _));
@@ -665,6 +674,16 @@ public sealed class TachDiagnosticExportTests
         [], [], 0, [], [], 0, [], [], 0, [], 0);
 
     private static string Envelope(string kind, object payload) => JsonSerializer.Serialize(new { kind, payload }, JsonOptions);
+    private static void AssertArchiveEntries(ZipArchive archive, params string[] additionalEntries)
+    {
+        string[] baseline = ["component-reports.json", "crash-reports.json", "events.ndjson", "health-context.json",
+            "health.ndjson", "manifest.json", "samples.ndjson", "summary.txt"];
+        Assert.Equal(baseline.Concat(additionalEntries).OrderBy(name => name, StringComparer.Ordinal),
+            archive.Entries.Select(entry => entry.FullName).OrderBy(name => name, StringComparer.Ordinal));
+        using var components = JsonDocument.Parse(Read(archive, "component-reports.json"));
+        Assert.Empty(components.RootElement.EnumerateArray());
+    }
+
     private static string Read(ZipArchive archive, string name)
     {
         using var reader = new StreamReader(archive.GetEntry(name)!.Open());

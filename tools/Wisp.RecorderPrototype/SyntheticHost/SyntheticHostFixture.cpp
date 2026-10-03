@@ -33,6 +33,13 @@ namespace
     constexpr std::uint64_t GiB = 1024ull * 1024 * 1024;
     constexpr char Session[] = "11111111111141118111111111111111";
     constexpr char Clip[] = "22222222222242228222222222222222";
+#if defined(WISP_SYNTHETIC_HOST_HDR)
+    constexpr UINT OutputHeight = 1080;
+    constexpr bool HdrInput = true;
+#else
+    constexpr UINT OutputHeight = 2160;
+    constexpr bool HdrInput = false;
+#endif
     struct Failure { const char* reason; };
     void Need(bool value, const char* reason) { if (!value) throw Failure{ reason }; }
     [[noreturn]] void Kill(UINT code) noexcept { (void)TerminateProcess(GetCurrentProcess(), code); std::terminate(); }
@@ -310,6 +317,7 @@ namespace
                             {
                                 const std::size_t index = request == 3 ? 0 : request == 5 ? 1 : 2;
                                 Need(line.find("\"hasAudio\":true") != std::string::npos, "pause_fixture_audio_missing");
+                                if (HdrInput) Need(line.find("\"hdrVideo\":true") != std::string::npos, "pause_fixture_hdr_missing");
                                 Need(Number(line, "\"fileBytes\":") > 0, "pause_fixture_media_missing");
                                 pauseSaves[index] = true;
                                 pauseStarts[index] = Number(line, "\"start100ns\":");
@@ -367,6 +375,7 @@ int wmain(int argc, wchar_t** argv)
     { std::puts("--output <fresh checkout work directory> --mode lossless|compressed [--pause-resume | --pattern high-output|varying-8x8]"); return 1; }
     const bool pauseMode = argc == 6 && std::wcscmp(argv[5], L"--pause-resume") == 0;
     if (argc == 6 && !pauseMode) return 1;
+    if (HdrInput && !pauseMode) { std::puts("Generated HDR mode requires --pause-resume."); return 1; }
     const bool highOutput = argc == 7;
     if (highOutput && (std::wcscmp(argv[5], L"--pattern") != 0 ||
         (std::wcscmp(argv[6], L"high-output") != 0 && std::wcscmp(argv[6], L"varying-8x8") != 0) ||
@@ -406,7 +415,7 @@ int wmain(int argc, wchar_t** argv)
         host = std::thread([&] { hostExit = recorder::host::RunStdioRecorder(); done.store(true); });
         const std::wstring spool = output.path + L"\\.wisp-recorder-" + std::wstring(Session, Session + 32);
         const bool lossless = std::wcscmp(argv[4], L"lossless") == 0;
-        Command(input.write.value, Common(1, "config") + ",\"durationSeconds\":30,\"height\":2160,\"frameRate\":60,\"quality\":100,\"gameAudio\":true,\"systemAudio\":false,\"losslessVideo\":" +
+        Command(input.write.value, Common(1, "config") + ",\"durationSeconds\":30,\"height\":" + std::to_string(OutputHeight) + ",\"frameRate\":60,\"quality\":100,\"gameAudio\":true,\"systemAudio\":false,\"losslessVideo\":" +
             (lossless ? "true" : "false") + ",\"spoolDirectory\":" + JsonPath(spool) + '}');
         Command(input.write.value, Common(2, "start") + ",\"processId\":" + std::to_string(GetCurrentProcessId()) +
             ",\"window\":\"1\",\"creationFileTime\":\"" + std::to_string(Creation()) + "\"}");
@@ -512,6 +521,7 @@ int wmain(int argc, wchar_t** argv)
                     highOutput ? "high_output_eight_seconds_no_save" : "baseline_save_at_thirty_five_seconds") +
                 "\",\"stopTrigger\":\"" + stopTrigger + "\",\"selectedDurationSeconds\":30" +
                 ",\"frameVaryingDetailCellSide\":" + std::to_string(detailCellSize) +
+                ",\"generatedHdrInput\":" + (HdrInput ? "true" : "false") + ",\"outputHeight\":" + std::to_string(OutputHeight) +
                 ",\"failure\":\"" + failure + "\",\"hostExit\":" + std::to_string(hostExit) + ",\"elapsedMs\":" + std::to_string(GetTickCount64() - began) +
                 ",\"maximumObservedOutputBytes\":" + std::to_string(maximumBytes) + ",\"saveRequested\":" + (saveSent ? "true" : "false") +
                 ",\"outputAccounting\":\"held_file_get_file_size_ex\"" +

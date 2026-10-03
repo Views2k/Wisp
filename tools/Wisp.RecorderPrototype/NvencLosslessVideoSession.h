@@ -5,12 +5,14 @@
 
 namespace recorder::lossless
 {
+    enum class VideoMode { SdrLosslessGbr444, HdrMain10, HdrLosslessGbr444 };
     constexpr UINT SurfaceCount = 4;
     constexpr UINT MaximumPacketBytes = 64u * 1024 * 1024;
     struct Options
     {
         UINT operationTimeoutMs = 3000;
         LONGLONG epochTime100ns = 0;
+        VideoMode videoMode = VideoMode::SdrLosslessGbr444;
     };
     struct Evidence
     {
@@ -26,12 +28,15 @@ namespace recorder::lossless
     const char* ValidateConfiguration(const encoder::EncodeConfig&, const Options&) noexcept;
     bool ValidateFrameTime(UINT rate, LONGLONG epoch, UINT index, LONGLONG time, LONGLONG& duration) noexcept;
 
-    // Separate full-color encoder. Config bitrate/chromaSiting must be zero:
+    // SDR full-color mode: config bitrate/chromaSiting must be zero:
     // there is no lossy rate target or chroma subsampling. AYUV surfaces carry
     // Y=G,U=B,V=R from HdrFrameConverter::PreparedRgbAyuv, with identity VUI.
     // The existing FrameWriter callback receives AYUV here, not NV12. It may
     // only submit GPU work while the device multithread lock is held.
     // PacketObserver receives compressed MF wrappers, never converted pixels.
+    // HDR Main10 uses P010, explicit bitrate and left/centered4:2:0 chroma.
+    // HDR lossless uses a full-color PQ10 GBR atlas and a CUDA/D3D11 bridge;
+    // HEVC preserves the prepared10-bit codes, not original FP16 capture.
     //
     // Caller owns COM/MF, the same hardware device with multithread protection,
     // cancellation, worker thread and a process watchdog for blocked driver APIs.

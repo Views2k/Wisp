@@ -5,7 +5,8 @@ using System.Windows.Threading;
 namespace Wisp.App.Clips;
 
 internal sealed record LosslessPlaybackSnapshot(bool Ready = false, double Duration = 0, double Position = 0,
-    bool Buffering = false, bool Ended = false, string? Failure = null);
+    bool Buffering = false, bool Ended = false, string? Failure = null,
+    bool PreparingPlaybackCopy = false, double? PreparationProgress = null, bool IsPlaybackCopy = false);
 
 // mpv owns the playback/audio clock. All native calls, including destruction,
 // are serialized away from WPF. Native events are drained on that same worker.
@@ -14,27 +15,47 @@ internal sealed class LosslessClipPlayer
     private readonly object _sync = new();
     private readonly object _runtimeOperation = new();
     private readonly Dispatcher _dispatcher;
+    private readonly ClipPlaybackCache? _playbackCache;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly TaskCompletionSource _detached = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task _tail = Task.CompletedTask;
     private Task<bool>? _close;
     private LosslessMpvRuntime.Lease? _lease;
     private FileStream? _source;
+    private ClipPlaybackLease? _playbackCopy;
     private LosslessMpvNative? _native;
     private LosslessPlaybackSnapshot _snapshot = new();
     private bool _closed, _paused = true;
     private int _pollPending, _notifyPending;
+    private long _nextSeekId, _pendingSeekId;
     private string _stage = "created", _cleanupStatus = "not-requested";
     private double _volume;
     internal LosslessVideoHost Host { get; }
-    internal LosslessPlaybackSnapshot Snapshot => Volatile.Read(ref _snapshot);
+    internal LosslessPlaybackSnapshot Snapshot
+    {
+        get
+        {
+            var value = Volatile.Read(ref _snapshot);
+            // Accepted seeks are visible before their worker operation starts.
+            // An older worker snapshot cannot clear a newer pending request.
+            return !Volatile.Read(ref _closed) && value.Failure is null && Volatile.Read(ref _pendingSeekId) != 0
+                ? value with { Buffering = true, Ended = false }
+                : value;
+        }
+    }
     internal string DiagnosticStage => Volatile.Read(ref _stage);
     internal string CleanupStatus => Volatile.Read(ref _cleanupStatus);
+    internal LosslessPacketQueueDiagnostic? PacketQueueDiagnostic => _native?.PacketQueueDiagnostic;
+    internal LosslessDecoderDiagnostic? DecoderDiagnostic { get; private set; }
+    internal bool? PlaybackCopyCacheHit => _playbackCopy?.CacheHit;
+    internal FinalizedClipMedia? PlaybackCopyMedia => _playbackCopy?.Entry.Media;
+    internal string? PlaybackCopyPath => _playbackCopy?.Path;
     internal event EventHandler? Changed;
 
-    internal LosslessClipPlayer(LosslessVideoHost host, double volume)
+    internal LosslessClipPlayer(LosslessVideoHost host, double volume, ClipPlaybackCache? playbackCache = null)
     {
         Host = host; _dispatcher = host.Dispatcher; _volume = Math.Clamp(volume, 0, 1);
+        _playbackCache = playbackCache;
         host.Closed += HostClosed; host.Failed += HostFailed;
     }
 
@@ -47,22 +68,65 @@ internal sealed class LosslessClipPlayer
         _lease = await LosslessMpvRuntime.AcquireAsync(_runtimeOperation, token).ConfigureAwait(false);
         _source = LosslessVlcRuntime.HoldSource(clip, path);
         token.ThrowIfCancellationRequested();
+        var playbackClip = clip;
+        var playbackPath = path;
+        if (NeedsPlaybackCopy(clip.Media))
+        {
+            // Conversion has no decoder deadline. The selection
+            // lifetime still cancels and joins all work before another starts.
+            deadline.CancelAfter(Timeout.InfiniteTimeSpan);
+            SetStage("prepare-playback-copy");
+            Publish(Snapshot with { PreparingPlaybackCopy = true });
+            var progress = new SynchronousProgress(value => Publish(Snapshot with
+            {
+                PreparingPlaybackCopy = true,
+                PreparationProgress = double.IsFinite(value) ? Math.Clamp(value, 0, 100) : null
+            }));
+            _playbackCopy = await (_playbackCache ?? new ClipPlaybackCache(Path.GetDirectoryName(path)!))
+                .PrepareAsync(clip, path, _source, progress, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            playbackClip = _playbackCopy.Entry;
+            playbackPath = _playbackCopy.Path;
+            Publish(Snapshot with { PreparingPlaybackCopy = false, PreparationProgress = null, IsPlaybackCopy = true });
+            deadline.CancelAfter(TimeSpan.FromSeconds(15));
+        }
         SetStage("initialize-native-library");
         _native = new LosslessMpvNative();
-        _native.Initialize(handle);
+        _native.Initialize(handle, playbackClip.Media.HdrVideo);
         SetStage("prepare-paused-video");
-        _native.Run("loadfile", path, "replace");
+        _native.Run("loadfile", playbackPath, "replace");
         await PreparePausedAsync(token).ConfigureAwait(false);
         var duration = _native.Number("duration") ?? 0;
-        if (_native.Integer("video-params/w") != clip.Media.Width || _native.Integer("video-params/h") != clip.Media.Height ||
-            duration <= 0 || !double.IsFinite(duration) || Math.Abs(duration - clip.DurationSeconds) > 1 ||
+        DecoderDiagnostic = new(_native.Text("hwdec-current"), _native.Text("video-format"),
+            _native.Text("video-dec-params/pixelformat"), _native.Text("video-dec-params/gamma"),
+            _native.Text("video-dec-params/colormatrix"), _native.Text("video-dec-params/colorlevels"),
+            _native.Text("video-dec-params/primaries"), _native.Text("current-ao"), _native.Text("current-vo"));
+        if (_native.Integer("video-params/w") != playbackClip.Media.Width || _native.Integer("video-params/h") != playbackClip.Media.Height ||
+            duration <= 0 || !double.IsFinite(duration) || Math.Abs(duration - playbackClip.DurationSeconds) > 1 ||
             _native.Flag("seekable") != true || _native.Number("time-pos") is not (>= 0 and <= 0.034) ||
-            _native.Text("video-dec-params/pixelformat") != "gbrp")
+            !MatchesDecodedFormat(playbackClip.Media, _native.Text("video-format"), _native.Text("video-dec-params/pixelformat"),
+                _native.Text("video-dec-params/gamma"), _native.Text("video-dec-params/colormatrix"),
+                _native.Text("video-dec-params/colorlevels"), _native.Text("video-dec-params/primaries")))
             throw new InvalidDataException("The decoder metadata did not match the saved clip.");
         token.ThrowIfCancellationRequested();
         SetStage("player-ready");
-        Publish(new(true, duration));
+        Publish(new(true, duration, IsPlaybackCopy: _playbackCopy is not null));
     });
+
+    internal static bool NeedsPlaybackCopy(FinalizedClipMedia media) => media.HdrVideo && media.LosslessVideo;
+
+    internal static bool MatchesDecodedFormat(FinalizedClipMedia media, string? codec, string? pixelFormat,
+        string? gamma, string? matrix, string? range, string? primaries) => media.HdrVideo
+        ? codec == "hevc" && gamma == "pq" && primaries == "bt.2020" &&
+            (media.LosslessVideo ? IsHdr444PixelFormat(pixelFormat) && matrix == "rgb" && range == "full"
+                : IsHdr420PixelFormat(pixelFormat) && matrix == "bt.2020-ncl" && range == "limited")
+        : media.LosslessVideo && pixelFormat == "gbrp";
+
+    internal static bool IsHdr420PixelFormat(string? format) => OperatingSystem.IsWindows() && BitConverter.IsLittleEndian &&
+        (format is "yuv420p10" or "yuv420p10le");
+
+    internal static bool IsHdr444PixelFormat(string? format) => OperatingSystem.IsWindows() && BitConverter.IsLittleEndian &&
+        (format is "gbrp10" or "gbrp10le");
 
     private async Task PreparePausedAsync(CancellationToken token)
     {
@@ -105,19 +169,35 @@ internal sealed class LosslessClipPlayer
         return Task.CompletedTask;
     });
 
-    internal void Seek(double seconds) => Queue(async () =>
+    internal void Seek(double seconds)
     {
-        if (_native is null || !Snapshot.Ready || !double.IsFinite(seconds)) return;
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(15));
-        await SeekAsync(Math.Clamp(seconds, 0, Snapshot.Duration), deadline.Token).ConfigureAwait(false);
-        Poll();
-    });
+        lock (_sync)
+        {
+            var state = Snapshot;
+            if (_closed || !state.Ready || state.Failure is not null || !double.IsFinite(seconds)) return;
+            var seekId = ++_nextSeekId;
+            Volatile.Write(ref _pendingSeekId, seekId);
+            Queue(async () =>
+            {
+                try
+                {
+                    if (_native is null || !Snapshot.Ready) return;
+                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+                    deadline.CancelAfter(TimeSpan.FromSeconds(15));
+                    await SeekAsync(Math.Clamp(seconds, 0, Snapshot.Duration), deadline.Token).ConfigureAwait(false);
+                }
+                finally { Interlocked.CompareExchange(ref _pendingSeekId, 0, seekId); }
+                Poll();
+            });
+            Signal();
+        }
+    }
 
     private async Task SeekAsync(double seconds, CancellationToken token)
     {
         var player = _native!;
         SetStage("seeking");
+        Publish(Snapshot with { Buffering = true, Ended = false });
         player.DrainEvents();
         var previous = player.Restarts;
         player.Run("seek", seconds.ToString(CultureInfo.InvariantCulture), "absolute+exact");
@@ -136,7 +216,8 @@ internal sealed class LosslessClipPlayer
             {
                 var player = _native ?? throw new InvalidOperationException("The player is closed.");
                 completion.TrySetResult(new(player.Text("current-tracks/audio/codec"), player.Number("audio-pts"),
-                    player.Integer("audio-params/channel-count"), player.Number("volume"), player.Flag("mute")));
+                    player.Integer("audio-params/channel-count"), player.Number("volume"), player.Flag("mute"),
+                    player.Number("time-pos"), player.Number("avsync"), player.Flag("paused-for-cache"), player.Number("cache-buffering-state")));
             }
             catch (Exception error) { completion.TrySetException(error); }
             return Task.CompletedTask;
@@ -167,11 +248,18 @@ internal sealed class LosslessClipPlayer
         if (_native is null || !Snapshot.Ready) return;
         _native.DrainEvents();
         var ended = _native.Flag("eof-reached") == true;
-        if (ended) { _native.DrainEvents(); _paused = true; }
+        if (ended)
+        {
+            _native.DrainEvents();
+            lock (_sync)
+            {
+                if (_pendingSeekId == 0) _paused = true;
+            }
+        }
         Publish(Snapshot with
         {
             Position = ended ? Snapshot.Duration : Math.Clamp(_native.Number("time-pos") ?? Snapshot.Position, 0, Snapshot.Duration),
-            Buffering = !_paused && _native.Flag("paused-for-cache") == true,
+            Buffering = _native.Flag("paused-for-cache") == true,
             Ended = ended
         });
     }
@@ -188,6 +276,7 @@ internal sealed class LosslessClipPlayer
                 catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
                 catch (Exception error)
                 {
+                    DebugLogging.ComponentDiagnosticHistory.Current.RecordPlaybackFailure(error, DiagnosticStage);
                     var code = error is OperationCanceledException ? "prepare-timeout" : error is LosslessMpvException native ? native.Code : error.GetType().Name;
                     var action = LosslessMpvRuntime.CleanupPending
                         ? "Decoder cleanup is still pending. Restart Wisp before opening another lossless clip."
@@ -231,6 +320,7 @@ internal sealed class LosslessClipPlayer
                 try
                 {
                     _native?.Close(); _native = null;
+                    _playbackCopy?.Dispose(); _playbackCopy = null;
                     _detached.TrySetResult();
                     _source?.Dispose(); _source = null;
                     _lease?.Dispose(); _lease = null;
@@ -260,6 +350,12 @@ internal sealed class LosslessClipPlayer
             LosslessMpvRuntime.CleanupDelayed(_runtimeOperation); return false;
         }
     }
+
+    private sealed class SynchronousProgress(Action<double> report) : IProgress<double>
+    { public void Report(double value) => report(value); }
 }
 
-internal sealed record LosslessAudioStatistics(string? Codec, double? Position, long? Channels, double? Volume, bool? Mute);
+internal sealed record LosslessAudioStatistics(string? Codec, double? Position, long? Channels, double? Volume, bool? Mute,
+    double? VideoPosition = null, double? AudioVideoDifference = null, bool? PausedForCache = null, double? CacheBufferingState = null);
+internal sealed record LosslessDecoderDiagnostic(string? HardwareDecoder, string? Codec, string? PixelFormat,
+    string? Gamma, string? Matrix, string? Range, string? Primaries, string? AudioOutput, string? VideoOutput);

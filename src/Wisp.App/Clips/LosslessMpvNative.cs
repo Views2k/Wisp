@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Wisp.App.Clips;
 
@@ -24,6 +25,7 @@ internal sealed class LosslessMpvNative
     private readonly FreeNode _freeNode;
     private long _restarts;
     internal long Restarts => _restarts;
+    internal LosslessPacketQueueDiagnostic? PacketQueueDiagnostic { get; private set; }
 
     internal LosslessMpvNative()
     {
@@ -55,13 +57,69 @@ internal sealed class LosslessMpvNative
         return module; // Never unload native code while an outstanding owner may exist.
     }
 
-    internal void Initialize(IntPtr window)
+    internal void Initialize(IntPtr window, bool hdrVideo = false)
     {
         if (window == IntPtr.Zero) throw new ArgumentException("A video surface is required.", nameof(window));
         foreach (var (name, value) in Options) Check(_option(_handle, name, value), "option-" + name);
+        // With a Windows 10 manifest, auto selects PQ on an HDR desktop even
+        // for SDR video. Keep SDR at Windows' SDR white; HDR follows the display.
+        Check(_option(_handle, "d3d11-output-csp", hdrVideo ? "auto" : "srgb"), "option-d3d11-output-csp");
         Check(_option(_handle, "wid", window.ToInt64().ToString(CultureInfo.InvariantCulture)), "video-window");
         Check(_logs(_handle, "warn"), "request-logs");
         Check(_initialize(_handle), "initialize");
+    }
+
+    internal void InitializeHeadless(IEnumerable<(string Name, string Value)>? options = null)
+    {
+        foreach (var (name, value) in HeadlessOptions) Check(_option(_handle, name, value), "option-" + name);
+        if (options is not null)
+            foreach (var (name, value) in options) Check(_option(_handle, name, value), "option-" + name);
+        Check(_logs(_handle, "warn"), "request-logs");
+        Check(_initialize(_handle), "initialize");
+    }
+
+    private static readonly (string Name, string Value)[] HeadlessOptions =
+    [
+        ("config", "no"), ("load-scripts", "no"), ("ytdl", "no"), ("terminal", "no"),
+        ("input-terminal", "no"), ("input-default-bindings", "no"), ("input-vo-keyboard", "no"),
+        ("osc", "no"), ("osd-level", "0"), ("access-references", "no"),
+        ("sub-auto", "no"), ("audio-file-auto", "no"), ("vo", "null"), ("ao", "null"),
+        ("vid", "no"), ("aid", "no"), ("sid", "no"), ("force-window", "no"),
+        ("idle", "yes"), ("keep-open", "no"), ("hwdec", "no"), ("framedrop", "no"),
+        ("cache", "no"), ("demuxer-max-bytes", "33554432"), ("demuxer-max-back-bytes", "0"),
+        ("save-position-on-quit", "no"), ("resume-playback", "no"), ("stop-screensaver", "no")
+    ];
+
+    internal string[] ReadEncoderNames()
+    {
+        var node = default(Node);
+        try
+        {
+            Check(_getNode(_handle, "encoder-list", 6, ref node), "encoder-list");
+            if (node.Format != 7 || node.Pointer == IntPtr.Zero) throw new InvalidDataException("Missing encoder list.");
+            var array = Marshal.PtrToStructure<NodeList>(node.Pointer);
+            if (array.Count is < 0 or > 4096 || (array.Count != 0 && array.Values == IntPtr.Zero))
+                throw new InvalidDataException("Invalid encoder list.");
+            var names = new List<string>();
+            for (var i = 0; i < array.Count; i++)
+            {
+                var entry = Marshal.PtrToStructure<Node>(array.Values + i * 16);
+                if (entry.Format != 8 || entry.Pointer == IntPtr.Zero) throw new InvalidDataException("Invalid encoder entry.");
+                var map = Marshal.PtrToStructure<NodeList>(entry.Pointer);
+                if (map.Count is < 1 or > 16 || map.Values == IntPtr.Zero || map.Keys == IntPtr.Zero)
+                    throw new InvalidDataException("Invalid encoder fields.");
+                for (var field = 0; field < map.Count; field++)
+                {
+                    if (ReadText(Marshal.ReadIntPtr(map.Keys, field * 8), 64) != "driver") continue;
+                    var value = Marshal.PtrToStructure<Node>(map.Values + field * 16);
+                    if (value.Format != 1) throw new InvalidDataException("Invalid encoder name.");
+                    var name = ReadText(value.Pointer, 128);
+                    if (name is "h264_nvenc" or "hevc_nvenc" or "h264_mf" or "libopenh264" or "libx264" or "aac") names.Add(name);
+                }
+            }
+            return names.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        }
+        finally { _freeNode(ref node); }
     }
 
     internal static readonly (string Name, string Value)[] Options =
@@ -157,11 +215,99 @@ internal sealed class LosslessMpvNative
                 if (log.NumericLevel <= 20) throw new LosslessMpvException("decoder-error");
                 var message = ReadText(log.Text, 4096);
                 if (message.StartsWith("Too many packets in the demuxer packet queues:", StringComparison.Ordinal))
+                {
+                    try { PacketQueueDiagnostic = ReadPacketQueueDiagnostic(); }
+                    catch (Exception error) when (error is InvalidDataException or RegexMatchTimeoutException) { }
                     throw new LosslessMpvException("packet-queue-full");
+                }
             }
         }
         // A flood is a reported failure, not silently discarded decoder events.
         throw new LosslessMpvException("event-batch-limit");
+    }
+
+    private LosslessPacketQueueDiagnostic ReadPacketQueueDiagnostic()
+    {
+        var cache = new Dictionary<string, double>(StringComparer.Ordinal);
+        var queues = new List<LosslessPacketQueueStreamDiagnostic>(3);
+        // The player already failed. Read only the immediately queued bounded
+        // numeric stream summaries, never native path-bearing message text.
+        for (var count = 0; count < 4; count++)
+        {
+            var pending = Marshal.PtrToStructure<Event>(_wait(_handle, 0));
+            if (pending.Id == 0) break;
+            if (pending.Id != 2 || pending.Data == IntPtr.Zero) continue;
+            var summary = Marshal.PtrToStructure<Log>(pending.Data);
+            var match = Regex.Match(ReadText(summary.Text, 4096),
+                @"^\s*(video|audio|sub)/(\d{1,2}): (\d{1,10}) packets, (\d{1,19}) bytes(?: \((?:lazy|refreshing)\))*\s*$",
+                RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+            if (match.Success && int.TryParse(match.Groups[2].Value, CultureInfo.InvariantCulture, out var stream) &&
+                long.TryParse(match.Groups[3].Value, CultureInfo.InvariantCulture, out var packets) &&
+                long.TryParse(match.Groups[4].Value, CultureInfo.InvariantCulture, out var bytes))
+                queues.Add(new(match.Groups[1].Value, stream, packets, bytes));
+        }
+        var node = default(Node);
+        try
+        {
+            if (_getNode(_handle, "demuxer-cache-state", 6, ref node) >= 0) ReadMap(node, "", true);
+        }
+        catch (InvalidDataException) { cache.Clear(); }
+        finally { _freeNode(ref node); }
+        return new(Number("time-pos"), Number("audio-pts"), Number("avsync"),
+            Integer("frame-drop-count"), Integer("decoder-frame-drop-count"), cache, queues,
+            Flag("paused-for-cache"), Number("cache-buffering-state"));
+
+        void ReadMap(Node value, string prefix, bool allowStreams)
+        {
+            if (value.Format != 8 || value.Pointer == IntPtr.Zero) return;
+            var map = Marshal.PtrToStructure<NodeList>(value.Pointer);
+            if (map.Count is < 0 or > 32 || map.Count > 0 && (map.Values == IntPtr.Zero || map.Keys == IntPtr.Zero)) return;
+            for (var field = 0; field < map.Count; field++)
+            {
+                var key = ReadText(Marshal.ReadIntPtr(map.Keys, field * 8), 64);
+                var item = Marshal.PtrToStructure<Node>(map.Values + field * 16);
+                if (key == "ts-per-stream" && allowStreams && item.Format == 7 && item.Pointer != IntPtr.Zero)
+                {
+                    var streams = Marshal.PtrToStructure<NodeList>(item.Pointer);
+                    if (streams.Count is < 0 or > 3 || streams.Count > 0 && streams.Values == IntPtr.Zero) continue;
+                    for (var stream = 0; stream < streams.Count; stream++)
+                        ReadMap(Marshal.PtrToStructure<Node>(streams.Values + stream * 16),
+                            (stream == 0 ? "video/" : stream == 1 ? "audio/" : "subtitle/"), false);
+                }
+                else if (key is "fw-bytes" or "cache-end" or "reader-pts" or "cache-duration" or
+                    "raw-input-rate" or "total-bytes" or "eof" or "underrun" or "idle")
+                {
+                    var number = item.Format == 5 ? item.Number : item.Format == 3 ? item.Flag : item.Format == 4 ? item.Integer : double.NaN;
+                    if (double.IsFinite(number)) cache[prefix + key] = number;
+                }
+            }
+        }
+    }
+
+    internal (bool Ended, bool Shutdown) ReadExportEvents()
+    {
+        var ended = false; var shutdown = false;
+        for (var count = 0; count < 128; count++)
+        {
+            var item = Marshal.PtrToStructure<Event>(_wait(_handle, 0));
+            if (item.Id == 0) return (ended, shutdown);
+            if (item.Id == 1) shutdown = true;
+            if (item.Id == 24) throw new LosslessMpvException("export-event-overflow");
+            if (item.Id == 7)
+            {
+                if (item.Data == IntPtr.Zero || Marshal.ReadInt32(item.Data) != 0 || Marshal.ReadInt32(item.Data, 4) < 0)
+                    throw new LosslessMpvException("export-file-ended-with-error");
+                ended = true;
+            }
+            if (item.Id == 2 && item.Data != IntPtr.Zero)
+            {
+                var log = Marshal.PtrToStructure<Log>(item.Data);
+                if (log.NumericLevel <= 20) throw new LosslessMpvException("export-native-error");
+                if (ReadText(log.Text, 4096).StartsWith("Too many packets in the demuxer packet queues:", StringComparison.Ordinal))
+                    throw new LosslessMpvException("packet-queue-full");
+            }
+        }
+        throw new LosslessMpvException("export-event-batch-limit");
     }
     internal void Close()
     {
@@ -180,7 +326,7 @@ internal sealed class LosslessMpvNative
     private static void Check(int code, string action) { if (code < 0) throw new LosslessMpvException(action + "/" + code.ToString(CultureInfo.InvariantCulture)); }
     [StructLayout(LayoutKind.Explicit, Size = 16)]
     private struct Node
-    { [FieldOffset(0)] internal IntPtr Pointer; [FieldOffset(0)] internal long Integer; [FieldOffset(8)] internal int Format; }
+    { [FieldOffset(0)] internal IntPtr Pointer; [FieldOffset(0)] internal long Integer; [FieldOffset(0)] internal int Flag; [FieldOffset(0)] internal double Number; [FieldOffset(8)] internal int Format; }
     [StructLayout(LayoutKind.Sequential)] private struct NodeList { internal int Count; internal IntPtr Values, Keys; }
     [StructLayout(LayoutKind.Sequential)] private struct ByteArray { internal IntPtr Data; internal nuint Size; }
     [StructLayout(LayoutKind.Sequential)] private struct Event { internal int Id, Error; internal ulong Reply; internal IntPtr Data; }
@@ -208,3 +354,7 @@ internal sealed class LosslessMpvException(string code) : Exception("The lossles
 }
 
 internal sealed record LosslessDecodedFrame(int Width, int Height, byte[] Bgra);
+internal sealed record LosslessPacketQueueDiagnostic(double? Position, double? AudioPosition, double? AudioVideoDifference,
+    long? FrameDrops, long? DecoderFrameDrops, IReadOnlyDictionary<string, double> Cache,
+    IReadOnlyList<LosslessPacketQueueStreamDiagnostic> Queues, bool? PausedForCache, double? CacheBufferingState);
+internal sealed record LosslessPacketQueueStreamDiagnostic(string Stream, int StreamIndex, long Packets, long Bytes);

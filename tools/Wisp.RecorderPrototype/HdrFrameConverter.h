@@ -10,8 +10,9 @@ namespace recorder::hdr
 {
     constexpr UINT OutputWidth = 1920;
     constexpr UINT OutputHeight = 1080;
+    constexpr float AutomaticSdrReferenceNits = 300.0f;
     enum class SourceEncoding { LinearScRgbFp16, SrgbBgra8, Unknown };
-    enum class OutputEncoding { Bt709Nv12, PreparedRgbAyuv };
+    enum class OutputEncoding { Bt709Nv12, PreparedRgbAyuv, Bt2020PqP010, PreparedPqGbrPlanar16 };
 
     struct Evidence
     {
@@ -41,28 +42,45 @@ namespace recorder::hdr
         const conversion::OutputConfiguration& configuration, SourceEncoding encoding,
         OutputEncoding outputEncoding) noexcept;
 
-    // Prototype appearance policy: normalize linear scRGB by the explicitly
-    // supplied SDR-white level, preserve luminance through 0.75, then use the
-    // smooth shoulder T(Y)=0.75+0.25*(Y-0.75)/(Y-0.5). Value and slope match
-    // the identity at the knee; highlights approach 1. Reference white maps
-    // to 0.875, a chosen 12.5% linear headroom tradeoff. This is not a measured
-    // game paper-white/content peak or an exact HDR appearance match.
-    // Neutral-axis gamut compression follows the luminance transform.
-    // Nonfinite sampled RGB and nonpositive luminance map to black. No input
-    // invalid-pixel counts are collected by this converter.
+    // The Bt709Nv12 / PreparedRgbAyuv HDR-to-SDR policy uses absolute
+    // 80-nit scRGB linear units. The explicit PQ output policies are below.
+    // Normalize against 300 nits, convert D65 Rec.709 primaries to Rec.2020,
+    // apply per-channel Reinhard followed by gamma 2.4 display shaping,
+    // decode sRGB, convert back to Rec.709, clamp the SDR gamut and encode sRGB.
+    // This independently implements the math used by OBS 32.2.2 SDR display
+    // capture (its default SDR reference is 300 nits); no OBS source is copied.
+    // References: obsproject/obs-studio tag 32.2.2:
+    // plugins/win-capture/duplicator-monitor-capture.c (render),
+    // libobs/data/{opaque,color}.effect; wiki/High-precision-color-spaces-(including-HDR).
+    // referenceWhiteNits describes the source's Windows SDR-content white only.
+    // Zero means unavailable. It does not set HDR exposure: that setting controls SDR
+    // windows, not the absolute radiance of an HDR game. No user slider is needed.
+    // Nonfinite RGB maps to black; negative Rec.2020 light is clamped before
+    // division. HDR highlights retain ordered levels instead of a fixed knee.
+    // An SDR recording cannot reproduce a monitor's physical HDR peak luminance.
+    // No input invalid-pixel counts are collected by this converter.
     // SDR BGRA8 is explicitly sRGB: bilinear resize in source code values,
-    // followed by the piecewise sRGB EOTF and BT.709 OETF. No tone mapping or
-    // white scaling applies; referenceWhiteNits must be zero in SDR mode.
+    // preserving those display-encoded values. No tone mapping, transfer
+    // conversion or white scaling applies; referenceWhiteNits must be zero.
     // The entire source is fitted without cropping into the selected output,
     // accounting for output pixel aspect. Unused pixels are neutral black.
     //
-    // Output: exact BT.709 OETF, limited-range BT.709 matrix, progressive NV12
-    // with horizontally cosited / vertically centered chroma. Caller must
-    // declare these attributes to the encoder and validate its actual output.
+    // HDR-to-SDR output uses the piecewise sRGB display transfer after mapping. NV12
+    // uses the limited-range BT.709 matrix with horizontally cosited / vertically
+    // centered chroma. Existing SDR video BT.709 metadata remains unchanged;
+    // it does not require remapping captured sRGB codes through a camera OETF.
     // Explicit PreparedRgbAyuv instead preserves full-color CodeRgb output:
     // clamp to [0,1], quantize floor(value*255+0.5), pack Y=G,U=B,V=R,A=255.
     // This is eight-bit prepared SDR after scaling/appearance mapping, not
     // original HDR pixels. The encoder must use full-range identity GBR.
+    // Bt2020PqP010 instead retains absolute HDR light: scRGB 1.0=80nits,
+    // linear 709->2020, ST2084, limited 10-bit P010 with filtered 4:2:0 chroma.
+    // PreparedPqGbrPlanar16 performs the same primary/PQ conversion without
+    // subsampling, rounding PQ RGB to 10 bits and storing G,B,R in an R16_UINT
+    // W-by-3H atlas, with samples shifted left 6 for NVENC's planar 10-bit input.
+    // Both HDR modes clamp only outside 0..10000 nits and Rec.2020's RGB gamut;
+    // no SDR brightness normalization or highlight tone curve is applied.
+    // Codec losslessness preserves these prepared PQ10 pixels, not source FP16.
     //
     // Requires exclusive use of the recorder device's immediate context during
     // Submit. Mutates graphics state; does not preserve application rendering

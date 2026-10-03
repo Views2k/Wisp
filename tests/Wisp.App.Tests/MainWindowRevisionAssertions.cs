@@ -54,31 +54,54 @@ internal static class MainWindowRevisionAssertions
     {
         var notice = Element<Border>(window, "DashboardClipPanel");
         var previousContext = notice.DataContext;
+        var dismiss = new NoticeCommand();
+        var disable = new NoticeCommand();
         try
         {
-            notice.DataContext = new
-            {
-                HasDashboardNotice = true,
-                DashboardNoticeTitle = "Clips need attention",
-                DashboardNoticeText = "The clip could not be saved. Open Clips to review the retained files."
-            };
             foreach (var compact in new[] { false, true })
-            {
-                window.SetResizableDisplay(true);
-                window.SetDashboardDisplayMode(compact);
-                tabs.SelectedIndex = 0;
-                Arrange(surface, compact ? new Size(600, 420) : new Size(720, 440));
-                Assert.Equal(Visibility.Visible, notice.Visibility);
-                Assert.InRange(notice.ActualWidth, 1, 400);
-                var origin = notice.TranslatePoint(new Point(), surface);
-                Assert.InRange(origin.X, 0, surface.ActualWidth - notice.ActualWidth + 0.5);
-                Assert.InRange(origin.Y, 0, surface.ActualHeight - notice.ActualHeight + 0.5);
-                var content = Assert.IsType<StackPanel>(notice.Child);
-                var action = Assert.Single(content.Children.OfType<Button>());
-                action.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Assert.False(window.IsDashboardDisplayMode);
-                Assert.Equal("Clips", Assert.IsType<TabItem>(tabs.SelectedItem).Header);
-            }
+                foreach (var newClips in new[] { false, true })
+                {
+                    notice.DataContext = new
+                    {
+                        HasDashboardNotice = true,
+                        CanDisableDashboardNotice = newClips,
+                        DashboardNoticeTitle = newClips ? "New clips" : "Clips need attention",
+                        DashboardNoticeText = newClips ? "A new clip is ready to view." : "The clip could not be saved. Open Clips to review the retained files.",
+                        DismissDashboardNoticeCommand = dismiss,
+                        DisableDashboardNoticesCommand = disable
+                    };
+                    window.SetResizableDisplay(true);
+                    window.SetDashboardDisplayMode(compact);
+                    tabs.SelectedIndex = 0;
+                    Arrange(surface, compact ? new Size(600, 420) : new Size(720, 440));
+                    Assert.Equal(Visibility.Visible, notice.Visibility);
+                    Assert.InRange(notice.ActualWidth, 1, 400);
+                    var origin = notice.TranslatePoint(new Point(), surface);
+                    Assert.InRange(origin.X, 0, surface.ActualWidth - notice.ActualWidth + 0.5);
+                    Assert.InRange(origin.Y, 0, surface.ActualHeight - notice.ActualHeight + 0.5);
+                    var content = Assert.IsType<StackPanel>(notice.Child);
+                    var buttons = LogicalDescendants(content).OfType<Button>().ToArray();
+                    Assert.Equal(3, buttons.Length);
+                    var close = Assert.Single(buttons, button => ReferenceEquals(button.Command, dismiss));
+                    var dontShow = Assert.Single(buttons, button => ReferenceEquals(button.Command, disable));
+                    Assert.Equal(newClips ? Visibility.Visible : Visibility.Collapsed, dontShow.Visibility);
+                    foreach (var button in buttons.Where(button => button.Visibility == Visibility.Visible))
+                    {
+                        var position = button.TranslatePoint(new Point(), notice);
+                        Assert.InRange(button.ActualWidth, 1, notice.ActualWidth);
+                        Assert.InRange(position.X, 0, notice.ActualWidth - button.ActualWidth + 0.5);
+                        Assert.InRange(position.Y, 0, notice.ActualHeight - button.ActualHeight + 0.5);
+                    }
+                    var click = typeof(ButtonBase).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    click.Invoke(close, null);
+                    if (newClips) click.Invoke(dontShow, null);
+                    var action = Assert.Single(buttons, button => Equals(button.Content, "Review clips"));
+                    action.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.False(window.IsDashboardDisplayMode);
+                    Assert.Equal("Clips", Assert.IsType<TabItem>(tabs.SelectedItem).Header);
+                }
+            Assert.Equal(4, dismiss.Executions);
+            Assert.Equal(2, disable.Executions);
         }
         finally { notice.DataContext = previousContext; }
     }
@@ -304,6 +327,13 @@ internal static class MainWindowRevisionAssertions
     }
 
     private static T Element<T>(MainWindow window, string name) where T : class => Assert.IsType<T>(window.FindName(name));
+    private sealed class NoticeCommand : ICommand
+    {
+        public int Executions { get; private set; }
+        public event EventHandler? CanExecuteChanged { add { } remove { } }
+        public bool CanExecute(object? parameter) => true;
+        public void Execute(object? parameter) => Executions++;
+    }
     private static SolidColorBrush Brush(MainWindow window, string key) => Assert.IsType<SolidColorBrush>(window.Resources[key]);
     private static Color Color(string value) => (Color)ColorConverter.ConvertFromString(value);
     private static void Invoke(MainWindow window, string name, Type? owner = null)

@@ -15,11 +15,36 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.1",
+            "October 3, 2026",
+            "CLIPS AND TUNE RELIABILITY",
+            "More reliable Clips recording, playback and exports, stronger Tune reading and clearer error reports.",
+            true,
+            [
+                Group("Clips",
+                    "Fix the shutdown error that could leave clipping unavailable after closing Forza, even after the recorder had exited.",
+                    "Retry delayed recorder shutdown automatically, then resume when Forza is ready. Turning clipping off keeps it off during recovery.",
+                    "Open clips while Forza stays running. HDR lossless clips show preparation progress, then wait for you to press Play. Available prepared copies are reused on later opens.",
+                    "Keep the clip buffer through small audio-clock differences and recoverable audio glitches. Temporarily missing audio uses silence.",
+                    "Normal recording uses SDR H.264 by default, including on HDR screens. Optional 10-bit HDR recording is available on supported NVIDIA hardware.",
+                    "Export a compatible SDR H.264 copy of HDR or lossless clips for sharing, while keeping the original recording. Export errors include Copy details.",
+                    "Refresh the gallery after deleting clip files outside Wisp. Dismiss dashboard notices or turn off new-clip reminders while keeping recording errors visible."),
+                Group("Tune",
+                    "Read compatible game databases without requiring identical sizes or upgrade-table contents. Structural and current-car checks remain in place.",
+                    "Read the live car's tune instead of rejecting reads when stored setup data differs. If no single current car is available, drive in the open world and refresh.",
+                    "Copy details from a failed tune read when reporting a problem. Data verification failures have a separate message from an unsupported game update."),
+                Group("Lap review",
+                    "Fix a crash when pressing cursor arrow keys with no lap points available."),
+                Group("Diagnostics",
+                    "Keep bounded local error reports and recent performance history. Copy crash details is available on the next launch after a reported error.",
+                    "Export debug ZIP includes saved error reports and recent health information even when detailed logging is off. Delete local logs also clears crash reports.")
+            ]),
+        new(
             "2.6",
             "October 1, 2026",
             "TUNE, CLIPS AND LAP REVIEW",
             "Save a clip of your drive, keep a copy of your tune, and review where a lap gained or lost time.",
-            true,
+            false,
             [
                 Group("Clips",
                     "Save recent gameplay, watch it in Wisp and export an MP4 with the filename and location you choose. Previews wait for Play.",

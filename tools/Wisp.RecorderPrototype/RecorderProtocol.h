@@ -17,7 +17,7 @@ namespace recorder::protocol
         std::string session;
         std::int64_t request = 0;
         std::uint32_t durationSeconds = 0, height = 0, frameRate = 0, quality = 0;
-        bool gameAudio = false, borderlessAllowed = false, systemAudio = false, losslessVideo = false;
+        bool gameAudio = false, borderlessAllowed = false, systemAudio = false, losslessVideo = false, preserveHdrRecording = false;
         std::wstring spoolDirectory;
         std::uint32_t processId = 0;
         std::uint64_t window = 0, creationFileTime = 0;
@@ -34,7 +34,7 @@ namespace recorder::protocol
     enum class Reason
     {
         None, WaitingForGame, TargetExited, TargetChanged, WindowClosed, WindowMinimized,
-        WindowResized, FocusLost, FullscreenRequired, UnsupportedOs, UnsupportedGpu, LosslessEncoderUnsupported, UnsupportedFormat,
+        WindowResized, FocusLost, FullscreenRequired, UnsupportedOs, UnsupportedGpu, LosslessEncoderUnsupported, HdrEncoderUnsupported, UnsupportedFormat,
         CaptureFailed, EncoderFailed, AudioFailed, AudioCaptureFailed, AudioUnavailable,
         CaptureStale, CaptureReconnecting, EncoderReconnecting, AudioReconnecting, SchedulerLate,
         BufferFull, NoKeyframe, NotReady, SaveInProgress, StorageFailed, LosslessStorageLow, MuxFailed,
@@ -52,7 +52,7 @@ namespace recorder::protocol
         std::uint64_t fileBytes = 0;
         std::uint32_t width = 0, height = 0, frameRate = 0;
         std::int64_t start100ns = 0, end100ns = 0;
-        bool hasAudio = false, losslessVideo = false, sizeLimited = false;
+        bool hasAudio = false, losslessVideo = false, sizeLimited = false, hdrVideo = false;
     };
     struct Result
     {
