@@ -23,32 +23,7 @@ internal static class NativeTuneCapture
         var read = new NativeTuneRead(memory, cancellationToken);
         var module = memory.ModuleBase;
         var fields = pack.Fields;
-        var sourceVector = read.Bytes(module + pack.SourceVectorRva, 24);
-        var begin = BinaryPrimitives.ReadUInt64LittleEndian(sourceVector);
-        var end = BinaryPrimitives.ReadUInt64LittleEndian(sourceVector.AsSpan(8));
-        var capacity = BinaryPrimitives.ReadUInt64LittleEndian(sourceVector.AsSpan(16));
-        Require(begin <= end && end <= capacity && end - begin is > 0 and <= 1024 &&
-            begin % 8 == 0 && end % 8 == 0 && capacity % 8 == 0 &&
-            NativeHudProcessMemory.IsValidReadSpan(capacity, 8));
-        var sources = read.Bytes(begin, checked((int)(end - begin)));
-        var candidates = new List<(ulong Actor, ulong Provider)>();
-        for (var index = 0; index < sources.Length; index += 8)
-        {
-            var actor = BinaryPrimitives.ReadUInt64LittleEndian(sources.AsSpan(index));
-            Require(NativeHudProcessMemory.IsValidReadSpan(actor, 0x8000));
-            var provider = read.UInt64(actor + fields.SourceProvider);
-            if (!NativeHudProcessMemory.IsValidReadSpan(provider, 0xC000)) continue;
-            var table = read.UInt64(provider);
-            if (table != module + pack.LeadVtableRva) continue;
-            var valid = true;
-            foreach (var slot in pack.RequiredVtableSlots)
-                valid &= read.UInt64(table + slot.Key) == module + slot.Value;
-            if (valid && read.Bytes(provider + fields.LocalPlayerFlag, 1)[0] == 1 &&
-                read.Bytes(provider + fields.LocalPlayerProviderFlag, 1)[0] == 1)
-                candidates.Add((actor, provider));
-        }
-        Require(candidates.Count == 1);
-        var (source, selected) = candidates[0];
+        var (source, selected) = ReadLocalCar(memory, read);
         var ordinal = read.Int32(source + fields.SourceCarOrdinal);
         Require(ordinal > 0);
         var drive = read.Int32(selected + 0xB9C);
@@ -74,9 +49,10 @@ internal static class NativeTuneCapture
 
         var descriptor = read.Pointer(source + 0x2E0);
         Require(read.Int32(descriptor) == ordinal);
-        var otherDescriptor = read.Pointer(source + 0x2D8);
-        var copies = new[] { source + 0x71F4, otherDescriptor + 0x1A0, descriptor + 0x1A0 }
-            .Select(address => Words(read.Bytes(address, 0xB8))).ToImmutableArray();
+        _ = read.Pointer(source + 0x2D8);
+        // The current-car Tune model uses actor attributes + 0x6EE4. Descriptor
+        // payloads may retain sentinels; VerifyStable rechecks this active block.
+        var activeWords = Words(read.Bytes(source + 0x71F4, 0xB8));
 
         var global = read.Pointer(module + layout.Rva(0xA7DB9E8));
         TuneRange Range(ulong owner, ulong low, ulong high) => new(read.Single(owner + low), read.Single(owner + high));
@@ -100,28 +76,7 @@ internal static class NativeTuneCapture
             preference = read.Int32(locale + (ulong)profileIndex * 0x94 + 0x9C);
         }
         Require(preference is >= 0 and < 7);
-        var units = read.Pointer(module + layout.Rva(0xA862058));
-        Require(read.Bytes(module + layout.Rva(0xA861342), 1)[0] == 1);
-        var conversions = ImmutableDictionary.CreateBuilder<TuneQuantity, TuneConversion>();
-        foreach (var (quantity, category) in Quantities)
-        {
-            var unitOverride = read.Int32(units + 0x14D0 + category * 4);
-            ulong entry;
-            if (unitOverride != -1)
-            {
-                Require(unitOverride is >= 0 and < 256);
-                entry = read.Pointer(units + 0x1568) + (ulong)unitOverride * 20;
-            }
-            else entry = units + ((ulong)preference * 0x26 + category) * 20 + 8;
-            var unitId = read.Int32(entry + 4);
-            Require(unitId is >= 0 and < 128);
-            var conversion = module + layout.Rva(0xA861470) + (ulong)unitId * 40;
-            Require(read.Int32(conversion) == unitId);
-            var factor = read.Double(conversion + 0x10);
-            var callback = read.UInt64(conversion + 0x18);
-            Require(callback == 0 || callback >= module && callback < module + pack.ImageSize);
-            conversions.Add(quantity, new TuneConversion(unitId, factor, callback != 0));
-        }
+        var conversions = ReadUnitConversions(memory, read, layout, preference);
         var format = new TuneFormatConstants(read.Single(module + layout.Rva(0x64BA6E8)), read.Double(module + layout.Rva(0x6446D18)),
             read.Double(module + layout.Rva(0x65AC730)), read.Double(module + layout.Rva(0x64FBE80)), read.Double(module + layout.Rva(0x640EE78)));
         var indices = read.Pointer(module + layout.Rva(0x8F12A78));
@@ -151,15 +106,94 @@ internal static class NativeTuneCapture
             Drivetrain = (TuneDrivetrain)drive,
             ObservedGearEntryCount = gearCount,
             UnitPreference = preference,
-            NormalizedCopies = copies,
+            ActiveNormalizedWords = activeWords,
+            NormalizedCopies = [],
             Bounds = bounds,
-            Conversions = conversions.ToImmutable(),
+            Conversions = conversions,
             Format = format,
             CarRanges = carRanges.ToImmutable(),
             SpringScale = scale,
             PartLevelsResolved = resolved.All(part => part.Level.HasValue),
             Parts = resolved
         };
+    }
+
+    internal static (ulong Actor, ulong Provider) ReadLocalCar(INativeHudProcessMemory memory, NativeTuneRead read)
+    {
+        var pack = memory.CompatibilityPack;
+        var module = memory.ModuleBase;
+        var fields = pack.Fields;
+        var sourceVector = read.Bytes(module + pack.SourceVectorRva, 24);
+        var begin = BinaryPrimitives.ReadUInt64LittleEndian(sourceVector);
+        var end = BinaryPrimitives.ReadUInt64LittleEndian(sourceVector.AsSpan(8));
+        var capacity = BinaryPrimitives.ReadUInt64LittleEndian(sourceVector.AsSpan(16));
+        if (begin == 0 && end == 0 && capacity == 0)
+        {
+            read.VerifyStable();
+            throw new TuneCarSelectionException(0);
+        }
+        Require(begin <= end && end <= capacity && end - begin <= 1024 &&
+            begin % 8 == 0 && end % 8 == 0 && capacity % 8 == 0 &&
+            NativeHudProcessMemory.IsValidReadSpan(begin, 8) && NativeHudProcessMemory.IsValidReadSpan(capacity, 8));
+        var candidates = new List<(ulong Actor, ulong Provider)>();
+        var unverifiedProvider = false;
+        if (begin != end)
+        {
+            var sources = read.Bytes(begin, checked((int)(end - begin)));
+            for (var index = 0; index < sources.Length; index += 8)
+            {
+                var actor = BinaryPrimitives.ReadUInt64LittleEndian(sources.AsSpan(index));
+                Require(NativeHudProcessMemory.IsValidReadSpan(actor, 0x8000));
+                var provider = read.UInt64(actor + fields.SourceProvider);
+                if (!NativeHudProcessMemory.IsValidReadSpan(provider, 0xC000)) { unverifiedProvider = true; continue; }
+                var table = read.UInt64(provider);
+                if (table != module + pack.LeadVtableRva) continue;
+                var valid = true;
+                foreach (var slot in pack.RequiredVtableSlots)
+                    valid &= read.UInt64(table + slot.Key) == module + slot.Value;
+                unverifiedProvider |= !valid;
+                if (valid && read.Bytes(provider + fields.LocalPlayerFlag, 1)[0] == 1 &&
+                    read.Bytes(provider + fields.LocalPlayerProviderFlag, 1)[0] == 1)
+                    candidates.Add((actor, provider));
+            }
+        }
+        if (candidates.Count != 1)
+        {
+            // A bad provider is not evidence that the player is in a menu.
+            Require(candidates.Count != 0 || !unverifiedProvider);
+            read.VerifyStable();
+            throw new TuneCarSelectionException(candidates.Count);
+        }
+        return candidates[0];
+    }
+
+    internal static ImmutableDictionary<TuneQuantity, TuneConversion> ReadUnitConversions(
+        INativeHudProcessMemory memory, NativeTuneRead read, NativeTuneLayout layout, int preference)
+    {
+        var module = memory.ModuleBase;
+        var units = read.Pointer(module + layout.Rva(0xA862058));
+        Require(read.Bytes(module + layout.Rva(0xA861342), 1)[0] == 1);
+        var conversions = ImmutableDictionary.CreateBuilder<TuneQuantity, TuneConversion>();
+        foreach (var (quantity, category) in Quantities)
+        {
+            var unitOverride = read.Int32(units + 0x14D0 + category * 4);
+            ulong entry;
+            if (unitOverride != -1)
+            {
+                Require(unitOverride is >= 0 and < 256);
+                entry = read.Pointer(units + 0x1568) + (ulong)unitOverride * 20;
+            }
+            else entry = units + ((ulong)preference * 0x26 + category) * 20 + 8;
+            var unitId = read.Int32(entry + 4);
+            Require(unitId is >= 0 and < 128);
+            var conversion = module + layout.Rva(0xA861470) + (ulong)unitId * 40;
+            Require(read.Int32(conversion) == unitId);
+            var factor = read.Double(conversion + 0x10);
+            var callback = read.UInt64(conversion + 0x18);
+            Require(callback == 0 || callback >= module && callback < module + memory.CompatibilityPack.ImageSize);
+            conversions.Add(quantity, new TuneConversion(unitId, factor, callback != 0));
+        }
+        return conversions.ToImmutable();
     }
 
     private static ImmutableArray<uint> Words(byte[] bytes)
@@ -195,4 +229,18 @@ internal static class NativeTuneCapture
         (TunePartId.RearAntiroll, 7), (TunePartId.RearAero, 9), (TunePartId.Transmission, 0x1F),
         (TunePartId.Differential, 0x21), (TunePartId.FrontAero, 0x22)
     ];
+}
+
+internal enum TuneCarSelectionFailure { NoCar, AmbiguousCar }
+
+internal sealed class TuneCarSelectionException : IOException
+{
+    internal TuneCarSelectionException(int candidates) : base("The current car could not be selected.")
+    {
+        if (candidates is < 0 or 1 or > 128) throw new ArgumentOutOfRangeException(nameof(candidates));
+        CandidateCount = candidates;
+        Failure = candidates == 0 ? TuneCarSelectionFailure.NoCar : TuneCarSelectionFailure.AmbiguousCar;
+    }
+    internal int CandidateCount { get; }
+    internal TuneCarSelectionFailure Failure { get; }
 }

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 namespace Wisp.Core.Tunes;
 
@@ -72,6 +73,10 @@ public sealed record TuneDecodeInput
     public required TuneDrivetrain Drivetrain { get; init; }
     public required int ObservedGearEntryCount { get; init; }
     public required int UnitPreference { get; init; }
+    // Current actor payload, checked for temporal stability by the native reader.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<uint> ActiveNormalizedWords { get; init; }
+    // Historical capture inputs only; cannot be combined with the active source.
     public required ImmutableArray<ImmutableArray<uint>> NormalizedCopies { get; init; }
     public required TuneGlobalBounds Bounds { get; init; }
     public required ImmutableDictionary<TuneQuantity, TuneConversion> Conversions { get; init; }

@@ -66,6 +66,59 @@ public sealed class TuneDecoderTests
         }
     }
 
+    [Theory]
+    [InlineData("miata")]
+    [InlineData("editable")]
+    [InlineData("rwd")]
+    public void ActiveSourcePreservesEveryCapturedFieldWithoutFabricatingCopies(string fixture)
+    {
+        var historical = Fixture(fixture);
+        var active = historical with { ActiveNormalizedWords = historical.NormalizedCopies[0], NormalizedCopies = [] };
+        var expected = Decode(historical);
+        var actual = Decode(active);
+        Assert.True(expected.Fields.SequenceEqual(actual.Fields));
+        Assert.Equal(expected.Identity, actual.Identity);
+        Assert.True(expected.Parts.SequenceEqual(actual.Parts));
+        foreach (var input in new[] { historical, active })
+        {
+            var roundTrip = JsonSerializer.Deserialize<TuneDecodeInput>(JsonSerializer.Serialize(input, JsonOptions), JsonOptions)!;
+            Assert.True(expected.Fields.SequenceEqual(Decode(roundTrip).Fields));
+        }
+    }
+
+    [Fact]
+    public void ActiveSourceRequiresOneCompleteUnambiguousPayload()
+    {
+        var source = Fixture("miata");
+        var active = source with { ActiveNormalizedWords = source.NormalizedCopies[0], NormalizedCopies = [] };
+        Reject(active with { ActiveNormalizedWords = [] }, TuneDecodeFailure.InvalidStructure);
+        Reject(active with { ActiveNormalizedWords = active.ActiveNormalizedWords.RemoveAt(0) }, TuneDecodeFailure.InvalidStructure);
+        Reject(active with { ActiveNormalizedWords = active.ActiveNormalizedWords.Add(0) }, TuneDecodeFailure.InvalidStructure);
+        Reject(active with { NormalizedCopies = source.NormalizedCopies }, TuneDecodeFailure.InvalidStructure);
+        Reject(active with { ActiveNormalizedWords = default }, TuneDecodeFailure.InvalidStructure);
+        Reject(source with { NormalizedCopies = default }, TuneDecodeFailure.InvalidStructure);
+    }
+
+    [Fact]
+    public void ActiveSourceRetainsAdmissionCoherenceAndValueChecks()
+    {
+        var source = Fixture("miata");
+        var active = source with { ActiveNormalizedWords = source.NormalizedCopies[0], NormalizedCopies = [] };
+        Reject(active with { CaptureComplete = false }, TuneDecodeFailure.IncompleteCapture);
+        Reject(active with { Coherent = false }, TuneDecodeFailure.IncoherentCapture);
+        Reject(active with { GameVersion = "unknown" }, TuneDecodeFailure.UnsupportedBuild);
+        Reject(active with { ExecutableVerified = false }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(active with { ExecutableSha256 = new string('0', 64) }, TuneDecodeFailure.UnverifiedExecutable);
+        Reject(active with { LocalProviderCount = 2 }, TuneDecodeFailure.AmbiguousVehicle);
+        Reject(active with { Parts = active.Parts.RemoveAt(0) }, TuneDecodeFailure.InvalidParts);
+        Reject(active with { CarRanges = active.CarRanges.Remove(TuneFieldId.FrontSprings) }, TuneDecodeFailure.InvalidRange);
+        int index = TuneDecoder.Definitions.Single(definition => definition.Id == TuneFieldId.FrontSprings).Offset / 4;
+        Reject(active with { ActiveNormalizedWords = active.ActiveNormalizedWords.SetItem(index, BitConverter.SingleToUInt32Bits(float.NaN)) },
+            TuneDecodeFailure.InvalidValue);
+        Reject(active with { ActiveNormalizedWords = active.ActiveNormalizedWords.SetItem(index, BitConverter.SingleToUInt32Bits(1.1f)) },
+            TuneDecodeFailure.InvalidValue);
+    }
+
     [Fact]
     public void InvalidCaptureIdentityNeverProducesASnapshot()
     {

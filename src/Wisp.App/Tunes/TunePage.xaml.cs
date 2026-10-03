@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -55,6 +56,12 @@ public partial class TunePage : UserControl
     private void Current_Click(object sender, RoutedEventArgs e) => Model?.SetWorkspace(TuneWorkspace.Current);
     private void Saved_Click(object sender, RoutedEventArgs e) => Model?.SetWorkspace(TuneWorkspace.Saved);
     private void Compare_Click(object sender, RoutedEventArgs e) => Model?.SetWorkspace(TuneWorkspace.Compare);
+    private void CopyDetails_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is not { CanCopyFailureDetails: true } model) return;
+        try { Clipboard.SetText(model.FailureDetails); model.ReportCopyCompleted(true); }
+        catch (ExternalException) { model.ReportCopyCompleted(false); }
+    }
     private void Dialog_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Escape) return;

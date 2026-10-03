@@ -32,6 +32,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     private Guid? _editingId, _openedSavedId;
     private string _status = "Start Forza to read the current tune.", _error = "", _openedName = "", _openedDescription = "";
     private string _dialogName = "", _dialogDescription = "", _dialogError = "";
+    private string _failureDetails = "", _copyDetailsStatus = "";
 
     public TuneViewModel(TuneStore store, Func<CancellationToken, Task<TuneCaptureResult>> capture,
         Func<TuneSnapshot, bool> isCurrent, Dispatcher dispatcher)
@@ -72,6 +73,10 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     public string Status => _status;
     public string Error => _error;
     public bool HasError => _error.Length != 0;
+    public string FailureDetails => _failureDetails;
+    public bool HasFailureDetails => _failureDetails.Length != 0 && (IsCurrentMode || IsCompareMode);
+    public bool CanCopyFailureDetails => HasFailureDetails && !_disposed && !_busy && !_refreshing && !_dialogOpen;
+    public string CopyDetailsStatus => _copyDetailsStatus;
     public bool HasSnapshot => IsCompareMode ? _a is not null || _b is not null : Displayed is not null;
     public bool IsDialogOpen => _dialogOpen;
     public bool IsDeleteDialog => _deleting;
@@ -162,6 +167,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         var selectedCurrentA = _a?.Id == _currentComparisonId;
         var selectedCurrentB = _b?.Id == _currentComparisonId;
         if (invalidateRefresh) CancelRefresh();
+        SetFailureDetails("");
         _currentValid = false;
         RefreshCurrentComparison();
         if (IsCurrentMode || IsCompareMode) _status = "The current car changed. Refresh to read its tune.";
@@ -190,11 +196,19 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
             var selectionUnchanged = selectionRevision == _comparisonSelectionRevision;
             RefreshCurrentComparison(selectA && selectionUnchanged, selectB && selectionUnchanged);
             _status = result.Snapshot is null ? result.Message : TunePresentation.CaptureStatus(result.Snapshot);
+            SetFailureDetails(result.Success || result.Status == TuneCaptureStatus.Cancelled ? "" : result.Details);
             NotifyView();
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception error) when (error is not OutOfMemoryException)
-        { if (revision == _refreshRevision) { _currentValid = false; RefreshCurrentComparison(); NotifyView(); SetError("Tune data could not be read. Refresh to try again."); } }
+        {
+            if (revision == _refreshRevision)
+            {
+                _currentValid = false; RefreshCurrentComparison(); NotifyView();
+                SetError("Tune data could not be read. Refresh to try again.");
+                SetFailureDetails(TuneCaptureDetails.Create(TuneCaptureStage.ReadTune, exception: error));
+            }
+        }
         finally
         {
             if (ReferenceEquals(_refreshCancellation, cancellation)) { _refreshCancellation = null; _refreshing = false; NotifyCommands(); }
@@ -431,7 +445,27 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         RebuildRows(); NotifyCommands();
     }
 
-    private void CancelRefresh() { _refreshRevision++; _refreshCancellation?.Cancel(); _refreshCancellation = null; _refreshing = false; }
+    public void ReportCopyCompleted(bool copied)
+    {
+        if (!CanCopyFailureDetails) return;
+        _copyDetailsStatus = copied
+            ? "Details copied. You can include them when reporting this problem."
+            : "The clipboard is busy. Try copying the details again.";
+        Changed(nameof(CopyDetailsStatus));
+    }
+
+    private void SetFailureDetails(string details)
+    {
+        _failureDetails = details; _copyDetailsStatus = "";
+        Changed(nameof(FailureDetails)); Changed(nameof(HasFailureDetails));
+        Changed(nameof(CanCopyFailureDetails)); Changed(nameof(CopyDetailsStatus));
+    }
+
+    private void CancelRefresh()
+    {
+        _refreshRevision++; _refreshCancellation?.Cancel(); _refreshCancellation = null; _refreshing = false;
+        SetFailureDetails("");
+    }
     private void SetError(string error) { _error = error; Changed(nameof(Error)); Changed(nameof(HasError)); }
     private void DialogFail(string error) { _dialogError = error; Changed(nameof(DialogError)); }
     private TuneCommand Command(Func<Task> action, Func<bool> canExecute)
@@ -440,7 +474,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     }
     private void NotifyCommands()
     {
-        foreach (var property in new[] { nameof(CanBrowse), nameof(CanSave), nameof(IsBusy), nameof(CanEditDialog), nameof(IsRefreshing) }) Changed(property);
+        foreach (var property in new[] { nameof(CanBrowse), nameof(CanSave), nameof(IsBusy), nameof(CanEditDialog), nameof(IsRefreshing), nameof(CanCopyFailureDetails) }) Changed(property);
         foreach (var command in _commands) command.RaiseCanExecuteChanged();
     }
     private void Changed([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));

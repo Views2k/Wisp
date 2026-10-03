@@ -20,7 +20,8 @@ public sealed class NativeTuneLayoutTests
         Assert.Equal(4096 + 5001, memory.ReadBytes);
         Assert.Equal(4096, memory.LargestRead);
         memory.Code[^1] ^= 1;
-        Assert.Throws<TuneLayoutException>(() => NativeTuneLayout.VerifyGuards(memory, [memory.Guard], TestContext.Current.CancellationToken));
+        Assert.Equal(TuneLayoutFailure.CodeGuardHash, Assert.Throws<TuneLayoutException>(() =>
+            NativeTuneLayout.VerifyGuards(memory, [memory.Guard], TestContext.Current.CancellationToken)).Failure);
     }
 
     [Theory]
@@ -30,7 +31,8 @@ public sealed class NativeTuneLayoutTests
     {
         using var memory = new Memory(8);
         BinaryPrimitives.WriteUInt32LittleEndian(memory.Header.AsSpan(0x188 + 36), flags);
-        Assert.Throws<TuneLayoutException>(() => NativeTuneLayout.VerifyGuards(memory, [memory.Guard], TestContext.Current.CancellationToken));
+        Assert.Equal(TuneLayoutFailure.CodeGuardSection, Assert.Throws<TuneLayoutException>(() =>
+            NativeTuneLayout.VerifyGuards(memory, [memory.Guard], TestContext.Current.CancellationToken)).Failure);
         Assert.Equal(4096, memory.ReadBytes);
     }
 
@@ -71,12 +73,14 @@ public sealed class NativeTuneLayoutTests
         Assert.Equal(pack.Fingerprint, provenance.CompatibilityPackSha256);
         Assert.True(TuneVerificationProfiles.IsSupported(pack.GameVersion, pack.ExecutableSha256, provenance));
         memory.ChangedCode = true;
-        Assert.Throws<TuneLayoutException>(() => layout.Verify(memory, TestContext.Current.CancellationToken));
+        Assert.Equal(TuneLayoutFailure.CodeGuardHash, Assert.Throws<TuneLayoutException>(() =>
+            layout.Verify(memory, TestContext.Current.CancellationToken)).Failure);
         memory.ChangedCode = false;
         memory.Pack = DescriptorPack(revision: pack.Revision + 1);
         var reads = memory.ReadBytes;
         Assert.Equal(pack.Tune.Fingerprint, memory.Pack.Tune!.Fingerprint);
-        Assert.Throws<TuneLayoutException>(() => layout.Verify(memory, TestContext.Current.CancellationToken));
+        Assert.Equal(TuneLayoutFailure.DescriptorChanged, Assert.Throws<TuneLayoutException>(() =>
+            layout.Verify(memory, TestContext.Current.CancellationToken)).Failure);
         Assert.Equal(reads, memory.ReadBytes);
     }
 
@@ -84,7 +88,8 @@ public sealed class NativeTuneLayoutTests
     public void NewIdentityWithoutADescriptorDoesNotFallBackToOldAddresses()
     {
         using var memory = new Memory(8) { Pack = DescriptorPack(includeDescriptor: false) };
-        Assert.Throws<TuneLayoutException>(() => NativeTuneLayout.Resolve(memory, TestContext.Current.CancellationToken));
+        Assert.Equal(TuneLayoutFailure.UnsupportedIdentity, Assert.Throws<TuneLayoutException>(() =>
+            NativeTuneLayout.Resolve(memory, TestContext.Current.CancellationToken)).Failure);
         Assert.Equal(0, memory.ReadBytes);
     }
 

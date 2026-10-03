@@ -127,6 +127,10 @@
                 <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,8,0,0" />
                 <TextBlock Text="{Binding Status}" Style="{StaticResource TuneHint}" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite" />
                 <TextBlock Text="{Binding Error}" Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="{Binding HasError, Converter={StaticResource TuneVisibility}}" AutomationProperties.LiveSetting="Assertive" />
+                <StackPanel Visibility="{Binding HasFailureDetails, Converter={StaticResource TuneVisibility}}" Margin="0,8,0,0">
+                    <Button Content="Copy details" Click="CopyDetails_Click" IsEnabled="{Binding CanCopyFailureDetails}" HorizontalAlignment="Left" AutomationProperties.Name="Copy Tune read error details" />
+                    <TextBlock Text="{Binding CopyDetailsStatus}" Style="{StaticResource TuneHint}" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
                 <ListBox x:Name="TuneCategories" ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory}" DisplayMemberPath="Label" ItemContainerStyle="{StaticResource TuneListItem}" Background="Transparent" BorderThickness="0" Margin="0,16,0,10" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Tune category">
                     <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
                 </ListBox>
