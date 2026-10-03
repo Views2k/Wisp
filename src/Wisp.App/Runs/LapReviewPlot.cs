@@ -183,7 +183,7 @@ public sealed class LapReviewPlot : FrameworkElement
     private void Choose(Point p) { if (_hitPoints.Count == 0) return; var chosen = _hitPoints.MinBy(item => IsMap ? (item.Position - p).LengthSquared : Math.Abs(item.Position.X - p.X)); PointChosen?.Invoke(chosen.Index); }
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        base.OnKeyDown(e); if (Data?.Lap is not { } lap) return;
+        base.OnKeyDown(e); if (Data?.Lap is not { Points.Length: > 0 } lap) return;
         var next = e.Key switch { Key.Left or Key.Down => Data.Cursor - 1, Key.Right or Key.Up => Data.Cursor + 1, Key.Home => 0, Key.End => lap.Points.Length - 1, _ => -1 };
         if (next < 0 && e.Key is not Key.Left and not Key.Down) return;
         PointChosen?.Invoke(Math.Clamp(next, 0, lap.Points.Length - 1)); e.Handled = true;
