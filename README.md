@@ -5,7 +5,7 @@
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
   <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to the latest release.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.0/Wisp-Setup-2.6.0.zip"><strong>Download Wisp 2.6</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.zip"><strong>Download Wisp 2.6.1</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -17,7 +17,7 @@
 
 Save a clip of your drive, keep a copy of your tune, and review where a lap gained or lost time.
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6 release notes](docs/releases/Wisp-2.6.0-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md)
 
 ### Clips
 
@@ -237,8 +237,8 @@ An optional quick tour introduces Clips, Tune, live map, lap delta and lap
 review. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.6](https://github.com/Views2k/Wisp/releases/download/v2.6.0/Wisp-Setup-2.6.0.zip) ·
-[2.6 release notes](docs/releases/Wisp-2.6.0-release-notes.md) ·
+[Download Wisp 2.6.1](https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.zip) ·
+[2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Older interface screenshots retain their original version labels. The gameplay
@@ -365,8 +365,8 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open the [Wisp 2.6 release](https://github.com/Views2k/Wisp/releases/tag/v2.6.0).
-2. Download and extract [Wisp-Setup-2.6.0.zip](https://github.com/Views2k/Wisp/releases/download/v2.6.0/Wisp-Setup-2.6.0.zip).
+1. Open the [Wisp 2.6.1 release](https://github.com/Views2k/Wisp/releases/tag/v2.6.1).
+2. Download and extract [Wisp-Setup-2.6.1.zip](https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.zip).
 3. Keep the installer and its `.sha256` file together.
 4. Verify the installer checksum, then run the installer.
 5. Complete the required setup wizard on first launch.
@@ -489,7 +489,7 @@ To build the self-contained installer:
 
 ## Documentation
 
-- [Wisp 2.6 release notes](docs/releases/Wisp-2.6.0-release-notes.md)
+- [Wisp 2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md)
 
 - [Boost Gauge](docs/BOOST-GAUGE.md)
 - [Tire Temperature](docs/TIRE-TEMPERATURE.md)

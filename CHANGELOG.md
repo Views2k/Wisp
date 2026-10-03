@@ -2,6 +2,11 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.1 - 2026-10-02
+
+- Fix the recorder shutdown error that could leave clipping unavailable after closing Forza until Wisp restarted.
+- Retry delayed shutdown automatically and resume clipping when Forza is ready. Keep clipping off if it is disabled during recovery.
+
 ## 2.6.0 - 2026-10-01
 
 - Save recent gameplay with Clips, watch it in Wisp and export an MP4 with a chosen filename and location. Select 30 seconds to 5 minutes, 360p to 2160p, 30 or 60 fps, quality, audio scope, shortcuts and reminders. Supported NVIDIA encoders also offer lossless video.
