@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Wisp.App.DebugLogging;
+using Wisp.App.CrashDiagnostics;
 using Wisp.Core;
 using Wisp.Telemetry;
 using Wisp.Update;
@@ -30,7 +31,7 @@ public sealed partial class AppController : IAsyncDisposable
     private readonly TractionHookDetector _tractionHookDetector = new();
     private readonly TransmissionDisplayFilter _transmissionDisplayFilter = new();
     private readonly DisplayFrameRateCounter _displayFrameRateCounter = new();
-    private readonly DebugLogService _debugLog = new();
+    private readonly DebugLogService _debugLog;
     private readonly DebugHealthMonitor _debugHealthMonitor;
     private readonly ForzaFocusService _forzaFocusService = new();
     private readonly IStartupRegistrationService _startupRegistrationService;
@@ -111,7 +112,9 @@ public sealed partial class AppController : IAsyncDisposable
             recorderHelperPath: Path.Combine(AppContext.BaseDirectory, "Wisp.Recorder.exe"),
             clipLibraryDirectory: Path.Combine(settingsService.DataDirectory, "Clips"),
             tuneLibraryDirectory: Path.Combine(settingsService.DataDirectory, "Tunes"),
-            enableTuneCapture: true)
+            enableTuneCapture: true,
+            enableHealthContext: true,
+            crashReports: CrashReportStore.Current)
     {
     }
 
@@ -126,9 +129,12 @@ public sealed partial class AppController : IAsyncDisposable
         string? recorderHelperPath = null,
         string? clipLibraryDirectory = null,
         string? tuneLibraryDirectory = null,
-        bool enableTuneCapture = false)
+        bool enableTuneCapture = false,
+        bool enableHealthContext = false,
+        CrashReportStore? crashReports = null)
     {
         Settings = settings;
+        _debugLog = new DebugLogService(crashReports: crashReports);
         _nativeHudProcessService.ShiftCueEnabled = settings.AccelerationShiftCueEnabled;
         _saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
         _saveCompletedSetup = saveCompletedSetup ?? _saveSettings;
@@ -177,7 +183,13 @@ public sealed partial class AppController : IAsyncDisposable
                     _ = _dispatcher.BeginInvoke(DispatcherPriority.Background, callback);
                 }
             },
-            OnDebugHealthLoggingExpired);
+            OnDebugHealthLoggingExpired,
+            healthContext: enableHealthContext ? HealthContextRecorder.Current : null);
+        if (enableHealthContext)
+        {
+            InitializeHealthContext();
+            _debugHealthMonitor.StartMonitoring();
+        }
         _uiTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher)
         {
             Interval = IdleTimerInterval
@@ -296,11 +308,12 @@ public sealed partial class AppController : IAsyncDisposable
         else
         {
             SetTachDiagnosticsEnabled(false);
-            await _debugHealthMonitor.StopAsync().ConfigureAwait(true);
+            if (!_debugHealthMonitor.RetainsHealthContext)
+                await _debugHealthMonitor.StopAsync().ConfigureAwait(true);
             await _debugLog.DisableAsync().ConfigureAwait(true);
             Settings.DebugLoggingEnabled = false;
             Settings.DebugLoggingExpiresAtUtc = null;
-            ViewModel.UpdateDebugLogging(false, "Off — no debug files are created");
+            ViewModel.UpdateDebugLogging(false, "Detailed logging off");
         }
 
         SaveSettings();
@@ -334,6 +347,7 @@ public sealed partial class AppController : IAsyncDisposable
         if (deleted)
         {
             TachDiagnostics.Clear();
+            ViewModel.ClearCrashReportAfterDeletion();
             ViewModel.UpdateDebugLogging(
                 Settings.DebugLoggingEnabled,
                 Settings.DebugLoggingEnabled
@@ -2004,6 +2018,7 @@ public sealed partial class AppController : IAsyncDisposable
             return;
         }
 
+        DisposeHealthContext();
         _disposed = true;
         var tunesDisposed = DisposeTunesAsync();
         var clipsDisposed = DisposeClipsAsync();
@@ -2504,7 +2519,7 @@ public sealed partial class AppController : IAsyncDisposable
             SetTachDiagnosticsEnabled(false);
             Settings.DebugLoggingEnabled = false;
             Settings.DebugLoggingExpiresAtUtc = null;
-            ViewModel.UpdateDebugLogging(false, "Off — 24-hour logging period expired");
+            ViewModel.UpdateDebugLogging(false, "Detailed logging off — 24-hour period expired");
             SaveSettings();
             return;
         }
@@ -2713,7 +2728,7 @@ public sealed partial class AppController : IAsyncDisposable
     {
         if (!Settings.DebugLoggingEnabled || Settings.DebugLoggingExpiresAtUtc is not { } expiresAtUtc)
         {
-            ViewModel.UpdateDebugLogging(false, "Off — no debug files are created");
+            ViewModel.UpdateDebugLogging(false, "Detailed logging off");
             return;
         }
 
@@ -3071,7 +3086,7 @@ public sealed partial class AppController : IAsyncDisposable
         SetTachDiagnosticsEnabled(false);
         Settings.DebugLoggingEnabled = false;
         Settings.DebugLoggingExpiresAtUtc = null;
-        ViewModel.UpdateDebugLogging(false, "Off — 24-hour logging period expired");
+        ViewModel.UpdateDebugLogging(false, "Detailed logging off — 24-hour period expired");
         SaveSettings();
     }
 
@@ -3217,17 +3232,20 @@ public sealed partial class AppController : IAsyncDisposable
             _saveSettings(Settings);
             return true;
         }
-        catch (IOException)
+        catch (IOException error)
         {
             // The next user change or clean shutdown retries the local save.
+            HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.SettingsSaveFailed, error.HResult);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException error)
         {
             // The HUD remains usable if local settings are temporarily read-only.
+            HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.SettingsSaveFailed, error.HResult);
         }
-        catch (SecurityException)
+        catch (SecurityException error)
         {
             // Local policy can temporarily block the settings directory.
+            HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.SettingsSaveFailed, error.HResult);
         }
         return false;
     }

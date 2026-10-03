@@ -28,6 +28,7 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
     private readonly Func<long> _timestamp;
     private readonly TimeSpan _sampleInterval;
     private readonly Func<DebugFocus> _focus;
+    private readonly HealthContextRecorder? _healthContext;
     private readonly object _lifecycleGate = new();
     private DebugHealthUiContext? _uiContext;
     private CancellationTokenSource? _cancellation;
@@ -58,7 +59,8 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
         Func<DateTimeOffset>? utcNow = null,
         Func<long>? timestamp = null,
         TimeSpan? sampleInterval = null,
-        Func<DebugFocus>? focus = null)
+        Func<DebugFocus>? focus = null,
+        HealthContextRecorder? healthContext = null)
     {
         _receiver = receiver;
         _nativeHud = nativeHud;
@@ -70,11 +72,15 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
         _timestamp = timestamp ?? Stopwatch.GetTimestamp;
         _sampleInterval = sampleInterval ?? DefaultSampleInterval;
         _focus = focus ?? GetFocus;
+        _healthContext = healthContext;
         if (_sampleInterval <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(sampleInterval));
         }
     }
+
+    internal bool RetainsHealthContext => _healthContext is not null;
+    internal void StartMonitoring() => Start(DateTimeOffset.MaxValue);
 
     internal void PublishUiContext(DebugHealthUiContext context) =>
         Volatile.Write(ref _uiContext, context);
@@ -183,12 +189,16 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
             var nowUtc = _utcNow();
             if (nowUtc.UtcDateTime.Ticks >= Interlocked.Read(ref _expiresAtUtcTicks) || !_log.IsEnabled)
             {
-                TachDiagnostics.SetEnabled(false);
                 if (_log.ExpireIfNeeded(nowUtc))
                 {
+                    TachDiagnostics.SetEnabled(false);
                     TryPostExpiration();
                 }
-                return;
+                if (_healthContext is null)
+                {
+                    TachDiagnostics.SetEnabled(false);
+                    return;
+                }
             }
 
             var now = _timestamp();
@@ -228,7 +238,8 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                         ? BitConverter.Int64BitsToDouble(Interlocked.Read(ref _dispatcherDelayBits))
                         : null;
 
-                _log.TryLogHealthSample(new DebugHealthSample
+                var attachedBuild = _nativeHud.AttachedCompatibilityPack;
+                var sample = new DebugHealthSample
                 {
                     TimestampUtc = nowUtc,
                     SessionId = sessionId,
@@ -246,7 +257,8 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                     ListenerError = statistics.ListenerError is not null,
                     RaceOn = latest?.IsRaceOn ?? false,
                     GameTimestampAdvancing = gameTimestampAdvancing,
-                    Focus = _focus(),
+                    // The automatic ring needs no additional foreground/process discovery.
+                    Focus = _log.IsEnabled ? _focus() : DebugFocus.Unknown,
                     UiContextFresh = uiContextFresh,
                     OverlayExpectedVisible = context?.OverlayExpectedVisible ?? false,
                     NativeExpected = context?.NativeExpected ?? false,
@@ -261,6 +273,10 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                     NativeReadAttempts = _nativeHud.DiagnosticReadAttempts,
                     NativeReadFailures = _nativeHud.DiagnosticReadFailures,
                     NativeStatus = native.Status.ToString(),
+                    NativeGameVersion = HealthContextRecorder.SafeGameVersion(attachedBuild?.GameVersion),
+                    NativeGamePlatform = attachedBuild is null ? null : attachedBuild.StoreIdentity is null
+                        ? DiagnosticGamePlatform.Steam : DiagnosticGamePlatform.XboxStore,
+                    NativeCompatibilityRevision = attachedBuild?.Revision,
                     NativeAgeMilliseconds = AgeMilliseconds(now, native.NativeGaugeObservedTimestamp),
                     NativeVisibilityAgeMilliseconds = AgeMilliseconds(now, native.VisibilityObservedTimestamp),
                     GameplayVisibility = native.GameplayVisibility.ToString(),
@@ -270,7 +286,9 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                     Gen2Collections = GC.CollectionCount(2),
                     DroppedRecords = _log.DroppedRecords,
                     CollectorFailures = Interlocked.Read(ref _collectorFailures)
-                });
+                };
+                _healthContext?.RecordSample(sample);
+                _log.TryLogHealthSample(sample);
 
                 if (TachDiagnostics.CollectInterval(nowUtc) is { } tachInterval)
                     _log.TryLogTachInterval(tachInterval);
@@ -283,14 +301,16 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                 previousGameTimestamp = latest?.GameTimestampMilliseconds;
                 previousCpu = cpu;
             }
-            catch
+            catch (Exception error)
             {
                 Interlocked.Increment(ref _collectorFailures);
+                _healthContext?.RecordBreadcrumb(HealthEventCode.HealthCollectionFailed, error.HResult);
             }
 
             QueueDispatcherProbe(_timestamp(), generation);
 
-            await Task.Delay(_sampleInterval, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(_healthContext is not null && !_log.IsEnabled
+                ? HealthContextRecorder.SampleInterval : _sampleInterval, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -365,7 +385,7 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                 disposeCancellation = true;
                 restart = _restartRequested &&
                           Volatile.Read(ref _disposed) == 0 &&
-                          _log.IsEnabled;
+                          (_log.IsEnabled || _healthContext is not null);
                 _restartRequested = false;
             }
         }

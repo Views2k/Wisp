@@ -1,6 +1,7 @@
 namespace Wisp.App.DebugLogging;
 
 internal enum DebugFocus { Unknown, Game, Wisp, Other, None }
+internal enum DiagnosticGamePlatform { Steam, XboxStore }
 
 internal sealed record DebugHealthSample
 {
@@ -34,6 +35,9 @@ internal sealed record DebugHealthSample
     public long NativeReadAttempts { get; init; }
     public long NativeReadFailures { get; init; }
     public string NativeStatus { get; init; } = "Unknown";
+    public string? NativeGameVersion { get; init; }
+    public DiagnosticGamePlatform? NativeGamePlatform { get; init; }
+    public int? NativeCompatibilityRevision { get; init; }
     public double? NativeAgeMilliseconds { get; init; }
     public double? NativeVisibilityAgeMilliseconds { get; init; }
     public string GameplayVisibility { get; init; } = "Unknown";

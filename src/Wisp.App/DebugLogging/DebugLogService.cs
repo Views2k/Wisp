@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
+using Wisp.App.CrashDiagnostics;
 using Wisp.Core;
 
 namespace Wisp.App.DebugLogging;
@@ -128,6 +129,8 @@ internal sealed class DebugLogService : IAsyncDisposable
     private readonly string _rootDirectory;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly Func<TachCaptureExport?> _tachSnapshot;
+    private readonly CrashReportStore? _crashReports;
+    private readonly ComponentDiagnosticHistory _componentReports;
     private readonly long _maximumSegmentBytes;
     private readonly int _maximumSegments;
     private readonly TimeSpan _maximumAge;
@@ -152,7 +155,9 @@ internal sealed class DebugLogService : IAsyncDisposable
         long maximumSegmentBytes = DefaultMaximumSegmentBytes,
         int maximumSegments = DefaultMaximumSegments,
         TimeSpan? maximumAge = null,
-        Func<TachCaptureExport?>? tachSnapshot = null)
+        Func<TachCaptureExport?>? tachSnapshot = null,
+        CrashReportStore? crashReports = null,
+        ComponentDiagnosticHistory? componentReports = null)
     {
         if (maximumSegmentBytes < 256)
         {
@@ -168,6 +173,8 @@ internal sealed class DebugLogService : IAsyncDisposable
             : Path.GetFullPath(rootDirectory);
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _tachSnapshot = tachSnapshot ?? TachDiagnostics.Snapshot;
+        _crashReports = crashReports;
+        _componentReports = componentReports ?? ComponentDiagnosticHistory.Current;
         _maximumSegmentBytes = maximumSegmentBytes;
         _maximumSegments = maximumSegments;
         _maximumAge = maximumAge ?? DefaultMaximumAge;
@@ -187,7 +194,8 @@ internal sealed class DebugLogService : IAsyncDisposable
         get { lock (_stateGate) { return _expiresAtUtc; } }
     }
     public long DroppedRecords => Interlocked.Read(ref _droppedRecords);
-    public bool HasLocalLogs => SafeSegmentFiles().Length > 0;
+    public bool HasLocalLogs => SafeSegmentFiles().Length > 0 ||
+        _crashReports?.TryReadAll(out var reports) == true && reports.Length > 0;
 
     public bool TryEnable(DateTimeOffset expiresAtUtc)
     {
@@ -420,14 +428,34 @@ internal sealed class DebugLogService : IAsyncDisposable
                         WriteEntry(archive, "samples.ndjson", samples);
                         WriteEntry(archive, "events.ndjson", events);
                         WriteEntry(archive, "health.ndjson", health.Select(sample => JsonSerializer.Serialize(sample, JsonOptions)));
+                        var context = HealthContextRecorder.Current.CaptureForReport();
+                        WriteEntry(archive, "health-context.json", JsonSerializer.Serialize(context, JsonOptions));
+                        CrashReport[] crashReports = [];
+                        var crashReportsAvailable = _crashReports?.TryReadAll(out crashReports) == true;
+                        WriteEntry(archive, "crash-reports.json", JsonSerializer.Serialize(crashReports, JsonOptions));
+                        var componentReports = _componentReports.Snapshot();
+                        WriteEntry(archive, "component-reports.json", JsonSerializer.Serialize(componentReports, JsonOptions));
+                        // Current build provenance is needed even when no crash has occurred.
+                        var identity = DiagnosticBuildIdentity.Current;
                         var manifest = new
                         {
                             schema_version = 2,
                             created_at_utc = _utcNow(),
                             wisp_version = applicationVersion,
+                            current_build_version = identity.WispVersion,
+                            private_build_id = identity.PrivateBuildId,
+                            module_version_id = identity.ModuleVersionId,
+                            runtime_version = identity.RuntimeVersion,
+                            windows_version = identity.WindowsVersion,
+                            process_architecture = identity.ProcessArchitecture,
                             samples = samples.Count,
                             events = events.Count,
                             health_samples = health.Count,
+                            recent_context_samples = context.Samples.Length,
+                            recent_context_breadcrumbs = context.Breadcrumbs.Length,
+                            crash_reports = crashReports.Length,
+                            crash_reports_available = crashReportsAvailable,
+                            component_reports = componentReports.Length,
                             omitted_records = omittedRecords,
                             dropped_records = DroppedRecords,
                             game_fps = (double?)null,
@@ -441,7 +469,11 @@ internal sealed class DebugLogService : IAsyncDisposable
                             $"Wisp local debug export\nSamples: {samples.Count}\nEvents: {events.Count}\n" +
                             "Game FPS: not available in FH6 Data Out\n" +
                             $"Unreadable or unsupported records omitted: {omittedRecords}. Missing records limit diagnostic coverage.\n" +
-                            "This export contains only Wisp telemetry health metrics selected by the debug logging whitelist.\n\n" +
+                            "health-context.json contains bounded recent context even when detailed logging is off.\n" +
+                            "crash-reports.json contains sanitized local error history; fatal and continuing errors are distinguished.\n" +
+                            "component-reports.json contains recent authored Clips and Tune failure details from this session.\n" +
+                            "Composition callbacks and renderer submissions are not displayed-frame measurements.\n" +
+                            "This export contains only selected health metrics and sanitized error metadata.\n\n" +
                             DebugDiagnosticReport.Build(health, DroppedRecords));
                         if (capture is not null || tach.Count > 0)
                         {
@@ -499,7 +531,9 @@ internal sealed class DebugLogService : IAsyncDisposable
                 _currentSegmentPath = null;
                 _currentSegmentLength = 0;
 
-                return SafeSegmentFiles().Length == 0;
+                var crashesDeleted = _crashReports?.TryDeleteAll() ?? true;
+                if (crashesDeleted) _componentReports.Clear();
+                return SafeSegmentFiles().Length == 0 && crashesDeleted;
             }
             finally
             {
@@ -721,6 +755,9 @@ internal sealed class DebugLogService : IAsyncDisposable
                     {
                         SessionId = TachDiagnosticReport.SafeCaptureId(sample.SessionId) ?? string.Empty,
                         NativeStatus = SafeEnum<NativeAssistProviderStatus>(sample.NativeStatus),
+                        NativeGameVersion = HealthContextRecorder.SafeGameVersion(sample.NativeGameVersion),
+                        NativeGamePlatform = sample.NativeGamePlatform is { } platform && Enum.IsDefined(platform) ? platform : null,
+                        NativeCompatibilityRevision = sample.NativeCompatibilityRevision is > 0 ? sample.NativeCompatibilityRevision : null,
                         GameplayVisibility = SafeEnum<NativeGameplayVisibility>(sample.GameplayVisibility)
                     });
                     return true;

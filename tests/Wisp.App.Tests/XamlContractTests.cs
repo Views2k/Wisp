@@ -155,18 +155,33 @@ public sealed class XamlContractTests
         Assert.Equal(expected, navigation.Elements(Presentation + "ListBoxItem").Select(element => element.Attribute("AutomationProperties.Name")?.Value));
         var reminder = Assert.Single(document.Descendants(), element => element.Attribute(Xaml + "Name")?.Value == "DashboardClipPanel");
         Assert.Equal(typeof(ClipsViewModel), BindingSourceType("{Binding DashboardNoticeText}", document, reminder));
-        foreach (var property in new[] { "HasDashboardNotice", "DashboardNoticeTitle", "DashboardNoticeText" })
+        foreach (var property in new[] { "HasDashboardNotice", "DashboardNoticeTitle", "DashboardNoticeText", "DismissDashboardNoticeCommand", "DisableDashboardNoticesCommand" })
         {
             Assert.True(BindingPathResolves(typeof(ClipsViewModel), property));
             Assert.Contains(reminder.DescendantsAndSelf().Attributes(), attribute => attribute.Value == $"{{Binding {property}}}");
         }
         Assert.False(BindingPathResolves(typeof(ClipsViewModel), "DashboardNoticeTextTypo"));
+        Assert.True(BindingPathResolves(typeof(ClipsViewModel), "CanDisableDashboardNotice"));
+        var reminderOptOut = Assert.Single(reminder.Descendants(Presentation + "Button"),
+            element => element.Attribute("Command")?.Value == "{Binding DisableDashboardNoticesCommand}");
+        Assert.Equal("{Binding CanDisableDashboardNotice, Converter={StaticResource ParticleVisibility}}",
+            reminderOptOut.Attribute("Visibility")?.Value);
         Assert.Empty(reminder.Ancestors(Presentation + "ScrollViewer"));
         Assert.Equal("0", reminder.Attribute("Grid.Row")?.Value);
         Assert.Equal("400", reminder.Attribute("MaxWidth")?.Value);
         Assert.Null(reminder.Attribute("Width"));
         Assert.Equal("Right", reminder.Attribute("HorizontalAlignment")?.Value);
-        var dashboardGrid = Assert.IsType<XElement>(reminder.Parent);
+        var notices = Assert.IsType<XElement>(reminder.Parent);
+        Assert.Equal(Presentation + "StackPanel", notices.Name);
+        Assert.Equal("0", notices.Attribute("Grid.Row")?.Value);
+        var crashNotice = Assert.Single(notices.Elements(Presentation + "Border"),
+            element => element.Attribute(Xaml + "Name")?.Value == "DashboardCrashPanel");
+        Assert.Equal(typeof(DiagnosticsViewModel), BindingSourceType("{Binding CrashReportNotice}", document, crashNotice));
+        Assert.Single(crashNotice.Descendants(Presentation + "Button"),
+            button => button.Attribute("Click")?.Value == "CopyCrashDetails_Click");
+        Assert.Single(crashNotice.Descendants(Presentation + "Button"),
+            button => button.Attribute("Click")?.Value == "DismissCrashReport_Click");
+        var dashboardGrid = Assert.IsType<XElement>(notices.Parent);
         Assert.Equal(Presentation + "Grid", dashboardGrid.Name);
         Assert.Equal("DashboardTab", dashboardGrid.Parent?.Attribute(Xaml + "Name")?.Value);
         var dashboardScroll = Assert.Single(dashboardGrid.Elements(Presentation + "ScrollViewer"));

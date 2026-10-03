@@ -168,14 +168,34 @@
                         <TabItem x:Name="DashboardTab" Header="Dashboard">
                             <Grid>
                                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0">
+                                <Border x:Name="DashboardCrashPanel" Margin="0,0,0,10" Padding="14,10">
+                                    <Border.Style><Style TargetType="Border" BasedOn="{StaticResource CardStyle}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasCrashReport}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding CrashReportTitle}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding CrashReportNotice}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,8" AutomationProperties.LiveSetting="Polite"/>
+                                        <WrapPanel>
+                                            <Button Content="Copy details" Click="CopyCrashDetails_Click" Padding="12,5" Margin="0,0,8,4" AutomationProperties.Name="Copy Wisp error report details"/>
+                                            <Button Content="Dismiss" Click="DismissCrashReport_Click" Padding="12,5" Margin="0,0,0,4" AutomationProperties.Name="Dismiss Wisp error report"/>
+                                        </WrapPanel>
+                                        <TextBlock Text="{Binding CrashReportCopyStatus}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
+                                    </StackPanel>
+                                </Border>
                                 <Border x:Name="DashboardClipPanel" Grid.Row="0" MaxWidth="400" HorizontalAlignment="Right" Margin="0,0,0,10" Padding="14,10">
                                     <Border.Style><Style TargetType="Border" BasedOn="{StaticResource CardStyle}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasDashboardNotice}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
                                     <StackPanel>
-                                        <TextBlock Text="{Binding DashboardNoticeTitle}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Content="&#xD7;" Command="{Binding DismissDashboardNoticeCommand}" Width="28" Height="28" Padding="0" Margin="10,0,0,0" FontSize="18" ToolTip="Dismiss this notification" AutomationProperties.Name="Dismiss this Clips notification"/>
+                                            <TextBlock Text="{Binding DashboardNoticeTitle}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                        </DockPanel>
                                         <TextBlock Text="{Binding DashboardNoticeText}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,8" AutomationProperties.LiveSetting="Polite"/>
-                                        <Button Content="Review clips" Click="OpenClips_Click" HorizontalAlignment="Left" Padding="12,5" AutomationProperties.Name="Review clips and save status"/>
+                                        <WrapPanel>
+                                            <Button Content="Review clips" Click="OpenClips_Click" Padding="12,5" Margin="0,0,8,4" AutomationProperties.Name="Review clips and save status"/>
+                                            <Button Content="Don't show again" Command="{Binding DisableDashboardNoticesCommand}" Visibility="{Binding CanDisableDashboardNotice, Converter={StaticResource ParticleVisibility}}" Padding="12,5" Margin="0,0,0,4" ToolTip="Turn new-clip reminders back on in Clips recording settings." AutomationProperties.Name="Turn off new clip reminders"/>
+                                        </WrapPanel>
                                     </StackPanel>
                                 </Border>
+                                </StackPanel>
                             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
                                 <ScrollViewer.Resources>
                                     <Style TargetType="ScrollBar" BasedOn="{StaticResource {x:Type ScrollBar}}">
@@ -1547,8 +1567,8 @@
                                                               Click="DebugLoggingToggle_Click" VerticalAlignment="Center" FontSize="11"
                                                               Style="{StaticResource ToggleSwitchStyle}"
                                                               AutomationProperties.Name="Enable local debug logging"
-                                                              AutomationProperties.HelpText="Opt in for up to 24 hours. No files are created while this is off."
-                                                              ToolTip="Opt in for up to 24 hours. No files are created while this is off." />
+                                                              AutomationProperties.HelpText="Add detailed local logging for up to 24 hours. Recent health context and error reports remain available while this is off."
+                                                              ToolTip="Add detailed local logging for up to 24 hours. Recent health context and error reports remain available while this is off." />
                                                 </WrapPanel>
                                                 <StackPanel Margin="0,14,0,0">
                                                     <CheckBox x:Name="CpuRenderingToggle" Content="CPU rendering"
@@ -1570,7 +1590,7 @@
                                                                    Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold"
                                                                    TextWrapping="Wrap" FontSize="11"
                                                                    AutomationProperties.LiveSetting="Polite" />
-                                                        <TextBlock Text="Records local health summaries and a bounded history of RPM, native gauge checks, and needle updates for up to 24 hours. Export while Wisp is still running to include detailed startup and recent samples. Log segments expire after 7 days; exported ZIPs stay until deleted. No raw packets, memory dumps, personal data, network addresses, or game FPS."
+                                                        <TextBlock Text="Wisp keeps recent health context in memory and saves bounded local error reports. Export debug ZIP includes this context even with detailed logging off. Enable logging for more RPM, native gauge, and needle history for up to 24 hours. Detailed log segments expire after 7 days; exported ZIPs stay until deleted. Error reports omit exception messages and file paths. No raw packets, memory dumps, network addresses, or game FPS. Callback and submission rates are not displayed FPS."
                                                                    Foreground="{DynamicResource FaintBrush}" TextWrapping="Wrap"
                                                                    FontSize="10" LineHeight="15" Margin="0,4,0,0" />
                                                         <WrapPanel Margin="0,10,0,0">
