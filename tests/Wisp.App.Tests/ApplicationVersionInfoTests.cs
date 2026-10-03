@@ -69,8 +69,22 @@ public sealed class ApplicationVersionInfoTests
     }
 
     [Fact]
-    public void TuneAndClipsReleaseHasPublicIdentity()
+    public void TuneAndClipsReleaseMatchesExpectedBuildIdentity()
     {
+        var expectedId = Environment.GetEnvironmentVariable("WISP_TEST_EXPECTED_DIAGNOSTIC_BUILD_ID");
+        var expectedLabel = Environment.GetEnvironmentVariable("WISP_TEST_EXPECTED_DIAGNOSTIC_BUILD_LABEL");
+        if (expectedId is not null || expectedLabel is not null)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(expectedId), "Private tests require an explicit expected build ID.");
+            Assert.False(string.IsNullOrWhiteSpace(expectedLabel), "Private tests require an explicit expected build label.");
+            Assert.Equal(expectedId, ApplicationVersionInfo.DiagnosticBuildId);
+            Assert.Equal(expectedLabel, ApplicationVersionInfo.DiagnosticBuildLabel);
+            Assert.Equal($"WHEEL-INDICATED SPEED PANEL {expectedLabel} (private)", ApplicationVersionInfo.FooterText);
+            Assert.Equal($"You are testing {expectedLabel}. The test features and previous public releases are listed below.",
+                ApplicationVersionInfo.ReleaseHistoryIntroduction);
+            return;
+        }
+
         Assert.Null(ApplicationVersionInfo.DiagnosticBuildId);
         Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
         Assert.False(ApplicationVersionInfo.IsPrivateCandidate);

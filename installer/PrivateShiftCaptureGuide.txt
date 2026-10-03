@@ -1,106 +1,65 @@
-Wisp 2.5.3 Borderless Clips Preview 1
-Private build ID: clips-borderless-20260930-01
+Wisp 2.6.1 Clips playback test 20261003
+Private build ID: clips-playback-20261003-05
 
-This private candidate adds Clips and preserves the confirmed shift-coverage hotfix.
-It uses your existing Wisp installation, local settings, calibrations and saved runs.
-It is not a separate installation. It has not been published as a public release.
+This is a private test build, not a published release. It updates your existing
+Wisp installation and keeps settings, profiles, calibrations, saved runs and the
+Clips library. It is not a separate installation.
 
-Clips
-Open Clips between Extras and Release Notes. Enable clipping to keep a rolling
-recording. Save clip keeps a moment in Wisp's private library, ready to watch.
-Export copies the selected clip to your export folder. No export folder is needed
-to record. Clipping is off by default; change recording settings while it is off.
-The default is 60 seconds at 1080p60, quality 75. Lengths run from 30 to 300
-seconds in 30-second steps. Select 360p through 2160p and 30 or 60 fps.
-Higher quality and resolution use more storage. Five-minute clips take longer
-to save and need more space. The rolling buffer uses local app data under
-Wisp\ClipBuffer. Saved clips use Wisp\Clips in local app data and appear in Wisp.
-Only Export writes a finished MP4 to your chosen export folder. Repeating an
-export verifies and reuses the existing file, rather than creating a duplicate.
-Changing the export folder does not change your private library or stop recording.
-Existing indexed clips are imported into the private library; originals are kept.
-An existing identical legacy clip in the export folder is reused without a copy.
+Changes in this build
+- Open and watch clips while Forza stays running. HDR lossless clips prepare a
+  compressed HDR playback copy with progress before Play becomes available.
+  Closing the player cancels preparation; starting or returning to Forza does
+  not cancel it. Reopening a prepared clip reuses the copy. Original recordings
+  and build 04's color handling remain unchanged.
+- Local crash reports include the exact Wisp build and recent performance
+  context. The next launch offers Copy crash details. Export debug ZIP includes
+  recent recorder, playback, export and Tune errors even with detailed logging
+  off. Reports exclude file paths and raw exception messages; retention is bounded.
+  Unclean exits are matched to Windows application fault records when available;
+  without matching evidence, the report describes an unexplained exit.
+- Tune accepts compatible database sizes and upgrade-table changes while
+  keeping structure, integrity, game-build and current-car validation. A failed
+  read includes Copy details with the failed check and measured sizes.
+- Tune reads the live car's values when stored setups contain default markers.
+  The car and values must stay stable throughout the read. If no single current
+  car is available, drive in the open world and refresh.
+- Normal clips default to SDR H.264, including on HDR screens. Record HDR video
+  is an explicit option for supported NVIDIA encoders. Normal recording falls
+  back to SDR when HDR encoding is unsupported. Lossless never silently becomes
+  compressed recording. Old clips retain their original colors.
+- Lossless HDR keeps full-color, 10-bit prepared video after scaling and color
+  conversion. Lossless SDR keeps full-color, 8-bit prepared video. This preserves
+  the encoder input exactly; it is not a copy of the original floating-point
+  desktop pixels. Audio remains compressed.
+- HDR and lossless Export offer a compatible SDR H.264 MP4 or the original MP4.
+  The original stays in Wisp. Original full-color lossless video needs a player
+  such as Wisp or mpv; compatible copies are for more widely supported playback.
+  Export uses Save As, reports progress and errors, supports cancellation and
+  keeps existing destination files. Very large lossless source files can now
+  be inspected without failing while waiting for their audio packets.
+- Deleted library files disappear on refresh or when returning to the Clips
+  gallery. Files that are temporarily inaccessible are retained in the library.
+- Recoverable audio gaps insert silence and trim overlap without throwing away
+  buffered video. Recorder shutdown recovery and previous notification fixes
+  are retained. New-clip reminders can be disabled without suppressing errors.
 
-Enable and assign the two shortcuts separately: toggle clipping and save a clip.
-New shortcut defaults are Ctrl+Alt+F8 and Ctrl+Alt+F9. Existing assignments stay
-unchanged; conflicts identify the unavailable shortcut and let you choose another.
-Early saves wait visibly for playable footage. One additional save can queue
-behind the active save; queued clips include footage through processing time.
-Success shows the actual saved duration. Interruptions cancel queued saves
-with a message instead of saving a different moment after reconnecting.
-Saved clips appear 25 per page; the number of columns adapts to the window.
-Click a clip to watch it in the enlarged player, which fits the available window
-and keeps the video's aspect ratio. The video has an opaque black backing and no
-scroll fade over it. Export copies its recorded resolution and quality;
-it cannot restore detail removed by compression or increase captured detail.
-Dashboard reminders identify clips not yet viewed or exported. Storage or
-recording errors still appear even when reminders are off.
+Suggested checks
+1. Save a NEW clip in your usual Forza scene with your usual display settings.
+   Compare the same moment in the game and Wisp. Existing clips cannot regain
+   HDR data that an earlier recorder converted to SDR.
+2. Leave Forza running and open a new HDR lossless clip in Wisp. Wait for
+   preparation, then press Play. It must not ask you to close Forza.
+   Close and reopen an HDR lossless clip to check that the prepared copy is reused.
+   Export a compatible copy, open it in your
+   usual player, and check duration, colors and audible synchronization.
+3. Delete an unwanted test clip from the library folder and return to the Clips
+   gallery. Confirm it disappears without deleting any other clips.
+4. Refresh Tune on the car that failed in private build 03. Compare its displayed
+   values with Forza, then try a saved or downloaded tune. Copy details if a read
+   fails; different error stages can have different causes.
 
-Use Forza in fullscreen or borderless fullscreen mode. Clips record the entire
-game display, including the Wisp HUD and any notifications shown over the game.
-Capture pauses when Forza loses focus, is minimized, or leaves fullscreen.
-Desktop Duplication capture does not use the Windows yellow capture border or
-require borderless-capture permission. It does not require OBS.
-Audio comes from the Forza process by default. Record all app and system audio
-is optional and off by default; it includes other applications' playback too.
-Neither mode directly records microphone input. Wisp pauses its clip preview
-when you leave Wisp while system-audio recording is enabled.
-Clipping stays enabled through recoverable interruptions. Stale frames repeat
-with a visible status. A changed game/audio/video session reconnects with a new
-rolling buffer; footage across incompatible sessions is not stitched together.
-Specific errors include Copy error details. That report excludes raw logs and paths.
-Full gameplay performance, game audio, HDR appearance, interruption recovery,
-one-hour sessions and five-minute recording still need live validation.
-Offline and synthetic checks do not establish the requested under-5% FPS impact.
-
-HUD profiles
-Use Save current HUD as a profile after arranging your HUD. New and updated profiles
-save positions as well as gauges, colors, units, driving guidance and run-recording controls.
-Apply restores saved positions on matching displays and keeps windows on-screen.
-Older profiles keep their original scope until you update them from the current HUD.
-Calibration data, saved runs and application settings stay separate from profiles.
-
-Runs > Lap review
-Save completed laps automatically is off by default. Enable it to save detailed laps
-locally while Wisp is running, including when the lap overlays are hidden.
-Capture uses the lap timing mode selected in HUD settings. Wisp must observe a valid
-start boundary and the following finish; partial laps and interrupted captures are skipped.
-Capture is limited to ten minutes per lap. Watch the capture status for skipped laps
-or storage errors. Manual recording remains available, and existing runs can be reviewed.
-
-Select your lap and a compatible reference, then choose a map and graph channel.
-The map and graphs share a cursor. Tire and suspension channels have a wheel selector.
-Select a section to compare the same route positions or open that section in the run graphs.
-Pin this lap as benchmark keeps a reference for lap review only; it does not change
-the live lap-delta HUD reference. Review timing changes analysis, not capture settings.
-Cursor readings use themed cards; expand Wheel readings for individual tire values.
-Full-throttle time belongs to the selected section and counts about 98% throttle or more.
-New automatic laps save calibrated wheel data when available during recording. Missing
-wheel readings in older recordings remain missing; they cannot be reconstructed reliably.
-
-Shift calibration
-On a straight with good grip, use a rolling third- or fourth-gear full-throttle pull
-from low revs; a first- or second-gear launch is not needed. Hold
-through one brief limiter pulse, then upshift and keep accelerating for two seconds.
-Wisp saves automatically when the measured curve and confirming shift are complete.
-A later qualifying pull can now be used when an earlier, wider pull lacks required evidence.
-Recorded gears show collected inputs separately from the shift comparison that still
-needs evidence. Recording a higher gear alone does not make an earlier shift target ready.
-The existing calibration validation requirements remain in place.
-This build corrects normalized-slip rejection and false interruptions when fresh native
-data arrives between telemetry receipt and processing. The main calibration label stays
-stable while the detailed status explains any remaining missing evidence below it.
-
-This candidate does not automatically write lap diagnostic packet logs.
-Automatic lap saving is the separate opt-in control described above.
-The checks establish specific regression fixes; calibration and interaction during
-actual gameplay still need confirmation with this build.
-
-Shift coverage hotfix
-The idle calibration label no longer alternates on fresh native-data refreshes.
-A confirmed measured curve can enable supported shifts even if lower-gear
-comparisons lack coverage. The saved status lists enabled shifts. Unmeasured
-shifts stay off; this does not invent targets or remove the grip/confirmation checks.
-For broader coverage, recalibrate from lower revs in any higher gear that grips.
-The status gives a numerical lower-RPM coverage goal. On-road behavior still
-needs confirmation in your car; these checks do not certify gameplay.
+Generated-media and measured compositor checks establish only the tested paths;
+physical display appearance, gameplay performance and audio sync under game load
+still need your real-use check. The separately reported quick-open black-picture
+investigation remains parked; this installer does not claim a verified fix for it.
+This build does not automatically record lap diagnostic packet logs.

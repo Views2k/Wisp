@@ -30,6 +30,7 @@ public sealed class PrivateDiagnosticInstallerTests
         Assert.Contains("Invoke-InstallerRuntimeValidation $dotnetExecutable", script);
         Assert.Contains("New-InstallerArchive $setupPath", script);
         Assert.Contains("test $solution --configuration Release --no-build --no-restore", script);
+        Assert.Contains("Invoke-WithPrivateTestIdentity $DiagnosticBuildId $DiagnosticBuildLabel {", script);
         Assert.Contains("$testHostDirectories", script);
         Assert.True(script.IndexOf("publish $project", StringComparison.Ordinal) < script.IndexOf("test $solution", StringComparison.Ordinal));
         Assert.True(script.IndexOf("test $solution", StringComparison.Ordinal) < script.IndexOf("& $innoExecutable", StringComparison.Ordinal));
@@ -42,6 +43,12 @@ public sealed class PrivateDiagnosticInstallerTests
     [InlineData("mismatched-identity")]
     [InlineData("missing-updater")]
     [InlineData("changed-inno")]
+    [InlineData("test-identity-restores-existing")]
+    [InlineData("test-identity-restores-empty")]
+    [InlineData("test-identity-failure-restores-existing")]
+    [InlineData("test-identity-failure-restores-empty")]
+    [InlineData("test-identity-missing-id")]
+    [InlineData("test-identity-missing-label")]
     public async Task PrivatePackagingGuardsFailClosed(string scenario)
     {
         var start = new ProcessStartInfo("powershell.exe")
@@ -82,7 +89,7 @@ public sealed class PrivateDiagnosticInstallerTests
         $errors = $null
         $ast = [Management.Automation.Language.Parser]::ParseFile($env:WISP_PRIVATE_SCRIPT, [ref]$tokens, [ref]$errors)
         if ($errors.Count -ne 0) { throw 'Private script has syntax errors.' }
-        foreach ($name in @('Assert-PrivateBuildIdentity', 'Assert-PrivatePayloadFiles', 'Replace-PrivateDirective')) {
+        foreach ($name in @('Assert-PrivateBuildIdentity', 'Invoke-WithPrivateTestIdentity', 'Assert-PrivatePayloadFiles', 'Replace-PrivateDirective')) {
             $definition = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name}, $false)
             if ($null -eq $definition) { throw 'Missing private validation function.' }
             . ([scriptblock]::Create($definition.Extent.Text))
@@ -90,6 +97,40 @@ public sealed class PrivateDiagnosticInstallerTests
         $scenario = $env:WISP_PRIVATE_CASE
         $id = 'shift-capture-fixture'
         $label = 'Shift Capture Fixture'
+        if ($scenario -like 'test-identity-*') {
+            $idVariable = 'WISP_TEST_EXPECTED_DIAGNOSTIC_BUILD_ID'
+            $labelVariable = 'WISP_TEST_EXPECTED_DIAGNOSTIC_BUILD_LABEL'
+            $previousId = $null
+            $previousLabel = $null
+            if ($scenario -like '*-existing') { $previousId = 'previous-id'; $previousLabel = 'Previous Label' }
+            [Environment]::SetEnvironmentVariable($idVariable, $previousId, 'Process')
+            [Environment]::SetEnvironmentVariable($labelVariable, $previousLabel, 'Process')
+            $invalid = $scenario -like '*-missing-*'
+            if ($scenario -eq 'test-identity-missing-id') { $id = '' }
+            if ($scenario -eq 'test-identity-missing-label') { $label = ' ' }
+            $throwDuringTest = $scenario -like '*-failure-*'
+            $state = [pscustomobject]@{ Invoked = $false }
+            $failure = $null
+            try {
+                Invoke-WithPrivateTestIdentity $id $label {
+                    $state.Invoked = $true
+                    if ([Environment]::GetEnvironmentVariable($idVariable, 'Process') -cne $id -or
+                        [Environment]::GetEnvironmentVariable($labelVariable, 'Process') -cne $label) {
+                        throw 'Private identity was not applied to the test action.'
+                    }
+                    if ($throwDuringTest) { throw 'Expected scoped test failure.' }
+                }
+            } catch { $failure = $_.Exception.Message }
+            $expectedFailure = $null
+            if ($invalid) { $expectedFailure = 'Private tests require an explicit expected diagnostic ID, label, and test action.' }
+            elseif ($throwDuringTest) { $expectedFailure = 'Expected scoped test failure.' }
+            if ($failure -cne $expectedFailure -or $state.Invoked -eq $invalid) { throw 'Private test scope changed failure or invocation behavior.' }
+            if ([Environment]::GetEnvironmentVariable($idVariable, 'Process') -cne $previousId -or
+                [Environment]::GetEnvironmentVariable($labelVariable, 'Process') -cne $previousLabel) {
+                throw 'Private test scope did not restore the previous environment.'
+            }
+            return
+        }
         $text = '<Project><ItemGroup><AssemblyMetadata Include="WispDiagnosticBuildId" Value="shift-capture-fixture"/><AssemblyMetadata Include="WispDiagnosticBuildLabel" Value="Shift Capture Fixture"/></ItemGroup></Project>'
         if ($scenario -eq 'missing-identity') { $text = '<Project />' }
         if ($scenario -eq 'mismatched-identity') { $id = 'wrong-id' }

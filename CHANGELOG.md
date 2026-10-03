@@ -2,10 +2,22 @@
 
 Notable changes to Wisp are recorded here.
 
-## 2.6.1 - 2026-10-02
+## 2.6.1 - 2026-10-03
 
 - Fix the recorder shutdown error that could leave clipping unavailable after closing Forza until Wisp restarted.
 - Retry delayed shutdown automatically and resume clipping when Forza is ready. Keep clipping off if it is disabled during recovery.
+- Show a loading spinner in the clip player and keep Play and seeking unavailable while the player prepares or buffers. Keep paused clips paused when loading finishes.
+- Prepare and reuse compressed HDR playback copies for HDR lossless clips, with visible progress and the original recording preserved. Opening a clip prepares it while Forza stays running.
+- Handle small audio-clock differences and recoverable audio discontinuities without resetting the clip buffer. Preserve an established recording when audio is temporarily unavailable after returning to Forza.
+- Keep normal recording on SDR H.264 by default, including on HDR screens. Offer optional 10-bit HDR on supported NVIDIA hardware, with an SDR fallback for normal recording when HDR encoding is unsupported.
+- Export compatible SDR H.264 copies from HDR or lossless clips, with the original preserved in Wisp. Fix inspection of large lossless sources and provide specific export failure details.
+- Remove confirmed deleted clip files from the gallery on refresh or returning to Clips, while retaining temporarily inaccessible files.
+- Dismiss Clips dashboard notices, turn off new-clip reminders without hiding recording errors, and remember dismissed unfinished-save notices after restarting Wisp.
+- Read compatible Tune databases without requiring an identical database size or upgrade-table contents. Keep structural and current-car checks, and provide Copy details when a read fails.
+- Read the live car's Tune values instead of rejecting reads when stored setup data differs, while keeping read stability checks. Explain when a player needs to drive in the open world before refreshing.
+- Keep bounded local crash reports with recent performance and operation history. Show Copy crash details on the next launch, and include the reports in Export debug ZIP even when detailed logging is off.
+- Recover evidence of unexpected exits on the next launch, distinguishing a matching Windows application fault from an unexplained exit.
+- Ignore lap-review cursor keys when no lap points are available.
 
 ## 2.6.0 - 2026-10-01
 

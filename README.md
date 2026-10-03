@@ -5,7 +5,7 @@
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
   <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to the latest release.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.zip"><strong>Download Wisp 2.6.1</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.exe"><strong>Download Wisp 2.6.1</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -13,15 +13,17 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6
+## Wisp 2.6.1
 
 Save a clip of your drive, keep a copy of your tune, and review where a lap gained or lost time.
+
+2.6.1 improves Clips recovery, audio continuity, HDR playback and sharing, hardens Tune reading, and adds local crash and performance reports. You can prepare and watch clips while Forza stays open.
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md)
 
 ### Clips
 
-Enable clipping to keep a rolling recording, then press **Save clip** or your shortcut to keep a moment. Saved clips stay in Wisp, ready to watch or export as MP4. Choose the filename and folder when exporting; the recording keeps its original resolution and quality.
+Enable clipping to keep a rolling recording, then press **Save clip** or your shortcut to keep a moment. Saved clips stay in Wisp, ready to watch or export as MP4. Choose the filename and folder when exporting. HDR and lossless clips offer a compatible SDR H.264 copy for sharing or the original recording.
 
 | Recording option | Choices |
 | --- | --- |
@@ -30,6 +32,7 @@ Enable clipping to keep a rolling recording, then press **Save clip** or your sh
 | Frame rate | 30 or 60 fps. Default: 60 fps. |
 | Compressed video quality | 10–100. Default: 75. |
 | Lossless video | Optional, off by default; requires a supported NVIDIA encoder. |
+| HDR video | Optional 10-bit HDR on supported NVIDIA hardware. Off by default; normal recording uses SDR H.264, including on HDR screens. |
 | Audio | Forza audio by default, or all app and system audio. Microphone input is not recorded. |
 | Shortcuts | Separate optional shortcuts to toggle clipping and save a clip. |
 | Shortcut sounds | Optional sounds for shortcut results. On by default. |
@@ -38,9 +41,9 @@ Enable clipping to keep a rolling recording, then press **Save clip** or your sh
 
 Clipping is off by default. Turn it off before changing recording settings. It records the screen containing fullscreen or borderless-fullscreen Forza, including the Wisp HUD and anything else visible there. Switching away or minimizing pauses recording and keeps available footage ready to save. Ultrawide and 16:10 recordings keep their proportions with black bars.
 
-Saves contain up to the selected length of available history. Lossless preserves full-color SDR video after scaling and HDR conversion; audio remains compressed. It can use substantial storage, and the available history depends on the scene and free space.
+Saves contain up to the selected length of available history. Lossless preserves the prepared full-color video after scaling and color conversion; audio remains compressed. It can use substantial storage, and the available history depends on the scene and free space.
 
-Browse saved clips by thumbnail and see which are new, viewed or exported. Playback waits for **Play**; pause, seek, adjust volume or export from the player.
+Browse saved clips by thumbnail and see which are new, viewed or exported. Playback waits for **Play**; pause, seek, adjust volume or export from the player. HDR lossless clips prepare a reusable playback copy with visible progress while keeping the original recording.
 
 ![Clips in Wisp 2.6](https://wispoverlay.com/images/wisp-2.6-clips.webp)
 
@@ -237,7 +240,7 @@ An optional quick tour introduces Clips, Tune, live map, lap delta and lap
 review. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.6.1](https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.zip) ·
+[Download Wisp 2.6.1](https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.exe) ·
 [2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
@@ -365,11 +368,11 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Open the [Wisp 2.6.1 release](https://github.com/Views2k/Wisp/releases/tag/v2.6.1).
-2. Download and extract [Wisp-Setup-2.6.1.zip](https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.zip).
-3. Keep the installer and its `.sha256` file together.
-4. Verify the installer checksum, then run the installer.
-5. Complete the required setup wizard on first launch.
+1. Download [Wisp-Setup-2.6.1.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.exe).
+2. Run the installer.
+3. Complete the required setup wizard on first launch.
+
+The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.1) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
 
 **[WINDOWS POWERSHELL]**
 
