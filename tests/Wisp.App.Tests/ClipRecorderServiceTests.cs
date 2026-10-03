@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Threading.Channels;
 using Wisp.App.Clips;
+using Wisp.App.DebugLogging;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -70,6 +71,13 @@ public sealed class ClipRecorderServiceTests
         Assert.True(first.Disposed.Task.IsCompleted);
         Assert.Contains("Reason: encoder_failed", service.FailureReport, StringComparison.Ordinal);
         Assert.Contains("Stage: video_submit", service.FailureReport, StringComparison.Ordinal);
+        var history = fixture.DiagnosticHistory.Snapshot();
+        Assert.Equal(2, history.Length);
+        Assert.Contains("Native detail: not available", history[0].Details, StringComparison.Ordinal);
+        Assert.Equal(DiagnosticComponent.Recorder, history[^1].Component);
+        Assert.Contains("Reason: encoder_failed", history[^1].Details, StringComparison.Ordinal);
+        Assert.Contains("Stage: video_submit", history[^1].Details, StringComparison.Ordinal);
+        Assert.Contains("HRESULT: 0x80004005", history[^1].Details, StringComparison.Ordinal);
         var report = service.FailureReport;
 
         await service.SetEnabledAsync(false, Recording, TestToken);
@@ -130,6 +138,11 @@ public sealed class ClipRecorderServiceTests
         Assert.DoesNotContain(fixture.Directory, report, StringComparison.Ordinal);
         Assert.True(report.Length < 16_384);
         Assert.True(service.Snapshot.CanSave);
+        var latestDiagnostic = fixture.DiagnosticHistory.Snapshot()[^1];
+        Assert.Equal(DiagnosticComponent.Recorder, latestDiagnostic.Component);
+        Assert.Contains("Stage: video_schedule", latestDiagnostic.Details, StringComparison.Ordinal);
+        Assert.Contains("Frames submitted: 10;", latestDiagnostic.Details, StringComparison.Ordinal);
+        Assert.DoesNotContain("PRIVATE_DO_NOT_COPY", latestDiagnostic.Details, StringComparison.Ordinal);
         await service.DisposeAsync();
         Assert.Equal(report, service.FailureReport);
     }
@@ -284,6 +297,7 @@ public sealed class ClipRecorderServiceTests
     [InlineData("helper_start_failed", "The recorder could not start.")]
     [InlineData("storage_failed", "The clip folder could not be written.")]
     [InlineData("unsupported_gpu", "A compatible hardware video encoder is unavailable.")]
+    [InlineData("hdr_encoder_unsupported", "HDR recording needs a supported NVIDIA 10-bit HEVC encoder. Standard SDR recording is still available on compatible hardware.")]
     public async Task RecorderFailureKeepsItsSpecificStatusAfterLateCancellation(string reason, string expected)
     {
         using var fixture = new Fixture();
@@ -1037,11 +1051,13 @@ public sealed class ClipRecorderServiceTests
 
     private sealed class Fixture : IDisposable
     {
+        internal ComponentDiagnosticHistory DiagnosticHistory { get; } = new();
         internal string Directory { get; } = Path.Combine(Path.GetTempPath(), "WispRecorderServiceTests", Guid.NewGuid().ToString("N"));
         internal Fixture() => System.IO.Directory.CreateDirectory(Directory);
         internal ClipRecorderService Service(SessionFactory factory,
             Func<TimeSpan, CancellationToken, Task>? recoveryDelay = null) => new(() => Directory, factory.Create, true,
-                recoveryDelay: recoveryDelay ?? ((_, token) => Task.Delay(Timeout.InfiniteTimeSpan, token)));
+                recoveryDelay: recoveryDelay ?? ((_, token) => Task.Delay(Timeout.InfiniteTimeSpan, token)),
+                diagnosticHistory: DiagnosticHistory);
         public void Dispose() => System.IO.Directory.Delete(Directory, true);
     }
     private sealed class SessionFactory

@@ -61,6 +61,41 @@ namespace
         Check(command.session == Session && command.request == 1 && command.spoolDirectory == L"C:\\Clips\\.wisp-recorder-0123456789abcdef0123456789abcdef", "config_session_and_wide_path");
         Check(!command.borderlessAllowed, "borderless_missing_defaults_off");
         Check(!command.systemAudio, "system_audio_missing_defaults_to_game");
+        Check(!command.preserveHdrRecording, "hdr_recording_missing_defaults_to_sdr");
+        for (unsigned flags = 0; flags < 8; ++flags)
+        {
+            const bool borderless = (flags & 1) != 0, system = (flags & 2) != 0, preserveHdr = (flags & 4) != 0;
+            auto complete = Config();
+            complete.insert(complete.size() - 1, std::string(",\"borderlessAllowed\":") + (borderless ? "true" : "false") +
+                ",\"systemAudio\":" + (system ? "true" : "false") + ",\"preserveHdrRecording\":" + (preserveHdr ? "true" : "false"));
+            Check(ParseCommand(complete, command) && command.borderlessAllowed == borderless &&
+                command.systemAudio == system && command.preserveHdrRecording == preserveHdr,
+                "all_three_optional_config_fields_accepted");
+            auto unknown = complete;
+            Replace(unknown, "\"preserveHdrRecording\"", "\"unknownOptional\"");
+            Check(!Accepted(unknown), "full_config_rejects_unknown_field_within_capacity");
+            auto extra = complete; extra.insert(extra.size() - 1, ",\"extra\":false");
+            Check(!Accepted(extra), "full_config_rejects_extra_field");
+            auto duplicate = complete;
+            Replace(duplicate, "\"preserveHdrRecording\"", "\"systemAudio\"");
+            Check(!Accepted(duplicate), "full_config_rejects_duplicate_within_capacity");
+            for (const char* name : { "borderlessAllowed", "systemAudio", "preserveHdrRecording" })
+            {
+                auto invalid = complete;
+                const std::string field = std::string("\"") + name + "\":";
+                const bool value = std::string_view(name) == "borderlessAllowed" ? borderless :
+                    std::string_view(name) == "systemAudio" ? system : preserveHdr;
+                Replace(invalid, field + (value ? "true" : "false"), field + "1");
+                Check(!Accepted(invalid), "full_config_optional_fields_require_booleans");
+            }
+        }
+        auto hdr = Config(); hdr.insert(hdr.size() - 1, ",\"preserveHdrRecording\":true");
+        Check(ParseCommand(hdr, command) && command.preserveHdrRecording, "hdr_recording_explicit_boolean");
+        Replace(hdr, "\"preserveHdrRecording\":true", "\"preserveHdrRecording\":false");
+        Check(ParseCommand(hdr, command) && !command.preserveHdrRecording, "hdr_recording_explicit_false");
+        Replace(hdr, "\"preserveHdrRecording\":false", "\"preserveHdrRecording\":1");
+        Check(!Accepted(hdr), "hdr_recording_rejects_non_boolean");
+        Check(!Accepted(CommandLine("stop", ",\"preserveHdrRecording\":true")), "hdr_recording_config_only");
         auto systemAudio = Config(); systemAudio.insert(systemAudio.size() - 1, ",\"systemAudio\":true");
         Check(ParseCommand(systemAudio, command) && command.systemAudio, "system_audio_explicit_boolean");
         systemAudio.insert(systemAudio.size() - 1, ",\"borderlessAllowed\":false");
@@ -174,6 +209,11 @@ namespace
         Check(!SerializeResult(result, line), "audible_media_cannot_claim_silent_reason");
         result.reason = Reason::None;
         Check(SerializeResult(result, line), "valid_audible_media");
+        Check(line.find("hdrVideo") == std::string::npos, "legacy_sdr_media_does_not_add_hdr_claim");
+        result.media->hdrVideo = true;
+        Check(SerializeResult(result, line) && line.find("\"hdrVideo\":true") != std::string::npos,
+            "hdr_media_explicit_without_changing_lossless_flag");
+        result.media->hdrVideo = false;
         result.media->sizeLimited = true;
         Check(!SerializeResult(result, line), "standard_media_cannot_claim_lossless_size_limit");
         result.media->losslessVideo = true;
@@ -232,6 +272,9 @@ namespace
         Check(SerializeState(Session, State::Error, Reason::LosslessEncoderUnsupported, line) &&
             line.find("lossless_encoder_unsupported") != std::string::npos && !IsRecoverable(Reason::LosslessEncoderUnsupported),
             "unsupported_lossless_encoder_specific_and_not_retried");
+        Check(SerializeState(Session, State::Error, Reason::HdrEncoderUnsupported, line) &&
+            line.find("hdr_encoder_unsupported") != std::string::npos && !IsRecoverable(Reason::HdrEncoderUnsupported),
+            "unsupported_hdr_encoder_specific_and_not_retried");
         Check(!IsRecoverable(Reason::CaptureStale) && IsRecoverable(Reason::SchedulerLate) && IsRecoverable(Reason::AudioReconnecting),
             "interruption_recovery_allowlist");
         Check(!IsRecoverable(Reason::CleanupFailed) && !IsRecoverable(Reason::ProtocolError) &&

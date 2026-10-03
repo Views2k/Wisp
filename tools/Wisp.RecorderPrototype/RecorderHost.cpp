@@ -450,6 +450,16 @@ namespace recorder::host
         { return hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG; }
         Reason VideoReason(HRESULT hr, Reason otherwise = Reason::EncoderFailed) noexcept
         { return DeviceReset(hr) ? Reason::EncoderReconnecting : otherwise; }
+        bool CanFallBackToSdr(bool hdr, bool losslessRequested, const lossless::Evidence& value) noexcept
+        {
+            if (!hdr || losslessRequested || value.submitted != 0 || value.hr != E_NOTIMPL ||
+                FAILED(value.cleanupHr) || value.resourcesRetained || !value.reason) return false;
+            for (const auto reason : { "lossless_nvidia_hardware_required",
+                "lossless_api_version_unsupported", "lossless_required_api_missing", "nvenc_api_export_missing",
+                "lossless_required_capability_missing", "nvenc_input_format_unavailable", "nvenc_profile_unavailable" })
+                if (std::strcmp(value.reason, reason) == 0) return true;
+            return false;
+        }
         bool AudioInvalidated(HRESULT hr) noexcept
         { return hr == AUDCLNT_E_DEVICE_INVALIDATED || hr == AUDCLNT_E_RESOURCES_INVALIDATED || hr == AUDCLNT_E_SERVICE_NOT_RUNNING; }
         bool AudioCleanupSucceeded(const audio::Evidence& value) noexcept
@@ -573,6 +583,7 @@ namespace recorder::host
             void ProcessAudio(UINT maximumPackets);
             void StartAudioSource();
             void FeedPendingAudio();
+            bool QueueAudioSilence(UINT maximumFrames = aac::MaximumChunkFrames);
             bool TakeNextPcm();
             audio::TimelineResult InspectPcm(audio::AudioTimeline&, const audio::Packet&, audio::FeedSlice&);
             void AnchorResumedAudio(const audio::FeedSlice&);
@@ -583,17 +594,18 @@ namespace recorder::host
             bool StopAudio() noexcept;
             HRESULT VideoError() const noexcept
             {
-                if (!config_.losslessVideo) return video_.Result().hr;
+                if (!UsesNvenc()) return video_.Result().hr;
                 const auto& result = losslessVideo_.Result();
                 return FAILED(result.cleanupHr) ? result.cleanupHr : result.hr;
             }
             const char* VideoReasonText() const noexcept
             {
-                if (!config_.losslessVideo) return video_.Result().reason;
+                if (!UsesNvenc()) return video_.Result().reason;
                 const auto& result = losslessVideo_.Result();
                 return FAILED(result.cleanupHr) ? result.cleanupReason : result.reason;
             }
-            bool PumpVideo() noexcept { return config_.losslessVideo ? losslessVideo_.Pump() : video_.Pump(0); }
+            bool UsesNvenc() const noexcept { return hdrVideo_ || config_.losslessVideo; }
+            bool PumpVideo() noexcept { return UsesNvenc() ? losslessVideo_.Pump() : video_.Pump(0); }
             exporting::VideoFormat VideoFormat() const noexcept;
             Shared& shared_;
             protocol::Command config_;
@@ -618,6 +630,7 @@ namespace recorder::host
             std::atomic<bool> audioDone_{ false };
             std::unique_ptr<const audio::Packet> pendingPcm_, resumedPcm_;
             audio::FeedSlice pendingSlice_{};
+            std::array<std::int16_t, aac::MaximumChunkFrames * audio::Channels> silencePcm_{};
             spool::EncodedSpool spool_;
             std::optional<MediaPacket> bootstrap_;
             std::vector<BYTE> videoHeader_;
@@ -633,7 +646,9 @@ namespace recorder::host
             bool audioEnabled_ = false, audioInitialized_ = false, spoolInitialized_ = false;
             bool ready_ = false, readinessDirty_ = false, failed_ = false, closed_ = false, mfStarted_ = false, runtimeStarted_ = false;
             bool preserveBuffer_ = false, cleanupSucceeded_ = false, sourceStale_ = false;
+            bool hdrVideo_ = false; // Immutable encoder/color contract for this recording epoch.
             bool paused_ = false, resumeAnchoring_ = false, resumeAudioPending_ = false;
+            bool resumeSilence_ = false;
             Reason pauseReason_ = Reason::FocusLost;
             ULONGLONG resumeBegan_ = 0;
             const char* diagnosticStage_ = "not_started";
@@ -647,7 +662,7 @@ namespace recorder::host
             if (firstFailure_.recorded) return;
             firstFailure_.Record(reason, hr, diagnosticStage_);
             firstFailure_.videoPackets = videoPackets_; firstFailure_.audioPackets = audioPackets_;
-            firstFailure_.submittedFrames = config_.losslessVideo ? losslessVideo_.Result().submitted : video_.Result().submitted;
+            firstFailure_.submittedFrames = UsesNvenc() ? losslessVideo_.Result().submitted : video_.Result().submitted;
             firstFailure_.schedulerLagKnown = schedulerLagKnown_; firstFailure_.schedulerLag100ns = schedulerLag100ns_;
             firstFailure_.sourceAgeKnown = sourceAgeKnown_; firstFailure_.sourceAge100ns = sourceAge100ns_;
             firstFailure_.localFrameAgeKnown = localFrameAgeKnown_; firstFailure_.localFrameAge100ns = localFrameAge100ns_;
@@ -692,9 +707,20 @@ namespace recorder::host
         }
         exporting::VideoFormat MediaSession::VideoFormat() const noexcept
         {
+            if (hdrVideo_ && config_.losslessVideo)
+                return { policy_.width, policy_.height, policy_.frameRate, 0,
+                    MFVideoPrimaries_BT2020, MFVideoTransFunc_2084, MFVideoTransferMatrix_Identity, MFNominalRange_0_255,
+                    eAVEncH265VProfile_Main_444_10, policy_.aspectNumerator, policy_.aspectDenominator, 0,
+                    exporting::VideoEncoding::HevcLosslessPqGbr444 };
+            if (hdrVideo_ && !config_.losslessVideo)
+                return { policy_.width, policy_.height, policy_.frameRate, policy_.bitrate,
+                    MFVideoPrimaries_BT2020, MFVideoTransFunc_2084, MFVideoTransferMatrix_BT2020_10, MFNominalRange_16_235,
+                    eAVEncH265VProfile_Main_420_10, policy_.aspectNumerator, policy_.aspectDenominator,
+                    MFVideoChromaSubsampling_MPEG2 | MFVideoChromaSubsampling_ProgressiveChroma,
+                    exporting::VideoEncoding::HevcMain10Pq420 };
             if (config_.losslessVideo)
                 return { policy_.width, policy_.height, policy_.frameRate, 0,
-                    MFVideoPrimaries_BT709, MFVideoTransFunc_709, MFVideoTransferMatrix_Identity, MFNominalRange_0_255,
+                    MFVideoPrimaries_BT709, MFVideoTransFunc_sRGB, MFVideoTransferMatrix_Identity, MFNominalRange_0_255,
                     eAVEncH264VProfile_444, policy_.aspectNumerator, policy_.aspectDenominator, 0,
                     exporting::VideoEncoding::H264LosslessGbr444 };
             return { policy_.width, policy_.height, policy_.frameRate, policy_.bitrate,
@@ -740,23 +766,40 @@ namespace recorder::host
                 const auto sourceEncoding = source.encoding == capture::SourceEncoding::LinearScRgbFp16
                     ? hdr::SourceEncoding::LinearScRgbFp16 : source.encoding == capture::SourceEncoding::SrgbBgra8
                     ? hdr::SourceEncoding::SrgbBgra8 : hdr::SourceEncoding::Unknown;
-                if (!converter_.Initialize(capture_.Device(), source.width, source.height,
-                    sourceEncoding, sourceEncoding == hdr::SourceEncoding::LinearScRgbFp16
-                        ? source.referenceWhiteNits : 0.0f, output,
-                    config_.losslessVideo ? hdr::OutputEncoding::PreparedRgbAyuv : hdr::OutputEncoding::Bt709Nv12, conversionEvidence_))
-                    throw Failure{ Reason::UnsupportedFormat, conversionEvidence_.hr };
+                hdrVideo_ = config_.preserveHdrRecording && sourceEncoding == hdr::SourceEncoding::LinearScRgbFp16;
                 encoder::EncodeConfig encode{ policy_.width, policy_.height, policy_.frameRate, policy_.bitrate,
                     policy_.aspectNumerator, policy_.aspectDenominator, MFVideoChromaSubsampling_MPEG2 };
                 encoder::LiveOptions options; options.operationTimeoutMs = 3000;
                 diagnosticStage_ = "video_initialize";
-                if (config_.losslessVideo)
+                if (UsesNvenc())
                 {
-                    encode.bitrate = 0; encode.chromaSiting = 0;
-                    if (!losslessVideo_.Initialize(capture_.Device(), encode, { options.operationTimeoutMs, 0 }, shared_.abort, *this))
-                        throw Failure{ VideoReason(VideoError(), Reason::LosslessEncoderUnsupported), VideoError() };
+                    if (config_.losslessVideo) { encode.bitrate = 0; encode.chromaSiting = 0; }
+                    else encode.chromaSiting = MFVideoChromaSubsampling_MPEG2 | MFVideoChromaSubsampling_ProgressiveChroma;
+                    const lossless::Options nvencOptions{ options.operationTimeoutMs, 0,
+                        hdrVideo_ ? (config_.losslessVideo ? lossless::VideoMode::HdrLosslessGbr444 : lossless::VideoMode::HdrMain10) :
+                            lossless::VideoMode::SdrLosslessGbr444 };
+                    if (!losslessVideo_.Initialize(capture_.Device(), encode, nvencOptions, shared_.abort, *this))
+                    {
+                        if (!CanFallBackToSdr(hdrVideo_, config_.losslessVideo, losslessVideo_.Result()))
+                            throw Failure{ VideoReason(VideoError(), hdrVideo_ ? Reason::HdrEncoderUnsupported : Reason::LosslessEncoderUnsupported), VideoError() };
+                        // No frame has been captured or submitted. Retire every
+                        // attempted HDR resource before choosing the SDR contract.
+                        Check(losslessVideo_.Close(), Reason::CleanupFailed);
+                        Check(capture_.Device()->GetDeviceRemovedReason(), Reason::EncoderReconnecting);
+                        Require(!shared_.abort.load(), Reason::ParentClosed);
+                        hdrVideo_ = false;
+                        encode.chromaSiting = MFVideoChromaSubsampling_MPEG2;
+                    }
                 }
-                else if (!video_.Initialize(capture_.Device(), encode, options, shared_.abort, *this))
+                if (!UsesNvenc() && !video_.Initialize(capture_.Device(), encode, options, shared_.abort, *this))
                     throw Failure{ VideoReason(VideoError(), Reason::UnsupportedGpu), VideoError() };
+                diagnosticStage_ = "conversion_initialize";
+                if (!converter_.Initialize(capture_.Device(), source.width, source.height,
+                    sourceEncoding, sourceEncoding == hdr::SourceEncoding::LinearScRgbFp16
+                        ? source.referenceWhiteNits : 0.0f, output,
+                    hdrVideo_ ? (config_.losslessVideo ? hdr::OutputEncoding::PreparedPqGbrPlanar16 : hdr::OutputEncoding::Bt2020PqP010) :
+                        config_.losslessVideo ? hdr::OutputEncoding::PreparedRgbAyuv : hdr::OutputEncoding::Bt709Nv12, conversionEvidence_))
+                    throw Failure{ Reason::UnsupportedFormat, conversionEvidence_.hr };
                 if (config_.gameAudio)
                 {
                     diagnosticStage_ = "audio_initialize";
@@ -820,13 +863,13 @@ namespace recorder::host
                 Require(StopAudio(), Reason::CleanupFailed);
                 // Only the already-inspected slice belongs to the accepted
                 // media timeline. Discard the bounded, unconsumed source queue.
-                if (!pendingSlice_.frames) pendingPcm_.reset();
+                if (!pendingSlice_.frames || pendingSlice_.generatedSilence) pendingPcm_.reset();
                 resumedPcm_.reset(); // A preview packet has not entered the accepted timeline.
                 audioQueue_.reset();
                 paused_ = true;
                 InitializeSpool(); FeedPendingAudio();
                 if (timeline_.Result().initialized) Require(timeline_.Pause(), Reason::AudioFailed);
-                resumeAnchoring_ = false; resumeAudioPending_ = false;
+                resumeAnchoring_ = false; resumeAudioPending_ = false; resumeSilence_ = false;
                 pauseReason_ = reason; shared_.startup.store(0);
                 return true;
             }
@@ -853,7 +896,7 @@ namespace recorder::host
                 Require(FrameTime(1, nextFrame_, policy_.frameRate, due, next), Reason::EncoderFailed);
                 if (timeline_.Result().initialized)
                     Require(timeline_.Resume(Now(), next), Reason::AudioFailed);
-                paused_ = false; resumeAnchoring_ = true; resumeAudioPending_ = audioEnabled_;
+                paused_ = false; resumeAnchoring_ = true; resumeAudioPending_ = audioEnabled_; resumeSilence_ = false;
                 resumeBegan_ = GetTickCount64(); began_ = resumeBegan_;
                 previousVersion_ = 0;
                 return true;
@@ -992,7 +1035,23 @@ namespace recorder::host
             diagnosticStage_ = "audio_encode";
             if (!audioEncoder_.Feed(pendingSlice_.samples, pendingSlice_.frames, pendingSlice_.firstFrameIndex))
                 throw Failure{ Reason::AudioFailed, audioEncoder_.Result().hr };
-            pendingSlice_ = {}; pendingPcm_.reset();
+            if (!pendingSlice_.generatedSilence) pendingPcm_.reset();
+            pendingSlice_ = {};
+        }
+        bool MediaSession::QueueAudioSilence(UINT maximumFrames)
+        {
+            if (!spoolInitialized_ || !audioInitialized_ || pendingSlice_.frames || !maximumFrames) return false;
+            std::uint64_t due = 0; LONGLONG videoLimit = 0;
+            Require(FrameTime(1, nextFrame_, policy_.frameRate, due, videoLimit), Reason::AudioFailed);
+            // Silence cannot run farther than one AAC packet ahead of submitted
+            // video, even if a source packet has a far-future timestamp.
+            UINT frames = 0;
+            Require(audio::TimelineSilenceBudget(timeline_.Result().audioEpochTime100ns, timeline_.Result().retainedFrames,
+                videoLimit, maximumFrames, frames), Reason::AudioFailed);
+            if (!frames) return false;
+            Require(timeline_.AdvanceSilence(frames, pendingSlice_), Reason::AudioFailed);
+            pendingSlice_.samples = silencePcm_.data();
+            return true;
         }
         bool MediaSession::TakeNextPcm()
         {
@@ -1007,11 +1066,9 @@ namespace recorder::host
             if (status == audio::TimelineResult::Failed)
             {
                 const auto* reason = timeline.Result().reason;
-                const bool discontinuity = std::strcmp(reason, "audio_timeline_source_discontinuity") == 0 ||
-                    std::strcmp(reason, "audio_timeline_timestamp_unavailable") == 0 ||
-                    std::strcmp(reason, "audio_timeline_timestamp_not_increasing") == 0 ||
-                    std::strcmp(reason, "audio_timeline_clock_outside_policy") == 0;
-                throw Failure{ discontinuity ? Reason::AudioReconnecting : Reason::AudioFailed, E_FAIL };
+                const bool invalidClock = std::strcmp(reason, "audio_timeline_timestamp_unavailable") == 0 ||
+                    std::strcmp(reason, "audio_timeline_timestamp_not_increasing") == 0;
+                throw Failure{ invalidClock ? Reason::AudioReconnecting : Reason::AudioFailed, E_FAIL };
             }
             return status;
         }
@@ -1055,12 +1112,29 @@ namespace recorder::host
                     }
                     FeedPendingAudio();
                 }
-                if (!TakeNextPcm()) return;
+                if (!TakeNextPcm())
+                {
+                    if (resumeSilence_ && QueueAudioSilence()) { FeedPendingAudio(); continue; }
+                    return;
+                }
                 Require(capture_.IsForeground(), Reason::FocusLost);
                 audio::FeedSlice slice;
                 const auto status = InspectPcm(timeline_, *pendingPcm_, slice);
-                if (status == audio::TimelineResult::BeforeVideoEpoch) { pendingPcm_.reset(); continue; }
+                if (status == audio::TimelineResult::BeforeVideoEpoch || status == audio::TimelineResult::CoveredByTimeline)
+                {
+                    // A live source can initially trail the bounded silence
+                    // lookahead. Stop padding so its next packets can catch up.
+                    if (status == audio::TimelineResult::CoveredByTimeline) resumeSilence_ = false;
+                    pendingPcm_.reset(); continue;
+                }
+                if (status == audio::TimelineResult::NeedsSilence)
+                {
+                    if (!QueueAudioSilence(slice.silenceFramesNeeded)) return;
+                    FeedPendingAudio();
+                    continue;
+                }
                 pendingSlice_ = slice;
+                resumeSilence_ = false;
                 if (resumeAnchoring_) AnchorResumedAudio(slice);
                 if (!audioInitialized_)
                 {
@@ -1177,9 +1251,32 @@ namespace recorder::host
                 ProcessAudio(8); InitializeSpool(); ProcessAudio(8);
                 if (resumeAnchoring_)
                 {
-                    Require(GetTickCount64() - resumeBegan_ < 3500, Reason::CaptureReconnecting);
-                    shared_.progress.store(GetTickCount64());
-                    return true;
+                    if (GetTickCount64() - resumeBegan_ < 3500)
+                    {
+                        shared_.progress.store(GetTickCount64());
+                        return true;
+                    }
+                    Require(capture_.HasFrame(), Reason::CaptureReconnecting);
+                    std::uint64_t due = 0; LONGLONG next = 0;
+                    const auto now = Now();
+                    Require(FrameTime(1, nextFrame_, policy_.frameRate, due, next), Reason::EncoderFailed);
+                    if (audioEnabled_ && audioInitialized_ && spoolInitialized_)
+                    {
+                        Require(timeline_.AnchorResumedSilence(now, next), Reason::AudioFailed);
+                        resumeSilence_ = true;
+                    }
+                    else
+                    {
+                        // Only an unpublished stream can fall back to video-only.
+                        Require(!spoolInitialized_ && StopAudio(), Reason::CleanupFailed);
+                        Require(SUCCEEDED(audioEncoder_.Close()), Reason::CleanupFailed);
+                        audioInitialized_ = false;
+                        audioEnabled_ = false; pendingPcm_.reset(); resumedPcm_.reset(); pendingSlice_ = {};
+                        audioQueue_.reset();
+                    }
+                    Require(RebasePausedClock(now, next, nextFrame_, policy_.frameRate, scheduleEpoch_), Reason::EncoderFailed);
+                    resumeAnchoring_ = false;
+                    ProcessAudio(8);
                 }
                 for (UINT submitted = 0; submitted < 2; ++submitted)
                 {
@@ -1199,9 +1296,9 @@ namespace recorder::host
                         if (now < due) break;
                         Require(SchedulingAllowed(now, due), Reason::SchedulerLate);
                     }
-                    if (!(config_.losslessVideo ? losslessVideo_.CanAcceptInput() : video_.CanAcceptInput())) break;
+                    if (!(UsesNvenc() ? losslessVideo_.CanAcceptInput() : video_.CanAcceptInput())) break;
                     diagnosticStage_ = "video_submit";
-                    const auto status = config_.losslessVideo ? losslessVideo_.TrySubmit(nextFrame_, pts, *this) :
+                    const auto status = UsesNvenc() ? losslessVideo_.TrySubmit(nextFrame_, pts, *this) :
                         video_.TrySubmit(nextFrame_, pts, *this);
                     diagnosticStage_ = "video_submit";
                     Require(status != encoder::SubmitResult::Failed, failed_ ? reason_ : VideoReason(VideoError()), VideoError());
@@ -1236,7 +1333,7 @@ namespace recorder::host
             try
             {
                 if (paused_)
-                    return (config_.losslessVideo ? losslessVideo_.Result().outputSamples : video_.Result().outputSamples) < nextFrame_ ? 5 : 100;
+                    return (UsesNvenc() ? losslessVideo_.Result().outputSamples : video_.Result().outputSamples) < nextFrame_ ? 5 : 100;
                 if (resumeAnchoring_) return 5;
                 if (!epoch_ || !spoolInitialized_) return 5;
                 std::uint64_t due = 0; std::int64_t pts = 0;
@@ -1343,7 +1440,7 @@ namespace recorder::host
             if (completed.media.completed)
                 result.media = protocol::SavedMedia{ save_->clipId, completed.fileBytes, policy_.width, policy_.height,
                     policy_.frameRate, save_->bounds.start100ns, save_->bounds.end100ns, save_->hasAudio,
-                    config_.losslessVideo, save_->sizeLimited };
+                    config_.losslessVideo, save_->sizeLimited, hdrVideo_ };
             save_.reset(); shared_.saving.store(0);
             return true;
         }
@@ -1380,27 +1477,34 @@ namespace recorder::host
                 {
                     for (UINT count = 0; count < 129; ++count)
                     {
-                        if (!pendingSlice_.frames && !TakeNextPcm()) break;
+                        if (!pendingSlice_.frames && !TakeNextPcm() && (!resumeSilence_ || !QueueAudioSilence())) break;
                         if (!audioEnabled_) { pendingPcm_.reset(); pendingSlice_ = {}; break; }
                         if (!pendingSlice_.frames)
                         {
                             audio::FeedSlice slice;
                             const auto status = timeline_.Inspect(*pendingPcm_, slice);
                             Require(status != audio::TimelineResult::Failed, Reason::AudioFailed);
-                            if (status == audio::TimelineResult::BeforeVideoEpoch) { pendingPcm_.reset(); continue; }
-                            pendingSlice_ = slice;
+                            if (status == audio::TimelineResult::BeforeVideoEpoch || status == audio::TimelineResult::CoveredByTimeline)
+                            {
+                                if (status == audio::TimelineResult::CoveredByTimeline) resumeSilence_ = false;
+                                pendingPcm_.reset(); continue;
+                            }
+                            if (status == audio::TimelineResult::NeedsSilence)
+                            { if (!QueueAudioSilence(slice.silenceFramesNeeded)) break; }
+                            else pendingSlice_ = slice;
                         }
                         Require(audioInitialized_ && audioEncoder_.Feed(pendingSlice_.samples, pendingSlice_.frames,
                             pendingSlice_.firstFrameIndex), Reason::AudioFailed);
-                        pendingSlice_ = {}; pendingPcm_.reset();
+                        if (!pendingSlice_.generatedSilence) pendingPcm_.reset();
+                        pendingSlice_ = {};
                     }
                     if (audioInitialized_) Require(audioEncoder_.Drain(), Reason::AudioFailed);
-                    Require(config_.losslessVideo ? losslessVideo_.Drain() : video_.Drain(), Reason::EncoderFailed);
+                    Require(UsesNvenc() ? losslessVideo_.Drain() : video_.Drain(), Reason::EncoderFailed);
                 }
                 catch (...) { okay = false; }
             }
-            const HRESULT videoClose = config_.losslessVideo ? losslessVideo_.Close() : video_.Close();
-            if (config_.losslessVideo && FAILED(videoClose))
+            const HRESULT videoClose = UsesNvenc() ? losslessVideo_.Close() : video_.Close();
+            if (UsesNvenc() && FAILED(videoClose))
             {
                 EmitFailureDiagnostic(Reason::CleanupFailed, videoClose, "video_cleanup");
                 TerminateSelf(); // Retained driver resources belong to this disposable helper.
@@ -1494,6 +1598,23 @@ namespace recorder::host
         test(CaptureReason("target_focus_lost", E_FAIL) == Reason::FocusLost);
         test(CaptureReason("target_not_fullscreen", E_FAIL) == Reason::FullscreenRequired);
         test(VideoReason(DXGI_ERROR_DEVICE_REMOVED) == Reason::EncoderReconnecting && VideoReason(E_FAIL) == Reason::EncoderFailed);
+        lossless::Evidence unsupportedHdr;
+        unsupportedHdr.hr = E_NOTIMPL; unsupportedHdr.reason = "lossless_nvidia_hardware_required";
+        test(CanFallBackToSdr(true, false, unsupportedHdr));
+        test(!CanFallBackToSdr(false, false, unsupportedHdr) && !CanFallBackToSdr(true, true, unsupportedHdr));
+        unsupportedHdr.submitted = 1; test(!CanFallBackToSdr(true, false, unsupportedHdr));
+        unsupportedHdr.submitted = 0; unsupportedHdr.cleanupHr = E_FAIL;
+        test(!CanFallBackToSdr(true, false, unsupportedHdr));
+        unsupportedHdr.cleanupHr = S_OK; unsupportedHdr.resourcesRetained = true;
+        test(!CanFallBackToSdr(true, false, unsupportedHdr));
+        unsupportedHdr.resourcesRetained = false; unsupportedHdr.reason = "lossless_device_removed";
+        test(!CanFallBackToSdr(true, false, unsupportedHdr));
+        unsupportedHdr.reason = "lossless_required_capability_missing";
+        test(CanFallBackToSdr(true, false, unsupportedHdr));
+        for (const auto failure : { E_FAIL, DXGI_ERROR_DEVICE_REMOVED, HRESULT_FROM_WIN32(ERROR_DISK_FULL), HRESULT_FROM_WIN32(ERROR_TIMEOUT) })
+        {
+            unsupportedHdr.hr = failure; test(!CanFallBackToSdr(true, false, unsupportedHdr));
+        }
         test(AudioReason(AUDCLNT_E_DEVICE_INVALIDATED, "audio_get_buffer_failed") == Reason::AudioReconnecting &&
             AudioReason(E_ACCESSDENIED, "process_audio_activation_result_failed") == Reason::AudioCaptureFailed);
         audio::Evidence audioCleanup;

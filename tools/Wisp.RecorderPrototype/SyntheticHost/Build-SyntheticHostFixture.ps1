@@ -1,9 +1,11 @@
 param(
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
     [ValidateSet('baseline', 'current')][string]$Source = 'baseline',
-    [switch]$Timing
+    [switch]$Timing,
+    [switch]$Hdr
 )
 $ErrorActionPreference = 'Stop'
+if ($Hdr -and $Source -ne 'current') { throw 'Generated HDR input requires the current-source diagnostic.' }
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 $workPrefix = (Join-Path $repo 'work') + [IO.Path]::DirectorySeparatorChar
@@ -63,6 +65,7 @@ foreach ($name in @('SyntheticHostFixture.cpp', 'SyntheticCapture.cpp', 'Synthet
 $sources = @('RecorderHost', 'RecorderProtocol', 'HardwareEncoder', 'HardwareVideoSession', 'NvencLosslessVideoSession',
     'HdrFrameConverter', 'GpuFrameConverter', 'ProcessAudioCapture', 'AudioTimeline', 'AacEncoder', 'EncodedSpool',
     'OwnedFileStream', 'SpoolMp4Writer', 'Mp4ClipWriter', 'EncodedClipBuffer')
+if (Test-Path -LiteralPath (Join-Path $native 'CudaPlanarInput.cpp')) { $sources += 'CudaPlanarInput' }
 $units = @($sources | ForEach-Object { Join-Path $native "${_}.cpp" }) + @(
     (Join-Path $fixtureSource 'SyntheticHostFixture.cpp'), (Join-Path $fixtureSource 'SyntheticCapture.cpp'), (Join-Path $fixtureSource 'SyntheticTiming.cpp'))
 foreach ($unit in $units) { if (-not (Test-Path -LiteralPath $unit -PathType Leaf)) { throw 'Fixture source is incomplete.' } }
@@ -85,6 +88,7 @@ $objects = Join-Path $output 'objects'
 [void][IO.Directory]::CreateDirectory($objects)
 $compilerFlags = '/nologo /std:c++17 /permissive- /EHsc /O2 /W4 /WX /MT /Z7 /guard:cf /DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNTDDI_VERSION=0x0A000010 /DUNICODE /D_UNICODE /DNOMINMAX /DWISP_SYNTHETIC_HOST_FIXTURE'
 if ($Timing) { $compilerFlags += ' /DWISP_SYNTHETIC_HOST_TIMING' }
+if ($Hdr) { $compilerFlags += ' /DWISP_SYNTHETIC_HOST_HDR' }
 $compile = foreach ($unit in $units) {
     $object = Join-Path $objects ([IO.Path]::GetFileNameWithoutExtension($unit) + '.obj')
     "cl.exe $compilerFlags /I`"$native`" /I`"$fixtureSource`" /c /Fo`"$object`" `"$unit`"`r`nif errorlevel 1 exit /b 1"
@@ -107,7 +111,7 @@ $inventory = @(Get-ChildItem -LiteralPath $native -Recurse -File | Where-Object 
     [ordered]@{ path = $_.FullName.Substring($native.Length + 1).Replace('\', '/'); sha256 = Get-Sha256 $_.FullName }
 })
 $provenance = [ordered]@{ source = $Source; revision = $sourceRevision; baselineSourceVerified = ($Source -eq 'baseline');
-    baselineUnmodified = ($Source -eq 'baseline' -and -not $Timing); timingInstrumented = [bool]$Timing;
+    baselineUnmodified = ($Source -eq 'baseline' -and -not $Timing); timingInstrumented = [bool]$Timing; generatedHdrInput = [bool]$Hdr;
     nativeSourcesBeforeInstrumentation = $beforeInventory; nativeSources = $inventory;
     fixtureSources = @(Get-ChildItem -LiteralPath $fixtureSource -File | ForEach-Object { [ordered]@{ path = $_.Name; sha256 = Get-Sha256 $_.FullName } });
     executableSha256 = Get-Sha256 $exe; diagnosticVariants = @('baseline_save_at_thirty_five_seconds', 'high_output_eight_seconds_no_save', 'varying_8x8_eight_seconds_no_save', 'pause_save_resume_same_epoch');

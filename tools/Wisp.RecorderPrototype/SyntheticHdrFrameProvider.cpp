@@ -27,31 +27,33 @@ namespace recorder::synthetic
                 XMConvertFloatToHalf(static_cast<float>(color.b)), XMConvertFloatToHalf(1.0f) };
         }
         UINT ColorIndex(UINT patch, UINT pattern) noexcept { return (patch + pattern * 3) % HdrPatchCount; }
-        double Oetf(double linear)
+        double SrgbCode(double linear)
         {
-            return linear < .018 ? 4.5 * linear : 1.099 * std::pow(linear,.45) - .099;
+            return linear <= .0031308 ? 12.92 * linear : 1.055 * std::pow(linear,1.0/2.4) - .055;
         }
-        ExpectedPatch Reference(UINT patch, UINT pattern, float referenceWhite)
+        double SrgbLinear(double code)
+        {
+            return code <= .04045 ? code / 12.92 : std::pow((code+.055)/1.055,2.4);
+        }
+        ExpectedPatch Reference(UINT patch, UINT pattern, float /*sourceSdrWhiteNits*/)
         {
             const auto half = Pack(Colors[ColorIndex(patch,pattern)]);
-            const double scale = 80.0 / referenceWhite;
+            const double scale = 80.0 / 300.0;
             std::array<double,3> color{ XMConvertHalfToFloat(half[0]) * scale,
                 XMConvertHalfToFloat(half[1]) * scale, XMConvertHalfToFloat(half[2]) * scale };
-            const double luminance = .2126 * color[0] + .7152 * color[1] + .0722 * color[2];
-            if (luminance > 0)
+            std::array<double,3> wide{{
+                .62740389593469903*color[0]+.32928303837788370*color[1]+.043313065687417225*color[2],
+                .069097289358232075*color[0]+.91954039507545871*color[1]+.011362315566309178*color[2],
+                .016391438875150280*color[0]+.088013307877225749*color[1]+.89559525324762401*color[2] }};
+            for (auto& channel : wide)
             {
-                const double neutral = luminance <= .75 ? luminance : 1 - .0625 / (luminance - .5);
-                double compression = 1;
-                for (auto& channel : color) channel *= neutral / luminance;
-                for (const auto channel : color)
-                {
-                    const double offset = channel - neutral;
-                    if (offset > 0) compression = (std::min)(compression,(1 - neutral) / offset);
-                    else if (offset < 0) compression = (std::min)(compression,-neutral / offset);
-                }
-                for (auto& channel : color) channel = Oetf(std::clamp(neutral + compression * (channel-neutral),0.0,1.0));
+                channel = (std::max)(0.0,channel);
+                channel = SrgbLinear(std::pow(channel/(1+channel),1.0/2.4));
             }
-            else color = {};
+            color = {{1.6604910021084345*wide[0]-.58764113878854951*wide[1]-.072849863319884883*wide[2],
+                -.12455047452159074*wide[0]+1.1328998971259603*wide[1]-.0083494226043694768*wide[2],
+                -.018150763354905303*wide[0]-.10057889800800739*wide[1]+1.1187296613629127*wide[2]}};
+            for (auto& channel : color) channel = SrgbCode(std::clamp(channel,0.0,1.0));
             const double y = .2126 * color[0] + .7152 * color[1] + .0722 * color[2];
             return { (patch % 4) * (hdr::OutputWidth / 4) + hdr::OutputWidth / 8,
                 (patch / 4) * (hdr::OutputHeight / 2) + hdr::OutputHeight / 4,
@@ -158,15 +160,15 @@ namespace recorder::synthetic
         configuration = {};
         if (Supported(configuration,80)) return 0;
         configuration.chromaSiting = RequiredChroma;
-        if (Supported(configuration,0) || Supported(configuration,(std::numeric_limits<float>::quiet_NaN)())) return 0;
+        if (!Supported(configuration,0) || Supported(configuration,(std::numeric_limits<float>::quiet_NaN)())) return 0;
         ++passed;
         SyntheticHdrFrameProvider provider(80);
         ExpectedPatches first, second, repeat;
         if (!provider.ExpectedFrame(0,first) || !provider.ExpectedFrame(1,second) || !provider.ExpectedFrame(2,repeat)) return 0;
         if (first[0].luma != 16 || first[0].chromaU != 128 || first[0].chromaV != 128 ||
-            first[1].luma != 106 || first[1].chromaU != 128 || first[1].chromaV != 128 ||
-            first[2].luma != 221 || first[2].chromaU != 128 || first[2].chromaV != 128 ||
-            first[3].luma != 233 || first[3].chromaU != 128 || first[3].chromaV != 128) return 0;
+            first[1].luma != 77 || first[1].chromaU != 128 || first[1].chromaV != 128 ||
+            first[2].luma != 130 || first[2].chromaU != 128 || first[2].chromaV != 128 ||
+            first[3].luma != 182 || first[3].chromaU != 128 || first[3].chromaV != 128) return 0;
         ++passed;
         for (UINT patch = 0; patch < HdrPatchCount; ++patch)
         {

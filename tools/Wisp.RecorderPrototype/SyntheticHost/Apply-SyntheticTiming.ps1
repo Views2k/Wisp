@@ -47,8 +47,11 @@ foreach ($file in @('RecorderHost.cpp', 'EncodedSpool.cpp')) {
         Instrument-Method ([ref]$text) '        bool MediaSession::Tick() noexcept' 'Tick' 'host-tick'
         Instrument-Method ([ref]$text) '        HRESULT MediaSession::Fill(UINT, ID3D11Texture2D* destination) noexcept' 'CaptureFill' 'capture-fill'
         Instrument-Method ([ref]$text) '        bool MediaSession::BeginSave(const protocol::Command& command) noexcept' 'SaveBegin' 'save-begin'
+        $videoSelector = if ($text.Contains('bool UsesNvenc()')) { 'UsesNvenc()' } else { 'config_.losslessVideo' }
         $before = '            bool PumpVideo() noexcept { return config_.losslessVideo ? losslessVideo_.Pump() : video_.Pump(0); }'
         $after = '            bool PumpVideo() noexcept { WISP_FIXTURE_TIME(fixtureTiming, VideoPump, 0, -1); return config_.losslessVideo ? losslessVideo_.Pump() : video_.Pump(0); }'
+        $before = $before.Replace('config_.losslessVideo', $videoSelector)
+        $after = $after.Replace('config_.losslessVideo', $videoSelector)
         Replace-Exactly ([ref]$text) $before $after 'video-pump'
         $before = @'
                     const auto status = config_.losslessVideo ? losslessVideo_.TrySubmit(nextFrame_, pts, *this) :
@@ -62,6 +65,8 @@ foreach ($file in @('RecorderHost.cpp', 'EncodedSpool.cpp')) {
                             video_.TrySubmit(nextFrame_, pts, *this);
                     }
 '@
+        $before = $before.Replace('config_.losslessVideo', $videoSelector)
+        $after = $after.Replace('config_.losslessVideo', $videoSelector)
         Replace-Exactly ([ref]$text) $before $after 'video-submit'
         $before = '            if (firstFailure_.recorded) return;'
         Replace-Exactly ([ref]$text) $before ($before + "`n            WISP_FIXTURE_FREEZE();") 'freeze-first-failure'

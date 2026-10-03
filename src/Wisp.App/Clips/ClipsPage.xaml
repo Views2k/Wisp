@@ -91,8 +91,10 @@
                             <StackPanel Width="150" Margin="0,0,12,12"><TextBlock Text="Resolution · p" Style="{StaticResource ClipHint}" Margin="0,0,0,5" /><ComboBox ItemsSource="{Binding ResolutionChoices}" SelectedItem="{Binding ResolutionHeight}" AutomationProperties.Name="Recording and export resolution" /></StackPanel>
                             <StackPanel Width="150" Margin="0,0,12,12"><TextBlock Text="Frame rate · fps" Style="{StaticResource ClipHint}" Margin="0,0,0,5" /><ComboBox ItemsSource="{Binding FrameRateChoices}" SelectedItem="{Binding FrameRate}" AutomationProperties.Name="Recording frame rate" /></StackPanel>
                         </WrapPanel>
+                        <CheckBox Content="Record HDR video" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding PreserveHdrRecording}" Margin="0,0,0,6" AutomationProperties.Name="Record HDR video" />
+                        <TextBlock Text="Off by default: normal clips use H.264 for easier sharing, including on HDR screens. Turn on to keep HDR with a supported NVIDIA encoder. Normal clips fall back to SDR if HDR recording is unavailable." Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
                         <CheckBox Content="Lossless video" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding LosslessVideo}" Margin="0,0,0,6" AutomationProperties.Name="Lossless video" />
-                        <TextBlock Text="Preserves full-color SDR video after scaling and HDR conversion. Requires a supported NVIDIA encoder; files can be very large. Audio remains compressed." Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
+                        <TextBlock Text="Keeps every prepared pixel at 8-bit SDR or 10-bit HDR after scaling and color conversion. Requires a supported NVIDIA encoder; files can be very large. Audio remains compressed." Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
                         <DockPanel IsEnabled="{Binding CanEditCompressionQuality}" Margin="0,0,0,5"><TextBlock Text="Quality" /><TextBlock Text="{Binding Quality}" HorizontalAlignment="Right" /></DockPanel>
                         <Slider IsEnabled="{Binding CanEditCompressionQuality}" Minimum="10" Maximum="100" Value="{Binding Quality}" TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10" PreviewMouseLeftButtonUp="Quality_Commit" PreviewKeyUp="Quality_Commit" LostKeyboardFocus="Quality_Commit" AutomationProperties.Name="Clip quality,10 to100" Margin="0,0,0,8" />
                         <TextBlock Text="{Binding LongClipHint}" Style="{StaticResource ClipHint}" Margin="0,0,0,14" />
@@ -113,7 +115,7 @@
                     </StackPanel>
                     <TextBlock Text="Turn clipping off before changing recording settings." Style="{StaticResource ClipHint}" Margin="0,10,0,10" />
                     <CheckBox Content="Play sounds for clip shortcuts" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding ShortcutSoundsEnabled}" Margin="0,0,0,10" AutomationProperties.Name="Play sounds for clip shortcuts" />
-                    <CheckBox Content="Remind me about new clips on the dashboard" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding RemindersEnabled}" />
+                    <CheckBox Content="Remind me about new clips on the dashboard" Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding RemindersEnabled}" ToolTip="Recording and save problems are still shown when new-clip reminders are off." />
                 </StackPanel>
             </Expander>
             <Border x:Name="PlaybackSurface" Style="{DynamicResource CardStyle}" Padding="12" Margin="0,0,0,16" Visibility="{Binding HasSelection, Converter={StaticResource ClipVisibility}}" SizeChanged="PlaybackLayout_SizeChanged">
@@ -122,7 +124,33 @@
                         <Button Content="Close player" Click="ClosePlayer_Click" DockPanel.Dock="Right" Padding="10,6" />
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="{Binding SelectedTitle}" TextWrapping="Wrap" />
-                            <TextBlock x:Name="PlaybackStatus" Style="{StaticResource ClipHint}" Visibility="Collapsed" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /></Grid.ColumnDefinitions>
+                                <Path x:Name="PlaybackLoadingIndicator" Width="18" Height="18" Margin="0,4,7,0" VerticalAlignment="Center"
+                                      Data="M9,2 A7,7 0 1 1 2,9" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" IsHitTestVisible="False" Focusable="False"
+                                      RenderTransformOrigin="0.5,0.5">
+                                    <Path.RenderTransform><RotateTransform /></Path.RenderTransform>
+                                    <Path.Style>
+                                        <Style TargetType="Path">
+                                            <Style.Triggers>
+                                                <Trigger Property="IsVisible" Value="True">
+                                                    <Trigger.EnterActions>
+                                                        <BeginStoryboard x:Name="PlaybackLoadingRotation">
+                                                            <Storyboard>
+                                                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)" From="0" To="360" Duration="0:0:0.8" RepeatBehavior="Forever" />
+                                                            </Storyboard>
+                                                        </BeginStoryboard>
+                                                    </Trigger.EnterActions>
+                                                    <Trigger.ExitActions><RemoveStoryboard BeginStoryboardName="PlaybackLoadingRotation" /></Trigger.ExitActions>
+                                                </Trigger>
+                                                <EventTrigger RoutedEvent="FrameworkElement.Unloaded"><RemoveStoryboard BeginStoryboardName="PlaybackLoadingRotation" /></EventTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Path.Style>
+                                </Path>
+                                <TextBlock x:Name="PlaybackStatus" Grid.Column="1" Style="{StaticResource ClipHint}" Visibility="Collapsed" Margin="0,4,0,0" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" />
+                            </Grid>
                             <Button x:Name="CopyPlaybackDetails" Content="Copy playback details" Click="CopyPlaybackDetails_Click" Visibility="Collapsed" HorizontalAlignment="Left" Padding="10,6" Margin="0,6,0,0" />
                         </StackPanel>
                     </DockPanel>
@@ -148,10 +176,20 @@
                         <TextBlock Text="Volume" VerticalAlignment="Center" Margin="8,0,8,4" />
                         <Slider x:Name="PlaybackVolume" Minimum="0" Maximum="1" Value="0.6" Width="110" SmallChange="0.05" LargeChange="0.1" ValueChanged="PlaybackVolume_Changed" VerticalAlignment="Center" AutomationProperties.Name="Clip playback volume" Margin="0,0,0,4" />
                     </WrapPanel>
+                    <TextBlock x:Name="LosslessExportNote" Text="{Binding LosslessPlaybackNote}" Style="{StaticResource ClipHint}" Margin="0,4,0,0"
+                               Visibility="{Binding HasPlaybackFormatNote, Converter={StaticResource ClipVisibility}}" />
                     <TextBlock x:Name="PreviewExportStatus" Text="{Binding PreviewExportStatus}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,6,0,0"
                                Visibility="{Binding HasPreviewExportStatus, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
+                    <Button x:Name="CopyExportDetails" Content="Copy export details" Click="CopyExportDetails_Click" HorizontalAlignment="Left" Padding="10,6" Margin="0,6,0,0"
+                            Visibility="{Binding HasExportFailureDetails, Converter={StaticResource ClipVisibility}}" SizeChanged="PlaybackLayout_SizeChanged" />
                 </StackPanel>
             </Border>
+            <Grid x:Name="ExportProgressPanel" Margin="0,0,0,16" Visibility="{Binding IsExporting, Converter={StaticResource ClipVisibility}}" SizeChanged="PlaybackLayout_SizeChanged">
+                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <ProgressBar Minimum="0" Maximum="100" Value="{Binding ExportProgress, Mode=OneWay}" IsIndeterminate="{Binding ExportProgressIndeterminate}" Height="6" VerticalAlignment="Center" AutomationProperties.Name="Clip export progress" />
+                <TextBlock Grid.Column="1" Text="{Binding ExportProgressText}" Margin="10,0" VerticalAlignment="Center" />
+                <Button Grid.Column="2" Content="Cancel export" Click="CancelExport_Click" IsEnabled="{Binding CanCancelExport}" Padding="10,5" />
+            </Grid>
             <TextBlock Text="Export folder · local drive" FontWeight="SemiBold" />
             <TextBlock Text="{Binding StorageText}" Style="{StaticResource ClipHint}" Margin="0,5,0,8" />
             <TextBlock x:Name="ClipSetupHint" Text="Choose an export folder to copy saved clips out of Wisp." Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite">

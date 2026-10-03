@@ -8,8 +8,10 @@ namespace Wisp.App.Tests;
 
 public sealed class RecorderHostIntegrationTests
 {
-    [Fact]
-    public async Task PackagedHelperConfiguresAndStopsWithoutStartingMedia()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackagedHelperConfiguresAndStopsWithoutStartingMedia(bool preserveHdrRecording)
     {
         var helper = Path.Combine(AppContext.BaseDirectory, "Wisp.Recorder.exe");
         Assert.True(File.Exists(helper), "The recorder helper must be copied beside the test application.");
@@ -34,7 +36,7 @@ public sealed class RecorderHostIntegrationTests
 
         // Config creates no MediaSession. This test deliberately never supplies
         // a target identity or sends Start, Save, capture, or audio commands.
-        try { await client.OpenAsync(new(60, 1080, 60, 75), directory.Path, deadline.Token); }
+        try { await client.OpenAsync(new(60, 1080, 60, 75, PreserveHdrRecording: preserveHdrRecording), directory.Path, deadline.Token); }
         catch (RecorderClientException error)
         {
             throw new Xunit.Sdk.XunitException($"Helper configuration failed: reason={error.Reason}; nativeReason={client.FailureDiagnostic?.Reason}; stage={client.FailureDiagnostic?.Stage}");

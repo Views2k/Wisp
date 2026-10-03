@@ -8,7 +8,7 @@
 
 namespace recorder::exporting
 {
-    enum class VideoEncoding { H264Baseline420, H264LosslessGbr444 };
+    enum class VideoEncoding { H264Baseline420, H264LosslessGbr444, HevcMain10Pq420, HevcLosslessPqGbr444 };
     bool IsPacketSizeSupported(bool audio, size_t bytes, VideoEncoding) noexcept;
 
     struct VideoFormat

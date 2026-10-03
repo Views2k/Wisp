@@ -26,7 +26,9 @@ namespace recorder::exporting
         switch (encoding)
         {
         case VideoEncoding::H264Baseline420: maximumVideoBytes = 16u * 1024 * 1024; break;
+        case VideoEncoding::HevcMain10Pq420: maximumVideoBytes = 16u * 1024 * 1024; break;
         case VideoEncoding::H264LosslessGbr444: maximumVideoBytes = 64u * 1024 * 1024; break;
+        case VideoEncoding::HevcLosslessPqGbr444: maximumVideoBytes = 64u * 1024 * 1024; break;
         default: return false;
         }
         return bytes > 0 && bytes <= (audio ? aac::MaximumPacketBytes : maximumVideoBytes);
@@ -34,16 +36,17 @@ namespace recorder::exporting
 
     static const char* ValidateFormat(const VideoFormat& format) noexcept
     {
+        const bool supportedTransfer = format.transfer == MFVideoTransFunc_sRGB || format.transfer == MFVideoTransFunc_709;
         if (format.width < 2 || format.height < 2 || format.width > 3840 || format.height > 2160 ||
             (format.width & 1) || (format.height & 1) || format.frameRate == 0 || format.frameRate > 60 ||
-            format.primaries != MFVideoPrimaries_BT709 || format.transfer != MFVideoTransFunc_709 ||
             format.pixelAspectNumerator == 0 || format.pixelAspectDenominator == 0 ||
             format.pixelAspectNumerator > 65535 || format.pixelAspectDenominator > 65535)
             return "export_format_unsupported";
         switch (format.encoding)
         {
         case VideoEncoding::H264Baseline420:
-            if (format.bitrate == 0 || format.profile != eAVEncH264VProfile_Base ||
+            if (format.primaries != MFVideoPrimaries_BT709 || !supportedTransfer ||
+                format.bitrate == 0 || format.profile != eAVEncH264VProfile_Base ||
                 format.matrix != MFVideoTransferMatrix_BT709 || format.nominalRange != MFNominalRange_16_235 ||
                 (format.chromaSiting != 0 && format.chromaSiting != MFVideoChromaSubsampling_MPEG2 &&
                  format.chromaSiting != (MFVideoChromaSubsampling_MPEG2 | MFVideoChromaSubsampling_ProgressiveChroma)))
@@ -52,10 +55,24 @@ namespace recorder::exporting
         case VideoEncoding::H264LosslessGbr444:
             // Matrix enum6 is MF's identity mapping; the H264 VUI uses matrix0.
             // No chroma subsampling or nominal rate target belongs to this mode.
-            if (format.bitrate != 0 || format.profile != eAVEncH264VProfile_444 ||
+            if (format.primaries != MFVideoPrimaries_BT709 || !supportedTransfer ||
+                format.bitrate != 0 || format.profile != eAVEncH264VProfile_444 ||
                 format.matrix != MFVideoTransferMatrix_Identity || format.nominalRange != MFNominalRange_0_255 ||
                 format.chromaSiting != 0)
                 return "export_format_unsupported";
+            return nullptr;
+        case VideoEncoding::HevcMain10Pq420:
+            if (format.primaries != MFVideoPrimaries_BT2020 || format.transfer != MFVideoTransFunc_2084 ||
+                format.bitrate == 0 || format.profile != eAVEncH265VProfile_Main_420_10 ||
+                format.matrix != MFVideoTransferMatrix_BT2020_10 || format.nominalRange != MFNominalRange_16_235 ||
+                format.chromaSiting != (MFVideoChromaSubsampling_MPEG2 | MFVideoChromaSubsampling_ProgressiveChroma))
+                return "export_hdr_format_unsupported";
+            return nullptr;
+        case VideoEncoding::HevcLosslessPqGbr444:
+            if (format.primaries != MFVideoPrimaries_BT2020 || format.transfer != MFVideoTransFunc_2084 ||
+                format.bitrate != 0 || format.profile != eAVEncH265VProfile_Main_444_10 ||
+                format.matrix != MFVideoTransferMatrix_Identity || format.nominalRange != MFNominalRange_0_255 || format.chromaSiting != 0)
+                return "export_hdr_lossless_format_unsupported";
             return nullptr;
         default:
             return "export_format_unsupported";
@@ -221,7 +238,8 @@ namespace recorder::exporting
             ComPtr<IMFMediaType> type;
             Check(MFCreateMediaType(&type), "export_type_creation_failed");
             Check(type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video), "export_type_attribute_failed");
-            Check(type->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264), "export_type_attribute_failed");
+            Check(type->SetGUID(MF_MT_SUBTYPE, (format.encoding == VideoEncoding::HevcMain10Pq420 ||
+                format.encoding == VideoEncoding::HevcLosslessPqGbr444) ? MFVideoFormat_HEVC : MFVideoFormat_H264), "export_type_attribute_failed");
             Check(MFSetAttributeSize(type.Get(), MF_MT_FRAME_SIZE, format.width, format.height), "export_type_attribute_failed");
             Check(MFSetAttributeRatio(type.Get(), MF_MT_FRAME_RATE, format.frameRate, 1), "export_type_attribute_failed");
             Check(MFSetAttributeRatio(type.Get(), MF_MT_PIXEL_ASPECT_RATIO,

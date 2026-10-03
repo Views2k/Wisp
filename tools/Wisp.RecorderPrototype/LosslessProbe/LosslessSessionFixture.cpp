@@ -124,37 +124,35 @@ namespace
     constexpr std::array<std::array<UINT, 3>, 16> SdrColors{{{0,0,0},{255,255,255},{255,0,0},{0,255,0},
         {0,0,255},{0,255,255},{255,0,255},{255,255,0},{10,10,10},{11,11,11},{32,32,32},
         {64,64,64},{128,128,128},{192,192,192},{217,109,23},{13,71,201}}};
-    double Oetf(double value) { return value < .018 ? 4.5 * value : 1.099 * std::pow(value, .45) - .099; }
-    double SrgbLinear(double value) { return value <= .04045 ? value / 12.92 : std::pow((value + .055) / 1.055, 2.4); }
+    double SrgbCode(double value) { return value <= .0031308 ? 12.92 * value : 1.055 * std::pow(value, 1.0/2.4) - .055; }
     std::array<UINT, 3> Expected(const Options& options, UINT patch, UINT frame)
     {
         const UINT index = (patch + frame) % 16;
+        // The SDR oracle is the source bytes, independent of any transfer formula.
+        if (!options.hdr) return SdrColors[index];
         std::array<double, 3> output{};
-        if (!options.hdr)
-            for (UINT channel = 0; channel < 3; ++channel) output[channel] = Oetf(SrgbLinear(SdrColors[index][channel] / 255.0));
-        else
         {
             const auto color = HdrColors[index];
-            const auto quantize = [&](double value) {
-                const float source = static_cast<float>(value) * (static_cast<float>(options.white) / 80.0f);
-                return static_cast<double>(XMConvertHalfToFloat(XMConvertFloatToHalf(source))) * 80.0 / options.white;
+            const auto quantize = [](double value) {
+                return static_cast<double>(XMConvertHalfToFloat(XMConvertFloatToHalf(static_cast<float>(value)))) * 80.0 / 300.0;
             };
             const Rgb linear{quantize(color.r), quantize(color.g), quantize(color.b)};
-            const double luminance = .2126 * linear.r + .7152 * linear.g + .0722 * linear.b;
-            if (std::isfinite(linear.r) && std::isfinite(linear.g) && std::isfinite(linear.b) &&
-                std::isfinite(luminance) && luminance > 0)
+            if (std::isfinite(linear.r) && std::isfinite(linear.g) && std::isfinite(linear.b))
             {
-                const double neutral = luminance <= .75 ? luminance : 1 - 1 / (16 * luminance - 8);
-                const double scale = neutral / luminance;
-                output = {linear.r * scale, linear.g * scale, linear.b * scale};
-                double compression = 1;
-                for (const double channel : output)
+                std::array<double,3> wide{{
+                    .62740389593469903*linear.r+.32928303837788370*linear.g+.043313065687417225*linear.b,
+                    .069097289358232075*linear.r+.91954039507545871*linear.g+.011362315566309178*linear.b,
+                    .016391438875150280*linear.r+.088013307877225749*linear.g+.89559525324762401*linear.b }};
+                for (auto& channel : wide)
                 {
-                    const double delta = channel - neutral;
-                    if (delta > 0) compression = (std::min)(compression, (1 - neutral) / delta);
-                    else if (delta < 0) compression = (std::min)(compression, -neutral / delta);
+                    channel = (std::max)(0.0,channel);
+                    const double code = std::pow(channel/(1+channel),1.0/2.4);
+                    channel = code <= .04045 ? code/12.92 : std::pow((code+.055)/1.055,2.4);
                 }
-                for (auto& channel : output) channel = Oetf(std::clamp(neutral + compression * (channel - neutral), 0.0, 1.0));
+                output = {{1.6604910021084345*wide[0]-.58764113878854951*wide[1]-.072849863319884883*wide[2],
+                    -.12455047452159074*wide[0]+1.1328998971259603*wide[1]-.0083494226043694768*wide[2],
+                    -.018150763354905303*wide[0]-.10057889800800739*wide[1]+1.1187296613629127*wide[2]}};
+                for (auto& channel : output) channel = SrgbCode(std::clamp(channel,0.0,1.0));
             }
         }
         std::array<UINT, 3> result{};
@@ -236,7 +234,7 @@ float4 PS(float4 position : SV_Position) : SV_Target {
                 Require(index == filled && index < options_.frames, "fixture_frame_order_invalid");
                 struct Parameters { UINT frame, width, height, entropy; float whiteScale; UINT isHdr, a, b; };
                 const Parameters values{index, SourceWidth, SourceHeight, options_.entropy ? 1u : 0u,
-                    static_cast<float>(options_.white) / 80.0f, options_.hdr ? 1u : 0u, 0, 0};
+                    1.0f, options_.hdr ? 1u : 0u, 0, 0};
                 context_->UpdateSubresource(constants_.Get(), 0, nullptr, &values, 0, 0);
                 const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(SourceWidth), static_cast<float>(SourceHeight), 0, 1};
                 context_->RSSetViewports(1, &viewport); context_->RSSetState(rasterizer_.Get());
@@ -324,7 +322,7 @@ float4 PS(float4 position : SV_Position) : SV_Target {
                 Require(type && !configurationMatched && config.width == options_.width && config.height == options_.height &&
                     config.frameRate == Rate && config.bitrate == 0 && config.chromaSiting == 0, "configuration_mismatch");
                 const std::array<std::pair<GUID, UINT>, 5> required{{{MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_444},
-                    {MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709}, {MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709},
+                    {MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709}, {MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_sRGB},
                     {MF_MT_YUV_MATRIX, MFVideoTransferMatrix_Identity}, {MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255}}};
                 for (const auto& attribute : required)
                 {
@@ -371,6 +369,16 @@ float4 PS(float4 position : SV_Position) : SV_Target {
     {
         UINT count = 0;
         const auto test = [&](bool value) { Require(value, "cpu_contract_failed"); ++count; };
+        for (UINT patch = 0; patch < SdrColors.size(); ++patch) test(Expected({}, patch, 0) == SdrColors[patch]);
+        for (const UINT white : {80u, 280u})
+        {
+            Options hdrOptions; hdrOptions.hdr = true; hdrOptions.white = white;
+            // Fixed neutral codes from the independent scalar identity
+            // 255 * (scRGB / (scRGB + 3.75))^(1/2.4), after FP16 input.
+            constexpr std::array<UINT,8> expected{{0,8,28,71,133,164,194,229}};
+            for (UINT patch = 0; patch < expected.size(); ++patch)
+                test(Expected(hdrOptions, patch, 0) == std::array<UINT,3>{expected[patch],expected[patch],expected[patch]});
+        }
         encoder::EncodeConfig config{1920, 1080, Rate, 0, 1, 1, 0};
         const lossless::Options options{3000, 0};
         test(lossless::ValidateConfiguration(config, options) == nullptr);

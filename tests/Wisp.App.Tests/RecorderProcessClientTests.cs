@@ -52,6 +52,7 @@ public sealed class RecorderProcessClientTests
         Assert.True(config.GetProperty("gameAudio").GetBoolean());
         Assert.False(config.GetProperty("systemAudio").GetBoolean());
         Assert.False(config.GetProperty("losslessVideo").GetBoolean());
+        Assert.False(config.GetProperty("preserveHdrRecording").GetBoolean());
         Assert.False(config.GetProperty("borderlessAllowed").GetBoolean());
         Assert.Equal("123", child.Commands[1].GetProperty("window").GetString());
         await client.StopAsync(TestToken);
@@ -68,6 +69,18 @@ public sealed class RecorderProcessClientTests
         await client.OpenAsync(Recording with { CaptureSystemAudio = true }, fixture.Directory, TestToken);
         Assert.True(child.Commands[0].GetProperty("systemAudio").GetBoolean());
         Assert.True(child.Commands[0].GetProperty("gameAudio").GetBoolean());
+        await client.StopAsync(TestToken);
+    }
+
+    [Fact]
+    public async Task HdrRecordingRequiresExplicitPreference()
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild();
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+        await client.OpenAsync(Recording with { PreserveHdrRecording = true }, fixture.Directory, TestToken);
+        Assert.True(child.Commands[0].GetProperty("preserveHdrRecording").GetBoolean());
+        Assert.False(child.Commands[0].GetProperty("losslessVideo").GetBoolean());
         await client.StopAsync(TestToken);
     }
 

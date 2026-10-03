@@ -31,7 +31,7 @@ internal static class RecorderProtocol
         "window_resized", "focus_lost", "fullscreen_required", "unsupported_os", "unsupported_gpu", "unsupported_format", "capture_failed",
         "encoder_failed", "audio_failed", "audio_capture_failed", "audio_unavailable", "buffer_full", "no_keyframe",
         "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error", "cancelled", "stopped", "parent_closed",
-        "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed", "lossless_storage_low", "lossless_encoder_unsupported"
+        "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed", "lossless_storage_low", "lossless_encoder_unsupported", "hdr_encoder_unsupported"
     };
     private static readonly HashSet<string> States = new(StringComparer.Ordinal) { "waiting", "reconnecting", "paused", "buffering", "saving", "stopped", "error" };
 
@@ -98,12 +98,13 @@ internal static class RecorderProtocol
                 if (ok ? reason != "none" : reason == "none") throw new FormatException();
                 return new RecorderReply(request, ok, reason);
             }
+            var hdrVideo = names.Remove("hdrVideo") && root.GetProperty("hdrVideo").GetBoolean();
             RequireMembers(names, "v", "session", "request", "type", "ok", "reason", "clipId", "fileBytes", "width", "height", "frameRate", "start100ns", "end100ns", "hasAudio", "losslessVideo", "sizeLimited");
             if (!ok || !Guid.TryParseExact(root.GetProperty("clipId").GetString(), "N", out var id) || id == Guid.Empty) throw new FormatException();
             var media = new FinalizedClipMedia(root.GetProperty("fileBytes").GetInt64(), root.GetProperty("width").GetInt32(),
                 root.GetProperty("height").GetInt32(), root.GetProperty("frameRate").GetInt32(),
                 root.GetProperty("start100ns").GetInt64(), root.GetProperty("end100ns").GetInt64(), root.GetProperty("hasAudio").GetBoolean(),
-                root.GetProperty("losslessVideo").GetBoolean(), root.GetProperty("sizeLimited").GetBoolean());
+                root.GetProperty("losslessVideo").GetBoolean(), root.GetProperty("sizeLimited").GetBoolean(), hdrVideo);
             if (media.SizeLimited && !media.LosslessVideo) throw new FormatException();
             if (media.HasAudio ? reason != "none" : reason != "audio_unavailable") throw new FormatException();
             if (media.FileBytes is <= 0 or > ClipLibrary.MaximumMediaBytes || !ClipsSettings.ResolutionChoices.Contains(media.Height) ||
@@ -277,6 +278,7 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 ["frameRate"] = recording.FrameRate,
                 ["quality"] = recording.Quality,
                 ["losslessVideo"] = recording.LosslessVideo,
+                ["preserveHdrRecording"] = recording.PreserveHdrRecording,
                 ["gameAudio"] = true,
                 ["systemAudio"] = recording.CaptureSystemAudio,
                 ["spoolDirectory"] = _buffer.SpoolDirectory,

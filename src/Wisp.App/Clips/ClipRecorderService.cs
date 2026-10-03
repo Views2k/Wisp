@@ -44,6 +44,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private readonly Func<TimeSpan, CancellationToken, Task> _recoveryDelay;
     private readonly Func<CancellationToken, Task<ClipBorderlessAccessResult>> _requestBorderless;
     private readonly Func<CancellationToken, Task<ClipBorderlessAccessResult>> _checkBorderless;
+    private readonly DebugLogging.ComponentDiagnosticHistory _diagnosticHistory;
     private readonly SemaphoreSlim _permissionGate = new(1, 1);
     private ClipBorderlessAccessResult? _borderlessAccess;
     private readonly bool _helperAvailable;
@@ -88,7 +89,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         Func<CancellationToken, Task<string>>? validateStorage = null,
         Func<TimeSpan, CancellationToken, Task>? recoveryDelay = null,
         Func<CancellationToken, Task<ClipBorderlessAccessResult>>? requestBorderless = null,
-        Func<CancellationToken, Task<ClipBorderlessAccessResult>>? checkBorderless = null)
+        Func<CancellationToken, Task<ClipBorderlessAccessResult>>? checkBorderless = null,
+        DebugLogging.ComponentDiagnosticHistory? diagnosticHistory = null)
     {
         _storageDirectory = storageDirectory ?? throw new ArgumentNullException(nameof(storageDirectory));
         _createSession = createSession ?? throw new ArgumentNullException(nameof(createSession));
@@ -96,6 +98,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         _recoveryDelay = recoveryDelay ?? Task.Delay;
         _requestBorderless = requestBorderless ?? (_ => Task.FromResult(ClipBorderlessAccessResult.Unavailable));
         _checkBorderless = checkBorderless ?? (_ => Task.FromResult(ClipBorderlessAccessResult.Unavailable));
+        _diagnosticHistory = diagnosticHistory ?? DebugLogging.ComponentDiagnosticHistory.Current;
         _helperAvailable = helperAvailable;
         _snapshot = OffSnapshot();
         _worker = Task.Run(WorkAsync);
@@ -545,6 +548,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 session.FailureDiagnostic is { } diagnostic)
             {
                 _failureReport = failure with { Diagnostic = diagnostic };
+                _diagnosticHistory.RecordGenerated(DebugLogging.DiagnosticComponent.Recorder, FormatFailure(_failureReport));
                 if (_fault == "storage_failed" && diagnostic.HResult is 0x80070070 or 0x80070027 or 0xD000007F)
                     _fault = "buffer_storage_full";
                 reportUpdated = true;
@@ -555,6 +559,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 if (!ReferenceEquals(reset.Detail.Owner, session)) continue;
                 var detail = reset.Detail with { Owner = cleanupFailed ? session : null, Diagnostic = reset.Detail.Diagnostic ?? session.FailureDiagnostic };
                 _resetHistory[index] = reset with { Detail = detail };
+                _diagnosticHistory.RecordGenerated(DebugLogging.DiagnosticComponent.Recorder, FormatFailure(detail));
                 reportUpdated = true;
             }
             if (cleanupFailed)
@@ -662,8 +667,13 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         _ => "Game capture was interrupted. Reconnecting automatically…"
     }) + " The rolling buffer restarts after reconnecting.";
 
-    private void RememberFailure(string reason, IRecorderSession? owner, RecorderClientException? error = null) =>
-        _failureReport ??= new(reason, _recording, owner, IsManagedStorageFailure(reason) ? null : owner?.FailureDiagnostic, ClipStorageDiagnostic.From(error));
+    private void RememberFailure(string reason, IRecorderSession? owner, RecorderClientException? error = null)
+    {
+        var report = new FailureReportState(reason, _recording, owner,
+            IsManagedStorageFailure(reason) ? null : owner?.FailureDiagnostic, ClipStorageDiagnostic.From(error));
+        _failureReport ??= report;
+        _diagnosticHistory.RecordGenerated(DebugLogging.DiagnosticComponent.Recorder, FormatFailure(report));
+    }
 
     // Call only while holding _sync and before cancelling the current session.
     private void RememberReset(string trigger, IRecorderSession? owner)
@@ -680,6 +690,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         if (_resetHistory.Count == MaximumResetHistory) _resetHistory.RemoveAt(0);
         _resetHistory.Add(new(++_resetSequence, safeTrigger, age,
             new(reason, _recording, owner, owner?.FailureDiagnostic, null)));
+        _diagnosticHistory.RecordGenerated(DebugLogging.DiagnosticComponent.Recorder,
+            FormatFailure(_resetHistory[^1].Detail));
     }
 
     private static string FormatFailure(FailureReportState failure) => ClipFailureReport.Build(failure.Reason, failure.Recording,
@@ -750,6 +762,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         "unsupported_os" => "This Windows version cannot record game clips.",
         "unsupported_gpu" => "A compatible hardware video encoder is unavailable.",
         "lossless_encoder_unsupported" => "Lossless video needs a supported NVIDIA encoder. Turn off Lossless video to use standard recording.",
+        "hdr_encoder_unsupported" => "HDR recording needs a supported NVIDIA 10-bit HEVC encoder. Standard SDR recording is still available on compatible hardware.",
         "unsupported_format" => "The screen color format, orientation or recording settings are unsupported. Copy error details to report this.",
         "capture_stale" or "capture_reconnecting" or "encoder_reconnecting" or "audio_reconnecting" or "scheduler_late" => RecoveryStatus(reason),
         "capture_failed" => "Game capture failed. Enable clipping to try again.",

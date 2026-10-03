@@ -30,11 +30,13 @@ call "$developerCommand" -no_logo -arch=x64 -host_arch=x64 -winsdk=10.0.26100.0
 if errorlevel 1 exit /b 1
 cl.exe $compilerFlags /c /Fo"$buildDirectory\LosslessSessionFixture.obj" "$PSScriptRoot\LosslessSessionFixture.cpp"
 if errorlevel 1 exit /b 1
+cl.exe $compilerFlags /c /Fo"$buildDirectory\CudaPlanarInput.obj" "$sourceDirectory\CudaPlanarInput.cpp"
+if errorlevel 1 exit /b 1
 cl.exe $compilerFlags /c /Fo"$buildDirectory\NvencLosslessVideoSession.obj" "$sourceDirectory\NvencLosslessVideoSession.cpp"
 if errorlevel 1 exit /b 1
 cl.exe $compilerFlags /c /Fo"$buildDirectory\HdrFrameConverter.obj" "$sourceDirectory\HdrFrameConverter.cpp"
 if errorlevel 1 exit /b 1
-link.exe /nologo /OUT:"$executable" "$buildDirectory\LosslessSessionFixture.obj" "$buildDirectory\NvencLosslessVideoSession.obj" "$buildDirectory\HdrFrameConverter.obj" /DEBUG:FULL /PDB:"$buildDirectory\Wisp.LosslessSessionFixture.pdb" /PDBALTPATH:Wisp.LosslessSessionFixture.pdb /DYNAMICBASE /NXCOMPAT /GUARD:CF /OPT:REF /OPT:ICF /INCREMENTAL:NO mfplat.lib mfuuid.lib ole32.lib d3dcompiler.lib d3d11.lib dxgi.lib uuid.lib
+link.exe /nologo /OUT:"$executable" "$buildDirectory\LosslessSessionFixture.obj" "$buildDirectory\NvencLosslessVideoSession.obj" "$buildDirectory\CudaPlanarInput.obj" "$buildDirectory\HdrFrameConverter.obj" /DEBUG:FULL /PDB:"$buildDirectory\Wisp.LosslessSessionFixture.pdb" /PDBALTPATH:Wisp.LosslessSessionFixture.pdb /DYNAMICBASE /NXCOMPAT /GUARD:CF /OPT:REF /OPT:ICF /INCREMENTAL:NO mfplat.lib mfuuid.lib ole32.lib d3dcompiler.lib d3d11.lib dxgi.lib uuid.lib
 exit /b %errorlevel%
 "@
 [IO.File]::WriteAllText($compilerBatch, $batch.Replace("`r`n", "`n").Replace("`n", "`r`n"), [Text.Encoding]::ASCII)

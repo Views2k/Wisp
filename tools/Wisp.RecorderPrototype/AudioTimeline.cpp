@@ -1,5 +1,6 @@
 #include "AudioTimeline.h"
 
+#include <algorithm>
 #include <limits>
 
 namespace recorder::audio
@@ -34,9 +35,26 @@ namespace recorder::audio
     bool TimelineAllowance(std::uint64_t frequency, std::uint64_t& allowance) noexcept
     {
         allowance = 0;
-        // Do not allow a coarse counter to silently expand a sample-scale budget.
+        // Do not allow a coarse counter to silently expand the AAC-packet budget.
         if (frequency < SampleRate || frequency > MaximumTime) return false;
-        allowance = CeilQuotient(TicksPerSecond, SampleRate) + CeilQuotient(TicksPerSecond, frequency) + 2;
+        allowance = CeilQuotient(TicksPerSecond * 1024, SampleRate) + CeilQuotient(TicksPerSecond, frequency) + 2;
+        return true;
+    }
+    bool TimelineSilenceBudget(std::int64_t audioEpoch, std::uint64_t retainedFrames,
+        std::int64_t videoEnd, std::uint32_t maximumFrames, std::uint32_t& frames) noexcept
+    {
+        frames = 0;
+        constexpr auto packetDuration = (TicksPerSecond * 1024 + SampleRate - 1) / SampleRate;
+        std::uint64_t next = 0;
+        if (audioEpoch < 0 || videoEnd < 0 || !maximumFrames ||
+            static_cast<std::uint64_t>(videoEnd) > MaximumTime - packetDuration ||
+            !TimelineFrameTime(static_cast<std::uint64_t>(audioEpoch), retainedFrames, next)) return false;
+        const auto limit = static_cast<std::uint64_t>(videoEnd) + packetDuration;
+        if (next >= limit) return true;
+        const auto delta = limit - next;
+        const auto available = (delta / TicksPerSecond) * SampleRate + (delta % TicksPerSecond) * SampleRate / TicksPerSecond;
+        frames = static_cast<std::uint32_t>((std::min)(available,
+            static_cast<std::uint64_t>((std::min)(maximumFrames, MaximumFeedFrames))));
         return true;
     }
     TimelineResult AudioTimeline::Fail(const char* reason) noexcept
@@ -69,12 +87,16 @@ namespace recorder::audio
             return Fail("audio_timeline_timestamp_unavailable");
         if (havePreviousPacket_ && packet.qpc100ns <= previousQpc100ns_)
             return Fail("audio_timeline_timestamp_not_increasing");
-        if (evidence_.anchored && packet.discontinuity) return Fail("audio_timeline_source_discontinuity");
+        // WASAPI's discontinuity flag reports lost source data, not an invalid
+        // timestamp. Keep the existing AAC timeline and reconcile this packet
+        // through the same bounded gap/overlap handling as unflagged packets.
+        // Timestamp-error flags and invalid/non-increasing clocks remain fatal.
         std::uint64_t packetEnd = 0;
         if (!TimelineFrameTime(packet.qpc100ns, packet.frames, packetEnd)) return Fail("audio_timeline_clock_overflow");
         if (!Sum(evidence_.sourcePackets, 1)) return Fail("audio_timeline_counter_limit");
 
         std::uint32_t skip = 0;
+        const bool wasAnchored = evidence_.anchored;
         std::int64_t residual = 0;
         std::uint64_t absoluteResidual = 0;
         if (evidence_.anchored)
@@ -90,7 +112,21 @@ namespace recorder::audio
             ++evidence_.residualChecks;
             evidence_.lastResidual100ns = residual;
             if (absoluteResidual > evidence_.maximumAbsoluteResidual100ns) evidence_.maximumAbsoluteResidual100ns = absoluteResidual;
-            if (absoluteResidual > evidence_.policyAllowance100ns) return Fail("audio_timeline_clock_outside_policy");
+            if (absoluteResidual > evidence_.policyAllowance100ns)
+            {
+                const auto frames = FramesToEpoch(absoluteResidual);
+                if (residual > 0)
+                {
+                    slice.silenceFramesNeeded = static_cast<std::uint32_t>((std::min)(frames, static_cast<std::uint64_t>(MaximumFeedFrames)));
+                    evidence_.reason = "audio_timeline_gap_requires_silence";
+                    return TimelineResult::NeedsSilence;
+                }
+                skip = static_cast<std::uint32_t>((std::min)(frames, static_cast<std::uint64_t>(packet.frames)));
+            }
+            // Never replay source time already represented by generated silence.
+            if (packet.qpc100ns < silenceCoveredUntil100ns_)
+                skip = (std::max)(skip, static_cast<std::uint32_t>((std::min)(FramesToEpoch(silenceCoveredUntil100ns_ - packet.qpc100ns),
+                    static_cast<std::uint64_t>(packet.frames))));
         }
         else if (packet.qpc100ns < options_.videoEpochQpc100ns)
         {
@@ -101,14 +137,15 @@ namespace recorder::audio
         const std::uint32_t retained = packet.frames - skip;
         if (retained == 0)
         {
-            if (!Sum(evidence_.beforeEpochPackets, 1)) return Fail("audio_timeline_counter_limit");
-            ++evidence_.sourcePackets; ++evidence_.beforeEpochPackets;
+            if (!Sum(wasAnchored ? evidence_.coveredPackets : evidence_.beforeEpochPackets, 1)) return Fail("audio_timeline_counter_limit");
+            ++evidence_.sourcePackets;
+            if (wasAnchored) ++evidence_.coveredPackets; else ++evidence_.beforeEpochPackets;
             evidence_.discardedFrames += skip;
             evidence_.initialDiscontinuityObserved |= packet.discontinuity;
             previousQpc100ns_ = packet.qpc100ns; havePreviousPacket_ = true;
-            evidence_.reason = "audio_before_video_epoch";
+            evidence_.reason = wasAnchored ? "audio_already_covered" : "audio_before_video_epoch";
             slice.skippedPrefixFrames = skip;
-            return TimelineResult::BeforeVideoEpoch;
+            return wasAnchored ? TimelineResult::CoveredByTimeline : TimelineResult::BeforeVideoEpoch;
         }
         if (!Sum(evidence_.acceptedPackets, 1) || !Sum(evidence_.retainedFrames, retained)) return Fail("audio_timeline_counter_limit");
         std::int64_t audioEpoch = evidence_.audioEpochTime100ns;
@@ -122,8 +159,8 @@ namespace recorder::audio
         std::uint64_t encodedEnd = 0;
         if (!TimelineFrameTime(static_cast<std::uint64_t>(audioEpoch), evidence_.retainedFrames + retained, encodedEnd))
             return Fail("audio_timeline_clock_overflow");
-        // All validations precede acceptance. No frame is dropped or duplicated
-        // after the first retained sample; source residual never adjusts this clock.
+        // AAC indices stay continuous; explicitly covered source prefixes never
+        // enter the encoder twice. All validations precede acceptance.
         slice.samples = packet.samples.data() + static_cast<std::size_t>(skip) * Channels;
         slice.frames = retained; slice.skippedPrefixFrames = skip;
         slice.firstFrameIndex = evidence_.retainedFrames; slice.audioEpochTime100ns = audioEpoch;
@@ -135,12 +172,53 @@ namespace recorder::audio
             evidence_.initialDiscontinuityObserved |= packet.discontinuity;
             evidence_.anchored = true;
         }
-        sourceFramesSinceAnchor_ += packet.frames;
+        sourceFramesSinceAnchor_ += wasAnchored ? retained : packet.frames;
         ++evidence_.sourcePackets; ++evidence_.acceptedPackets;
         evidence_.discardedFrames += skip; evidence_.retainedFrames += retained;
         previousQpc100ns_ = packet.qpc100ns; havePreviousPacket_ = true;
         evidence_.reason = "audio_slice_ready";
         return TimelineResult::Feed;
+    }
+    bool AudioTimeline::AnchorResumedSilence(std::uint64_t sourceTime, std::int64_t mediaTime) noexcept
+    {
+        if (!evidence_.initialized || evidence_.failed || evidence_.paused || evidence_.anchored || !resumeAnchor_ ||
+            sourceTime < options_.videoEpochQpc100ns || sourceTime > MaximumTime || mediaTime < 0) return false;
+        std::uint64_t next = 0, anchor = 0;
+        if (!TimelineFrameTime(static_cast<std::uint64_t>(evidence_.audioEpochTime100ns), evidence_.retainedFrames, next)) return false;
+        const auto media = static_cast<std::uint64_t>(mediaTime);
+        if (next >= media)
+        {
+            if (next - media > MaximumTime - sourceTime) return false;
+            anchor = sourceTime + next - media;
+        }
+        else
+        {
+            if (media - next >= sourceTime) return false;
+            anchor = sourceTime - (media - next);
+        }
+        sourceAnchorQpc100ns_ = anchor; sourceFramesSinceAnchor_ = 0;
+        evidence_.anchored = true; evidence_.reason = "audio_resume_silence_anchored";
+        return true;
+    }
+    bool AudioTimeline::AdvanceSilence(std::uint32_t frames, FeedSlice& slice) noexcept
+    {
+        slice = {};
+        if (!evidence_.initialized || evidence_.failed || evidence_.paused || !evidence_.anchored ||
+            !frames || frames > MaximumFeedFrames || !Sum(evidence_.retainedFrames, frames) ||
+            !Sum(sourceFramesSinceAnchor_, frames) || !Sum(evidence_.generatedSilenceFrames, frames))
+        { (void)Fail("audio_timeline_silence_invalid"); return false; }
+        std::uint64_t sourceTime = 0, sourceEnd = 0, encodedEnd = 0;
+        if (!TimelineFrameTime(sourceAnchorQpc100ns_, sourceFramesSinceAnchor_, sourceTime) ||
+            !TimelineFrameTime(sourceAnchorQpc100ns_, sourceFramesSinceAnchor_ + frames, sourceEnd) ||
+            !TimelineFrameTime(static_cast<std::uint64_t>(evidence_.audioEpochTime100ns), evidence_.retainedFrames + frames, encodedEnd))
+        { (void)Fail("audio_timeline_clock_overflow"); return false; }
+        slice.frames = frames; slice.firstFrameIndex = evidence_.retainedFrames;
+        slice.audioEpochTime100ns = evidence_.audioEpochTime100ns; slice.sourceTime100ns = sourceTime;
+        slice.generatedSilence = true;
+        evidence_.retainedFrames += frames; evidence_.generatedSilenceFrames += frames;
+        sourceFramesSinceAnchor_ += frames; silenceCoveredUntil100ns_ = sourceEnd;
+        evidence_.reason = "audio_silence_slice_ready";
+        return true;
     }
     bool AudioTimeline::Pause() noexcept
     {
@@ -155,7 +233,7 @@ namespace recorder::audio
             return false;
         if (!evidence_.retainedFrames) evidence_.audioEpochTime100ns = initialMediaTime;
         options_.videoEpochQpc100ns = minimumSourceTime;
-        havePreviousPacket_ = false; sourceAnchorQpc100ns_ = 0; sourceFramesSinceAnchor_ = 0;
+        havePreviousPacket_ = false; sourceAnchorQpc100ns_ = 0; sourceFramesSinceAnchor_ = 0; silenceCoveredUntil100ns_ = 0;
         resumeAnchor_ = true; evidence_.anchored = false; evidence_.paused = false;
         evidence_.reason = "audio_timeline_resuming";
         return true;

@@ -1,5 +1,6 @@
 #include "NvencLosslessVideoSession.h"
 #include "ConversionOutput.h"
+#include "CudaPlanarInput.h"
 #include "LosslessProbe/nvEncodeAPI.h"
 
 #include <d3d10.h>
@@ -11,6 +12,9 @@
 #include <cstring>
 #include <limits>
 #include <vector>
+#if defined(WISP_HDR_FIXTURE)
+#include <cstdio>
+#endif
 
 namespace recorder::lossless
 {
@@ -35,7 +39,18 @@ namespace recorder::lossless
             explicit DeviceLock(ID3D10Multithread* target) : value(target) { value->Enter(); }
             ~DeviceLock() { value->Leave(); }
         };
-        enum class Stage { Free, GpuPending, DeclinedGpuPending, Encoding };
+        struct CudaScope
+        {
+            cuda::PlanarInput* value = nullptr;
+            explicit CudaScope(cuda::PlanarInput* target) : value(target)
+            { if (value) Check(value->Enter(), "cuda_context_enter_failed"); }
+            void Enter(cuda::PlanarInput* target)
+            { Require(value == nullptr, "cuda_scope_already_entered"); if (target) Check(target->Enter(), "cuda_context_enter_failed"); value = target; }
+            HRESULT Leave() noexcept
+            { auto* target = value; value = nullptr; return target ? target->Leave() : S_OK; }
+            ~CudaScope() { if (value) (void)value->Leave(); }
+        };
+        enum class Stage { Free, GpuPending, CudaPending, DeclinedGpuPending, Encoding };
         struct Slot
         {
             ComPtr<ID3D11Texture2D> texture;
@@ -57,7 +72,17 @@ namespace recorder::lossless
     {
         if (const auto reason = conversion::ValidateOutputConfiguration({ value.width, value.height, value.frameRate,
             value.pixelAspectNumerator, value.pixelAspectDenominator })) return reason;
-        if (value.bitrate != 0 || value.chromaSiting != 0) return "lossless_requires_no_bitrate_or_subsampling";
+        if (options.videoMode == VideoMode::SdrLosslessGbr444 || options.videoMode == VideoMode::HdrLosslessGbr444)
+        {
+            if (value.bitrate != 0 || value.chromaSiting != 0) return "lossless_requires_no_bitrate_or_subsampling";
+        }
+        else if (options.videoMode == VideoMode::HdrMain10)
+        {
+            if (value.bitrate < 100000 || value.bitrate > 120000000 ||
+                value.chromaSiting != (MFVideoChromaSubsampling_MPEG2 | MFVideoChromaSubsampling_ProgressiveChroma))
+                return "hdr_main10_configuration_invalid";
+        }
+        else return "nvenc_video_mode_unknown";
         if (options.operationTimeoutMs < 100 || options.operationTimeoutMs > 10000 || options.epochTime100ns < 0)
             return "lossless_options_invalid";
         return nullptr;
@@ -87,6 +112,8 @@ namespace recorder::lossless
         bool eosRegistered = false, draining = false, eosSent = false;
         DWORD owner = 0;
         encoder::EncodeConfig config{};
+        NV_ENC_BUFFER_FORMAT inputFormat = NV_ENC_BUFFER_FORMAT_AYUV;
+        std::unique_ptr<cuda::PlanarInput> planar;
         Options options{};
         const std::atomic<bool>* cancelled = nullptr;
         encoder::PacketObserver* observer = nullptr;
@@ -98,6 +125,7 @@ namespace recorder::lossless
         {
             try
             {
+                CudaScope cudaContext(planar.get());
                 // Cancellation stops new work, not retirement of work already owned by the GPU.
                 // No observer callbacks or new frame submissions are made during this cleanup.
                 const auto began = GetTickCount64();
@@ -109,6 +137,15 @@ namespace recorder::lossless
                     bool gpuComplete = true;
                     for (const auto& slot : slots)
                     {
+                        if (slot.stage == Stage::CudaPending)
+                        {
+                            bool complete = false;
+                            Check(cudaContext.Leave(), "cuda_context_leave_failed");
+                            Require(planar && planar->IsCopyReady(slot.index % SurfaceCount, complete), "cuda_copy_cleanup_failed");
+                            cudaContext.Enter(planar.get());
+                            gpuComplete = gpuComplete && complete;
+                            continue;
+                        }
                         if (slot.stage != Stage::GpuPending && slot.stage != Stage::DeclinedGpuPending) continue;
                         BOOL complete = FALSE; HRESULT status;
                         { DeviceLock lock(multithread.Get()); status = context->GetData(slot.completed.Get(), &complete, sizeof(complete), D3D11_ASYNC_GETDATA_DONOTFLUSH); }
@@ -187,6 +224,8 @@ namespace recorder::lossless
                     slot.stage = Stage::Free;
                 }
                 if (eosEvent) { Check(CloseHandle(eosEvent) ? S_OK : HRESULT_FROM_WIN32(GetLastError()), "lossless_cleanup_eos_handle_failed"); eosEvent = nullptr; }
+                Check(cudaContext.Leave(), "cuda_context_leave_failed");
+                if (planar) { Check(planar->Close(), "cuda_cleanup_failed"); planar.reset(); }
                 if (module) { Check(FreeLibrary(module) ? S_OK : HRESULT_FROM_WIN32(GetLastError()), "lossless_cleanup_module_failed"); module = nullptr; }
                 cleanupReason = "lossless_cleanup_complete";
                 return S_OK;
@@ -230,6 +269,15 @@ namespace recorder::lossless
             Check(device->QueryInterface(IID_PPV_ARGS(&value.multithread)), "lossless_multithread_interface_missing");
             Require(value.multithread->GetMultithreadProtected() != FALSE, "lossless_device_not_multithread_protected");
             value.config = config; value.options = options; value.cancelled = &cancelled; value.observer = &observer;
+            const bool hdr = options.videoMode != VideoMode::SdrLosslessGbr444;
+            const bool fullColor = options.videoMode != VideoMode::HdrMain10;
+            const bool cudaInput = options.videoMode == VideoMode::HdrLosslessGbr444;
+            const GUID codecGuid = hdr ? NV_ENC_CODEC_HEVC_GUID : NV_ENC_CODEC_H264_GUID;
+            const GUID profileGuid = cudaInput ? NV_ENC_HEVC_PROFILE_FREXT_GUID :
+                hdr ? NV_ENC_HEVC_PROFILE_MAIN10_GUID : NV_ENC_H264_PROFILE_HIGH_444_GUID;
+            const NV_ENC_TUNING_INFO tuning = fullColor ? NV_ENC_TUNING_INFO_LOSSLESS : NV_ENC_TUNING_INFO_LOW_LATENCY;
+            value.inputFormat = cudaInput ? NV_ENC_BUFFER_FORMAT_YUV444_10BIT :
+                hdr ? NV_ENC_BUFFER_FORMAT_YUV420_10BIT : NV_ENC_BUFFER_FORMAT_AYUV;
             value.owner = GetCurrentThreadId();
             ComPtr<IDXGIDevice> dxgi; ComPtr<IDXGIAdapter> adapter; ComPtr<IDXGIAdapter1> adapter1;
             Check(device->QueryInterface(IID_PPV_ARGS(&dxgi)), "lossless_dxgi_device_missing");
@@ -238,6 +286,17 @@ namespace recorder::lossless
             DXGI_ADAPTER_DESC1 description{}; Check(adapter1->GetDesc1(&description), "lossless_adapter_query_failed");
             Require(description.VendorId == 0x10de && !(description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE),
                 "lossless_nvidia_hardware_required", E_NOTIMPL);
+            if (cudaInput)
+            {
+                value.planar = std::make_unique<cuda::PlanarInput>();
+                if (!value.planar->Initialize(adapter.Get(), config.width, config.height, options.operationTimeoutMs))
+                {
+                    const Failure failure{ value.planar->Reason(), value.planar->Error() };
+                    if (SUCCEEDED(value.planar->Close())) value.planar.reset();
+                    throw failure;
+                }
+            }
+            CudaScope cudaContext(value.planar.get());
             value.module = LoadLibraryExW(L"nvEncodeAPI64.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
             Require(value.module != nullptr, "lossless_driver_api_missing", E_NOTIMPL);
             using Version = NVENCSTATUS(NVENCAPI*)(std::uint32_t*);
@@ -256,40 +315,68 @@ namespace recorder::lossless
                 "lossless_required_api_missing", E_NOTIMPL);
             NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS open{};
             open.version = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER; open.apiVersion = NVENCAPI_VERSION;
-            open.device = device; open.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
+            open.device = cudaInput ? value.planar->Context() : static_cast<void*>(device);
+            open.deviceType = cudaInput ? NV_ENC_DEVICE_TYPE_CUDA : NV_ENC_DEVICE_TYPE_DIRECTX;
             Nv(api.nvEncOpenEncodeSessionEx(&open, &value.encodeSession), "lossless_session_open_failed");
             Require(value.encodeSession != nullptr, "lossless_session_missing");
-            for (auto cap : { NV_ENC_CAPS_SUPPORT_LOSSLESS_ENCODE, NV_ENC_CAPS_SUPPORT_YUV444_ENCODE, NV_ENC_CAPS_ASYNC_ENCODE_SUPPORT })
+            std::vector<NV_ENC_CAPS> requiredCaps{ NV_ENC_CAPS_ASYNC_ENCODE_SUPPORT };
+            if (hdr) requiredCaps.push_back(NV_ENC_CAPS_SUPPORT_10BIT_ENCODE);
+            if (fullColor) { requiredCaps.push_back(NV_ENC_CAPS_SUPPORT_LOSSLESS_ENCODE); requiredCaps.push_back(NV_ENC_CAPS_SUPPORT_YUV444_ENCODE); }
+            for (auto cap : requiredCaps)
             {
                 NV_ENC_CAPS_PARAM query{}; query.version = NV_ENC_CAPS_PARAM_VER; query.capsToQuery = cap;
                 int available = 0;
-                Nv(api.nvEncGetEncodeCaps(value.encodeSession, NV_ENC_CODEC_H264_GUID, &query, &available), "lossless_capability_query_failed");
+                Nv(api.nvEncGetEncodeCaps(value.encodeSession, codecGuid, &query, &available), "lossless_capability_query_failed");
                 Require(available == 1, "lossless_required_capability_missing", E_NOTIMPL);
             }
             UINT count = 0, written = 0;
-            Nv(api.nvEncGetInputFormatCount(value.encodeSession, NV_ENC_CODEC_H264_GUID, &count), "lossless_format_count_failed");
+            Nv(api.nvEncGetInputFormatCount(value.encodeSession, codecGuid, &count), "lossless_format_count_failed");
             Require(count && count <= 64, "lossless_format_count_invalid");
             std::vector<NV_ENC_BUFFER_FORMAT> formats(count);
-            Nv(api.nvEncGetInputFormats(value.encodeSession, NV_ENC_CODEC_H264_GUID, formats.data(), count, &written), "lossless_formats_failed");
+            Nv(api.nvEncGetInputFormats(value.encodeSession, codecGuid, formats.data(), count, &written), "lossless_formats_failed");
             Require(written <= count, "lossless_format_count_invalid"); formats.resize(written);
-            Require(std::find(formats.begin(), formats.end(), NV_ENC_BUFFER_FORMAT_AYUV) != formats.end(), "lossless_ayuv_unavailable", E_NOTIMPL);
+            Require(std::find(formats.begin(), formats.end(), value.inputFormat) != formats.end(), "nvenc_input_format_unavailable", E_NOTIMPL);
             count = written = 0;
-            Nv(api.nvEncGetEncodeProfileGUIDCount(value.encodeSession, NV_ENC_CODEC_H264_GUID, &count), "lossless_profile_count_failed");
+            Nv(api.nvEncGetEncodeProfileGUIDCount(value.encodeSession, codecGuid, &count), "lossless_profile_count_failed");
             Require(count && count <= 64, "lossless_profile_count_invalid");
             std::vector<GUID> profiles(count);
-            Nv(api.nvEncGetEncodeProfileGUIDs(value.encodeSession, NV_ENC_CODEC_H264_GUID, profiles.data(), count, &written), "lossless_profiles_failed");
+            Nv(api.nvEncGetEncodeProfileGUIDs(value.encodeSession, codecGuid, profiles.data(), count, &written), "lossless_profiles_failed");
             Require(written <= count, "lossless_profile_count_invalid"); profiles.resize(written);
-            Require(std::find(profiles.begin(), profiles.end(), NV_ENC_H264_PROFILE_HIGH_444_GUID) != profiles.end(), "lossless_high444_unavailable", E_NOTIMPL);
+            Require(std::find(profiles.begin(), profiles.end(), profileGuid) != profiles.end(), "nvenc_profile_unavailable", E_NOTIMPL);
             NV_ENC_PRESET_CONFIG preset{}; preset.version = NV_ENC_PRESET_CONFIG_VER; preset.presetCfg.version = NV_ENC_CONFIG_VER;
-            Nv(api.nvEncGetEncodePresetConfigEx(value.encodeSession, NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P1_GUID,
-                NV_ENC_TUNING_INFO_LOSSLESS, &preset), "lossless_preset_failed");
+            Nv(api.nvEncGetEncodePresetConfigEx(value.encodeSession, codecGuid, NV_ENC_PRESET_P1_GUID,
+                tuning, &preset), "lossless_preset_failed");
             auto codec = preset.presetCfg;
-            codec.profileGUID = NV_ENC_H264_PROFILE_HIGH_444_GUID; codec.gopLength = config.frameRate * 2;
+            codec.profileGUID = profileGuid; codec.gopLength = config.frameRate * 2;
             codec.frameIntervalP = 1; codec.frameFieldMode = NV_ENC_PARAMS_FRAME_FIELD_MODE_FRAME;
             codec.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CONSTQP; codec.rcParams.constQP = {};
             codec.rcParams.enableAQ = codec.rcParams.enableTemporalAQ = codec.rcParams.enableLookahead = 0;
             codec.rcParams.lookaheadDepth = 0;
             codec.rcParams.enableMinQP = codec.rcParams.enableMaxQP = codec.rcParams.enableInitialRCQP = 0;
+            if (hdr)
+            {
+                if (!fullColor)
+                {
+                    codec.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+                    codec.rcParams.averageBitRate = config.bitrate;
+                    codec.rcParams.maxBitRate = config.bitrate;
+                }
+                auto& hevc = codec.encodeCodecConfig.hevcConfig;
+                hevc.chromaFormatIDC = fullColor ? 3 : 1; hevc.inputBitDepth = hevc.outputBitDepth = NV_ENC_BIT_DEPTH_10;
+                if (fullColor) hevc.disableDeblockingFilterIDC = 1;
+                hevc.idrPeriod = config.frameRate * 2; hevc.repeatSPSPPS = 1;
+                hevc.hevcVUIParameters = {};
+                auto& vui = hevc.hevcVUIParameters;
+                vui.videoSignalTypePresentFlag = 1; vui.videoFormat = NV_ENC_VUI_VIDEO_FORMAT_UNSPECIFIED;
+                vui.videoFullRangeFlag = fullColor ? 1 : 0; vui.colourDescriptionPresentFlag = 1;
+                vui.colourPrimaries = NV_ENC_VUI_COLOR_PRIMARIES_BT2020;
+                vui.transferCharacteristics = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_SMPTE2084;
+                vui.colourMatrix = fullColor ? NV_ENC_VUI_MATRIX_COEFFS_RGB : NV_ENC_VUI_MATRIX_COEFFS_BT2020_NCL;
+                vui.chromaSampleLocationFlag = fullColor ? 0 : 1;
+                vui.chromaSampleLocationTop = vui.chromaSampleLocationBot = 0;
+            }
+            else
+            {
             auto& h264 = codec.encodeCodecConfig.h264Config;
             h264.chromaFormatIDC = 3; h264.qpPrimeYZeroTransformBypassFlag = 1; h264.separateColourPlaneFlag = 0;
             h264.disableDeblockingFilterIDC = 1; h264.inputBitDepth = h264.outputBitDepth = NV_ENC_BIT_DEPTH_8;
@@ -297,15 +384,16 @@ namespace recorder::lossless
             auto& vui = h264.h264VUIParameters;
             vui.videoSignalTypePresentFlag = 1; vui.videoFormat = NV_ENC_VUI_VIDEO_FORMAT_UNSPECIFIED;
             vui.videoFullRangeFlag = 1; vui.colourDescriptionPresentFlag = 1;
-            vui.colourPrimaries = NV_ENC_VUI_COLOR_PRIMARIES_BT709; vui.transferCharacteristics = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_BT709;
+            vui.colourPrimaries = NV_ENC_VUI_COLOR_PRIMARIES_BT709; vui.transferCharacteristics = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_SRGB;
             vui.colourMatrix = NV_ENC_VUI_MATRIX_COEFFS_RGB;
+            }
             NV_ENC_INITIALIZE_PARAMS initialize{}; initialize.version = NV_ENC_INITIALIZE_PARAMS_VER;
-            initialize.encodeGUID = NV_ENC_CODEC_H264_GUID; initialize.presetGUID = NV_ENC_PRESET_P1_GUID;
+            initialize.encodeGUID = codecGuid; initialize.presetGUID = NV_ENC_PRESET_P1_GUID;
             initialize.encodeWidth = config.width; initialize.encodeHeight = config.height;
             initialize.darWidth = config.width * config.pixelAspectNumerator; initialize.darHeight = config.height * config.pixelAspectDenominator;
             initialize.frameRateNum = config.frameRate; initialize.frameRateDen = 1;
             initialize.enablePTD = 1; initialize.enableEncodeAsync = 1; initialize.encodeConfig = &codec;
-            initialize.tuningInfo = NV_ENC_TUNING_INFO_LOSSLESS;
+            initialize.tuningInfo = tuning;
             Nv(api.nvEncInitializeEncoder(value.encodeSession, &initialize), "lossless_encoder_initialize_failed");
             value.eosEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
             Require(value.eosEvent != nullptr, "lossless_eos_event_failed", HRESULT_FROM_WIN32(GetLastError()));
@@ -315,7 +403,9 @@ namespace recorder::lossless
             {
                 Require(!cancelled.load(), "lossless_cancelled", HRESULT_FROM_WIN32(ERROR_CANCELLED));
                 D3D11_TEXTURE2D_DESC texture{}; texture.Width = config.width; texture.Height = config.height;
-                texture.MipLevels = texture.ArraySize = texture.SampleDesc.Count = 1; texture.Format = DXGI_FORMAT_AYUV;
+                texture.MipLevels = texture.ArraySize = texture.SampleDesc.Count = 1;
+                texture.Format = cudaInput ? DXGI_FORMAT_R16_UINT : hdr ? DXGI_FORMAT_P010 : DXGI_FORMAT_AYUV;
+                if (cudaInput) texture.Height *= 3;
                 texture.Usage = D3D11_USAGE_DEFAULT; texture.BindFlags = D3D11_BIND_RENDER_TARGET;
                 Check(device->CreateTexture2D(&texture, nullptr, &slot.texture), "lossless_ayuv_texture_failed");
                 D3D11_QUERY_DESC query{}; query.Query = D3D11_QUERY_EVENT;
@@ -323,7 +413,17 @@ namespace recorder::lossless
                 NV_ENC_REGISTER_RESOURCE resource{}; resource.version = NV_ENC_REGISTER_RESOURCE_VER;
                 resource.resourceType = NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX; resource.resourceToRegister = slot.texture.Get();
                 resource.width = config.width; resource.height = config.height; resource.pitch = 0;
-                resource.bufferFormat = NV_ENC_BUFFER_FORMAT_AYUV; resource.bufferUsage = NV_ENC_INPUT_IMAGE;
+                resource.bufferFormat = value.inputFormat; resource.bufferUsage = NV_ENC_INPUT_IMAGE;
+                if (cudaInput)
+                {
+                    const UINT slotIndex = static_cast<UINT>(&slot - value.slots.data());
+                    Check(cudaContext.Leave(), "cuda_context_leave_failed");
+                    if (!value.planar->Register(slotIndex, slot.texture.Get())) throw Failure{ value.planar->Reason(), value.planar->Error() };
+                    cudaContext.Enter(value.planar.get());
+                    resource.resourceType = NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR;
+                    resource.resourceToRegister = reinterpret_cast<void*>(static_cast<UINT_PTR>(value.planar->DevicePointer(slotIndex)));
+                    resource.pitch = value.planar->Pitch(slotIndex);
+                }
                 Nv(api.nvEncRegisterResource(value.encodeSession, &resource), "lossless_ayuv_register_failed");
                 slot.registered = resource.registeredResource; Require(slot.registered != nullptr, "lossless_registered_input_missing");
                 NV_ENC_CREATE_BITSTREAM_BUFFER output{}; output.version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
@@ -342,18 +442,20 @@ namespace recorder::lossless
             Check(MFCreateMediaType(&value.mediaType), "lossless_media_type_failed");
             auto* type = value.mediaType.Get();
             Check(type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video), "lossless_media_attribute_failed");
-            Check(type->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264), "lossless_media_attribute_failed");
+            Check(type->SetGUID(MF_MT_SUBTYPE, hdr ? MFVideoFormat_HEVC : MFVideoFormat_H264), "lossless_media_attribute_failed");
             Check(MFSetAttributeSize(type, MF_MT_FRAME_SIZE, config.width, config.height), "lossless_media_attribute_failed");
             Check(MFSetAttributeRatio(type, MF_MT_FRAME_RATE, config.frameRate, 1), "lossless_media_attribute_failed");
             Check(MFSetAttributeRatio(type, MF_MT_PIXEL_ASPECT_RATIO, config.pixelAspectNumerator, config.pixelAspectDenominator), "lossless_media_attribute_failed");
             Check(type->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive), "lossless_media_attribute_failed");
-            Check(type->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_444), "lossless_media_attribute_failed");
-            Check(type->SetUINT32(MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709), "lossless_media_attribute_failed");
-            Check(type->SetUINT32(MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709), "lossless_media_attribute_failed");
-            Check(type->SetUINT32(MF_MT_YUV_MATRIX, MFVideoTransferMatrix_Identity), "lossless_media_attribute_failed");
-            Check(type->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255), "lossless_media_attribute_failed");
+            Check(type->SetUINT32(MF_MT_MPEG2_PROFILE, cudaInput ? eAVEncH265VProfile_Main_444_10 : hdr ? eAVEncH265VProfile_Main_420_10 : eAVEncH264VProfile_444), "lossless_media_attribute_failed");
+            Check(type->SetUINT32(MF_MT_VIDEO_PRIMARIES, hdr ? MFVideoPrimaries_BT2020 : MFVideoPrimaries_BT709), "lossless_media_attribute_failed");
+            Check(type->SetUINT32(MF_MT_TRANSFER_FUNCTION, hdr ? MFVideoTransFunc_2084 : MFVideoTransFunc_sRGB), "lossless_media_attribute_failed");
+            Check(type->SetUINT32(MF_MT_YUV_MATRIX, fullColor ? MFVideoTransferMatrix_Identity : MFVideoTransferMatrix_BT2020_10), "lossless_media_attribute_failed");
+            Check(type->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, fullColor ? MFNominalRange_0_255 : MFNominalRange_16_235), "lossless_media_attribute_failed");
+            if (!fullColor) Check(type->SetUINT32(MF_MT_VIDEO_CHROMA_SITING, config.chromaSiting), "lossless_media_attribute_failed");
             Check(type->SetBlob(MF_MT_MPEG_SEQUENCE_HEADER, header.data(), headerSize), "lossless_media_header_failed");
             Check(observer.OnConfiguration(type, config), "lossless_configuration_observer_failed");
+            Check(cudaContext.Leave(), "cuda_context_leave_failed");
             evidence_.initialized = true; evidence_.asynchronous = true; evidence_.reason = "lossless_session_initialized";
             return true;
         }
@@ -411,6 +513,7 @@ namespace recorder::lossless
         try
         {
             Guard(); auto& value = *impl_; auto& api = value.api;
+            CudaScope cudaContext(value.planar.get());
             for (const auto& slot : value.slots)
                 if (slot.stage != Stage::Free)
                     Require(GetTickCount64() - slot.began < value.options.operationTimeoutMs, "lossless_slot_timeout", HRESULT_FROM_WIN32(ERROR_TIMEOUT));
@@ -425,23 +528,45 @@ namespace recorder::lossless
             for (UINT work = 0; work < SurfaceCount && value.nextEncode < value.nextSubmit; ++work)
             {
                 auto& slot = value.slots[value.nextEncode % SurfaceCount];
-                Require(slot.stage == Stage::GpuPending && slot.index == value.nextEncode, "lossless_gpu_queue_invalid");
+                Require((slot.stage == Stage::GpuPending || slot.stage == Stage::CudaPending) && slot.index == value.nextEncode,
+                    "lossless_gpu_queue_invalid");
                 if (!slot.mapped)
                 {
-                    BOOL completed = FALSE; HRESULT status;
-                    { DeviceLock lock(value.multithread.Get()); status = value.context->GetData(slot.completed.Get(), &completed, sizeof(completed), D3D11_ASYNC_GETDATA_DONOTFLUSH); }
-                    Check(status, "lossless_gpu_completion_failed");
-                    if (status == S_FALSE || !completed) break;
+                    if (slot.stage == Stage::GpuPending)
+                    {
+                        BOOL completed = FALSE; HRESULT status;
+                        { DeviceLock lock(value.multithread.Get()); status = value.context->GetData(slot.completed.Get(), &completed, sizeof(completed), D3D11_ASYNC_GETDATA_DONOTFLUSH); }
+                        Check(status, "lossless_gpu_completion_failed");
+                        if (status == S_FALSE || !completed) break;
+                        if (value.planar)
+                        {
+                            Check(cudaContext.Leave(), "cuda_context_leave_failed");
+                            if (!value.planar->BeginCopy(slot.index % SurfaceCount))
+                                throw Failure{ value.planar->Reason(), value.planar->Error() };
+                            cudaContext.Enter(value.planar.get());
+                            slot.stage = Stage::CudaPending;
+                        }
+                    }
+                    if (slot.stage == Stage::CudaPending)
+                    {
+                        bool ready = false;
+                        Check(cudaContext.Leave(), "cuda_context_leave_failed");
+                        if (!value.planar->IsCopyReady(slot.index % SurfaceCount, ready))
+                            throw Failure{ value.planar->Reason(), value.planar->Error() };
+                        cudaContext.Enter(value.planar.get());
+                        if (!ready) break;
+                    }
                     NV_ENC_MAP_INPUT_RESOURCE mapped{}; mapped.version = NV_ENC_MAP_INPUT_RESOURCE_VER; mapped.registeredResource = slot.registered;
                     Nv(api.nvEncMapInputResource(value.encodeSession, &mapped), "lossless_input_map_failed");
                     slot.mapped = mapped.mappedResource;
-                    Require(slot.mapped && mapped.mappedBufferFmt == NV_ENC_BUFFER_FORMAT_AYUV, "lossless_mapped_format_invalid");
+                    Require(slot.mapped && mapped.mappedBufferFmt == value.inputFormat, "lossless_mapped_format_invalid");
                 }
                 Require(ResetEvent(slot.event) != FALSE, "lossless_event_reset_failed", HRESULT_FROM_WIN32(GetLastError()));
                 NV_ENC_PIC_PARAMS picture{}; picture.version = NV_ENC_PIC_PARAMS_VER;
-                picture.inputWidth = value.config.width; picture.inputHeight = value.config.height; picture.inputPitch = value.config.width;
+                picture.inputWidth = value.config.width; picture.inputHeight = value.config.height;
+                picture.inputPitch = value.planar ? value.planar->Pitch(slot.index % SurfaceCount) : value.config.width;
                 picture.frameIdx = slot.index; picture.inputTimeStamp = static_cast<std::uint64_t>(slot.time); picture.inputDuration = static_cast<std::uint64_t>(slot.duration);
-                picture.inputBuffer = slot.mapped; picture.bufferFmt = NV_ENC_BUFFER_FORMAT_AYUV;
+                picture.inputBuffer = slot.mapped; picture.bufferFmt = value.inputFormat;
                 picture.outputBitstream = slot.bitstream; picture.completionEvent = slot.event; picture.pictureStruct = NV_ENC_PIC_STRUCT_FRAME;
                 if (slot.index % (value.config.frameRate * 2) == 0) picture.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR | NV_ENC_PIC_FLAG_OUTPUT_SPSPPS;
                 const auto status = api.nvEncEncodePicture(value.encodeSession, &picture);
@@ -470,8 +595,18 @@ namespace recorder::lossless
                 evidence_.largestPacketBytes = (std::max)(evidence_.largestPacketBytes, output.bitstreamSizeInBytes);
                 Require(output.bitstreamBufferPtr && output.bitstreamSizeInBytes > 0 && output.bitstreamSizeInBytes <= MaximumPacketBytes,
                     "lossless_packet_exceeds_bound", HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));
+#if defined(WISP_HDR_FIXTURE)
+                if (output.outputTimeStamp != static_cast<std::uint64_t>(slot.time) || output.outputDuration != static_cast<std::uint64_t>(slot.duration) ||
+                    output.pictureType == NV_ENC_PIC_TYPE_B || output.pictureType == NV_ENC_PIC_TYPE_BI ||
+                    (value.options.videoMode == VideoMode::SdrLosslessGbr444 && output.frameAvgQP != 0))
+                    std::fprintf(stderr, "{\"mode\":\"hdr_fixture_output_contract\",\"frame\":%u,\"expectedTime\":%llu,\"actualTime\":%llu,\"expectedDuration\":%llu,\"actualDuration\":%llu,\"pictureType\":%u,\"averageQp\":%u}\n",
+                        slot.index, static_cast<unsigned long long>(slot.time), static_cast<unsigned long long>(output.outputTimeStamp),
+                        static_cast<unsigned long long>(slot.duration), static_cast<unsigned long long>(output.outputDuration),
+                        static_cast<UINT>(output.pictureType), output.frameAvgQP);
+#endif
                 Require(output.outputTimeStamp == static_cast<std::uint64_t>(slot.time) && output.outputDuration == static_cast<std::uint64_t>(slot.duration) &&
-                    output.pictureType != NV_ENC_PIC_TYPE_B && output.pictureType != NV_ENC_PIC_TYPE_BI && output.frameAvgQP == 0,
+                    output.pictureType != NV_ENC_PIC_TYPE_B && output.pictureType != NV_ENC_PIC_TYPE_BI &&
+                    (value.options.videoMode != VideoMode::SdrLosslessGbr444 || output.frameAvgQP == 0),
                     "lossless_output_contract_failed");
                 const bool keyframe = output.pictureType == NV_ENC_PIC_TYPE_IDR;
                 Require((slot.index != 0 || keyframe) && (keyframe || slot.index - value.lastKeyframe < value.config.frameRate * 2), "lossless_gop_bound_failed");
@@ -504,6 +639,7 @@ namespace recorder::lossless
                     if (complete == WAIT_OBJECT_0) { evidence_.drainComplete = true; evidence_.reason = "lossless_drain_complete"; }
                 }
             }
+            Check(cudaContext.Leave(), "cuda_context_leave_failed");
             return true;
         }
         catch (const Failure& error) { return Fail(error.reason, error.hr, error.nvencStatus); }

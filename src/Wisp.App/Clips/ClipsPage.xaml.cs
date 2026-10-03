@@ -51,7 +51,7 @@ public partial class ClipsPage : UserControl
     private void ContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         StopPlayer(); FinishShortcut();
-        if (e.OldValue is ClipsViewModel old) { old.PropertyChanged -= ModelChanged; old.ShortcutCaptureActive = false; old.SetGalleryActive(false); }
+        if (e.OldValue is ClipsViewModel old) { old.PropertyChanged -= ModelChanged; old.ShortcutCaptureActive = false; old.SetPreparingPlaybackCopy(false); old.SetGalleryActive(false); }
         if (IsLoaded && e.NewValue is ClipsViewModel current)
         {
             current.PropertyChanged += ModelChanged;
@@ -61,9 +61,9 @@ public partial class ClipsPage : UserControl
     }
     private async void PageLoaded(object sender, RoutedEventArgs e)
     {
-        if (_hostWindow is not null) { _hostWindow.StateChanged -= HostStateChanged; _hostWindow.Deactivated -= HostDeactivated; }
+        if (_hostWindow is not null) { _hostWindow.StateChanged -= HostStateChanged; _hostWindow.Deactivated -= HostDeactivated; _hostWindow.Activated -= HostActivated; }
         _hostWindow = Window.GetWindow(this);
-        if (_hostWindow is not null) { _hostWindow.StateChanged += HostStateChanged; _hostWindow.Deactivated += HostDeactivated; }
+        if (_hostWindow is not null) { _hostWindow.StateChanged += HostStateChanged; _hostWindow.Deactivated += HostDeactivated; _hostWindow.Activated += HostActivated; }
         if (Model is { } model)
         {
             model.PropertyChanged -= ModelChanged;
@@ -76,11 +76,16 @@ public partial class ClipsPage : UserControl
     {
         LeavePage();
         if (Model is { } model) model.PropertyChanged -= ModelChanged;
-        if (_hostWindow is not null) { _hostWindow.StateChanged -= HostStateChanged; _hostWindow.Deactivated -= HostDeactivated; }
+        if (_hostWindow is not null) { _hostWindow.StateChanged -= HostStateChanged; _hostWindow.Deactivated -= HostDeactivated; _hostWindow.Activated -= HostActivated; }
         _hostWindow = null;
     }
     private void HostStateChanged(object? sender, EventArgs e) { if (_hostWindow?.WindowState == WindowState.Minimized) LeavePage(); else UpdateGalleryVisibility(); }
     private void HostDeactivated(object? sender, EventArgs e) => PausePreviewForSystemCapture();
+    private async void HostActivated(object? sender, EventArgs e)
+    {
+        if (IsLoaded && IsVisible && !HasPlayer && _hostWindow?.WindowState != WindowState.Minimized && Model is { } model)
+            await model.RefreshGalleryOnActivationAsync();
+    }
     private void PausePreviewForSystemCapture()
     {
         if (Model is not { CaptureSystemAudio: true, ClippingEnabled: true } ||
@@ -93,7 +98,7 @@ public partial class ClipsPage : UserControl
         catch (InvalidOperationException) { FailPlayback(); }
     }
     private void UpdateGalleryVisibility() => Model?.SetGalleryActive(IsLoaded && IsVisible &&
-        _hostWindow?.WindowState != WindowState.Minimized && Model?.SelectedClip?.Entry.Media.LosslessVideo != true);
+        _hostWindow?.WindowState != WindowState.Minimized && Model?.SelectedClip?.Entry.Media.RequiresMpvPlayer != true);
     private void ModelChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_hostWindow?.IsActive != true && e.PropertyName is nameof(ClipsViewModel.ClippingEnabled) or nameof(ClipsViewModel.CaptureSystemAudio))
@@ -127,7 +132,7 @@ public partial class ClipsPage : UserControl
         static double OuterHeight(FrameworkElement element) => element.Visibility == Visibility.Collapsed ? 0 :
             element.ActualHeight + element.Margin.Top + element.Margin.Bottom;
         var chrome = OuterHeight(PlaybackHeader) + OuterHeight(PlaybackTimeline) + OuterHeight(PlaybackControls) +
-            OuterHeight(PreviewExportStatus) +
+            OuterHeight(PreviewExportStatus) + OuterHeight(CopyExportDetails) + OuterHeight(LosslessExportNote) + OuterHeight(ExportProgressPanel) +
             PlaybackSurface.Padding.Top + PlaybackSurface.Padding.Bottom + PlaybackSurface.BorderThickness.Top +
             PlaybackSurface.BorderThickness.Bottom + PlaybackSurface.Margin.Top + PlaybackSurface.Margin.Bottom;
         var height = Math.Max(0, Math.Min(width / aspect, viewportHeight - chrome));
@@ -146,6 +151,13 @@ public partial class ClipsPage : UserControl
     {
         if (Model is not { HasFailureReport: true } model) return;
         try { Clipboard.SetText(model.FailureReport); model.ReportCopyCompleted(true); }
+        catch (ExternalException) { model.ReportCopyCompleted(false); }
+    }
+
+    private void CopyExportDetails_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is not { HasExportFailureDetails: true } model) return;
+        try { Clipboard.SetText(model.ExportFailureDetails); model.ReportCopyCompleted(true); }
         catch (ExternalException) { model.ReportCopyCompleted(false); }
     }
 
@@ -193,13 +205,25 @@ public partial class ClipsPage : UserControl
         };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true || !ReferenceEquals(Model, model) ||
             !ReferenceEquals(model.SelectedClip, selected) || revision != _playback.Revision || !model.CanExport) return;
-        await model.ExportSelectedAsync(dialog.FileName);
+        await model.ExportSelectedAsync(dialog.FileName, ExportFormatFor(selected.Entry, dialog.FilterIndex));
     }
+
+    private void CancelExport_Click(object sender, RoutedEventArgs e) => Model?.CancelExport();
+
+    internal static ClipExportFormat ExportFormatFor(ClipEntry clip, int filterIndex) =>
+        (clip.Media.LosslessVideo || clip.Media.HdrVideo) && filterIndex == 1 ? ClipExportFormat.Compatible : ClipExportFormat.Original;
 
     internal static Microsoft.Win32.SaveFileDialog CreateExportDialog(string exportDirectory, ClipEntry clip) => new()
     {
         Title = "Export clip",
-        Filter = "MP4 video (*.mp4)|*.mp4",
+        Filter = clip.Media.HdrVideo
+            ? clip.Media.LosslessVideo
+                ? "Compatible SDR MP4 (H.264) (*.mp4)|*.mp4|Original lossless HDR MP4 (HEVC 4:4:4) (*.mp4)|*.mp4"
+                : "Compatible SDR MP4 (H.264) (*.mp4)|*.mp4|Original HDR MP4 (HEVC Main10) (*.mp4)|*.mp4"
+            : clip.Media.LosslessVideo
+                ? "Compatible MP4 (H.264) (*.mp4)|*.mp4|Original lossless MP4 (H.264 4:4:4) (*.mp4)|*.mp4"
+                : "MP4 video (*.mp4)|*.mp4",
+        FilterIndex = 1,
         FileName = clip.SuggestedExportName,
         DefaultExt = ".mp4",
         AddExtension = true,
@@ -227,7 +251,7 @@ public partial class ClipsPage : UserControl
         if (path is null || revision != _playback.Revision || !IsLoaded || !IsVisible || !ReferenceEquals(Model, model)) return;
         _playback.Prepare(); revision = _playback.Revision;
         _playingClipId = item.Id;
-        if (item.Entry.Media.LosslessVideo)
+        if (item.Entry.Media.RequiresMpvPlayer)
         {
             OpenLosslessPlayer(item.Entry, path, model, revision);
             return;
@@ -259,7 +283,7 @@ public partial class ClipsPage : UserControl
                 if (!_playback.WaitingForInitialBuffer) _preparationElapsed.Stop();
                 if (!Current()) return;
                 _updatingTimeline = true;
-                try { PlaybackPosition.Maximum = _playback.DurationSeconds; PlaybackPosition.IsEnabled = true; }
+                try { PlaybackPosition.Maximum = _playback.DurationSeconds; }
                 finally { _updatingTimeline = false; }
                 SetTimelinePosition(0); UpdatePlaybackStatus(); UpdatePlayerSize(); UpdatePlaybackTimer();
                 if (_hostWindow?.IsActive != true) PausePreviewForSystemCapture();
@@ -314,6 +338,7 @@ public partial class ClipsPage : UserControl
         var host = new LosslessVideoHost(viewport) { Focusable = false, IsHitTestVisible = false };
         var player = new LosslessClipPlayer(host, PlaybackVolume.Value);
         _losslessPlayer = player;
+        model.SetPreparingPlaybackCopy(LosslessClipPlayer.NeedsPlaybackCopy(clip.Media));
         bool Current() => ReferenceEquals(_losslessPlayer, player) && revision == _playback.Revision &&
             IsLoaded && IsVisible && ReferenceEquals(Model, model);
         player.Changed += (_, _) =>
@@ -321,19 +346,27 @@ public partial class ClipsPage : UserControl
             if (!Current()) return;
             var state = player.Snapshot;
             if (state.Failure is { } failure) { FailPlayback(failure); return; }
-            if (!state.Ready) return;
+            var wasPreparingCopy = _playback.PreparingPlaybackCopy;
+            _playback.CopyPreparationChanged(revision, state.PreparingPlaybackCopy, state.PreparationProgress);
+            model.SetPreparingPlaybackCopy(state.PreparingPlaybackCopy);
+            if (wasPreparingCopy != state.PreparingPlaybackCopy)
+            {
+                if (state.PreparingPlaybackCopy) _preparationElapsed.Reset();
+                else _preparationElapsed.Restart();
+            }
+            if (!state.Ready) { UpdatePlaybackStatus(); UpdatePlaybackTimer(); return; }
             if (_playback.Preparing)
             {
                 if (!_playback.TryOpen(revision, true, clip.Media.Width, clip.Media.Height, state.Duration))
-                { FailPlayback("This lossless clip has no playable video or duration."); return; }
+                { FailPlayback("This clip has no playable video or duration."); return; }
                 _preparationElapsed.Stop();
                 _updatingTimeline = true;
-                try { PlaybackPosition.Maximum = state.Duration; PlaybackPosition.IsEnabled = true; }
+                try { PlaybackPosition.Maximum = state.Duration; }
                 finally { _updatingTimeline = false; }
                 SetTimelinePosition(0); UpdatePlayerSize();
             }
             _playback.BufferingChanged(revision, state.Buffering);
-            if (state.Ended)
+            if (state.Ended && !state.Buffering)
             {
                 _playback.ReachEnd(revision);
                 if (!_seeking) SetTimelinePosition(_playback.DurationSeconds);
@@ -358,6 +391,7 @@ public partial class ClipsPage : UserControl
         _playbackFailureOwner = null;
         if (CopyPlaybackDetails is not null) CopyPlaybackDetails.Visibility = Visibility.Collapsed;
         _playback.Reset(); _preparationElapsed.Reset(); _playingClipId = null;
+        Model?.SetPreparingPlaybackCopy(false);
         _playbackTimer.Stop(); _seekPlayer = null; _seekLosslessPlayer = null; _seeking = false;
         var lossless = _losslessPlayer; _losslessPlayer = null;
         if (lossless is not null) _ = lossless.CloseAsync();
@@ -395,7 +429,7 @@ public partial class ClipsPage : UserControl
         if (_playbackFailureDetails.Length == 0) return;
         try
         {
-            Clipboard.SetText($"Wisp lossless playback (mpv)\n{_playbackFailureDetails}\nCleanup: {_playbackFailureOwner?.CleanupStatus ?? "not-recorded"}");
+            Clipboard.SetText($"Wisp clip playback (mpv)\n{_playbackFailureDetails}\nCleanup: {_playbackFailureOwner?.CleanupStatus ?? "not-recorded"}");
             Model?.ReportCopyCompleted(true);
         }
         catch (ExternalException) { Model?.ReportCopyCompleted(false); }
@@ -405,8 +439,10 @@ public partial class ClipsPage : UserControl
         if (PlaybackStatus is null) return;
         PlaybackStatus.Text = _playback.Status;
         PlaybackStatus.Visibility = PlaybackStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        PlaybackLoadingIndicator.Visibility = _playback.Loading ? Visibility.Visible : Visibility.Collapsed;
         PlayPauseButton.Content = _playback.Ready && !_playback.Paused ? "Pause" : _playback.Ended ? "Play again" : "Play";
         PlayPauseButton.IsEnabled = _playback.CanTogglePlayback;
+        PlaybackPosition.IsEnabled = _playback.CanSeek;
     }
     private void ClosePlayer_Click(object sender, RoutedEventArgs e) { StopPlayer(); Model?.ClosePlayback(); }
     private void PlayPause_Click(object sender, RoutedEventArgs e)
@@ -414,6 +450,8 @@ public partial class ClipsPage : UserControl
         if (!HasPlayer || !PlayPauseButton.IsEnabled) return;
         try
         {
+            if (_playback.Paused && AdoptBackendLoading()) return;
+            if (!_playback.CanTogglePlayback) return;
             var play = _playback.Paused;
             var restart = play && _playback.Ended;
             // Commit user intent first: Play can raise a buffering callback immediately.
@@ -441,23 +479,37 @@ public partial class ClipsPage : UserControl
         _losslessPlayer?.SetVolume(e.NewValue);
     }
 
+    private bool AdoptBackendLoading()
+    {
+        // Input can arrive before a backend's queued loading notification.
+        if (_player?.IsBuffering != true && _losslessPlayer?.Snapshot.Buffering != true) return false;
+        var waiting = _playback.WaitingForInitialBuffer;
+        _playback.BufferingChanged(_playback.Revision, true);
+        if (!waiting && _playback.WaitingForInitialBuffer) _preparationElapsed.Restart();
+        UpdatePlaybackStatus(); UpdatePlaybackTimer();
+        return true;
+    }
+
     private bool CanTrackPlayback => HasPlayer && _playback.Ready &&
         IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized;
     private void UpdatePlaybackTimer()
     {
         if (HasPlayer && IsLoaded && IsVisible && _hostWindow?.WindowState != WindowState.Minimized &&
-            (_playback.Preparing || _playback.WaitingForInitialBuffer || CanTrackPlayback && !_playback.Paused && !_seeking)) _playbackTimer.Start();
+            (_playback.Loading || CanTrackPlayback && !_playback.Paused && !_seeking)) _playbackTimer.Start();
         else _playbackTimer.Stop();
     }
     private void RefreshPlaybackPosition()
     {
+        // A paused native player still needs events drained to report buffer recovery.
+        if (_playback.Ready && _playback.Buffering) _losslessPlayer?.RequestPoll();
         if (_playback.Preparing || _playback.WaitingForInitialBuffer)
         {
             if (_playback.OpeningTimedOut(_preparationElapsed.Elapsed))
                 FailPlayback("This clip is taking too long to prepare. Choose it again to retry.");
             return;
         }
-        if (!CanTrackPlayback || _playback.Paused || _seeking) { _playbackTimer.Stop(); return; }
+        if (!CanTrackPlayback || _seeking) { _playbackTimer.Stop(); return; }
+        if (_playback.Paused) { UpdatePlaybackTimer(); return; }
         try
         {
             _losslessPlayer?.RequestPoll();
@@ -504,14 +556,23 @@ public partial class ClipsPage : UserControl
     private void SeekPlayback(MediaElement? player, LosslessClipPlayer? lossless, long revision, double seconds)
     {
         if ((player is null && lossless is null) || !ReferenceEquals(player, _player) || !ReferenceEquals(lossless, _losslessPlayer) ||
-            revision != _playback.Revision || !CanTrackPlayback || !double.IsFinite(seconds)) return;
+            revision != _playback.Revision || !CanTrackPlayback || !_playback.CanSeek || !double.IsFinite(seconds)) return;
         try
         {
+            if (AdoptBackendLoading())
+            {
+                SetTimelinePosition(lossless?.Snapshot.Position ?? player!.Position.TotalSeconds);
+                return;
+            }
             seconds = Math.Clamp(seconds, 0, _playback.DurationSeconds);
-            if (lossless is not null) lossless.Seek(seconds);
+            if (lossless is not null)
+            {
+                lossless.Seek(seconds);
+                _playback.BufferingChanged(revision, lossless.Snapshot.Buffering);
+            }
             else player!.Position = TimeSpan.FromSeconds(seconds);
             _playback.SeekTo(seconds);
-            SetTimelinePosition(seconds); UpdatePlaybackStatus();
+            SetTimelinePosition(seconds); UpdatePlaybackStatus(); UpdatePlaybackTimer();
         }
         catch (Exception error) when (error is InvalidOperationException or ArgumentException)
         { FailPlayback(); }

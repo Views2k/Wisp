@@ -183,7 +183,7 @@ namespace recorder::protocol
             }
             std::string_view line_;
             std::size_t position_ = 0, count_ = 0;
-            std::array<Field, 13> fields_{};
+            std::array<Field, 14> fields_{};
         };
         bool Resolution(std::uint32_t height) noexcept { return height == 360 || height == 480 || height == 720 || height == 1080 || height == 1440 || height == 2160; }
         std::uint32_t U32(std::int64_t value) { Require(value > 0 && value <= (std::numeric_limits<std::uint32_t>::max)()); return static_cast<std::uint32_t>(value); }
@@ -270,9 +270,10 @@ namespace recorder::protocol
             if (kind == L"config")
             {
                 parser.Keys({ L"v", L"session", L"request", L"command", L"durationSeconds", L"height", L"frameRate", L"quality", L"gameAudio", L"spoolDirectory", L"losslessVideo" },
-                    { L"borderlessAllowed", L"systemAudio" });
+                    { L"borderlessAllowed", L"systemAudio", L"preserveHdrRecording" });
                 if (parser.Has(L"borderlessAllowed")) command.borderlessAllowed = parser.Boolean(L"borderlessAllowed");
                 if (parser.Has(L"systemAudio")) command.systemAudio = parser.Boolean(L"systemAudio");
+                if (parser.Has(L"preserveHdrRecording")) command.preserveHdrRecording = parser.Boolean(L"preserveHdrRecording");
                 command.kind = CommandKind::Config;
                 command.durationSeconds = U32(parser.Integer(L"durationSeconds"));
                 command.height = U32(parser.Integer(L"height")); command.frameRate = U32(parser.Integer(L"frameRate"));
@@ -329,6 +330,7 @@ namespace recorder::protocol
         case Reason::FullscreenRequired: return "fullscreen_required";
         case Reason::UnsupportedOs: return "unsupported_os"; case Reason::UnsupportedGpu: return "unsupported_gpu";
         case Reason::LosslessEncoderUnsupported: return "lossless_encoder_unsupported";
+        case Reason::HdrEncoderUnsupported: return "hdr_encoder_unsupported";
         case Reason::UnsupportedFormat: return "unsupported_format"; case Reason::CaptureFailed: return "capture_failed";
         case Reason::EncoderFailed: return "encoder_failed"; case Reason::AudioFailed: return "audio_failed";
         case Reason::AudioCaptureFailed: return "audio_capture_failed"; case Reason::AudioUnavailable: return "audio_unavailable";
@@ -387,6 +389,7 @@ namespace recorder::protocol
                 line += media.hasAudio ? ",\"hasAudio\":true" : ",\"hasAudio\":false";
                 line += media.losslessVideo ? ",\"losslessVideo\":true" : ",\"losslessVideo\":false";
                 line += media.sizeLimited ? ",\"sizeLimited\":true" : ",\"sizeLimited\":false";
+                if (media.hdrVideo) line += ",\"hdrVideo\":true";
             }
             line += '}'; Require(line.size() <= MaximumLineBytes); return true;
         }
