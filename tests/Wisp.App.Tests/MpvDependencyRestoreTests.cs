@@ -37,6 +37,12 @@ public sealed class MpvDependencyRestoreTests
     [InlineData("invalid-cache")]
     [InlineData("no-download")]
     [InlineData("file-defaults")]
+    [InlineData("mirror-exact")]
+    [InlineData("mirror-other-tag")]
+    [InlineData("mirror-other-asset")]
+    [InlineData("mirror-other-repository")]
+    [InlineData("mirror-query")]
+    [InlineData("mirror-fragment")]
     public async Task RestoreUsesOnlyVerifiedBoundedLocalArtifacts(string scenario)
     {
         var shell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
@@ -92,6 +98,16 @@ public sealed class MpvDependencyRestoreTests
             $archiveHash = Digest $archive
             $manifest = @{schemaVersion=1; archive=@{url='https://github.com/mpv-player/mpv/releases/download/test/fixture.zip'; bytes=(Get-Item -LiteralPath $archive).Length; sha256=$archiveHash};
                 binary=@{entry='libmpv-2.dll'; bytes=7; sha256=(Digest $source)}}
+            if ($env:WISP_MPV_CASE.StartsWith('mirror-')) {
+                $manifest.archive.url = 'https://github.com/Views2k/Wisp/releases/download/playback-runtime-a1f50f2c3/libmpv-v0.41.0-dev-ga1f50f2c3-36640285359-x86_64-w64-mingw32-lgpl.zip'
+                switch ($env:WISP_MPV_CASE) {
+                    'mirror-other-tag' { $manifest.archive.url = $manifest.archive.url.Replace('playback-runtime-a1f50f2c3', 'latest') }
+                    'mirror-other-asset' { $manifest.archive.url = $manifest.archive.url.Replace('36640285359', '36640285360') }
+                    'mirror-other-repository' { $manifest.archive.url = $manifest.archive.url.Replace('/Views2k/Wisp/', '/other/Wisp/') }
+                    'mirror-query' { $manifest.archive.url += '?download=1' }
+                    'mirror-fragment' { $manifest.archive.url += '#archive' }
+                }
+            }
             if ($env:WISP_MPV_CASE -eq 'archive-hash') { $manifest.archive.sha256 = '0' * 64 }
             if ($env:WISP_MPV_CASE -eq 'binary-hash') { $manifest.binary.sha256 = '0' * 64 }
             $manifestPath = Join-Path $fixture 'manifest.json'
@@ -128,7 +144,7 @@ public sealed class MpvDependencyRestoreTests
                     & $env:WISP_MPV_RESTORE -ManifestPath $manifestPath -CacheRoot $cache -NoDownload | Out-Null
                 }
             } catch { $refused = $true }
-            $expectedRefusal = $env:WISP_MPV_CASE -notin @('valid', 'cached-offline', 'file-defaults')
+            $expectedRefusal = $env:WISP_MPV_CASE -notin @('valid', 'cached-offline', 'file-defaults', 'mirror-exact')
             if ($refused -ne $expectedRefusal) { throw 'Pinned restore acceptance differed from the case.' }
             if (-not $refused -and (Digest $cachedDll) -cne (Digest $source)) { throw 'Restored runtime differs from the fixture.' }
             if ($env:WISP_MPV_CASE -eq 'invalid-cache' -and [IO.File]::ReadAllText($cachedDll) -cne 'changed') { throw 'Existing cache was overwritten.' }
