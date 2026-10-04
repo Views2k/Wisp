@@ -69,18 +69,134 @@ $settingsSentinel = [ordered]@{
 } | ConvertTo-Json -Depth 4
 $versionPadding = [char[]]@([char]0, [char]' ')
 
+function Get-InstallerLogStages {
+    param([string]$LogPath)
+
+    $stream = $null
+    try {
+        # Only inspect a bounded tail. Native logs can contain private paths and names;
+        # neither their contents nor read exceptions may reach the workflow output.
+        $stream = [System.IO.File]::Open($LogPath, [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+        $header = [byte[]]::new(3)
+        $headerLength = $stream.Read($header, 0, $header.Length)
+        $encoding = [System.Text.Encoding]::UTF8
+        if ($headerLength -ge 2 -and $header[0] -eq 255 -and $header[1] -eq 254) {
+            $encoding = [System.Text.Encoding]::Unicode
+        }
+        $offset = [Math]::Max(0, $stream.Length - 65536)
+        if ($encoding.CodePage -eq 1200) {
+            $offset -= $offset % 2
+        }
+        [void]$stream.Seek($offset, [System.IO.SeekOrigin]::Begin)
+        $buffer = [byte[]]::new(65536)
+        $count = $stream.Read($buffer, 0, $buffer.Length)
+        $tail = $encoding.GetString($buffer, 0, $count)
+        if ($offset -gt 0) {
+            $firstNewline = $tail.IndexOf("`n")
+            if ($firstNewline -lt 0) { return }
+            $tail = $tail.Substring($firstNewline + 1)
+        }
+        $lastNewline = $tail.LastIndexOf("`n")
+        if ($lastNewline -lt 0) { return }
+        $tail = $tail.Substring(0, $lastNewline + 1)
+    }
+    catch {
+        return
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+
+    # Best-effort whitelist for CI's pinned Inno Setup 6.7.1, not a success check.
+    # Source: jrsoftware/issrc tag is-6_7_1, Setup.WizardForm/MainFunc/Install.pas.
+    foreach ($line in ($tail -split "`r?`n")) {
+        if ($line -cnotmatch '^\uFEFF?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}[ \t]+(?<Message>.+)$') {
+            continue
+        }
+        switch -CaseSensitive -Regex ($matches.Message) {
+            '^Found a file to register with RestartManager: .+$' { 'restart-manager-registering-files'; break }
+            '^Found [0-9]+ files to register with RestartManager\.$' { 'restart-manager-resources-ready'; break }
+            '^Calling RestartManager''s RmGetList\.$' { 'restart-manager-query-started'; break }
+            '^RmGetList finished successfully\.$' { 'restart-manager-query-completed'; break }
+            '^RmGetList failed\.$' { 'restart-manager-query-failed'; break }
+            '^RestartManager found no applications using one of our files\.$' { 'restart-manager-no-applications'; break }
+            '^RestartManager found an application using one of our files: Wisp$' { 'restart-manager-application-wisp'; break }
+            '^RestartManager found an application using one of our files: Wisp Update Helper$' { 'restart-manager-application-wisp-updater'; break }
+            '^RestartManager found an application using one of our files: .+$' { 'restart-manager-application-found'; break }
+            '^Starting the installation process\.$' { 'installation-started'; break }
+            '^Installation process succeeded\.$' { 'installation-succeeded'; break }
+            '^Deinitializing Setup\.$' { 'setup-deinitializing'; break }
+        }
+    }
+}
+
+function Write-InstallerLifecycleMarker {
+    param(
+        [string]$Label,
+        [string]$Stage,
+        [System.Diagnostics.Stopwatch]$Timer
+    )
+
+    Write-Host ("{0} {1}. utc={2:o} elapsed_ms={3}" -f
+        $Label, $Stage, [DateTime]::UtcNow, $Timer.ElapsedMilliseconds)
+}
+
+function Write-InstallerLogStages {
+    param(
+        [string]$LogPath,
+        [string]$Label,
+        [System.Diagnostics.Stopwatch]$Timer,
+        [System.Collections.Generic.HashSet[string]]$ObservedStages
+    )
+
+    foreach ($stage in (Get-InstallerLogStages $LogPath)) {
+        if ($ObservedStages.Add($stage)) {
+            Write-InstallerLifecycleMarker $Label "native stage observed: $stage" $Timer
+        }
+    }
+}
+
+function Wait-InstallerProcessExit {
+    param(
+        $Process,
+        [string]$LogPath,
+        [string]$Label,
+        [System.Diagnostics.Stopwatch]$OperationTimer,
+        [int]$TimeoutSeconds
+    )
+
+    $waitTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    $observedStages = [System.Collections.Generic.HashSet[string]]::new()
+    while ($waitTimer.ElapsedMilliseconds -lt $TimeoutSeconds * 1000) {
+        Write-InstallerLogStages $LogPath $Label $OperationTimer $observedStages
+        # Diagnostics consume the same deadline; no slice resets or extends it.
+        $remaining = [Math]::Max(0, $TimeoutSeconds * 1000 - $waitTimer.ElapsedMilliseconds)
+        if ($Process.WaitForExit([int][Math]::Min(1000, $remaining))) {
+            Write-InstallerLogStages $LogPath $Label $OperationTimer $observedStages
+            return $true
+        }
+    }
+    return $Process.WaitForExit(0)
+}
+
 function Invoke-CheckedProcess {
     param(
         [string]$Path,
         [string[]]$Arguments,
         [string]$Label,
+        [string]$LogPath,
         [int]$TimeoutSeconds = 180
     )
 
-    Write-Output "$Label started."
+    $operationTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-InstallerLifecycleMarker $Label 'started' $operationTimer
     $process = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
     try {
-        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        Write-InstallerLifecycleMarker $Label 'launch returned' $operationTimer
+        Write-InstallerLifecycleMarker $Label 'before process wait' $operationTimer
+        if (-not (Wait-InstallerProcessExit $process $LogPath $Label $operationTimer $TimeoutSeconds)) {
             Write-Warning "$Label exceeded its $TimeoutSeconds-second timeout; terminating its process tree."
             $process.Kill($true)
             if (-not $process.WaitForExit(10000)) {
@@ -91,7 +207,7 @@ function Invoke-CheckedProcess {
         if ($process.ExitCode -ne 0) {
             throw "$Label failed with exit code $($process.ExitCode)."
         }
-        Write-Output "$Label completed."
+        Write-InstallerLifecycleMarker $Label 'completed' $operationTimer
     }
     finally {
         $process.Dispose()
@@ -239,8 +355,13 @@ try {
         '/SP-',
         "/DIR=`"$installDirectory`""
     )
+    $freshLog = Join-Path $canaryRoot 'fresh-install.log'
+    $updateLog = Join-Path $canaryRoot 'in-place-update.log'
+    $uninstallLog = Join-Path $canaryRoot 'uninstall.log'
 
-    Invoke-CheckedProcess $installer $installArguments 'Fresh installer canary'
+    Invoke-CheckedProcess $installer ($installArguments + @(
+        "/LOG=`"$freshLog`"", '/LOGCLOSEAPPLICATIONS'
+    )) 'Fresh installer canary' $freshLog
     Assert-RegisteredInstallation
     Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.exe') 'Wisp'
     Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.Updater.exe') 'Wisp Update Helper'
@@ -255,7 +376,9 @@ try {
         [System.Text.UTF8Encoding]::new($false))
     [System.IO.File]::Delete($setupMarker)
 
-    Invoke-CheckedProcess $installer ($installArguments + '/WISPUPDATE') 'In-place update canary'
+    Invoke-CheckedProcess $installer ($installArguments + @(
+        '/WISPUPDATE', "/LOG=`"$updateLog`"", '/LOGCLOSEAPPLICATIONS'
+    )) 'In-place update canary' $updateLog
     Assert-RegisteredInstallation
     Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.exe') 'Wisp'
     Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.Updater.exe') 'Wisp Update Helper'
@@ -271,8 +394,9 @@ try {
     Invoke-CheckedProcess $uninstaller @(
         '/VERYSILENT',
         '/SUPPRESSMSGBOXES',
-        '/NORESTART'
-    ) 'Uninstaller canary'
+        '/NORESTART',
+        "/LOG=`"$uninstallLog`""
+    ) 'Uninstaller canary' $uninstallLog
     Wait-ForRemoval (Join-Path $installDirectory 'Wisp.exe') $false
     Wait-ForRemoval $uninstaller $false
     Wait-ForRemoval $uninstallKey $true
