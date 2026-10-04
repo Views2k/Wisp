@@ -1,4 +1,4 @@
-"""Exercise only extracted diagnostic helpers; never launch or install Wisp."""
+"""Exercise extracted lifecycle helpers with native launches replaced by fakes."""
 import json
 import os
 from pathlib import Path
@@ -22,7 +22,8 @@ try {
         $Source, [ref]$tokens, [ref]$errors)
     if ($errors.Count -ne 0) { throw 'The lifecycle source did not parse.' }
     $names = @('Get-InstallerLogStages', 'Write-InstallerLifecycleMarker',
-        'Write-InstallerLogStages', 'Wait-InstallerProcessExit')
+        'Write-InstallerLogStages', 'Wait-InstallerProcessExit', 'Invoke-CheckedProcess',
+        'New-InstallerProcess', 'Assert-FirstRunSetupLaunch')
     $functions = @($ast.FindAll({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -cin $names
@@ -31,8 +32,9 @@ try {
     foreach ($function in $functions) {
         . ([scriptblock]::Create($function.Extent.Text))
     }
-    # The guarded lifecycle entrypoint and process launcher are never evaluated.
+    # The guarded lifecycle entrypoint is never evaluated; native launch is stubbed.
     function Start-Process { throw 'A diagnostic fixture cannot launch a process.' }
+    $env:WISP_INSTALLER_STAGE_LOG = $null
     $log = Join-Path $FixtureDirectory 'native.log'
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
     __BODY__
@@ -105,8 +107,8 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
         ])
         output = self.evaluate(
             "$seen = [System.Collections.Generic.HashSet[string]]::new(); "
-            "Write-InstallerLogStages $log 'Fixture' $timer $seen; "
-            "Write-InstallerLogStages $log 'Fixture' $timer $seen")
+            "Write-InstallerLogStages $log 'In-place update canary' $timer $seen; "
+            "Write-InstallerLogStages $log 'In-place update canary' $timer $seen")
         self.assertNotIn("PRIVATE_FIXTURE_VALUE", output)
         self.assertEqual(output.count("restart-manager-application-found"), 1)
         self.assertEqual(output.count("restart-manager-query-failed"), 1)
@@ -162,7 +164,7 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
                 $this.Waits += $Milliseconds
                 return $this.Calls -ge 2
             }
-            $exited = Wait-InstallerProcessExit $fake $log 'Fixture' $timer 180
+            $exited = Wait-InstallerProcessExit $fake $log 'In-place update canary' $timer 180
             @{ exited = $exited; calls = $fake.Calls; waits = $fake.Waits } |
                 ConvertTo-Json -Compress
         """)
@@ -182,7 +184,7 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
                 if ($Milliseconds -gt 0) { Start-Sleep -Milliseconds $Milliseconds }
                 return $false
             }
-            $exited = Wait-InstallerProcessExit $fake $log 'Fixture' $timer 2
+            $exited = Wait-InstallerProcessExit $fake $log 'In-place update canary' $timer 2
             @{ exited = $exited; waits = $fake.Waits } | ConvertTo-Json -Compress
         """)
         result = json.loads(output)
@@ -190,6 +192,161 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["waits"]), 1)
         self.assertLessEqual(sum(result["waits"]), 800)
         self.assertEqual(result["waits"][-1], 0)
+
+    def test_launch_time_cannot_reset_the_operation_deadline(self):
+        output = self.evaluate(r"""
+            $script:fake = [pscustomobject]@{ Killed = $false; Disposed = $false; Waits = @(); ExitCode = 0 }
+            $script:fake | Add-Member ScriptMethod WaitForExit {
+                param([int]$Milliseconds)
+                $this.Waits += $Milliseconds
+                return $this.Killed -or $Milliseconds -gt 0
+            }
+            $script:fake | Add-Member ScriptMethod Kill { param([bool]$Tree) $this.Killed = $Tree }
+            $script:fake | Add-Member ScriptMethod Dispose { $this.Disposed = $true }
+            $script:fake | Add-Member ScriptMethod Start {
+                Start-Sleep -Milliseconds 1200
+                return $true
+            }
+            function New-InstallerProcess { return $script:fake }
+            $timedOut = $false
+            try { Invoke-CheckedProcess 'unused' @('unused') 'In-place update canary' $log 1 }
+            catch { $timedOut = $_.Exception.Message -ceq 'In-place update canary exceeded its 1-second timeout.' }
+            @{ timedOut = $timedOut; killed = $script:fake.Killed;
+               disposed = $script:fake.Disposed; waits = $script:fake.Waits } |
+                ConvertTo-Json -Compress
+        """)
+        result = json.loads(output.splitlines()[-1])
+        self.assertTrue(result["timedOut"])
+        self.assertTrue(result["killed"])
+        self.assertTrue(result["disposed"])
+        self.assertEqual(result["waits"], [0, 10000])
+
+    def test_direct_launcher_preserves_quoted_arguments_without_starting(self):
+        output = self.evaluate(r"""
+            $path = Join-Path $FixtureDirectory 'unused.exe'
+            $arguments = @('/WISPUPDATE', '/DIR="C:\private fixture\app"',
+                '/LOG="C:\private fixture\native.log"', '/LOGCLOSEAPPLICATIONS')
+            $process = New-InstallerProcess $path $arguments
+            $setup = New-InstallerProcess $path @()
+            try {
+                $unstarted = $false
+                try { $null = $process.WaitForExit(0) }
+                catch { $unstarted = $true }
+                @{ unstarted = $unstarted; shell = $process.StartInfo.UseShellExecute;
+                   pathMatches = $process.StartInfo.FileName -ceq $path;
+                   argumentsMatch = $process.StartInfo.Arguments -ceq ($arguments -join ' ');
+                   noArguments = $setup.StartInfo.Arguments -ceq '';
+                   directoryMatches = $process.StartInfo.WorkingDirectory -ceq (Get-Location).ProviderPath } |
+                    ConvertTo-Json -Compress
+            }
+            finally { $process.Dispose(); $setup.Dispose() }
+        """)
+        self.assertEqual(json.loads(output), {
+            "unstarted": True, "shell": False, "pathMatches": True,
+            "argumentsMatch": True, "noArguments": True, "directoryMatches": True})
+
+    def test_failed_native_launch_is_disposed_without_private_exception_text(self):
+        output = self.evaluate(r"""
+            $script:fake = [pscustomobject]@{ Disposed = $false }
+            $script:fake | Add-Member ScriptMethod Start { throw 'PRIVATE_FIXTURE_VALUE' }
+            $script:fake | Add-Member ScriptMethod Dispose { $this.Disposed = $true }
+            function New-InstallerProcess { return $script:fake }
+            $failure = ''
+            try { Invoke-CheckedProcess 'unused' @('unused') 'In-place update canary' $log 1 }
+            catch { $failure = $_.Exception.Message }
+            @{ failure = $failure; disposed = $script:fake.Disposed } | ConvertTo-Json -Compress
+        """)
+        self.assertNotIn("PRIVATE_FIXTURE_VALUE", output)
+        self.assertEqual(json.loads(output.splitlines()[-1]), {
+            "failure": "In-place update canary launch failed.", "disposed": True})
+
+    def test_nonzero_exit_still_fails_and_disposes(self):
+        output = self.evaluate(r"""
+            $script:fake = [pscustomobject]@{ Disposed = $false; ExitCode = 42 }
+            $script:fake | Add-Member ScriptMethod Start { return $true }
+            $script:fake | Add-Member ScriptMethod WaitForExit { param([int]$Milliseconds) return $true }
+            $script:fake | Add-Member ScriptMethod Dispose { $this.Disposed = $true }
+            function New-InstallerProcess { return $script:fake }
+            $failure = ''
+            try { Invoke-CheckedProcess 'unused' @('unused') 'In-place update canary' $log 1 }
+            catch { $failure = $_.Exception.Message }
+            @{ failure = $failure; disposed = $script:fake.Disposed } | ConvertTo-Json -Compress
+        """)
+        self.assertEqual(json.loads(output.splitlines()[-1]), {
+            "failure": "In-place update canary failed with exit code 42.", "disposed": True})
+
+    def test_first_run_launch_failure_is_disposed_and_sanitized(self):
+        output = self.evaluate(r"""
+            $script:fake = [pscustomobject]@{ Disposed = $false }
+            $script:fake | Add-Member ScriptMethod Start { throw 'PRIVATE_FIXTURE_VALUE' }
+            $script:fake | Add-Member ScriptMethod Dispose { $this.Disposed = $true }
+            function New-InstallerProcess { return $script:fake }
+            $failure = ''
+            try { Assert-FirstRunSetupLaunch 'unused' }
+            catch { $failure = $_.Exception.Message }
+            @{ failure = $failure; disposed = $script:fake.Disposed } | ConvertTo-Json -Compress
+        """)
+        self.assertNotIn("PRIVATE_FIXTURE_VALUE", output)
+        self.assertEqual(json.loads(output.splitlines()[-1]), {
+            "failure": "The installed application could not be started.", "disposed": True})
+
+    def test_first_run_still_requires_setup_window_and_clean_close(self):
+        output = self.evaluate(r"""
+            $script:fake = [pscustomobject]@{ Disposed = $false; HasExited = $false;
+                ExitCode = 0; MainWindowHandle = [IntPtr]1; MainWindowTitle = 'Wisp Setup';
+                Closed = $false; Waits = @() }
+            $script:fake | Add-Member ScriptMethod Start { return $true }
+            $script:fake | Add-Member ScriptMethod Refresh { }
+            $script:fake | Add-Member ScriptMethod CloseMainWindow { $this.Closed = $true; return $true }
+            $script:fake | Add-Member ScriptMethod WaitForExit {
+                param([int]$Milliseconds)
+                $this.Waits += $Milliseconds
+                $this.HasExited = $true
+                return $true
+            }
+            $script:fake | Add-Member ScriptMethod Dispose { $this.Disposed = $true }
+            function New-InstallerProcess { return $script:fake }
+            Assert-FirstRunSetupLaunch 'unused'
+            @{ disposed = $script:fake.Disposed; closed = $script:fake.Closed;
+               waits = $script:fake.Waits } | ConvertTo-Json -Compress
+        """)
+        self.assertIn("First-run Wisp Setup window detected.", output)
+        self.assertIn("First-run Wisp Setup completed.", output)
+        self.assertEqual(json.loads(output.splitlines()[-1]), {
+            "disposed": True, "closed": True, "waits": [10000]})
+
+    def test_stage_file_contains_only_fixed_markers(self):
+        output = self.evaluate(r"""
+            $env:WISP_INSTALLER_STAGE_LOG = Join-Path $FixtureDirectory 'stages.log'
+            Write-InstallerLifecycleMarker 'In-place update canary' 'started' $timer
+            Write-InstallerLifecycleMarker 'PRIVATE_FIXTURE_VALUE' 'started' $timer
+            Write-InstallerLifecycleMarker 'In-place update canary' 'PRIVATE_FIXTURE_VALUE' $timer
+            Write-InstallerLifecycleMarker 'In-place update canary' 'native stage observed: restart-manager-query-started' $timer
+            $lines = [System.IO.File]::ReadAllLines($env:WISP_INSTALLER_STAGE_LOG)
+            @{ lines = $lines } | ConvertTo-Json -Compress
+        """)
+        self.assertNotIn("PRIVATE_FIXTURE_VALUE", output)
+        lines = json.loads(output.splitlines()[-1])["lines"]
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].startswith("In-place update canary started. utc="))
+        self.assertTrue(lines[1].startswith(
+            "In-place update canary native stage observed: restart-manager-query-started. utc="))
+
+    def test_unwritable_stage_file_does_not_change_process_result(self):
+        output = self.evaluate(r"""
+            $env:WISP_INSTALLER_STAGE_LOG = Join-Path $FixtureDirectory 'PRIVATE_FIXTURE_VALUE/missing/stages.log'
+            $script:fake = [pscustomobject]@{ Disposed = $false; ExitCode = 0 }
+            $script:fake | Add-Member ScriptMethod Start { return $true }
+            $script:fake | Add-Member ScriptMethod WaitForExit { param([int]$Milliseconds) return $true }
+            $script:fake | Add-Member ScriptMethod Dispose { $this.Disposed = $true }
+            function New-InstallerProcess { return $script:fake }
+            Invoke-CheckedProcess 'unused' @('unused') 'In-place update canary' $log 1
+            @{ disposed = $script:fake.Disposed } | ConvertTo-Json -Compress
+        """)
+        self.assertNotIn("PRIVATE_FIXTURE_VALUE", output)
+        self.assertIn("Could not persist installer lifecycle stage evidence.", output)
+        self.assertIn("In-place update canary completed.", output)
+        self.assertTrue(json.loads(output.splitlines()[-1])["disposed"])
 
 
 if __name__ == "__main__":

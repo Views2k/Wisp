@@ -133,7 +133,10 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("needs:", workflow[package..publish], StringComparison.Ordinal);
         Assert.Contains("test", workflow[package..publish], StringComparison.Ordinal);
         Assert.Contains("wisp-candidate-${{ github.sha }}", workflow, StringComparison.Ordinal);
-        Assert.Contains("Test-InstallerLifecycle.ps1", workflow[package..publish], StringComparison.Ordinal);
+        Assert.Contains("Invoke-InstallerLifecycleCanary.ps1", workflow[package..publish], StringComparison.Ordinal);
+        var supervisor = File.ReadAllText(Path.Combine(RepositoryRoot(), ".github", "scripts", "Invoke-InstallerLifecycleCanary.ps1"));
+        Assert.Contains("'Test-InstallerLifecycle.ps1'", supervisor, StringComparison.Ordinal);
+        Assert.Contains("Invoke-InstallerLifecycleWorker $worker", supervisor, StringComparison.Ordinal);
         Assert.Contains("needs: [test, package-review]", workflow[publish..], StringComparison.Ordinal);
         Assert.Contains("release_sources.py prepare --directory outputs", workflow[..package], StringComparison.Ordinal);
         Assert.Contains("release_sources.py verify --directory outputs", workflow[package..publish], StringComparison.Ordinal);
