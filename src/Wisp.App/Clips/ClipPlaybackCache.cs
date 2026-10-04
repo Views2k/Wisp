@@ -58,6 +58,36 @@ internal sealed class ClipPlaybackCache
         finally { _gate.Release(); }
     }, token);
 
+    // Removes prepared copies of a deleted clip. A copy that is open stays until a later eviction.
+    internal Task<int> RemoveForClipAsync(Guid clip, CancellationToken token) => Task.Run(async () =>
+    {
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            if (!Directory.Exists(_root)) return 0;
+            using var parent = NativeFile.OpenDirectoryTree(_root, create: false);
+            using var cacheLock = NativeFile.Open(parent, ".cache.lock", NativeFile.ReadWriteDelete, 0, 3, false);
+            if (NativeFile.Identity(cacheLock).Bytes != 0) return 0;
+            var removed = 0;
+            foreach (var path in Directory.EnumerateFileSystemEntries(_root).Take(MaximumEntries * 2 + 2).ToArray())
+            {
+                token.ThrowIfCancellationRequested();
+                var name = Path.GetFileName(path);
+                if (name == ".cache.lock") continue;
+                try
+                {
+                    Ownership owner;
+                    using (var directory = NativeFile.Open(parent, name, NativeFile.DirectoryAccess, 3, 1, true))
+                        owner = ReadRecord<Ownership>(directory, "owner.json");
+                    if (owner.Clip == clip && TryDelete(parent, name)) removed++;
+                }
+                catch (Exception error) when (StorageError(error)) { }
+            }
+            return removed;
+        }
+        finally { _gate.Release(); }
+    }, token);
+
     private async Task<ClipPlaybackLease> PrepareCoreAsync(ClipEntry original, string sourcePath, FileStream source,
         IProgress<double>? progress, CancellationToken token)
     {

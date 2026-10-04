@@ -40,6 +40,25 @@ internal static class ClipLibraryFiles
 
     internal static bool IsMissing(IOException error) => (error.HResult & 0xffff) is 2 or 3;
 
+    // Deletes a library video only if it still has its recorded size. Fails with a
+    // sharing violation while another program holds it without delete sharing.
+    internal static bool DeleteMedia(SafeFileHandle directory, string name, long expectedBytes)
+    {
+        SafeFileHandle handle;
+        try { handle = Open(directory, name, 0x10080, 5, 1, false); }
+        catch (IOException error) when (IsMissing(error)) { return false; }
+        using (handle)
+        {
+            if (!GetFileInformationByHandle(handle, out var info)) throw Error((uint)Marshal.GetLastWin32Error());
+            if (((long)info.SizeHigh << 32 | info.SizeLow) != expectedBytes)
+                throw new InvalidDataException("The clip file size does not match its saved metadata. The file has been kept.");
+            Delete(handle);
+            return true;
+        }
+    }
+
+    internal static bool IsInUse(Exception error) => error is IOException && (error.HResult & 0xffff) is 32 or 33;
+
     internal static async Task<bool> CopyOrVerifyAsync(FileStream source, string directory, string name,
         bool reuseIdentical, CancellationToken token, string? existingAlternativeName = null)
     {

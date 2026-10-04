@@ -35,30 +35,38 @@ public sealed class ClipsExportDialogTests : IDisposable
     }
 
     [Fact]
-    public void LosslessSaveAsDefaultsToCompatibleWithExplicitOriginalChoice()
+    public void LosslessExportDialogOffersOnlyTheChosenFormat()
     {
         var lossless = Clip with { Media = Clip.Media with { LosslessVideo = true } };
-        var dialog = ClipsPage.CreateExportDialog(_directory, lossless);
-        Assert.Equal(1, dialog.FilterIndex);
-        Assert.Contains("Compatible MP4", dialog.Filter, StringComparison.Ordinal);
-        Assert.Contains("Original lossless MP4 (H.264 4:4:4)", dialog.Filter, StringComparison.Ordinal);
-        Assert.Equal(ClipExportFormat.Compatible, ClipsPage.ExportFormatFor(lossless, 1));
-        Assert.Equal(ClipExportFormat.Original, ClipsPage.ExportFormatFor(lossless, 2));
-        Assert.Equal(ClipExportFormat.Original, ClipsPage.ExportFormatFor(Clip, 1));
+        var compatible = ClipsPage.CreateExportDialog(_directory, lossless, ClipExportFormat.Compatible);
+        Assert.Equal("Compatible MP4 (H.264) (*.mp4)|*.mp4", compatible.Filter);
+        Assert.Equal("Export compatible copy", compatible.Title);
+        Assert.Equal(lossless.SuggestedExportName, compatible.FileName);
+        var original = ClipsPage.CreateExportDialog(_directory, lossless, ClipExportFormat.Original);
+        Assert.Equal("Original lossless MP4 (H.264 4:4:4) (*.mp4)|*.mp4", original.Filter);
+        Assert.EndsWith("-lossless.mp4", original.FileName, StringComparison.Ordinal);
+        Assert.Equal(1, original.FilterIndex);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void EveryHdrClipDefaultsToCompatibleSdrWithExplicitOriginalChoice(bool lossless)
+    public void HdrExportDialogOffersOnlyTheChosenFormat(bool lossless)
     {
         var hdr = Clip with { Media = Clip.Media with { HdrVideo = true, LosslessVideo = lossless } };
-        var dialog = ClipsPage.CreateExportDialog(_directory, hdr);
-        Assert.Contains("Compatible SDR MP4 (H.264)", dialog.Filter, StringComparison.Ordinal);
-        Assert.Equal(ClipExportFormat.Compatible, ClipsPage.ExportFormatFor(hdr, 1));
-        Assert.Equal(ClipExportFormat.Original, ClipsPage.ExportFormatFor(hdr, 2));
-        if (lossless) Assert.Contains("Original lossless HDR MP4 (HEVC 4:4:4)", dialog.Filter, StringComparison.Ordinal);
-        else Assert.Contains("Original HDR MP4 (HEVC Main10)", dialog.Filter, StringComparison.Ordinal);
+        Assert.Equal("Compatible SDR MP4 (H.264) (*.mp4)|*.mp4", ClipsPage.CreateExportDialog(_directory, hdr, ClipExportFormat.Compatible).Filter);
+        var original = ClipsPage.CreateExportDialog(_directory, hdr, ClipExportFormat.Original);
+        Assert.Equal(lossless ? "Original lossless HDR MP4 (HEVC 4:4:4) (*.mp4)|*.mp4" : "Original HDR MP4 (HEVC Main10) (*.mp4)|*.mp4", original.Filter);
+        Assert.EndsWith(lossless ? "-lossless.mp4" : "-hdr.mp4", original.FileName, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NamedClipSuggestsItsNameAsASafeFileName()
+    {
+        var named = Clip with { Name = "Drift: Goliath run?" };
+        Assert.Equal("Drift- Goliath run-.mp4", ClipsPage.CreateExportDialog(_directory, named).FileName);
+        Assert.Equal(Clip.SuggestedExportName, ClipsPage.CreateExportDialog(_directory, Clip with { Name = "CON" }).FileName);
+        Assert.Equal(Clip.SuggestedExportName, ClipsPage.CreateExportDialog(_directory, Clip with { Name = "..." }).FileName);
     }
 
     [Theory]
