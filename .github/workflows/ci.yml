@@ -280,9 +280,18 @@ jobs:
           $project = [xml](Get-Content -LiteralPath .\src\Wisp.App\Wisp.App.csproj -Raw)
           $version = @($project.Project.PropertyGroup | Where-Object { $null -ne $_.Version })[0].Version
           $installer = (Resolve-Path -LiteralPath ".\outputs\Wisp-Setup-$version.exe").Path
-          ./.github/scripts/Test-InstallerLifecycle.ps1 `
+          ./.github/scripts/Invoke-InstallerLifecycleCanary.ps1 `
             -InstallerPath $installer `
             -ExpectedVersion $version
+
+      - name: Upload installer lifecycle diagnostics
+        if: always() && needs.validation-plan.outputs.mode == 'full'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer-lifecycle-diagnostics-${{ github.sha }}
+          path: outputs/installer-lifecycle/stages.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload installer bundle
         if: needs.validation-plan.outputs.mode == 'full'

@@ -139,8 +139,42 @@ function Write-InstallerLifecycleMarker {
         [System.Diagnostics.Stopwatch]$Timer
     )
 
-    Write-Host ("{0} {1}. utc={2:o} elapsed_ms={3}" -f
-        $Label, $Stage, [DateTime]::UtcNow, $Timer.ElapsedMilliseconds)
+    if ($Label -cnotin @('Fresh installer canary', 'In-place update canary',
+            'Uninstaller canary', 'First-run Wisp Setup') -or
+        $Stage -cnotmatch '\A(?:started|launch returned|before process wait|completed|window detected|close requested|native stage observed: (?:restart-manager-(?:registering-files|resources-ready|query-started|query-completed|query-failed|no-applications|application-wisp|application-wisp-updater|application-found)|installation-started|installation-succeeded|setup-deinitializing))\z') {
+        return
+    }
+    $message = "{0} {1}. utc={2:o} elapsed_ms={3}" -f
+        $Label, $Stage, [DateTime]::UtcNow, $Timer.ElapsedMilliseconds
+    Write-Host $message
+    if (-not [string]::IsNullOrWhiteSpace($env:WISP_INSTALLER_STAGE_LOG)) {
+        try {
+            if (-not [System.IO.Path]::IsPathFullyQualified($env:WISP_INSTALLER_STAGE_LOG)) {
+                throw 'The stage evidence path must be absolute.'
+            }
+            [System.IO.File]::AppendAllText($env:WISP_INSTALLER_STAGE_LOG,
+                $message + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+        }
+        catch {
+            Write-Warning 'Could not persist installer lifecycle stage evidence.'
+        }
+    }
+}
+
+function New-InstallerProcess {
+    param(
+        [string]$Path,
+        [string[]]$Arguments
+    )
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo.FileName = $Path
+    # Launch the executable directly, avoiding desktop Start-Process's ShellExecute path.
+    # Preserve the existing, explicitly quoted Inno command line and working directory.
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.Arguments = [string]::Join(' ', $Arguments)
+    $process.StartInfo.WorkingDirectory = (Get-Location).ProviderPath
+    return $process
 }
 
 function Write-InstallerLogStages {
@@ -167,12 +201,11 @@ function Wait-InstallerProcessExit {
         [int]$TimeoutSeconds
     )
 
-    $waitTimer = [System.Diagnostics.Stopwatch]::StartNew()
     $observedStages = [System.Collections.Generic.HashSet[string]]::new()
-    while ($waitTimer.ElapsedMilliseconds -lt $TimeoutSeconds * 1000) {
+    while ($OperationTimer.ElapsedMilliseconds -lt $TimeoutSeconds * 1000) {
         Write-InstallerLogStages $LogPath $Label $OperationTimer $observedStages
-        # Diagnostics consume the same deadline; no slice resets or extends it.
-        $remaining = [Math]::Max(0, $TimeoutSeconds * 1000 - $waitTimer.ElapsedMilliseconds)
+        # Launch and diagnostics consume the same deadline; no slice resets it.
+        $remaining = [Math]::Max(0, $TimeoutSeconds * 1000 - $OperationTimer.ElapsedMilliseconds)
         if ($Process.WaitForExit([int][Math]::Min(1000, $remaining))) {
             Write-InstallerLogStages $LogPath $Label $OperationTimer $observedStages
             return $true
@@ -192,8 +225,11 @@ function Invoke-CheckedProcess {
 
     $operationTimer = [System.Diagnostics.Stopwatch]::StartNew()
     Write-InstallerLifecycleMarker $Label 'started' $operationTimer
-    $process = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
+    $process = New-InstallerProcess $Path $Arguments
     try {
+        try { $started = $process.Start() }
+        catch { throw "$Label launch failed." }
+        if (-not $started) { throw "$Label launch failed." }
         Write-InstallerLifecycleMarker $Label 'launch returned' $operationTimer
         Write-InstallerLifecycleMarker $Label 'before process wait' $operationTimer
         if (-not (Wait-InstallerProcessExit $process $LogPath $Label $operationTimer $TimeoutSeconds)) {
@@ -258,12 +294,17 @@ function Assert-RegisteredInstallation {
 function Assert-FirstRunSetupLaunch {
     param([string]$ApplicationPath)
 
-    Write-Output 'First-run Wisp Setup launch started.'
-    $process = Start-Process -FilePath $ApplicationPath -PassThru
+    $operationTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-InstallerLifecycleMarker 'First-run Wisp Setup' 'started' $operationTimer
+    $process = New-InstallerProcess $ApplicationPath @()
+    $started = $false
     try {
-        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        try { $started = $process.Start() }
+        catch { throw 'The installed application could not be started.' }
+        if (-not $started) { throw 'The installed application could not be started.' }
+        Write-InstallerLifecycleMarker 'First-run Wisp Setup' 'launch returned' $operationTimer
         $setupWindowFound = $false
-        while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+        while (-not $process.HasExited -and $operationTimer.ElapsedMilliseconds -lt 30000) {
             $process.Refresh()
             if ($process.MainWindowHandle -ne [IntPtr]::Zero -and
                 $process.MainWindowTitle -ceq 'Wisp Setup') {
@@ -280,21 +321,21 @@ function Assert-FirstRunSetupLaunch {
             throw 'The installed application did not show Wisp Setup before the deadline.'
         }
 
-        Write-Output 'First-run Wisp Setup window detected.'
+        Write-InstallerLifecycleMarker 'First-run Wisp Setup' 'window detected' $operationTimer
         if (-not $process.CloseMainWindow()) {
             throw 'The Wisp Setup window did not accept a bounded close request.'
         }
-        Write-Output 'First-run Wisp Setup close requested.'
+        Write-InstallerLifecycleMarker 'First-run Wisp Setup' 'close requested' $operationTimer
         if (-not $process.WaitForExit(10000)) {
             throw 'The installed application did not exit after its setup window closed.'
         }
         if ($process.ExitCode -ne 0) {
             throw "The installed application returned exit code $($process.ExitCode) after closing Wisp Setup."
         }
-        Write-Output 'First-run Wisp Setup launch completed.'
+        Write-InstallerLifecycleMarker 'First-run Wisp Setup' 'completed' $operationTimer
     }
     finally {
-        if (-not $process.HasExited) {
+        if ($started -and -not $process.HasExited) {
             $process.Kill($true)
             if (-not $process.WaitForExit(10000)) {
                 Write-Warning 'The installer canary had to abandon a Wisp process that did not terminate.'
