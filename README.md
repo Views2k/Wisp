@@ -15,8 +15,6 @@
 
 ## Wisp 2.6.1
 
-Save a clip of your drive, keep a copy of your tune, and review where a lap gained or lost time.
-
 2.6.1 fixes issues with clip recording, playback, exports and Tune reading. It also adds clearer error reports and lets you prepare clips without closing Forza.
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md)
