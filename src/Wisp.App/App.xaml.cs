@@ -62,6 +62,8 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        FocusCues.Install();
+        CursorRecovery.Install();
 
         _instanceMutex = new Mutex(initiallyOwned: false, InstanceMutexName, out var isFirstInstance);
         if (!isFirstInstance)

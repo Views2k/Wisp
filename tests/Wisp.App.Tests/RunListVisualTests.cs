@@ -139,7 +139,9 @@ public sealed class RunListVisualTests
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
         var page = XDocument.Load(SourcePath("RunsPage.xaml"));
         var style = page.Descendants(presentation + "Style").Single(element => element.Attribute(xaml + "Key")?.Value == "RunLibraryItem");
-        var dictionary = new XElement(presentation + "ResourceDictionary", new XAttribute(XNamespace.Xmlns + "x", xaml), new XElement(style));
+        // Focus triggers name an attached property declared on the page root.
+        var dictionary = new XElement(presentation + "ResourceDictionary", new XAttribute(XNamespace.Xmlns + "x", xaml),
+            new XAttribute(XNamespace.Xmlns + "focus", "clr-namespace:Wisp.App;assembly=Wisp"), new XElement(style));
         var resources = Assert.IsType<ResourceDictionary>(XamlReader.Parse(dictionary.ToString()));
         return Assert.IsType<Style>(resources["RunLibraryItem"]);
     }

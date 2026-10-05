@@ -1,4 +1,5 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:focus="clr-namespace:Wisp.App"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Style x:Key="RunExportMenuStyle" TargetType="ContextMenu">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
@@ -25,7 +26,7 @@
             </Border>
             <ControlTemplate.Triggers>
                 <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
-                <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsKeyboardFocusWithin" Value="True" /><Condition Property="focus:FocusCues.ShowKeyboardFocus" Value="True" /></MultiTrigger.Conditions><Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></MultiTrigger>
                 <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ItemBorder" Property="Opacity" Value="0.45" /></Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate></Setter.Value></Setter>

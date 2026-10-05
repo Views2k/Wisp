@@ -1664,9 +1664,11 @@ public sealed class XamlContractTests
         Assert.Contains("IsMouseOver", hover.Attribute("Binding")?.Value ?? "", StringComparison.Ordinal);
         Assert.Contains(hover.Elements(Presentation + "Setter"), setter =>
             setter.Attribute("TargetName")?.Value == "WindowGlyph" && setter.Attribute("Value")?.Value == "1");
-        var focus = Assert.Single(style.Descendants(Presentation + "Trigger"),
-            trigger => trigger.Attribute("Property")?.Value == "IsKeyboardFocused");
-        Assert.Equal("True", focus.Attribute("Value")?.Value);
+        var focus = Assert.Single(style.Descendants(Presentation + "MultiTrigger"), trigger =>
+            trigger.Descendants(Presentation + "Condition").Any(condition =>
+                condition.Attribute("Property")?.Value == "IsKeyboardFocused" && condition.Attribute("Value")?.Value == "True"));
+        Assert.Contains(focus.Descendants(Presentation + "Condition"), condition =>
+            condition.Attribute("Property")?.Value == "focus:FocusCues.ShowKeyboardFocus");
         Assert.Contains(focus.Elements(Presentation + "Setter"),
             setter => setter.Attribute("TargetName")?.Value == "FocusRing" &&
                 setter.Attribute("Property")?.Value == "Visibility" &&
@@ -1758,8 +1760,30 @@ public sealed class XamlContractTests
             template.Descendants(Presentation + "Border"),
             border => border.Attribute(Xaml + "Name")?.Value == "SliderFocusRing");
         Assert.DoesNotContain(
-            template.Descendants(Presentation + "Trigger"),
+            template.Descendants().Where(element => element.Name == Presentation + "Trigger" || element.Name == Presentation + "Condition"),
             trigger => trigger.Attribute("Property")?.Value == "IsKeyboardFocusWithin");
+    }
+
+    [Fact]
+    public void FocusOutlinesAppearOnlyAfterKeyboardNavigation()
+    {
+        // Clicking also gives keyboard focus, so a focus trigger alone outlines every clicked control.
+        var failures = AllAppXamlFiles()
+            .SelectMany(path => LoadXaml(path).Descendants()
+                .Where(element => element.Name == Presentation + "Trigger" &&
+                    element.Attribute("Property")?.Value is "IsKeyboardFocused" or "IsKeyboardFocusWithin")
+                .Select(element => Location(path, element)))
+            .Concat(AllAppXamlFiles()
+                .SelectMany(path => LoadXaml(path).Descendants(Presentation + "MultiTrigger")
+                    .Where(trigger => trigger.Descendants(Presentation + "Condition").Any(condition =>
+                        condition.Attribute("Property")?.Value is "IsKeyboardFocused" or "IsKeyboardFocusWithin"))
+                    .Where(trigger => !trigger.Descendants(Presentation + "Condition").Any(condition =>
+                        condition.Attribute("Property")?.Value == "focus:FocusCues.ShowKeyboardFocus" &&
+                        condition.Attribute("Value")?.Value == "True"))
+                    .Select(element => Location(path, element))))
+            .ToArray();
+
+        Assert.True(failures.Length == 0, "Gate focus triggers with FocusCues.ShowKeyboardFocus: " + string.Join(", ", failures));
     }
 
     [Fact]
@@ -1777,7 +1801,7 @@ public sealed class XamlContractTests
         Assert.Equal("Transparent", tabShell.Attribute("BorderBrush")?.Value);
         Assert.Equal("0,0,1,0", tabShell.Attribute("Margin")?.Value);
         Assert.DoesNotContain(
-            style.Descendants(Presentation + "Trigger"),
+            style.Descendants().Where(element => element.Name == Presentation + "Trigger" || element.Name == Presentation + "Condition"),
             trigger => trigger.Attribute("Property")?.Value == "IsKeyboardFocused");
     }
 
@@ -2306,6 +2330,10 @@ public sealed class XamlContractTests
             .Append(Path.Combine(AppSourceDirectory(), "Runs", "LapReviewView.xaml"))
             .Append(ClipsPagePath())
             .OrderBy(path => path, StringComparer.Ordinal);
+
+    private static IEnumerable<string> AllAppXamlFiles() =>
+        Directory.EnumerateFiles(AppSourceDirectory(), "*.xaml", SearchOption.AllDirectories)
+            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(part => part is "bin" or "obj"));
 
     private static string RunsPagePath() => Path.Combine(AppSourceDirectory(), "Runs", "RunsPage.xaml");
     private static string ClipsPagePath() => Path.Combine(AppSourceDirectory(), "Clips", "ClipsPage.xaml");

@@ -1,5 +1,6 @@
 <local:RunsPageBase x:Class="Wisp.App.Runs.LegacyRunsPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:focus="clr-namespace:Wisp.App"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:Wisp.App.Runs">
     <local:RunsPageBase.Resources>
@@ -55,7 +56,7 @@
                     </Popup>
                 </Grid>
                 <ControlTemplate.Triggers>
-                    <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                    <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsKeyboardFocusWithin" Value="True" /><Condition Property="focus:FocusCues.ShowKeyboardFocus" Value="True" /></MultiTrigger.Conditions><Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></MultiTrigger>
                     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource MutedBrush}" /></Trigger>
                     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ComboRoot" Property="Opacity" Value="0.45" /></Trigger>
                 </ControlTemplate.Triggers>
@@ -85,7 +86,7 @@
                         <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource RaisedBrush}" />
                         <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
                     </Trigger>
-                    <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger>
+                    <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsKeyboardFocusWithin" Value="True" /><Condition Property="focus:FocusCues.ShowKeyboardFocus" Value="True" /></MultiTrigger.Conditions><Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></MultiTrigger>
                     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource RaisedBrush}" /></Trigger>
                     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="TabBorder" Property="Opacity" Value="0.45" /></Trigger>
                 </ControlTemplate.Triggers>

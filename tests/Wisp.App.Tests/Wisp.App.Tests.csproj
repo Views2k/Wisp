@@ -15,6 +15,7 @@
     <ProjectReference Include="..\..\src\Wisp.App\Wisp.App.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\..\tools\Wisp.UiReview\FocusTriggers.cs" Link="UiReview\FocusTriggers.cs" />
     <Compile Include="..\..\tools\Wisp.UiReview\LapReviewFixtures.cs" Link="UiReview\LapReviewFixtures.cs" />
     <Compile Include="..\..\tools\Wisp.UiReview\LapReviewUiChecks.cs" Link="UiReview\LapReviewUiChecks.cs" />
     <Compile Include="..\..\tools\Wisp.UiReview\TuneUiFixture.cs" Link="UiReview\TuneUiFixture.cs" />

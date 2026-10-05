@@ -197,12 +197,13 @@ internal static partial class RunWorkspaceReview
                         Check(ReferenceEquals(item.DataContext, model) && item.IsEnabled == model.CanManageRun &&
                               BindingOperations.GetBinding(item, UIElement.IsEnabledProperty)?.Path?.Path == nameof(RunsViewModel.CanManageRun),
                             "export-item-model-or-enabled-binding");
-                        Check(item.Template!.Triggers.OfType<Trigger>().Any(trigger => trigger.Property == UIElement.IsKeyboardFocusWithinProperty),
+                        Check(FocusTriggers.HasKeyboardOnly(item.Template!, UIElement.IsKeyboardFocusWithinProperty),
                             "export-item-focus-trigger-missing");
                     }
                     Capture(menu, menuSize, "export-menu-default");
                     SetOffscreenReadOnlyState(items[0], MenuItem.IsHighlightedProperty, true);
                     SetOffscreenReadOnlyState(items[0], UIElement.IsKeyboardFocusWithinProperty, true);
+                    FocusCues.SetShowKeyboardFocus(menu, true);
                     items[1].SetCurrentValue(UIElement.IsEnabledProperty, false);
                     Arrange(menu, menuSize);
                     var firstBorder = (Border)items[0].Template.FindName("ItemBorder", items[0]);
@@ -213,6 +214,7 @@ internal static partial class RunWorkspaceReview
                     Capture(menu, menuSize, "export-menu-highlight-focus-disabled");
                     SetOffscreenReadOnlyState(items[0], MenuItem.IsHighlightedProperty, false);
                     SetOffscreenReadOnlyState(items[0], UIElement.IsKeyboardFocusWithinProperty, false);
+                    menu.ClearValue(FocusCues.ShowKeyboardFocusProperty);
                     Check(!menu.IsOpen && PresentationSource.FromVisual(menu) is null &&
                           VisualTreeHelper.GetParent(menu) is null && LogicalTreeHelper.GetParent(menu) is null,
                         "export-review-opened-or-parented-a-popup");

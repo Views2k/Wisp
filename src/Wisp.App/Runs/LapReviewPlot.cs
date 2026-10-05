@@ -58,7 +58,7 @@ public sealed class LapReviewPlot : FrameworkElement
         var cursor = _hitPoints[Math.Clamp(data.Cursor, 0, _hitPoints.Count - 1)].Position;
         if (IsMap) dc.DrawEllipse(text, new(Brushes.Black, 1), cursor, 5, 5);
         else dc.DrawLine(new(text, 1), new(cursor.X, 28), new(cursor.X, ActualHeight - 28));
-        if (IsKeyboardFocused) dc.DrawRectangle(null, new(text, 1), new Rect(1, 1, ActualWidth - 2, ActualHeight - 2));
+        if (IsKeyboardFocused && FocusCues.GetShowKeyboardFocus(this)) dc.DrawRectangle(null, new(text, 1), new Rect(1, 1, ActualWidth - 2, ActualHeight - 2));
     }
     private static bool SamePlot(LapReviewPlotData? a, LapReviewPlotData b) => a is not null &&
         ReferenceEquals(a.Lap, b.Lap) && ReferenceEquals(a.Reference, b.Reference) && ReferenceEquals(a.Comparison, b.Comparison) &&
@@ -180,6 +180,7 @@ public sealed class LapReviewPlot : FrameworkElement
     protected override void OnMouseUp(MouseButtonEventArgs e) { base.OnMouseUp(e); if (IsMouseCaptured) ReleaseMouseCapture(); }
     protected override void OnGotKeyboardFocus(KeyboardFocusChangedEventArgs e) { base.OnGotKeyboardFocus(e); InvalidateVisual(); }
     protected override void OnLostKeyboardFocus(KeyboardFocusChangedEventArgs e) { base.OnLostKeyboardFocus(e); InvalidateVisual(); }
+    protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e) { base.OnPropertyChanged(e); if (e.Property == FocusCues.ShowKeyboardFocusProperty && IsKeyboardFocused) InvalidateVisual(); }
     private void Choose(Point p) { if (_hitPoints.Count == 0) return; var chosen = _hitPoints.MinBy(item => IsMap ? (item.Position - p).LengthSquared : Math.Abs(item.Position.X - p.X)); PointChosen?.Invoke(chosen.Index); }
     protected override void OnKeyDown(KeyEventArgs e)
     {

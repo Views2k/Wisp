@@ -714,6 +714,7 @@ public sealed class WpfStyleRuntimeTests
         var document = XDocument.Load(Path.Combine(directory!.FullName, "src", "Wisp.App", "App.xaml"));
         var resources = new XElement(presentation + "ResourceDictionary",
             new XAttribute(XNamespace.Xmlns + "x", "http://schemas.microsoft.com/winfx/2006/xaml"),
+            new XAttribute(XNamespace.Xmlns + "focus", "clr-namespace:Wisp.App"),
             document.Root!.Element(presentation + "Application.Resources")!.Elements());
         foreach (var declaration in resources.DescendantsAndSelf().Attributes()
             .Where(attribute => attribute.IsNamespaceDeclaration && attribute.Value == "clr-namespace:Wisp.App"))

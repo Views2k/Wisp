@@ -236,6 +236,63 @@ internal static class ClipsUiReview
                     Descendants(page).OfType<MediaElement>().Count() == 0 &&
                     Descendants(page).OfType<ComboBox>().All(item =>
                         (item.Template.FindName("PART_Popup", item) as Popup)?.IsOpen == false), "no-presented-window-popup-or-player");
+
+                phase = "library-management";
+                recorder.Publish(new(ClipRecorderState.Disabled, false, true, false, "Synthetic recorder is off."));
+                settings.IsExpanded = false;
+                var management = (Border)page.FindName("ClipManagementPanel");
+                var renameBox = (TextBox)page.FindName("RenameBox");
+                var firstCard = model.Clips[0];
+                model.BeginRename(firstCard);
+                model.RenameText = "Goliath sprint";
+                Layout(new(980, 750), 96); ScrollTo(management);
+                Check(management.Visibility == Visibility.Visible && ((FrameworkElement)((FrameworkElement)renameBox.Parent).Parent).Visibility == Visibility.Visible && renameBox.Text == "Goliath sprint" &&
+                    AutomationProperties.GetName(renameBox).Length > 0, "rename-panel-shows-editable-name");
+                Capture("rename-panel", surface, new(980, 750), 96);
+                Await(model.ConfirmRenameAsync()); Pump();
+                Check(!model.HasManagement && management.Visibility == Visibility.Collapsed && firstCard.Title == "Goliath sprint" &&
+                    firstCard.HasName, "rename-updates-card");
+                model.SearchText = "goliath";
+                Await(model.ApplySearchAsync()); Pump();
+                Layout(new(980, 750), 96); ScrollTo((FrameworkElement)page.FindName("ClipSearchBox"));
+                Check(model.Clips.Count == 1 && model.Clips[0].Title == "Goliath sprint" &&
+                    model.PageText.Contains("1 of 25", StringComparison.Ordinal), "search-filters-by-name");
+                Capture("search-result", surface, new(980, 750), 96);
+                model.SearchText = "";
+                Await(model.ApplySearchAsync()); Pump();
+                Check(model.Clips.Count == 25, "clearing-search-restores-page");
+                model.BeginDelete(model.Clips[1]);
+                Layout(new(980, 750), 96); ScrollTo(management);
+                var confirmDelete = (Button)page.FindName("ConfirmDeleteButton");
+                Check(management.Visibility == Visibility.Visible && ((FrameworkElement)((FrameworkElement)confirmDelete.Parent).Parent).Visibility == Visibility.Visible && confirmDelete.IsEnabled &&
+                    model.ManagementTitle.StartsWith("Delete", StringComparison.Ordinal), "delete-asks-for-confirmation");
+                Capture("delete-panel", surface, new(980, 750), 96);
+                model.CancelManagement(); Pump();
+                Check(model.Clips.Count == 25 && management.Visibility == Visibility.Collapsed, "cancel-keeps-clip");
+
+                phase = "export-choice";
+                var losslessTarget = Await(library.ReserveSaveAsync(spec with { LosslessVideo = true }));
+                using (var file = new FileStream(losslessTarget.MediaPath, FileMode.CreateNew, FileAccess.Write))
+                    file.Write("WISP SYNTHETIC UI PLACEHOLDER"u8);
+                var losslessEntry = Await(library.CommitFinalizedAsync(losslessTarget.Id, new FinalizedClipMedia(
+                    new FileInfo(losslessTarget.MediaPath).Length, 1920, 1080, 60, 0, 600_000_000, true, LosslessVideo: true)));
+                Await(model.LoadPageAsync(0)); Pump();
+                Await(model.SelectForPlaybackAsync(model.Clips.Single(item => item.Id == losslessEntry.Id)));
+                model.BeginExportChoice();
+                var choice = (Border)page.FindName("ExportChoicePanel");
+                foreach (var size in new[] { new Size(720, 440), new Size(980, 750) })
+                {
+                    Layout(size, 96); ScrollTo(choice);
+                    var scroll = (ScrollViewer)page.FindName("ClipsScroll");
+                    var viewport = (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+                    Check(model.IsChoosingExportFormat && choice.Visibility == Visibility.Visible, "lossless-export-asks-format");
+                    CheckFits(choice, viewport, "export-choice-visible");
+                    Check(((Button)page.FindName("ExportCompatibleChoice")).IsEnabled && ((Button)page.FindName("ExportOriginalChoice")).IsEnabled,
+                        "export-choices-enabled");
+                    Capture($"export-choice-{size.Width:0}", surface, size, 96);
+                }
+                model.CancelExportChoice(); Pump();
+                Check(choice.Visibility == Visibility.Collapsed, "export-choice-cancels");
             }
             finally
             {
@@ -306,7 +363,7 @@ internal static class ClipsUiReview
                     Check(border is not null && SameBrush(border.Background, Theme("InputBrush")), "selector-input-brush");
                     Check(popup?.Child is Border panel && SameBrush(panel.Background, Theme("PanelBrush")) &&
                         panel.CornerRadius.TopLeft > 0 && !popup.IsOpen, "closed-popup-theme");
-                    Check(combo.Template.Triggers.OfType<Trigger>().Any(item => item.Property == UIElement.IsKeyboardFocusWithinProperty), "focus-trigger-present");
+                    Check(FocusTriggers.HasKeyboardOnly(combo.Template, UIElement.IsKeyboardFocusWithinProperty), "focus-trigger-present");
                     Check(combo.Template.Triggers.OfType<Trigger>().Any(item => item.Property == UIElement.IsMouseOverProperty), "hover-trigger-present");
                     combo.IsEnabled = false; Pump(); Check(root?.Opacity == .45, "disabled-selector-opacity");
                     combo.ClearValue(UIElement.IsEnabledProperty); Pump(); Check(root?.Opacity == 1, "enabled-selector-opacity");
