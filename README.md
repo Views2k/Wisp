@@ -5,7 +5,7 @@
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
   <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to the latest release.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.exe"><strong>Download Wisp 2.6.1</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.2/Wisp-Setup-2.6.2.exe"><strong>Download Wisp 2.6.2</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -13,15 +13,15 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.1
+## Wisp 2.6.2
 
-2.6.1 fixes issues with clip recording, playback, exports and Tune reading. It also adds clearer error reports and lets you prepare clips without closing Forza.
+2.6.2 puts saved clips first and lets you rename, delete and search them in Wisp. HDR and lossless exports explain their choices before the save window opens, and focus outlines no longer appear after clicking.
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.2 release notes](docs/releases/Wisp-2.6.2-release-notes.md)
 
 ### Clips
 
-Enable clipping to keep a rolling recording, then press **Save clip** or your shortcut to keep a moment. Saved clips stay in Wisp, ready to watch or export as MP4. Choose the filename and folder when exporting. HDR and lossless clips offer a compatible SDR H.264 copy for sharing or the original recording.
+Enable clipping to keep a rolling recording, then press **Save clip** or your shortcut to keep a moment. Saved clips stay in Wisp, ready to watch or export as MP4. Choose the filename and folder when exporting. For HDR and lossless clips, Wisp first explains the two choices: a compatible SDR H.264 copy for sharing, or the original recording.
 
 | Recording option | Choices |
 | --- | --- |
@@ -41,7 +41,9 @@ Clipping is off by default. Turn it off before changing recording settings. It r
 
 Saves contain up to the selected length of available history. Lossless preserves the prepared full-color video after scaling and color conversion; audio remains compressed. It can use substantial storage, and the available history depends on the scene and free space.
 
-Browse saved clips by thumbnail and see which are new, viewed or exported. Playback waits for **Play**; pause, seek, adjust volume or export from the player. HDR lossless clips prepare a reusable playback copy with visible progress while keeping the original recording.
+Browse saved clips by thumbnail and see which are new, viewed or exported. Saved clips appear first on the Clips page, with recording settings folded below them. Playback waits for **Play**; pause, seek, adjust volume or export from the player. HDR lossless clips prepare a reusable playback copy with visible progress while keeping the original recording.
+
+Search clips by name, date, resolution, frame rate, HDR or lossless. To rename or delete a clip, right-click it, select it and press F2 or Delete, or use the player's buttons. Each name can be used once, and deleting asks first.
 
 ![Clips in Wisp 2.6](https://wispoverlay.com/images/wisp-2.6-clips.webp)
 
@@ -68,6 +70,10 @@ The **live track map** follows your car around the circuit learned from your fir
 Both remain beta features. Enable them in **Appearance → Gauges → Lap delta** and adjust their colors, size and position. Choose Race / Rivals timing, or Time Attack at Legend Island, Hokubu, Soni and Sekibe.
 
 HUD profiles now include driving settings and saved gauge positions. The optional quick tour introduces Clips, Tune, live map, lap delta and lap review.
+
+## Wisp 2.6.1
+
+Fixes for clip recording, playback, exports and Tune reading, clearer error reports, and preparing clips without closing Forza. [Release notes](docs/releases/Wisp-2.6.1-release-notes.md).
 
 ## Wisp 2.5.3
 
@@ -238,8 +244,8 @@ An optional quick tour introduces Clips, Tune, live map, lap delta and lap
 review. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.6.1](https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.exe) ·
-[2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md) ·
+[Download Wisp 2.6.2](https://github.com/Views2k/Wisp/releases/download/v2.6.2/Wisp-Setup-2.6.2.exe) ·
+[2.6.2 release notes](docs/releases/Wisp-2.6.2-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Older interface screenshots retain their original version labels. The gameplay
@@ -366,11 +372,11 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Download [Wisp-Setup-2.6.1.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.1/Wisp-Setup-2.6.1.exe).
+1. Download [Wisp-Setup-2.6.2.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.2/Wisp-Setup-2.6.2.exe).
 2. Run the installer.
 3. Complete the required setup wizard on first launch.
 
-The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.1) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
+The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.2) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
 
 **[WINDOWS POWERSHELL]**
 
@@ -490,6 +496,7 @@ To build the self-contained installer:
 
 ## Documentation
 
+- [Wisp 2.6.2 release notes](docs/releases/Wisp-2.6.2-release-notes.md)
 - [Wisp 2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md)
 
 - [Boost Gauge](docs/BOOST-GAUGE.md)

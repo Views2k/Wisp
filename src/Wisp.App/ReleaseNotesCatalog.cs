@@ -15,11 +15,28 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.2",
+            "October 4, 2026",
+            "CLIP LIBRARY",
+            "Saved clips come first, with rename, delete and search, clearer export choices and keyboard-only focus outlines.",
+            true,
+            [
+                Group("Clips",
+                    "Saved clips appear first on the Clips page. Recording settings are folded below your clips.",
+                    "Rename or delete a clip: right-click it, select it and press F2 or Delete, or use Rename and Delete in the player. Deleting asks first.",
+                    "Each clip name can be used once. Exports suggest the clip's name.",
+                    "Search saved clips by name, date, resolution, frame rate, HDR or lossless. The open clip keeps playing while you search.",
+                    "Exporting an HDR or lossless clip explains the compatible copy and the original recording before the save window opens."),
+                Group("Interface",
+                    "Focus outlines appear when you navigate with the keyboard, not after clicking.",
+                    "When you switch to Wisp, it releases a mouse pointer confined by a game and shows Wisp's pointer right away.")
+            ]),
+        new(
             "2.6.1",
             "October 3, 2026",
             "CLIPS AND TUNE RELIABILITY",
             "More reliable Clips recording, playback and exports, stronger Tune reading and clearer error reports.",
-            true,
+            false,
             [
                 Group("Clips",
                     "Fix the shutdown error that could leave clipping unavailable after closing Forza, even after the recorder had exited.",
