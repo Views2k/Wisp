@@ -270,7 +270,7 @@ public partial class ClipsPage : UserControl
                     ? clip.Media.LosslessVideo ? "Original lossless HDR MP4 (HEVC 4:4:4) (*.mp4)|*.mp4" : "Original HDR MP4 (HEVC Main10) (*.mp4)|*.mp4"
                     : clip.Media.LosslessVideo ? "Original lossless MP4 (H.264 4:4:4) (*.mp4)|*.mp4" : "MP4 video (*.mp4)|*.mp4",
             FilterIndex = 1,
-            FileName = SuggestedExportFileName(clip, format),
+            FileName = SuggestedExportFileName(clip, format, exportDirectory),
             DefaultExt = ".mp4",
             AddExtension = true,
             CheckPathExists = true,
@@ -280,10 +280,20 @@ public partial class ClipsPage : UserControl
         };
 
     // Originals that most players can't open get a suffix, so they aren't mistaken for the shareable copy.
-    internal static string SuggestedExportFileName(ClipEntry clip, ClipExportFormat format) =>
-        format == ClipExportFormat.Original && clip.Media.LosslessVideo ? clip.ExportBaseName + "-lossless.mp4"
-        : format == ClipExportFormat.Original && clip.Media.HdrVideo ? clip.ExportBaseName + "-hdr.mp4"
-        : clip.SuggestedExportName;
+    // A name another export already uses in the folder gets the clip's ID added.
+    internal static string SuggestedExportFileName(ClipEntry clip, ClipExportFormat format, string? exportDirectory = null)
+    {
+        var suffix = format == ClipExportFormat.Original && clip.Media.LosslessVideo ? "-lossless.mp4"
+            : format == ClipExportFormat.Original && clip.Media.HdrVideo ? "-hdr.mp4" : ".mp4";
+        var name = clip.ExportBaseName + suffix;
+        try
+        {
+            if (!string.IsNullOrEmpty(exportDirectory) && File.Exists(Path.Combine(exportDirectory, name)))
+                return clip.UniqueExportBaseName + suffix;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { }
+        return name;
+    }
 
     private static ClipCardItem? CardFor(object sender) => sender switch
     {

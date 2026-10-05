@@ -140,6 +140,42 @@ public sealed class ClipLibraryManagementTests : IDisposable
         Assert.Empty((await library.GetPageAsync(3, "no such clip", Token)).Clips);
     }
 
+    [Fact]
+    public async Task NamesAreUniqueIgnoringCaseAndFileNameCharacters()
+    {
+        var library = new ClipLibrary(_directory);
+        var first = await SaveAsync(library);
+        var second = await SaveAsync(library);
+        await library.RenameAsync(first.Id, "Drift: run", Token);
+
+        var taken = await Assert.ThrowsAsync<ClipNameInUseException>(() => library.RenameAsync(second.Id, "drift: RUN", Token));
+        Assert.Equal("Another clip is already named “Drift: run”. Choose a different name.", taken.Message);
+        // Both names export as "Drift- run.mp4".
+        await Assert.ThrowsAsync<ClipNameInUseException>(() => library.RenameAsync(second.Id, "Drift? run", Token));
+        Assert.Null((await library.GetPageAsync(0, Token)).Clips.Single(clip => clip.Id == second.Id).Name);
+
+        Assert.Equal("DRIFT: RUN", (await library.RenameAsync(first.Id, "DRIFT: RUN", Token)).Name);
+        Assert.Equal("Drift run", (await library.RenameAsync(second.Id, "Drift run", Token)).Name);
+        await library.DeleteAsync(first.Id, Token);
+        Assert.Equal("Drift: run", (await library.RenameAsync(second.Id, "Drift: run", Token)).Name);
+    }
+
+    [Fact]
+    public async Task FolderExportOfANamedClipIsStableAndNotDuplicated()
+    {
+        var library = new ClipLibrary(_directory);
+        var clip = await SaveAsync(library);
+        await library.RenameAsync(clip.Id, "Drift", Token);
+        var folder = Path.Combine(_directory, "exports");
+        Directory.CreateDirectory(folder);
+        await File.WriteAllBytesAsync(Path.Combine(folder, "Drift.mp4"), [9], Token);
+
+        Assert.True((await library.ExportToDirectoryAsync(clip.Id, folder, Token)).FileCreated);
+        Assert.False((await library.ExportToDirectoryAsync(clip.Id, folder, Token)).FileCreated);
+        Assert.Equal(["Drift.mp4", $"Drift-{clip.Id.ToString("N")[..8]}.mp4"],
+            Directory.GetFiles(folder).Select(Path.GetFileName).OrderBy(name => name!.Length).ToArray());
+    }
+
     private async Task<ClipEntry> SaveAsync(ClipLibrary library, Func<FinalizedClipMedia, FinalizedClipMedia>? media = null,
         Func<ClipRecordingSpec, ClipRecordingSpec>? recording = null)
     {

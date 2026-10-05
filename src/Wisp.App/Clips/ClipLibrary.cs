@@ -41,7 +41,13 @@ public sealed record ClipEntry(Guid Id, DateTimeOffset SavedAtUtc, ClipRecording
     public string SuggestedExportName => ExportBaseName + ".mp4";
 
     [JsonIgnore]
-    internal string ExportBaseName => ClipLibrary.FileNameFor(Name) ??
+    internal string ExportBaseName => ClipLibrary.FileNameFor(Name) ?? DefaultExportBaseName;
+
+    // Several clips can share a name, so a named clip falls back to its name plus its ID.
+    [JsonIgnore]
+    internal string UniqueExportBaseName => ClipLibrary.FileNameFor(Name) is { } name ? $"{name}-{Id.ToString("N")[..8]}" : DefaultExportBaseName;
+
+    private string DefaultExportBaseName =>
         $"Wisp-{SavedAtUtc.ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{Id.ToString("N")[..8]}";
 }
 
@@ -217,7 +223,7 @@ public sealed partial class ClipLibrary
         ValidateId(id);
         if (!ClipsSettings.TryNormalizeDirectory(directory, out var normalized))
             throw new ArgumentException("Choose an export folder using a full path.", nameof(directory));
-        return ExportCoreAsync(id, clip => Path.Combine(normalized, clip.SuggestedExportName), reuseIdentical: true, cancellationToken);
+        return ExportCoreAsync(id, clip => Path.Combine(normalized, clip.UniqueExportBaseName + ".mp4"), reuseIdentical: true, cancellationToken);
     }
 
     private Task<ClipExportResult> ExportCoreAsync(Guid id, Func<ClipEntry, string> destinationFor, bool reuseIdentical, CancellationToken cancellationToken) =>

@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace Wisp.App;
 
@@ -28,11 +29,17 @@ public static class FocusCues
         EventManager.RegisterClassHandler(typeof(ContextMenu), ContextMenu.OpenedEvent, new RoutedEventHandler(Apply));
     }
 
-    private static void Apply(object sender, RoutedEventArgs e) => SetShowKeyboardFocus((DependencyObject)sender, _keyboard);
-
-    private static bool? ModeFor(InputEventArgs input) => input switch
+    // Set on the root, which later input changes update, never as a local value lower down.
+    private static void Apply(object sender, RoutedEventArgs e)
     {
-        KeyEventArgs key when key.RoutedEvent == Keyboard.PreviewKeyDownEvent && !IsModifier(key.Key == Key.System ? key.SystemKey : key.Key) => true,
+        if (sender is Visual visual && PresentationSource.FromVisual(visual)?.RootVisual is { } root) SetShowKeyboardFocus(root, _keyboard);
+    }
+
+    // Shortcut chords (Ctrl, Alt or Windows held) are not navigation, matching browsers.
+    internal static bool? ModeFor(InputEventArgs input) => input switch
+    {
+        KeyEventArgs key when key.RoutedEvent == Keyboard.PreviewKeyDownEvent && !IsModifier(key.Key == Key.System ? key.SystemKey : key.Key) &&
+            (key.KeyboardDevice.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) == 0 => true,
         MouseButtonEventArgs button when button.RoutedEvent == Mouse.PreviewMouseDownEvent => false,
         StylusDownEventArgs or TouchEventArgs => false,
         _ => null
@@ -47,7 +54,6 @@ public static class FocusCues
             if (source.RootVisual is { } root && root.CheckAccess()) SetShowKeyboardFocus(root, keyboard);
     }
 
-    // Alt+Tab and shortcut chords switch windows; they are not navigation.
     private static bool IsModifier(Key key) => key is Key.LeftAlt or Key.RightAlt or Key.LeftCtrl or Key.RightCtrl or
         Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin;
 }

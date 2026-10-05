@@ -252,6 +252,15 @@ internal static class ClipsUiReview
                 Await(model.ConfirmRenameAsync()); Pump();
                 Check(!model.HasManagement && management.Visibility == Visibility.Collapsed && firstCard.Title == "Goliath sprint" &&
                     firstCard.HasName, "rename-updates-card");
+                model.BeginRename(model.Clips[1]);
+                model.RenameText = "GOLIATH SPRINT";
+                Await(model.ConfirmRenameAsync()); Pump();
+                Layout(new(980, 750), 96); ScrollTo(management);
+                var nameError = (TextBlock)page.FindName("ManagementErrorText");
+                Check(model.IsRenaming && nameError.Visibility == Visibility.Visible && nameError.Text.Contains("already named", StringComparison.Ordinal) &&
+                    !model.Clips[1].HasName, "duplicate-name-refused-in-panel");
+                Capture("rename-name-taken", surface, new(980, 750), 96);
+                model.CancelManagement(); Pump();
                 model.SearchText = "goliath";
                 Await(model.ApplySearchAsync()); Pump();
                 Layout(new(980, 750), 96); ScrollTo((FrameworkElement)page.FindName("ClipSearchBox"));

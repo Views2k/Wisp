@@ -203,10 +203,12 @@ internal static partial class RunWorkspaceReview
                     Capture(menu, menuSize, "export-menu-default");
                     SetOffscreenReadOnlyState(items[0], MenuItem.IsHighlightedProperty, true);
                     SetOffscreenReadOnlyState(items[0], UIElement.IsKeyboardFocusWithinProperty, true);
+                    Arrange(menu, menuSize);
+                    var firstBorder = (Border)items[0].Template.FindName("ItemBorder", items[0]);
+                    Check(!SameBrush(firstBorder.BorderBrush, Theme("AccentBrush")), "export-focus-outline-after-click");
                     FocusCues.SetShowKeyboardFocus(menu, true);
                     items[1].SetCurrentValue(UIElement.IsEnabledProperty, false);
                     Arrange(menu, menuSize);
-                    var firstBorder = (Border)items[0].Template.FindName("ItemBorder", items[0]);
                     var secondBorder = (Border)items[1].Template.FindName("ItemBorder", items[1]);
                     Check(SameBrush(firstBorder.Background, Theme("RaisedBrush")) && SameBrush(firstBorder.BorderBrush, Theme("AccentBrush")),
                         "export-highlight-focus-colors");

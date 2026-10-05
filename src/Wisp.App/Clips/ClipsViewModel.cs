@@ -117,6 +117,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private ClipCardItem? _managed;
     private bool _renaming, _confirmingDelete, _choosingExport;
     private string _renameText = "";
+    private string _managementError = "";
     internal const int MaximumSearchLength = 100;
     internal static readonly TimeSpan SearchDelay = TimeSpan.FromMilliseconds(250);
     internal Task ThumbnailCompletion { get; private set; } = Task.CompletedTask;
@@ -229,8 +230,11 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public string RenameText
     {
         get => _renameText;
-        set { var next = value ?? ""; if (_renameText == next) return; _renameText = next; OnChanged(); }
+        set { var next = value ?? ""; if (_renameText == next) return; _renameText = next; OnChanged(); SetManagementError(""); }
     }
+    // Shown in the rename or delete panel, next to the action that failed.
+    public string ManagementError => _managementError;
+    public bool HasManagementError => _managementError.Length > 0;
     public bool IsChoosingExportFormat => _choosingExport;
     public bool RequiresExportChoice => _selected?.Entry.Media.RequiresMpvPlayer == true;
     public string CompatibleExportDescription => _selected?.Entry.Media.HdrVideo == true
@@ -534,6 +538,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                 var page = await library.GetPageAsync(0, ActiveSearch, _token);
                 if (_disposed || !ReferenceEquals(_library, library)) return;
                 ApplyPage(page); StartThumbnails();
+                if (HasActiveSearch && page.Clips.All(item => item.Id != target.Id))
+                    NoticeText($"Clip saved · {duration:0.0} s. It doesn't match your search; clear the search to see it.");
             }
             catch (OperationCanceledException) when (_token.IsCancellationRequested) { }
             catch (Exception error) when (error is not OutOfMemoryException)
@@ -600,29 +606,31 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     internal Task ApplySearchAsync()
     {
         _searchTimer?.Stop();
-        return Operation(() => ReadPageAsync(0), "The clip library could not be searched. Its files have been kept.",
+        return Operation(() => ReadPageAsync(0, keepSelection: true), "The clip library could not be searched. Its files have been kept.",
             !_disposed && _library is not null && !IsBusy);
     }
 
+    private bool CanManage(ClipCardItem item) => Clips.Contains(item) || ReferenceEquals(item, _selected);
+
     public void BeginRename(ClipCardItem item)
     {
-        if (!CanManageClips || !Clips.Contains(item)) return;
-        _managed = item; _renaming = true; _confirmingDelete = false;
+        if (!CanManageClips || !CanManage(item)) return;
+        _managed = item; _renaming = true; _confirmingDelete = false; _managementError = "";
         _renameText = item.Entry.Name ?? "";
         NotifyManagement(); OnChanged(nameof(RenameText));
     }
 
     public void BeginDelete(ClipCardItem item)
     {
-        if (!CanManageClips || !Clips.Contains(item)) return;
-        _managed = item; _renaming = false; _confirmingDelete = true;
+        if (!CanManageClips || !CanManage(item)) return;
+        _managed = item; _renaming = false; _confirmingDelete = true; _managementError = "";
         NotifyManagement();
     }
 
     public void CancelManagement()
     {
         if (!HasManagement && _managed is null) return;
-        _managed = null; _renaming = false; _confirmingDelete = false;
+        _managed = null; _renaming = false; _confirmingDelete = false; _managementError = "";
         NotifyManagement();
     }
 
@@ -632,15 +640,21 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         var text = _renameText;
         return Operation(async () =>
         {
+            SetManagementError("");
             var updated = await _library!.RenameAsync(item!.Id, text, _token);
             if (_disposed) return;
             item.Update(updated);
             if (ReferenceEquals(_selected, item)) OnChanged(nameof(SelectedTitle));
             CancelManagement();
             NoticeText(updated.Name is null ? "Clip name cleared. It shows its saved date and time again." : "Clip renamed.");
-            if (HasActiveSearch) await ReadPageAsync(_pageIndex);
+            if (HasActiveSearch) await ReadPageAsync(_pageIndex, keepSelection: true);
         }, "The clip could not be renamed. Its file has been kept.", CanManageClips && _renaming && item is not null,
-        error => error is ArgumentException ? $"Use a name of up to {ClipLibrary.MaximumNameLength} characters on one line." : null);
+        error => ManagementFailure(error switch
+        {
+            ArgumentException => $"Use a name of up to {ClipLibrary.MaximumNameLength} characters on one line.",
+            ClipNameInUseException taken => taken.Message,
+            _ => "The clip could not be renamed. Its file has been kept."
+        }));
     }
 
     internal Task ConfirmDeleteAsync()
@@ -648,6 +662,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         var item = _managed;
         return Operation(async () =>
         {
+            SetManagementError("");
             var wasSelected = ReferenceEquals(_selected, item);
             // Closing the player and stopping preview work releases the file before deletion.
             if (wasSelected) ClearSelection();
@@ -655,12 +670,27 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             await DeleteReleasedAsync(item!.Id);
             if (_disposed) return;
             CancelManagement();
-            await ReadPageAsync(_pageIndex);
+            await ReadPageAsync(_pageIndex, keepSelection: true);
             NoticeText("Clip deleted.");
         }, "The clip could not be deleted. Its file has been kept.", CanManageClips && _confirmingDelete && item is not null,
-        error => ClipLibraryFiles.IsInUse(error)
+        error => ManagementFailure(ClipLibraryFiles.IsInUse(error)
             ? "This clip is still in use, possibly by another program. Close anything playing it and try again. Its file has been kept."
-            : null);
+            : "The clip could not be deleted. Its file has been kept."));
+    }
+
+    // A failure before the panel closes belongs to the rename or delete; after it, only the list refresh failed.
+    private string ManagementFailure(string message)
+    {
+        if (!HasManagement) return "The clip list could not be refreshed. Its files have been kept.";
+        SetManagementError(message);
+        return "";
+    }
+
+    private void SetManagementError(string message)
+    {
+        if (_managementError == message) return;
+        _managementError = message;
+        OnChanged(nameof(ManagementError)); OnChanged(nameof(HasManagementError));
     }
 
     // The player and thumbnail decoder close asynchronously; allow them a moment to release the file.
@@ -695,7 +725,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void NotifyManagement()
     {
         foreach (var name in new[] { nameof(HasManagement), nameof(IsRenaming), nameof(IsConfirmingDelete), nameof(ManagementTitle),
-            nameof(ShowsManagementHint) }) OnChanged(name);
+            nameof(ShowsManagementHint), nameof(ManagementError), nameof(HasManagementError) }) OnChanged(name);
         foreach (var command in new[] { ConfirmRenameCommand, ConfirmDeleteCommand, CancelManagementCommand }) ((ClipCommand)command).Raise();
     }
 
@@ -903,12 +933,14 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public void SetShortcutStatus(string safeStatus) { _shortcutStatus = safeStatus; OnChanged(nameof(ShortcutStatus)); }
     internal void SetShortcutRegistration(Func<bool, bool, OverlayHotkeyChord, string?> registration) => _registerShortcut = registration;
 
-    private async Task ReadPageAsync(int pageIndex)
+    // Searching and managing clips keep the open clip playing, even if it is no longer listed.
+    private async Task ReadPageAsync(int pageIndex, bool keepSelection = false)
     {
         if (_library is null) { Clips.Clear(); NotifyState(); return; }
         var page = await _library.GetPageAsync(pageIndex, ActiveSearch, _token);
         if (_disposed) return;
-        ClearSelection(); ApplyPage(page);
+        if (!keepSelection) ClearSelection();
+        ApplyPage(page);
         StartThumbnails();
     }
     private void ApplyPage(ClipLibraryPage page)
@@ -922,8 +954,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             item.Update(entry);
             Clips.Add(item);
         }
-        // A rename or delete stays open only while its clip is still listed.
-        if (_managed is not null && !Clips.Contains(_managed)) CancelManagement();
+        // A rename or delete stays open only while its clip is still listed or playing.
+        if (_managed is not null && !CanManage(_managed)) CancelManagement();
         SetReminder(page); NotifyState();
     }
     internal void SetGalleryActive(bool active)

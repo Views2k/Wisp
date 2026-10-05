@@ -5,6 +5,9 @@ using System.Text.Json;
 
 namespace Wisp.App.Clips;
 
+public sealed class ClipNameInUseException(string name)
+    : InvalidOperationException($"Another clip is already named “{name}”. Choose a different name.");
+
 // Names live in a separate file so earlier Wisp versions, which reject unknown
 // index fields, can still open the library after a downgrade.
 public sealed partial class ClipLibrary
@@ -46,9 +49,13 @@ public sealed partial class ClipLibrary
             var clip = Find(index, id);
             var names = await ReadNamesAsync(token).ConfigureAwait(false)
                 ?? throw new InvalidDataException("Saved clip names could not be read. Their file has been kept.");
+            var clips = index.Clips.Select(item => item.Id).ToHashSet();
+            if (normalized is not null &&
+                names.FirstOrDefault(pair => pair.Key != id && clips.Contains(pair.Key) && SameName(pair.Value, normalized)).Value is { } taken)
+                throw new ClipNameInUseException(taken);
             if (normalized is null) names.Remove(id);
             else names[id] = normalized;
-            await WriteNamesAsync(names, index.Clips.Select(item => item.Id).ToHashSet(), token).ConfigureAwait(false);
+            await WriteNamesAsync(names, clips, token).ConfigureAwait(false);
             return WithName(clip, names);
         }, cancellationToken);
     }
@@ -78,6 +85,11 @@ public sealed partial class ClipLibrary
             return true;
         }, cancellationToken);
     }
+
+    // Names are unique ignoring case, and two names that export to the same file name count as one.
+    private static bool SameName(string first, string second) =>
+        string.Equals(first, second, StringComparison.CurrentCultureIgnoreCase) ||
+        FileNameFor(first) is { } file && string.Equals(file, FileNameFor(second), StringComparison.OrdinalIgnoreCase);
 
     private static ClipEntry WithName(ClipEntry clip, IReadOnlyDictionary<Guid, string> names) =>
         names.TryGetValue(clip.Id, out var name) ? clip with { Name = name } : clip;

@@ -72,10 +72,37 @@ public sealed class ClipsLibraryManagementViewModelTests
         model.BeginRename(card);
         model.RenameText = "two\nlines";
         await model.ConfirmRenameAsync();
-        Assert.True(model.HasError);
         Assert.True(model.IsRenaming);
+        Assert.Equal("Use a name of up to 80 characters on one line.", model.ManagementError);
+        Assert.False(model.HasError);
+        model.RenameText = "two lines";
+        Assert.False(model.HasManagementError);
         model.CancelManagement();
         Assert.False(model.HasManagement);
+    });
+
+    [Fact]
+    public void RenameExplainsANameAnotherClipUses() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var first = await fixture.SaveAsync();
+        var second = await fixture.SaveAsync();
+        await new ClipLibrary(fixture.Directory).RenameAsync(first.Id, "Drift", TestContext.Current.CancellationToken);
+        using var model = fixture.Model();
+        await model.InitializeAsync();
+        var card = model.Clips.Single(item => item.Id == second.Id);
+
+        model.BeginRename(card);
+        model.RenameText = "DRIFT";
+        await model.ConfirmRenameAsync();
+        Assert.True(model.IsRenaming);
+        Assert.Equal("Another clip is already named “Drift”. Choose a different name.", model.ManagementError);
+        Assert.False(card.HasName);
+
+        model.RenameText = "Drift 2";
+        await model.ConfirmRenameAsync();
+        Assert.False(model.HasManagement);
+        Assert.Equal("Drift 2", card.Title);
     });
 
     [Fact]
@@ -115,8 +142,53 @@ public sealed class ClipsLibraryManagementViewModelTests
         await using (new FileStream(fixture.MediaPath(clip.Id), FileMode.Open, FileAccess.Read, FileShare.Read))
             await model.ConfirmDeleteAsync();
         Assert.True(File.Exists(fixture.MediaPath(clip.Id)));
-        Assert.Contains("still in use", model.Error, StringComparison.Ordinal);
+        Assert.True(model.IsConfirmingDelete);
+        Assert.Contains("still in use", model.ManagementError, StringComparison.Ordinal);
         Assert.Single(model.Clips);
+    });
+
+    [Fact]
+    public void SearchingAndManagingOtherClipsKeepsTheOpenClipPlaying() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var playing = await fixture.SaveAsync();
+        var named = await fixture.SaveAsync();
+        var removed = await fixture.SaveAsync();
+        await new ClipLibrary(fixture.Directory).RenameAsync(named.Id, "Goliath sprint", TestContext.Current.CancellationToken);
+        using var model = fixture.Model();
+        await model.InitializeAsync();
+        var open = model.Clips.Single(item => item.Id == playing.Id);
+        Assert.NotNull(await model.SelectForPlaybackAsync(open));
+
+        model.SearchText = "goliath";
+        await model.ApplySearchAsync();
+        Assert.Equal(named.Id, Assert.Single(model.Clips).Id);
+        Assert.Same(open, model.SelectedClip);
+
+        // The player's Rename works while its clip is filtered out of the list.
+        model.BeginRename(open);
+        Assert.True(model.IsRenaming);
+        model.RenameText = "Opening lap";
+        await model.ConfirmRenameAsync();
+        Assert.Same(open, model.SelectedClip);
+        Assert.Equal("Opening lap", open.Title);
+        Assert.Equal(named.Id, Assert.Single(model.Clips).Id);
+
+        model.ClearSearchCommand.Execute(null);
+        await WaitUntilAsync(() => model.Clips.Count == 3 && !model.IsBusy);
+        Assert.Same(open, model.SelectedClip);
+        Assert.Contains(open, model.Clips);
+
+        model.BeginDelete(model.Clips.Single(item => item.Id == removed.Id));
+        await model.ConfirmDeleteAsync();
+        Assert.Equal(2, model.Clips.Count);
+        Assert.Same(open, model.SelectedClip);
+
+        model.BeginDelete(open);
+        await model.ConfirmDeleteAsync();
+        Assert.False(model.HasSelection);
+        Assert.False(File.Exists(fixture.MediaPath(playing.Id)));
+        Assert.Equal(named.Id, Assert.Single(model.Clips).Id);
     });
 
     [Fact]

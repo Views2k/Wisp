@@ -69,6 +69,21 @@ public sealed class ClipsExportDialogTests : IDisposable
         Assert.Equal(Clip.SuggestedExportName, ClipsPage.CreateExportDialog(_directory, Clip with { Name = "..." }).FileName);
     }
 
+    [Fact]
+    public void NameAlreadyUsedInTheExportFolderGetsTheClipId()
+    {
+        Directory.CreateDirectory(_directory);
+        var named = Clip with { Name = "Drift" };
+        File.WriteAllBytes(Path.Combine(_directory, "Drift.mp4"), [1]);
+        Assert.Equal("Drift-baea6f2c.mp4", ClipsPage.CreateExportDialog(_directory, named).FileName);
+
+        var lossless = named with { Media = named.Media with { LosslessVideo = true } };
+        Assert.Equal("Drift-lossless.mp4", ClipsPage.CreateExportDialog(_directory, lossless).FileName);
+        File.WriteAllBytes(Path.Combine(_directory, "Drift-lossless.mp4"), [1]);
+        Assert.Equal("Drift-baea6f2c-lossless.mp4", ClipsPage.CreateExportDialog(_directory, lossless).FileName);
+        Assert.Equal("Drift-baea6f2c.mp4", ClipsPage.CreateExportDialog(_directory, lossless, ClipExportFormat.Compatible).FileName);
+    }
+
     [Theory]
     [InlineData("clip")]
     [InlineData("clip.mkv")]

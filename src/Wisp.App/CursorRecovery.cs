@@ -45,7 +45,8 @@ internal static class CursorRecovery
         _ = ClipCursor(IntPtr.Zero);
         if (!GetCursorPos(out var point)) return;
         var window = WindowFromPoint(point);
-        if (window == IntPtr.Zero || GetWindowThreadProcessId(window, out var process) == 0 || process != Environment.ProcessId) return;
+        // Only Wisp windows on this thread, so the messages below never wait on another thread.
+        if (window == IntPtr.Zero || GetWindowThreadProcessId(window, out _) != GetCurrentThreadId()) return;
         var hit = SendMessage(window, WmNcHitTest, IntPtr.Zero, (point.Y << 16) | (point.X & 0xffff));
         _ = SendMessage(window, WmSetCursor, window, (WmMouseMove << 16) | ((int)hit & 0xffff));
     }
@@ -66,6 +67,9 @@ internal static class CursorRecovery
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
 
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);

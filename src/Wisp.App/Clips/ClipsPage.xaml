@@ -254,13 +254,15 @@
             <Border x:Name="ClipManagementPanel" Style="{DynamicResource CardStyle}" Padding="14" Margin="0,0,0,12" Visibility="{Binding HasManagement, Converter={StaticResource ClipVisibility}}">
                 <StackPanel>
                     <TextBlock Text="{Binding ManagementTitle}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock x:Name="ManagementErrorText" Text="{Binding ManagementError}" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}" Margin="0,0,0,8"
+                               Visibility="{Binding HasManagementError, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Assertive" />
                     <StackPanel Visibility="{Binding IsRenaming, Converter={StaticResource ClipVisibility}}">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" MaxWidth="440" /><ColumnDefinition Width="0.001*" /></Grid.ColumnDefinitions>
                             <TextBox x:Name="RenameBox" Text="{Binding RenameText, UpdateSourceTrigger=PropertyChanged}" MaxLength="80" Padding="10,7"
                                      KeyDown="RenameBox_KeyDown" AutomationProperties.Name="Clip name" />
                         </Grid>
-                        <TextBlock Text="Up to 80 characters. Leave it empty to show the date and time the clip was saved." Style="{StaticResource ClipHint}" Margin="0,6,0,10" />
+                        <TextBlock Text="Up to 80 characters, and not a name another clip already uses. Leave it empty to show the date and time the clip was saved." Style="{StaticResource ClipHint}" Margin="0,6,0,10" />
                         <WrapPanel>
                             <Button Content="Save name" Command="{Binding ConfirmRenameCommand}" Style="{DynamicResource PrimaryButtonStyle}" Padding="14,7" Margin="0,0,8,0" />
                             <Button Content="Cancel" Command="{Binding CancelManagementCommand}" Padding="14,7" />
