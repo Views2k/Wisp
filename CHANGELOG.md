@@ -2,6 +2,16 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.2 - 2026-10-04
+
+- Show saved clips first on the Clips page and fold Recording settings below the library, closed by default.
+- Rename and delete clips in Wisp from a clip's right-click menu, F2 and Delete, or the player. Deleting asks for confirmation; a clip another program holds open is kept with an explanation, and errors appear beside the action.
+- Keep clip names unique, ignoring case and characters that export to the same file name. Store names beside the clip index so earlier Wisp versions can still open the library.
+- Search saved clips by name, date, resolution, frame rate, HDR or lossless. Searching and managing other clips keep the open clip playing.
+- Explain the compatible copy and the original recording before the save dialog opens for HDR and lossless clips. The dialog offers the chosen format and suggests the clip's name, adding its ID when that file name is already in the folder.
+- Show focus outlines only after keyboard navigation, not after clicking.
+- Release cursor confinement left by a game and refresh the pointer when Wisp becomes the active app.
+
 ## 2.6.1 - 2026-10-03
 
 - Fix the recorder shutdown error that could leave clipping unavailable after closing Forza until Wisp restarted.

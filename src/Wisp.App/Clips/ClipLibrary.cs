@@ -30,17 +30,33 @@ public sealed record FinalizedClipMedia(long FileBytes, int Width, int Height, i
 public sealed record ClipEntry(Guid Id, DateTimeOffset SavedAtUtc, ClipRecordingSpec Recording,
     FinalizedClipMedia Media, DateTimeOffset? ViewedAtUtc = null, DateTimeOffset? ExportedAtUtc = null)
 {
+    // Names are stored beside the index, so earlier Wisp versions can still read the library.
+    [JsonIgnore]
+    public string? Name { get; init; }
+
     [JsonIgnore]
     public double DurationSeconds => (Media.ActualEnd100ns - Media.ActualStart100ns) / 10_000_000d;
 
     [JsonIgnore]
-    public string SuggestedExportName => $"Wisp-{SavedAtUtc.ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{Id.ToString("N")[..8]}.mp4";
+    public string SuggestedExportName => ExportBaseName + ".mp4";
+
+    [JsonIgnore]
+    internal string ExportBaseName => ClipLibrary.FileNameFor(Name) ?? DefaultExportBaseName;
+
+    // Several clips can share a name, so a named clip falls back to its name plus its ID.
+    [JsonIgnore]
+    internal string UniqueExportBaseName => ClipLibrary.FileNameFor(Name) is { } name ? $"{name}-{Id.ToString("N")[..8]}" : DefaultExportBaseName;
+
+    private string DefaultExportBaseName =>
+        $"Wisp-{SavedAtUtc.ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{Id.ToString("N")[..8]}";
 }
 
 public sealed record ClipLibraryPage(IReadOnlyList<ClipEntry> Clips, int PageIndex, int PageCount,
     int TotalClips, int PendingSaves, int UnviewedClips, int UnexportedClips, int NewClips)
 {
     public int PendingNotices { get; init; } = PendingSaves;
+    // Clips matching the search. Equals TotalClips when no search is applied.
+    public int MatchingClips { get; init; } = TotalClips;
 }
 public sealed record ClipExportResult(bool FileCreated, bool ExportStateSaved);
 public sealed record ClipImportResult(int Imported, int AlreadyPresent, int Remaining, int PendingLegacySaves);
@@ -72,21 +88,28 @@ public sealed partial class ClipLibrary
         _compatibleExporter = compatibleExporter ?? new CompatibleClipExporter();
     }
 
-    public Task<ClipLibraryPage> GetPageAsync(int pageIndex, CancellationToken cancellationToken = default)
+    public Task<ClipLibraryPage> GetPageAsync(int pageIndex, CancellationToken cancellationToken = default) =>
+        GetPageAsync(pageIndex, null, cancellationToken);
+
+    public Task<ClipLibraryPage> GetPageAsync(int pageIndex, string? search, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(pageIndex);
+        var terms = SearchTerms(search);
         return InBackground(async token =>
         {
             var index = await ReadIndexAsync(token).ConfigureAwait(false);
             await ReconcileMissingClipsAsync(index, token).ConfigureAwait(false);
-            var ordered = index.Clips.OrderByDescending(clip => clip.SavedAtUtc).ThenBy(clip => clip.Id).ToArray();
-            var pages = (ordered.Length + PageSize - 1) / PageSize;
+            var names = await ReadNamesAsync(token).ConfigureAwait(false) ?? [];
+            var ordered = index.Clips.OrderByDescending(clip => clip.SavedAtUtc).ThenBy(clip => clip.Id)
+                .Select(clip => WithName(clip, names)).ToArray();
+            var matching = terms.Length == 0 ? ordered : ordered.Where(clip => Matches(clip, terms)).ToArray();
+            var pages = (matching.Length + PageSize - 1) / PageSize;
             var selectedPage = Math.Min(pageIndex, Math.Max(0, pages - 1));
-            return new ClipLibraryPage(ordered.Skip(selectedPage * PageSize).Take(PageSize).ToArray(), selectedPage,
+            return new ClipLibraryPage(matching.Skip(selectedPage * PageSize).Take(PageSize).ToArray(), selectedPage,
                 pages, ordered.Length, index.Pending.Count, ordered.Count(clip => clip.ViewedAtUtc is null),
                 ordered.Count(clip => clip.ExportedAtUtc is null),
                 ordered.Count(clip => clip.ViewedAtUtc is null && clip.ExportedAtUtc is null))
-            { PendingNotices = index.Pending.Count(item => !item.NoticeDismissed) };
+            { PendingNotices = index.Pending.Count(item => !item.NoticeDismissed), MatchingClips = matching.Length };
         }, cancellationToken);
     }
 
@@ -166,11 +189,12 @@ public sealed partial class ClipLibrary
         {
             var index = await ReadIndexAsync(token).ConfigureAwait(false);
             var clip = Find(index, id);
-            if (clip.ViewedAtUtc is not null) return clip;
+            var names = await ReadNamesAsync(token).ConfigureAwait(false) ?? [];
+            if (clip.ViewedAtUtc is not null) return WithName(clip, names);
             var updated = clip with { ViewedAtUtc = DateTimeOffset.UtcNow };
             index.Clips[index.Clips.IndexOf(clip)] = updated;
             await WriteIndexAsync(index, token).ConfigureAwait(false);
-            return updated;
+            return WithName(updated, names);
         }, cancellationToken);
     }
 
@@ -199,7 +223,7 @@ public sealed partial class ClipLibrary
         ValidateId(id);
         if (!ClipsSettings.TryNormalizeDirectory(directory, out var normalized))
             throw new ArgumentException("Choose an export folder using a full path.", nameof(directory));
-        return ExportCoreAsync(id, clip => Path.Combine(normalized, clip.SuggestedExportName), reuseIdentical: true, cancellationToken);
+        return ExportCoreAsync(id, clip => Path.Combine(normalized, clip.UniqueExportBaseName + ".mp4"), reuseIdentical: true, cancellationToken);
     }
 
     private Task<ClipExportResult> ExportCoreAsync(Guid id, Func<ClipEntry, string> destinationFor, bool reuseIdentical, CancellationToken cancellationToken) =>
@@ -207,7 +231,7 @@ public sealed partial class ClipLibrary
         {
             var index = await ReadIndexAsync(token).ConfigureAwait(false);
             var clip = Find(index, id);
-            var destination = destinationFor(clip);
+            var destination = destinationFor(WithName(clip, await ReadNamesAsync(token).ConfigureAwait(false) ?? []));
             await using var source = OpenMedia(id, clip.Media.FileBytes);
             var created = await ClipLibraryFiles.CopyOrVerifyAsync(source, Path.GetDirectoryName(destination)!, Path.GetFileName(destination), reuseIdentical, token,
                 reuseIdentical ? $"{id:N}.mp4" : null).ConfigureAwait(false);

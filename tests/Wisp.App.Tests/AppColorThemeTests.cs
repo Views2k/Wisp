@@ -505,7 +505,8 @@ public sealed class AppColorThemeTests
         var primary = document.Descendants(presentation + "Style")
             .Single(element => element.Attribute(xaml + "Key")?.Value == "PrimaryButtonStyle");
         var resourceMarkup = "<ResourceDictionary xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" " +
-            "xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"><Style TargetType=\"TextBlock\"/>" +
+            "xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" xmlns:focus=\"clr-namespace:Wisp.App;assembly=Wisp\">" +
+            "<Style TargetType=\"TextBlock\"/>" +
             "<Style TargetType=\"Button\"/>" + primary + "</ResourceDictionary>";
         var resources = Assert.IsType<ResourceDictionary>(XamlReader.Parse(resourceMarkup));
         AppThemeResources.Apply(resources, AppColorThemes.All[0], AppBackgroundThemes.All[0], "#FF777777", null);

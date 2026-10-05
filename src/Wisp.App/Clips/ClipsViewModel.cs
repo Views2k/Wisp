@@ -44,11 +44,13 @@ public sealed class ClipCardItem(ClipEntry entry) : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public ClipEntry Entry { get; private set; } = entry;
     public Guid Id => Entry.Id;
-    public string Title => Entry.SavedAtUtc.ToLocalTime().ToString("MMM d · h:mm tt");
+    public string Title => Entry.Name ?? SavedTitle;
+    public string SavedTitle => Entry.SavedAtUtc.ToLocalTime().ToString("MMM d · h:mm tt");
+    public bool HasName => Entry.Name is not null;
     public string Detail => $"{TimeSpan.FromSeconds(Entry.DurationSeconds):m\\:ss} · {Entry.Media.Height}p · {Entry.Media.FrameRate} fps" +
         (Entry.Media.LosslessVideo ? " · Lossless video" : "") + (Entry.Media.HdrVideo ? " · HDR" : "");
     public string ReviewState => Entry.ExportedAtUtc is not null ? "Exported" : Entry.ViewedAtUtc is not null ? "Viewed" : "New";
-    public string PlayLabel => $"Open clip from {Title}, {Detail}";
+    public string PlayLabel => HasName ? $"Open clip {Title}, saved {SavedTitle}, {Detail}" : $"Open clip from {Title}, {Detail}";
     public BitmapSource? Thumbnail => _thumbnail;
     public bool HasThumbnail => _thumbnail is not null;
     public string PreviewStatus => _thumbnailLoading ? "Loading preview…" : "Preview unavailable";
@@ -57,7 +59,8 @@ public sealed class ClipCardItem(ClipEntry entry) : INotifyPropertyChanged
     internal void Update(ClipEntry updated)
     {
         Entry = updated;
-        PropertyChanged?.Invoke(this, new(nameof(ReviewState)));
+        foreach (var name in new[] { nameof(Title), nameof(SavedTitle), nameof(HasName), nameof(Detail), nameof(PlayLabel), nameof(ReviewState) })
+            PropertyChanged?.Invoke(this, new(name));
     }
     internal void SetThumbnail(BitmapSource? image)
     {
@@ -108,6 +111,15 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private CancellationTokenSource? _thumbnailWork;
     private long _thumbnailRevision;
     private bool _galleryActive;
+    private string _search = "";
+    private DispatcherTimer? _searchTimer;
+    private int _matching;
+    private ClipCardItem? _managed;
+    private bool _renaming, _confirmingDelete, _choosingExport;
+    private string _renameText = "";
+    private string _managementError = "";
+    internal const int MaximumSearchLength = 100;
+    internal static readonly TimeSpan SearchDelay = TimeSpan.FromMilliseconds(250);
     internal Task ThumbnailCompletion { get; private set; } = Task.CompletedTask;
 
     public ClipsViewModel(ClipsSettings settings, IClipRecorder recorder, Dispatcher dispatcher, IClipThumbnailProvider? thumbnails = null,
@@ -126,6 +138,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         DismissPendingCommand = Command(DismissPendingAsync, () => !IsBusy && _pendingNotices > 0);
         DismissDashboardNoticeCommand = Command(DismissDashboardNoticeAsync, () => !_disposed && HasDashboardNotice && (!PendingDashboardNotice || !IsBusy));
         DisableDashboardNoticesCommand = Command(() => { RemindersEnabled = false; return Task.CompletedTask; }, () => !_disposed && CanDisableDashboardNotice);
+        ClearSearchCommand = Command(() => { SearchText = ""; return ApplySearchAsync(); }, () => !_disposed && _search.Length > 0);
+        ConfirmRenameCommand = Command(ConfirmRenameAsync, () => CanManageClips && _renaming && _managed is not null);
+        ConfirmDeleteCommand = Command(ConfirmDeleteAsync, () => CanManageClips && _confirmingDelete && _managed is not null);
+        CancelManagementCommand = Command(() => { CancelManagement(); return Task.CompletedTask; }, () => !_disposed && HasManagement);
         _recorder.StateChanged += RecorderChanged;
     }
 
@@ -142,6 +158,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand DismissPendingCommand { get; }
     public ICommand DismissDashboardNoticeCommand { get; }
     public ICommand DisableDashboardNoticesCommand { get; }
+    public ICommand ClearSearchCommand { get; }
+    public ICommand ConfirmRenameCommand { get; }
+    public ICommand ConfirmDeleteCommand { get; }
+    public ICommand CancelManagementCommand { get; }
     public ClipsSettings Preferences => _settings.Clone();
     public IReadOnlyList<int> LengthChoices => ClipsSettings.LengthChoices;
     public IReadOnlyList<int> ResolutionChoices => ClipsSettings.ResolutionChoices;
@@ -178,7 +198,55 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         : LengthSeconds == 300
         ? "Five-minute clips use more memory and storage and can take longer to save. Original exports keep recorded quality; compatible copies use H.264 for easier sharing."
         : "Longer clips use more memory and storage. Original exports keep recorded quality; compatible copies use H.264 for easier sharing.";
-    public string PageText => _pageCount == 0 ? "No saved clips" : $"Page {_pageIndex + 1} of {_pageCount} · {_total} clips";
+    public string PageText => HasActiveSearch
+        ? _pageCount == 0 ? "No matching clips" : $"Page {_pageIndex + 1} of {_pageCount} · {_matching} of {_total} clips"
+        : _pageCount == 0 ? "No saved clips" : $"Page {_pageIndex + 1} of {_pageCount} · {_total} clips";
+    public string EmptyText => HasActiveSearch
+        ? $"No saved clips match “{ActiveSearch}”. Try a name, a date like Oct 3, or 1080p, HDR or lossless."
+        : "No clips saved yet. Enable clipping, then save a moment from your drive to watch it here.";
+    public string SearchText
+    {
+        get => _search;
+        set
+        {
+            var next = value ?? "";
+            if (next.Length > MaximumSearchLength) next = next[..MaximumSearchLength];
+            if (_search == next || _disposed) return;
+            _search = next;
+            OnChanged(); OnChanged(nameof(HasSearchText));
+            ((ClipCommand)ClearSearchCommand).Raise();
+            ScheduleSearch();
+        }
+    }
+    public bool HasSearchText => _search.Length > 0;
+    private string ActiveSearch => _search.Trim();
+    private bool HasActiveSearch => ActiveSearch.Length > 0;
+    public bool CanManageClips => !_disposed && !IsBusy && !IsExporting && _library is not null;
+    public bool HasManagement => _renaming || _confirmingDelete;
+    public bool IsRenaming => _renaming;
+    public bool IsConfirmingDelete => _confirmingDelete;
+    public string ManagementTitle => _managed is null ? "" : _confirmingDelete ? $"Delete “{_managed.Title}”?" : $"Rename “{_managed.Title}”";
+    public string DeleteDetail => "The clip and its video file are removed from Wisp. Copies you exported are not affected. This can't be undone.";
+    public string RenameText
+    {
+        get => _renameText;
+        set { var next = value ?? ""; if (_renameText == next) return; _renameText = next; OnChanged(); SetManagementError(""); }
+    }
+    // Shown in the rename or delete panel, next to the action that failed.
+    public string ManagementError => _managementError;
+    public bool HasManagementError => _managementError.Length > 0;
+    public bool IsChoosingExportFormat => _choosingExport;
+    public bool RequiresExportChoice => _selected?.Entry.Media.RequiresMpvPlayer == true;
+    public string CompatibleExportDescription => _selected?.Entry.Media.HdrVideo == true
+        ? "Standard H.264 MP4, converted to SDR. Plays in browsers, Discord, phones and Windows apps. Wisp converts it first, which can take a while for long clips."
+        : "Standard H.264 MP4. Plays in browsers, Discord, phones and Windows apps. Wisp converts it first, which can take a while for long clips.";
+    public string OriginalExportTitle => _selected?.Entry.Media is { HdrVideo: true, LosslessVideo: true } ? "Original lossless HDR recording"
+        : _selected?.Entry.Media.LosslessVideo == true ? "Original lossless recording" : "Original HDR recording";
+    public string OriginalExportDescription => _selected?.Entry.Media is { HdrVideo: true, LosslessVideo: true }
+        ? "The exact HDR recording (HEVC 4:4:4, 10-bit). Largest file, for editing software that supports HDR. Most players can't open it."
+        : _selected?.Entry.Media.LosslessVideo == true
+        ? "The exact recording (H.264 4:4:4), the best quality for editing. Large file. VLC, Windows apps, browsers and Discord may not play it correctly."
+        : "The HDR recording (HEVC 10-bit), for HDR screens and HDR editing. Many apps can't play it or show it washed out.";
     public string PendingText => _pending == 0 ? "" : $"{_pending} unfinished save(s) retained in Wisp's private clip storage. Your completed clips are kept.";
     public bool HasPendingSaves => _pending > 0;
     public bool CanRecoverPending => !_disposed && !IsBusy && !_snapshot.Enabled && _library is not null && HasPendingSaves;
@@ -186,6 +254,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         : "Recover finished video or clear empty saves. Dismissing this notice keeps the files.";
     public bool CanOpenClipFolder => !_disposed && !IsBusy && StorageDirectory.Length > 0;
     public bool IsEmpty => !IsBusy && Clips.Count == 0;
+    // Hidden once the library has clips; the empty-state text covers the first save.
+    public bool ShowsManagementHint => _total > 0 && !HasManagement;
     public bool HasSelection => _selected is not null;
     public bool CanExport => HasSelection && !IsBusy && !_previewExportSucceeded && !_preparingPlaybackCopy;
     public bool SelectedIsLossless => _selected?.Entry.Media.LosslessVideo == true;
@@ -465,9 +535,11 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                 : "Game audio was unavailable. Select it below to watch or export."));
             try
             {
-                var page = await library.GetPageAsync(0, _token);
+                var page = await library.GetPageAsync(0, ActiveSearch, _token);
                 if (_disposed || !ReferenceEquals(_library, library)) return;
                 ApplyPage(page); StartThumbnails();
+                if (HasActiveSearch && page.Clips.All(item => item.Id != target.Id))
+                    NoticeText($"Clip saved · {duration:0.0} s. It doesn't match your search; clear the search to see it.");
             }
             catch (OperationCanceledException) when (_token.IsCancellationRequested) { }
             catch (Exception error) when (error is not OutOfMemoryException)
@@ -481,7 +553,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         CancelThumbnails();
         if (_pageIndex != 0) Clips.Clear();
         _pageIndex = 0;
-        Clips.Insert(0, new(entry));
+        // While searching, the refresh that follows decides whether the new clip matches.
+        if (!HasActiveSearch) Clips.Insert(0, new(entry));
         while (Clips.Count > ClipLibrary.PageSize) Clips.RemoveAt(Clips.Count - 1);
         _total++; _pageCount = (_total + ClipLibrary.PageSize - 1) / ClipLibrary.PageSize;
         _newClips++;
@@ -512,6 +585,149 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
 
     public Task LoadPageAsync(int pageIndex) => Operation(() => ReadPageAsync(Math.Max(0, pageIndex)),
         "The clip library could not be read. Its files have been kept.", !IsBusy && !_disposed);
+
+    private void ScheduleSearch()
+    {
+        if (_searchTimer is null)
+        {
+            _searchTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher) { Interval = SearchDelay };
+            _searchTimer.Tick += async (_, _) =>
+            {
+                // Retry on the next tick while another clip action is running.
+                if (_disposed || IsBusy) return;
+                _searchTimer?.Stop();
+                await ApplySearchAsync();
+            };
+        }
+        _searchTimer.Stop();
+        _searchTimer.Start();
+    }
+
+    internal Task ApplySearchAsync()
+    {
+        _searchTimer?.Stop();
+        return Operation(() => ReadPageAsync(0, keepSelection: true), "The clip library could not be searched. Its files have been kept.",
+            !_disposed && _library is not null && !IsBusy);
+    }
+
+    private bool CanManage(ClipCardItem item) => Clips.Contains(item) || ReferenceEquals(item, _selected);
+
+    public void BeginRename(ClipCardItem item)
+    {
+        if (!CanManageClips || !CanManage(item)) return;
+        _managed = item; _renaming = true; _confirmingDelete = false; _managementError = "";
+        _renameText = item.Entry.Name ?? "";
+        NotifyManagement(); OnChanged(nameof(RenameText));
+    }
+
+    public void BeginDelete(ClipCardItem item)
+    {
+        if (!CanManageClips || !CanManage(item)) return;
+        _managed = item; _renaming = false; _confirmingDelete = true; _managementError = "";
+        NotifyManagement();
+    }
+
+    public void CancelManagement()
+    {
+        if (!HasManagement && _managed is null) return;
+        _managed = null; _renaming = false; _confirmingDelete = false; _managementError = "";
+        NotifyManagement();
+    }
+
+    internal Task ConfirmRenameAsync()
+    {
+        var item = _managed;
+        var text = _renameText;
+        return Operation(async () =>
+        {
+            SetManagementError("");
+            var updated = await _library!.RenameAsync(item!.Id, text, _token);
+            if (_disposed) return;
+            item.Update(updated);
+            if (ReferenceEquals(_selected, item)) OnChanged(nameof(SelectedTitle));
+            CancelManagement();
+            NoticeText(updated.Name is null ? "Clip name cleared. It shows its saved date and time again." : "Clip renamed.");
+            if (HasActiveSearch) await ReadPageAsync(_pageIndex, keepSelection: true);
+        }, "The clip could not be renamed. Its file has been kept.", CanManageClips && _renaming && item is not null,
+        error => ManagementFailure(error switch
+        {
+            ArgumentException => $"Use a name of up to {ClipLibrary.MaximumNameLength} characters on one line.",
+            ClipNameInUseException taken => taken.Message,
+            _ => "The clip could not be renamed. Its file has been kept."
+        }));
+    }
+
+    internal Task ConfirmDeleteAsync()
+    {
+        var item = _managed;
+        return Operation(async () =>
+        {
+            SetManagementError("");
+            var wasSelected = ReferenceEquals(_selected, item);
+            // Closing the player and stopping preview work releases the file before deletion.
+            if (wasSelected) ClearSelection();
+            CancelThumbnails();
+            await DeleteReleasedAsync(item!.Id);
+            if (_disposed) return;
+            CancelManagement();
+            await ReadPageAsync(_pageIndex, keepSelection: true);
+            NoticeText("Clip deleted.");
+        }, "The clip could not be deleted. Its file has been kept.", CanManageClips && _confirmingDelete && item is not null,
+        error => ManagementFailure(ClipLibraryFiles.IsInUse(error)
+            ? "This clip is still in use, possibly by another program. Close anything playing it and try again. Its file has been kept."
+            : "The clip could not be deleted. Its file has been kept."));
+    }
+
+    // A failure before the panel closes belongs to the rename or delete; after it, only the list refresh failed.
+    private string ManagementFailure(string message)
+    {
+        if (!HasManagement) return "The clip list could not be refreshed. Its files have been kept.";
+        SetManagementError(message);
+        return "";
+    }
+
+    private void SetManagementError(string message)
+    {
+        if (_managementError == message) return;
+        _managementError = message;
+        OnChanged(nameof(ManagementError)); OnChanged(nameof(HasManagementError));
+    }
+
+    // The player and thumbnail decoder close asynchronously; allow them a moment to release the file.
+    private async Task DeleteReleasedAsync(Guid id)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try { await _library!.DeleteAsync(id, _token); return; }
+            catch (IOException error) when (ClipLibraryFiles.IsInUse(error) && attempt < 5)
+            { await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt), _token); }
+        }
+    }
+
+    public void BeginExportChoice()
+    {
+        if (!CanExport || !RequiresExportChoice) return;
+        _choosingExport = true; NotifyExportChoice();
+    }
+
+    public void CancelExportChoice()
+    {
+        if (!_choosingExport) return;
+        _choosingExport = false; NotifyExportChoice();
+    }
+
+    private void NotifyExportChoice()
+    {
+        foreach (var name in new[] { nameof(IsChoosingExportFormat), nameof(RequiresExportChoice), nameof(CompatibleExportDescription),
+            nameof(OriginalExportTitle), nameof(OriginalExportDescription) }) OnChanged(name);
+    }
+
+    private void NotifyManagement()
+    {
+        foreach (var name in new[] { nameof(HasManagement), nameof(IsRenaming), nameof(IsConfirmingDelete), nameof(ManagementTitle),
+            nameof(ShowsManagementHint), nameof(ManagementError), nameof(HasManagementError) }) OnChanged(name);
+        foreach (var command in new[] { ConfirmRenameCommand, ConfirmDeleteCommand, CancelManagementCommand }) ((ClipCommand)command).Raise();
+    }
 
     internal Task RefreshGalleryOnActivationAsync() => Operation(() => ReadPageAsync(_pageIndex),
         "The clip library could not be read. Its files have been kept.",
@@ -577,6 +793,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             var candidate = await _library.GetMediaPathAsync(item.Id, _token);
             if (revision != _selectionRevision || _disposed) return;
             _selected?.Select(false); _selected = item; item.Select(true);
+            CancelExportChoice();
             SetPreparingPlaybackCopy(false);
             SetPreviewExportStatus("", false);
             foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport), nameof(SelectedIsLossless), nameof(HasPlaybackFormatNote), nameof(LosslessPlaybackNote) }) OnChanged(name);
@@ -612,7 +829,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         if (!CanExport) return Task.CompletedTask;
         if (StorageDirectory.Length == 0)
         {
-            const string message = "Export failed. Choose an export folder below the player, then try again.";
+            const string message = "Export failed. Choose an export folder at the bottom of Clips, then try again.";
             SetPreviewExportStatus(message, false); ErrorText(message);
             return Task.CompletedTask;
         }
@@ -631,6 +848,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         var failure = format == ClipExportFormat.Compatible
             ? "Export failed. The compatible copy could not be created. Try again, or export the original video. Existing files are kept."
             : "Export failed. Check folder access and free space, then try again. Existing files are never overwritten.";
+        CancelExportChoice();
         return Operation(async () =>
         {
             using var operation = CancellationTokenSource.CreateLinkedTokenSource(_token);
@@ -657,7 +875,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                 {
                     try
                     {
-                        var page = await library.GetPageAsync(_pageIndex, _token);
+                        var page = await library.GetPageAsync(_pageIndex, ActiveSearch, _token);
                         var updated = page.Clips.FirstOrDefault(item => item.Id == selected.Id);
                         if (updated is not null) selected.Update(updated);
                         SetReminder(page);
@@ -715,24 +933,29 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public void SetShortcutStatus(string safeStatus) { _shortcutStatus = safeStatus; OnChanged(nameof(ShortcutStatus)); }
     internal void SetShortcutRegistration(Func<bool, bool, OverlayHotkeyChord, string?> registration) => _registerShortcut = registration;
 
-    private async Task ReadPageAsync(int pageIndex)
+    // Searching and managing clips keep the open clip playing, even if it is no longer listed.
+    private async Task ReadPageAsync(int pageIndex, bool keepSelection = false)
     {
         if (_library is null) { Clips.Clear(); NotifyState(); return; }
-        var page = await _library.GetPageAsync(pageIndex, _token);
+        var page = await _library.GetPageAsync(pageIndex, ActiveSearch, _token);
         if (_disposed) return;
-        ClearSelection(); ApplyPage(page);
+        if (!keepSelection) ClearSelection();
+        ApplyPage(page);
         StartThumbnails();
     }
     private void ApplyPage(ClipLibraryPage page)
     {
         _pageIndex = page.PageIndex; _pageCount = page.PageCount; _total = page.TotalClips; _pending = page.PendingSaves;
+        _matching = page.MatchingClips;
         Clips.Clear();
         foreach (var entry in page.Clips)
         {
-            var item = _selected?.Id == entry.Id ? _selected : new ClipCardItem(entry);
+            var item = _selected?.Id == entry.Id ? _selected : _managed?.Id == entry.Id ? _managed : new ClipCardItem(entry);
             item.Update(entry);
             Clips.Add(item);
         }
+        // A rename or delete stays open only while its clip is still listed or playing.
+        if (_managed is not null && !CanManage(_managed)) CancelManagement();
         SetReminder(page); NotifyState();
     }
     internal void SetGalleryActive(bool active)
@@ -808,6 +1031,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void ClearSelection()
     {
         ++_selectionRevision; _selected?.Select(false); _selected = null;
+        CancelExportChoice();
         SetPreparingPlaybackCopy(false);
         SetPreviewExportStatus("", false);
         foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport), nameof(SelectedIsLossless), nameof(HasPlaybackFormatNote), nameof(LosslessPlaybackNote) }) OnChanged(name);
@@ -820,7 +1044,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     }
     private void NotifyExport()
     {
-        foreach (var name in new[] { nameof(IsExporting), nameof(CanCancelExport), nameof(ExportProgressIndeterminate), nameof(ExportProgress), nameof(ExportProgressText) }) OnChanged(name);
+        foreach (var name in new[] { nameof(IsExporting), nameof(CanCancelExport), nameof(ExportProgressIndeterminate), nameof(ExportProgress), nameof(ExportProgressText), nameof(CanManageClips) }) OnChanged(name);
+        foreach (var command in new[] { ConfirmRenameCommand, ConfirmDeleteCommand }) ((ClipCommand)command).Raise();
     }
     private void SetPreviewExportStatus(string message, bool succeeded)
     {
@@ -869,7 +1094,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void NotifyState()
     {
         OnChanged(nameof(HasPendingSaves)); OnChanged(nameof(CanRecoverPending)); OnChanged(nameof(PendingRecoveryHint));
-        foreach (var name in new[] { nameof(IsBusy), nameof(IsEmpty), nameof(CanEditSettings), nameof(CanEditCompressionQuality), nameof(CanToggle), nameof(ClippingEnabled), nameof(CanSave), nameof(CanRequestSave), nameof(HasQueuedSave), nameof(HasSaveQueueStatus), nameof(SaveQueueStatus), nameof(CanBrowse), nameof(CanExport), nameof(PageText), nameof(PendingText), nameof(CanOpenClipFolder) }) OnChanged(name);
+        foreach (var name in new[] { nameof(IsBusy), nameof(IsEmpty), nameof(CanEditSettings), nameof(CanEditCompressionQuality), nameof(CanToggle), nameof(ClippingEnabled), nameof(CanSave), nameof(CanRequestSave), nameof(HasQueuedSave), nameof(HasSaveQueueStatus), nameof(SaveQueueStatus), nameof(CanBrowse), nameof(CanExport), nameof(PageText), nameof(EmptyText), nameof(PendingText), nameof(CanOpenClipFolder), nameof(CanManageClips), nameof(ShowsManagementHint) }) OnChanged(name);
         NotifyDashboardNotice();
         foreach (var command in _commands) command.Raise();
     }
@@ -892,6 +1117,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_disposed) return;
         CommitQuality(); CancelThumbnails(); _saveShortcuts.Clear(); _disposed = true; ShortcutCaptureActive = false;
+        _searchTimer?.Stop();
         _recorder.StateChanged -= RecorderChanged; _lifetime.Cancel(); _lifetime.Dispose(); ClearSelection();
         if (_thumbnails is IDisposable ownedThumbnails) ownedThumbnails.Dispose();
         // Operations retain the captured token, never access a disposed token source.

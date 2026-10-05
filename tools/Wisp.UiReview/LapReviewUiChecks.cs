@@ -163,7 +163,7 @@ internal static class LapReviewUiChecks
             var popup = combo.Template.FindName("PART_Popup", combo) as Popup;
             check(border is not null && SameBrush(border.Background, Theme("InputBrush")), "combo-input-theme");
             check(popup?.Child is Border panel && SameBrush(panel.Background, Theme("PanelBrush")) && panel.CornerRadius.TopLeft > 0, "popup-panel-theme");
-            check(combo.Template.Triggers.OfType<Trigger>().Any(trigger => trigger.Property == UIElement.IsKeyboardFocusWithinProperty), "combo-visible-keyboard-focus-trigger");
+            check(FocusTriggers.HasKeyboardOnly(combo.Template, UIElement.IsKeyboardFocusWithinProperty), "combo-visible-keyboard-focus-trigger");
             var foreground = combo.Foreground;
             combo.SetCurrentValue(UIElement.IsEnabledProperty, false); Pump();
             check(root?.Opacity == .45 && SameBrush(combo.Foreground, foreground), "combo-disabled-theme");

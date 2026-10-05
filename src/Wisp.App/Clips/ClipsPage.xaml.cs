@@ -109,6 +109,17 @@ public partial class ClipsPage : UserControl
             UpdatePlaybackFade();
             if (Model?.HasSelection != true) StopPlayer();
         }
+        if (e.PropertyName is nameof(ClipsViewModel.IsRenaming) or nameof(ClipsViewModel.IsConfirmingDelete) && Model is { HasManagement: true } model)
+        {
+            // Focus the name box, or Cancel for a deletion, once the panel is shown.
+            _ = Dispatcher.InvokeAsync(() =>
+            {
+                if (!ReferenceEquals(Model, model) || !model.HasManagement) return;
+                ClipManagementPanel.BringIntoView();
+                if (model.IsRenaming) { RenameBox.Focus(); RenameBox.SelectAll(); }
+                else CancelDeleteButton.Focus();
+            }, DispatcherPriority.Loaded);
+        }
     }
     private void LeavePage() { StopPlayer(); FinishShortcut(); Model?.SetGalleryActive(false); Model?.CommitQuality(); Model?.ClosePlayback(); }
     private void Gallery_SizeChanged(object sender, SizeChangedEventArgs e) =>
@@ -133,6 +144,7 @@ public partial class ClipsPage : UserControl
             element.ActualHeight + element.Margin.Top + element.Margin.Bottom;
         var chrome = OuterHeight(PlaybackHeader) + OuterHeight(PlaybackTimeline) + OuterHeight(PlaybackControls) +
             OuterHeight(PreviewExportStatus) + OuterHeight(CopyExportDetails) + OuterHeight(LosslessExportNote) + OuterHeight(ExportProgressPanel) +
+            OuterHeight(ExportChoicePanel) +
             PlaybackSurface.Padding.Top + PlaybackSurface.Padding.Bottom + PlaybackSurface.BorderThickness.Top +
             PlaybackSurface.BorderThickness.Bottom + PlaybackSurface.Margin.Top + PlaybackSurface.Margin.Bottom;
         var height = Math.Max(0, Math.Min(width / aspect, viewportHeight - chrome));
@@ -191,11 +203,48 @@ public partial class ClipsPage : UserControl
         { model.ClipFolderOpenFailed(); }
     }
 
+    // HDR and lossless clips explain both formats before Windows' Save As opens.
     private async void Export_Click(object sender, RoutedEventArgs e)
     {
-        if (Model is not { CanExport: true, SelectedClip: { } selected } model) return;
+        if (Model is not { CanExport: true } model) return;
+        if (model.RequiresExportChoice)
+        {
+            if (model.IsChoosingExportFormat) model.CancelExportChoice();
+            else
+            {
+                model.BeginExportChoice();
+                _ = Dispatcher.InvokeAsync(() => { if (model.IsChoosingExportFormat) ExportCompatibleChoice.Focus(); }, DispatcherPriority.Loaded);
+            }
+            return;
+        }
+        await ExportWithDialogAsync(model, ClipExportFormat.Original);
+    }
+
+    private async void ExportCompatible_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is not { CanExport: true } model) return;
+        model.CancelExportChoice();
+        await ExportWithDialogAsync(model, ClipExportFormat.Compatible);
+    }
+
+    private async void ExportOriginal_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is not { CanExport: true } model) return;
+        model.CancelExportChoice();
+        await ExportWithDialogAsync(model, ClipExportFormat.Original);
+    }
+
+    private void ExportChoiceCancel_Click(object sender, RoutedEventArgs e)
+    {
+        Model?.CancelExportChoice();
+        ExportClipButton.Focus();
+    }
+
+    private async Task ExportWithDialogAsync(ClipsViewModel model, ClipExportFormat format)
+    {
+        if (model.SelectedClip is not { } selected) return;
         var revision = _playback.Revision;
-        var dialog = CreateExportDialog(model.StorageDirectory, selected.Entry);
+        var dialog = CreateExportDialog(model.StorageDirectory, selected.Entry, format);
         dialog.FileOk += (_, cancel) =>
         {
             var error = ValidateExportDestination(dialog.FileName);
@@ -205,33 +254,79 @@ public partial class ClipsPage : UserControl
         };
         if (dialog.ShowDialog(Window.GetWindow(this)) != true || !ReferenceEquals(Model, model) ||
             !ReferenceEquals(model.SelectedClip, selected) || revision != _playback.Revision || !model.CanExport) return;
-        await model.ExportSelectedAsync(dialog.FileName, ExportFormatFor(selected.Entry, dialog.FilterIndex));
+        await model.ExportSelectedAsync(dialog.FileName, format);
     }
 
     private void CancelExport_Click(object sender, RoutedEventArgs e) => Model?.CancelExport();
 
-    internal static ClipExportFormat ExportFormatFor(ClipEntry clip, int filterIndex) =>
-        (clip.Media.LosslessVideo || clip.Media.HdrVideo) && filterIndex == 1 ? ClipExportFormat.Compatible : ClipExportFormat.Original;
+    // The format is chosen before this dialog, so it offers a single matching file type.
+    internal static Microsoft.Win32.SaveFileDialog CreateExportDialog(string exportDirectory, ClipEntry clip,
+        ClipExportFormat format = ClipExportFormat.Original) => new()
+        {
+            Title = format == ClipExportFormat.Compatible ? "Export compatible copy" : "Export clip",
+            Filter = format == ClipExportFormat.Compatible
+                ? clip.Media.HdrVideo ? "Compatible SDR MP4 (H.264) (*.mp4)|*.mp4" : "Compatible MP4 (H.264) (*.mp4)|*.mp4"
+                : clip.Media.HdrVideo
+                    ? clip.Media.LosslessVideo ? "Original lossless HDR MP4 (HEVC 4:4:4) (*.mp4)|*.mp4" : "Original HDR MP4 (HEVC Main10) (*.mp4)|*.mp4"
+                    : clip.Media.LosslessVideo ? "Original lossless MP4 (H.264 4:4:4) (*.mp4)|*.mp4" : "MP4 video (*.mp4)|*.mp4",
+            FilterIndex = 1,
+            FileName = SuggestedExportFileName(clip, format, exportDirectory),
+            DefaultExt = ".mp4",
+            AddExtension = true,
+            CheckPathExists = true,
+            OverwritePrompt = false,
+            InitialDirectory = Directory.Exists(exportDirectory) ? exportDirectory :
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+        };
 
-    internal static Microsoft.Win32.SaveFileDialog CreateExportDialog(string exportDirectory, ClipEntry clip) => new()
+    // Originals that most players can't open get a suffix, so they aren't mistaken for the shareable copy.
+    // A name another export already uses in the folder gets the clip's ID added.
+    internal static string SuggestedExportFileName(ClipEntry clip, ClipExportFormat format, string? exportDirectory = null)
     {
-        Title = "Export clip",
-        Filter = clip.Media.HdrVideo
-            ? clip.Media.LosslessVideo
-                ? "Compatible SDR MP4 (H.264) (*.mp4)|*.mp4|Original lossless HDR MP4 (HEVC 4:4:4) (*.mp4)|*.mp4"
-                : "Compatible SDR MP4 (H.264) (*.mp4)|*.mp4|Original HDR MP4 (HEVC Main10) (*.mp4)|*.mp4"
-            : clip.Media.LosslessVideo
-                ? "Compatible MP4 (H.264) (*.mp4)|*.mp4|Original lossless MP4 (H.264 4:4:4) (*.mp4)|*.mp4"
-                : "MP4 video (*.mp4)|*.mp4",
-        FilterIndex = 1,
-        FileName = clip.SuggestedExportName,
-        DefaultExt = ".mp4",
-        AddExtension = true,
-        CheckPathExists = true,
-        OverwritePrompt = false,
-        InitialDirectory = Directory.Exists(exportDirectory) ? exportDirectory :
-            Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+        var suffix = format == ClipExportFormat.Original && clip.Media.LosslessVideo ? "-lossless.mp4"
+            : format == ClipExportFormat.Original && clip.Media.HdrVideo ? "-hdr.mp4" : ".mp4";
+        var name = clip.ExportBaseName + suffix;
+        try
+        {
+            if (!string.IsNullOrEmpty(exportDirectory) && File.Exists(Path.Combine(exportDirectory, name)))
+                return clip.UniqueExportBaseName + suffix;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { }
+        return name;
+    }
+
+    private static ClipCardItem? CardFor(object sender) => sender switch
+    {
+        FrameworkElement { DataContext: ClipCardItem item } => item,
+        MenuItem { Parent: ContextMenu { PlacementTarget: FrameworkElement { DataContext: ClipCardItem item } } } => item,
+        _ => null
     };
+
+    private void RenameClip_Click(object sender, RoutedEventArgs e) { if (CardFor(sender) is { } item) Model?.BeginRename(item); }
+    private void DeleteClip_Click(object sender, RoutedEventArgs e) { if (CardFor(sender) is { } item) Model?.BeginDelete(item); }
+    private void RenameSelected_Click(object sender, RoutedEventArgs e) { if (Model is { SelectedClip: { } item } model) model.BeginRename(item); }
+    private void DeleteSelected_Click(object sender, RoutedEventArgs e) { if (Model is { SelectedClip: { } item } model) model.BeginDelete(item); }
+
+    private void ClipCard_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (CardFor(sender) is not { } item || Model is not { } model || Keyboard.Modifiers != ModifierKeys.None) return;
+        if (e.Key == Key.F2) { model.BeginRename(item); e.Handled = true; }
+        else if (e.Key == Key.Delete) { model.BeginDelete(item); e.Handled = true; }
+    }
+
+    private void RenameBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (Model is not { } model) return;
+        if (e.Key == Key.Enter && model.ConfirmRenameCommand.CanExecute(null)) { model.ConfirmRenameCommand.Execute(null); e.Handled = true; }
+        else if (e.Key == Key.Escape) { model.CancelManagement(); e.Handled = true; }
+    }
+
+    private void ClipSearch_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || Model is not { HasSearchText: true } model) return;
+        model.ClearSearchCommand.Execute(null);
+        e.Handled = true;
+    }
 
     internal static string? ValidateExportDestination(string destination)
     {

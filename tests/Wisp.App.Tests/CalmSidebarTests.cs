@@ -361,8 +361,10 @@ public sealed class CalmSidebarTests
             Assert.Equal(new Thickness(2), focus.BorderThickness);
             Assert.False(focus.IsHitTestVisible);
             Assert.Equal(Visibility.Hidden, focus.Visibility);
-            var trigger = Assert.Single(button.Template.Triggers.OfType<Trigger>(),
-                item => item.Property == UIElement.IsKeyboardFocusedProperty && Equals(item.Value, true));
+            // A click also focuses the button; only keyboard navigation shows the ring.
+            var trigger = Assert.Single(button.Template.Triggers.OfType<MultiTrigger>(), item =>
+                item.Conditions.Any(condition => condition.Property == UIElement.IsKeyboardFocusedProperty && Equals(condition.Value, true)) &&
+                item.Conditions.Any(condition => condition.Property == FocusCues.ShowKeyboardFocusProperty && Equals(condition.Value, true)));
             Assert.Contains(trigger.Setters.OfType<Setter>(), setter => setter.TargetName == "ButtonFocus" &&
                 setter.Property == UIElement.VisibilityProperty && Equals(setter.Value, Visibility.Visible));
             focus.Visibility = Visibility.Visible;

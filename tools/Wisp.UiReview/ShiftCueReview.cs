@@ -104,15 +104,14 @@ internal static class ShiftCueReview
                 if (toggle.Template is null || expander.Template is null) failures.Add(phase + "/missing-template");
                 foreach (var button in Descendants(control).OfType<Button>())
                     if (button.Style is null || button.Template is null) failures.Add(phase + "/unstyled-button");
-                var hasFocusTrigger = toggle.Template!.Triggers.OfType<Trigger>()
-                    .Any(t => t.Property == UIElement.IsKeyboardFocusedProperty);
+                var hasFocusTrigger = FocusTriggers.HasKeyboardOnly(toggle.Template!, UIElement.IsKeyboardFocusedProperty);
                 if (!hasFocusTrigger) failures.Add(phase + "/missing-authored-focus-trigger");
                 if (variant == "focus-treatment")
                 {
                     // Detached capture cannot acquire genuine keyboard focus
                     // without an input host. Show the authored trigger's border
                     // treatment explicitly; never send focus or create a window.
-                    var track = (Border)toggle.Template.FindName("ToggleTrack", toggle);
+                    var track = (Border)toggle.Template!.FindName("ToggleTrack", toggle);
                     track.SetResourceReference(Border.BorderBrushProperty, "TextBrush");
                     var disclosure = (System.Windows.Controls.Primitives.ToggleButton)expander.Template!.FindName("Disclosure", expander);
                     disclosure.ApplyTemplate();
