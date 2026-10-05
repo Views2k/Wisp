@@ -36,6 +36,32 @@ update-helper identity, the staged `Wisp.NativeRenderer.dll`, Native asset
 manifest, bundled .NET 8.0.31 notices, and the installer/checksum pair before
 promotion.
 
+### Steam and Xbox verification
+
+Every change must assess both Steam and Xbox app / Microsoft Store on Windows
+PC. Record each platform separately; a Steam result never establishes Xbox
+compatibility, or vice versa.
+
+For native compatibility or game-process changes, verify the affected behavior
+on both platforms against their own exact game identities. Shared changes need
+appropriate regression coverage for both platform paths. Keep checks scoped to
+the change: documentation or unrelated UI edits do not require a full gameplay
+matrix.
+
+Before release, record for each platform:
+
+- the Wisp source revision and tested artifact, plus the game version and
+  validated build identity when a live check is relevant;
+- the affected features, checks performed, results, and evidence location;
+- any checks not run, why they were not run, and the resulting support limits.
+
+For a game-update compatibility fix, check HUD and Tune separately and verify a
+short Clips save, video decode, and game-audio capture on each platform. Passing
+offline contracts or configuring the recorder without capturing media does not
+replace these live checks. Outstanding affected-platform checks remain release
+gaps and must be resolved or explicitly accepted before publication; do not mark
+them passed or omit the platform.
+
 ## Automated coverage
 
 ### Core

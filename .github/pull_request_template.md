@@ -14,6 +14,7 @@
 - [ ] The change improves usability, functionality, feel, reliability, or maintenance, or fixes a verified bug.
 - [ ] I have read and agree to the contributor-rights terms in `CONTRIBUTING.md`.
 - [ ] Regression coverage has been added or updated where appropriate.
+- [ ] Steam and Xbox app / Microsoft Store impacts, checks, and outstanding gaps are recorded separately as required by `docs/VALIDATION.md`.
 - [ ] The complete Release test suite passes.
 - [ ] No credentials, personal data, machine paths, game binaries, save data, private captures, or generated output are included, except matching shader bytecode for an approved shader change described in `docs/SHADERS.md`.
 - [ ] User-facing changes are recorded in `CHANGELOG.md`.

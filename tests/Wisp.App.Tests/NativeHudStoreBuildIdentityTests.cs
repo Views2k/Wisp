@@ -29,6 +29,85 @@ public sealed class NativeHudStoreBuildIdentityTests
         Assert.Equal(new[] { (Module, 4096), (Module + 0x1100, 32), (Module + 0x1200, 64) }, memory.Reads);
     }
 
+    [Fact]
+    public void DefaultFactoryAdmissionRetainsExactImageGuardReads()
+    {
+        var memory = new Memory();
+        var identity = ParseIdentity(IdentityDocument(memory));
+        var factory = new NativeHudProcessMemoryFactory(Catalog());
+
+        Assert.True(factory.MatchesStoreImage(identity, memory, Module));
+        Assert.Equal(new[] { (Module, 4096), (Module + 0x1100, 32), (Module + 0x1200, 64) }, memory.Reads);
+        memory.Bytes[0x1200] ^= 1;
+        Assert.False(factory.MatchesStoreImage(identity, memory, Module));
+    }
+
+    [Fact]
+    public void DiagnosticAdmissionWrapperGuardsEveryReadOnBothValidationPasses()
+    {
+        var memory = new Memory();
+        var identity = ParseIdentity(IdentityDocument(memory));
+        var guardedReads = new List<(ulong Address, int Length)>();
+        var wrapperCount = 0;
+        var factory = new NativeHudProcessMemoryFactory(Catalog(), candidate =>
+        {
+            Assert.Same(memory, candidate);
+            wrapperCount++;
+            return new BeforeReadMemory(candidate, (address, length) =>
+            {
+                Assert.Equal(memory.Reads.Count, guardedReads.Count);
+                guardedReads.Add((address, length));
+            });
+        });
+
+        Assert.True(factory.MatchesStoreImage(identity, memory, Module));
+        Assert.True(factory.MatchesStoreImage(identity, memory, Module));
+        Assert.Equal(2, wrapperCount);
+        Assert.Equal(6, guardedReads.Count);
+        Assert.Equal(memory.Reads, guardedReads);
+        memory.Bytes[0x1200] ^= 1;
+        Assert.False(factory.MatchesStoreImage(identity, memory, Module));
+        Assert.Equal(memory.Reads, guardedReads);
+    }
+
+    [Fact]
+    public void DiagnosticAdmissionStopPropagatesBeforeAnotherRawRead()
+    {
+        var memory = new Memory();
+        var identity = ParseIdentity(IdentityDocument(memory));
+        var stopped = new AdmissionStoppedException();
+        var readAttempts = 0;
+        var factory = new NativeHudProcessMemoryFactory(Catalog(), candidate =>
+            new BeforeReadMemory(candidate, (_, _) =>
+            {
+                if (++readAttempts >= 5) throw stopped;
+            }));
+
+        Assert.True(factory.MatchesStoreImage(identity, memory, Module));
+        Assert.Same(stopped, Assert.Throws<AdmissionStoppedException>(() =>
+            factory.MatchesStoreImage(identity, memory, Module)));
+        Assert.Equal(4, memory.Reads.Count);
+        Assert.False(NativeHudFingerprintCache.IsExpectedFailure(stopped));
+    }
+
+    [Fact]
+    public void MissingDiagnosticAdmissionWrapperDoesNotFallBackToRawReads()
+    {
+        var memory = new Memory();
+        var identity = ParseIdentity(IdentityDocument(memory));
+        var factory = new NativeHudProcessMemoryFactory(Catalog(), _ => null!);
+
+        Assert.Throws<InvalidOperationException>(() => factory.MatchesStoreImage(identity, memory, Module));
+        Assert.Empty(memory.Reads);
+    }
+
+    [Fact]
+    public void DiagnosticFactoryRequiresAnExplicitReadWrapper()
+    {
+        Assert.Throws<ArgumentNullException>(() => new NativeHudProcessMemoryFactory(Catalog(),
+            (Func<IReadOnlyProcessMemory, IReadOnlyProcessMemory>)null!));
+    }
+
     [Theory]
     [InlineData("missing-name")]
     [InlineData("extra-property")]
@@ -308,6 +387,46 @@ public sealed class NativeHudStoreBuildIdentityTests
         var exception = Assert.Throws<NativeCompatibilityEnvelopeException>(() => NativeCompatibilityEnvelope.Verify(
             envelope, new Dictionary<string, byte[]>(), now));
         Assert.Equal(NativeCompatibilityInstallCode.UntrustedPublisher, exception.Code);
+    }
+
+    private static NativeCompatibilityCatalog Catalog() =>
+        new(NativeHudBuildContract.BuiltIn, null, new Dictionary<string, byte[]>());
+
+    private sealed class AdmissionStoppedException : Exception
+    {
+    }
+
+    private sealed class BeforeReadMemory(IReadOnlyProcessMemory inner, Action<ulong, int> before) : IReadOnlyProcessMemory
+    {
+        public bool TryReadBytes(ulong address, Span<byte> destination)
+        {
+            before(address, destination.Length);
+            return inner.TryReadBytes(address, destination);
+        }
+
+        public bool TryReadByte(ulong address, out byte value)
+        {
+            before(address, sizeof(byte));
+            return inner.TryReadByte(address, out value);
+        }
+
+        public bool TryReadUInt32(ulong address, out uint value)
+        {
+            before(address, sizeof(uint));
+            return inner.TryReadUInt32(address, out value);
+        }
+
+        public bool TryReadUInt64(ulong address, out ulong value)
+        {
+            before(address, sizeof(ulong));
+            return inner.TryReadUInt64(address, out value);
+        }
+
+        public bool TryReadSingle(ulong address, out float value)
+        {
+            before(address, sizeof(float));
+            return inner.TryReadSingle(address, out value);
+        }
     }
 
     private static JsonObject StorePackDocument()
