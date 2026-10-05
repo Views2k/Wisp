@@ -4,6 +4,7 @@
 
 Wisp bundles separate Native HUD compatibility contracts for:
 
+- Steam FH6 build `6.461.691.0`, identified by its recorded executable fingerprint;
 - Steam FH6 build `6.440.853.0`, identified by its recorded executable fingerprint;
 - Steam FH6 build `6.430.771.0`, identified by its recorded executable fingerprint;
 - Xbox app / Microsoft Store Windows PC build `3.440.853.0`, identified by its

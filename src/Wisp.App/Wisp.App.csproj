@@ -11,9 +11,9 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp</AssemblyTitle>
     <Description>Wheel-indicated speed and G-force display for Forza Horizon 6.</Description>
-    <Version>2.6.2</Version>
-    <FileVersion>2.6.2.0</FileVersion>
-    <AssemblyVersion>2.6.2.0</AssemblyVersion>
+    <Version>2.6.3</Version>
+    <FileVersion>2.6.3.0</FileVersion>
+    <AssemblyVersion>2.6.3.0</AssemblyVersion>
     <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
     <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
     <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
@@ -96,6 +96,7 @@
     <Resource Include="Assets\Wisp-logo.png" />
     <Resource Include="Assets\Native\**\*.png" />
     <EmbeddedResource Include="NativeCompatibility\fh6-6.440.853.0.json" LogicalName="Wisp.NativeCompatibility.BuiltIn.json" />
+    <EmbeddedResource Include="NativeCompatibility\fh6-6.461.691.0.json" LogicalName="Wisp.NativeCompatibility.UpdatedSteam.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-6.430.771.0.json" LogicalName="Wisp.NativeCompatibility.PreviousSteam.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.440.853.0.json" LogicalName="Wisp.NativeCompatibility.Store.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.430.771.0.json" LogicalName="Wisp.NativeCompatibility.PreviousStore.json" />
