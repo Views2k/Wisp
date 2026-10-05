@@ -124,6 +124,8 @@ public sealed class NativeCompatibilityUpdateClientTests
         Assert.True(second.Success);
         Assert.False(second.Changed);
         Assert.Equal(NativeCompatibilityUpdateCode.UpToDate, second.Code);
+        Assert.Equal("The available compatibility packs are installed.", second.Message);
+        Assert.Equal(second.Message, client.Status);
         Assert.Equal(2, handler.SendCount);
         Assert.Equal(1, fixture.Catalog.Generation);
     }

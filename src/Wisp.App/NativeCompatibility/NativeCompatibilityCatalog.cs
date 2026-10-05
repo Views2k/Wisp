@@ -529,7 +529,7 @@ public sealed class NativeCompatibilityCatalog
 
         if (replacements.Count == 0)
         {
-            Volatile.Write(ref _status, "The signed compatibility packs are already installed.");
+            Volatile.Write(ref _status, "The available compatibility packs are installed.");
             var installed = Array.AsReadOnly(verified.Packs.Select(pack => FindFingerprint(Fingerprint(pack))!).ToArray());
             return new NativeCompatibilityInstallResult(
                 true, false, NativeCompatibilityInstallCode.AlreadyInstalled, Status, installed[0])

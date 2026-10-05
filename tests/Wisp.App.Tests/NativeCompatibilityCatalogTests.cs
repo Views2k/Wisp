@@ -144,6 +144,8 @@ public sealed class NativeCompatibilityCatalogTests
         Assert.True(again.Success);
         Assert.False(again.Changed);
         Assert.Equal(NativeCompatibilityInstallCode.AlreadyInstalled, again.Code);
+        Assert.Equal("The available compatibility packs are installed.", again.Message);
+        Assert.Equal(again.Message, catalog.Status);
         Assert.Equal(1, catalog.Generation);
     }
 

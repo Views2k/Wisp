@@ -38,6 +38,7 @@ public sealed partial class AppController : IAsyncDisposable
     private readonly NativeHudProcessService _nativeHudProcessService = new();
     internal INativeNeedleHistorySource NativeNeedleSource => _nativeHudProcessService;
     private readonly NativeCompatibilityUpdateClient _compatibilityUpdates = NativeCompatibilityRuntime.CreateUpdateClient();
+    private readonly NativeCompatibilityUpdateSchedule _compatibilitySchedule = new();
     private readonly CancellationTokenSource _compatibilityLifetime = new();
     private readonly WispUpdateClient _applicationUpdates = WispUpdateClient.CreateDefault();
     private readonly Func<Version, CancellationToken, Task<UpdateRelease?>> _checkForApplicationUpdate;
@@ -52,7 +53,6 @@ public sealed partial class AppController : IAsyncDisposable
     private VehicleState? _lastProcessedState;
     private DateTimeOffset _lastRenderAtUtc = DateTimeOffset.UtcNow;
     private DateTimeOffset _nextStatisticsAtUtc = DateTimeOffset.MinValue;
-    private DateTimeOffset _nextCompatibilityCheckAtUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _nextDiagnosticsAtUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _nextVisibilityCheckAtUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _nextFullscreenZOrderAtUtc = DateTimeOffset.MinValue;
@@ -495,14 +495,19 @@ public sealed partial class AppController : IAsyncDisposable
             return;
         }
 
-        _nextCompatibilityCheckAtUtc = DateTimeOffset.UtcNow + TimeSpan.FromDays(1);
+        var ownsSchedule = _compatibilitySchedule.TryBeginCheck(DateTimeOffset.UtcNow);
         _compatibilityImportStatus = null;
-        var check = _compatibilityUpdates.CheckOnceAsync(_compatibilityLifetime.Token);
-        UpdateCompatibilityDiagnostics();
-        await check;
-        if (!_disposed)
+        var success = false;
+        try
         {
+            var check = _compatibilityUpdates.CheckOnceAsync(_compatibilityLifetime.Token);
             UpdateCompatibilityDiagnostics();
+            success = (await check).Success;
+        }
+        finally
+        {
+            if (ownsSchedule) _compatibilitySchedule.CompleteCheck(DateTimeOffset.UtcNow, success);
+            if (!_disposed) UpdateCompatibilityDiagnostics();
         }
     }
 
@@ -873,10 +878,13 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void UpdateCompatibilityDiagnostics() => ViewModel.UpdateNativeCompatibility(
         _nativeHudProcessService.CompatibilityStatus,
-        NativeCompatibilityRuntime.DescribeCatalog(NativeCompatibilityRuntime.Catalog) + " " +
-        (_compatibilityImportStatus ?? (_compatibilityUpdates.IsConfigured
-            ? _compatibilityUpdates.Status
-            : "Offline: no update publisher configured.")),
+        NativeCompatibilityStatusText.Compose(
+            NativeCompatibilityRuntime.Catalog.Status,
+            NativeCompatibilityRuntime.Catalog.Diagnostics.FirstOrDefault(),
+            _compatibilityImportStatus ?? (_compatibilityUpdates.IsConfigured
+                ? _compatibilityUpdates.Status
+                : "Offline: no update publisher configured."),
+            _nativeHudProcessService.SnapshotFor(_receiver.Latest?.CarOrdinal ?? 0).Status),
         _compatibilityUpdates.IsConfigured && !_compatibilityUpdates.IsChecking,
         NativeCompatibilityRuntime.Catalog.HasTrustedPublishers && !_compatibilityImportRunning);
 
@@ -2191,7 +2199,10 @@ public sealed partial class AppController : IAsyncDisposable
     {
         if (!_disposed)
         {
-            if (_compatibilityUpdates.IsConfigured && DateTimeOffset.UtcNow >= _nextCompatibilityCheckAtUtc)
+            var now = DateTimeOffset.UtcNow;
+            var nativeStatus = _nativeHudProcessService.SnapshotFor(_receiver.Latest?.CarOrdinal ?? 0).Status;
+            _compatibilitySchedule.ObserveBuild(nativeStatus, _nativeHudProcessService.CompatibilityStatus, now);
+            if (_compatibilityUpdates.IsConfigured && _compatibilitySchedule.IsDue(now))
             {
                 _ = CheckNativeCompatibilityUpdatesAsync();
             }
