@@ -15,7 +15,7 @@
 
 ## Wisp 2.6.3
 
-2.6.3 restores the HUD and Tune reading after the Steam FH6 update to 6.461.691.0. Compatibility status is clearer, and Wisp automatically rechecks while waiting for support for a game build.
+2.6.3 restores the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store. Compatibility status is clearer, and Wisp automatically rechecks while waiting for support for a game build.
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.3 release notes](docs/releases/Wisp-2.6.3-release-notes.md)
 
@@ -360,7 +360,7 @@ renderer; Appearance previews and the fallback retain WPF rendering.
 - Set Forza Horizon 6's display mode to **Fullscreen**.
 
 Native process-derived HUD state supports Steam FH6 builds `6.461.691.0` and `6.440.853.0`, and
-Xbox app / Microsoft Store PC build `3.440.853.0`. Previous bundled maps remain
+Xbox app / Microsoft Store PC builds `3.461.691.0` and `3.440.853.0`. Previous bundled maps remain
 available for installations that have not updated FH6. See
 [Compatibility and Update Safety](docs/COMPATIBILITY.md#current-support) for the
 complete bundled-build list and validation rules. Data Out reception and dashboard

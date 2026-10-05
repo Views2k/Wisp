@@ -99,6 +99,7 @@
     <EmbeddedResource Include="NativeCompatibility\fh6-6.461.691.0.json" LogicalName="Wisp.NativeCompatibility.UpdatedSteam.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-6.430.771.0.json" LogicalName="Wisp.NativeCompatibility.PreviousSteam.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.440.853.0.json" LogicalName="Wisp.NativeCompatibility.Store.json" />
+    <EmbeddedResource Include="NativeCompatibility\fh6-store-3.461.691.0.json" LogicalName="Wisp.NativeCompatibility.UpdatedStore.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.430.771.0.json" LogicalName="Wisp.NativeCompatibility.PreviousStore.json" />
     <Resource Include="Shaders\*.ps" />
     <None Include="Shaders\*.hlsl" />

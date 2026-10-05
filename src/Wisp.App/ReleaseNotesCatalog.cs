@@ -18,11 +18,11 @@ public static class ReleaseNotesCatalog
             "2.6.3",
             "October 5, 2026",
             "FORZA COMPATIBILITY",
-            "Restore the HUD and Tune reading after the latest Steam Forza update, with clearer compatibility status and automatic rechecks.",
+            "Restore the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store, with clearer compatibility status and automatic rechecks.",
             true,
             [
                 Group("Fixes and improvements",
-                    "Fixed the HUD and Tune reading after the Steam FH6 update to 6.461.691.0.",
+                    "Fixed the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store.",
                     "Wisp now rechecks compatibility automatically while waiting for support for a game build.",
                     "Compatibility status messages are clearer and no longer repeat the same text.")
             ]),
