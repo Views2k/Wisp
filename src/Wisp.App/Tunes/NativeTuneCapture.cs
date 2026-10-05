@@ -49,7 +49,6 @@ internal static class NativeTuneCapture
 
         var descriptor = read.Pointer(source + 0x2E0);
         Require(read.Int32(descriptor) == ordinal);
-        _ = read.Pointer(source + 0x2D8);
         // The current-car Tune model uses actor attributes + 0x6EE4. Descriptor
         // payloads may retain sentinels; VerifyStable rechecks this active block.
         var activeWords = Words(read.Bytes(source + 0x71F4, 0xB8));
