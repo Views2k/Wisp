@@ -5,7 +5,7 @@
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
   <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to the latest release.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.2/Wisp-Setup-2.6.2.exe"><strong>Download Wisp 2.6.2</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.3/Wisp-Setup-2.6.3.exe"><strong>Download Wisp 2.6.3</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -13,11 +13,11 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.2
+## Wisp 2.6.3
 
-2.6.2 puts saved clips first and lets you rename, delete and search them in Wisp. HDR and lossless exports explain their choices before the save window opens, and focus outlines no longer appear after clicking.
+2.6.3 restores the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store. Compatibility status is clearer, and Wisp automatically rechecks while waiting for support for a game build.
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.2 release notes](docs/releases/Wisp-2.6.2-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.3 release notes](docs/releases/Wisp-2.6.3-release-notes.md)
 
 ### Clips
 
@@ -244,8 +244,8 @@ An optional quick tour introduces Clips, Tune, live map, lap delta and lap
 review. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.6.2](https://github.com/Views2k/Wisp/releases/download/v2.6.2/Wisp-Setup-2.6.2.exe) ·
-[2.6.2 release notes](docs/releases/Wisp-2.6.2-release-notes.md) ·
+[Download Wisp 2.6.3](https://github.com/Views2k/Wisp/releases/download/v2.6.3/Wisp-Setup-2.6.3.exe) ·
+[2.6.3 release notes](docs/releases/Wisp-2.6.3-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Older interface screenshots retain their original version labels. The gameplay
@@ -359,8 +359,8 @@ renderer; Appearance previews and the fallback retain WPF rendering.
   with Data Out enabled.
 - Set Forza Horizon 6's display mode to **Fullscreen**.
 
-Native process-derived HUD state supports Steam FH6 build `6.440.853.0` and
-Xbox app / Microsoft Store PC build `3.440.853.0`. Previous bundled maps remain
+Native process-derived HUD state supports Steam FH6 builds `6.461.691.0` and `6.440.853.0`, and
+Xbox app / Microsoft Store PC builds `3.461.691.0` and `3.440.853.0`. Previous bundled maps remain
 available for installations that have not updated FH6. See
 [Compatibility and Update Safety](docs/COMPATIBILITY.md#current-support) for the
 complete bundled-build list and validation rules. Data Out reception and dashboard
@@ -372,11 +372,11 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Download [Wisp-Setup-2.6.2.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.2/Wisp-Setup-2.6.2.exe).
+1. Download [Wisp-Setup-2.6.3.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.3/Wisp-Setup-2.6.3.exe).
 2. Run the installer.
 3. Complete the required setup wizard on first launch.
 
-The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.2) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
+The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.3) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
 
 **[WINDOWS POWERSHELL]**
 
@@ -496,6 +496,7 @@ To build the self-contained installer:
 
 ## Documentation
 
+- [Wisp 2.6.3 release notes](docs/releases/Wisp-2.6.3-release-notes.md)
 - [Wisp 2.6.2 release notes](docs/releases/Wisp-2.6.2-release-notes.md)
 - [Wisp 2.6.1 release notes](docs/releases/Wisp-2.6.1-release-notes.md)
 

@@ -4,8 +4,11 @@
 
 Wisp bundles separate Native HUD compatibility contracts for:
 
+- Steam FH6 build `6.461.691.0`, identified by its recorded executable fingerprint;
 - Steam FH6 build `6.440.853.0`, identified by its recorded executable fingerprint;
 - Steam FH6 build `6.430.771.0`, identified by its recorded executable fingerprint;
+- Xbox app / Microsoft Store Windows PC build `3.461.691.0`, identified by its
+  Store package and bounded loaded-image checks;
 - Xbox app / Microsoft Store Windows PC build `3.440.853.0`, identified by its
   Store package and bounded loaded-image checks;
 - Xbox app / Microsoft Store Windows PC build `3.430.771.0`, identified by its
@@ -95,11 +98,16 @@ executable code, commands, URLs, or trust keys.
 
 Wisp 1.1.2 configures a release-owned ECDSA P-256 public key and the fixed HTTPS
 endpoint `https://wispoverlay.com/compatibility/latest.json`. Checks run in the
-background at startup and once per day while Wisp stays open; Diagnostics also
-offers a manual check and signed-file import. Requests have bounded sizes and
+background at startup and once per day while Wisp stays open. An unsupported
+game build prompts an automatic check, with at least one minute between
+automatic requests. While that build remains unsupported, or a request fails,
+retries back off through one, five, fifteen and sixty minutes. Menu transitions
+and game restarts do not reset this cadence. Diagnostics also offers a manual
+check and signed-file import. Requests have bounded sizes and
 timeouts, no redirects, and no telemetry upload. A failed download or signature
 check leaves the accepted catalog unchanged. Bundled maps work without a
-network connection or an available publisher endpoint.
+network connection or an available publisher endpoint. Rechecking retrieves
+reviewed compatibility data; it does not authorize unknown memory layouts.
 
 The signed payload can contain one legacy contract (format 1) or up to eight
 contracts (format 2). A bundle can cover separate Steam and Store builds. Every

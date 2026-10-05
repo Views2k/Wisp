@@ -7,11 +7,13 @@ public static class NativeHudBuildContract
     // Embedded packs are trusted with the application. External packs must pass
     // the signed catalog before the process reader can select them.
     public static NativeHudCompatibilityPack BuiltIn { get; } = LoadBuiltIn();
+    internal static NativeHudCompatibilityPack UpdatedSteamBuiltIn { get; } = LoadBuiltIn("Wisp.NativeCompatibility.UpdatedSteam.json");
+    internal static NativeHudCompatibilityPack UpdatedStoreBuiltIn { get; } = LoadBuiltIn("Wisp.NativeCompatibility.UpdatedStore.json");
     internal static NativeHudCompatibilityPack PreviousSteamBuiltIn { get; } = LoadBuiltIn("Wisp.NativeCompatibility.PreviousSteam.json");
     internal static NativeHudCompatibilityPack StoreBuiltIn { get; } = LoadBuiltIn("Wisp.NativeCompatibility.Store.json");
     internal static NativeHudCompatibilityPack PreviousStoreBuiltIn { get; } = LoadBuiltIn("Wisp.NativeCompatibility.PreviousStore.json");
     internal static IReadOnlyList<NativeHudCompatibilityPack> AdditionalBuiltIns { get; } =
-        Array.AsReadOnly(new[] { PreviousSteamBuiltIn, StoreBuiltIn, PreviousStoreBuiltIn });
+        Array.AsReadOnly(new[] { UpdatedSteamBuiltIn, UpdatedStoreBuiltIn, PreviousSteamBuiltIn, StoreBuiltIn, PreviousStoreBuiltIn });
 
     public static string SupportedVersion => BuiltIn.GameVersion;
     public static long SupportedExecutableLength => BuiltIn.ExecutableLength;

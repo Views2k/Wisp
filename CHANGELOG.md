@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.3 - 2026-10-05
+
+- Restore the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store.
+- Recheck compatibility automatically while waiting for support for a game build.
+- Make compatibility status messages clearer and remove repeated text.
+
 ## 2.6.2 - 2026-10-04
 
 - Show saved clips first on the Clips page and fold Recording settings below the library, closed by default.

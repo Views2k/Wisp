@@ -15,6 +15,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
     private static readonly NativeHudFingerprintCache SharedFingerprints = new(new NativeHudFingerprintFileSystem());
     private readonly NativeCompatibilityCatalog _catalog;
     private readonly NativeHudFingerprintCache _fingerprints;
+    private readonly Func<IReadOnlyProcessMemory, IReadOnlyProcessMemory>? _storeAdmissionWrapper;
     private string _compatibilityStatus = "Built-in compatibility; awaiting FH6";
 
     public NativeHudProcessMemoryFactory() : this(NativeCompatibilityRuntime.Catalog)
@@ -26,10 +27,18 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
     {
     }
 
-    internal NativeHudProcessMemoryFactory(NativeCompatibilityCatalog catalog, NativeHudFingerprintCache fingerprints)
+    internal NativeHudProcessMemoryFactory(NativeCompatibilityCatalog catalog,
+        Func<IReadOnlyProcessMemory, IReadOnlyProcessMemory> storeAdmissionWrapper)
+        : this(catalog, SharedFingerprints, storeAdmissionWrapper ?? throw new ArgumentNullException(nameof(storeAdmissionWrapper)))
+    {
+    }
+
+    internal NativeHudProcessMemoryFactory(NativeCompatibilityCatalog catalog, NativeHudFingerprintCache fingerprints,
+        Func<IReadOnlyProcessMemory, IReadOnlyProcessMemory>? storeAdmissionWrapper = null)
     {
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _fingerprints = fingerprints ?? throw new ArgumentNullException(nameof(fingerprints));
+        _storeAdmissionWrapper = storeAdmissionWrapper;
     }
 
     public long CompatibilityGeneration => _catalog.Generation;
@@ -234,7 +243,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             }
 
             var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath));
-            if (!storeBuild.MatchesImage(candidate, identity.ModuleBase))
+            if (!MatchesStoreImage(storeBuild, candidate, identity.ModuleBase))
             {
                 status = NativeAssistProviderStatus.UnsupportedBuild;
                 SetStatus("The Xbox/Store FH6 image does not match the verified compatibility pack reader guards");
@@ -244,7 +253,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             process.Refresh();
             if (CaptureIdentity(process) != identity || !NativeHudProcessMemory.HandleMatchesIdentity(handle, identity, allowStoreFileAlias: true) ||
                 !NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var currentPackage) ||
-                currentPackage != package || !storeBuild.MatchesImage(candidate, identity.ModuleBase) ||
+                currentPackage != package || !MatchesStoreImage(storeBuild, candidate, identity.ModuleBase) ||
                 !ReferenceEquals(pack, _catalog.FindStore(package.PackageFullName, identity.ImageSize)))
             {
                 status = NativeAssistProviderStatus.ReadFailure;
@@ -262,6 +271,15 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         {
             handle?.Dispose();
         }
+    }
+
+    internal bool MatchesStoreImage(NativeHudStoreBuildIdentity storeBuild, IReadOnlyProcessMemory candidate, ulong moduleBase)
+    {
+        // Diagnostics can guard every admission read before the process is returned to the caller.
+        // The wrapper borrows candidate; the factory retains handle ownership on all exit paths.
+        var admission = _storeAdmissionWrapper is null ? candidate :
+            _storeAdmissionWrapper(candidate) ?? throw new InvalidOperationException("The Store admission read wrapper is unavailable.");
+        return storeBuild.MatchesImage(admission, moduleBase);
     }
 
     private static NativeHudProcessIdentity CaptureIdentity(Process process)

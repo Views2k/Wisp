@@ -208,10 +208,44 @@ public sealed class NativeTuneReadBoundaryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void UnreadableUnusedSetupPointerDoesNotPreventActiveTuneRead(bool store)
+    {
+        var memory = new Memory(store);
+        var expected = MiataInput();
+        var metadata = memory.CompleteCar(expected);
+        memory.Missing = Memory.Actor + 0x2D8;
+
+        var actual = NativeTuneCapture.Read(memory, metadata, Token, memory.Layout);
+        Assert.True(TuneDecoder.TryDecode(actual, out var snapshot, out var failure), failure.ToString());
+        Assert.True(TuneDecoder.TryDecode(expected, out var reference, out _));
+        Assert.True(reference!.Fields.SequenceEqual(snapshot!.Fields));
+        Assert.Equal(33, snapshot.Fields.Count(field => field.Status == TuneFieldStatus.Available));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void ActiveTuneStillRequiresItsConsumedDescriptor(bool store, bool mismatchedOrdinal)
+    {
+        var memory = new Memory(store);
+        var metadata = memory.CompleteCar(MiataInput());
+        memory.Missing = Memory.Actor + 0x2D8;
+        if (mismatchedOrdinal) memory.I32(Memory.Descriptor, -1);
+        else memory.U64(Memory.Actor + 0x2E0, 0);
+
+        Assert.Throws<InvalidDataException>(() => NativeTuneCapture.Read(memory, metadata, Token, memory.Layout));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void ActiveTuneChangeDuringCaptureStillRejectsTheWholeRead(bool store)
     {
         var memory = new Memory(store);
         var metadata = memory.CompleteCar(MiataInput());
+        memory.Missing = Memory.Actor + 0x2D8;
         memory.ChangeActiveOnRepeat = true;
         Assert.Throws<TuneChangedException>(() => NativeTuneCapture.Read(memory, metadata, Token, memory.Layout));
     }

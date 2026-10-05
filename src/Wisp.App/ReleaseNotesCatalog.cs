@@ -15,11 +15,23 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.3",
+            "October 5, 2026",
+            "FORZA COMPATIBILITY",
+            "Restore the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store, with clearer compatibility status and automatic rechecks.",
+            true,
+            [
+                Group("Fixes and improvements",
+                    "Fixed the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store.",
+                    "Wisp now rechecks compatibility automatically while waiting for support for a game build.",
+                    "Compatibility status messages are clearer and no longer repeat the same text.")
+            ]),
+        new(
             "2.6.2",
             "October 4, 2026",
             "CLIP LIBRARY",
             "Saved clips come first, with rename, delete and search, clearer export choices and keyboard-only focus outlines.",
-            true,
+            false,
             [
                 Group("Clips",
                     "Saved clips appear first on the Clips page. Recording settings are folded below your clips.",

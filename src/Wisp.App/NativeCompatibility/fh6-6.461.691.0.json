@@ -1,0 +1,649 @@
+{
+  "schemaVersion": 5,
+  "readerVersion": 5,
+  "id": "fh6-steam-6.461.691.0-x64",
+  "revision": 1,
+  "gameVersion": "6.461.691.0",
+  "executableLength": 184038360,
+  "executableSha256": "B8C18EC88AB3143DA03C3BB9BD9D0761F23E00F809B1BD9D50CF07496E5D1CE5",
+  "imageSize": 188481536,
+  "sourceVectorRva": 176870224,
+  "thresholdRva": 104833260,
+  "leadVtableRva": 113554928,
+  "expectedThresholdBits": 1036831949,
+  "fields": {
+    "sourceProvider": 30528,
+    "sourceCarOrdinal": 29708,
+    "providerRpm": 432,
+    "providerSimRedlineAngularVelocity": 584,
+    "providerTachometerMaximumAngularVelocity": 588,
+    "localPlayerFlag": 5220,
+    "localPlayerProviderFlag": 49968,
+    "stmState": 5168,
+    "absState": 5172,
+    "stmAvailable": 6068,
+    "tcrAvailable": 6069,
+    "absAvailable": 6070,
+    "lcAvailable": 6071,
+    "lcPrimary": 5356,
+    "lcMode": 8060,
+    "lcSecondary": 49696,
+    "tcrSecondary": 49696,
+    "tcrPrimary": 49700,
+    "tcrTertiary": 49704,
+    "tcrWheelValues": 49864,
+    "firstWheelPointer": 2976,
+    "secondWheelPointer": 2984,
+    "thirdWheelPointer": 2992,
+    "wheelId": 1440
+  },
+  "gameplayVisibility": {
+    "uiServiceRva": 177060008,
+    "uiServiceVtableRva": 113483816,
+    "dependencyVtableRva": 113403904,
+    "transitionManagerVtableRva": 113403792,
+    "hudPageVtableRva": 118014312,
+    "serviceDependencyOffset": 160,
+    "rootTransitionManagerOffset": 56,
+    "managerOwnerOffset": 192,
+    "managerCurrentPageOffset": 144,
+    "managerStateOffset": 104,
+    "pageTransitionManagerOffset": 656,
+    "pageUiVisibleOffset": 964
+  },
+  "nativeGauge": {
+    "registryGlobalRva": 176695832,
+    "registryKeyHash": 14601433220641418792,
+    "registryWrapperVtableRva": 111515992,
+    "registryContextVtableRva": 115409056,
+    "registryContextControlVtableRva": 111519144,
+    "registryContextOffset": 8,
+    "registryContextControlOffset": 16,
+    "registrySentinelOffset": 504,
+    "registryCountOffset": 512,
+    "registryBucketsOffset": 520,
+    "registryBucketsEndOffset": 528,
+    "registryBucketsCapacityOffset": 536,
+    "registryMaskOffset": 544,
+    "registryBucketCountOffset": 552,
+    "registryBucketStride": 16,
+    "registryBucketBoundaryOffset": 0,
+    "registryBucketNodeOffset": 8,
+    "registryNodeNextOffset": 8,
+    "registryNodeHashOffset": 16,
+    "registryNodeObjectOffset": 24,
+    "registryNodeControlOffset": 32,
+    "sharedControlObjectOffset": 16,
+    "hudVtableRva": 115445016,
+    "hudControlVtableRva": 110304848,
+    "hudSubobjectOffset": 48,
+    "hudSubobjectPointerOffset": 304,
+    "hudSubobjectVtableRva": 115445096,
+    "hudSubobjectSlotZeroTargetRva": 11467184,
+    "hudSubobjectSlotZeroPrologueHex": "488D4170C3",
+    "hudTypeVectorOffset": 112,
+    "hudTypeVectorMaximumCount": 64,
+    "hudTypeVectorBeginOffset": 0,
+    "hudTypeVectorEndOffset": 8,
+    "hudTypeVectorCapacityOffset": 16,
+    "hudTypeVectorEntryStride": 32,
+    "hudTypeTokenRva": 179277752,
+    "hudTypeTokenOffset": 0,
+    "hudTypeInstancesBeginOffset": 8,
+    "hudTypeInstancesEndOffset": 16,
+    "hudTypeInstancesCapacityOffset": 24,
+    "hudTypeInstanceCount": 1,
+    "hudTypeInstanceStride": 16,
+    "hudTypeInstanceObjectOffset": 0,
+    "hudTypeInstanceControlOffset": 8,
+    "outerControlVtableRva": 115427272,
+    "outerPrimaryVtableRva": 117226168,
+    "outerSecondaryVtableRva": 117226456,
+    "outerSecondaryOffset": 8,
+    "outerHudBackReferenceOffset": 16,
+    "outerHudControlBackReferenceOffset": 24,
+    "outerChildOffset": 56,
+    "outerSourceOffset": 64,
+    "outerPowerFillOffset": 112,
+    "outerRegenFillOffset": 136,
+    "childlessRegenPowerRatioBits": 1050253722,
+    "childVtableRva": 114328616,
+    "childModeOffset": 228,
+    "childAngleOffset": 244,
+    "childBlurOffset": 248,
+    "childSpeedDigitOneOffset": 252,
+    "childSpeedDigitTenOffset": 256,
+    "childSpeedDigitHundredOffset": 260,
+    "childSpeedLessOrEqualOneOffset": 264,
+    "childSpeedLessTenOffset": 265,
+    "childSpeedLessHundredOffset": 266,
+    "childHeadlightsOnOffset": 268,
+    "childGearOffset": 272,
+    "childGearPreviousOffset": 276,
+    "childGearNextOffset": 280,
+    "childRegenOffset": 304,
+    "childPowerOffset": 308,
+    "childGearGaugeStateOffset": 312,
+    "childUseDriveFor1Offset": 316,
+    "childRatioOffset": 320,
+    "childSpeedUnitObjectOffset": 360,
+    "childMaximumTachometerOffset": 368,
+    "childElectricMaximumSpeedOffset": 392,
+    "speedUnitEnumOffset": 4,
+    "speedUnitMphValue": 22,
+    "speedUnitKphValue": 23,
+    "providerPowerLimitFirstOffset": 9136,
+    "providerPowerLimitSecondOffset": 9148,
+    "providerPowerNumeratorOffset": 504,
+    "providerPowerDenominatorOffset": 2696,
+    "providerRegenTargetOffset": 5160,
+    "providerPowerDenominatorScaleBits": 1008981770,
+    "providerRegenScaleBits": 3214934016,
+    "providerRegenUpperBaseBits": 1048576000,
+    "providerElectricSpeedOffset": 5356,
+    "requiredProviderVtableSlots": [
+      {
+        "offset": 664,
+        "targetRva": 52170240
+      },
+      {
+        "offset": 856,
+        "targetRva": 52181104
+      },
+      {
+        "offset": 1464,
+        "targetRva": 52196064
+      },
+      {
+        "offset": 1824,
+        "targetRva": 52180608
+      },
+      {
+        "offset": 1944,
+        "targetRva": 52190304
+      },
+      {
+        "offset": 3624,
+        "targetRva": 52195824
+      }
+    ]
+  },
+  "requiredVtableSlots": [
+    {
+      "offset": 528,
+      "targetRva": 52181152
+    },
+    {
+      "offset": 680,
+      "targetRva": 52199840
+    },
+    {
+      "offset": 688,
+      "targetRva": 52196144
+    },
+    {
+      "offset": 696,
+      "targetRva": 52169312
+    },
+    {
+      "offset": 1664,
+      "targetRva": 52181136
+    },
+    {
+      "offset": 4184,
+      "targetRva": 52198320
+    },
+    {
+      "offset": 4192,
+      "targetRva": 52167392
+    },
+    {
+      "offset": 4200,
+      "targetRva": 52183200
+    },
+    {
+      "offset": 4216,
+      "targetRva": 52183344
+    }
+  ],
+  "tune": {
+    "semanticsVersion": 1,
+    "profileId": "fh6-tune-imperial-v1",
+    "rvas": {
+      "0640EE78": 105013400,
+      "06446D18": 105242984,
+      "064BA6E8": 105717208,
+      "064FBE80": 105989888,
+      "065AC730": 106712768,
+      "06C79E70": 113851824,
+      "06C7A570": 113853616,
+      "06C7B3D8": 113857304,
+      "06C7B9B0": 113858800,
+      "06C7BC10": 113859408,
+      "08F12A78": 150026872,
+      "08F75670": 150431680,
+      "08F75A70": 150432704,
+      "0A7DB9E8": 175999512,
+      "0A861342": 176546642,
+      "0A861470": 176546944,
+      "0A862058": 176549992,
+      "0A862060": 176550000,
+      "0A8AF088": 176865480
+    },
+    "codeGuards": [
+      {
+        "role": "steam-range-007D4830",
+        "rva": 8227088,
+        "length": 19,
+        "sha256": "EF655DE8E31BABD8B84D0C86F2A106489F9C02533292D60A1A8E0A4F78879B48"
+      },
+      {
+        "role": "steam-range-007D6F90",
+        "rva": 8237168,
+        "length": 7,
+        "sha256": "C3EBE0EDA1A93EC38BC6F12D20BCC19248E3E7B68A53A20B495C5DB7C2EED7D4"
+      },
+      {
+        "role": "steam-range-007E5770",
+        "rva": 8296528,
+        "length": 4555,
+        "sha256": "4CBA1501F9A1F414405E70C2AA78402DCB4D8D0EBF940E57B5AF982B9B2CEC03"
+      },
+      {
+        "role": "steam-range-008268A0",
+        "rva": 8563072,
+        "length": 7,
+        "sha256": "DB1B05C90E941B70D59D4B28DDC3954E22E3D6DA1FB765E65BE6EC6947CD95F3"
+      },
+      {
+        "role": "steam-range-008F3790",
+        "rva": 9405360,
+        "length": 77,
+        "sha256": "C3B4AE9F154F014E56885583618F98FE55937078F85BABD85C0CDCD6A134CA4C"
+      },
+      {
+        "role": "steam-range-008F37E0",
+        "rva": 9405440,
+        "length": 77,
+        "sha256": "886582FA8B68FAE4623297FB12C71260128BC2309742F7C41BDA66CF10D16815"
+      },
+      {
+        "role": "steam-range-00A702F0",
+        "rva": 10965600,
+        "length": 415,
+        "sha256": "35DB61D6C22ED66E1FC98C727A281CA170BE8F88F04BB4C22D126FAAD7184475"
+      },
+      {
+        "role": "steam-range-00A72FF0",
+        "rva": 10977120,
+        "length": 32,
+        "sha256": "94BE67A1D9F6F5C4E481DBE9769E93B1D95B2A068A6B84FD0EC2092B7B649439"
+      },
+      {
+        "role": "steam-range-00A74830",
+        "rva": 10983328,
+        "length": 58,
+        "sha256": "C44CE88BD19423E43E665B15D98352FD2A90279306256B7AD91C97C0DA9E4EB2"
+      },
+      {
+        "role": "steam-range-00A74870",
+        "rva": 10983392,
+        "length": 207,
+        "sha256": "071AA60F0DA05B7AFCA25B576C335217BD2BF2897D049D4EFF1946AC43E855C6"
+      },
+      {
+        "role": "steam-range-00A74940",
+        "rva": 10983600,
+        "length": 58,
+        "sha256": "30382F12A6EDCA9E547100D982D20247A1F2FA9663531C9D859FA979961C4266"
+      },
+      {
+        "role": "steam-range-00A74980",
+        "rva": 10983664,
+        "length": 34,
+        "sha256": "CC228412DCA0F027CBB9FDBEE3815EDAA6A59EF3CDF9282C8CF7018F494F8E51"
+      },
+      {
+        "role": "steam-range-00A74BF0",
+        "rva": 10984288,
+        "length": 112,
+        "sha256": "BBEC12469F7675B66A24C5427CA78DA6A75FE441C275EA92BAB1995C3F8FFC8C"
+      },
+      {
+        "role": "steam-range-00A74CD0",
+        "rva": 10984512,
+        "length": 28,
+        "sha256": "61C06DBA40758F828A038CEFCD8732A814762F0838BB2BBC4D6316C4E7B5B46A"
+      },
+      {
+        "role": "steam-range-00A74CF0",
+        "rva": 10984544,
+        "length": 79,
+        "sha256": "2943ED17420DBE9CEFDB87B4F2194CEF74C44628F99819BDBF0155E09990AB2B"
+      },
+      {
+        "role": "steam-range-00A75AF0",
+        "rva": 10988128,
+        "length": 78,
+        "sha256": "E30F27AF74EB8B139C652E1BEC0B6F007B8C986F405CD604D4CE5720B0E673DA"
+      },
+      {
+        "role": "steam-range-00A76E40",
+        "rva": 10993072,
+        "length": 155,
+        "sha256": "20B77B39DE35571CEA747C02BC673BCE927F10B7B9D946D020F0F3128772C6F8"
+      },
+      {
+        "role": "steam-range-00A76F70",
+        "rva": 10993376,
+        "length": 39,
+        "sha256": "020FEA9DA8595A5CFC6B6E01136215CBA5C103655E6A8B67A9A581FD1D82AA7A"
+      },
+      {
+        "role": "steam-range-00A782F0",
+        "rva": 10998368,
+        "length": 950,
+        "sha256": "80E4D143C1A8AD0136259A7B7525396D616645111278F59376446E59F3F41170"
+      },
+      {
+        "role": "steam-range-00A7A5E0",
+        "rva": 11007312,
+        "length": 32,
+        "sha256": "711550378F000C20D9FD4D20D379D6D697D1CD6831245B50456C1DBA0CEB6602"
+      },
+      {
+        "role": "steam-range-00A7AAE0",
+        "rva": 11008592,
+        "length": 32,
+        "sha256": "F69F614A2CD1E8B7A8D8D60FA885A093ABD16A846A9390A311A53617F4920C2D"
+      },
+      {
+        "role": "steam-range-00A7AB00",
+        "rva": 11008624,
+        "length": 32,
+        "sha256": "BCA0E3743E3FF19C356D3C82369302937589051CB0FA7FDE8999E3D628ADE056"
+      },
+      {
+        "role": "steam-range-00A7AB20",
+        "rva": 11008656,
+        "length": 32,
+        "sha256": "22746E70AB674DF88F6DE684E5A2D477D13A0CD74494B5BA064932A724A8B4DC"
+      },
+      {
+        "role": "steam-range-00A7AB40",
+        "rva": 11008688,
+        "length": 32,
+        "sha256": "B0E8F30FF2EAD84B93F6AD894269B8E9EE4D4057585429A3831C14EB5E0D8A4A"
+      },
+      {
+        "role": "steam-range-01812E20",
+        "rva": 25300608,
+        "length": 138,
+        "sha256": "0EC0906D630D5114D0E28942F2E02102B0DD88CA43F42D9C3EB8EF6B792208CB"
+      },
+      {
+        "role": "steam-range-01812EAA",
+        "rva": 25300746,
+        "length": 268,
+        "sha256": "81EF56931F2FBF989FF59FAD7E416E0EECC6A34212B806EC4979EE1A612E0A7E"
+      },
+      {
+        "role": "steam-range-01812FB6",
+        "rva": 25301014,
+        "length": 174,
+        "sha256": "4F9DCE304BAAA64874A00A4A06673DB1646FE6192328914624917E26B2D832D7"
+      },
+      {
+        "role": "steam-range-01813064",
+        "rva": 25301188,
+        "length": 35,
+        "sha256": "FB6BC2BC533AE913FA67CD80123C47B3D23C8D9DE7A39C0306C3AE9B65004A3D"
+      },
+      {
+        "role": "steam-range-01813690",
+        "rva": 25302768,
+        "length": 54,
+        "sha256": "F8B77B0943DF5C21C937BB22916A3070A492D948BA311D7E39FB5A9E233C088A"
+      },
+      {
+        "role": "steam-range-01813FA0",
+        "rva": 25305088,
+        "length": 269,
+        "sha256": "048A1EB717A6C2AA16A64A09BFBA83CA01962EB39FEEFB35947CBF025231C4A4"
+      },
+      {
+        "role": "steam-range-01814670",
+        "rva": 25306832,
+        "length": 166,
+        "sha256": "6253B114D0A7F712CCB8DC0B60ED7586A57703D9762E58F28DC247FD015E7C0F"
+      },
+      {
+        "role": "steam-range-01816680",
+        "rva": 25315040,
+        "length": 809,
+        "sha256": "259876EEF0F5D1C85CB6528A7467B39CF8B8D350C08690C7630021977D9BCBD3"
+      },
+      {
+        "role": "steam-range-01819680",
+        "rva": 25327328,
+        "length": 93,
+        "sha256": "0AC019A99652C2F53B89EFDC49836BC2938ECC4FB546DB2AB7C8F76F5370CBE2"
+      },
+      {
+        "role": "steam-range-018196E0",
+        "rva": 25327424,
+        "length": 69,
+        "sha256": "3AA369E57F2B49B811FD2369F1DE36DAF430E9AE70F628C446E5BE437E2CA42B"
+      },
+      {
+        "role": "steam-range-01819750",
+        "rva": 25327536,
+        "length": 59,
+        "sha256": "DB69535955A0AB1272E4EA248D30C707BE37A6466B6BCF374AF40CD782DCFF8B"
+      },
+      {
+        "role": "steam-range-02A9FBD0",
+        "rva": 44752096,
+        "length": 8,
+        "sha256": "5C9FCC3479A40381BA020087B2E3ABD6128C3D9BB0755EC1EB6B4B7656E29BA0"
+      },
+      {
+        "role": "steam-range-02A9FBE0",
+        "rva": 44752112,
+        "length": 73,
+        "sha256": "C9D4C5C34DCD6D78B3AC7D970472E82EFB5CC5C9D14167853D735345B7445D29"
+      },
+      {
+        "role": "steam-range-02A9FC60",
+        "rva": 44752240,
+        "length": 8,
+        "sha256": "A73A7EDF9D44E71BCD78E8C619CE8EADEAD0E280A0C6C172E88D6B34DB6E0B25"
+      },
+      {
+        "role": "steam-range-02BCEB40",
+        "rva": 46001936,
+        "length": 45,
+        "sha256": "7B693ACCA091050877C368DD8D361DA54B976F5C9C9817ADA0E876BACE969E59"
+      },
+      {
+        "role": "steam-range-03123480",
+        "rva": 51618208,
+        "length": 12,
+        "sha256": "A1DAFE6761AD09FE5BB0ACE484ECD32B8D4E4B5AAB37742E762E4F5140D4256F"
+      },
+      {
+        "role": "steam-range-031AC820",
+        "rva": 52180288,
+        "length": 7,
+        "sha256": "98C1B4A615C8ED08839421FC66BD1A5728A69109C052EE6BA54FB4F9D76A2E81"
+      },
+      {
+        "role": "steam-range-031ACBB0",
+        "rva": 52181200,
+        "length": 9,
+        "sha256": "547A252761AF1C1DE2C7045020784A166A27CCC6DAF02BFD2FFE32DD0E0BC66E"
+      },
+      {
+        "role": "steam-range-034E5090",
+        "rva": 55556928,
+        "length": 183,
+        "sha256": "3053BC18BF4A7C88C6AD9B92CE89B31F801B36B9834B6945633032BC533D0788"
+      },
+      {
+        "role": "steam-range-034EAB00",
+        "rva": 55580080,
+        "length": 73,
+        "sha256": "F3ADBC8A4242887E12D325A456F45258F53EC9199714D50409ECDF3E0B2F8D61"
+      },
+      {
+        "role": "steam-range-034EAFE0",
+        "rva": 55581328,
+        "length": 13,
+        "sha256": "C2AF5DFA8B71123BE66F764746C05CE9CA2F103E981570D05A39ED735E320AC4"
+      },
+      {
+        "role": "steam-range-034EAFED",
+        "rva": 55581341,
+        "length": 46,
+        "sha256": "47A3FA02CF9143E2B2B2D533069364E4FFCA73FF4BA0EA01CC45F3429F96AB08"
+      },
+      {
+        "role": "steam-range-034ECE40",
+        "rva": 55589104,
+        "length": 465,
+        "sha256": "2D22AABDB4B795D5F19FD122D622CE3B78C77946D0A6C1645050F9FF1ED5B3EF"
+      },
+      {
+        "role": "steam-range-034F0D30",
+        "rva": 55605216,
+        "length": 183,
+        "sha256": "8C578BE06AD023918A28B819C15935A20A90C4BF5A4BDE739FEAE47A0A486747"
+      },
+      {
+        "role": "steam-range-034F3C50",
+        "rva": 55617280,
+        "length": 5,
+        "sha256": "A1DAC09F5CC282A00BAB87FAD1374A847503F5C28A98C13A483166FB7AFFA453"
+      },
+      {
+        "role": "steam-range-034F8180",
+        "rva": 55634992,
+        "length": 218,
+        "sha256": "A1D53F14E49035623D7C01DD9F922237D9DE276B327CE8E414586CE9493D91EA"
+      },
+      {
+        "role": "steam-range-034F8260",
+        "rva": 55635216,
+        "length": 643,
+        "sha256": "A7DC4C3101C7CACF524901822445DB259714F8F9E4E6ABFBABAD4ACD5A31901F"
+      },
+      {
+        "role": "steam-range-034F89C0",
+        "rva": 55637104,
+        "length": 91,
+        "sha256": "3F7BEBCFF49D2733A88A72E177825ACF67286C826DF218338FEE77067BB5817F"
+      },
+      {
+        "role": "steam-range-034F8A20",
+        "rva": 55637200,
+        "length": 60,
+        "sha256": "80E0257D1AC2A1124101D624EBFDFEAD47251BA408ED526092116CD46DDB8C2C"
+      },
+      {
+        "role": "steam-range-034FB0D0",
+        "rva": 55647104,
+        "length": 181,
+        "sha256": "5ADFE06F18AF81FF1782BA6F53042284C8F56FE942717C7F0596D789B95ADA69"
+      },
+      {
+        "role": "steam-range-034FB190",
+        "rva": 55647296,
+        "length": 76,
+        "sha256": "4FBF166A44B3752102C018B13299D486C72212817A4A40A6DF8771052956BD35"
+      },
+      {
+        "role": "steam-range-034FB1E0",
+        "rva": 55647376,
+        "length": 34,
+        "sha256": "60FD084ACEF821C1AE0105C7D3E0B9631FD09179C5BF95308CE03B9BB3C872F5"
+      },
+      {
+        "role": "steam-range-034FB210",
+        "rva": 55647424,
+        "length": 40,
+        "sha256": "2EDF3E89AE046CF5A7DD68700C07B0B43B01CA8482E2AFD08DA2A033379A607D"
+      },
+      {
+        "role": "steam-range-034FB240",
+        "rva": 55647472,
+        "length": 223,
+        "sha256": "C799896093AE54F2A703373AEB8B7EC00C50BA23DBDC7809F6BFE1D17FCF60D0"
+      }
+    ],
+    "providerSlots": [
+      {
+        "offset": 4840,
+        "targetRva": 52181200
+      },
+      {
+        "offset": 0,
+        "targetRva": 51618208
+      }
+    ],
+    "asset": {
+      "minimumLength": 16221184,
+      "maximumLength": 17269760,
+      "headerPageCount": 15409,
+      "parts": {
+        "Engine": {
+          "count": 3017,
+          "rowsSha256": "79D1BFE7DA2780931D6137D743CB19FF6F0DC8E443E4681ACCF1B13FC02CD226"
+        },
+        "Drivetrain": {
+          "count": 1375,
+          "rowsSha256": "EC51BA165ECCA66BB98F524689F38D1A18FCB22FD4F9A48DFF6B3B2C15DCE9F9"
+        },
+        "CarBody": {
+          "count": 790,
+          "rowsSha256": "07657E94C9EE2C9CE2C36B9B0F81744E253001BFAFE94EDDF39D9C20DC6E22DB"
+        },
+        "Motor": {
+          "count": 33,
+          "rowsSha256": "B3E3B5F6E081DFE302E19C83995D69DD0A049F12612D816D63A15E7527C67731"
+        },
+        "Brakes": {
+          "count": 1689,
+          "rowsSha256": "8EF8E68C52274C79F4787333AE2EF350EDFA046F985EDDA98F708E8F86321ACE"
+        },
+        "SpringDamper": {
+          "count": 2752,
+          "rowsSha256": "0B1466548BAC66BE2CA2B7BD64DABB4A42C18F869A180F5A0038D9A85AEBB869"
+        },
+        "FrontAntiroll": {
+          "count": 1541,
+          "rowsSha256": "C66C582A721C2F63AC1A41998F6A8819488B0E400FD6E17F35B6A9C55E0617FC"
+        },
+        "RearAntiroll": {
+          "count": 1578,
+          "rowsSha256": "001B3E9D30A1EB5FD2495E433ECC838E93412C1A62263E90304C25BC9C2C5EA3"
+        },
+        "RearAero": {
+          "count": 1669,
+          "rowsSha256": "F1AA81C45C123632A7CA41E2ACC43992B5A12A6601D46CB0DF5A3F9903C1C497"
+        },
+        "Transmission": {
+          "count": 5069,
+          "rowsSha256": "7B4C56864B70E571E86AD14BF3CA546C8B774B44F0335BAC20A62314A3D2117A"
+        },
+        "Differential": {
+          "count": 3491,
+          "rowsSha256": "B4FC1799AB299D9F8BE360C688E122C924EE381AE7A0960E0623ACF493B24B1F"
+        },
+        "FrontAero": {
+          "count": 1761,
+          "rowsSha256": "A32536BA8A277A74710AA18D9CBB6EE5E71DFFB86C596CCCE6620587FB6EB002"
+        }
+      }
+    }
+  }
+}
