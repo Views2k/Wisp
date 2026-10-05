@@ -4,7 +4,7 @@ Notable changes to Wisp are recorded here.
 
 ## 2.6.3 - 2026-10-05
 
-- Restore the HUD and Tune reading after the Steam FH6 update to 6.461.691.0.
+- Restore the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store.
 - Recheck compatibility automatically while waiting for support for a game build.
 - Make compatibility status messages clearer and remove repeated text.
 
