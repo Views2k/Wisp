@@ -262,22 +262,22 @@ public partial class ClipsPage : UserControl
     // The format is chosen before this dialog, so it offers a single matching file type.
     internal static Microsoft.Win32.SaveFileDialog CreateExportDialog(string exportDirectory, ClipEntry clip,
         ClipExportFormat format = ClipExportFormat.Original) => new()
-    {
-        Title = format == ClipExportFormat.Compatible ? "Export compatible copy" : "Export clip",
-        Filter = format == ClipExportFormat.Compatible
-            ? clip.Media.HdrVideo ? "Compatible SDR MP4 (H.264) (*.mp4)|*.mp4" : "Compatible MP4 (H.264) (*.mp4)|*.mp4"
-            : clip.Media.HdrVideo
-                ? clip.Media.LosslessVideo ? "Original lossless HDR MP4 (HEVC 4:4:4) (*.mp4)|*.mp4" : "Original HDR MP4 (HEVC Main10) (*.mp4)|*.mp4"
-                : clip.Media.LosslessVideo ? "Original lossless MP4 (H.264 4:4:4) (*.mp4)|*.mp4" : "MP4 video (*.mp4)|*.mp4",
-        FilterIndex = 1,
-        FileName = SuggestedExportFileName(clip, format),
-        DefaultExt = ".mp4",
-        AddExtension = true,
-        CheckPathExists = true,
-        OverwritePrompt = false,
-        InitialDirectory = Directory.Exists(exportDirectory) ? exportDirectory :
-            Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
-    };
+        {
+            Title = format == ClipExportFormat.Compatible ? "Export compatible copy" : "Export clip",
+            Filter = format == ClipExportFormat.Compatible
+                ? clip.Media.HdrVideo ? "Compatible SDR MP4 (H.264) (*.mp4)|*.mp4" : "Compatible MP4 (H.264) (*.mp4)|*.mp4"
+                : clip.Media.HdrVideo
+                    ? clip.Media.LosslessVideo ? "Original lossless HDR MP4 (HEVC 4:4:4) (*.mp4)|*.mp4" : "Original HDR MP4 (HEVC Main10) (*.mp4)|*.mp4"
+                    : clip.Media.LosslessVideo ? "Original lossless MP4 (H.264 4:4:4) (*.mp4)|*.mp4" : "MP4 video (*.mp4)|*.mp4",
+            FilterIndex = 1,
+            FileName = SuggestedExportFileName(clip, format),
+            DefaultExt = ".mp4",
+            AddExtension = true,
+            CheckPathExists = true,
+            OverwritePrompt = false,
+            InitialDirectory = Directory.Exists(exportDirectory) ? exportDirectory :
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+        };
 
     // Originals that most players can't open get a suffix, so they aren't mistaken for the shareable copy.
     internal static string SuggestedExportFileName(ClipEntry clip, ClipExportFormat format) =>
