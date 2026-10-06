@@ -189,7 +189,14 @@ public sealed partial class RunStore
             EnsureDirectory();
             EnsureCapacity(header.Id);
             if (!_activeJournals.TryAdd(header.Id, 0)) throw new InvalidOperationException("This run is already being recorded.");
-            try { return new RunJournal(Path.Combine(_directory, $"{header.Id:N}.partial"), header, () => _activeJournals.TryRemove(header.Id, out _)); }
+            try
+            {
+                if (!ValidSchema(header)) throw new InvalidDataException("The run format is unsupported.");
+                // Older readers must reject the journal before recovering a prefix and
+                // discarding later samples whose contact fields they cannot deserialize.
+                return new RunJournal(Path.Combine(_directory, $"{header.Id:N}.partial"),
+                    header with { SchemaVersion = RecordedRun.CurrentSchemaVersion }, () => _activeJournals.TryRemove(header.Id, out _));
+            }
             catch { _activeJournals.TryRemove(header.Id, out _); throw; }
         }
         finally { reservation.Dispose(); }
@@ -274,6 +281,9 @@ public sealed partial class RunStore
 
     private async Task WriteAsync(RecordedRun run, bool overwrite)
     {
+        if ((run.SchemaVersion is RecordedRun.BaseSchemaVersion or RecordedRun.TuneAttachmentSchemaVersion) &&
+            ValidSchema(run) && run.Samples is { } samples && samples.Any(sample => sample?.State is { } state && HasContactData(state)))
+            run = run with { SchemaVersion = RecordedRun.CurrentSchemaVersion };
         Validate(run);
         if (!overwrite) EnsureCapacity(run.Id);
         var destination = RunPath(run.Id);
@@ -407,6 +417,8 @@ public sealed partial class RunStore
         foreach (var sample in run.Samples)
         {
             ValidateSample(sample, previous);
+            if (run.SchemaVersion < RecordedRun.CurrentSchemaVersion && HasContactData(sample.State))
+                throw new InvalidDataException("Object-contact telemetry requires run format version 3.");
             if (sample.State.CarOrdinal != run.Samples[0].State.CarOrdinal || sample.State.Drivetrain != run.Samples[0].State.Drivetrain)
                 throw new InvalidDataException("A run cannot combine different cars or drivetrains.");
             previous = sample;
@@ -429,9 +441,13 @@ public sealed partial class RunStore
     private static bool ValidSchema(RecordedRun run) => run.SchemaVersion switch
     {
         RecordedRun.BaseSchemaVersion => run.TuneAttachment is null,
-        RecordedRun.CurrentSchemaVersion => run.TuneAttachment is { IsValid: true },
+        RecordedRun.TuneAttachmentSchemaVersion => run.TuneAttachment is { IsValid: true },
+        RecordedRun.CurrentSchemaVersion => run.TuneAttachment is null or { IsValid: true },
         _ => false
     };
+
+    private static bool HasContactData(VehicleState state) =>
+        state.SmashableVelocityLossMetersPerSecond.HasValue || state.SmashableMassKilograms.HasValue;
 
     private static void ValidateMarker(RunMarker marker, RunMarker? previous, double duration)
     {
@@ -451,6 +467,9 @@ public sealed partial class RunStore
             (state.LocalVelocityXMetersPerSecond is { } localX && !FiniteBound(localX, 500)) ||
             (state.LocalVelocityYMetersPerSecond is { } localY && !FiniteBound(localY, 500)) ||
             (state.LocalVelocityZMetersPerSecond is { } localZ && !FiniteBound(localZ, 500)) ||
+            state.SmashableVelocityLossMetersPerSecond.HasValue != state.SmashableMassKilograms.HasValue ||
+            (state.SmashableVelocityLossMetersPerSecond is { } impactLoss && (!FiniteBound(impactLoss, 500) || impactLoss < 0)) ||
+            (state.SmashableMassKilograms is { } impactMass && (!FiniteBound(impactMass, 10_000_000) || impactMass < 0)) ||
             !FiniteBound(state.EngineMaximumRpm, 30_000) || state.EngineMaximumRpm < 0 ||
             !FiniteBound(state.PowerWatts, 100_000_000) || !FiniteBound(state.TorqueNm, 10_000_000) || !FiniteBound(state.BoostPressurePsi, 200) ||
             !FiniteBound(state.LateralAccelerationMetersPerSecondSquared, 10_000) || !FiniteBound(state.LongitudinalAccelerationMetersPerSecondSquared, 10_000) ||

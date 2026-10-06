@@ -26,7 +26,7 @@ internal static class LapReviewFixtures
                 CarOrdinal = 101,
                 Drivetrain = DrivetrainType.RearWheelDrive,
                 NumCylinders = 8,
-                Lap = new(new((float)(210 * Math.Cos(angle)), 0, (float)(140 * Math.Sin(angle))),
+                Lap = new(new((float)(210 * Math.Cos(angle)), (float)(80 + 24 * Math.Sin(angle) + 7 * Math.Sin(angle * 3)), (float)(140 * Math.Sin(angle))),
                     index % samplesPerLap * stepMilliseconds / 1000f, duration, (float)elapsed,
                     (ushort)(index / samplesPerLap), 1),
                 GroundSpeedMetersPerSecond = speed,

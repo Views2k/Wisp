@@ -33,7 +33,7 @@ public sealed class RunTuneAttachmentTests : IDisposable
     [Theory]
     [InlineData(1, true)]
     [InlineData(2, false)]
-    [InlineData(3, true)]
+    [InlineData(4, true)]
     public void SchemaAndStructuredAttachmentMustAgree(int version, bool attach)
     {
         var run = AttachedRun();
@@ -139,23 +139,34 @@ public sealed class RunTuneAttachmentTests : IDisposable
         Assert.Equal(JsonSerializer.Serialize(run, RunStore.JsonOptions), JsonSerializer.Serialize(loadedBulk, RunStore.JsonOptions));
     }
 
-    [Fact]
-    public async Task InterruptedV2JournalRecoversItsSnapshotAndMarksContinuityUnverified()
+    [Theory]
+    [InlineData(false, 2)]
+    [InlineData(true, 3)]
+    public async Task InterruptedJournalRecoversItsSnapshotAndMarksContinuityUnverified(bool newJournal, int expectedVersion)
     {
         var run = AttachedRun() with { Tune = "Legacy label" };
         var store = new RunStore(Folder("recovery"));
-        await using (var journal = store.CreateJournal(run with { Samples = [] }))
+        var journalPath = Path.Combine(Folder("recovery"), $"{run.Id:N}.partial");
+        if (newJournal)
         {
+            await using var journal = store.CreateJournal(run with { Samples = [] });
             foreach (var sample in run.Samples) await journal.AppendAsync(sample);
             await journal.FlushAsync();
             Assert.Empty(await store.ListAsync());
         }
-        var journalPath = Path.Combine(Folder("recovery"), $"{run.Id:N}.partial");
+        else
+        {
+            Directory.CreateDirectory(Folder("recovery"));
+            await File.WriteAllLinesAsync(journalPath,
+                new[] { JsonSerializer.Serialize(run with { Samples = [] }, RunStore.JsonOptions) }
+                    .Concat(run.Samples.Select(sample => JsonSerializer.Serialize(sample, RunStore.JsonOptions))),
+                TestContext.Current.CancellationToken);
+        }
         await File.AppendAllTextAsync(journalPath, "{\"elapsedSeconds\":", TestContext.Current.CancellationToken);
         var recovered = new RunStore(Folder("recovery"));
         Assert.Single(await recovered.ListAsync());
         var loaded = await recovered.LoadAsync(run.Id);
-        Assert.Equal(2, loaded.SchemaVersion);
+        Assert.Equal(expectedVersion, loaded.SchemaVersion);
         Assert.True(loaded.IsIncomplete);
         Assert.True(loaded.TuneAttachment!.DrivingContinuityInterrupted);
         Assert.Equal(run.Tune, loaded.Tune);
@@ -172,7 +183,7 @@ public sealed class RunTuneAttachmentTests : IDisposable
         var run = RunTestData.CreateRun();
         return run with
         {
-            SchemaVersion = RecordedRun.CurrentSchemaVersion,
+            SchemaVersion = RecordedRun.TuneAttachmentSchemaVersion,
             TuneAttachment = attachment,
             Samples = run.Samples.Select(sample => sample with
             {

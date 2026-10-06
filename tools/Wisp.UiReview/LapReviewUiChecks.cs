@@ -1,11 +1,13 @@
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Wisp.App;
 using Wisp.App.Runs;
@@ -44,7 +46,12 @@ internal static class LapReviewUiChecks
             var view = Descendants(expander).OfType<LapReviewView>().Single();
             var review = model.LapReview;
             var track = (LapReviewPlot)view.FindName("Track");
+            var track3D = (LapReviewTrack3D)view.FindName("Track3D");
             var trace = (LapReviewPlot)view.FindName("Trace");
+            var view2D = (RadioButton)view.FindName("View2D");
+            var view3D = (RadioButton)view.FindName("View3D");
+            var mapExportSurface = (FrameworkElement)view.FindName("MapExportSurface");
+            var saveMap = (Button)view.FindName("SaveMapPng");
             var scroll = (ScrollViewer)page.FindName("RunsScroll");
             var combos = Descendants(view).OfType<ComboBox>().ToArray();
             var channel = combos.Single(item => AutomationProperties.GetName(item) == "Lap map and graph channel");
@@ -54,7 +61,7 @@ internal static class LapReviewUiChecks
             var emptyReferenceHint = (TextBlock)view.FindName("EmptyReferenceHint");
             var cursorReadout = (Border)view.FindName("CursorReadout");
             var wheelReadings = (Expander)view.FindName("WheelReadings");
-            var slider = Descendants(view).OfType<Slider>().Single();
+            var slider = Descendants(view).OfType<Slider>().Single(item => AutomationProperties.GetName(item) == "Lap position cursor");
             check(review.Lap?.IsComplete == true && review.Reference?.IsComplete == true, "completed-A-and-B");
             check(review.Plot.Comparison?.CanCompare == true, "comparison-ready");
             check(review.Metrics.Any(item => item.Reference != "—"), "reference-metrics-present");
@@ -62,6 +69,15 @@ internal static class LapReviewUiChecks
             check(laps.IsEnabled && references.IsEnabled && emptyLapHint.Visibility == Visibility.Collapsed &&
                 emptyReferenceHint.Visibility == Visibility.Collapsed, "populated-lap-selectors-enabled-without-empty-hints");
             check(review.PinCommand.CanExecute(null) && !review.UnpinCommand.CanExecute(null), "benchmark-command-availability");
+            check(!review.Is3D && view2D.IsChecked == true && track.Visibility == Visibility.Visible &&
+                track3D.Visibility == Visibility.Collapsed, "existing-2d-default-preserved");
+            check(review.Lap!.Points.Max(point => point.Position.Y) - review.Lap.Points.Min(point => point.Position.Y) > 30,
+                "elevated-recording-fixture");
+            check(new[] { LapReviewChannel.Speed, LapReviewChannel.Delta, LapReviewChannel.Throttle, LapReviewChannel.Brake,
+                LapReviewChannel.Steering, LapReviewChannel.LateralG, LapReviewChannel.LongitudinalG, LapReviewChannel.CombinedG,
+                LapReviewChannel.Rpm, LapReviewChannel.Gear, LapReviewChannel.TireTemperature, LapReviewChannel.SlipRatio,
+                LapReviewChannel.SlipAngle, LapReviewChannel.Suspension }.All(original => review.Channels.Any(item => item.Channel == original)),
+                "all-existing-channels-retained");
 
             foreach (var (name, size) in new[] { ("normal", new Size(980, 750)), ("compact", new Size(720, 440)) })
             {
@@ -90,6 +106,7 @@ internal static class LapReviewUiChecks
                 check(review.Metrics.Count > 10 && review.Metrics.Any(item => item.Reference != "—"), name + "/section-statistics");
                 review.Channel = review.Channels.First(item => item.Channel == LapReviewChannel.Speed); Pump();
                 ScrollTo(track); Capture("map-speed-section");
+                VerifyMapImage("2d", track);
                 ScrollTo(trace); Capture("graph-speed-section");
                 ScrollTo(cursorReadout); Capture("cursor-readout");
                 check(Descendants(cursorReadout).OfType<TextBlock>().Any(item => item.Text == review.CursorDetails?.Speed), name + "/cursor-speed-binding");
@@ -100,6 +117,50 @@ internal static class LapReviewUiChecks
                 check(cursorReadout.TranslatePoint(new Point(cursorReadout.ActualWidth, 0), surface).X <= size.Width + 1, name + "/cursor-readout-within-width");
                 review.Channel = review.Channels.First(item => item.Channel == LapReviewChannel.Brake); Pump();
                 ScrollTo(track); Capture("map-brake-section");
+                var selectedLap = review.Lap; var selectedReference = review.Reference;
+                var selectedChannel = review.Channel; var selectedCursor = review.Cursor;
+                view3D.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump(); Arrange(surface, size);
+                Await(track3D.PrepareForTestAsync()); Pump();
+                check(review.Is3D && view3D.IsChecked == true && track.Visibility == Visibility.Collapsed &&
+                    track3D.Visibility == Visibility.Visible, name + "/3d-mode-binding");
+                check(track3D.IsReady && track3D.PreparedSegmentCount > 0, name + "/3d-scene-ready");
+                check(ReferenceEquals(review.Lap, selectedLap) && ReferenceEquals(review.Reference, selectedReference) &&
+                    ReferenceEquals(review.Channel, selectedChannel) && review.Cursor == selectedCursor &&
+                    review.Plot.SectionStart == 125 && review.Plot.SectionEnd == 265, name + "/3d-keeps-review-state");
+                check(ReferenceEquals(track3D.Data?.Lap, review.Lap) && ReferenceEquals(track3D.Data?.Reference, review.Reference) &&
+                    track3D.Data?.Cursor == review.Cursor && track3D.Data?.Channel == review.Channel.Channel,
+                    name + "/3d-shares-recorded-data");
+                var camera = (track3D.Yaw, track3D.Pitch, track3D.Roll, track3D.ZoomFactor);
+                track3D.Yaw = camera.Yaw + 35; track3D.Pitch = camera.Pitch + 8; track3D.Roll = camera.Roll + 12;
+                track3D.ZoomBy(1.2); track3D.PanBy(12, -8); Pump();
+                check(track3D.Yaw != camera.Yaw && track3D.Pitch != camera.Pitch && track3D.Roll != camera.Roll &&
+                    track3D.ZoomFactor != camera.ZoomFactor, name + "/3d-axis-and-zoom-controls");
+                slider.SetCurrentValue(RangeBase.ValueProperty, 180d); Pump();
+                check(review.Cursor == 180 && track3D.Data?.Cursor == 180 && trace.Data?.Cursor == 180,
+                    name + "/3d-shared-slider-cursor");
+                SendKey(track3D, Key.Right, surface); Pump();
+                check(review.Cursor == 181 && trace.Data?.Cursor == 181, name + "/3d-arrow-cursor");
+                foreach (var choice in review.Channels)
+                {
+                    channel.SetCurrentValue(Selector.SelectedItemProperty, choice); Pump(); Await(track3D.PrepareForTestAsync());
+                    check(track3D.IsReady && track3D.Data?.Channel == choice.Channel && trace.Data?.Channel == choice.Channel,
+                        name + "/3d-channel-" + choice.Channel);
+                }
+                review.Channel = review.Channels.First(item => item.Channel == LapReviewChannel.TireTemperature);
+                review.SelectedWheel = 3; Pump();
+                check(track3D.Data?.Wheel == 3 && trace.Data?.Wheel == 3, name + "/3d-retains-wheel-selection");
+                review.SelectedWheel = 0; review.Channel = selectedChannel; Pump(); Await(track3D.PrepareForTestAsync());
+                check(saveMap.IsEnabled && mapExportSurface.ActualWidth > 100 && mapExportSurface.ActualHeight > 100,
+                    name + "/map-export-surface-ready");
+                track3D.ResetView(); Pump();
+                check(track3D.Yaw == camera.Yaw && track3D.Pitch == camera.Pitch && track3D.Roll == camera.Roll &&
+                    track3D.ZoomFactor == camera.ZoomFactor, name + "/3d-reset-camera");
+                ScrollTo(mapExportSurface); Capture("map-3d-brake-section");
+                VerifyMapImage("3d", track3D);
+                view2D.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump(); Arrange(surface, size);
+                check(!review.Is3D && track.Visibility == Visibility.Visible && track3D.Visibility == Visibility.Collapsed &&
+                    track.Data?.Cursor == review.Cursor && review.Plot.SectionStart == 125 && review.Plot.SectionEnd == 265,
+                    name + "/2d-restores-with-shared-state");
                 var metrics = Descendants(view).OfType<ItemsControl>().Single(item => ReferenceEquals(item.ItemsSource, review.Metrics));
                 ScrollTo(metrics); Capture("section-metrics");
                 check(track.ActualWidth > 100 && trace.ActualWidth > 100, name + "/plots-have-layout");
@@ -127,11 +188,60 @@ internal static class LapReviewUiChecks
                     }
                 }
                 void Capture(string stage) { Arrange(surface, size); capture?.Invoke(name + "-" + stage, surface, size); }
+                void VerifyMapImage(string mode, FrameworkElement map)
+                {
+                    Arrange(surface, size);
+                    var bitmap = view.CaptureMapImage();
+                    var code = name + "/" + mode + "-png-";
+                    check(bitmap.IsFrozen && bitmap.PixelWidth is > 0 and <= 3840 && bitmap.PixelHeight is > 0 and <= 2160,
+                        code + "frozen-and-bounded");
+                    var pixels = Pixels(bitmap);
+                    var corners = CornerAlphas(pixels, bitmap);
+                    var opaque = corners.Length == 4 && corners.All(alpha => alpha == 255);
+                    check(opaque, code + "opaque-corners-without-layout-offset");
+                    if (!opaque) Console.WriteLine($"{code}corner-alpha=[{string.Join(",", corners)}]; pixels={bitmap.PixelWidth}x{bitmap.PixelHeight}; surface={mapExportSurface.RenderSize.Width:R}x{mapExportSurface.RenderSize.Height:R}");
+                    var mapBounds = map.TransformToAncestor(mapExportSurface).TransformBounds(new Rect(map.RenderSize));
+                    var legend = Descendants(mapExportSurface).OfType<System.Windows.Shapes.Rectangle>()
+                        .Single(item => ReferenceEquals(item.Fill, LapReviewPalette.LegendBrush));
+                    var legendBounds = legend.TransformToAncestor(mapExportSurface).TransformBounds(new Rect(legend.RenderSize));
+                    check(ColorfulPixels(pixels, bitmap, mapBounds, mapExportSurface.RenderSize) > 50, code + "contains-map-line");
+                    check(ColorfulPixels(pixels, bitmap, legendBounds, mapExportSurface.RenderSize) > 150, code + "contains-color-legend");
+                    if (name != "normal") return;
+
+                    var parent = Path.GetDirectoryName(Path.GetFullPath(unusedStoreDirectory))!;
+                    var scratch = Path.Combine(parent, "lap-map-png-check-" + Guid.NewGuid().ToString("N"));
+                    var destination = Path.Combine(scratch, "map.png");
+                    Directory.CreateDirectory(scratch);
+                    try
+                    {
+                        Await(RunImageExporter.WriteAsync(bitmap, destination));
+                        BitmapSource restored;
+                        using (var file = File.OpenRead(destination))
+                        {
+                            var decoder = new PngBitmapDecoder(file, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                            check(decoder.Frames.Count == 1, code + "single-frame");
+                            restored = decoder.Frames[0];
+                        }
+                        check(restored.PixelWidth == bitmap.PixelWidth && restored.PixelHeight == bitmap.PixelHeight &&
+                            SamePixels(Pixels(restored), pixels), code + "saved-pixels-round-trip");
+                        var before = Hash(destination);
+                        var rejected = false;
+                        try { Await(RunImageExporter.WriteAsync(bitmap, destination)); }
+                        catch (IOException) { rejected = true; }
+                        check(rejected && Hash(destination) == before, code + "existing-image-kept");
+                    }
+                    finally
+                    {
+                        if (File.Exists(destination)) File.Delete(destination);
+                        Directory.Delete(scratch, recursive: false);
+                    }
+                }
             }
 
             review.SetRuns(null, null); Ready(model); Arrange(surface, new(720, 440));
             check(!review.HasLap && !review.PinCommand.CanExecute(null) && !review.SectionStartCommand.CanExecute(null), "empty-review-disables-commands");
             check(!channel.IsEnabled && !slider.IsEnabled, "empty-review-disables-channel-and-cursor");
+            check(!view2D.IsEnabled && !view3D.IsEnabled && !saveMap.IsEnabled, "empty-review-disables-map-tools");
             check(!laps.HasItems && !references.HasItems && !laps.IsEnabled && !references.IsEnabled, "empty-lap-selectors-disabled");
             check(emptyLapHint.Visibility == Visibility.Visible && emptyReferenceHint.Visibility == Visibility.Visible &&
                 !emptyLapHint.IsHitTestVisible && !emptyReferenceHint.IsHitTestVisible, "empty-lap-selectors-show-passive-hints");
@@ -144,7 +254,7 @@ internal static class LapReviewUiChecks
             check(laps.IsEnabled && references.IsEnabled && emptyLapHint.Visibility == Visibility.Collapsed &&
                 emptyReferenceHint.Visibility == Visibility.Collapsed, "lap-selectors-recover-when-laps-load");
             check(!receiver.IsRunning && PresentationSource.FromVisual(surface) is null, "no-listener-or-presentation-window");
-            check(!Directory.Exists(unusedStoreDirectory), "in-memory-fixtures-never-access-storage");
+            check(!Directory.Exists(unusedStoreDirectory), "in-memory-fixtures-never-access-run-storage");
         }
         finally
         {
@@ -179,6 +289,58 @@ internal static class LapReviewUiChecks
             check(popup?.IsOpen == false, "popup-not-shown");
         }
     }
+
+    private static byte[] Pixels(BitmapSource bitmap)
+    {
+        if (bitmap.Format != PixelFormats.Pbgra32) bitmap = new FormatConvertedBitmap(bitmap, PixelFormats.Pbgra32, null, 0);
+        var pixels = new byte[checked(bitmap.PixelWidth * bitmap.PixelHeight * 4)];
+        bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+        return pixels;
+    }
+    private static int ColorfulPixels(byte[] pixels, BitmapSource bitmap, Rect region, Size surface)
+    {
+        var scaleX = bitmap.PixelWidth / surface.Width; var scaleY = bitmap.PixelHeight / surface.Height;
+        var left = Math.Clamp((int)Math.Ceiling(region.Left * scaleX), 0, bitmap.PixelWidth);
+        var right = Math.Clamp((int)Math.Floor(region.Right * scaleX), 0, bitmap.PixelWidth);
+        var top = Math.Clamp((int)Math.Ceiling(region.Top * scaleY), 0, bitmap.PixelHeight);
+        var bottom = Math.Clamp((int)Math.Floor(region.Bottom * scaleY), 0, bitmap.PixelHeight);
+        var count = 0;
+        for (var y = top; y < bottom; y++)
+            for (var x = left; x < right; x++)
+            {
+                var at = (y * bitmap.PixelWidth + x) * 4;
+                var maximum = Math.Max(pixels[at], Math.Max(pixels[at + 1], pixels[at + 2]));
+                var minimum = Math.Min(pixels[at], Math.Min(pixels[at + 1], pixels[at + 2]));
+                if (pixels[at + 3] >= 200 && maximum - minimum > 70) count++;
+            }
+        return count;
+    }
+    private static byte[] CornerAlphas(byte[] pixels, BitmapSource bitmap)
+    {
+        if (bitmap.PixelWidth < 4 || bitmap.PixelHeight < 4) return [];
+        // The one-pixel inset avoids fractional-DPI edge antialiasing while
+        // detecting layout offsets which leave unpainted image margins.
+        var result = new List<byte>(4);
+        foreach (var y in new[] { 1, bitmap.PixelHeight - 2 })
+            foreach (var x in new[] { 1, bitmap.PixelWidth - 2 })
+                result.Add(pixels[(y * bitmap.PixelWidth + x) * 4 + 3]);
+        return result.ToArray();
+    }
+    private static bool SamePixels(byte[] actual, byte[] expected)
+    {
+        if (actual.Length != expected.Length) return false;
+        for (var i = 0; i < actual.Length; i += 4)
+        {
+            if (actual[i + 3] != expected[i + 3]) return false;
+            // PNG stores straight alpha; WPF's premultiplied antialiasing can
+            // round a translucent channel by one when converting back.
+            var tolerance = expected[i + 3] == 255 ? 0 : 1;
+            for (var channel = 0; channel < 3; channel++)
+                if (Math.Abs(actual[i + channel] - expected[i + channel]) > tolerance) return false;
+        }
+        return true;
+    }
+    private static string Hash(string path) { using var stream = File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(stream)); }
 
     internal static void Arrange(FrameworkElement surface, Size size)
     {

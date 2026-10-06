@@ -9,7 +9,8 @@ namespace Wisp.App.Runs;
 
 public sealed record LapReviewPlotData(LapReviewLap? Lap, LapReviewLap? Reference,
     LapReviewComparison? Comparison, LapReviewChannel Channel, SpeedUnit SpeedUnit, int Cursor, int SectionStart, int SectionEnd,
-    int Wheel = 0, TireTemperatureUnit TemperatureUnit = TireTemperatureUnit.Fahrenheit);
+    int Wheel = 0, TireTemperatureUnit TemperatureUnit = TireTemperatureUnit.Fahrenheit,
+    TorqueUnit TorqueUnit = TorqueUnit.NewtonMeters, IReadOnlyList<LapReviewContact>? Contacts = null);
 
 public sealed class LapReviewPlot : FrameworkElement
 {
@@ -25,12 +26,6 @@ public sealed class LapReviewPlot : FrameworkElement
     private double _preparedDpi;
     private bool _preparedMap;
     private Brush? _preparedText, _preparedMuted, _preparedBackground;
-    private static readonly Brush[] Heat = Enumerable.Range(0, 64).Select(i =>
-    {
-        var t = i / 63d;
-        var brush = new SolidColorBrush(Color.FromRgb((byte)(60 + 190 * t), (byte)(200 - 60 * t), (byte)(245 - 150 * t)));
-        brush.Freeze(); return (Brush)brush;
-    }).ToArray();
     public LapReviewPlot() { Focusable = true; ClipToBounds = true; Cursor = Cursors.Cross; }
     protected override void OnRender(DrawingContext dc)
     {
@@ -63,7 +58,7 @@ public sealed class LapReviewPlot : FrameworkElement
     private static bool SamePlot(LapReviewPlotData? a, LapReviewPlotData b) => a is not null &&
         ReferenceEquals(a.Lap, b.Lap) && ReferenceEquals(a.Reference, b.Reference) && ReferenceEquals(a.Comparison, b.Comparison) &&
         a.Channel == b.Channel && a.SpeedUnit == b.SpeedUnit && a.SectionStart == b.SectionStart && a.SectionEnd == b.SectionEnd &&
-        a.Wheel == b.Wheel && a.TemperatureUnit == b.TemperatureUnit;
+        a.Wheel == b.Wheel && a.TemperatureUnit == b.TemperatureUnit && a.TorqueUnit == b.TorqueUnit && ReferenceEquals(a.Contacts, b.Contacts);
     private void Prepare(DrawingContext dc, LapReviewPlotData data, Brush muted, Brush background)
     {
         _hitPoints.Clear();
@@ -74,6 +69,8 @@ public sealed class LapReviewPlot : FrameworkElement
         if (!IsMap) values = values.Concat(Enumerable.Range(0, points.Length).Select(index => ReferenceValue(data, index)));
         var finite = values.Where(value => value is { } number && double.IsFinite(number)).Select(value => value!.Value).ToArray();
         var minimum = finite.Length == 0 ? 0 : finite.Min(); var maximum = finite.Length == 0 ? 1 : finite.Max();
+        var colorMinimum = minimum; var colorMaximum = maximum;
+        var constant = maximum == minimum;
         if (maximum - minimum < .001) maximum = minimum + 1;
         Func<LapReviewPoint, Point> project;
         if (IsMap)
@@ -105,7 +102,7 @@ public sealed class LapReviewPlot : FrameworkElement
             if (i % stride != 0 && i != points.Length - 1) continue;
             if (prior is { } previous && !broken && (IsMap || valid))
             {
-                var brush = IsMap && valid ? Heat[Math.Clamp((int)((value!.Value - minimum) / (maximum - minimum) * 63), 0, 63)] : IsMap ? muted : RunComparisonColors.RunA;
+                var brush = IsMap && valid ? LapReviewPalette.GetBrush(constant ? .5 : (value!.Value - colorMinimum) / (colorMaximum - colorMinimum)) : IsMap ? muted : RunComparisonColors.RunA;
                 var selected = i >= data.SectionStart && i <= data.SectionEnd;
                 dc.DrawLine(new(brush, selected ? 3 : 1.2), previous, p);
             }
@@ -125,9 +122,20 @@ public sealed class LapReviewPlot : FrameworkElement
                 previous = point;
             }
         }
-        if (IsMap) dc.DrawEllipse(null, new(RunComparisonColors.RunA, 2), project(points[0]), 6, 6);
+        if (IsMap) dc.DrawEllipse(null, new(LapReviewPalette.StartBrush, 2), project(points[0]), 6, 6);
+        if (data.Contacts is { } contacts)
+            foreach (var contact in contacts)
+            {
+                if (contact.PointIndex < 0 || contact.PointIndex >= _hitPoints.Count) continue;
+                var p = _hitPoints[contact.PointIndex].Position;
+                if (!IsMap) p.Y = area.Top + 7;
+                var marker = new StreamGeometry();
+                using (var shape = marker.Open()) { shape.BeginFigure(new Point(p.X, p.Y - 5), true, true); shape.LineTo(new Point(p.X + 5, p.Y + 4), true, false); shape.LineTo(new Point(p.X - 5, p.Y + 4), true, false); }
+                marker.Freeze();
+                dc.DrawGeometry(LapReviewPalette.ContactBrush, new Pen(background, 1), marker);
+            }
         var unit = Unit(data);
-        Label(dc, finite.Length == 0 ? "No comparable values for this channel" : $"{minimum:0.##} → {maximum:0.##} {unit}" + (IsMap ? " · low = blue, high = amber" : " · lap = cyan, reference = amber"), new(10, 5), muted);
+        Label(dc, finite.Length == 0 ? "No comparable values for this channel" : $"{colorMinimum:0.##} → {colorMaximum:0.##} {unit}" + (IsMap ? " · low = blue, high = red" : " · lap = cyan, reference = amber"), new(10, 5), muted);
         Label(dc, IsMap ? "Recorded line · start ring · click or use arrow keys" : $"Distance from lap start · 0–{data.Lap.RecordedDistanceMeters:0} m", new(10, ActualHeight - 21), muted);
     }
     private static void DrawPath(DrawingContext dc, LapReviewPoint[] points, Func<LapReviewPoint, Point> project, Pen pen)
@@ -166,6 +174,9 @@ public sealed class LapReviewPlot : FrameworkElement
             LapReviewChannel.CombinedG => Math.Sqrt(Math.Pow(state.LateralAccelerationMetersPerSecondSquared, 2) + Math.Pow(state.LongitudinalAccelerationMetersPerSecondSquared, 2)) / 9.80665,
             LapReviewChannel.Rpm => state.EngineRpm,
             LapReviewChannel.Gear => (int)state.Gear >= 0 ? (int)state.Gear : null,
+            LapReviewChannel.Power => float.IsFinite(state.PowerWatts) ? state.PowerWatts / 745.699871582 : null,
+            LapReviewChannel.Torque => float.IsFinite(state.TorqueNm) ? state.TorqueNm * (data.TorqueUnit == TorqueUnit.NewtonMeters ? 1 : .7375621493) : null,
+            LapReviewChannel.Elevation => float.IsFinite(point.Position.Y) ? point.Position.Y : null,
             LapReviewChannel.TireTemperature => data.TemperatureUnit == TireTemperatureUnit.Celsius ? (WheelValue(state.TireTemperatureFahrenheit, data.Wheel) - 32) * 5 / 9 : WheelValue(state.TireTemperatureFahrenheit, data.Wheel),
             LapReviewChannel.SlipRatio => WheelValue(state.TireSlipRatio, data.Wheel),
             LapReviewChannel.SlipAngle => WheelValue(state.TireSlipAngle, data.Wheel),
@@ -174,7 +185,7 @@ public sealed class LapReviewPlot : FrameworkElement
         };
     }
     private static double WheelValue(WheelValues values, int wheel) => wheel switch { 1 => values.FrontRight, 2 => values.RearLeft, 3 => values.RearRight, _ => values.FrontLeft };
-    private static string Unit(LapReviewPlotData data) => data.Channel switch { LapReviewChannel.Speed => RunPresentation.SpeedLabel(data.SpeedUnit), LapReviewChannel.Delta => "s (lap − reference)", LapReviewChannel.Throttle or LapReviewChannel.Brake or LapReviewChannel.Steering => "%", LapReviewChannel.Rpm => "rpm", LapReviewChannel.Gear => "gear", LapReviewChannel.TireTemperature => data.TemperatureUnit == TireTemperatureUnit.Celsius ? "°C" : "°F", LapReviewChannel.SlipRatio or LapReviewChannel.SlipAngle => "raw", LapReviewChannel.Suspension => "normalized", _ => "g" };
+    internal static string Unit(LapReviewPlotData data) => data.Channel switch { LapReviewChannel.Speed => RunPresentation.SpeedLabel(data.SpeedUnit), LapReviewChannel.Delta => "s (lap − reference)", LapReviewChannel.Throttle or LapReviewChannel.Brake or LapReviewChannel.Steering => "%", LapReviewChannel.Rpm => "rpm", LapReviewChannel.Gear => "gear", LapReviewChannel.Power => "hp", LapReviewChannel.Torque => data.TorqueUnit == TorqueUnit.NewtonMeters ? "Nm" : "lb-ft", LapReviewChannel.Elevation => "m", LapReviewChannel.TireTemperature => data.TemperatureUnit == TireTemperatureUnit.Celsius ? "°C" : "°F", LapReviewChannel.SlipRatio or LapReviewChannel.SlipAngle => "raw", LapReviewChannel.Suspension => "normalized", _ => "g" };
     protected override void OnMouseDown(MouseButtonEventArgs e) { base.OnMouseDown(e); if (e.ChangedButton != MouseButton.Left) return; Focus(); CaptureMouse(); Choose(e.GetPosition(this)); e.Handled = true; }
     protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (IsMouseCaptured && e.LeftButton == MouseButtonState.Pressed) Choose(e.GetPosition(this)); }
     protected override void OnMouseUp(MouseButtonEventArgs e) { base.OnMouseUp(e); if (IsMouseCaptured) ReleaseMouseCapture(); }

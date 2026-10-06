@@ -84,6 +84,7 @@ public sealed class Fh6PacketParser
             return false;
         }
 
+        var smashable = ReadSmashable(packet);
         state = new VehicleState
         {
             IsRaceOn = raceFlag == 1,
@@ -102,6 +103,8 @@ public sealed class Fh6PacketParser
             LocalVelocityXMetersPerSecond = OptionalVelocity(packet, Fh6PacketLayout.LocalVelocityX),
             LocalVelocityYMetersPerSecond = OptionalVelocity(packet, Fh6PacketLayout.LocalVelocityY),
             LocalVelocityZMetersPerSecond = OptionalVelocity(packet, Fh6PacketLayout.LocalVelocityZ),
+            SmashableVelocityLossMetersPerSecond = smashable.VelocityLoss,
+            SmashableMassKilograms = smashable.Mass,
             WheelRotationRadiansPerSecond = wheelRotation,
             TireSlipRatio = slipRatio,
             TireSlipAngle = slipAngle,
@@ -124,6 +127,16 @@ public sealed class Fh6PacketParser
     {
         var value = ReadSingle(packet, offset);
         return float.IsFinite(value) && MathF.Abs(value) <= 500 ? value : null;
+    }
+
+    private static (float? VelocityLoss, float? Mass) ReadSmashable(ReadOnlySpan<byte> packet)
+    {
+        // FH6's documented Horizon extension reports breakable-object impacts,
+        // not general car/wall collisions. Invalid optional data must not stop HUD telemetry.
+        var loss = ReadSingle(packet, Fh6PacketLayout.SmashableVelocityLoss);
+        var mass = ReadSingle(packet, Fh6PacketLayout.SmashableMass);
+        return float.IsFinite(loss) && loss is >= 0 and <= 500 && float.IsFinite(mass) && mass is >= 0 and <= 10_000_000
+            ? (loss, mass) : (null, null);
     }
 
     private static LapTelemetry? ReadLap(ReadOnlySpan<byte> packet)

@@ -56,6 +56,10 @@ public sealed record VehicleState
     public float? LocalVelocityXMetersPerSecond { get; init; }
     public float? LocalVelocityYMetersPerSecond { get; init; }
     public float? LocalVelocityZMetersPerSecond { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public float? SmashableVelocityLossMetersPerSecond { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public float? SmashableMassKilograms { get; init; }
     public required WheelValues WheelRotationRadiansPerSecond { get; init; }
     public required WheelValues TireSlipRatio { get; init; }
     public required WheelValues TireSlipAngle { get; init; }

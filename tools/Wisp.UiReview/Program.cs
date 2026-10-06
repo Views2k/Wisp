@@ -129,6 +129,11 @@ internal static class Program
                 var output = PrepareOutput(args[2]);
                 return LapReviewUiReview.Run(output, () => LoadApplicationResources(output, out _));
             }
+            if (args.Length == 5 && args[0] == "--lap-review-3d-performance-check" && args[1] == "--source" && args[3] == "--output")
+            {
+                var output = PrepareOutput(args[4]);
+                return LapReview3DPerformanceReview.Run(args[2], output, () => LoadApplicationResources(output, out _));
+            }
             if (args.Length == 3 && args[0] == "--lap-delta-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);
@@ -232,6 +237,7 @@ internal static class Program
                 Console.WriteLine("--clips-lossless-product-latest-check --source <pinned f7cacb51 MP4> --oracle <complete RGB24 FFmpeg framehash file> --oracle-sha256 <pinned oracle SHA256> --output <new workspace directory> checks the October 2 reported 408-frame 4K clip through the actual ClipsPage player. Four paused seek samples and one sample after uninterrupted replay past 3.25 seconds match independent RGB hashes, plus muted transport and cleanup. 50-second work budget/60-second hard limit; same closed-app and nonactivating-window guards; no displayed-pixel or audible-output claim.");
                 Console.WriteLine("--clips-lossless-playback-check --source <generated checkout fixture.mp4> --sha256 <verified fixture hash> --output <new workspace directory> checks current WPF decoder opening and brief muted transport after independent lossless pixel verification. Fixed 1280x720, 16-frame/60-fps source, at most 128 MiB. Requires Forza and Wisp closed; passive window, 10-second decoder budget and 20-second hard limit. No screenshots or pixel-readback claim.");
                 Console.WriteLine("--lap-review-check --output <new workspace directory> captures actual expanded lap review with synthetic completed A/B laps, map/graph channels and selected sections at 980x750 and 720x440. Checks themed selectors and routed keyboard actions; no window, controller, listener, settings load or saved-run access.");
+                Console.WriteLine("--lap-review-3d-performance-check --source <original GUID.wisprun> --output <new workspace directory> reads one saved run without changing it; measures lap/3D preparation, cached camera/cursor CPU updates, detached software rendering and a synthetic 180000-point size-limit case. No window, controller, listener, game or settings access; not displayed-FPS evidence.");
                 Console.WriteLine("--ev-wrap-check --output <new workspace directory> captures actual EV overlay and modern/legacy Appearance previews at 100%/75% gauge scale and 96 DPI. Synthetic sample only; no displayed window or live services.");
                 Console.WriteLine("Main-window --present requires one --fixture, omits --scope/--dpi, and shows display-only Appearance at monitor DPI with a 120-second auto-close timer.");
                 Console.WriteLine("--scope wizard captures all four unconfirmed steps at four sizes and 96/144 DPI by default. --present --scope wizard shows one display-only step; --step selects it. Wizard mode never tests or completes setup.");

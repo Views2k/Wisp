@@ -17,8 +17,9 @@ public sealed record RunSample
 public sealed record RecordedRun
 {
     public const int BaseSchemaVersion = 1;
-    public const int CurrentSchemaVersion = 2;
-    // Runs without structured tune data retain the established v1 format.
+    public const int TuneAttachmentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
+    // Legacy runs keep their format; retained object-contact telemetry requires v3.
     public int SchemaVersion { get; init; } = BaseSchemaVersion;
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Name { get; init; } = "Untitled run";

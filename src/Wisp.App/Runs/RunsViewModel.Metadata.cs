@@ -91,6 +91,7 @@ public sealed partial class RunsViewModel
     {
         if (_metadataCloseTask is { IsCompleted: false }) return _metadataCloseTask;
         _metadataClosing = true;
+        var contactSave = LapReview.PrepareToCloseContactsAsync();
         CancelCountdown("Countdown canceled because Wisp is closing.");
         var revision = ++_metadataCloseRevision;
         _metadataCloseTask = PrepareAsync();
@@ -104,6 +105,7 @@ public sealed partial class RunsViewModel
             await Task.Yield();
             try
             {
+                await contactSave;
                 await _metadataRestoreTask;
                 foreach (var edit in _metadataEdits.Values.Where(edit => edit.Failed && !edit.Deleted)) edit.AttemptedRevision = -1;
                 await FlushMetadataAsync();
@@ -121,6 +123,7 @@ public sealed partial class RunsViewModel
     {
         _metadataCloseRevision++;
         _metadataClosing = false;
+        LapReview.CancelContactClosePreparation();
         NotifyMetadataCloseAvailability();
         RefreshStatus();
     }

@@ -1,38 +1,52 @@
-Wisp 2.6.3 Compatibility and drift test
-Private build ID: adaptive-drift-20261006-01
+Wisp 2.6.4 Lap review 3D test
+Private build ID: lap-review-3d-20261006-01
 
-This is a private test build, not a published release. It updates your existing
-Wisp installation and keeps settings, profiles, calibrations, saved runs and
-the Clips library. It is not a separate installation.
+This is a private test build, not a public release. It updates your existing
+Wisp installation and keeps your settings, profiles, calibrations, runs and
+clips. It is not a separate installation.
 
-Changes in this build
-- Restores Drift Zone angle-bonus guidance for the current Steam and Xbox PC
-  builds. If bonus guidance is unavailable, the gauge still shows your angle.
-- A dismissible note from Views appears when opening Wisp, at most once per
-  24 hours. It stays open until you press its X. Its GitHub repo button opens
-  Views2k/Wisp so you can leave a star without dismissing the note.
-- Wisp can recognize unchanged HUD and Tune readers after a Forza update on
-  both Steam and Xbox PC. A changed version number alone no longer blocks them.
-- Game identity, reader structure, current-car ownership and value checks remain
-  required. If an optional reader changes, the verified features stay available.
-- Temporary read failures can be retried without restarting Wisp.
+Changes
+- Switch between the existing 2D lap map and a 3D view of recorded elevation.
+- Rotate, tilt, roll, pan and zoom the 3D map; reset the camera at any time.
+- Keep every existing map/graph channel, wheel selector, comparison, cursor,
+  section analysis and graph shortcut. Add horsepower, torque and elevation.
+- Read the color legend and the selected point's value next to the map.
+- Show reported object contacts, possible impacts and saved manual markers.
+- Save the current 2D or 3D map, including its legend, as a PNG image.
+
+Controls
+Drag: rotate. Shift-drag or right-drag: pan. Ctrl-drag: roll.
+Scroll: zoom. Double-click or Reset view: restore the camera.
+Click the line: select a point. Arrow keys: move along the lap.
+Home/End: first/last point. Camera controls also provide axis sliders.
 
 Suggested checks
-1. Start your usual Steam or Xbox PC version of Forza, then Wisp. Drive into the
-   open world and check the HUD against the car and the game's displayed values.
-2. Open Tune and refresh. Compare the displayed values with your current tune.
-3. Switch cars and confirm the HUD and Tune show the new car's values.
-4. Close and reopen Forza with Wisp still running. Confirm Wisp reconnects.
-5. Save and play a short clip with your existing recording settings.
-6. Check Drift Zone angle-bonus guidance and Custom target. The selected mode,
-   target, gauge position and appearance should stay as you set them.
+1. Open an existing saved lap in Runs and expand Lap review.
+2. Switch between 2D and 3D. Rotate and zoom, then reset the view.
+3. Change channels and wheels. Select a point, compare Run B, select a section
+   and open it in graphs. The selected point/section should stay consistent.
+4. Mark a known contact, reopen the run and remove the marker.
+5. Save a PNG in both modes. Check the current view, colors and legend.
+6. Record a new lap on your usual Steam or Xbox PC installation. Object
+   contacts use the same Data Out fields on both editions.
 
-If a read fails, use Copy details on Tune or export a debug ZIP from Diagnostics.
-Include the private build ID above with your report. This build does not enable
-per-frame diagnostic logging or change your recording settings.
+Contact coverage
+Forza reports velocity loss and mass for breakable-object impacts. Those
+appear as Object contact in new recordings. Possible contact is an estimate
+from movement; it is not a verified wall/car collision. Old recordings did
+not retain the object-impact fields. Mark known contacts where needed.
 
-Steam and Xbox read-only comparisons passed on the October 5 game builds.
-Unknown future builds still need to pass the same validation; changed game
-readers, inaccessible memory or ambiguous matches must be rejected.
-Drift angle readings use Data Out. Automatic HUD/Tune validation does not verify
-new Drift Zone scoring rules; unverified rules leave the gauge in Angle only.
+Saved-run compatibility
+Existing saved runs remain readable and keep their original format. New runs
+with object-contact telemetry use run format 3 and require this build or newer.
+If you reinstall public 2.6.4, those new runs are kept on disk but cannot be
+opened there. Return to this build to review them. Exported runs keep the same
+version requirement.
+
+The 3D line uses recorded world positions at equal scale on all axes. Its floor
+projection is a visual reference, not a terrain model. Dense laps are simplified
+for display while keeping original samples for analysis and cursor selection.
+
+Include the private build ID above with feedback. Use Diagnostics to export
+redacted debug details if needed. No game-memory readers or recording settings
+are changed by this build.

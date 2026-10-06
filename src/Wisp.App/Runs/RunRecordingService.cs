@@ -227,7 +227,7 @@ public sealed class RunRecordingService : IAsyncDisposable
             {
                 StartedAtUtc = session.StartedAtUtc,
                 Name = $"Run {session.StartedAtUtc.ToLocalTime():MMM d, h:mm tt}",
-                SchemaVersion = session.TuneAttachment is null ? RecordedRun.BaseSchemaVersion : RecordedRun.CurrentSchemaVersion,
+                SchemaVersion = RecordedRun.CurrentSchemaVersion,
                 TuneAttachment = session.TuneAttachment
             };
             long rejected = 0;

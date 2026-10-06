@@ -9,6 +9,12 @@ public sealed partial class RunsViewModel
     private void InitializeLapReview()
     {
         LapReview = new(_settings, _service.Store, () => PreferencesChanged?.Invoke(this, EventArgs.Empty));
+        LapReview.ContactMarkersChanged += (id, markers) =>
+        {
+            if (_runA?.Id == id) _runA = _runA with { Markers = markers };
+            if (_runB?.Id == id) _runB = _runB with { Markers = markers };
+            RefreshMarkers();
+        };
         LapReview.CursorMoved += seconds =>
         {
             if (_lapCursorSync) return;
