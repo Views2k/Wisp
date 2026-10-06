@@ -56,6 +56,7 @@ public abstract partial class ControlPanelWindow
     internal void SetFeatureTourDiscoveryAllowed(bool allowed)
     {
         _featureTourDiscoveryAllowed = allowed;
+        RequestSupportReminder(allowed);
         if (!allowed) CloseFeatureTour();
         RefreshFeatureTour();
     }
@@ -79,6 +80,7 @@ public abstract partial class ControlPanelWindow
             this is MainWindow { IsDashboardDisplayMode: true } ||
             HudProfileDialog.Visibility == Visibility.Visible || ApplicationUpdateConfirmation.Visibility == Visibility.Visible || IsTuneDialogOpen) return;
         CloseConnectionPanel();
+        CloseSupportReminder(restoreFocus: false);
         _featureTourDiscoveryAllowed = true;
         _focusBeforeFeatureTour = Keyboard.FocusedElement;
         FeatureTour.Start();

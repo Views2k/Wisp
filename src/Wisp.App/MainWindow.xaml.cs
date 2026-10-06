@@ -43,6 +43,7 @@ public partial class MainWindow : ControlPanelWindow
                 ? new Rect(Left, Top, ActualWidth, ActualHeight) : RestoreBounds;
         }
         IsDashboardDisplayMode = enabled;
+        CloseSupportReminder(restoreFocus: false);
         CloseFeatureTour();
         RefreshFeatureTour();
         RootTabs.SelectedItem = DashboardTab;
@@ -149,7 +150,7 @@ public partial class MainWindow : ControlPanelWindow
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible && !((TunePage)FindName("TuneSurface")).IsDialogOpen &&
+        if (!IsSupportReminderOpen && HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible && !((TunePage)FindName("TuneSurface")).IsDialogOpen &&
             ((e.Key == Key.F11 && RootTabs.SelectedItem == DashboardTab) || (e.Key == Key.Escape && IsDashboardDisplayMode)))
         {
             SetDashboardDisplayMode(e.Key != Key.Escape && !IsDashboardDisplayMode);

@@ -1,11 +1,13 @@
-Wisp 2.6.3 Steam and Xbox compatibility test
-Private build ID: adaptive-compatibility-20261005-01
+Wisp 2.6.3 Compatibility and support test
+Private build ID: adaptive-support-20261005-02
 
 This is a private test build, not a published release. It updates your existing
 Wisp installation and keeps settings, profiles, calibrations, saved runs and
 the Clips library. It is not a separate installation.
 
 Changes in this build
+- A dismissible note from Views appears when opening Wisp, at most once per
+  24 hours. Its GitHub repo button opens Views2k/Wisp so you can leave a star.
 - Wisp can recognize unchanged HUD and Tune readers after a Forza update on
   both Steam and Xbox PC. A changed version number alone no longer blocks them.
 - Game identity, reader structure, current-car ownership and value checks remain

@@ -157,6 +157,7 @@ public abstract partial class ControlPanelWindow : Window
         RefreshHudProfileList();
         RootTabs.SelectedItem = DashboardTab;
         InitializeFeatureTour();
+        InitializeSupportReminder();
         UpdateLockButtonLabels(controller.Settings.OverlayLocked);
         SourceInitialized += (_, _) =>
         {
@@ -1273,6 +1274,7 @@ public abstract partial class ControlPanelWindow : Window
     {
         var open = IsTuneDialogOpen;
         if (open) CloseFeatureTour();
+        SupportReminderDialogChanged();
         TitleBar.IsEnabled = !open;
         FindControl<ListBox>("SidebarNavigation").IsEnabled = !open;
     }
