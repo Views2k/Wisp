@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "version": "2.6.3",
+  "version": "2.6.4",
   "archive": {
-    "filename": "Wisp-2.6.3-library-sources.zip",
-    "url": "https://github.com/Views2k/Wisp/releases/download/library-sources-2.6.3/Wisp-2.6.3-library-sources.zip",
+    "filename": "Wisp-2.6.4-library-sources.zip",
+    "url": "https://github.com/Views2k/Wisp/releases/download/library-sources-2.6.4/Wisp-2.6.4-library-sources.zip",
     "bytes": 879043478,
     "sha256": "6ee69a19f4b28c198c79f5f48b11a639bd7d6372b36f333c3ee4873aaf6d5ccc"
   }

@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.4 - 2026-10-06
+
+- Improve HUD and Tune compatibility with Forza updates on Steam and Xbox PC.
+- Fix Drift Zone angle-bonus guidance on the latest Steam and Xbox PC builds.
+- Show ANGLE ONLY on the drift gauge when bonus guidance is unavailable.
+- Add a note from Views with a GitHub link, shown when you open Wisp and once a day while it stays open. Close it with X.
+
 ## 2.6.3 - 2026-10-05
 
 - Restore the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store.
