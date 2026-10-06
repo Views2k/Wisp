@@ -139,6 +139,36 @@ internal static class SupportReminderUiTests
             Assert.Null(settings.LastSupportReminderShownUtc);
             Assert.Equal(beforeDiscovery, writes);
             window.SetFeatureTourDiscoveryAllowed(false);
+            Assert.False(ReminderField<bool>(window, "_supportReminderRequested"));
+            Assert.False(ReminderField<bool>(window, "_supportReminderDailyEnabled"));
+            InvokeWindowEvent(window, "OnActivated");
+            Pump();
+            Assert.False(ReminderField<bool>(window, "_supportReminderRequested"));
+            Assert.False(window.IsSupportReminderOpen);
+
+            // A deliberate tray/second-instance reopen remains pending even with
+            // a fresh receipt, but cannot display in a hidden or inactive window.
+            settings.LastSupportReminderShownUtc = DateTimeOffset.UtcNow;
+            window.SetFeatureTourDiscoveryAllowed(true);
+            Pump();
+            Assert.True(ReminderField<bool>(window, "_supportReminderRequested"));
+            Assert.True(ReminderField<bool>(window, "_supportReminderDailyEnabled"));
+            Assert.False(window.IsSupportReminderOpen);
+            Assert.Equal(beforeDiscovery, writes);
+            window.SetFeatureTourDiscoveryAllowed(false);
+            settings.LastSupportReminderShownUtc = null;
+
+            typeof(ControlPanelWindow).GetMethod("ScheduleDailySupportReminder",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, new object[] { TimeSpan.FromHours(24) });
+            var timer = ReminderField<DispatcherTimer>(window, "_supportReminderTimer");
+            Assert.True(timer.IsEnabled);
+            InvokeWindowEvent(window, "OnDeactivated");
+            Assert.False(timer.IsEnabled);
+            timer.Start();
+            window.WindowState = WindowState.Minimized;
+            Assert.False(timer.IsEnabled);
+            window.WindowState = WindowState.Normal;
+            window.SetFeatureTourDiscoveryAllowed(false);
 
             var dismiss = Assert.IsType<Button>(popup.FindName("DismissButton"));
             body.IsEnabled = false;
@@ -183,6 +213,13 @@ internal static class SupportReminderUiTests
             Assert.True(titleBar.IsEnabled);
             Assert.False((bool)typeof(ControlPanelWindow).GetField("_supportReminderRequested",
                 BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!);
+            Assert.True(ReminderField<bool>(window, "_supportReminderDailyEnabled"));
+            Assert.NotNull(ReminderField<DateTimeOffset?>(window, "_supportReminderLastDismissedUtc"));
+            InvokeWindowEvent(window, "OnActivated");
+            Pump();
+            Assert.False(ReminderField<bool>(window, "_supportReminderRequested"));
+            Assert.False(window.IsSupportReminderOpen);
+            Assert.False(timer.IsEnabled);
 
             foreach (var dialogName in new[] { "HudProfileDialog", "ApplicationUpdateConfirmation" })
             {
@@ -200,6 +237,10 @@ internal static class SupportReminderUiTests
             Assert.Null(settings.LastSupportReminderShownUtc);
             Assert.Equal(beforeDiscovery, writes);
             Assert.Equal(nint.Zero, new WindowInteropHelper(window).Handle);
+            timer.Start();
+            window.Close();
+            Assert.False(timer.IsEnabled);
+            Assert.False(ReminderField<bool>(window, "_supportReminderDailyEnabled"));
         }
         finally
         {
@@ -225,6 +266,9 @@ internal static class SupportReminderUiTests
 
     private static void InvokeWindowEvent(Window window, string name) =>
         typeof(Window).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, new object[] { EventArgs.Empty });
+
+    private static T ReminderField<T>(ControlPanelWindow window, string name) =>
+        (T)typeof(ControlPanelWindow).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
 
     private sealed class OffscreenSource(Visual visual) : PresentationSource
     {

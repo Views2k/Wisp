@@ -41,6 +41,51 @@ public sealed class SupportReminderTests
     }
 
     [Fact]
+    public void DailyTimerWaitsForTheRemainingIntervalAndDoesNotCatchUpAfterDismissal()
+    {
+        Assert.Equal(TimeSpan.Zero, SupportReminderPolicy.DelayUntilDue(null, Now));
+        Assert.Equal(TimeSpan.FromHours(1), SupportReminderPolicy.DelayUntilDue(Now.AddHours(-23), Now));
+        Assert.Equal(TimeSpan.Zero, SupportReminderPolicy.DelayUntilDue(Now.AddHours(-24), Now));
+        Assert.Equal(TimeSpan.FromHours(24), SupportReminderPolicy.DelayUntilDue(Now.AddHours(-48), Now, Now));
+        Assert.Equal(TimeSpan.FromSeconds(1), SupportReminderPolicy.DelayUntilDue(Now.AddHours(-48),
+            Now.AddHours(24).AddSeconds(-1), Now));
+        Assert.Equal(TimeSpan.Zero, SupportReminderPolicy.DelayUntilDue(Now.AddHours(-48), Now.AddHours(24), Now));
+    }
+
+    [Fact]
+    public void ClockRollbackKeepsTheDailyTimerBoundedWithoutMakingTheReminderDue()
+    {
+        var futureReceipt = Now.AddDays(90);
+        Assert.False(SupportReminderPolicy.IsDue(futureReceipt, Now));
+        Assert.Equal(TimeSpan.FromHours(24), SupportReminderPolicy.DelayUntilDue(futureReceipt, Now));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(23)]
+    public void EveryManualOpeningBypassesTheReceiptAndRestartsTheDailyCooldown(int priorReceiptHours)
+    {
+        var directory = NewDirectory();
+        try
+        {
+            var settings = Settings();
+            settings.LastSupportReminderShownUtc = Now.AddHours(-priorReceiptHours);
+            var writes = 0;
+            using var fixture = new ControllerFixture(settings, _ => writes++, directory);
+            Assert.True(fixture.Controller.TryRecordSupportReminderShown(Now, manualOpening: true));
+            var reopenedAt = Now.AddMinutes(5);
+            Assert.True(fixture.Controller.TryRecordSupportReminderShown(reopenedAt, manualOpening: true));
+            Assert.Equal(reopenedAt, settings.LastSupportReminderShownUtc);
+            Assert.False(fixture.Controller.TryRecordSupportReminderShown(reopenedAt.AddHours(24).AddSeconds(-1)));
+            Assert.Equal(2, writes);
+            Assert.True(fixture.Controller.TryRecordSupportReminderShown(reopenedAt.AddHours(24)));
+            Assert.Equal(3, writes);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
     public void OlderSettingsHaveNoReceiptAndPreserveExistingPreferences()
     {
         var settings = JsonSerializer.Deserialize<AppSettings>("""
@@ -85,8 +130,10 @@ public sealed class SupportReminderTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    [Fact]
-    public void FailedSaveRestoresPriorReceiptAndRetryPersistsOnlyTheNewReceipt()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailedSaveRestoresPriorReceiptAndRetryPersistsOnlyTheNewReceipt(bool manualOpening)
     {
         var directory = NewDirectory();
         try
@@ -104,12 +151,12 @@ public sealed class SupportReminderTests
                 saved = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(value));
             }, directory);
             var before = JsonSerializer.Serialize(settings);
-            Assert.False(fixture.Controller.TryRecordSupportReminderShown(Now));
+            Assert.False(fixture.Controller.TryRecordSupportReminderShown(Now, manualOpening));
             Assert.Equal(before, JsonSerializer.Serialize(settings));
             Assert.Equal(previous, settings.LastSupportReminderShownUtc);
 
             fail = false;
-            Assert.True(fixture.Controller.TryRecordSupportReminderShown(Now));
+            Assert.True(fixture.Controller.TryRecordSupportReminderShown(Now, manualOpening));
             Assert.Equal(2, writes);
             Assert.Equal(Now, saved!.LastSupportReminderShownUtc);
             settings.LastSupportReminderShownUtc = previous;
@@ -119,8 +166,10 @@ public sealed class SupportReminderTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    [Fact]
-    public void IncompleteSetupDoesNotRecordOrSaveAReceipt()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IncompleteSetupDoesNotRecordOrSaveAReceipt(bool manualOpening)
     {
         var directory = NewDirectory();
         try
@@ -130,7 +179,7 @@ public sealed class SupportReminderTests
             var writes = 0;
             using var fixture = new ControllerFixture(settings, _ => writes++, directory);
             Assert.True(settings.RequiresSetup);
-            Assert.False(fixture.Controller.TryRecordSupportReminderShown(Now));
+            Assert.False(fixture.Controller.TryRecordSupportReminderShown(Now, manualOpening));
             Assert.Null(settings.LastSupportReminderShownUtc);
             Assert.Equal(0, writes);
         }

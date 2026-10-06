@@ -2,10 +2,10 @@ namespace Wisp.App;
 
 public sealed partial class AppController
 {
-    internal bool TryRecordSupportReminderShown(DateTimeOffset now)
+    internal bool TryRecordSupportReminderShown(DateTimeOffset now, bool manualOpening = false)
     {
         if (_disposed || Settings.RequiresSetup ||
-            !SupportReminderPolicy.IsDue(Settings.LastSupportReminderShownUtc, now)) return false;
+            !manualOpening && !SupportReminderPolicy.IsDue(Settings.LastSupportReminderShownUtc, now)) return false;
         var previous = Settings.LastSupportReminderShownUtc;
         Settings.LastSupportReminderShownUtc = now.ToUniversalTime();
         if (TrySavePendingSettings()) return true;

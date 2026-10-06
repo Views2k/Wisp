@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Threading;
 
@@ -9,11 +10,16 @@ public abstract partial class ControlPanelWindow
 {
     private SupportReminderPopup? _supportReminder;
     private bool _supportReminderRequested;
+    private bool _supportReminderDailyEnabled;
+    private bool _supportReminderDeferred;
     private bool _supportReminderQueued;
     private bool _supportReminderClosed;
     private bool _supportReminderWasMinimized;
     private bool _supportReminderAutomaticOpening;
     private int _supportReminderOpeningVersion;
+    private DateTimeOffset? _supportReminderLastDismissedUtc;
+    private DispatcherTimer? _supportReminderTimer;
+    private Popup? _supportReminderDeferredConnection;
     private IInputElement? _focusBeforeSupportReminder;
     internal bool IsSupportReminderOpen => _supportReminder?.Visibility == Visibility.Visible;
 
@@ -40,9 +46,11 @@ public abstract partial class ControlPanelWindow
         };
         Loaded += (_, _) => QueueSupportReminder();
         Activated += (_, _) => QueueSupportReminder();
+        Deactivated += (_, _) => _supportReminderTimer?.Stop();
         IsVisibleChanged += (_, _) =>
         {
             if (IsVisible) QueueSupportReminder();
+            else _supportReminderTimer?.Stop();
         };
         StateChanged += (_, _) =>
         {
@@ -56,17 +64,29 @@ public abstract partial class ControlPanelWindow
         {
             _supportReminderClosed = true;
             _supportReminderRequested = false;
+            _supportReminderDailyEnabled = false;
+            _supportReminderTimer?.Stop();
+            UnsubscribeSupportReminderConnection();
             CloseSupportReminder(restoreFocus: false);
         };
         HudProfileDialog.IsVisibleChanged += (_, _) => SupportReminderDialogChanged();
         ApplicationUpdateConfirmation.IsVisibleChanged += (_, _) => SupportReminderDialogChanged();
         if (_featureTourOverlay is { } tour)
             tour.IsVisibleChanged += (_, _) => SupportReminderDialogChanged();
+        ControlBody.IsEnabledChanged += (_, _) => RetryDeferredSupportReminder();
+        TitleBar.IsEnabledChanged += (_, _) => RetryDeferredSupportReminder();
+        TitleBar.IsVisibleChanged += (_, _) => RetryDeferredSupportReminder();
+        AddHandler(Keyboard.KeyUpEvent, new KeyEventHandler((_, _) => RetryDeferredSupportReminder()), true);
+        AddHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler((_, _) => RetryDeferredSupportReminder()), true);
+        AddHandler(Mouse.LostMouseCaptureEvent, new MouseEventHandler((_, _) => RetryDeferredSupportReminder()), true);
     }
 
     private void RequestSupportReminder(bool allowed)
     {
         _supportReminderRequested = allowed && !IsSupportReminderOpen;
+        _supportReminderDailyEnabled = allowed;
+        _supportReminderDeferred = false;
+        _supportReminderTimer?.Stop();
         _supportReminderAutomaticOpening = !allowed;
         var version = ++_supportReminderOpeningVersion;
         if (allowed) QueueSupportReminder();
@@ -86,20 +106,76 @@ public abstract partial class ControlPanelWindow
         if (!SupportReminderBlocked) QueueSupportReminder();
     }
 
+    private void RetryDeferredSupportReminder()
+    {
+        if (_supportReminderRequested || _supportReminderDeferred) QueueSupportReminder();
+    }
+
+    private void UnsubscribeSupportReminderConnection()
+    {
+        if (_supportReminderDeferredConnection is not { } popup) return;
+        popup.Closed -= SupportReminderConnectionClosed;
+        _supportReminderDeferredConnection = null;
+    }
+
+    private void SupportReminderConnectionClosed(object? sender, EventArgs e)
+    {
+        UnsubscribeSupportReminderConnection();
+        RetryDeferredSupportReminder();
+    }
+
+    private void ScheduleDailySupportReminder(TimeSpan delay)
+    {
+        if (_supportReminderTimer is null)
+        {
+            _supportReminderTimer = new DispatcherTimer(DispatcherPriority.ContextIdle, Dispatcher);
+            _supportReminderTimer.Tick += (_, _) =>
+            {
+                _supportReminderTimer.Stop();
+                QueueSupportReminder();
+            };
+        }
+        _supportReminderTimer.Interval = delay;
+        _supportReminderTimer.Start();
+    }
+
     private void QueueSupportReminder()
     {
-        if (!_supportReminderRequested || _supportReminderQueued || _supportReminderClosed || IsSupportReminderOpen || _supportReminder is null) return;
+        _supportReminderTimer?.Stop();
+        if ((!_supportReminderRequested && !_supportReminderDailyEnabled) || _supportReminderQueued ||
+            _supportReminderClosed || IsSupportReminderOpen || _supportReminder is null) return;
         _supportReminderQueued = true;
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
         {
             _supportReminderQueued = false;
-            if (_supportReminderClosed || !_supportReminderRequested || IsSupportReminderOpen || !IsLoaded || !IsVisible || !IsActive ||
-                WindowState == WindowState.Minimized || SupportReminderBlocked || !ControlBody.IsEnabled ||
-                !TitleBar.IsEnabled || _connectionPopup is { IsOpen: true } || Mouse.Captured is not null) return;
-            // A manual opening is the trigger; ordinary later activations do not
-            // start another offer after the cooldown expires.
+            if (_supportReminderClosed || (!_supportReminderRequested && !_supportReminderDailyEnabled) ||
+                IsSupportReminderOpen || !IsLoaded || !IsVisible || !IsActive || WindowState == WindowState.Minimized) return;
+            var now = DateTimeOffset.UtcNow;
+            var manualOpening = _supportReminderRequested;
+            var delay = SupportReminderPolicy.DelayUntilDue(_controller.Settings.LastSupportReminderShownUtc, now,
+                _supportReminderLastDismissedUtc);
+            if (!manualOpening && delay > TimeSpan.Zero)
+            {
+                _supportReminderDeferred = false;
+                ScheduleDailySupportReminder(delay);
+                return;
+            }
+            if (SupportReminderBlocked || !ControlBody.IsEnabled || !TitleBar.IsEnabled ||
+                _connectionPopup is { IsOpen: true } || Mouse.Captured is not null)
+            {
+                _supportReminderDeferred = true;
+                if (_connectionPopup is { IsOpen: true } popup && !ReferenceEquals(popup, _supportReminderDeferredConnection))
+                {
+                    UnsubscribeSupportReminderConnection();
+                    _supportReminderDeferredConnection = popup;
+                    popup.Closed += SupportReminderConnectionClosed;
+                }
+                return;
+            }
             _supportReminderRequested = false;
-            if (!_controller.TryRecordSupportReminderShown(DateTimeOffset.UtcNow)) return;
+            _supportReminderDeferred = false;
+            UnsubscribeSupportReminderConnection();
+            if (!_controller.TryRecordSupportReminderShown(now, manualOpening)) return;
             _focusBeforeSupportReminder = Keyboard.FocusedElement;
             ControlBody.IsEnabled = false;
             _supportReminder.Visibility = Visibility.Visible;
@@ -110,7 +186,9 @@ public abstract partial class ControlPanelWindow
     internal void CloseSupportReminder(bool restoreFocus = true)
     {
         _supportReminderRequested = false;
+        _supportReminderDeferred = false;
         if (!IsSupportReminderOpen) return;
+        _supportReminderLastDismissedUtc = DateTimeOffset.UtcNow;
         _supportReminder!.Visibility = Visibility.Collapsed;
         if (HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible)
             ControlBody.IsEnabled = true;
@@ -118,5 +196,6 @@ public abstract partial class ControlPanelWindow
         _focusBeforeSupportReminder = null;
         if (restoreFocus && IsActive && !SupportReminderBlocked && previous is UIElement { IsVisible: true, IsEnabled: true } element)
             element.Focus();
+        QueueSupportReminder();
     }
 }
