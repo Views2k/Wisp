@@ -166,6 +166,7 @@ internal static class SupportReminderUiTests
             Assert.False(timer.IsEnabled);
             timer.Start();
             window.WindowState = WindowState.Minimized;
+            InvokeWindowEvent(window, "OnStateChanged");
             Assert.False(timer.IsEnabled);
             window.WindowState = WindowState.Normal;
             window.SetFeatureTourDiscoveryAllowed(false);
