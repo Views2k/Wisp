@@ -604,6 +604,7 @@ public abstract partial class ControlPanelWindow : Window
 
     private void ShowHudProfileDialog(HudProfileDialogMode mode, HudPreset? profile = null)
     {
+        if (IsSupportReminderOpen) return;
         _hudProfileDialogMode = mode;
         _hudProfileChangePending = false;
         _pendingHudProfileName = null;
@@ -866,6 +867,7 @@ public abstract partial class ControlPanelWindow : Window
 
     private void ShowApplicationUpdateConfirmation(ApplicationUpdateDetails details)
     {
+        if (IsSupportReminderOpen) return;
         _applicationUpdateVersion = details.Version;
         _focusBeforeApplicationUpdateConfirmation = Keyboard.FocusedElement;
         ApplicationUpdateConfirmationVersion.Text = $"Wisp {ApplicationVersionInfo.Format(Version.Parse(details.Version))}";

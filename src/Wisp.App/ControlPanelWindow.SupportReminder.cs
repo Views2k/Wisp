@@ -32,15 +32,10 @@ public abstract partial class ControlPanelWindow
         Panel.SetZIndex(_supportReminder, 95);
         shell.Children.Add(_supportReminder);
         _supportReminder.DismissButton.Click += (_, _) => CloseSupportReminder();
-        _supportReminder.RepositoryButton.Click += (sender, args) =>
-        {
-            CloseSupportReminder();
-            StarWispOnGitHub_Click(sender, args);
-        };
+        _supportReminder.RepositoryButton.Click += StarWispOnGitHub_Click;
         _supportReminder.PreviewKeyDown += (_, args) =>
         {
             if (args.Key != Key.Escape || Keyboard.Modifiers != ModifierKeys.None) return;
-            CloseSupportReminder();
             args.Handled = true;
         };
         Loaded += (_, _) => QueueSupportReminder();
@@ -48,18 +43,15 @@ public abstract partial class ControlPanelWindow
         IsVisibleChanged += (_, _) =>
         {
             if (IsVisible) QueueSupportReminder();
-            else CloseSupportReminder(restoreFocus: false);
         };
         StateChanged += (_, _) =>
         {
             var minimized = WindowState == WindowState.Minimized;
             var restored = _supportReminderWasMinimized && !minimized;
             _supportReminderWasMinimized = minimized;
-            if (minimized) CloseSupportReminder(restoreFocus: false);
-            else if (restored && !_supportReminderAutomaticOpening) RequestSupportReminder(true);
+            if (restored && !_supportReminderAutomaticOpening) RequestSupportReminder(true);
             else QueueSupportReminder();
         };
-        Deactivated += (_, _) => CloseSupportReminder(restoreFocus: false);
         Closed += (_, _) =>
         {
             _supportReminderClosed = true;
@@ -74,13 +66,12 @@ public abstract partial class ControlPanelWindow
 
     private void RequestSupportReminder(bool allowed)
     {
-        _supportReminderRequested = allowed;
+        _supportReminderRequested = allowed && !IsSupportReminderOpen;
         _supportReminderAutomaticOpening = !allowed;
         var version = ++_supportReminderOpeningVersion;
         if (allowed) QueueSupportReminder();
         else
         {
-            CloseSupportReminder(restoreFocus: false);
             // Ignore automatic startup's state changes, then allow a later
             // user restore from the taskbar to count as opening Wisp.
             Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
@@ -92,18 +83,17 @@ public abstract partial class ControlPanelWindow
 
     private void SupportReminderDialogChanged()
     {
-        if (SupportReminderBlocked) CloseSupportReminder(restoreFocus: false);
-        else QueueSupportReminder();
+        if (!SupportReminderBlocked) QueueSupportReminder();
     }
 
     private void QueueSupportReminder()
     {
-        if (!_supportReminderRequested || _supportReminderQueued || _supportReminderClosed || _supportReminder is null) return;
+        if (!_supportReminderRequested || _supportReminderQueued || _supportReminderClosed || IsSupportReminderOpen || _supportReminder is null) return;
         _supportReminderQueued = true;
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
         {
             _supportReminderQueued = false;
-            if (_supportReminderClosed || !_supportReminderRequested || !IsLoaded || !IsVisible || !IsActive ||
+            if (_supportReminderClosed || !_supportReminderRequested || IsSupportReminderOpen || !IsLoaded || !IsVisible || !IsActive ||
                 WindowState == WindowState.Minimized || SupportReminderBlocked || !ControlBody.IsEnabled ||
                 !TitleBar.IsEnabled || _connectionPopup is { IsOpen: true } || Mouse.Captured is not null) return;
             // A manual opening is the trigger; ordinary later activations do not
@@ -119,6 +109,7 @@ public abstract partial class ControlPanelWindow
 
     internal void CloseSupportReminder(bool restoreFocus = true)
     {
+        _supportReminderRequested = false;
         if (!IsSupportReminderOpen) return;
         _supportReminder!.Visibility = Visibility.Collapsed;
         if (HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible)

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
@@ -142,10 +143,46 @@ internal static class SupportReminderUiTests
             var dismiss = Assert.IsType<Button>(popup.FindName("DismissButton"));
             body.IsEnabled = false;
             popup.Visibility = Visibility.Visible;
+            // Focus changes must preserve the same offer, including a browser
+            // activation after following the repository link.
+            InvokeWindowEvent(window, "OnDeactivated");
+            Assert.True(window.IsSupportReminderOpen);
+            Assert.False(body.IsEnabled);
+            window.WindowState = WindowState.Minimized;
+            Assert.True(window.IsSupportReminderOpen);
+            window.WindowState = WindowState.Normal;
+            window.SetFeatureTourDiscoveryAllowed(false);
+            Assert.True(window.IsSupportReminderOpen);
+            window.SetFeatureTourDiscoveryAllowed(true);
+            InvokeWindowEvent(window, "OnActivated");
+            Pump();
+            Assert.True(window.IsSupportReminderOpen);
+            Assert.False(body.IsEnabled);
+
+            popup.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            { RoutedEvent = Mouse.MouseDownEvent });
+            Assert.True(window.IsSupportReminderOpen);
+            var escape = new KeyEventArgs(Keyboard.PrimaryDevice, new OffscreenSource(popup), Environment.TickCount, Key.Escape)
+            { RoutedEvent = Keyboard.PreviewKeyDownEvent };
+            popup.RaiseEvent(escape);
+            Assert.True(escape.Handled);
+            Assert.True(window.IsSupportReminderOpen);
+
+            window.StartFeatureTour();
+            Assert.False(window.FeatureTour.IsOpen);
+            Assert.True(window.IsSupportReminderOpen);
+            if (window is MainWindow modern)
+            {
+                modern.SetDashboardDisplayMode(true);
+                Assert.False(modern.IsDashboardDisplayMode);
+                Assert.True(window.IsSupportReminderOpen);
+            }
             dismiss.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.False(window.IsSupportReminderOpen);
             Assert.True(body.IsEnabled);
             Assert.True(titleBar.IsEnabled);
+            Assert.False((bool)typeof(ControlPanelWindow).GetField("_supportReminderRequested",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!);
 
             foreach (var dialogName in new[] { "HudProfileDialog", "ApplicationUpdateConfirmation" })
             {
@@ -185,6 +222,16 @@ internal static class SupportReminderUiTests
     }
 
     private static void Pump() => Dispatcher.CurrentDispatcher.Invoke(static () => { }, DispatcherPriority.ApplicationIdle);
+
+    private static void InvokeWindowEvent(Window window, string name) =>
+        typeof(Window).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, new object[] { EventArgs.Empty });
+
+    private sealed class OffscreenSource(Visual visual) : PresentationSource
+    {
+        public override Visual RootVisual { get; set; } = visual;
+        public override bool IsDisposed => false;
+        protected override CompositionTarget GetCompositionTargetCore() => null!;
+    }
 
     private static void AssertFits(FrameworkElement element, FrameworkElement container)
     {

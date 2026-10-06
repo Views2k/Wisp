@@ -35,7 +35,7 @@ public partial class MainWindow : ControlPanelWindow
 
     internal void SetDashboardDisplayMode(bool enabled)
     {
-        if (enabled == IsDashboardDisplayMode) return;
+        if (enabled == IsDashboardDisplayMode || IsSupportReminderOpen) return;
         if (enabled)
         {
             _windowStateBeforeDisplay = WindowState;
@@ -43,7 +43,6 @@ public partial class MainWindow : ControlPanelWindow
                 ? new Rect(Left, Top, ActualWidth, ActualHeight) : RestoreBounds;
         }
         IsDashboardDisplayMode = enabled;
-        CloseSupportReminder(restoreFocus: false);
         CloseFeatureTour();
         RefreshFeatureTour();
         RootTabs.SelectedItem = DashboardTab;

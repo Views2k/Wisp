@@ -76,11 +76,10 @@ public abstract partial class ControlPanelWindow
 
     internal void StartFeatureTour()
     {
-        if (_featureTourOverlay is null || _controller.Settings.RequiresSetup ||
+        if (_featureTourOverlay is null || IsSupportReminderOpen || _controller.Settings.RequiresSetup ||
             this is MainWindow { IsDashboardDisplayMode: true } ||
             HudProfileDialog.Visibility == Visibility.Visible || ApplicationUpdateConfirmation.Visibility == Visibility.Visible || IsTuneDialogOpen) return;
         CloseConnectionPanel();
-        CloseSupportReminder(restoreFocus: false);
         _featureTourDiscoveryAllowed = true;
         _focusBeforeFeatureTour = Keyboard.FocusedElement;
         FeatureTour.Start();
