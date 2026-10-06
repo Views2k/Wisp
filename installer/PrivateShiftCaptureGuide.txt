@@ -1,65 +1,29 @@
-Wisp 2.6.1 Clips playback test 20261003
-Private build ID: clips-playback-20261003-05
+Wisp 2.6.3 Steam and Xbox compatibility test
+Private build ID: adaptive-compatibility-20261005-01
 
 This is a private test build, not a published release. It updates your existing
-Wisp installation and keeps settings, profiles, calibrations, saved runs and the
-Clips library. It is not a separate installation.
+Wisp installation and keeps settings, profiles, calibrations, saved runs and
+the Clips library. It is not a separate installation.
 
 Changes in this build
-- Open and watch clips while Forza stays running. HDR lossless clips prepare a
-  compressed HDR playback copy with progress before Play becomes available.
-  Closing the player cancels preparation; starting or returning to Forza does
-  not cancel it. Reopening a prepared clip reuses the copy. Original recordings
-  and build 04's color handling remain unchanged.
-- Local crash reports include the exact Wisp build and recent performance
-  context. The next launch offers Copy crash details. Export debug ZIP includes
-  recent recorder, playback, export and Tune errors even with detailed logging
-  off. Reports exclude file paths and raw exception messages; retention is bounded.
-  Unclean exits are matched to Windows application fault records when available;
-  without matching evidence, the report describes an unexplained exit.
-- Tune accepts compatible database sizes and upgrade-table changes while
-  keeping structure, integrity, game-build and current-car validation. A failed
-  read includes Copy details with the failed check and measured sizes.
-- Tune reads the live car's values when stored setups contain default markers.
-  The car and values must stay stable throughout the read. If no single current
-  car is available, drive in the open world and refresh.
-- Normal clips default to SDR H.264, including on HDR screens. Record HDR video
-  is an explicit option for supported NVIDIA encoders. Normal recording falls
-  back to SDR when HDR encoding is unsupported. Lossless never silently becomes
-  compressed recording. Old clips retain their original colors.
-- Lossless HDR keeps full-color, 10-bit prepared video after scaling and color
-  conversion. Lossless SDR keeps full-color, 8-bit prepared video. This preserves
-  the encoder input exactly; it is not a copy of the original floating-point
-  desktop pixels. Audio remains compressed.
-- HDR and lossless Export offer a compatible SDR H.264 MP4 or the original MP4.
-  The original stays in Wisp. Original full-color lossless video needs a player
-  such as Wisp or mpv; compatible copies are for more widely supported playback.
-  Export uses Save As, reports progress and errors, supports cancellation and
-  keeps existing destination files. Very large lossless source files can now
-  be inspected without failing while waiting for their audio packets.
-- Deleted library files disappear on refresh or when returning to the Clips
-  gallery. Files that are temporarily inaccessible are retained in the library.
-- Recoverable audio gaps insert silence and trim overlap without throwing away
-  buffered video. Recorder shutdown recovery and previous notification fixes
-  are retained. New-clip reminders can be disabled without suppressing errors.
+- Wisp can recognize unchanged HUD and Tune readers after a Forza update on
+  both Steam and Xbox PC. A changed version number alone no longer blocks them.
+- Game identity, reader structure, current-car ownership and value checks remain
+  required. If an optional reader changes, the verified features stay available.
+- Temporary read failures can be retried without restarting Wisp.
 
 Suggested checks
-1. Save a NEW clip in your usual Forza scene with your usual display settings.
-   Compare the same moment in the game and Wisp. Existing clips cannot regain
-   HDR data that an earlier recorder converted to SDR.
-2. Leave Forza running and open a new HDR lossless clip in Wisp. Wait for
-   preparation, then press Play. It must not ask you to close Forza.
-   Close and reopen an HDR lossless clip to check that the prepared copy is reused.
-   Export a compatible copy, open it in your
-   usual player, and check duration, colors and audible synchronization.
-3. Delete an unwanted test clip from the library folder and return to the Clips
-   gallery. Confirm it disappears without deleting any other clips.
-4. Refresh Tune on the car that failed in private build 03. Compare its displayed
-   values with Forza, then try a saved or downloaded tune. Copy details if a read
-   fails; different error stages can have different causes.
+1. Start your usual Steam or Xbox PC version of Forza, then Wisp. Drive into the
+   open world and check the HUD against the car and the game's displayed values.
+2. Open Tune and refresh. Compare the displayed values with your current tune.
+3. Switch cars and confirm the HUD and Tune show the new car's values.
+4. Close and reopen Forza with Wisp still running. Confirm Wisp reconnects.
+5. Save and play a short clip with your existing recording settings.
 
-Generated-media and measured compositor checks establish only the tested paths;
-physical display appearance, gameplay performance and audio sync under game load
-still need your real-use check. The separately reported quick-open black-picture
-investigation remains parked; this installer does not claim a verified fix for it.
-This build does not automatically record lap diagnostic packet logs.
+If a read fails, use Copy details on Tune or export a debug ZIP from Diagnostics.
+Include the private build ID above with your report. This build does not enable
+per-frame diagnostic logging or change your recording settings.
+
+Steam and Xbox read-only comparisons passed on the October 5 game builds.
+Unknown future builds still need to pass the same validation; changed game
+readers, inaccessible memory or ambiguous matches must be rejected.
