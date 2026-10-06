@@ -91,7 +91,7 @@
         <StackPanel x:Name="ZoneGuidanceDescription" Margin="0,0,0,16">
             <TextBlock Text="Ordinary 20–40° drifts already earn most of the angle bonus. Keep your speed and line; the gauge guides angle, not total points."
                        TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
-            <TextBlock Text="Angle-bonus guidance needs a verified game build. If unavailable, you can still use Custom target."
+            <TextBlock Text="If angle-bonus guidance is unavailable, the gauge keeps showing your measured angle. Custom target remains available."
                        TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,8,0,0" />
         </StackPanel>
         <StackPanel x:Name="CustomTargetSettings" Visibility="Collapsed">

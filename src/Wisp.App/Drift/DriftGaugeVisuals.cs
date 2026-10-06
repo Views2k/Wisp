@@ -190,7 +190,7 @@ internal static class DriftGaugeVisuals
             DriftGuidanceState.BelowTarget => "BELOW TARGET",
             DriftGuidanceState.OnTarget => "ON TARGET",
             DriftGuidanceState.AboveTarget => "OVER TARGET",
-            DriftGuidanceState.ProfileUnavailable => "UNVERIFIED BUILD",
+            DriftGuidanceState.ProfileUnavailable => "ANGLE ONLY",
             DriftGuidanceState.BelowScoringAngle => "BELOW SCORING ANGLE",
             DriftGuidanceState.AngleBonusIncreasing => "SCORING ANGLE",
             DriftGuidanceState.MaximumAngleBonus => verifiedGuide && reading.MagnitudeDegrees >

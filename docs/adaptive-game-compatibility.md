@@ -20,6 +20,18 @@ Both platforms require typed code witnesses for all 18 direct-gauge fields. Stea
 
 Steam's secondary HUD table is linked to the already verified main HUD table through the same complete-object RTTI type and hierarchy. Its subobject offset, full inheritance topology and slot code must still match, and the candidate must be unique. Table spacing and numeric RTTI labels are not treated as stable identities. This relationship was checked in both retained versions of both platforms.
 
+## Drift angle and scoring guidance
+
+Drift angle is calculated from Data Out. Custom targets and measured angle remain available when a Drift Zone scoring profile cannot be verified. The gauge then says `ANGLE ONLY` and withholds the bonus percentage and colored scoring guide.
+
+Drift Zone bonus rules have a separate compatibility boundary. Successful adaptive HUD or Tune validation does not verify those rules. The scoring code and loaded curve values must be checked separately before a build receives a bonus profile; unchanged code alone cannot establish unchanged configuration. No new game-memory scans or reads have been added to the drift renderer.
+
+Regression tests require the newest bundled Steam and Xbox builds to have drift guidance, in addition to checking the captured identities. This prevents a future bundled compatibility update from silently omitting drift again. Changed identities and unknown adaptive builds still receive no unverified bonus claims. Automatic discovery of future Drift Zone scoring profiles is not implemented.
+
+On October 6, bounded read-only checks of Steam 6.461.691.0 and Xbox 3.461.691.0 each found 20 stable typed scoring configurations. All observed instances matched the existing curve: 10-degree minimum, 110-degree maximum, float32 59.4-degree saturation, and multipliers 30 to 40. The checks completed in 4.77 and 4.56 seconds. Complete captured instruction ranges matched the retained scoring references on both platforms (19 Steam ranges and 21 Xbox ranges), with known scoring relationships checked separately. This qualifies the existing curve for these exact builds; it is not automatic admission of future profiles.
+
+These were configuration/code checks, not an active scoring or displayed-gauge test. Sampling was non-atomic and bounded to 2 GiB; it did not enumerate every allocation, link an active component to the local car, or compare simultaneous native and Data Out angles. Constant references were checked against retained image evidence. The diagnostic and its one-time memory search are not part of the shipped application.
+
 ## Runtime cost and lifecycle
 
 Discovery runs on attachment workers, never on HUD ticks. HUD and Tune share one bounded discovery per process identity and catalog generation. The snapshot is limited to 256 MiB, the retained evidence to 4 MiB, and discovery to 30 seconds, including cancellable contention for the discovery lock. Only initialized writable image bytes are scanned.

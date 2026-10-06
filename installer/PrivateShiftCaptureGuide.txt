@@ -1,11 +1,13 @@
-Wisp 2.6.3 Compatibility and support test
-Private build ID: adaptive-support-20261005-03
+Wisp 2.6.3 Compatibility and drift test
+Private build ID: adaptive-drift-20261006-01
 
 This is a private test build, not a published release. It updates your existing
 Wisp installation and keeps settings, profiles, calibrations, saved runs and
 the Clips library. It is not a separate installation.
 
 Changes in this build
+- Restores Drift Zone angle-bonus guidance for the current Steam and Xbox PC
+  builds. If bonus guidance is unavailable, the gauge still shows your angle.
 - A dismissible note from Views appears when opening Wisp, at most once per
   24 hours. It stays open until you press its X. Its GitHub repo button opens
   Views2k/Wisp so you can leave a star without dismissing the note.
@@ -22,6 +24,8 @@ Suggested checks
 3. Switch cars and confirm the HUD and Tune show the new car's values.
 4. Close and reopen Forza with Wisp still running. Confirm Wisp reconnects.
 5. Save and play a short clip with your existing recording settings.
+6. Check Drift Zone angle-bonus guidance and Custom target. The selected mode,
+   target, gauge position and appearance should stay as you set them.
 
 If a read fails, use Copy details on Tune or export a debug ZIP from Diagnostics.
 Include the private build ID above with your report. This build does not enable
@@ -30,3 +34,5 @@ per-frame diagnostic logging or change your recording settings.
 Steam and Xbox read-only comparisons passed on the October 5 game builds.
 Unknown future builds still need to pass the same validation; changed game
 readers, inaccessible memory or ambiguous matches must be rejected.
+Drift angle readings use Data Out. Automatic HUD/Tune validation does not verify
+new Drift Zone scoring rules; unverified rules leave the gauge in Angle only.
