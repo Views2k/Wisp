@@ -11,6 +11,7 @@ public abstract partial class ControlPanelWindow
 
     protected void ConnectionStatus_Click(object sender, RoutedEventArgs e)
     {
+        if (IsSupportReminderOpen) return;
         if (_connectionPopup is { IsOpen: true }) { CloseConnectionPanel(); return; }
         var anchor = (FrameworkElement)sender;
         var panel = new ConnectionStatusPanel();

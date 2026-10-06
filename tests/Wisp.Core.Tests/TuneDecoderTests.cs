@@ -375,6 +375,38 @@ public sealed class TuneDecoderTests
         }));
     }
 
+    [Theory]
+    [InlineData(TunePlatform.Steam)]
+    [InlineData(TunePlatform.MicrosoftStore)]
+    public void RuntimeValidatedLayoutsNeedSeparateProofAndPreserveActualGameIdentity(TunePlatform platform)
+    {
+        var store = platform == TunePlatform.MicrosoftStore;
+        var version = store ? "3.999.4.0" : "6.999.4.0";
+        var verification = new TuneVerification(platform, TuneVerificationProfiles.DescriptorProfile,
+            new string('B', 64), "fh6-runtime-test-v1", 1,
+            store ? $"Microsoft.ForteBaseGame_{version}_x64__8wekyb3d8bbwe" : null)
+        {
+            Method = TuneVerificationMethod.RuntimeValidatedLayout,
+            SemanticsVersion = 1,
+            CompatibilityPackSha256 = new string('C', 64)
+        };
+        var input = Fixture("miata") with
+        {
+            GameVersion = version,
+            ExecutableSha256 = store ? null : new string('A', 64),
+            ExecutableVerified = !store,
+            Verification = verification,
+            CompatibilityDescriptorVerified = true
+        };
+        Reject(input, TuneDecodeFailure.UnverifiedExecutable);
+        var snapshot = Decode(input with { RuntimeLayoutVerified = true, CompatibilityDescriptorVerified = false });
+        Assert.Equal(version, snapshot.Identity.GameVersion);
+        Assert.Equal(TuneVerificationMethod.RuntimeValidatedLayout, snapshot.Identity.Verification!.Method);
+        var restored = JsonSerializer.Deserialize<TuneSnapshot>(JsonSerializer.Serialize(snapshot, JsonOptions), JsonOptions);
+        Assert.True(TuneSnapshotValidator.TryValidate(restored, out _));
+        Assert.Equal(Decode(Fixture("miata")).Fields.ToArray(), snapshot.Fields.ToArray());
+    }
+
     private static TuneDecodeInput Fixture(string name) => Read<TuneDecodeInput>(name);
     private static T Read<T>(string name)
     {

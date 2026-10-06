@@ -11,9 +11,9 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp</AssemblyTitle>
     <Description>Wheel-indicated speed and G-force display for Forza Horizon 6.</Description>
-    <Version>2.6.3</Version>
-    <FileVersion>2.6.3.0</FileVersion>
-    <AssemblyVersion>2.6.3.0</AssemblyVersion>
+    <Version>2.6.4</Version>
+    <FileVersion>2.6.4.0</FileVersion>
+    <AssemblyVersion>2.6.4.0</AssemblyVersion>
     <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
     <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
     <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
@@ -101,6 +101,8 @@
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.440.853.0.json" LogicalName="Wisp.NativeCompatibility.Store.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.461.691.0.json" LogicalName="Wisp.NativeCompatibility.UpdatedStore.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.430.771.0.json" LogicalName="Wisp.NativeCompatibility.PreviousStore.json" />
+    <EmbeddedResource Include="NativeCompatibility\adaptive-steam.json" LogicalName="Wisp.NativeCompatibility.Adaptive.steam.json" />
+    <EmbeddedResource Include="NativeCompatibility\adaptive-store.json" LogicalName="Wisp.NativeCompatibility.Adaptive.store.json" />
     <Resource Include="Shaders\*.ps" />
     <None Include="Shaders\*.hlsl" />
     <Content Include="Assets\Native\ASSET-MANIFEST.csv" CopyToOutputDirectory="PreserveNewest" />

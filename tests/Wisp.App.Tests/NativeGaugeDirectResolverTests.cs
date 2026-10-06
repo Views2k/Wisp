@@ -31,6 +31,35 @@ public sealed class NativeGaugeDirectResolverTests
     private static NativeGaugeLayout Layout => NativeHudBuildContract.BuiltIn.NativeGauge!;
 
     [Fact]
+    public void RuntimeOwnedGaugeTypeRequiresUniqueFullOwnershipAndKeepsGuardedCache()
+    {
+        using var resource = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.BuiltIn.json")!;
+        var json = JsonNode.Parse(resource)!.AsObject();
+        json["nativeGauge"]!["hudTypeTokenRva"] = 0;
+        var pack = NativeHudCompatibilityPack.FromRuntimeValidation(json);
+        var memory = ValidMemory(mode: 1, electric: false);
+        var resolver = new NativeGaugeDirectResolver(pack);
+        Assert.Equal(NativeGaugeDirectState.Resolved, resolver.Read(memory, Module, Source, false).State);
+        Assert.Equal(NativeGaugeDirectState.Cached, resolver.Read(memory, Module, Source, false).State);
+        Assert.False(resolver.Read(memory, Module, Source + 8, false).IsAvailable);
+    }
+
+    [Fact]
+    public void RuntimeOwnedGaugeRejectsTwoInstancesWithMatchingOwnership()
+    {
+        using var resource = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.BuiltIn.json")!;
+        var json = JsonNode.Parse(resource)!.AsObject();
+        json["nativeGauge"]!["hudTypeTokenRva"] = 0;
+        var pack = NativeHudCompatibilityPack.FromRuntimeValidation(json);
+        var memory = ValidMemory(mode: 1, electric: false);
+        memory.SetUInt64(TypeVector + Layout.HudTypeTokenOffset, Module + Layout.HudTypeTokenRva + 8);
+        memory.SetUInt64(TypeVector + Layout.HudTypeInstancesBeginOffset, Instances);
+        memory.SetUInt64(TypeVector + Layout.HudTypeInstancesEndOffset, Instances + Layout.HudTypeInstanceStride);
+        memory.SetUInt64(TypeVector + Layout.HudTypeInstancesCapacityOffset, Instances + Layout.HudTypeInstanceStride);
+        Assert.False(new NativeGaugeDirectResolver(pack).Read(memory, Module, Source, false).IsAvailable);
+    }
+
+    [Fact]
     public void CombustionGaugeResolvesThenUsesGuardedCache()
     {
         var memory = ValidMemory(mode: 1, electric: false);

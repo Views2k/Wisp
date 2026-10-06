@@ -174,7 +174,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
             await _captureGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             entered = true;
             var compatibility = _factory.CompatibilityGeneration;
-            if (!_factory.TryOpen(out var opened, out var status) || opened is null)
+            if (!_factory.TryOpen(cancellationToken, out var opened, out var status) || opened is null)
                 return Fail(status == NativeAssistProviderStatus.GameNotRunning ? TuneCaptureStatus.GameNotRunning :
                     status == NativeAssistProviderStatus.UnsupportedBuild ? TuneCaptureStatus.UnsupportedBuild : TuneCaptureStatus.Unavailable,
                     status == NativeAssistProviderStatus.GameNotRunning ? "Open Forza to read the current car." :

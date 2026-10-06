@@ -45,13 +45,18 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
     public string CompatibilityStatus => Volatile.Read(ref _compatibilityStatus);
 
     public bool TryOpen(out INativeHudProcessMemory? memory, out NativeAssistProviderStatus status)
+        => TryOpen(CancellationToken.None, out memory, out status);
+
+    public bool TryOpen(CancellationToken cancellationToken, out INativeHudProcessMemory? memory,
+        out NativeAssistProviderStatus status)
     {
-        var opened = TryOpenConcrete(out var concrete, out status);
+        var opened = TryOpenConcrete(out var concrete, out status, cancellationToken);
         memory = concrete;
         return opened;
     }
 
-    internal bool TryOpenConcrete(out NativeHudProcessMemory? memory, out NativeAssistProviderStatus status)
+    internal bool TryOpenConcrete(out NativeHudProcessMemory? memory, out NativeAssistProviderStatus status,
+        CancellationToken cancellationToken = default)
     {
         memory = null;
         status = NativeAssistProviderStatus.GameNotRunning;
@@ -60,11 +65,13 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         string? candidateStatus = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             processes = Process.GetProcessesByName("ForzaHorizon6");
             var sawUnsupported = false;
             foreach (var process in processes)
             {
-                if (!TryOpenProcess(process, out var current, out var currentStatus))
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!TryOpenProcess(process, out var current, out var currentStatus, cancellationToken))
                 {
                     sawUnsupported |= currentStatus == NativeAssistProviderStatus.UnsupportedBuild;
                     status = currentStatus;
@@ -97,6 +104,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 return false;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             memory = candidate;
             candidate = null;
             status = NativeAssistProviderStatus.Ready;
@@ -164,7 +172,8 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         return true;
     }
 
-    private bool TryOpenProcess(Process process, out NativeHudProcessMemory? memory, out NativeAssistProviderStatus status)
+    private bool TryOpenProcess(Process process, out NativeHudProcessMemory? memory, out NativeAssistProviderStatus status,
+        CancellationToken cancellationToken)
     {
         memory = null;
         status = NativeAssistProviderStatus.AccessDenied;
@@ -174,7 +183,8 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             var identity = CaptureIdentity(process);
             if (!TrySelectCompatibility(identity, out var pack, out var fingerprint, out status))
             {
-                return TryOpenStoreProcess(process, identity, out memory, ref status);
+                if (TryOpenStoreProcess(process, identity, out memory, ref status)) return true;
+                return TryOpenAdaptiveProcess(process, identity, fingerprint, out memory, ref status, cancellationToken);
             }
 
             handle = NativeHudProcessMemory.OpenReadOnly(process.Id);
@@ -196,6 +206,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 return false;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath));
             handle = null;
             status = NativeAssistProviderStatus.Ready;
@@ -282,6 +293,69 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         return storeBuild.MatchesImage(admission, moduleBase);
     }
 
+    private bool TryOpenAdaptiveProcess(Process process, NativeHudProcessIdentity identity,
+        NativeHudExecutableFingerprint fingerprint, out NativeHudProcessMemory? memory, ref NativeAssistProviderStatus status,
+        CancellationToken cancellationToken)
+    {
+        memory = null;
+        if (!NativeHudProcessMemory.IsValidModuleRange(identity.ModuleBase, identity.ImageSize)) return false;
+        SafeProcessHandle? handle = NativeHudProcessMemory.OpenReadOnly(identity.ProcessId);
+        try
+        {
+            if (handle.IsInvalid) return false;
+            NativeStorePackageIdentity? package = NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var store) ? store : null;
+            // A rejected/revoked exact pack must never be bypassed by discovery.
+            if (package is { } installed)
+            {
+                if (_catalog.FindStore(installed.PackageFullName, identity.ImageSize) is not null ||
+                    _catalog.GetStoreUnavailableReason(installed.PackageFullName, identity.ImageSize) is not null) return false;
+            }
+            else if (fingerprint.Sha256 is not { Length: 64 } ||
+                     _catalog.Find(fingerprint.Metadata.Version, fingerprint.Metadata.Length, fingerprint.Sha256) is not null ||
+                     _catalog.GetUnavailableReason(fingerprint.Metadata.Version, fingerprint.Metadata.Length, fingerprint.Sha256) is not null)
+            {
+                return false;
+            }
+            var generation = _catalog.Generation;
+            process.Refresh();
+            if (CaptureIdentity(process) != identity ||
+                !NativeHudProcessMemory.HandleMatchesIdentity(handle, identity, allowStoreFileAlias: package is not null)) return false;
+            SetStatus("Checking the updated game's reader compatibility");
+            IReadOnlyProcessMemory admission = new BorrowedReadOnlyMemory(handle);
+            if (_storeAdmissionWrapper is not null)
+                admission = _storeAdmissionWrapper(admission) ?? throw new InvalidOperationException("The admission read wrapper is unavailable.");
+            if (!NativeAdaptiveCompatibility.TryResolve(identity, generation, fingerprint, package,
+                admission.TryReadBytes, out var pack, out var reason, cancellationToken))
+            {
+                status = NativeAssistProviderStatus.UnsupportedBuild;
+                SetStatus(reason);
+                return false;
+            }
+            process.Refresh();
+            if (CaptureIdentity(process) != identity || generation != _catalog.Generation ||
+                !NativeHudProcessMemory.HandleMatchesIdentity(handle, identity, allowStoreFileAlias: package is not null) ||
+                (package is { } expected ? !NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var current) || current != expected
+                    : !_fingerprints.IsCurrent(identity, fingerprint)))
+            {
+                status = NativeAssistProviderStatus.ReadFailure;
+                SetStatus("FH6 identity changed during reader validation");
+                return false;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath));
+            handle = null;
+            status = NativeAssistProviderStatus.Ready;
+            var capabilities = pack!.Tune is null ? "HUD verified; Tune layout unavailable" : "HUD and Tune verified automatically";
+            SetStatus($"{(package is null ? "Steam" : "Xbox/Store")} FH6 {pack.GameVersion}; {capabilities}" +
+                (pack.NativeGauge is null ? "; direct native gauge layout unavailable" : string.Empty));
+            return true;
+        }
+        finally
+        {
+            handle?.Dispose();
+        }
+    }
+
     private static NativeHudProcessIdentity CaptureIdentity(Process process)
     {
         var module = process.MainModule ?? throw new InvalidOperationException("The main module is unavailable.");
@@ -302,6 +376,20 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             $"{identity.ProcessId}:{identity.StartTimeUtcTicks}:{identity.ModuleBase}:{identity.ImageSize}"))));
 
     private void SetStatus(string status) => Volatile.Write(ref _compatibilityStatus, status);
+
+    private sealed class BorrowedReadOnlyMemory(SafeProcessHandle handle) : IReadOnlyProcessMemory
+    {
+        public bool TryReadBytes(ulong address, Span<byte> destination) => NativeHudProcessMemory.TryReadBorrowedBytes(handle, address, destination);
+        public bool TryReadByte(ulong address, out byte value) => Read(address, out value);
+        public bool TryReadUInt32(ulong address, out uint value) => Read(address, out value);
+        public bool TryReadUInt64(ulong address, out ulong value) => Read(address, out value);
+        public bool TryReadSingle(ulong address, out float value) => Read(address, out value);
+        private bool Read<T>(ulong address, out T value) where T : unmanaged
+        {
+            value = default;
+            return TryReadBytes(address, MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref value, 1)));
+        }
+    }
 }
 
 public sealed class NativeHudProcessMemory : INativeHudProcessMemory
@@ -360,9 +448,11 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
         return CanRead(address, 4) && ReadProcessMemorySingle(_handle, (nint)address, out value, 4, out var read) && read == 4;
     }
 
-    public bool TryReadBytes(ulong address, Span<byte> destination)
+    public bool TryReadBytes(ulong address, Span<byte> destination) => TryReadBorrowedBytes(_handle, address, destination);
+
+    internal static bool TryReadBorrowedBytes(SafeProcessHandle handle, ulong address, Span<byte> destination)
     {
-        if (destination.IsEmpty || !CanReadBytes(address, (ulong)destination.Length))
+        if (destination.IsEmpty || handle.IsInvalid || handle.IsClosed || !IsValidReadSpan(address, (ulong)destination.Length))
         {
             destination.Clear();
             return false;
@@ -370,7 +460,7 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
 
         ref var first = ref MemoryMarshal.GetReference(destination);
         if (ReadProcessMemoryBytes(
-                _handle,
+                handle,
                 (nint)address,
                 ref first,
                 (nuint)destination.Length,
@@ -418,9 +508,6 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
 
     private bool CanRead(ulong address, ulong length) =>
         !_handle.IsInvalid && !_handle.IsClosed && address % length == 0 && IsValidReadSpan(address, length);
-
-    private bool CanReadBytes(ulong address, ulong length) =>
-        !_handle.IsInvalid && !_handle.IsClosed && IsValidReadSpan(address, length);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern SafeProcessHandle OpenProcess(uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, int processId);

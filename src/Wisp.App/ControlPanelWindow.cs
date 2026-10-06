@@ -157,6 +157,7 @@ public abstract partial class ControlPanelWindow : Window
         RefreshHudProfileList();
         RootTabs.SelectedItem = DashboardTab;
         InitializeFeatureTour();
+        InitializeSupportReminder();
         UpdateLockButtonLabels(controller.Settings.OverlayLocked);
         SourceInitialized += (_, _) =>
         {
@@ -603,6 +604,7 @@ public abstract partial class ControlPanelWindow : Window
 
     private void ShowHudProfileDialog(HudProfileDialogMode mode, HudPreset? profile = null)
     {
+        if (IsSupportReminderOpen) return;
         _hudProfileDialogMode = mode;
         _hudProfileChangePending = false;
         _pendingHudProfileName = null;
@@ -865,6 +867,7 @@ public abstract partial class ControlPanelWindow : Window
 
     private void ShowApplicationUpdateConfirmation(ApplicationUpdateDetails details)
     {
+        if (IsSupportReminderOpen) return;
         _applicationUpdateVersion = details.Version;
         _focusBeforeApplicationUpdateConfirmation = Keyboard.FocusedElement;
         ApplicationUpdateConfirmationVersion.Text = $"Wisp {ApplicationVersionInfo.Format(Version.Parse(details.Version))}";
@@ -1273,6 +1276,7 @@ public abstract partial class ControlPanelWindow : Window
     {
         var open = IsTuneDialogOpen;
         if (open) CloseFeatureTour();
+        SupportReminderDialogChanged();
         TitleBar.IsEnabled = !open;
         FindControl<ListBox>("SidebarNavigation").IsEnabled = !open;
     }

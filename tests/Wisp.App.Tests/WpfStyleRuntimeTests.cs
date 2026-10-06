@@ -127,6 +127,7 @@ public sealed class WpfStyleRuntimeTests
                 Check(nameof(DriftGaugeZoneVisualTests), DriftGaugeZoneVisualTests.AssertOnCurrentDispatcher);
                 Check(nameof(DriftGaugeSettingsUiTests), DriftGaugeSettingsUiTests.AssertOnCurrentDispatcher);
                 Check(nameof(TuneUiRuntimeTests), TuneUiRuntimeTests.AssertOnCurrentDispatcher);
+                Check(nameof(SupportReminderUiTests), SupportReminderUiTests.AssertOnCurrentDispatcher);
                 Check(nameof(ApplicationUpdateCheckPolicyTests), ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher);
                 Check(nameof(NativeGaugeLifecycleTests), NativeGaugeLifecycleTests.AssertConsumersOnCurrentDispatcher);
                 Check(nameof(NativeRenderLifetimeTests), () => NativeRenderLifetimeTests.AssertConsumersOnCurrentDispatcher(_output.WriteLine));

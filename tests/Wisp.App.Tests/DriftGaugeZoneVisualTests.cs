@@ -177,6 +177,7 @@ internal static class DriftGaugeZoneVisualTests
             Assert.Single(commands, command => command.TextureId == 7);
             Assert.DoesNotContain(commands, command => command.TextureId == 9);
             Assert.Equal("62.0°", NumericText(commands));
+            Assert.Equal("ANGLEONLY", TextAt(commands, 87));
             AssertBonus(commands, null);
             AssertTint(Assert.Single(commands, IsMarker), Colors.White);
         }

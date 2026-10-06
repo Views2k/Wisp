@@ -15,11 +15,24 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.4",
+            "October 6, 2026",
+            "FORZA COMPATIBILITY",
+            "Improved HUD and Tune compatibility with Forza updates, restored Drift Zone guidance and a note from Views.",
+            true,
+            [
+                Group("Fixes and improvements",
+                    "Improved HUD and Tune compatibility with Forza updates on Steam and Xbox PC.",
+                    "Fixed Drift Zone angle-bonus guidance on the latest Steam and Xbox PC builds.",
+                    "The drift gauge shows ANGLE ONLY when bonus guidance is unavailable.",
+                    "Added a note from Views with a GitHub link, shown when you open Wisp and once a day while it stays open. Close it with X.")
+            ]),
+        new(
             "2.6.3",
             "October 5, 2026",
             "FORZA COMPATIBILITY",
             "Restore the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store, with clearer compatibility status and automatic rechecks.",
-            true,
+            false,
             [
                 Group("Fixes and improvements",
                     "Fixed the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store.",

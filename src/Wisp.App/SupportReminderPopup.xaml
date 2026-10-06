@@ -1,0 +1,80 @@
+<UserControl x:Class="Wisp.App.SupportReminderPopup"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:focus="clr-namespace:Wisp.App"
+ Focusable="False" KeyboardNavigation.TabNavigation="Cycle"
+ AutomationProperties.Name="A note from Views">
+ <Grid Background="#99000000">
+  <Border MaxWidth="540" Margin="24" Padding="28" CornerRadius="20"
+          HorizontalAlignment="Stretch" VerticalAlignment="Center"
+          Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1">
+   <Grid>
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <DockPanel>
+     <Button x:Name="DismissButton" DockPanel.Dock="Right" Content="×" FontSize="22" Width="36" Height="36" Padding="0" Margin="16,0,0,0"
+             VerticalAlignment="Top" ToolTip="Close" AutomationProperties.Name="Close the support reminder"/>
+     <TextBlock Text="A note from Views" FontSize="23" FontWeight="SemiBold" VerticalAlignment="Center"
+                Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap"/>
+    </DockPanel>
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+     <StackPanel>
+     <TextBlock x:Name="Message" Margin="0,14,0,0" FontSize="15" LineHeight="24"
+                Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap"
+                Text="Wisp is a project I’ve spent months and thousands of hours working on. Keeping it free and accessible to everyone has always been a priority for me, so all I ask is: if you enjoy Wisp, please leave a star on GitHub :) -Views"/>
+     <Button x:Name="RepositoryButton" Margin="0,22,0,0" HorizontalContentAlignment="Stretch"
+             ToolTip="Open Views2k/Wisp on GitHub to leave a star"
+             AutomationProperties.Name="Views2k/Wisp — star on GitHub">
+      <Button.Style>
+       <Style TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="16,12"/>
+        <Setter Property="Template">
+         <Setter.Value>
+          <ControlTemplate TargetType="Button">
+           <Border x:Name="Bubble" CornerRadius="22" Background="{TemplateBinding Background}"
+                   BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                   Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+           </Border>
+           <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+             <Setter TargetName="Bubble" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+             <Setter TargetName="Bubble" Property="Background" Value="{DynamicResource HoverBrush}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Bubble" Property="Opacity" Value="0.78"/></Trigger>
+            <MultiTrigger>
+             <MultiTrigger.Conditions><Condition Property="IsKeyboardFocused" Value="True"/><Condition Property="focus:FocusCues.ShowKeyboardFocus" Value="True"/></MultiTrigger.Conditions>
+             <Setter TargetName="Bubble" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+             <Setter TargetName="Bubble" Property="BorderThickness" Value="2"/>
+            </MultiTrigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Bubble" Property="Opacity" Value="0.5"/></Trigger>
+           </ControlTemplate.Triggers>
+          </ControlTemplate>
+         </Setter.Value>
+        </Setter>
+       </Style>
+      </Button.Style>
+      <Grid>
+       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <Border Width="42" Height="42" CornerRadius="21" Background="{DynamicResource PanelBrush}" Margin="0,0,13,0">
+        <Path Width="23" Height="23" Stretch="Uniform" Fill="{DynamicResource TextBrush}"
+              Data="M12,.7 A11.5,11.5 0 0 0 8.36,23.11 C8.94,23.22 9.15,22.86 9.15,22.55 V20.31 C5.97,21 5.3,18.96 5.3,18.96 C4.78,17.63 4.03,17.28 4.03,17.28 C2.99,16.57 4.11,16.58 4.11,16.58 C5.26,16.66 5.86,17.76 5.86,17.76 C6.88,19.5 8.53,19 9.18,18.71 C9.28,17.97 9.58,17.47 9.91,17.19 C7.37,16.9 4.7,15.92 4.7,11.51 C4.7,10.26 5.15,9.23 5.88,8.42 C5.76,8.13 5.37,6.96 5.99,5.38 C5.99,5.38 6.95,5.07 9.15,6.56 A10.9,10.9 0 0 1 14.9,6.56 C17.1,5.07 18.06,5.38 18.06,5.38 C18.68,6.96 18.29,8.13 18.17,8.42 C18.9,9.23 19.35,10.26 19.35,11.51 C19.35,15.93 16.68,16.89 14.13,17.18 C14.54,17.54 14.91,18.25 14.91,19.34 V22.54 C14.91,22.85 15.12,23.22 15.71,23.1 A11.5,11.5 0 0 0 12,.7 Z"/>
+       </Border>
+       <StackPanel Grid.Column="1" VerticalAlignment="Center">
+        <TextBlock Text="Views2k/Wisp" FontSize="15" FontWeight="SemiBold"/>
+        <TextBlock Text="Star on GitHub" FontSize="12" Foreground="{DynamicResource AccentBrush}" Margin="0,3,0,0"/>
+       </StackPanel>
+       <Path Grid.Column="2" Width="21" Height="21" Margin="14,0,0,0" Stretch="Uniform"
+             Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.5" StrokeLineJoin="Round"
+             Data="M12,2 L15,8.5 L22,9.3 L16.8,14.1 L18.3,21 L12,17.5 L5.7,21 L7.2,14.1 L2,9.3 L9,8.5 Z"/>
+      </Grid>
+     </Button>
+     </StackPanel>
+    </ScrollViewer>
+   </Grid>
+  </Border>
+ </Grid>
+</UserControl>

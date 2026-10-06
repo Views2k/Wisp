@@ -66,6 +66,7 @@ public sealed record TuneDecodeInput
     public TuneVerification? Verification { get; init; }
     public string? CarName { get; init; }
     public bool CompatibilityDescriptorVerified { get; init; }
+    public bool RuntimeLayoutVerified { get; init; }
     public required bool CaptureComplete { get; init; }
     public required bool Coherent { get; init; }
     public required int LocalProviderCount { get; init; }

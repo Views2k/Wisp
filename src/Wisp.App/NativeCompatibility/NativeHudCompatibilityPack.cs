@@ -202,8 +202,9 @@ public sealed class NativeHudCompatibilityPack
         })
         .ToFrozenSet(StringComparer.Ordinal);
 
-    private NativeHudCompatibilityPack(JsonElement root, string fingerprint)
+    private NativeHudCompatibilityPack(JsonElement root, string fingerprint, bool runtimeValidated = false)
     {
+        IsRuntimeValidated = runtimeValidated;
         Fingerprint = fingerprint;
         var properties = ReadPackObject(root);
         SchemaVersion = ReadInt32(properties["schemaVersion"]);
@@ -276,9 +277,9 @@ public sealed class NativeHudCompatibilityPack
             ? ReadGameplayVisibility(properties["gameplayVisibility"], ImageSize)
             : null;
         NativeGauge = SchemaVersion >= 3 && properties["nativeGauge"].ValueKind != JsonValueKind.Null
-            ? ReadNativeGauge(properties["nativeGauge"], ImageSize)
+            ? ReadNativeGauge(properties["nativeGauge"], ImageSize, runtimeValidated)
             : null;
-        if ((SchemaVersion is 3 or 5) && NativeGauge is null)
+        if ((SchemaVersion is 3 or 5) && NativeGauge is null && !runtimeValidated)
         {
             throw new FormatException("The native gauge layout is required by schema three.");
         }
@@ -306,6 +307,17 @@ public sealed class NativeHudCompatibilityPack
     public NativeGameplayVisibilityLayout? GameplayVisibility { get; }
     public NativeGaugeLayout? NativeGauge { get; }
     public NativeTuneCompatibilityLayout? Tune { get; }
+    internal bool IsRuntimeValidated { get; }
+
+    // Only the embedded-profile resolver can supply this in-memory result.
+    // Imported JSON never acquires runtime verification through Parse.
+    internal static NativeHudCompatibilityPack FromRuntimeValidation(System.Text.Json.Nodes.JsonObject resolved)
+    {
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(resolved);
+        if (bytes.Length > MaximumJsonBytes) throw new FormatException("The runtime layout exceeds its bounds.");
+        using var document = JsonDocument.Parse(bytes);
+        return new NativeHudCompatibilityPack(document.RootElement, Convert.ToHexString(SHA256.HashData(bytes)), true);
+    }
 
     public static NativeHudCompatibilityPack Parse(ReadOnlySpan<byte> json)
     {
@@ -476,7 +488,7 @@ public sealed class NativeHudCompatibilityPack
         return new NativeGameplayVisibilityLayout(values);
     }
 
-    private static NativeGaugeLayout ReadNativeGauge(JsonElement element, uint imageSize)
+    private static NativeGaugeLayout ReadNativeGauge(JsonElement element, uint imageSize, bool runtimeValidated = false)
     {
         var properties = ReadObject(element, NativeGaugeProperties);
         var values = new Dictionary<string, ulong>(NativeGaugeProperties.Count, StringComparer.Ordinal);
@@ -484,6 +496,11 @@ public sealed class NativeHudCompatibilityPack
         foreach (var name in NativeGaugeRvaProperties)
         {
             var rva = ReadUInt64(properties[name]);
+            if (runtimeValidated && name == "hudTypeTokenRva" && rva == 0)
+            {
+                values.Add(name, 0);
+                continue;
+            }
             ValidateImageSpan(rva, 8, 8, imageSize);
             if (!identityRvas.Add(rva))
             {

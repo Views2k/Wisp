@@ -41,12 +41,43 @@ public sealed class DriftZoneProfileCatalogTests
     }
 
     [Theory]
-    [InlineData("gameVersion")]
-    [InlineData("imageSize")]
-    [InlineData("timeDateStamp")]
-    public void ChangedStoreBuildIdentityHasNoAngleGuide(string field)
+    [InlineData(false, "6.461.691.0")]
+    [InlineData(true, "3.461.691.0")]
+    public void UpdatedOfficialBuildReceivesTheVerifiedAngleGuide(bool xboxStore, string expectedVersion)
     {
-        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.Store.json")!;
+        var pack = xboxStore ? NativeHudBuildContract.UpdatedStoreBuiltIn : NativeHudBuildContract.UpdatedSteamBuiltIn;
+        Assert.Equal(expectedVersion, pack.GameVersion);
+        var profile = DriftZoneProfileCatalog.ForBuild(pack);
+        Assert.NotNull(profile);
+        Assert.True(profile.IsValid);
+        var legacyPack = xboxStore ? NativeHudBuildContract.StoreBuiltIn : NativeHudBuildContract.BuiltIn;
+        Assert.Equal(DriftZoneProfileCatalog.ForBuild(legacyPack), profile);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NewestBundledBuildMustIncludeDriftGuidance(bool xboxStore)
+    {
+        var latest = NativeHudBuildContract.AdditionalBuiltIns.Append(NativeHudBuildContract.BuiltIn)
+            .Where(pack => (pack.StoreIdentity is not null) == xboxStore)
+            .MaxBy(pack => Version.Parse(pack.GameVersion));
+
+        Assert.NotNull(latest);
+        Assert.NotNull(DriftZoneProfileCatalog.ForBuild(latest));
+    }
+
+    [Theory]
+    [InlineData("gameVersion", false)]
+    [InlineData("imageSize", false)]
+    [InlineData("timeDateStamp", false)]
+    [InlineData("gameVersion", true)]
+    [InlineData("imageSize", true)]
+    [InlineData("timeDateStamp", true)]
+    public void ChangedStoreBuildIdentityHasNoAngleGuide(string field, bool updated)
+    {
+        var resource = updated ? "Wisp.NativeCompatibility.UpdatedStore.json" : "Wisp.NativeCompatibility.Store.json";
+        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream(resource)!;
         var document = JsonNode.Parse(stream)!.AsObject();
         if (field == "gameVersion")
         {
@@ -60,20 +91,44 @@ public sealed class DriftZoneProfileCatalogTests
     }
 
     [Theory]
-    [InlineData("gameVersion")]
-    [InlineData("executableLength")]
-    [InlineData("executableSha256")]
-    public void EachBuildIdentityGuardIsRequired(string field)
+    [InlineData("gameVersion", false)]
+    [InlineData("executableLength", false)]
+    [InlineData("executableSha256", false)]
+    [InlineData("gameVersion", true)]
+    [InlineData("executableLength", true)]
+    [InlineData("executableSha256", true)]
+    public void EachBuildIdentityGuardIsRequired(string field, bool updated)
     {
-        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.BuiltIn.json")!;
+        var resource = updated ? "Wisp.NativeCompatibility.UpdatedSteam.json" : "Wisp.NativeCompatibility.BuiltIn.json";
+        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream(resource)!;
         var document = JsonNode.Parse(stream)!.AsObject();
         document[field] = field switch
         {
             "gameVersion" => JsonValue.Create("6.440.854.0"),
-            "executableLength" => JsonValue.Create(184055769),
+            "executableLength" => JsonValue.Create(document[field]!.GetValue<long>() + 1),
             _ => JsonValue.Create(new string('A', 64))
         };
         var pack = NativeHudCompatibilityPack.Parse(Encoding.UTF8.GetBytes(document.ToJsonString()));
+        Assert.Null(DriftZoneProfileCatalog.ForBuild(pack));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AdaptiveHudValidationAloneDoesNotClaimVerifiedScoring(bool xboxStore)
+    {
+        var resource = xboxStore ? "Wisp.NativeCompatibility.UpdatedStore.json" : "Wisp.NativeCompatibility.UpdatedSteam.json";
+        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream(resource)!;
+        var document = JsonNode.Parse(stream)!.AsObject();
+        document["gameVersion"] = xboxStore ? "3.999.1.0" : "6.999.1.0";
+        if (xboxStore)
+            document["storeIdentity"]!["packageFullName"] = "Microsoft.ForteBaseGame_3.999.1.0_x64__8wekyb3d8bbwe";
+        else
+            document["executableSha256"] = new string('A', 64);
+
+        var pack = NativeHudCompatibilityPack.FromRuntimeValidation(document);
+
+        Assert.True(pack.IsRuntimeValidated);
         Assert.Null(DriftZoneProfileCatalog.ForBuild(pack));
     }
 }
