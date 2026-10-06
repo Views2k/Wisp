@@ -22,7 +22,7 @@
                 Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap"
                 Text="Wisp is a project I’ve spent months and thousands of hours working on. Keeping it free and accessible to everyone has always been a priority for me, so all I ask is: if you enjoy Wisp, please leave a star on GitHub :) -Views"/>
      <Button x:Name="RepositoryButton" Margin="0,22,0,0" HorizontalContentAlignment="Stretch"
-             Cursor="Hand" ToolTip="Open Views2k/Wisp on GitHub to leave a star"
+             ToolTip="Open Views2k/Wisp on GitHub to leave a star"
              AutomationProperties.Name="Views2k/Wisp — star on GitHub">
       <Button.Style>
        <Style TargetType="Button">
