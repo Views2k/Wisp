@@ -147,7 +147,8 @@ public static class TuneDecoder
             return TuneDecodeFailure.UnsupportedBuild;
         if (!TuneVerificationProfiles.IsSupported(input.GameVersion, input.ExecutableSha256, input.Verification) ||
             input.ExecutableVerified != (input.Verification?.Platform != TunePlatform.MicrosoftStore) ||
-            input.Verification?.Method == TuneVerificationMethod.AuthenticatedCompatibilityDescriptor && !input.CompatibilityDescriptorVerified)
+            input.Verification?.Method == TuneVerificationMethod.AuthenticatedCompatibilityDescriptor && !input.CompatibilityDescriptorVerified ||
+            input.Verification?.Method == TuneVerificationMethod.RuntimeValidatedLayout && !input.RuntimeLayoutVerified)
             return TuneDecodeFailure.UnverifiedExecutable;
         if (input.LocalProviderCount != 1) return TuneDecodeFailure.AmbiguousVehicle;
         if (!input.Coherent) return TuneDecodeFailure.IncoherentCapture;

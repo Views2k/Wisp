@@ -5,8 +5,8 @@ using Wisp.Core.Tunes;
 
 namespace Wisp.App.Tunes;
 
-// Called only after the existing compatibility catalog has admitted the process.
-// These profiles do not admit unknown executables or replace the catalog's guards.
+// Called after exact-catalog or runtime structural admission. Normal tune reads
+// recheck the exact admitted code ranges; discovery never runs on this path.
 internal sealed partial class NativeTuneLayout
 {
     private readonly IReadOnlyDictionary<ulong, ulong> _rvas;
@@ -62,7 +62,8 @@ internal sealed partial class NativeTuneLayout
     internal TuneVerification Provenance(NativeHudCompatibilityPack pack) => new(Platform, Id, Digest,
         pack.Id, pack.Revision, pack.StoreIdentity?.PackageFullName)
     {
-        Method = Descriptor is null ? TuneVerificationMethod.KnownProfile : TuneVerificationMethod.AuthenticatedCompatibilityDescriptor,
+        Method = pack.IsRuntimeValidated ? TuneVerificationMethod.RuntimeValidatedLayout :
+            Descriptor is null ? TuneVerificationMethod.KnownProfile : TuneVerificationMethod.AuthenticatedCompatibilityDescriptor,
         SemanticsVersion = Descriptor?.SemanticsVersion ?? 0,
         CompatibilityPackSha256 = _packFingerprint
     };

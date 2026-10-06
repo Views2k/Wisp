@@ -101,6 +101,8 @@
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.440.853.0.json" LogicalName="Wisp.NativeCompatibility.Store.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.461.691.0.json" LogicalName="Wisp.NativeCompatibility.UpdatedStore.json" />
     <EmbeddedResource Include="NativeCompatibility\fh6-store-3.430.771.0.json" LogicalName="Wisp.NativeCompatibility.PreviousStore.json" />
+    <EmbeddedResource Include="NativeCompatibility\adaptive-steam.json" LogicalName="Wisp.NativeCompatibility.Adaptive.steam.json" />
+    <EmbeddedResource Include="NativeCompatibility\adaptive-store.json" LogicalName="Wisp.NativeCompatibility.Adaptive.store.json" />
     <Resource Include="Shaders\*.ps" />
     <None Include="Shaders\*.hlsl" />
     <Content Include="Assets\Native\ASSET-MANIFEST.csv" CopyToOutputDirectory="PreserveNewest" />

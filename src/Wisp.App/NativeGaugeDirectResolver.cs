@@ -324,7 +324,8 @@ public sealed class NativeGaugeDirectResolver
         if (!TryResolveRegistry(memory, moduleBase, out var registry) ||
             !TryValidateHud(memory, moduleBase, registry.Hud, registry.HudControl, out var subobject) ||
             !TryReadVector(memory, subobject, out var vector) ||
-            !TryFindTypeEntry(memory, moduleBase, vector, out var typeEntry) ||
+            !TryFindTypeEntry(memory, moduleBase, vector, registry.Hud, registry.HudControl, expectedSource,
+                out var typeEntry, out var typeToken) ||
             !TryReadUniqueInstance(memory, typeEntry, out var instances, out var outer, out var outerControl) ||
             !TryValidateOuter(
                 memory,
@@ -352,6 +353,7 @@ public sealed class NativeGaugeDirectResolver
             subobject,
             vector,
             typeEntry,
+            typeToken,
             instances,
             outer,
             outerControl,
@@ -526,7 +528,7 @@ public sealed class NativeGaugeDirectResolver
                 Math.Max(layout.HudTypeInstancesEndOffset + 8, layout.HudTypeInstancesCapacityOffset + 8)));
         if (!TryReadStructuralBlock(memory, expected.TypeEntry, typeEnd) ||
             !StructuralUInt64(layout.HudTypeTokenOffset, out var token) ||
-            token != cached.ModuleBase + layout.HudTypeTokenRva ||
+            token != expected.TypeToken ||
             !StructuralUInt64(layout.HudTypeInstancesBeginOffset, out var instancesBegin) ||
             instancesBegin != expected.Instances.Begin ||
             !StructuralUInt64(layout.HudTypeInstancesEndOffset, out var instancesEnd) ||
@@ -779,11 +781,17 @@ public sealed class NativeGaugeDirectResolver
         IReadOnlyProcessMemory memory,
         ulong moduleBase,
         VectorSnapshot vector,
-        out ulong typeEntry)
+        ulong hud,
+        ulong hudControl,
+        ulong source,
+        out ulong typeEntry,
+        out ulong typeToken)
     {
         typeEntry = 0;
+        typeToken = 0;
         var layout = _layout!;
         var expectedToken = moduleBase + layout.HudTypeTokenRva;
+        var resolveOwnedType = _pack.IsRuntimeValidated && layout.HudTypeTokenRva == 0;
         for (ulong index = 0; index < vector.Count; index++)
         {
             if (!TryMultiply(index, layout.HudTypeVectorEntryStride, out var offset) ||
@@ -793,7 +801,13 @@ public sealed class NativeGaugeDirectResolver
                 return DiagnosticFailure(NativeGaugeReadStage.TypeEntry, NativeGaugeReadFailure.ReadFailed);
             }
 
-            if (token == expectedToken)
+            var matches = token == expectedToken && !resolveOwnedType;
+            if (resolveOwnedType && token >= moduleBase + 4096 && token < moduleBase + _pack.ImageSize && token % 8 == 0)
+            {
+                matches = TryReadUniqueInstance(memory, entry, out _, out var outer, out var control) &&
+                    TryValidateOuter(memory, moduleBase, hud, hudControl, outer, control, source, out _);
+            }
+            if (matches)
             {
                 if (typeEntry != 0)
                 {
@@ -801,6 +815,7 @@ public sealed class NativeGaugeDirectResolver
                 }
 
                 typeEntry = entry;
+                typeToken = token;
             }
         }
 
@@ -1471,6 +1486,7 @@ public sealed class NativeGaugeDirectResolver
         ulong Subobject,
         VectorSnapshot Vector,
         ulong TypeEntry,
+        ulong TypeToken,
         InstanceVectorSnapshot Instances,
         ulong Outer,
         ulong OuterControl,

@@ -1,7 +1,7 @@
 namespace Wisp.Core.Tunes;
 
 public enum TunePlatform { Steam, MicrosoftStore }
-public enum TuneVerificationMethod { KnownProfile, AuthenticatedCompatibilityDescriptor }
+public enum TuneVerificationMethod { KnownProfile, AuthenticatedCompatibilityDescriptor, RuntimeValidatedLayout }
 
 // A layout fingerprint is distinct from the executable's file hash. Store reads
 // use verified package provenance and code guards; they never invent a file hash.
@@ -34,7 +34,7 @@ public static class TuneVerificationProfiles
         // Persisted provenance describes an already decoded snapshot. This is not
         // process admission: only the authenticated native reader can verify a
         // descriptor, and decoding requires that separate verification result.
-        var descriptor = verification.Method == TuneVerificationMethod.AuthenticatedCompatibilityDescriptor &&
+        var descriptor = verification.Method is TuneVerificationMethod.AuthenticatedCompatibilityDescriptor or TuneVerificationMethod.RuntimeValidatedLayout &&
             verification.ProfileId == DescriptorProfile && verification.SemanticsVersion == DescriptorSemanticsVersion &&
             IsHash(verification.LayoutSha256) && IsHash(verification.CompatibilityPackSha256);
         var known = verification.Method == TuneVerificationMethod.KnownProfile &&

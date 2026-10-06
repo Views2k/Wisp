@@ -287,7 +287,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable, INativeNeedleHis
                     continue;
                 }
 
-                if (!_memoryFactory.TryOpen(out _memory, out var status))
+                if (!_memoryFactory.TryOpen(cancellationToken, out _memory, out var status))
                 {
                     TryPublish(epoch, compatibilityGeneration, NativeHudSnapshot.Unavailable(
                         status, (ulong)Math.Max(0, Interlocked.Read(ref _generation)), telemetry.CarOrdinal,
@@ -566,4 +566,11 @@ public interface INativeHudProcessMemoryFactory
     bool TryOpen(
         out INativeHudProcessMemory? memory,
         out NativeAssistProviderStatus status);
+
+    bool TryOpen(CancellationToken cancellationToken, out INativeHudProcessMemory? memory,
+        out NativeAssistProviderStatus status)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return TryOpen(out memory, out status);
+    }
 }
