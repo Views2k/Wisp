@@ -37,6 +37,15 @@ internal static class LapReviewUiChecks
         };
         try
         {
+            var tooltip = new ToolTip { Content = "Drag to rotate · Shift/right-drag to pan · Ctrl-drag to roll · Right-click or click empty space to enable scroll zoom · Double-click to reset" };
+            tooltip.ApplyTemplate();
+            tooltip.Measure(new Size(400, 200)); tooltip.Arrange(new Rect(tooltip.DesiredSize)); tooltip.UpdateLayout();
+            var tipText = Descendants(tooltip).OfType<TextBlock>().First();
+            var tipBackground = ((SolidColorBrush)tooltip.Background).Color;
+            var tipForeground = ((SolidColorBrush)tipText.Foreground).Color;
+            check(Math.Abs(tipBackground.R - tipForeground.R) + Math.Abs(tipBackground.G - tipForeground.G) +
+                Math.Abs(tipBackground.B - tipForeground.B) > 240 && tooltip.ActualWidth <= 400 && tipText.TextWrapping == TextWrapping.Wrap,
+                "map-help-tooltip-is-themed-readable-and-bounded");
             VisualTreeHelper.SetRootDpi(surface, new DpiScale(1, 1));
             Await(model.ShowReviewAsync(LapReviewFixtures.Create(), LapReviewFixtures.Create(reference: true)));
             Ready(model);
@@ -152,6 +161,8 @@ internal static class LapReviewUiChecks
                 check(review.Is3D && view3D.IsChecked == true && track.Visibility == Visibility.Collapsed &&
                     track3D.Visibility == Visibility.Visible, name + "/3d-mode-binding");
                 check(track3D.IsReady && track3D.PreparedSegmentCount > 0, name + "/3d-scene-ready");
+                check(track3D.ToolTip is null && ((TextBlock)view.FindName("MapInteractionHint")).Text.Contains("Right-click"),
+                    name + "/camera-help-does-not-cover-the-track-on-hover");
                 check(!review.SharedSpace && !review.IsMapComparison && !track3D.IsComparison && track3D.ComparisonData is null &&
                     track3D.Data is { ShowReferencePath: true, HasDistinctReference: true } originalMap &&
                     ReferenceEquals(originalMap.Reference, selectedReference) && showBoth.Visibility == Visibility.Collapsed,
@@ -181,8 +192,8 @@ internal static class LapReviewUiChecks
                 check(view.FindName("CameraAxes") is null && !Descendants(view).OfType<Slider>().Any(item =>
                     AutomationProperties.GetName(item).StartsWith("3D camera", StringComparison.Ordinal)) &&
                     !Descendants(view).OfType<ComboBox>().Any(item => AutomationProperties.GetName(item) == "Lap contact markers") &&
-                    !Descendants(view).OfType<Button>().Any(item => ReferenceEquals(item.Command, review.MarkContactCommand) ||
-                        ReferenceEquals(item.Command, review.RemoveContactCommand)), name + "/no-manual-angle-or-contact-editors");
+                    !Descendants(view).OfType<Button>().Any(item => Equals(item.Content, "Mark contact here") ||
+                        Equals(item.Content, "Remove marked contact")), name + "/no-manual-angle-or-contact-editors");
                 ScrollTo(elevation); Capture("legend-graph-settings");
                 CheckMapAndScrubber(); Capture("map-3d-normal");
                 VerifyMapImage("3d-normal", track3D);
@@ -276,11 +287,11 @@ internal static class LapReviewUiChecks
                 check(track3D.FocusedLap == 2 && track3D.RenderSize == overviewSize &&
                     ProjectedTrackBounds(reference: true).Width > overviewB.Width * 1.15, name + "/focus-B-moves-shared-camera");
                 CheckBothGeometriesRetained();
-                var referenceCursor = track3D.ComparisonData!.Cursor;
-                var nextReference = Math.Clamp(referenceCursor + 1, 0, review.Reference!.Points.Length - 1);
-                var expectedCursor = track3D.ComparisonData.Comparison?.Points.ElementAtOrDefault(nextReference)?.ReferencePointIndex;
+                var primaryCursor = review.Cursor;
+                var referenceSeconds = review.Plot.Comparison!.Points[primaryCursor].ReferenceLapSeconds;
                 SendKey(track3D, Key.Right, surface); Pump();
-                check(expectedCursor is { } matched && review.Cursor == matched && trace.Data?.Cursor == matched,
+                check(review.Cursor > primaryCursor && trace.Data?.Cursor == review.Cursor &&
+                    review.Plot.Comparison.Points[review.Cursor].ReferenceLapSeconds > referenceSeconds,
                     name + "/focused-reference-arrow-selects-corresponding-A-position");
                 ScrollTo(scrubBar); Capture("map-3d-focus-B");
                 VerifyMapImage("3d-focus-B", track3D);
@@ -311,15 +322,27 @@ internal static class LapReviewUiChecks
                 var automaticHeight = mapViewport.ActualHeight;
                 var geometryBeforeResize = track3D.SceneBuildCount;
                 var grip = (Thumb)view.FindName("MapResizeGrip");
+                grip.RaiseEvent(new DragDeltaEventArgs(0, -1) { RoutedEvent = Thumb.DragDeltaEvent });
+                Arrange(surface, size);
+                check(mapViewport.ActualHeight <= automaticHeight + .1, name + "/first-upward-resize-never-enlarges-map");
+                SendKey(grip, Key.Home, surface); Arrange(surface, size);
                 grip.RaiseEvent(new DragDeltaEventArgs(0, 160) { RoutedEvent = Thumb.DragDeltaEvent });
                 grip.RaiseEvent(new DragDeltaEventArgs(0, 40) { RoutedEvent = Thumb.DragDeltaEvent });
+                check(settings.RunWorkspace.LapMapHeight == 0, name + "/resize-does-not-save-every-drag-event");
+                grip.RaiseEvent(new DragCompletedEventArgs(0, 200, false) { RoutedEvent = Thumb.DragCompletedEvent });
                 Arrange(surface, size);
-                check(Math.Abs(mapViewport.ActualHeight - Math.Clamp(automaticHeight + 200, 180, 1400)) < .1 &&
+                check(Math.Abs(mapViewport.ActualHeight - Math.Clamp(automaticHeight + 200, 70, 1400)) < .1 &&
                     track3D.SceneBuildCount == geometryBeforeResize, name + "/track-resize-accumulates-without-rebuilding-geometry");
+                check(Math.Abs(settings.RunWorkspace.LapMapHeight - mapViewport.ActualHeight) < .1,
+                    name + "/resize-height-saved-on-release");
+                model.SaveWorkspaceCommand.Execute(null); Pump();
+                check(Math.Abs(settings.RunWorkspace.LapMapHeight - mapViewport.ActualHeight) < .1,
+                    name + "/saving-graph-layout-preserves-map-height");
                 VerifyMapImage("3d-taller", track3D);
                 SendKey(grip, Key.Home, surface); Arrange(surface, size);
                 check(double.IsNaN(view.RequestedMapHeight) && Math.Abs(mapViewport.ActualHeight - automaticHeight) < .1,
                     name + "/track-size-keyboard-reset");
+                check(settings.RunWorkspace.LapMapHeight == 0, name + "/automatic-height-reset-is-saved");
                 view2D.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump(); Arrange(surface, size);
                 check(!review.Is3D && track.Visibility == Visibility.Visible && track3D.Visibility == Visibility.Collapsed &&
                     track.Data?.Cursor == review.Cursor &&

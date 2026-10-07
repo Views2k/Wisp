@@ -144,7 +144,7 @@ public sealed class LapReviewPlot : FrameworkElement
                 if (contact.PointIndex < 0 || contact.PointIndex >= _hitPoints.Count) continue;
                 var p = _hitPoints[contact.PointIndex].Position;
                 if (!IsMap) p.Y = area.Top + 7;
-                LapReviewPalette.DrawContact(dc, p, background);
+                LapReviewPalette.DrawContact(dc, p, background, kind: contact.Kind);
             }
         var unit = Unit(data);
         Label(dc, finite.Length == 0 ? "No comparable values for this channel" : $"{colorMinimum:0.##} → {colorMaximum:0.##} {unit}" + (IsMap ? " · low = blue, high = red" : " · lap = cyan, reference = amber"), new(10, 5), muted);
@@ -209,7 +209,7 @@ public sealed class LapReviewPlot : FrameworkElement
             LapReviewChannel.Gear => (int)state.Gear >= 0 ? (int)state.Gear : null,
             LapReviewChannel.Power => float.IsFinite(state.PowerWatts) ? state.PowerWatts / 745.699871582 : null,
             LapReviewChannel.Torque => float.IsFinite(state.TorqueNm) ? state.TorqueNm * (data.TorqueUnit == TorqueUnit.NewtonMeters ? 1 : .7375621493) : null,
-            LapReviewChannel.Elevation => float.IsFinite(point.Position.Y) ? point.Position.Y : null,
+            LapReviewChannel.Elevation => float.IsFinite(point.Position.Y) ? point.Position.Y * ElevationFactor(data.SpeedUnit) : null,
             LapReviewChannel.TireTemperature => data.TemperatureUnit == TireTemperatureUnit.Celsius ? (WheelValue(state.TireTemperatureFahrenheit, data.Wheel) - 32) * 5 / 9 : WheelValue(state.TireTemperatureFahrenheit, data.Wheel),
             LapReviewChannel.SlipRatio => WheelValue(state.TireSlipRatio, data.Wheel),
             LapReviewChannel.SlipAngle => WheelValue(state.TireSlipAngle, data.Wheel),
@@ -218,7 +218,9 @@ public sealed class LapReviewPlot : FrameworkElement
         };
     }
     private static double WheelValue(WheelValues values, int wheel) => wheel switch { 1 => values.FrontRight, 2 => values.RearLeft, 3 => values.RearRight, _ => values.FrontLeft };
-    internal static string Unit(LapReviewPlotData data) => data.Channel switch { LapReviewChannel.Speed => RunPresentation.SpeedLabel(data.SpeedUnit), LapReviewChannel.Delta => "s (lap − reference)", LapReviewChannel.Throttle or LapReviewChannel.Brake or LapReviewChannel.Steering => "%", LapReviewChannel.Rpm => "rpm", LapReviewChannel.Gear => "gear", LapReviewChannel.Power => "hp", LapReviewChannel.Torque => data.TorqueUnit == TorqueUnit.NewtonMeters ? "Nm" : "lb-ft", LapReviewChannel.Elevation => "m", LapReviewChannel.TireTemperature => data.TemperatureUnit == TireTemperatureUnit.Celsius ? "°C" : "°F", LapReviewChannel.SlipRatio or LapReviewChannel.SlipAngle => "raw", LapReviewChannel.Suspension => "normalized", _ => "g" };
+    internal static double ElevationFactor(SpeedUnit unit) => unit == SpeedUnit.MilesPerHour ? 1 / .3048 : 1;
+
+    internal static string Unit(LapReviewPlotData data) => data.Channel switch { LapReviewChannel.Speed => RunPresentation.SpeedLabel(data.SpeedUnit), LapReviewChannel.Delta => "s (lap − reference)", LapReviewChannel.Throttle or LapReviewChannel.Brake or LapReviewChannel.Steering => "%", LapReviewChannel.Rpm => "rpm", LapReviewChannel.Gear => "gear", LapReviewChannel.Power => "hp", LapReviewChannel.Torque => data.TorqueUnit == TorqueUnit.NewtonMeters ? "Nm" : "lb-ft", LapReviewChannel.Elevation => data.SpeedUnit == SpeedUnit.MilesPerHour ? "ft" : "m", LapReviewChannel.TireTemperature => data.TemperatureUnit == TireTemperatureUnit.Celsius ? "°C" : "°F", LapReviewChannel.SlipRatio or LapReviewChannel.SlipAngle => "raw", LapReviewChannel.Suspension => "normalized", _ => "g" };
     protected override void OnMouseDown(MouseButtonEventArgs e) { base.OnMouseDown(e); if (e.ChangedButton != MouseButton.Left) return; Focus(); CaptureMouse(); Choose(e.GetPosition(this)); e.Handled = true; }
     protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (IsMouseCaptured && e.LeftButton == MouseButtonState.Pressed) Choose(e.GetPosition(this)); }
     protected override void OnMouseUp(MouseButtonEventArgs e) { base.OnMouseUp(e); if (IsMouseCaptured) ReleaseMouseCapture(); }

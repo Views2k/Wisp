@@ -14,6 +14,21 @@ internal readonly record struct LapReviewTrackBounds(Point3D Center, double Span
     internal static bool IsFinite(LapPosition position) => float.IsFinite(position.X) &&
         float.IsFinite(position.Y) && float.IsFinite(position.Z);
 
+    internal static (LapReviewTrackBounds Primary, LapReviewTrackBounds Reference) ForComparison(
+        LapReviewPlotData primary, LapReviewPlotData reference)
+    {
+        var a = From(primary with { Reference = null });
+        var b = From(reference with { Reference = null });
+        var minimumHeight = Math.Min(a.MinimumHeight, b.MinimumHeight);
+        var maximumHeight = Math.Max(2 * a.Center.Y - a.MinimumHeight, 2 * b.Center.Y - b.MinimumHeight);
+        var centerHeight = (minimumHeight + maximumHeight) / 2;
+        var span = Math.Max(Math.Max(a.Span, b.Span), maximumHeight - minimumHeight);
+        // Horizontal map locations are presentation offsets, not part of either
+        // track's dimensions. Keep one physical scale and the recorded Y datum.
+        return (a with { Center = new(a.Center.X, centerHeight, a.Center.Z), Span = span, MinimumHeight = minimumHeight },
+            b with { Center = new(b.Center.X, centerHeight, b.Center.Z), Span = span, MinimumHeight = minimumHeight });
+    }
+
     internal static LapReviewTrackBounds From(LapReviewPlotData data, LapReviewLap? extraLap = null)
     {
         var minimum = new Point3D(double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity);
@@ -115,18 +130,24 @@ internal readonly record struct LapReviewTrackFit(Point3D Target, double Horizon
     }
 }
 
-internal sealed record LapReviewTrackScene(Model3DGroup Model, LapReviewTrackBounds Bounds, LapReviewTrackFit Fit, int SegmentCount);
+internal sealed record LapReviewTrackScene(Model3DGroup Model, LapReviewTrackBounds Bounds, LapReviewTrackFit Fit,
+    (int From, int To)[] Segments)
+{
+    internal int SegmentCount => Segments.Length;
+}
 
 internal sealed record LapReviewTrackArrangement(Vector3D PrimaryOffset, Vector3D ReferenceOffset,
     LapReviewTrackFit Overview, LapReviewTrackFit PrimaryFit, LapReviewTrackFit? ReferenceFit,
     Point3D[] PrimaryCorners, Point3D[] ReferenceCorners)
 {
-    internal static LapReviewTrackArrangement Create(LapReviewPlotData primary, LapReviewPlotData? reference, LapReviewTrackBounds bounds)
+    internal static LapReviewTrackArrangement Create(LapReviewPlotData primary, LapReviewPlotData? reference,
+        LapReviewTrackBounds bounds, LapReviewTrackBounds? referenceBounds = null)
     {
-        var overview = LapReviewTrackFit.From(primary, bounds);
+        var overview = LapReviewTrackFit.From(reference is null ? primary : primary with { Reference = null }, bounds);
         if (reference?.Lap is null) return new(new(), new(), overview, overview, null, [], []);
+        var otherBounds = referenceBounds ?? bounds;
         var first = LapReviewTrackFit.From(primary with { Reference = null, Comparison = null }, bounds, overview.Yaw);
-        var second = LapReviewTrackFit.From(reference with { Reference = null, Comparison = null }, bounds, overview.Yaw);
+        var second = LapReviewTrackFit.From(reference with { Reference = null, Comparison = null }, otherBounds, overview.Yaw);
         var frame = LapReviewCameraFrame.From(overview.Yaw, LapReviewTrackFit.DefaultPitch, 0);
         double Horizontal(Point3D point) => Vector3D.DotProduct(point - new Point3D(), frame.Right);
         double Vertical(Point3D point) => Vector3D.DotProduct(point - new Point3D(), frame.Up);
@@ -142,7 +163,7 @@ internal sealed record LapReviewTrackArrangement(Vector3D PrimaryOffset, Vector3
         var top = Math.Max(Vertical(first.Target) + first.VerticalSpan / 2, Vertical(second.Target) + second.VerticalSpan / 2);
         overview = new(new Point3D() + frame.Right * ((left + right) / 2) + frame.Up * ((bottom + top) / 2), right - left, top - bottom, overview.Yaw);
         return new(offsetA, offsetB, overview, first, second,
-            Corners(primary.Lap!, bounds, offsetA), Corners(reference.Lap, bounds, offsetB));
+            Corners(primary.Lap!, bounds, offsetA), Corners(reference.Lap, otherBounds, offsetB));
     }
 
     internal LapReviewTrackFit ProjectedFit(double yaw, double pitch, double roll, int lap = 0)
@@ -240,7 +261,7 @@ internal static class LapReviewTrackGeometry
     {
         var fit = LapReviewTrackFit.From(data, bounds);
         var model = new Model3DGroup();
-        if (data.Lap is not { Points.Length: > 0 } lap) { model.Freeze(); return new(model, bounds, fit, 0); }
+        if (data.Lap is not { Points.Length: > 0 } lap) { model.Freeze(); return new(model, bounds, fit, []); }
         var floor = (bounds.MinimumHeight - bounds.Center.Y) / bounds.Span - .025;
         var colors = Enumerable.Range(0, 65).Select(_ => new MeshBuilder()).ToArray();
         var shadow = new MeshBuilder(); var posts = new MeshBuilder(); var referenceMesh = new MeshBuilder();
@@ -289,7 +310,7 @@ internal static class LapReviewTrackGeometry
         for (var i = 0; i < colors.Length; i++) Add(model, colors[i], i == 64 ? Brush(139, 146, 159) : LapReviewPalette.GetBrush(i / 63d));
         cancellationToken.ThrowIfCancellationRequested();
         model.Freeze();
-        return new(model, bounds, fit, segmentCount);
+        return new(model, bounds, fit, segments);
     }
 
     private readonly record struct PathFrame(Vector3D Direction, int Connections);

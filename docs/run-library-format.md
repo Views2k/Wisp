@@ -4,12 +4,18 @@ Wisp run files and library archives preserve recorded telemetry and its metadata
 
 ## Single run: `.wisprun`
 
-The existing single-run format remains unchanged: a gzip-compressed UTF-8 JSON Lines file.
+The single-run container is a gzip-compressed UTF-8 JSON Lines file.
 
-1. The first line is a `RecordedRun` object. `schemaVersion` is currently `1`; `samples` must be an empty array. The header carries `id`, `name`, `tune`, `notes`, `startedAtUtc`, `finishReason`, `isIncomplete`, `rejectedDatagrams`, `droppedDatagrams`, and `markers`.
+1. The first line is a `RecordedRun` object; `samples` must be an empty array. The header carries `schemaVersion`, `id`, `name`, `tune`, optional `tuneAttachment`, `notes`, `startedAtUtc`, `finishReason`, `isIncomplete`, `rejectedDatagrams`, `droppedDatagrams`, `lapTimingMode`, and `markers`.
 2. Every subsequent line is one `RunSample`, in recording order. Its fields are `elapsedSeconds`, `segment`, `isDriving`, `state`, `wheelSpeedMetersPerSecond`, `frontRadiusMeters`, and `rearRadiusMeters`. `state` contains the serialized `VehicleState` fields; values are not rounded for export.
 
 JSON uses camel-case property names and string enum names. Unknown properties and unsupported schema versions are rejected rather than silently discarded. Existing Wisp validation also checks finite/bounded numeric data, chronological samples and markers, consistent car/drivetrain identity, plausible calibration, and metadata lengths. Current definitions live in `src/Wisp.Core/Runs/RunModels.cs`, `src/Wisp.Core/VehicleState.cs`, and `src/Wisp.App/Runs/RunStore.cs`.
+
+Schema 1 stores telemetry without a structured tune attachment. Schema 2 adds that attachment. Schema 3 permits optional breakable-object velocity-loss and mass fields, with or without a tune attachment. Missing object fields mean unavailable evidence, not a measured zero. These fields are validated as a pair; invalid or partial values are rejected.
+
+When finalizing a new recording or automatic lap, Wisp retains schema 3 if either object field is positive in any sample. All surrounding zero baselines remain intact, so an observed zero-to-positive contact can still be identified. If neither field is ever positive, Wisp omits these optional fields and saves schema 1 or 2 as appropriate. Those completed files remain readable in Wisp 2.6.4; files retaining schema 3 require the contact-capable build. Existing finalized files and imports are not downgraded, and metadata edits preserve their schema and telemetry.
+
+New recording journals declare schema 3 from the start, so older readers cannot recover a prefix and silently discard later object evidence. Recovery validates its retained samples before choosing the finalized format by the same rule and marks the run incomplete. Unsupported or unrecoverable journals remain on disk.
 
 ## Library archive: `.zip`, version 1
 

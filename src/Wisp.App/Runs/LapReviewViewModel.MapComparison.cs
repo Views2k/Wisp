@@ -72,18 +72,69 @@ public sealed partial class LapReviewViewModel
 
     public void PickReferencePoint(int index)
     {
-        if (!HasMapComparison || Reference is not { } reference || (uint)index >= (uint)reference.Points.Length) return;
+        if (_disposed || !HasMapComparison || Reference is not { } reference || (uint)index >= (uint)reference.Points.Length) return;
+        if (UsesRelativeReferenceCursor) { Cursor = RelativePrimaryCursor(index); return; }
         if (!UsesMatchedReferenceCursor)
         {
             SetReferenceCursor(index);
             return;
         }
-        if (_reverseComparison!.Points.ElementAtOrDefault(index)?.ReferencePointIndex is not { } matched) return;
-        Cursor = matched;
+        var matched = NearestPrimaryIndexForReference(index);
+        if (matched >= 0) Cursor = matched;
+    }
+
+    public void NavigateReferenceCursor(LapReviewCursorNavigation navigation)
+    {
+        if (_disposed || !HasMapComparison || Reference is not { Points.Length: > 0 } reference ||
+            !Enum.IsDefined(navigation)) return;
+        var forward = navigation is LapReviewCursorNavigation.Next or LapReviewCursorNavigation.Start;
+        var endpoint = navigation is LapReviewCursorNavigation.Start or LapReviewCursorNavigation.End;
+        var current = MapPlotB.Cursor;
+        var requested = navigation switch
+        {
+            LapReviewCursorNavigation.Start => 0,
+            LapReviewCursorNavigation.End => reference.Points.Length - 1,
+            _ => Math.Clamp(current + (forward ? 1 : -1), 0, reference.Points.Length - 1)
+        };
+        if (UsesRelativeReferenceCursor) { NavigateRelativeReference(requested, forward, endpoint); return; }
+        if (!UsesMatchedReferenceCursor) { SetReferenceCursor(requested); return; }
+
+        // B can have more samples than A. Mapping its next sample to the lower A
+        // sample repeatedly would stick, so require progress in the requested direction.
+        var candidate = forward ? 0 : MaximumCursor;
+        if (!endpoint)
+        {
+            var nearest = current >= 0 ? NearestPrimaryIndexForReference(requested) : -1;
+            candidate = forward ? Math.Max(Cursor + 1, nearest) : Math.Min(Cursor - 1, nearest < 0 ? Cursor - 1 : nearest);
+        }
+        var previousSeconds = _comparison?.Points.ElementAtOrDefault(Cursor)?.ReferenceLapSeconds;
+        var plot = Plot;
+        for (var index = candidate; (uint)index <= (uint)MaximumCursor; index += forward ? 1 : -1)
+        {
+            if (LapReviewPlot.ReferencePosition(plot, index) is null ||
+                _comparison?.Points.ElementAtOrDefault(index)?.ReferenceLapSeconds is not { } seconds) continue;
+            if (!endpoint && previousSeconds is { } previous && (forward ? seconds <= previous : seconds >= previous)) continue;
+            Cursor = index;
+            return;
+        }
+    }
+
+    private int NearestPrimaryIndexForReference(int referenceIndex)
+    {
+        if (Lap is not { Points.Length: > 0 } lap ||
+            _reverseComparison?.Points.ElementAtOrDefault(referenceIndex) is not { ReferencePointIndex: { } lower, ReferenceLapSeconds: { } seconds } ||
+            (uint)lower >= (uint)lap.Points.Length || !double.IsFinite(seconds)) return -1;
+        var upper = Math.Min(lower + 1, lap.Points.Length - 1);
+        var nearest = Math.Abs(lap.Points[upper].LapSeconds - seconds) < Math.Abs(seconds - lap.Points[lower].LapSeconds) ? upper : lower;
+        var alternate = nearest == lower ? upper : lower;
+        // Keep A on an actual recorded sample and retain only genuine forward matches.
+        if (LapReviewPlot.ReferencePosition(Plot, nearest) is not null) return nearest;
+        return LapReviewPlot.ReferencePosition(Plot, alternate) is not null ? alternate : -1;
     }
 
     private void RefreshMapMode()
     {
+        SynchronizeRelativeReferenceCursor(Cursor);
         _legendData = null;
         RefreshMapDetails();
         Changed(nameof(CanUseSharedSpace));

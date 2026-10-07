@@ -113,7 +113,7 @@ public sealed class LapReviewMapHeightConverter : IMultiValueConverter
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
         if (values.Length > 1 && values[1] is double requested && double.IsFinite(requested))
-            return Math.Clamp(requested, 180, 1400);
+            return Math.Clamp(requested, 70, 1400);
         var overhead = 235d;
         if (values.Length >= 6 && values[2] is double toolbar && values[3] is double scrub &&
             values[4] is double readout && values[5] is bool compact)

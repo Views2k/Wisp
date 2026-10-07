@@ -18,7 +18,7 @@ public sealed record LapReviewContact(int PointIndex, double RunSeconds, double 
 public static class LapReviewContacts
 {
     public const string ContactMarkerLabel = "Contact";
-    public const string EvidenceNote = "Object contacts are reported by Forza for breakable objects. Possible contacts are estimates that may miss or misidentify contact. Mark contacts yourself where needed.";
+    public const string EvidenceNote = "Object contacts are reported by Forza for breakable objects. Possible contacts are estimates that may miss or misidentify contact.";
     private const double Gravity = 9.80665;
     private const double WindowSeconds = .2;
     private const double CooldownSeconds = 1;
@@ -43,7 +43,7 @@ public static class LapReviewContacts
             if (before.SmashableVelocityLossMetersPerSecond == 0 &&
                 before.SmashableMassKilograms is >= 0 and <= 10_000_000 &&
                 state.SmashableVelocityLossMetersPerSecond is > 0 and <= 500 &&
-                state.SmashableMassKilograms is > 0 and <= 10_000_000 && Continuous(points[index - 1], points[index]))
+                state.SmashableMassKilograms is > 0 and <= 10_000_000 && Continuous(points[index - 1], points[index], observedObject: true))
                 result.Add(new(index, points[index].RunSeconds, points[index].DistanceMeters, LapReviewContactKind.SmashableObject));
         }
         var objectTimes = result.Select(contact => contact.RunSeconds).ToArray();
@@ -82,8 +82,7 @@ public static class LapReviewContacts
         return result.OrderBy(contact => contact.PointIndex).ToArray();
     }
 
-    // Existing run markers provide an explicit alternative when telemetry cannot
-    // identify a contact. No new saved-run schema or game-memory field is required.
+    // Preserve Contact annotations already present in saved or imported runs.
     public static LapReviewContact[] FromMarkers(LapReviewLap lap, IReadOnlyList<RunMarker> markers,
         CancellationToken cancellationToken = default)
     {
@@ -138,15 +137,29 @@ public static class LapReviewContacts
         return Math.Sqrt(lateral * lateral + longitudinal * longitudinal);
     }
 
-    private static bool Continuous(LapReviewPoint previous, LapReviewPoint current)
+    private static bool Continuous(LapReviewPoint previous, LapReviewPoint current, bool observedObject = false)
     {
-        if (current.BreakBefore || !RunAnalysis.AreContinuous(previous.Sample, current.Sample) ||
+        // Observed object impulses may arrive on repeated game/lap clocks. Only
+        // their edge detection accepts an unchanged tick at the same position;
+        // inferred movement still requires advancing, continuous time.
+        if (current.BreakBefore ||
+            !(RunAnalysis.AreContinuous(previous.Sample, current.Sample) || observedObject && SameTick(previous.Sample, current.Sample)) ||
             !double.IsFinite(previous.LapSeconds) || !double.IsFinite(current.LapSeconds) ||
-            current.LapSeconds - previous.LapSeconds is <= 0 or > .25) return false;
+            current.LapSeconds - previous.LapSeconds is < 0 or > .25 ||
+            !observedObject && current.LapSeconds == previous.LapSeconds) return false;
         var elapsed = current.RunSeconds - previous.RunSeconds;
-        if (!double.IsFinite(elapsed) || elapsed <= 0 || elapsed > .25) return false;
+        if (!double.IsFinite(elapsed) || elapsed < 0 || elapsed > .25 || !observedObject && elapsed == 0) return false;
         var distance = Vector3.Distance(previous.Position.ToVector(), current.Position.ToVector());
         var speed = Math.Max(previous.Sample.State.GroundSpeedMetersPerSecond, current.Sample.State.GroundSpeedMetersPerSecond);
-        return float.IsFinite(distance) && distance <= Math.Max(1, speed * elapsed * 1.5 + .5);
+        return float.IsFinite(distance) && distance <= (elapsed == 0 ? .01 : Math.Max(1, speed * elapsed * 1.5 + .5));
     }
+
+    private static bool SameTick(RunSample previous, RunSample current) =>
+        previous.IsDriving && current.IsDriving && previous.State.IsRaceOn && current.State.IsRaceOn &&
+        double.IsFinite(previous.ElapsedSeconds) && previous.ElapsedSeconds >= 0 && current.ElapsedSeconds == previous.ElapsedSeconds &&
+        previous.State.GameTimestampMilliseconds == current.State.GameTimestampMilliseconds &&
+        previous.Segment == current.Segment && previous.State.CarOrdinal == current.State.CarOrdinal &&
+        previous.State.Drivetrain == current.State.Drivetrain &&
+        float.IsFinite(previous.State.GroundSpeedMetersPerSecond) && previous.State.GroundSpeedMetersPerSecond >= 0 &&
+        float.IsFinite(current.State.GroundSpeedMetersPerSecond) && current.State.GroundSpeedMetersPerSecond >= 0;
 }

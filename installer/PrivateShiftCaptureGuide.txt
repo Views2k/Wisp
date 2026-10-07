@@ -1,5 +1,5 @@
 Wisp 2.6.4 Lap review 3D test
-Private build ID: lap-review-3d-20261006-06
+Private build ID: lap-review-3d-20261006-07
 
 This is a private test build, not a public release. It updates your existing
 Wisp installation and keeps your settings, profiles, calibrations, runs and
@@ -32,13 +32,20 @@ Changes
   benchmark beneath it. Drag the clearly marked divider handle to resize the map.
 - Use mouse camera gestures without manual angle sliders or a contact editor.
 - Center the close icon in the A note from Views popup.
+- Move both lap cursors with track/graph clicks, keyboard navigation and the slider.
+- Step through slower comparison laps without sticking on the same sample.
+- Keep the map height when reopening the view, and show imperial elevation in feet.
+- Distinguish reported/saved contacts from estimated contacts in the legend.
+- Select the visible track at overpasses and restore the single-map layout correctly.
+- Read styled, wrapping tooltips without a blank white bar over the track.
 
 Controls
 Lap position: Both moves paired cursors; A or B moves only that lap. Both uses
 matched positions where available, otherwise relative recorded lap distance.
 Relative progress does not establish a valid time delta or matched section.
 Drag: rotate. Shift-drag or right-drag: pan. Ctrl-drag: roll.
-Click the map before using scroll to zoom; otherwise the wheel scrolls the page.
+Right-click or click empty map space to enable scroll zoom without selecting a
+lap point. Otherwise the wheel scrolls the page.
 Double-click or Reset camera: restore the workspace camera.
 Drag Resize map on the divider to resize it. Focus the grip and use Up/Down to
 adjust the height, or Home to restore automatic sizing.
@@ -70,11 +77,13 @@ from movement; it is not a verified wall/car collision. Old recordings did
 not retain the object-impact fields. Previously saved markers remain visible.
 
 Saved-run compatibility
-Existing saved runs remain readable and keep their original format. New runs
-with object-contact telemetry use run format 3 and require this build or newer.
-If you reinstall public 2.6.4, those new runs are kept on disk but cannot be
-opened there. Return to this build to review them. Exported runs keep the same
-version requirement.
+Existing saved runs retain their original format. New finalized runs without
+positive object-impact telemetry omit those optional fields and remain readable
+in public 2.6.4. Runs with positive object-impact telemetry use run format 3 and
+require this build or newer. Public 2.6.4 keeps those files but cannot open them.
+Recording journals declare format 3 from the start so older Wisp cannot recover
+an incomplete prefix and lose contact data. This build safely recovers them.
+Existing format-3 files are preserved rather than rewritten during metadata edits.
 
 The 3D line uses recorded world positions at equal scale on all axes. Its floor
 projection is a visual reference, not a terrain model. Dense laps are simplified

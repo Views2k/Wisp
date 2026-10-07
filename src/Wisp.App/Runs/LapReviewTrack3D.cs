@@ -33,7 +33,7 @@ public sealed partial class LapReviewTrack3D : Grid
     public bool IsPreparing => (bool)GetValue(IsPreparingProperty);
     public string StatusText => (string)GetValue(StatusTextProperty);
     public bool IsReady => _scene is not null && _path.Content is not null && Data is { } data &&
-        SameScene(_preparedData, data) && SameOptionalScene(_preparedComparison, EffectiveComparison) &&
+        SameScene(_preparedData, data) && SameOptionalScene(_preparedComparison, EffectiveComparison) && SamePreparedLayout(EffectiveComparison) &&
         (EffectiveComparison is null || _comparisonScene is not null && _comparisonPath.Content is not null) &&
         !IsPreparing && string.IsNullOrEmpty(StatusText);
     public event Action<int>? PointChosen;
@@ -190,6 +190,9 @@ public sealed partial class LapReviewTrack3D : Grid
         a.ShowReferencePath == b.ShowReferencePath && a.ColorRangeOverride == b.ColorRangeOverride &&
         a.SectionStart == b.SectionStart && a.SectionEnd == b.SectionEnd && a.Wheel == b.Wheel && a.TemperatureUnit == b.TemperatureUnit;
 
+    private bool SamePreparedLayout(LapReviewPlotData? comparison) =>
+        _arrangement is not null && (_arrangement.ReferenceFit is not null) == (comparison is not null);
+
     private void RefreshScene()
     {
         _contactOverlay.InvalidateVisual();
@@ -203,7 +206,7 @@ public sealed partial class LapReviewTrack3D : Grid
             SetStatus("No recorded lap positions", false); return;
         }
         var other = EffectiveComparison;
-        if (_scene is not null && SameScene(_preparedData, data) && SameOptionalScene(_preparedComparison, other))
+        if (_scene is not null && SameScene(_preparedData, data) && SameOptionalScene(_preparedComparison, other) && SamePreparedLayout(other))
         {
             CancelPreparation(); _path.Content = _scene.Model; _comparisonPath.Content = other is null ? null : _comparisonScene?.Model;
             SetStatus(string.Empty, false); UpdateCursor(); return;
@@ -226,12 +229,14 @@ public sealed partial class LapReviewTrack3D : Grid
             var cachedB = other is not null && SameScene(_preparedComparison, other) ? _comparisonScene : null;
             var result = await Task.Run(() =>
             {
-                var bounds = LapReviewTrackBounds.From(data, other?.Lap);
+                var bounds = LapReviewTrackBounds.From(data);
+                var otherBounds = bounds;
+                if (other is not null) (bounds, otherBounds) = LapReviewTrackBounds.ForComparison(data, other);
                 var buildA = cachedA?.Bounds != bounds;
-                var buildB = other is not null && cachedB?.Bounds != bounds;
-                var scene = buildA ? LapReviewTrackGeometry.Build(data, bounds, cancellation.Token) : cachedA!;
-                var comparison = other is null ? null : buildB ? LapReviewTrackGeometry.Build(other, bounds, cancellation.Token) : cachedB;
-                return (scene, comparison, arrangement: LapReviewTrackArrangement.Create(data, other, bounds), builds: (buildA ? 1 : 0) + (buildB ? 1 : 0));
+                var buildB = other is not null && cachedB?.Bounds != otherBounds;
+                var scene = buildA ? LapReviewTrackGeometry.Build(other is null ? data : data with { Reference = null }, bounds, cancellation.Token) : cachedA!;
+                var comparison = other is null ? null : buildB ? LapReviewTrackGeometry.Build(other with { Reference = null }, otherBounds, cancellation.Token) : cachedB;
+                return (scene, comparison, arrangement: LapReviewTrackArrangement.Create(data, other, bounds, otherBounds), builds: (buildA ? 1 : 0) + (buildB ? 1 : 0));
             }, cancellation.Token);
             if (cancellation.IsCancellationRequested || !ReferenceEquals(_preparation, cancellation)) return;
             var reset = _arrangement is null || _resetOverview;
@@ -302,25 +307,83 @@ public sealed partial class LapReviewTrack3D : Grid
 
     internal void Choose(Point click)
     {
-        if (!IsReady || Data?.Lap is not { } lap || _scene is null) return;
+        if (!IsReady || Data is not { Lap: { } } data || _scene is null || !double.IsFinite(click.X) || !double.IsFinite(click.Y)) return;
         var frame = LapReviewCameraFrame.From(Yaw, Pitch, Roll);
-        var closest = double.PositiveInfinity; var index = -1; var selectedLap = 1;
-        void Search(Wisp.Core.Runs.LapReviewLap candidate, LapReviewTrackScene scene, Vector3D offset, int number)
+        var primaryOffset = _arrangement?.PrimaryOffset ?? new();
+        var referenceOffset = _arrangement?.ReferenceOffset ?? new();
+        // Screen annotations are deliberately above the scene. Hit them in the
+        // reverse of paint order before testing visible track segments.
+        if (_comparisonScene is { } annotations && EffectiveComparison is { } annotatedReference &&
+            ChooseAnnotation(annotatedReference, annotations, referenceOffset, 2)) return;
+        if (ChooseAnnotation(data, _scene, primaryOffset, 1)) return;
+
+        var closest = double.PositiveInfinity; var nearestDepth = double.PositiveInfinity;
+        var hitTube = false; var index = -1; var selectedLap = 1;
+        void Search(LapReviewPlotData candidate, LapReviewTrackScene scene, Vector3D offset, int number)
         {
-            for (var i = 0; i < candidate.Points.Length; i++)
+            if (candidate.Lap is not { } lap) return;
+            var scale = ActualWidth / _camera.Width;
+            foreach (var (from, to) in scene.Segments)
             {
-                if (!LapReviewTrackBounds.IsFinite(candidate.Points[i].Position)) continue;
-                var p = frame.Project(scene.Bounds.Normalize(candidate.Points[i].Position) + offset, _target, _camera.Width, RenderSize);
-                var distance = (p - click).LengthSquared;
-                if (distance < closest) { closest = distance; index = i; selectedLap = number; }
+                var a = scene.Bounds.Normalize(lap.Points[from].Position) + offset;
+                var b = scene.Bounds.Normalize(lap.Points[to].Position) + offset;
+                var first = frame.Project(a, _target, _camera.Width, RenderSize);
+                var delta = frame.Project(b, _target, _camera.Width, RenderSize) - first;
+                var fraction = delta.LengthSquared > 1e-12 ? Math.Clamp(Vector.Multiply(click - first, delta) / delta.LengthSquared, 0, 1) : 0;
+                var distance = (first + delta * fraction - click).Length;
+                var radius = (to >= candidate.SectionStart && from <= candidate.SectionEnd ? .0034 : .0024) * scale;
+                var gap = Math.Max(0, distance - radius);
+                if (gap > 12) continue;
+                var depth = Vector3D.DotProduct(a + (b - a) * fraction - _camera.Position, frame.Forward);
+                if (depth < _camera.NearPlaneDistance || depth > _camera.FarPlaneDistance) continue;
+                var actualHit = gap <= 1;
+                if (hitTube ? !actualHit || depth > nearestDepth + 1e-9 || Math.Abs(depth - nearestDepth) <= 1e-9 && gap >= closest
+                    : !actualHit && (gap > closest || gap == closest && depth >= nearestDepth)) continue;
+                hitTube = actualHit; nearestDepth = depth; closest = gap; selectedLap = number;
+                // Retain full-resolution sample selection within the displayed
+                // segment instead of snapping to its decimated endpoints.
+                var sampleDistance = double.PositiveInfinity;
+                for (var sample = from; sample <= to; sample++)
+                {
+                    var point = frame.Project(scene.Bounds.Normalize(lap.Points[sample].Position) + offset, _target, _camera.Width, RenderSize);
+                    var squared = (point - click).LengthSquared;
+                    if (squared < sampleDistance) { sampleDistance = squared; index = sample; }
+                }
             }
         }
-        Search(lap, _scene, _arrangement?.PrimaryOffset ?? new(), 1);
-        if (_comparisonScene is { } referenceScene && EffectiveComparison?.Lap is { } reference)
-            Search(reference, referenceScene, _arrangement?.ReferenceOffset ?? new(), 2);
+        Search(data, _scene, primaryOffset, 1);
+        if (_comparisonScene is { } referenceScene && EffectiveComparison is { } referenceData)
+            Search(referenceData, referenceScene, referenceOffset, 2);
         if (index < 0) return;
-        if (selectedLap == 2) ReferencePointChosen?.Invoke(index); else PointChosen?.Invoke(index);
-        if (IsComparison && selectedLap != FocusedLap) FocusLap(selectedLap);
+        Select(index, selectedLap);
+
+        bool ChooseAnnotation(LapReviewPlotData candidate, LapReviewTrackScene scene, Vector3D offset, int number)
+        {
+            if (candidate.Lap is not { } lap) return false;
+            bool At(int sample, double radius, Wisp.Core.LapPosition? position = null, bool selectSample = true)
+            {
+                if ((uint)sample >= (uint)lap.Points.Length) return false;
+                var location = position ?? lap.Points[sample].Position;
+                if (!LapReviewTrackBounds.IsFinite(location)) return false;
+                var point = frame.Project(scene.Bounds.Normalize(location) + offset, _target, _camera.Width, RenderSize);
+                if ((point - click).LengthSquared > radius * radius) return false;
+                if (selectSample) Select(sample, number);
+                else if (IsComparison && number != FocusedLap) FocusLap(number);
+                return true;
+            }
+            if (ShowContacts && candidate.Contacts is { } contacts)
+                for (var i = contacts.Count - 1; i >= 0; i--)
+                    if (At(contacts[i].PointIndex, 8)) return true;
+            // An interpolated B cursor is between samples. Clicking its visible
+            // dot focuses B without snapping the paired A cursor to a lower sample.
+            return At(candidate.Cursor, 5, candidate.CursorPositionOverride, selectSample: false) || At(0, 8);
+        }
+
+        void Select(int sample, int number)
+        {
+            if (number == 2) ReferencePointChosen?.Invoke(sample); else PointChosen?.Invoke(sample);
+            if (IsComparison && number != FocusedLap) FocusLap(number);
+        }
     }
 
     protected override void OnMouseDown(MouseButtonEventArgs e)
@@ -372,6 +435,18 @@ public sealed partial class LapReviewTrack3D : Grid
         if (e.Key is Key.Subtract or Key.OemMinus) { ZoomBy(1 / 1.2); e.Handled = true; return; }
         var active = FocusedLap == 2 ? EffectiveComparison : Data;
         if (active?.Lap is not { Points.Length: > 0 } lap) return;
+        if (FocusedLap == 2 && ReferenceCursorNavigationRequested is { } navigate)
+        {
+            LapReviewCursorNavigation? navigation = e.Key switch
+            {
+                Key.Left or Key.Down => LapReviewCursorNavigation.Previous,
+                Key.Right or Key.Up => LapReviewCursorNavigation.Next,
+                Key.Home => LapReviewCursorNavigation.Start,
+                Key.End => LapReviewCursorNavigation.End,
+                _ => null
+            };
+            if (navigation is { } requested) { navigate(requested); e.Handled = true; return; }
+        }
         var next = e.Key switch { Key.Left or Key.Down => active.Cursor - 1, Key.Right or Key.Up => active.Cursor + 1, Key.Home => 0, Key.End => lap.Points.Length - 1, _ => -1 };
         if (next < 0 && e.Key is not Key.Left and not Key.Down) return;
         var selected = Math.Clamp(next, 0, lap.Points.Length - 1);
@@ -431,7 +506,7 @@ public sealed partial class LapReviewTrack3D : Grid
             if (owner.ShowContacts && data.Contacts is { } contacts)
                 foreach (var contact in contacts)
                     if (Project(contact.PointIndex) is { } anchor)
-                        LapReviewPalette.DrawContact(dc, anchor, Outline, cursorAtSample && contact.PointIndex == data.Cursor);
+                        LapReviewPalette.DrawContact(dc, anchor, Outline, cursorAtSample && contact.PointIndex == data.Cursor, kind: contact.Kind);
             if (label is not null && fit is { } labelFit)
             {
                 var initialFrame = LapReviewCameraFrame.From(labelFit.Yaw, LapReviewTrackFit.DefaultPitch, 0);

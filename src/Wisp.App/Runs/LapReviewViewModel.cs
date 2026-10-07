@@ -65,7 +65,6 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
         UnpinCommand = Command(() => { _settings.LapReviewBenchmarkRunId = null; _save(); _ = LoadAsync(); }, () => _settings.LapReviewBenchmarkRunId is not null);
         ShowGraphsCommand = Command(() => { if (Lap is { Points.Length: > 0 }) SectionChosen?.Invoke(Lap.Points[_sectionStart].RunSeconds, Lap.Points[_sectionEnd].RunSeconds); },
             () => HasLap && _sectionEnd > _sectionStart && Lap!.Points[_sectionEnd].RunSeconds > Lap.Points[_sectionStart].RunSeconds);
-        InitializeMap();
     }
     private RunUiCommand Command(Action action, Func<bool>? canExecute = null)
     {
@@ -123,7 +122,24 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
     public bool CanPin => !_disposed && !_busy && UsableBenchmark(Lap);
     public bool IsBusy => _busy;
     public int MaximumCursor => Math.Max(0, (Lap?.Points.Length ?? 1) - 1);
-    public int Cursor { get => _cursor; set { if (!_disposed && Set(ref _cursor, Math.Clamp(value, 0, Math.Max(0, MaximumCursor)))) { RefreshCursor(); Changed(nameof(Plot)); if (Lap is { Points.Length: > 0 }) CursorMoved?.Invoke(Lap.Points[Cursor].RunSeconds); } } }
+    public int Cursor
+    {
+        get => _cursor;
+        set
+        {
+            if (_disposed) return;
+            value = Math.Clamp(value, 0, MaximumCursor);
+            // Every primary cursor entry point shares Both-mode synchronization:
+            // map/graph picking, keyboard navigation and the lap-position slider.
+            var referenceChanged = SynchronizeRelativeReferenceCursor(value);
+            if (Set(ref _cursor, value))
+            {
+                RefreshCursor(); Changed(nameof(Plot));
+                if (Lap is { Points.Length: > 0 }) CursorMoved?.Invoke(Lap.Points[Cursor].RunSeconds);
+            }
+            else if (referenceChanged) NotifyReferenceCursor();
+        }
+    }
     public LapReviewCursorReadout? CursorDetails { get; private set; }
     public string CursorText => CursorDetails is { } details ? $"{details.Position} · {details.Speed} · {details.Powertrain}" : "";
     public string SectionText { get; private set; } = "";
@@ -212,6 +228,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
     private void RefreshComparison()
     {
         _comparison = _reverseComparison = null;
+        SynchronizeRelativeReferenceCursor(Cursor);
         RefreshCursor(); Changed(nameof(Plot));
         _ = AnalyzeAsync(compare: true);
     }

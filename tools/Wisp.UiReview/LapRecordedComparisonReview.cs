@@ -132,9 +132,14 @@ internal static class LapRecordedComparisonReview
                     }
                     track.ResetView();
                     stage = name + "/select-reference";
+                    review.ScrubB = true; Pump();
                     var cursorA = review.Cursor; var indexB = Math.Min(100, review.Reference!.Points.Length - 1);
                     track.Choose(track.ProjectReferencePoint(indexB)); track.CompleteCameraMotionForTest(); Pump();
                     Check(review.Cursor == cursorA && chosenReference >= 0 && track.ComparisonData?.Cursor == chosenReference && track.FocusedLap == 2, name + "/B-selection-independent");
+                    review.ScrubBoth = true; Pump();
+                    review.PickReferencePoint(review.Reference.Points.Length - 1); Pump();
+                    Check(review.Cursor == review.MaximumCursor && track.ComparisonData?.Cursor == review.Reference.Points.Length - 1,
+                        name + "/Both-B-selection-moves-both-recorded-laps");
                     track.ShowAll(); track.CompleteCameraMotionForTest(); Pump();
                     Check(track.FocusedLap == 0 && track.HasBothPreparedModels, name + "/overview-retains-both");
                     stage = name + "/resize";

@@ -1,4 +1,8 @@
+using Wisp.Core.Runs;
+
 namespace Wisp.App.Runs;
+
+public enum LapReviewCursorNavigation { Previous, Next, Start, End }
 
 public sealed partial class LapReviewViewModel
 {
@@ -11,6 +15,7 @@ public sealed partial class LapReviewViewModel
     public bool ScrubB { get => _scrubTarget == ScrubTarget.B; set { if (value) SetScrubTarget(ScrubTarget.B); } }
     private bool ScrubsReferenceOnly => IsMapComparison && ScrubB;
     private bool UsesMatchedReferenceCursor => HasMatchedMapComparison && (!IsMapComparison || ScrubBoth);
+    private bool UsesRelativeReferenceCursor => IsMapComparison && ScrubBoth && !HasMatchedMapComparison;
     public int MaximumScrubCursor => ScrubsReferenceOnly ? Math.Max(0, (Reference?.Points.Length ?? 1) - 1) : MaximumCursor;
     public int ScrubCursor
     {
@@ -20,15 +25,7 @@ public sealed partial class LapReviewViewModel
             if (_disposed) return;
             value = Math.Clamp(value, 0, MaximumScrubCursor);
             if (ScrubsReferenceOnly) { SetReferenceCursor(value); return; }
-            var referenceChanged = false;
-            if (IsMapComparison && ScrubBoth && !HasMatchedMapComparison)
-            {
-                var reference = RelativeReferenceCursor(value);
-                referenceChanged = _referenceCursor != reference;
-                _referenceCursor = reference;
-            }
-            if (Cursor != value) Cursor = value;
-            else if (referenceChanged) NotifyReferenceCursor();
+            Cursor = value;
         }
     }
     public string ScrubPosition => !IsMapComparison ? CursorDetails?.Position ?? "" : ScrubA
@@ -83,29 +80,70 @@ public sealed partial class LapReviewViewModel
         NotifyScrubState();
     }
 
-    private int RelativeReferenceCursor(int index)
+    private bool SynchronizeRelativeReferenceCursor(int primaryIndex)
     {
-        if (Lap is not { Points.Length: > 1 } lap || Reference is not { Points.Length: > 1 } reference) return 0;
-        index = Math.Clamp(index, 0, lap.Points.Length - 1);
+        if (!UsesRelativeReferenceCursor) return false;
+        var referenceIndex = RelativeReferenceCursor(primaryIndex);
+        if (_referenceCursor == referenceIndex) return false;
+        _referenceCursor = referenceIndex;
+        return true;
+    }
+
+    private int RelativeReferenceCursor(int index) => RelativeCursor(Lap, Reference, index);
+    private int RelativePrimaryCursor(int index) => RelativeCursor(Reference, Lap, index);
+
+    private static int RelativeCursor(LapReviewLap? source, LapReviewLap? target, int index)
+    {
+        if (source is not { Points.Length: > 1 } || target is not { Points.Length: > 1 }) return 0;
+        index = Math.Clamp(index, 0, source.Points.Length - 1);
         if (index == 0) return 0;
-        if (index == lap.Points.Length - 1) return reference.Points.Length - 1;
-        var first = lap.Points[0].DistanceMeters;
-        var span = lap.Points[^1].DistanceMeters - first;
-        if (!double.IsFinite(span) || span <= 0) return 0;
-        var progress = Math.Clamp((lap.Points[index].DistanceMeters - first) / span, 0, 1);
+        if (index == source.Points.Length - 1) return target.Points.Length - 1;
+        var first = source.Points[0].DistanceMeters;
+        var span = source.Points[^1].DistanceMeters - first;
+        var targetFirst = target.Points[0].DistanceMeters;
+        var targetSpan = target.Points[^1].DistanceMeters - targetFirst;
+        if (!double.IsFinite(first) || !double.IsFinite(span) || span <= 0 ||
+            !double.IsFinite(source.Points[index].DistanceMeters) || !double.IsFinite(targetFirst) ||
+            !double.IsFinite(targetSpan) || targetSpan < 0) return 0;
+        var progress = Math.Clamp((source.Points[index].DistanceMeters - first) / span, 0, 1);
         // Gaps and a stationary finish can share the same cumulative distance.
-        if (progress >= 1) return reference.Points.Length - 1;
-        var distance = reference.Points[0].DistanceMeters + progress *
-            (reference.Points[^1].DistanceMeters - reference.Points[0].DistanceMeters);
+        if (progress >= 1) return target.Points.Length - 1;
+        var distance = targetFirst + progress * targetSpan;
         // Recorded cumulative distance is monotonic; avoid scanning either lap while dragging.
-        var low = 0; var high = reference.Points.Length - 1;
+        var low = 0; var high = target.Points.Length - 1;
         while (low < high)
         {
             var middle = low + (high - low) / 2;
-            if (reference.Points[middle].DistanceMeters < distance) low = middle + 1;
+            if (target.Points[middle].DistanceMeters < distance) low = middle + 1;
             else high = middle;
         }
-        return low > 0 && distance - reference.Points[low - 1].DistanceMeters < reference.Points[low].DistanceMeters - distance ? low - 1 : low;
+        return low > 0 && distance - target.Points[low - 1].DistanceMeters < target.Points[low].DistanceMeters - distance ? low - 1 : low;
+    }
+
+    private void NavigateRelativeReference(int requested, bool forward, bool endpoint)
+    {
+        if (endpoint) { Cursor = forward ? 0 : MaximumCursor; return; }
+        var currentReference = RelativeReferenceCursor(Cursor);
+        var nearest = RelativePrimaryCursor(requested);
+        if (forward ? nearest > Cursor && RelativeReferenceCursor(nearest) > currentReference
+            : nearest < Cursor && RelativeReferenceCursor(nearest) < currentReference)
+        { Cursor = nearest; return; }
+
+        // Unequal densities or stationary spans can round back to the same A
+        // sample. Find the next representable shared progress without a full scan.
+        var low = forward ? Cursor + 1 : 0;
+        var high = forward ? MaximumCursor : Cursor - 1;
+        var selected = -1;
+        while (low <= high)
+        {
+            var middle = low + (high - low) / 2;
+            var value = RelativeReferenceCursor(middle);
+            var advances = forward ? value > currentReference : value < currentReference;
+            if (advances) selected = middle;
+            if (forward ? advances : !advances) high = middle - 1;
+            else low = middle + 1;
+        }
+        if (selected >= 0) Cursor = selected;
     }
 
     private string ReferenceCursorPosition()

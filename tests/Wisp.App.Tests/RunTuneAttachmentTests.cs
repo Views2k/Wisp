@@ -141,7 +141,7 @@ public sealed class RunTuneAttachmentTests : IDisposable
 
     [Theory]
     [InlineData(false, 2)]
-    [InlineData(true, 3)]
+    [InlineData(true, 2)]
     public async Task InterruptedJournalRecoversItsSnapshotAndMarksContinuityUnverified(bool newJournal, int expectedVersion)
     {
         var run = AttachedRun() with { Tune = "Legacy label" };

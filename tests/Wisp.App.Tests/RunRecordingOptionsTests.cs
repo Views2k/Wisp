@@ -143,6 +143,8 @@ public sealed class RunRecordingOptionsTests
         Assert.NotEqual(laterSelection.Snapshot.Id, run.TuneAttachment.Snapshot.Id);
         Assert.Equal(snapshotJson, JsonSerializer.Serialize(run.TuneAttachment.Snapshot, RunStore.JsonOptions));
         var loaded = await fixture.Service.Store.LoadAsync(run.Id);
+        Assert.Equal(RecordedRun.TuneAttachmentSchemaVersion, loaded.SchemaVersion);
+        Assert.All(loaded.Samples, sample => Assert.Null(sample.State.SmashableMassKilograms));
         Assert.Equal(snapshotJson, JsonSerializer.Serialize(loaded.TuneAttachment!.Snapshot, RunStore.JsonOptions));
         Assert.All(loaded.Samples, sample => Assert.Equal(snapshot.Identity.CarOrdinal, sample.State.CarOrdinal));
         Assert.True(fixture.Receiver.IsRunning);

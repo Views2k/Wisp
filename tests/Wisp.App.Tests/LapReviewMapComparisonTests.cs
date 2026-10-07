@@ -128,10 +128,8 @@ public sealed class LapReviewMapComparisonTests
         model.Cursor = 150;
         Assert.Equal(model.Plot.Comparison!.Points[150].ReferencePointIndex, model.MapPlotB.Cursor);
         Assert.InRange(model.MapPlotB.Cursor, 0, model.Reference!.Points.Length - 1);
-        var reverse = model.MapPlotB.Comparison!.Points[220].ReferencePointIndex;
-        Assert.NotNull(reverse);
         model.PickReferencePoint(220);
-        Assert.Equal(reverse.Value, model.Cursor);
+        Assert.Equal(220, model.Cursor);
         model.Cursor = 75;
         model.SectionStartCommand.Execute(null);
         await LapReviewComparisonTestSupport.Ready(model);
@@ -284,6 +282,7 @@ public sealed class LapReviewMapComparisonTests
         Assert.True(fixture.Model.CanUseSharedSpace); Assert.True(fixture.Model.IsMapComparison);
         Assert.NotNull(fixture.Model.ComparisonMapPlot);
         Assert.False(fixture.Model.Plot.Comparison!.CanCompare);
+        fixture.Model.ScrubB = true;
         fixture.Model.Cursor = 120;
         fixture.Model.PickReferencePoint(220);
         Assert.Equal(120, fixture.Model.Cursor);
@@ -315,6 +314,7 @@ public sealed class LapReviewMapComparisonTests
         Assert.DoesNotContain("Choose Run B", model.MapComparisonHint);
         Assert.Null(model.MapPlotB.Comparison);
 
+        model.ScrubB = true;
         model.Cursor = 120;
         model.PickReferencePoint(220);
         Assert.Equal(120, model.Cursor); Assert.Equal(220, model.MapPlotB.Cursor);
@@ -322,10 +322,12 @@ public sealed class LapReviewMapComparisonTests
         var data = model.MapPlotB;
         var expected = LapReviewPlot.Value(data.Lap!.Points[220], data, 220);
         Assert.Equal($"Speed: {RunPresentation.Number(expected, " " + LapReviewPlot.Unit(data))}", model.MapBCursorValue);
+        model.ScrubBoth = true;
         model.Cursor = 160;
-        Assert.Equal(220, model.MapPlotB.Cursor);
+        var paired = RelativeReferenceIndex(model, 160);
+        Assert.Equal(paired, model.MapPlotB.Cursor);
         model.PickReferencePoint(-1); model.PickReferencePoint(int.MaxValue);
-        Assert.Equal(220, model.MapPlotB.Cursor); Assert.Equal(160, model.Cursor);
+        Assert.Equal(paired, model.MapPlotB.Cursor); Assert.Equal(160, model.Cursor);
         model.SectionStartCommand.Execute(null);
         await LapReviewComparisonTestSupport.Ready(model);
         model.Cursor = 250;
@@ -344,7 +346,7 @@ public sealed class LapReviewMapComparisonTests
         model.SetRuns(run, reference);
         await LapReviewComparisonTestSupport.Ready(model);
         Assert.Equal(reference.Id, model.MapPlotB.Lap!.RunId);
-        Assert.Equal(0, model.MapPlotB.Cursor);
+        Assert.Equal(RelativeReferenceIndex(model, model.Cursor), model.MapPlotB.Cursor);
     });
 
     [Fact]
@@ -362,6 +364,7 @@ public sealed class LapReviewMapComparisonTests
         Assert.Equal(reference.Id, model.Reference.RunId);
         Assert.True(model.IsMapComparison); Assert.NotNull(model.ComparisonMapPlot);
         Assert.False(model.Plot.Comparison!.CanCompare);
+        model.ScrubB = true;
         model.Cursor = 100;
         model.PickReferencePoint(120);
         Assert.Equal(100, model.Cursor); Assert.Equal(120, model.MapPlotB.Cursor);
@@ -512,6 +515,246 @@ public sealed class LapReviewMapComparisonTests
         await LapReviewComparisonTestSupport.Ready(model);
         Assert.Equal(0, model.ScrubCursor); Assert.Equal(0, model.MaximumScrubCursor);
     });
+
+    [Fact]
+    public void UnmatchedBothFollowsEveryPrimaryCursorChangeAndModeEntry() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        var run = LapReviewFixtures.Create();
+        var reference = WithCar(LapReviewFixtures.Create(reference: true), 4200);
+        model.SetRuns(run, reference);
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Cursor = 150;
+        model.Is3D = true; model.SharedSpace = true;
+        AssertPaired(150);
+
+        // Map/trace picking, graph synchronization and A's keyboard events all set Cursor.
+        foreach (var index in new[] { 151, 400, 0, model.MaximumCursor })
+        {
+            model.Cursor = index;
+            AssertPaired(index);
+        }
+        model.Cursor = 120;
+        model.SectionStartCommand.Execute(null);
+        await LapReviewComparisonTestSupport.Ready(model);
+        AssertPaired(120);
+        model.Cursor = 300;
+        model.SectionEndCommand.Execute(null);
+        await LapReviewComparisonTestSupport.Ready(model);
+        AssertPaired(300);
+        Assert.Equal("No match", model.CursorDetails!.Delta);
+        Assert.Equal("Unavailable", model.Metrics[0].Reference);
+
+        model.SharedSpace = false;
+        model.Cursor = 250;
+        model.SharedSpace = true;
+        AssertPaired(250);
+        model.Is3D = false;
+        model.Cursor = 180;
+        model.Is3D = true;
+        AssertPaired(180);
+
+        reference = reference with { Id = Guid.NewGuid(), Samples = reference.Samples.Take(220).ToArray() };
+        model.SetRuns(run, reference);
+        await LapReviewComparisonTestSupport.Ready(model);
+        AssertPaired(180);
+        Assert.False(model.Reference!.IsComplete);
+        Assert.False(model.Plot.Comparison!.CanCompare);
+
+        model.ScrubA = true;
+        var held = model.MapPlotB.Cursor;
+        model.Cursor = 200;
+        Assert.Equal(held, model.MapPlotB.Cursor);
+        model.ScrubBoth = true;
+        AssertPaired(200);
+
+        void AssertPaired(int index)
+        {
+            Assert.True(model.ScrubBoth); Assert.Equal(index, model.Cursor);
+            Assert.Equal(RelativeReferenceIndex(model, index), model.MapPlotB.Cursor);
+        }
+    });
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void MatchedReferenceNavigationAdvancesAcrossUnequalSampleDensityAndFindsEndpoints(bool primaryIsSparse) => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        var run = LapReviewFixtures.Create();
+        var reference = LapReviewFixtures.Create(reference: true);
+        if (primaryIsSparse) run = run with { Samples = run.Samples.Where((_, index) => index % 2 == 0).ToArray() };
+        else reference = reference with { Samples = reference.Samples.Where((_, index) => index % 2 == 0).ToArray() };
+        model.SetRuns(run, reference);
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
+        Assert.True(model.Plot.Comparison!.CanCompare);
+        Assert.NotEqual(model.Reference!.Points.Length, model.Lap!.Points.Length);
+        model.Cursor = 100;
+        var before = model.Cursor;
+        var referenceBefore = model.Plot.Comparison.Points[before].ReferenceLapSeconds!.Value;
+        for (var count = 0; count < 5; count++)
+        {
+            model.NavigateReferenceCursor(LapReviewCursorNavigation.Next);
+            Assert.True(model.Cursor > before);
+            var seconds = model.Plot.Comparison.Points[model.Cursor].ReferenceLapSeconds!.Value;
+            Assert.True(seconds > referenceBefore);
+            before = model.Cursor; referenceBefore = seconds;
+        }
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Previous);
+        Assert.True(model.Cursor < before);
+        Assert.True(model.Plot.Comparison.Points[model.Cursor].ReferenceLapSeconds < referenceBefore);
+
+        var expectedStart = Enumerable.Range(0, model.Lap.Points.Length)
+            .First(index => LapReviewPlot.ReferencePosition(model.Plot, index) is not null);
+        var expectedEnd = Enumerable.Range(0, model.Lap.Points.Length)
+            .Last(index => LapReviewPlot.ReferencePosition(model.Plot, index) is not null);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Start);
+        Assert.Equal(expectedStart, model.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Previous);
+        Assert.Equal(expectedStart, model.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.End);
+        Assert.Equal(expectedEnd, model.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Next);
+        Assert.Equal(expectedEnd, model.Cursor);
+
+        model.ScrubB = true;
+        var primary = model.Cursor;
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Start);
+        Assert.Equal(0, model.MapPlotB.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Next);
+        Assert.Equal(1, model.MapPlotB.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.End);
+        Assert.Equal(model.Reference.Points.Length - 1, model.MapPlotB.Cursor);
+        Assert.Equal(primary, model.Cursor);
+    });
+
+    [Fact]
+    public void MatchedReferenceClickChoosesTheNearestRecordedPrimarySampleInsteadOfAlwaysTheEarlierOne() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        var run = LapReviewFixtures.Create();
+        run = run with { Samples = run.Samples.Where((_, index) => index % 2 == 0).ToArray() };
+        model.SetRuns(run, LapReviewFixtures.Create(reference: true));
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
+        // This B sample is exactly on A's next sample, but the match stores the preceding edge.
+        var reverse = model.MapPlotB.Comparison!;
+        var chosen = Enumerable.Range(1, model.Reference!.Points.Length - 2).First(index =>
+        {
+            var match = reverse.Points[index];
+            if (match.ReferencePointIndex is not { } lower || match.ReferenceLapSeconds is not { } seconds ||
+                lower + 1 >= model.Lap!.Points.Length) return false;
+            return Math.Abs(model.Lap.Points[lower + 1].LapSeconds - seconds) < Math.Abs(seconds - model.Lap.Points[lower].LapSeconds) &&
+                LapReviewPlot.ReferencePosition(model.Plot, lower + 1) is not null;
+        });
+        var expected = reverse.Points[chosen].ReferencePointIndex!.Value + 1;
+        model.PickReferencePoint(chosen);
+        Assert.Equal(expected, model.Cursor);
+        Assert.NotNull(model.MapPlotB.CursorPositionOverride);
+        Assert.Equal(model.Lap!.Points[expected].LapSeconds.ToString("0.000"), model.CursorDetails!.Position.Split(' ')[0]);
+    });
+
+    [Fact]
+    public void MatchedReferenceNavigationSkipsUnmatchedSamplesWithoutCreatingTimingValues() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        model.SetRuns(LapReviewFixtures.Create(), LapReviewFixtures.Create(reference: true));
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
+        var comparison = model.Plot.Comparison!;
+        foreach (var index in new[] { 0, 101, model.MaximumCursor })
+            comparison.Points[index] = comparison.Points[index] with
+            { ReferencePointIndex = null, ReferenceLapSeconds = null, DeltaSeconds = null };
+        model.Cursor = 100;
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Next);
+        Assert.Equal(102, model.Cursor);
+        Assert.Null(comparison.Points[101].DeltaSeconds);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Start);
+        Assert.Equal(1, model.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.End);
+        Assert.Equal(model.MaximumCursor - 1, model.Cursor);
+        Assert.Null(comparison.Points[0].DeltaSeconds);
+        Assert.Null(comparison.Points[^1].DeltaSeconds);
+    });
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UnmatchedBothReferenceClicksAndKeysMoveBothWithoutEnablingMatchedTiming(bool primaryIsSparse) => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        var run = LapReviewFixtures.Create();
+        var reference = WithCar(LapReviewFixtures.Create(reference: true), 4200);
+        if (primaryIsSparse) run = run with { Samples = run.Samples.Where((_, index) => index % 2 == 0).ToArray() };
+        else reference = reference with { Samples = reference.Samples.Where((_, index) => index % 2 == 0).ToArray() };
+        model.SetRuns(run, reference);
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
+        Assert.True(model.ScrubBoth);
+        var selectedReference = model.Reference!.Points.Length / 3;
+        var expectedPrimary = RelativeIndex(model.Reference, model.Lap!, selectedReference);
+        model.PickReferencePoint(selectedReference);
+        Assert.Equal(expectedPrimary, model.Cursor);
+        AssertPaired();
+        var primary = model.Cursor; var secondary = model.MapPlotB.Cursor;
+        for (var count = 0; count < 5; count++)
+        {
+            model.NavigateReferenceCursor(LapReviewCursorNavigation.Next);
+            Assert.True(model.Cursor > primary);
+            Assert.True(model.MapPlotB.Cursor > secondary);
+            primary = model.Cursor; secondary = model.MapPlotB.Cursor;
+            AssertPaired();
+        }
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Previous);
+        Assert.True(model.Cursor < primary); Assert.True(model.MapPlotB.Cursor < secondary);
+        AssertPaired();
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Start);
+        Assert.Equal(0, model.Cursor); Assert.Equal(0, model.MapPlotB.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Previous);
+        Assert.Equal(0, model.Cursor); Assert.Equal(0, model.MapPlotB.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.End);
+        Assert.Equal(model.MaximumCursor, model.Cursor);
+        Assert.Equal(model.Reference.Points.Length - 1, model.MapPlotB.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Next);
+        Assert.Equal(model.MaximumCursor, model.Cursor);
+        Assert.Equal(model.Reference.Points.Length - 1, model.MapPlotB.Cursor);
+
+        model.ScrubB = true;
+        primary = model.Cursor;
+        model.PickReferencePoint(30);
+        Assert.Equal(primary, model.Cursor); Assert.Equal(30, model.MapPlotB.Cursor);
+        model.NavigateReferenceCursor(LapReviewCursorNavigation.Next);
+        Assert.Equal(primary, model.Cursor); Assert.Equal(31, model.MapPlotB.Cursor);
+
+        void AssertPaired()
+        {
+            Assert.Equal(RelativeReferenceIndex(model, model.Cursor), model.MapPlotB.Cursor);
+            Assert.False(model.Plot.Comparison!.CanCompare);
+            Assert.Null(model.MapPlotB.Comparison);
+            Assert.Null(model.MapPlotB.CursorPositionOverride);
+            Assert.Equal(-1, model.MapPlotB.SectionStart); Assert.Equal(-1, model.MapPlotB.SectionEnd);
+            Assert.Equal("No match", model.CursorDetails!.Delta);
+        }
+    });
+
+    private static int RelativeReferenceIndex(LapReviewViewModel model, int index) => RelativeIndex(model.Lap!, model.Reference!, index);
+
+    private static int RelativeIndex(LapReviewLap lap, LapReviewLap reference, int index)
+    {
+        if (index == 0) return 0;
+        if (index == lap.Points.Length - 1) return reference.Points.Length - 1;
+        var progress = (lap.Points[index].DistanceMeters - lap.Points[0].DistanceMeters) /
+            (lap.Points[^1].DistanceMeters - lap.Points[0].DistanceMeters);
+        var distance = reference.Points[0].DistanceMeters + progress *
+            (reference.Points[^1].DistanceMeters - reference.Points[0].DistanceMeters);
+        return Enumerable.Range(0, reference.Points.Length).MinBy(candidate => Math.Abs(reference.Points[candidate].DistanceMeters - distance));
+    }
 
     private static RecordedRun WithCar(RecordedRun run, int carOrdinal) => run with
     {

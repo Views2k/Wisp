@@ -19,6 +19,7 @@ public sealed partial class LapReviewTrack3D
     public bool IsComparison => (bool)GetValue(IsComparisonProperty);
     public int FocusedLap => (int)GetValue(FocusedLapProperty);
     public event Action<int>? ReferencePointChosen;
+    public event Action<LapReviewCursorNavigation>? ReferenceCursorNavigationRequested;
 
     private readonly ModelVisual3D _comparisonPath = new();
     private readonly TranslateTransform3D _primaryPosition = new(), _referencePosition = new();

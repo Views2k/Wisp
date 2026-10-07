@@ -14,8 +14,33 @@ internal static class LapReviewScrubbingTests
     {
         var previousContext = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
-        try { AssertScrubbing(); }
+        try { AssertScrubbing(); AssertSavedMapHeight(); }
         finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
+    }
+
+    private static void AssertSavedMapHeight()
+    {
+        var settings = new AppSettings();
+        using var first = new LapReviewComparisonTestSupport(settings);
+        first.Model.MapHeight = 577;
+        var view = new LapReviewView { DataContext = first.Model };
+        view.Measure(new Size(1000, 800)); view.Arrange(new Rect(0, 0, 1000, 800));
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        view.GetBindingExpression(LapReviewView.RequestedMapHeightProperty)!.UpdateTarget();
+        Assert.Equal(577, view.RequestedMapHeight);
+        view.DataContext = null;
+        Assert.Equal(577, settings.RunWorkspace.LapMapHeight);
+        using var second = new LapReviewComparisonTestSupport(settings);
+        Assert.Equal(577, second.Model.MapHeight);
+        var reopened = new LapReviewView { DataContext = second.Model };
+        reopened.Measure(new Size(1000, 800)); reopened.Arrange(new Rect(0, 0, 1000, 800));
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        reopened.GetBindingExpression(LapReviewView.RequestedMapHeightProperty)!.UpdateTarget();
+        Assert.Equal(577, reopened.RequestedMapHeight);
+        reopened.SetCurrentValue(LapReviewView.RequestedMapHeightProperty, double.NaN);
+        reopened.GetBindingExpression(LapReviewView.RequestedMapHeightProperty)!.UpdateSource();
+        Assert.Equal(0, settings.RunWorkspace.LapMapHeight);
+        reopened.DataContext = null;
     }
 
     private static void AssertScrubbing()

@@ -86,7 +86,7 @@ public sealed partial class RunStore
 
     public Task<RunSummary> SaveAsync(RecordedRun run) => InBackground(async () =>
     {
-        await WriteAsync(run, overwrite: false).ConfigureAwait(false);
+        await WriteAsync(run, overwrite: false, finalizeContactFormat: true).ConfigureAwait(false);
         return Summarize(run);
     });
 
@@ -279,12 +279,25 @@ public sealed partial class RunStore
         return run;
     }
 
-    private async Task WriteAsync(RecordedRun run, bool overwrite)
+    private async Task WriteAsync(RecordedRun run, bool overwrite, bool finalizeContactFormat = false)
     {
         if ((run.SchemaVersion is RecordedRun.BaseSchemaVersion or RecordedRun.TuneAttachmentSchemaVersion) &&
             ValidSchema(run) && run.Samples is { } samples && samples.Any(sample => sample?.State is { } state && HasContactData(state)))
             run = run with { SchemaVersion = RecordedRun.CurrentSchemaVersion };
         Validate(run);
+        // Journals retain v3 until every sample has been read. Only finalized new
+        // recordings without any positive object evidence can omit the optional
+        // fields; imports and edits of existing files retain their declared format.
+        if (finalizeContactFormat && run.SchemaVersion == RecordedRun.CurrentSchemaVersion &&
+            !run.Samples.Any(sample => sample.State.SmashableVelocityLossMetersPerSecond is > 0 || sample.State.SmashableMassKilograms is > 0))
+            run = run with
+            {
+                SchemaVersion = run.TuneAttachment is null ? RecordedRun.BaseSchemaVersion : RecordedRun.TuneAttachmentSchemaVersion,
+                Samples = run.Samples.Select(sample => HasContactData(sample.State) ? sample with
+                {
+                    State = sample.State with { SmashableVelocityLossMetersPerSecond = null, SmashableMassKilograms = null }
+                } : sample).ToArray()
+            };
         if (!overwrite) EnsureCapacity(run.Id);
         var destination = RunPath(run.Id);
         var temporary = Path.Combine(_directory, $".{run.Id:N}-{Guid.NewGuid():N}.tmp");
@@ -380,7 +393,7 @@ public sealed partial class RunStore
                         IsIncomplete = true,
                         TuneAttachment = header.TuneAttachment is { } attachment ? attachment with { DrivingContinuityInterrupted = true } : null,
                         FinishReason = "Recovered after Wisp closed before the run finished"
-                    }, false).ConfigureAwait(false);
+                    }, overwrite: false, finalizeContactFormat: true).ConfigureAwait(false);
                 reader.Dispose();
                 file.Dispose();
                 File.Delete(path);

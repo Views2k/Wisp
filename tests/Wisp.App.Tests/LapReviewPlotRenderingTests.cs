@@ -13,6 +13,29 @@ namespace Wisp.App.Tests;
 
 public sealed class LapReviewPlotRenderingTests
 {
+    [Fact]
+    public void EstimatedContactHasAHollowCenterWhileReportedContactIsFilled() => OnSta(() =>
+    {
+        byte[] Draw(LapReviewContactKind kind)
+        {
+            var visual = new DrawingVisual();
+            using (var drawing = visual.RenderOpen())
+            {
+                drawing.DrawRectangle(Brushes.Black, null, new Rect(0, 0, 32, 32));
+                LapReviewPalette.DrawContact(drawing, new Point(16, 16), Brushes.Black, kind: kind);
+            }
+            var bitmap = new RenderTargetBitmap(32, 32, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(visual);
+            var pixel = new byte[4];
+            bitmap.CopyPixels(new Int32Rect(16, 16, 1, 1), pixel, 4, 0);
+            return pixel;
+        }
+        var estimated = Draw(LapReviewContactKind.PossibleContact);
+        var recorded = Draw(LapReviewContactKind.SmashableObject);
+        Assert.Equal(new byte[] { 0, 0, 0, 255 }, estimated);
+        Assert.True(recorded[2] > 200 && recorded[1] > 60);
+    });
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

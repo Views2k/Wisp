@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using System.Text.Json;
 using Wisp.App.Runs;
 using Wisp.Core;
@@ -10,83 +11,6 @@ namespace Wisp.App.Tests;
 public sealed class RunStoreContactsTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "WispRunContactTests", Guid.NewGuid().ToString("N"));
-
-    [Fact]
-    public async Task AddAndRemoveContactPreserveLatestMetadataAndEverySample()
-    {
-        var store = new RunStore(_directory);
-        var run = RunTestData.CreateRun() with { Markers = [new(0, "Apex")] };
-        await store.SaveAsync(run);
-        await store.UpdateMetadataAsync(run.Id, "Edited after opening lap", "Current tune", "New notes");
-        var time = run.Samples[^1].ElapsedSeconds;
-        var markers = await store.SetContactMarkerAsync(run.Id, time, true);
-        Assert.Equal(2, markers.Length);
-        var loaded = await store.LoadAsync(run.Id);
-        Assert.Equal("Edited after opening lap", loaded.Name);
-        Assert.Equal("Current tune", loaded.Tune);
-        Assert.Equal("New notes", loaded.Notes);
-        Assert.Equal(run.Samples, loaded.Samples);
-        Assert.Equal(markers, loaded.Markers);
-        Assert.Equal(run.LapTimingMode, loaded.LapTimingMode);
-        Assert.Equal(run.SchemaVersion, loaded.SchemaVersion);
-        Assert.Equal(run.StartedAtUtc, loaded.StartedAtUtc);
-        Assert.Equal(2, (await store.SetContactMarkerAsync(run.Id, time, true)).Length);
-        Assert.Equal([new RunMarker(0, "Apex")], await store.SetContactMarkerAsync(run.Id, time, false));
-        Assert.Equal(run.Samples, (await store.LoadAsync(run.Id)).Samples);
-    }
-
-    [Fact]
-    public async Task ContactRemovalKeepsOtherMarkersAtTheSameTime()
-    {
-        var store = new RunStore(_directory);
-        var run = RunTestData.CreateRun() with { Markers = [new(0, "Contact"), new(0, "Apex"), new(.1, "Contact")] };
-        await store.SaveAsync(run);
-        Assert.Equal([new RunMarker(0, "Apex"), new(.1, "Contact")], await store.SetContactMarkerAsync(run.Id, 0, false));
-    }
-
-    [Theory]
-    [InlineData(double.NaN)]
-    [InlineData(double.PositiveInfinity)]
-    [InlineData(-.1)]
-    [InlineData(100000)]
-    public async Task InvalidTimeCannotModifySavedRun(double time)
-    {
-        var store = new RunStore(_directory);
-        var run = RunTestData.CreateRun();
-        await store.SaveAsync(run);
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.SetContactMarkerAsync(run.Id, time, true));
-        Assert.Equal(run.Markers, (await store.LoadAsync(run.Id)).Markers);
-    }
-
-    [Fact]
-    public async Task MarkerLimitDoesNotReplaceOrLoseExistingMarkers()
-    {
-        var store = new RunStore(_directory);
-        var run = RunTestData.CreateRun() with
-        {
-            Markers = Enumerable.Range(0, RunStore.MaximumMarkers).Select(index => new RunMarker(0, $"Note {index}")).ToArray()
-        };
-        await store.SaveAsync(run);
-        await Assert.ThrowsAsync<InvalidDataException>(() => store.SetContactMarkerAsync(run.Id, 0, true));
-        Assert.Equal(run.Markers, (await store.LoadAsync(run.Id)).Markers);
-        Assert.Equal(run.Markers, await store.SetContactMarkerAsync(run.Id, 0, false));
-    }
-
-    [Fact]
-    public async Task ConcurrentEditsReadLatestRunBeforeChangingOnlyTheirOwnedFields()
-    {
-        var store = new RunStore(_directory);
-        var run = RunTestData.CreateRun();
-        await store.SaveAsync(run);
-        await Task.WhenAll(store.UpdateMetadataAsync(run.Id, "Renamed", "Retuned", "Updated"),
-            store.SetContactMarkerAsync(run.Id, 0, true), store.SetContactMarkerAsync(run.Id, run.Samples[^1].ElapsedSeconds, true));
-        var loaded = await store.LoadAsync(run.Id);
-        Assert.Equal("Renamed", loaded.Name);
-        Assert.Equal("Retuned", loaded.Tune);
-        Assert.Equal("Updated", loaded.Notes);
-        Assert.Equal(2, loaded.Markers.Count(marker => marker.Label == "Contact"));
-        Assert.Equal(run.Samples, loaded.Samples);
-    }
 
     [Fact]
     public async Task OptionalObjectImpactFieldsRoundTripAndLegacyRunsKeepUnknownRatherThanInventedZero()
@@ -133,14 +57,14 @@ public sealed class RunStoreContactsTests : IDisposable
         {
             SchemaVersion = RecordedRun.TuneAttachmentSchemaVersion,
             TuneAttachment = new(snapshot, "Saved setup", "Tune snapshot", DateTimeOffset.UtcNow, RunTuneAttachmentKind.CurrentAtStart),
-            Samples = original.Samples.Select(sample => sample with
+            Samples = original.Samples.Select((sample, index) => sample with
             {
                 State = sample.State with
                 {
                     CarOrdinal = snapshot.Identity.CarOrdinal,
                     Drivetrain = (DrivetrainType)snapshot.Identity.Drivetrain,
-                    SmashableVelocityLossMetersPerSecond = 0,
-                    SmashableMassKilograms = 0
+                    SmashableVelocityLossMetersPerSecond = index == 1 ? 2 : 0,
+                    SmashableMassKilograms = index == 1 ? 150 : 0
                 }
             }).ToArray()
         };
@@ -148,10 +72,110 @@ public sealed class RunStoreContactsTests : IDisposable
         await store.SaveAsync(run);
         var loaded = await store.LoadAsync(run.Id);
         Assert.Equal(RecordedRun.CurrentSchemaVersion, loaded.SchemaVersion);
+        Assert.Equal(run.Samples, loaded.Samples);
         Assert.Equal(JsonSerializer.Serialize(run.TuneAttachment, RunStore.JsonOptions),
             JsonSerializer.Serialize(loaded.TuneAttachment, RunStore.JsonOptions));
-        await store.SetContactMarkerAsync(run.Id, 0, true);
+        await store.UpdateMetadataAsync(run.Id, run.Name, run.Tune, "Updated notes");
         Assert.Equal(RecordedRun.CurrentSchemaVersion, (await store.LoadAsync(run.Id)).SchemaVersion);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task FinalizedRunWithoutPositiveObjectDataUsesLegacyFormat(bool withTune, bool zeroFields)
+    {
+        var run = ContactRun(withTune, zeroFields);
+        var store = new RunStore(_directory);
+        await store.SaveAsync(run);
+        var loaded = await store.LoadAsync(run.Id);
+        var expected = WithoutContactFields(run);
+        Assert.Equal(JsonSerializer.Serialize(expected, RunStore.JsonOptions), JsonSerializer.Serialize(loaded, RunStore.JsonOptions));
+        Assert.All(loaded.Samples, sample =>
+            Assert.DoesNotContain("smashable", JsonSerializer.Serialize(sample.State, RunStore.JsonOptions), StringComparison.OrdinalIgnoreCase));
+        if (zeroFields) Assert.All(run.Samples, sample => Assert.Equal(0f, sample.State.SmashableMassKilograms));
+    }
+
+    [Theory]
+    [InlineData(2f, 0f)]
+    [InlineData(0f, 150f)]
+    [InlineData(2f, 150f)]
+    public async Task AnyPositiveObjectFieldRetainsV3AndEveryZeroBaseline(float loss, float mass)
+    {
+        var run = ContactRun(withTune: false, zeroFields: true);
+        run = run with
+        {
+            Samples = [run.Samples[0], run.Samples[1] with
+            {
+                State = run.Samples[1].State with { SmashableVelocityLossMetersPerSecond = loss, SmashableMassKilograms = mass }
+            }, run.Samples[1] with { ElapsedSeconds = .2, State = run.Samples[1].State with { GameTimestampMilliseconds = 200 } }]
+        };
+        var store = new RunStore(_directory);
+        await store.SaveAsync(run);
+        var loaded = await store.LoadAsync(run.Id);
+        Assert.Equal(RecordedRun.CurrentSchemaVersion, loaded.SchemaVersion);
+        Assert.Equal(run.Samples, loaded.Samples);
+        var archive = Path.Combine(_directory, "contacts.zip");
+        Assert.Equal(1, await store.ExportAllAsync(archive));
+        var importedDirectory = Path.Combine(_directory, "imported");
+        var imported = new RunStore(importedDirectory);
+        await imported.ImportManyAsync([archive]);
+        var importedRun = await imported.LoadAsync(run.Id);
+        Assert.Equal(JsonSerializer.Serialize(loaded, RunStore.JsonOptions), JsonSerializer.Serialize(importedRun, RunStore.JsonOptions));
+        Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(_directory, $"{run.Id:N}.wisprun"), TestContext.Current.CancellationToken),
+            await File.ReadAllBytesAsync(Path.Combine(importedDirectory, $"{run.Id:N}.wisprun"), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ExistingAndImportedZeroOnlyV3RunsRetainTheirFormatAndFields()
+    {
+        var run = ContactRun(withTune: false, zeroFields: true);
+        var path = Path.Combine(_directory, $"{run.Id:N}.wisprun");
+        await WriteRawRunAsync(path, run);
+        var store = new RunStore(_directory);
+        Assert.Single(await store.ListAsync());
+        await store.UpdateMetadataAsync(run.Id, run.Name, run.Tune, "Edited notes");
+        var loaded = await store.LoadAsync(run.Id);
+        Assert.Equal(RecordedRun.CurrentSchemaVersion, loaded.SchemaVersion);
+        Assert.Equal(run.Samples, loaded.Samples);
+        Assert.Equal(run.Markers, loaded.Markers);
+        var singleImport = new RunStore(Path.Combine(_directory, "single"));
+        var summary = await singleImport.ImportAsync(path);
+        var single = await singleImport.LoadAsync(summary.Id);
+        Assert.Equal(RecordedRun.CurrentSchemaVersion, single.SchemaVersion);
+        Assert.Equal(run.Samples, single.Samples);
+        var bulkImport = new RunStore(Path.Combine(_directory, "bulk"));
+        await bulkImport.ImportManyAsync([path]);
+        var bulk = await bulkImport.LoadAsync(run.Id);
+        Assert.Equal(RecordedRun.CurrentSchemaVersion, bulk.SchemaVersion);
+        Assert.Equal(run.Samples, bulk.Samples);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ZeroOnlyJournalRemainsV3UntilRecoveryFinalizesItsLegacyFormat(bool withTune)
+    {
+        var run = ContactRun(withTune, zeroFields: true);
+        var store = new RunStore(_directory);
+        await using (var journal = store.CreateJournal(run with { Samples = [] }))
+        {
+            foreach (var sample in run.Samples) await journal.AppendAsync(sample);
+            await journal.FlushAsync();
+        }
+        var path = Path.Combine(_directory, $"{run.Id:N}.partial");
+        using (var reader = File.OpenText(path))
+        using (var header = JsonDocument.Parse((await reader.ReadLineAsync(TestContext.Current.CancellationToken))!))
+            Assert.Equal(RecordedRun.CurrentSchemaVersion, header.RootElement.GetProperty("schemaVersion").GetInt32());
+        var recovered = new RunStore(_directory);
+        Assert.Single(await recovered.ListAsync());
+        var loaded = await recovered.LoadAsync(run.Id);
+        Assert.Equal(WithoutContactFields(run).SchemaVersion, loaded.SchemaVersion);
+        Assert.Equal(WithoutContactFields(run).Samples, loaded.Samples);
+        Assert.True(loaded.IsIncomplete);
+        if (withTune) Assert.True(loaded.TuneAttachment!.DrivingContinuityInterrupted);
+        Assert.False(File.Exists(path));
     }
 
     [Fact]
@@ -228,11 +252,64 @@ public sealed class RunStoreContactsTests : IDisposable
     [InlineData(1f, 10_000_001f)]
     [InlineData(null, 10f)]
     [InlineData(1f, null)]
-    public void InvalidOrPartialObjectImpactMetadataCannotEnterTheRunLibrary(float? loss, float? mass)
+    [InlineData(null, 0f)]
+    [InlineData(0f, null)]
+    [InlineData(-1f, 0f)]
+    [InlineData(0f, -1f)]
+    public async Task InvalidOrPartialObjectImpactMetadataCannotEnterTheRunLibrary(float? loss, float? mass)
     {
-        var sample = RunTestData.CreateRun().Samples[0];
+        var run = ContactRun(withTune: false, zeroFields: true);
+        var sample = run.Samples[0];
         sample = sample with { State = sample.State with { SmashableVelocityLossMetersPerSecond = loss, SmashableMassKilograms = mass } };
         Assert.Throws<InvalidDataException>(() => RunStore.ValidateSample(sample, null));
+        var store = new RunStore(_directory);
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.SaveAsync(run with { Samples = [sample, run.Samples[1]] }));
+        Assert.False(File.Exists(Path.Combine(_directory, $"{run.Id:N}.wisprun")));
+    }
+
+    private static RecordedRun ContactRun(bool withTune, bool zeroFields)
+    {
+        var run = RunTestData.CreateRun() with
+        {
+            SchemaVersion = RecordedRun.CurrentSchemaVersion,
+            Notes = "Keep recorded metadata",
+            Markers = [new(.05, "Contact")]
+        };
+        var snapshot = withTune ? TuneUiTestData.ValidSnapshot() : null;
+        return run with
+        {
+            TuneAttachment = snapshot is null ? null : new(snapshot, "Saved setup", "Tune snapshot", DateTimeOffset.UtcNow, RunTuneAttachmentKind.CurrentAtStart),
+            Samples = run.Samples.Select(sample => sample with
+            {
+                State = sample.State with
+                {
+                    CarOrdinal = snapshot?.Identity.CarOrdinal ?? sample.State.CarOrdinal,
+                    Drivetrain = snapshot is null ? sample.State.Drivetrain : (DrivetrainType)snapshot.Identity.Drivetrain,
+                    SmashableVelocityLossMetersPerSecond = zeroFields ? 0 : null,
+                    SmashableMassKilograms = zeroFields ? 0 : null
+                }
+            }).ToArray()
+        };
+    }
+
+    private static RecordedRun WithoutContactFields(RecordedRun run) => run with
+    {
+        SchemaVersion = run.TuneAttachment is null ? RecordedRun.BaseSchemaVersion : RecordedRun.TuneAttachmentSchemaVersion,
+        Samples = run.Samples.Select(sample => sample with
+        {
+            State = sample.State with { SmashableVelocityLossMetersPerSecond = null, SmashableMassKilograms = null }
+        }).ToArray()
+    };
+
+    private static async Task WriteRawRunAsync(string path, RecordedRun run)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await using var file = File.Create(path);
+        await using var gzip = new GZipStream(file, CompressionLevel.Fastest);
+        await using var writer = new StreamWriter(gzip);
+        await writer.WriteLineAsync(JsonSerializer.Serialize(run with { Samples = [] }, RunStore.JsonOptions));
+        foreach (var sample in run.Samples)
+            await writer.WriteLineAsync(JsonSerializer.Serialize(sample, RunStore.JsonOptions));
     }
 
     public void Dispose()

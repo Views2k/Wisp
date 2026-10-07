@@ -70,6 +70,46 @@ public sealed class LapReviewTrackGeometryTests
     }
 
     [Fact]
+    public void SharedSpaceUsesTrackDimensionsRatherThanDistanceBetweenGameLocations()
+    {
+        var first = Data([new(-100, 20, 0), new(0, 35, 100), new(100, 25, 0)]);
+        var second = Data([new(-100, 40, 0), new(0, 80, 150), new(200, 50, 0)]);
+        var distant = second with
+        {
+            Lap = second.Lap! with
+            {
+                Points = second.Lap.Points.Select(point => point with
+                { Position = point.Position with { X = point.Position.X + 10000, Z = point.Position.Z - 20000 } }).ToArray()
+            }
+        };
+        var nearbyBounds = LapReviewTrackBounds.ForComparison(first, second);
+        var distantBounds = LapReviewTrackBounds.ForComparison(first, distant);
+        Assert.Equal(nearbyBounds.Primary, distantBounds.Primary);
+        Assert.Equal(300, distantBounds.Primary.Span);
+        Assert.Equal(distantBounds.Primary.Span, distantBounds.Reference.Span);
+        Assert.Equal(nearbyBounds.Reference.MinimumHeight, distantBounds.Reference.MinimumHeight);
+        Assert.Equal(nearbyBounds.Reference.Center.Y, distantBounds.Reference.Center.Y);
+        for (var i = 0; i < second.Lap!.Points.Length; i++)
+            Assert.Equal(nearbyBounds.Reference.Normalize(second.Lap.Points[i].Position),
+                distantBounds.Reference.Normalize(distant.Lap!.Points[i].Position));
+
+        var nearby = LapReviewTrackArrangement.Create(first, second, nearbyBounds.Primary, nearbyBounds.Reference);
+        var remote = LapReviewTrackArrangement.Create(first, distant, distantBounds.Primary, distantBounds.Reference);
+        Assert.Equal(nearby.PrimaryOffset, remote.PrimaryOffset);
+        Assert.Equal(nearby.ReferenceOffset, remote.ReferenceOffset);
+        foreach (var angle in new[] { (0d, 22d, 0d), (140d, 70d, 35d) })
+            Assert.Equal(nearby.ProjectedFit(angle.Item1, angle.Item2, angle.Item3), remote.ProjectedFit(angle.Item1, angle.Item2, angle.Item3));
+
+        var normalizedA = distantBounds.Primary.Normalize(first.Lap!.Points[0].Position);
+        var normalizedB = distantBounds.Reference.Normalize(distant.Lap!.Points[0].Position);
+        Assert.Equal(20, (normalizedB.Y - normalizedA.Y) * distantBounds.Primary.Span, 8);
+        var nearbyScene = LapReviewTrackGeometry.Build(second, nearbyBounds.Reference, TestContext.Current.CancellationToken);
+        var remoteScene = LapReviewTrackGeometry.Build(distant, distantBounds.Reference, TestContext.Current.CancellationToken);
+        Assert.Equal(nearbyScene.Model.Children.Cast<GeometryModel3D>().SelectMany(model => ((MeshGeometry3D)model.Geometry).Positions),
+            remoteScene.Model.Children.Cast<GeometryModel3D>().SelectMany(model => ((MeshGeometry3D)model.Geometry).Positions));
+    }
+
+    [Fact]
     public void NonFinitePositionsDoNotPoisonBoundsOrCreateABridge()
     {
         var data = Data([new(0, 2, 0), new(float.NaN, 10000, 0), new(10, 3, 0), new(20, 4, 0)]);

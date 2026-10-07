@@ -184,7 +184,7 @@ public sealed class LapReviewTrack3DTests
         // The raised return segment passes directly above the contact in a top view.
         // Coloring by elevation proves the red foreground track really covers that position.
         var data = Data([new(-100, 0, 0), new(0, 0, 0), new(100, 0, 0), new(100, 60, 0), new(-100, 60, 0)]) with
-        { Channel = LapReviewChannel.Elevation, Contacts = [new(1, 1, 100, LapReviewContactKind.PossibleContact)] };
+        { Channel = LapReviewChannel.Elevation, Contacts = [new(1, 1, 100, LapReviewContactKind.SmashableObject)] };
         var track = new LapReviewTrack3D { Data = data, ShowContacts = false };
         var surface = new Border { Background = Brushes.Black, Child = track };
         surface.Measure(new Size(800, 400)); surface.Arrange(new Rect(0, 0, 800, 400));
@@ -227,7 +227,7 @@ public sealed class LapReviewTrack3DTests
     public void InterpolatedCursorMovesWithoutMovingContactsOrRebuildingGeometry() => OnSta(async () =>
     {
         var data = Data([new(-100, 0, 0), new(0, 0, 0), new(100, 0, 0)]) with
-        { Cursor = 1, Contacts = [new(1, 1, 100, LapReviewContactKind.PossibleContact)] };
+        { Cursor = 1, Contacts = [new(1, 1, 100, LapReviewContactKind.SmashableObject)] };
         var track = new LapReviewTrack3D { Data = data };
         var surface = new Border { Background = Brushes.Black, Child = track };
         surface.Measure(new Size(800, 400)); surface.Arrange(new Rect(0, 0, 800, 400));
@@ -264,6 +264,91 @@ public sealed class LapReviewTrack3DTests
         track.Choose(track.ProjectPoint(2)); track.CompleteCameraMotionForTest();
         Assert.Equal(2, Assert.Single(primary)); Assert.Equal(1, track.FocusedLap);
         Assert.True(track.HasBothPreparedModels); Assert.Equal(2, track.SceneBuildCount);
+    });
+
+    [Fact]
+    public void PickingAnOverpassSelectsTheVisibleTrackUnlessItsTopLayerAnnotationWasClicked() => OnSta(async () =>
+    {
+        var data = Data([new(-100, 0, 0), new(0, 0, 0), new(100, 0, 0),
+            new(-100, 30, 0), new(0, 30, 0), new(100, 30, 0)]);
+        data.Lap!.Points[3] = data.Lap.Points[3] with { BreakBefore = true };
+        var track = new LapReviewTrack3D { Data = data };
+        track.Measure(new Size(800, 400)); track.Arrange(new Rect(0, 0, 800, 400));
+        await track.PrepareForTestAsync();
+        var chosen = -1;
+        track.PointChosen += index => chosen = index;
+        track.Yaw = 0; track.Pitch = 90;
+        track.Choose(track.ProjectPoint(1));
+        Assert.Equal(4, chosen);
+        track.Pitch = -90;
+        track.Choose(track.ProjectPoint(4));
+        Assert.Equal(1, chosen);
+        track.Pitch = 90;
+        track.Data = data with { Contacts = [new(1, 1, 100, LapReviewContactKind.SmashableObject)] };
+        track.Choose(track.ProjectPoint(1));
+        Assert.Equal(1, chosen);
+        track.ShowContacts = false;
+        track.Choose(track.ProjectPoint(1));
+        Assert.Equal(4, chosen);
+        Assert.Equal(1, track.SceneBuildCount);
+    });
+
+    [Fact]
+    public void DistantBackgroundClicksDoNotSelectPointsOrStartCameraMotion() => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        var selected = 0;
+        track.PointChosen += _ => selected++;
+        track.ReferencePointChosen += _ => selected++;
+        track.Choose(new Point(0, 0));
+        Assert.Equal(0, selected);
+        Assert.Equal(0, track.FocusedLap);
+        Assert.False(track.IsCameraMotionActive);
+    });
+
+    [Fact]
+    public void SharedReferenceKeyboardNavigationPreservesDirectionForTheViewModel() => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        track.FocusLap(2); track.CompleteCameraMotionForTest();
+        var navigations = new List<LapReviewCursorNavigation>();
+        var pointChoices = new List<int>();
+        track.ReferenceCursorNavigationRequested += navigations.Add;
+        track.ReferencePointChosen += pointChoices.Add;
+        foreach (var key in new[] { Key.Right, Key.Up, Key.Left, Key.Down, Key.Home, Key.End })
+            Assert.True(SendKey(track, key).Handled);
+        Assert.Equal([LapReviewCursorNavigation.Next, LapReviewCursorNavigation.Next,
+            LapReviewCursorNavigation.Previous, LapReviewCursorNavigation.Previous,
+            LapReviewCursorNavigation.Start, LapReviewCursorNavigation.End], navigations);
+        Assert.Empty(pointChoices);
+    });
+
+    [Fact]
+    public void ClickingTheInterpolatedReferenceCursorFocusesWithoutReselectingItsLowerSample() => OnSta(async () =>
+    {
+        var track = ComparisonTrack();
+        var reference = track.ComparisonData!;
+        var a = reference.Lap!.Points[1].Position;
+        var b = reference.Lap.Points[2].Position;
+        track.Data = track.Data! with { Cursor = 2 };
+        track.ComparisonData = reference with
+        {
+            Cursor = 1,
+            CursorPositionOverride = new((a.X + b.X) / 2, (a.Y + b.Y) / 2, (a.Z + b.Z) / 2)
+        };
+        await track.PrepareForTestAsync();
+        var selections = 0;
+        track.PointChosen += _ => selections++;
+        track.ReferencePointChosen += _ => selections++;
+        var first = track.ProjectReferencePoint(1);
+        var cursor = first + (track.ProjectReferencePoint(2) - first) * .5;
+        track.Choose(cursor);
+        Assert.Equal(0, selections);
+        Assert.Equal(2, track.Data.Cursor);
+        Assert.Equal(1, track.ComparisonData.Cursor);
+        Assert.Equal(2, track.FocusedLap);
+        track.CompleteCameraMotionForTest();
+        Assert.Equal(2, track.SceneBuildCount);
     });
 
     [Fact]
@@ -491,19 +576,33 @@ public sealed class LapReviewTrack3DTests
         Assert.True(track.HasBothPreparedModels); Assert.Equal(2, track.SceneBuildCount);
     });
 
-    [Fact]
-    public void RemovingComparisonAndUnloadingCancelCameraMotionAndKeepPrimaryGeometryReusable() => OnSta(async () =>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RemovingComparisonRestoresSingleMapLayoutAndReusesOnlyCompatibleGeometry(bool sameBounds) => OnSta(async () =>
     {
-        var track = ComparisonTrack(); var other = track.ComparisonData;
+        var track = ComparisonTrack();
+        if (sameBounds)
+        {
+            track.ComparisonData = track.ComparisonData! with
+            { Lap = track.ComparisonData!.Lap! with { Points = track.Data!.Lap!.Points } };
+            track.Data = track.Data! with { Reference = track.ComparisonData!.Lap };
+        }
+        var other = track.ComparisonData;
+        var normal = new LapReviewTrack3D { Data = track.Data };
+        normal.Measure(track.RenderSize); normal.Arrange(new Rect(track.RenderSize));
+        await normal.PrepareForTestAsync();
         await track.PrepareForTestAsync();
         track.FocusLap(2); Assert.True(track.IsCameraMotionActive);
         track.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
         Assert.False(track.IsCameraMotionActive);
         track.ComparisonData = null; await track.PrepareForTestAsync();
         Assert.False(track.IsComparison); Assert.False(track.HasBothPreparedModels);
-        Assert.True(track.IsReady); Assert.Equal(2, track.SceneBuildCount);
+        Assert.True(track.IsReady); Assert.Equal(sameBounds ? 2 : 3, track.SceneBuildCount);
+        for (var index = 0; index < track.Data!.Lap!.Points.Length; index++)
+            Assert.Equal(normal.ProjectPoint(index), track.ProjectPoint(index));
         track.ComparisonData = other; await track.PrepareForTestAsync();
-        Assert.True(track.IsComparison); Assert.True(track.HasBothPreparedModels); Assert.Equal(3, track.SceneBuildCount);
+        Assert.True(track.IsComparison); Assert.True(track.HasBothPreparedModels); Assert.Equal(sameBounds ? 3 : 5, track.SceneBuildCount);
         track.FocusLap(1); track.Data = null;
         Assert.False(track.IsCameraMotionActive); Assert.False(track.IsReady);
     });

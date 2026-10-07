@@ -90,7 +90,7 @@
                 </Button>
                 <CheckBox x:Name="SharedSpaceToggle" ToolTipService.ShowOnDisabled="True" ToolTip="{Binding MapComparisonHint}" Content="Shared space" IsChecked="{Binding SharedSpace}" IsEnabled="{Binding CanUseSharedSpace}" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}" Style="{DynamicResource ToggleSwitchStyle}" VerticalAlignment="Center" Margin="0,0,8,6" AutomationProperties.Name="Compare laps in a shared 3D space" />
                 <CheckBox x:Name="ShowContactsToggle" ToolTip="Show recorded object contacts and saved markers. Possible contacts are estimates." Content="Show contacts" IsChecked="{Binding ShowContacts}" Style="{DynamicResource ToggleSwitchStyle}" VerticalAlignment="Center" Margin="0,0,12,6" />
-                <WrapPanel x:Name="CameraControls" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}">
+                <WrapPanel x:Name="CameraControls" ToolTip="Drag the track to rotate · Shift/right-drag to pan · Ctrl-drag to roll · Right-click or click empty space to enable scroll zoom · Double-click to reset" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}">
                     <Button x:Name="ZoomMapIn" Content="Zoom in" Click="ZoomMapIn_Click" Padding="10,8" Margin="0,0,8,6" />
                     <Button x:Name="ZoomMapOut" Content="Zoom out" Click="ZoomMapOut_Click" Padding="10,8" Margin="0,0,8,6" />
                     <Button x:Name="ResetCamera" Content="Reset camera" Click="ResetMapView_Click" Padding="10,8" Margin="0,0,8,6" AutomationProperties.Name="Reset the 3D workspace camera" />
@@ -111,6 +111,12 @@
                     <TextBlock Text="{Binding ScrubPosition}" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
                 </WrapPanel>
                 <Slider x:Name="LapCursorSlider" Grid.Row="1" Minimum="0" Maximum="{Binding MaximumScrubCursor}" Value="{Binding ScrubCursor, Mode=TwoWay, UpdateSourceTrigger=Explicit}" TickFrequency="1" IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" SmallChange="1" LargeChange="60" AutomationProperties.Name="Lap position cursor" ValueChanged="LapCursorSlider_ValueChanged" />
+                <TextBlock x:Name="MapInteractionHint" Grid.Row="2" Text="Drag to rotate · Shift/right-drag to pan · Ctrl-drag to roll · Right-click or click empty space to enable scroll zoom · Double-click to reset" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,2,0,2">
+                    <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Style.Triggers>
+                        <DataTrigger Binding="{Binding Is3D}" Value="False"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                        <DataTrigger Binding="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource CompactMapViewport}}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                    </Style.Triggers></Style></TextBlock.Style>
+                </TextBlock>
             </Grid>
             <Grid x:Name="MapSurfaceFrame">
             <Grid x:Name="MapExportSurface" IsEnabled="{Binding HasLap}" Background="{DynamicResource InputBrush}" Margin="1,0,1,0">
@@ -143,7 +149,7 @@
                         </Style.Triggers></Style></Grid.Style>
                         <Grid.Height><MultiBinding Converter="{StaticResource LapReviewMapHeight}"><Binding Path="ViewportHeight" RelativeSource="{RelativeSource AncestorType={x:Type ScrollViewer}}"/><Binding Path="RequestedMapHeight" ElementName="ReviewView"/><Binding Path="ActualHeight" ElementName="MapToolbar"/><Binding Path="ActualHeight" ElementName="ScrubBar"/><Binding Path="ActualHeight" ElementName="MapReadout"/><Binding Path="ViewportHeight" RelativeSource="{RelativeSource AncestorType={x:Type ScrollViewer}}" Converter="{StaticResource CompactMapViewport}"/></MultiBinding></Grid.Height>
                         <local:LapReviewPlot x:Name="Track" Data="{Binding MapPlotA}" IsMap="True" Visibility="{Binding Is2D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="Recorded lap map. Click to select a location; arrow keys move through samples." />
-                        <local:LapReviewTrack3D x:Name="Track3D" ToolTip="Drag to rotate · Shift/right drag to pan · Ctrl drag to roll · Click the map to use scroll zoom · Double-click to reset" Data="{Binding MapPlotA}" ComparisonData="{Binding ComparisonMapPlot}" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="3D lap workspace. Click a track to move closer, drag to rotate, scroll out to see both. Arrow keys select points." />
+                        <local:LapReviewTrack3D x:Name="Track3D" Data="{Binding MapPlotA}" ComparisonData="{Binding ComparisonMapPlot}" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="3D lap workspace. Click a track to move closer, drag to rotate, scroll out to see both. Arrow keys select points." />
                     </Grid>
                 <StackPanel x:Name="MapLegend" Grid.Row="2" Margin="16,8,16,16">
                     <Border x:Name="MapDivider" Background="{DynamicResource StrokeBrush}" Height="1" Margin="0,13.5,0,13.5" Opacity="0.65" />
@@ -154,7 +160,8 @@
                         <TextBlock Text="{Binding LegendMaximum}" Margin="0,0,18,8" VerticalAlignment="Center" />
                         <TextBlock Text="○ Start" Foreground="{x:Static local:LapReviewPalette.StartBrush}" Margin="0,0,14,8" />
                         <TextBlock Text="━ Reference" Foreground="{x:Static local:RunComparisonColors.RunB}" Margin="0,0,14,8" Visibility="{Binding HasMapReference, Converter={StaticResource MapVisibility}}" />
-                        <TextBlock Text="✦ Contact marker" Foreground="{x:Static local:LapReviewPalette.ContactBrush}" Margin="0,0,12,8" Visibility="{Binding ShowContacts, Converter={StaticResource MapVisibility}}" />
+                        <TextBlock Text="✦ Object / saved contact" Foreground="{x:Static local:LapReviewPalette.ContactBrush}" Margin="0,0,12,8" Visibility="{Binding ShowContacts, Converter={StaticResource MapVisibility}}" />
+                        <TextBlock Text="✧ Possible contact (estimate)" Foreground="{x:Static local:LapReviewPalette.ContactBrush}" Margin="0,0,12,8" Visibility="{Binding ShowContacts, Converter={StaticResource MapVisibility}}" />
                     </WrapPanel>
                     <TextBlock x:Name="MapElevationSummary" Text="{Binding ElevationSummary}" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
                 </StackPanel>
@@ -162,7 +169,7 @@
                 <Thumb x:Name="MapResizeGrip" IsEnabled="{Binding HasLap}" Height="28" VerticalAlignment="Bottom"
                     Margin="{Binding ActualHeight, ElementName=MapLegend, Converter={StaticResource MapResizeGripMargin}}"
                     Cursor="SizeNS" Focusable="True" IsTabStop="True"
-                    DragDelta="MapResizeGrip_DragDelta" KeyDown="MapResizeGrip_KeyDown"
+                    DragDelta="MapResizeGrip_DragDelta" DragCompleted="MapResizeGrip_DragCompleted" KeyDown="MapResizeGrip_KeyDown"
                     AutomationProperties.Name="Resize track area" AutomationProperties.HelpText="Drag to resize. Up and Down adjust height; Home restores automatic size."
                     ToolTip="Drag to resize track area · Up/Down to adjust · Home to reset">
                     <Thumb.Template><ControlTemplate TargetType="Thumb">

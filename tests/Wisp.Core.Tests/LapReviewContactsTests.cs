@@ -109,6 +109,72 @@ public sealed class LapReviewContactsTests
         Assert.Equal([20, 25], LapReviewContacts.Find(lap, TestContext.Current.CancellationToken).Select(contact => contact.PointIndex));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReportedObjectImpulseSurvivesRepeatedLapClockOrGameTick(bool sameTick)
+    {
+        var lap = WithImpactFields(Lap(_ => 30, _ => 0), index => index >= 20 ? 2 : 0, _ => 150);
+        RepeatClockAtImpact(lap, sameTick);
+        var run = new RecordedRun { Samples = lap.Points.Select(point => point.Sample).ToArray() };
+        var rebuilt = Assert.Single(LapReviewAnalysis.Build(run, LapTimingMode.GameLaps, TestContext.Current.CancellationToken).Laps);
+        var contact = Assert.Single(LapReviewContacts.Find(rebuilt, TestContext.Current.CancellationToken));
+        Assert.Equal(20, contact.PointIndex);
+        Assert.Equal(LapReviewContactKind.SmashableObject, contact.Kind);
+    }
+
+    [Theory]
+    [InlineData("break")]
+    [InlineData("segment")]
+    [InlineData("car")]
+    [InlineData("drivetrain")]
+    [InlineData("notDriving")]
+    [InlineData("menu")]
+    [InlineData("position")]
+    [InlineData("rewind")]
+    [InlineData("clock")]
+    public void SameTickObjectImpulseDoesNotRelaxGapIdentityOrPositionGuards(string change)
+    {
+        var lap = WithImpactFields(Lap(_ => 30, _ => 0), index => index >= 20 ? 2 : 0, _ => 150);
+        RepeatClockAtImpact(lap, sameTick: true);
+        var point = lap.Points[20];
+        lap.Points[20] = change switch
+        {
+            "break" => point with { BreakBefore = true },
+            "segment" => point with { Sample = point.Sample with { Segment = 1 } },
+            "car" => point with { Sample = point.Sample with { State = point.Sample.State with { CarOrdinal = point.Sample.State.CarOrdinal + 1 } } },
+            "drivetrain" => point with { Sample = point.Sample with { State = point.Sample.State with { Drivetrain = point.Sample.State.Drivetrain == DrivetrainType.AllWheelDrive ? DrivetrainType.RearWheelDrive : DrivetrainType.AllWheelDrive } } },
+            "notDriving" => point with { Sample = point.Sample with { IsDriving = false } },
+            "menu" => point with { Sample = point.Sample with { State = point.Sample.State with { IsRaceOn = false } } },
+            "position" => point with { Position = point.Position with { X = point.Position.X + .02f } },
+            "rewind" => point with { LapSeconds = point.LapSeconds - .01 },
+            _ => point with { Sample = point.Sample with { State = point.Sample.State with { GameTimestampMilliseconds = point.Sample.State.GameTimestampMilliseconds - 1 } } }
+        };
+        Assert.Empty(LapReviewContacts.Find(lap, TestContext.Current.CancellationToken));
+    }
+
+    private static void RepeatClockAtImpact(LapReviewLap lap, bool sameTick)
+    {
+        var previous = lap.Points[19];
+        var point = lap.Points[20];
+        var state = point.Sample.State;
+        lap.Points[20] = point with
+        {
+            RunSeconds = sameTick ? previous.RunSeconds : point.RunSeconds,
+            LapSeconds = previous.LapSeconds,
+            Position = sameTick ? previous.Position : point.Position,
+            Sample = point.Sample with
+            {
+                ElapsedSeconds = sameTick ? previous.Sample.ElapsedSeconds : point.Sample.ElapsedSeconds,
+                State = state with
+                {
+                    GameTimestampMilliseconds = sameTick ? previous.Sample.State.GameTimestampMilliseconds : state.GameTimestampMilliseconds,
+                    Lap = state.Lap! with { CurrentLapSeconds = (float)previous.LapSeconds, Position = sameTick ? previous.Position : point.Position }
+                }
+            }
+        };
+    }
+
     [Fact]
     public void DirectObjectMarkerCannotCrossATelemetryGapOrStartFromUnavailableData()
     {

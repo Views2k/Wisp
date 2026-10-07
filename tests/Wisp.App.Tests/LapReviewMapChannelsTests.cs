@@ -15,7 +15,10 @@ public sealed class LapReviewMapChannelsTests
         Assert.Equal(100, LapReviewPlot.Value(point, data with { Channel = LapReviewChannel.Power }, 0)!.Value, 4);
         Assert.Equal(250, LapReviewPlot.Value(point, data with { Channel = LapReviewChannel.Torque }, 0));
         Assert.Equal(184.390537325, LapReviewPlot.Value(point, data with { Channel = LapReviewChannel.Torque, TorqueUnit = TorqueUnit.PoundFeet }, 0)!.Value, 6);
-        Assert.Equal(123.5, LapReviewPlot.Value(point, data with { Channel = LapReviewChannel.Elevation }, 0));
+        Assert.Equal(123.5 / .3048, LapReviewPlot.Value(point, data with { Channel = LapReviewChannel.Elevation }, 0));
+        Assert.Equal("ft", LapReviewPlot.Unit(data with { Channel = LapReviewChannel.Elevation }));
+        Assert.Equal(123.5, LapReviewPlot.Value(point, data with { Channel = LapReviewChannel.Elevation, SpeedUnit = SpeedUnit.KilometersPerHour }, 0));
+        Assert.Equal("m", LapReviewPlot.Unit(data with { Channel = LapReviewChannel.Elevation, SpeedUnit = SpeedUnit.KilometersPerHour }));
     }
 
     [Fact]
