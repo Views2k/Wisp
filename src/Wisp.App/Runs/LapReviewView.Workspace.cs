@@ -7,7 +7,6 @@ public partial class LapReviewView
 {
     private void InitializeMapWorkspace()
     {
-        CameraControls.DataContext = Track3D;
         Track3D.ReferencePointChosen += index =>
         {
             if (DataContext is LapReviewViewModel model) model.PickReferencePoint(index);

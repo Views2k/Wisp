@@ -135,9 +135,9 @@
                 <Expander Header="Camera controls" Margin="0,0,0,8">
                     <WrapPanel x:Name="CameraControls" Margin="0,8,0,0">
                         <TextBlock Text="Workspace camera" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,8"/>
-                        <StackPanel Width="130" Margin="0,0,14,8"><TextBlock Text="Yaw" FontSize="11" /><Slider Minimum="-180" Maximum="180" Value="{Binding Yaw, Mode=TwoWay}" AutomationProperties.Name="3D camera yaw" /></StackPanel>
-                        <StackPanel Width="130" Margin="0,0,14,8"><TextBlock Text="Pitch" FontSize="11" /><Slider Minimum="-89" Maximum="89" Value="{Binding Pitch, Mode=TwoWay}" AutomationProperties.Name="3D camera pitch" /></StackPanel>
-                        <StackPanel Width="130" Margin="0,0,14,8"><TextBlock Text="Roll" FontSize="11" /><Slider Minimum="-180" Maximum="180" Value="{Binding Roll, Mode=TwoWay}" AutomationProperties.Name="3D camera roll" /></StackPanel>
+                        <StackPanel Width="130" Margin="0,0,14,8"><TextBlock Text="Yaw" FontSize="11" /><Slider Minimum="-180" Maximum="180" Value="{Binding Yaw, ElementName=Track3D, Mode=TwoWay}" AutomationProperties.Name="3D camera yaw" /></StackPanel>
+                        <StackPanel Width="130" Margin="0,0,14,8"><TextBlock Text="Pitch" FontSize="11" /><Slider Minimum="-89" Maximum="89" Value="{Binding Pitch, ElementName=Track3D, Mode=TwoWay}" AutomationProperties.Name="3D camera pitch" /></StackPanel>
+                        <StackPanel Width="130" Margin="0,0,14,8"><TextBlock Text="Roll" FontSize="11" /><Slider Minimum="-180" Maximum="180" Value="{Binding Roll, ElementName=Track3D, Mode=TwoWay}" AutomationProperties.Name="3D camera roll" /></StackPanel>
                         <Button Content="Zoom in" Click="ZoomMapIn_Click" Padding="10,6" Margin="0,0,8,8" /><Button Content="Zoom out" Click="ZoomMapOut_Click" Padding="10,6" Margin="0,0,8,8" />
                         <Button x:Name="ResetCamera" Content="Reset camera" Click="ResetMapView_Click" Padding="10,6" Margin="0,0,8,8" AutomationProperties.Name="Reset the 3D workspace camera"/>
                     </WrapPanel>

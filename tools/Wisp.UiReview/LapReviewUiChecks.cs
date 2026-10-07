@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -218,7 +219,7 @@ internal static class LapReviewUiChecks
                 track3D.FocusLap(1); track3D.CompleteCameraMotionForTest(); Arrange(surface, size);
                 check(track3D.FocusedLap == 1 && track3D.RenderSize == overviewSize && showBoth.Visibility == Visibility.Visible &&
                     ProjectedTrackBounds(reference: false).Width > overviewA.Width * 1.15 &&
-                    ReferenceEquals(cameraControls.DataContext, track3D), name + "/focus-A-moves-shared-camera");
+                    CameraBindingsMatch(), name + "/focus-A-moves-shared-camera");
                 CheckBothGeometriesRetained();
                 ScrollTo(scrubBar); Capture("map-3d-focus-A");
                 VerifyMapImage("3d-focus-A", track3D);
@@ -230,7 +231,7 @@ internal static class LapReviewUiChecks
                 track3D.FocusLap(2); track3D.CompleteCameraMotionForTest(); Arrange(surface, size);
                 check(track3D.FocusedLap == 2 && track3D.RenderSize == overviewSize &&
                     ProjectedTrackBounds(reference: true).Width > overviewB.Width * 1.15 &&
-                    ReferenceEquals(cameraControls.DataContext, track3D), name + "/focus-B-moves-shared-camera");
+                    CameraBindingsMatch(), name + "/focus-B-moves-shared-camera");
                 CheckBothGeometriesRetained();
                 var referenceCursor = track3D.ComparisonData!.Cursor;
                 var nextReference = Math.Clamp(referenceCursor + 1, 0, review.Reference!.Points.Length - 1);
@@ -313,6 +314,17 @@ internal static class LapReviewUiChecks
                     var a = track3D.Data; var b = track3D.ComparisonData;
                     check(a is not null && b is not null && a.ColorRangeOverride is { } shared && b.ColorRangeOverride == shared &&
                         LapReviewColorRange.From(a) == LapReviewColorRange.From(b), name + "/A-B-share-value-color-range-" + review.Channel.Channel);
+                }
+                bool CameraBindingsMatch()
+                {
+                    var controls = Descendants(cameraControls).OfType<Slider>().ToArray();
+                    return new[] { (Name: "3D camera yaw", Property: nameof(LapReviewTrack3D.Yaw), Value: track3D.Yaw),
+                        (Name: "3D camera pitch", Property: nameof(LapReviewTrack3D.Pitch), Value: track3D.Pitch),
+                        (Name: "3D camera roll", Property: nameof(LapReviewTrack3D.Roll), Value: track3D.Roll) }
+                        .All(axis => controls.SingleOrDefault(control => AutomationProperties.GetName(control) == axis.Name) is { } slider &&
+                            slider.GetBindingExpression(RangeBase.ValueProperty) is { } binding &&
+                            ReferenceEquals(binding.DataItem, track3D) && binding.ParentBinding.Path?.Path == axis.Property &&
+                            binding.ParentBinding.Mode == BindingMode.TwoWay && Math.Abs(slider.Value - axis.Value) < 1e-9);
                 }
                 Rect ProjectedTrackBounds(bool reference)
                 {
