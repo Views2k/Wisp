@@ -5,7 +5,6 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -54,7 +53,6 @@ internal static class LapReviewUiChecks
             var sharedSpace = (CheckBox)view.FindName("SharedSpaceToggle");
             var resetCamera = (Button)view.FindName("ResetCamera");
             var cameraControls = (FrameworkElement)view.FindName("CameraControls");
-            var cameraAxes = (FrameworkElement)view.FindName("CameraAxes");
             var mapToolbar = (FrameworkElement)view.FindName("MapToolbar");
             var showContacts = (CheckBox)view.FindName("ShowContactsToggle");
             var scrubBoth = (RadioButton)view.FindName("ScrubBoth");
@@ -167,9 +165,25 @@ internal static class LapReviewUiChecks
                     name + "/camera-buttons-and-contact-toggle-in-top-toolbar");
                 var elevation = (FrameworkElement)view.FindName("MapElevationSummary");
                 var elevationBottom = elevation.TranslatePoint(new Point(0, elevation.ActualHeight), view).Y;
+                var traceTop = trace.TranslatePoint(new Point(), view).Y;
+                var traceBottom = trace.TranslatePoint(new Point(0, trace.ActualHeight), view).Y;
                 var settingsTop = lapSettings.TranslatePoint(new Point(), view).Y;
-                check(settingsTop >= elevationBottom && settingsTop - elevationBottom <= 20 &&
-                    !mapExportSurface.IsAncestorOf(lapSettings), name + "/lap-settings-below-elevation-outside-PNG");
+                var resizeGrip = (Thumb)view.FindName("MapResizeGrip");
+                var divider = (FrameworkElement)view.FindName("MapDivider");
+                check(traceTop >= elevationBottom && traceTop - elevationBottom <= 24 &&
+                    settingsTop >= traceBottom && settingsTop - traceBottom <= 16,
+                    name + "/legend-then-graph-then-settings");
+                check(!mapExportSurface.IsAncestorOf(lapSettings) && !mapExportSurface.IsAncestorOf(trace) &&
+                    !mapExportSurface.IsAncestorOf(resizeGrip), name + "/graph-settings-and-resize-control-outside-PNG");
+                check(Math.Abs(resizeGrip.TranslatePoint(new Point(0, resizeGrip.ActualHeight / 2), view).Y -
+                    divider.TranslatePoint(new Point(0, divider.ActualHeight / 2), view).Y) < .5,
+                    name + "/resize-handle-centered-on-divider");
+                check(view.FindName("CameraAxes") is null && !Descendants(view).OfType<Slider>().Any(item =>
+                    AutomationProperties.GetName(item).StartsWith("3D camera", StringComparison.Ordinal)) &&
+                    !Descendants(view).OfType<ComboBox>().Any(item => AutomationProperties.GetName(item) == "Lap contact markers") &&
+                    !Descendants(view).OfType<Button>().Any(item => ReferenceEquals(item.Command, review.MarkContactCommand) ||
+                        ReferenceEquals(item.Command, review.RemoveContactCommand)), name + "/no-manual-angle-or-contact-editors");
+                ScrollTo(elevation); Capture("legend-graph-settings");
                 CheckMapAndScrubber(); Capture("map-3d-normal");
                 VerifyMapImage("3d-normal", track3D);
                 var normalData = track3D.Data!;
@@ -249,8 +263,7 @@ internal static class LapReviewUiChecks
                     name + "/3d-overview-projects-tracks-side-by-side");
                 track3D.FocusLap(1); track3D.CompleteCameraMotionForTest(); Arrange(surface, size);
                 check(track3D.FocusedLap == 1 && track3D.RenderSize == overviewSize && showBoth.Visibility == Visibility.Visible &&
-                    ProjectedTrackBounds(reference: false).Width > overviewA.Width * 1.15 &&
-                    CameraBindingsMatch(), name + "/focus-A-moves-shared-camera");
+                    ProjectedTrackBounds(reference: false).Width > overviewA.Width * 1.15, name + "/focus-A-moves-shared-camera");
                 CheckBothGeometriesRetained();
                 ScrollTo(scrubBar); Capture("map-3d-focus-A");
                 VerifyMapImage("3d-focus-A", track3D);
@@ -261,8 +274,7 @@ internal static class LapReviewUiChecks
 
                 track3D.FocusLap(2); track3D.CompleteCameraMotionForTest(); Arrange(surface, size);
                 check(track3D.FocusedLap == 2 && track3D.RenderSize == overviewSize &&
-                    ProjectedTrackBounds(reference: true).Width > overviewB.Width * 1.15 &&
-                    CameraBindingsMatch(), name + "/focus-B-moves-shared-camera");
+                    ProjectedTrackBounds(reference: true).Width > overviewB.Width * 1.15, name + "/focus-B-moves-shared-camera");
                 CheckBothGeometriesRetained();
                 var referenceCursor = track3D.ComparisonData!.Cursor;
                 var nextReference = Math.Clamp(referenceCursor + 1, 0, review.Reference!.Points.Length - 1);
@@ -357,17 +369,6 @@ internal static class LapReviewUiChecks
                     var a = track3D.Data; var b = track3D.ComparisonData;
                     check(a is not null && b is not null && a.ColorRangeOverride is { } shared && b.ColorRangeOverride == shared &&
                         LapReviewColorRange.From(a) == LapReviewColorRange.From(b), name + "/A-B-share-value-color-range-" + review.Channel.Channel);
-                }
-                bool CameraBindingsMatch()
-                {
-                    var controls = Descendants(cameraAxes).OfType<Slider>().ToArray();
-                    return new[] { (Name: "3D camera yaw", Property: nameof(LapReviewTrack3D.Yaw), Value: track3D.Yaw),
-                        (Name: "3D camera pitch", Property: nameof(LapReviewTrack3D.Pitch), Value: track3D.Pitch),
-                        (Name: "3D camera roll", Property: nameof(LapReviewTrack3D.Roll), Value: track3D.Roll) }
-                        .All(axis => controls.SingleOrDefault(control => AutomationProperties.GetName(control) == axis.Name) is { } slider &&
-                            slider.GetBindingExpression(RangeBase.ValueProperty) is { } binding &&
-                            ReferenceEquals(binding.DataItem, track3D) && binding.ParentBinding.Path?.Path == axis.Property &&
-                            binding.ParentBinding.Mode == BindingMode.TwoWay && Math.Abs(slider.Value - axis.Value) < 1e-9);
                 }
                 Rect ProjectedTrackBounds(bool reference)
                 {

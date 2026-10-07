@@ -1,5 +1,5 @@
 Wisp 2.6.4 Lap review 3D test
-Private build ID: lap-review-3d-20261006-05
+Private build ID: lap-review-3d-20261006-06
 
 This is a private test build, not a public release. It updates your existing
 Wisp installation and keeps your settings, profiles, calibrations, runs and
@@ -28,7 +28,9 @@ Changes
 - Keep camera zoom steady while rotating either the shared overview or a focused lap.
 - Choose Both, A or B beside Lap position to move paired or independent cursors.
 - Use zoom, reset, Show both laps and Show contacts directly from the top toolbar.
-- Find Lap settings and benchmark directly below the elevation summary.
+- View the channel graph directly below the legend, with Lap settings and
+  benchmark beneath it. Drag the clearly marked divider handle to resize the map.
+- Use mouse camera gestures without manual angle sliders or a contact editor.
 - Center the close icon in the A note from Views popup.
 
 Controls
@@ -38,24 +40,25 @@ Relative progress does not establish a valid time delta or matched section.
 Drag: rotate. Shift-drag or right-drag: pan. Ctrl-drag: roll.
 Click the map before using scroll to zoom; otherwise the wheel scrolls the page.
 Double-click or Reset camera: restore the workspace camera.
-Drag the grip below the map to resize it. Focus the grip and use Up/Down to
+Drag Resize map on the divider to resize it. Focus the grip and use Up/Down to
 adjust the height, or Home to restore automatic sizing.
 Click the line: select a point. Arrow keys: move along the lap.
-Home/End: first/last point. Camera controls also provide axis sliders.
+Home/End: first/last point.
 Choose Run B using Compare above, or choose a reference in Lap settings and
 benchmark, then enable Shared space in 3D. Both tracks remain in the same scene,
 laid out side by side. With Shared space off, the original single-lap view remains.
 Click a track to bring the camera toward it. Scroll back out, choose Show
-both laps or press Escape to frame both again. Rotation, pan and axis
-controls affect the shared camera. PNG saves the current camera view.
-Contact editing is labelled Run A; each map shows its own saved markers.
+both laps or press Escape to frame both again. Rotation and pan
+gestures affect the shared camera. PNG saves the current camera view.
+Each map shows its recorded and saved contact markers. Show contacts hides
+or shows those markers; this view does not add or remove saved contacts.
 
 Suggested checks
 1. Open an existing saved lap in Runs and expand Lap review.
 2. Switch between 2D and 3D. Rotate and zoom, then reset the view.
 3. Change channels and wheels. Select a point, compare Run B, select a section
    and open it in graphs. The selected point/section should stay consistent.
-4. Mark a known contact, reopen the run and remove the marker.
+4. Toggle Show contacts and check the recorded markers on each lap.
 5. Save a PNG in both modes. Check the current view, colors and legend.
 6. Record a new lap on your usual Steam or Xbox PC installation. Object
    contacts use the same Data Out fields on both editions.
@@ -64,7 +67,7 @@ Contact coverage
 Forza reports velocity loss and mass for breakable-object impacts. Those
 appear as Object contact in new recordings. Possible contact is an estimate
 from movement; it is not a verified wall/car collision. Old recordings did
-not retain the object-impact fields. Mark known contacts where needed.
+not retain the object-impact fields. Previously saved markers remain visible.
 
 Saved-run compatibility
 Existing saved runs remain readable and keep their original format. New runs

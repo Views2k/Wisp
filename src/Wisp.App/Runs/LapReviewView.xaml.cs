@@ -93,6 +93,14 @@ public partial class LapReviewView : UserControl
     }
 }
 
+public sealed class LapReviewResizeGripMarginConverter : IValueConverter
+{
+    // Align the sibling handle with the legend divider while excluding it from PNG exports.
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        new Thickness(16, 0, 16, 16 + (value is double height && double.IsFinite(height) ? Math.Max(0, height - 28) : 0));
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+}
+
 public sealed class LapReviewCompactViewportConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
