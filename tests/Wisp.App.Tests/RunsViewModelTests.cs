@@ -471,7 +471,17 @@ public sealed class RunsViewModelTests
             var recorded = await service.StopAsync();
             Assert.NotNull(recorded); Assert.NotEmpty(recorded.Samples); Assert.Null(recorded.TuneAttachment);
             var loaded = await service.Store.LoadAsync(recorded.Id);
-            Assert.Equal(recorded.Samples, loaded.Samples); Assert.Null(loaded.TuneAttachment);
+            Assert.All(recorded.Samples, sample =>
+            {
+                Assert.Equal(0f, sample.State.SmashableVelocityLossMetersPerSecond);
+                Assert.Equal(0f, sample.State.SmashableMassKilograms);
+            });
+            Assert.Equal(RecordedRun.BaseSchemaVersion, loaded.SchemaVersion);
+            Assert.Equal(recorded.Samples.Select(sample => sample with
+            {
+                State = sample.State with { SmashableVelocityLossMetersPerSecond = null, SmashableMassKilograms = null }
+            }), loaded.Samples);
+            Assert.Null(loaded.TuneAttachment);
             await refreshTelemetry(); model.RefreshStatus();
             await model.ToggleRecordingAsync(); clock.Advance(TimeSpan.FromSeconds(3)); await refreshTelemetry(); model.RefreshStatus();
             Assert.Equal(2, reads); Assert.True(model.IsRecording, model.Error);

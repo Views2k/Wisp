@@ -86,7 +86,7 @@ public sealed partial class RunStore
 
     public Task<RunSummary> SaveAsync(RecordedRun run) => InBackground(async () =>
     {
-        await WriteAsync(run, overwrite: false).ConfigureAwait(false);
+        await WriteAsync(run, overwrite: false, finalizeContactFormat: true).ConfigureAwait(false);
         return Summarize(run);
     });
 
@@ -189,7 +189,14 @@ public sealed partial class RunStore
             EnsureDirectory();
             EnsureCapacity(header.Id);
             if (!_activeJournals.TryAdd(header.Id, 0)) throw new InvalidOperationException("This run is already being recorded.");
-            try { return new RunJournal(Path.Combine(_directory, $"{header.Id:N}.partial"), header, () => _activeJournals.TryRemove(header.Id, out _)); }
+            try
+            {
+                if (!ValidSchema(header)) throw new InvalidDataException("The run format is unsupported.");
+                // Older readers must reject the journal before recovering a prefix and
+                // discarding later samples whose contact fields they cannot deserialize.
+                return new RunJournal(Path.Combine(_directory, $"{header.Id:N}.partial"),
+                    header with { SchemaVersion = RecordedRun.CurrentSchemaVersion }, () => _activeJournals.TryRemove(header.Id, out _));
+            }
             catch { _activeJournals.TryRemove(header.Id, out _); throw; }
         }
         finally { reservation.Dispose(); }
@@ -272,9 +279,25 @@ public sealed partial class RunStore
         return run;
     }
 
-    private async Task WriteAsync(RecordedRun run, bool overwrite)
+    private async Task WriteAsync(RecordedRun run, bool overwrite, bool finalizeContactFormat = false)
     {
+        if ((run.SchemaVersion is RecordedRun.BaseSchemaVersion or RecordedRun.TuneAttachmentSchemaVersion) &&
+            ValidSchema(run) && run.Samples is { } samples && samples.Any(sample => sample?.State is { } state && HasContactData(state)))
+            run = run with { SchemaVersion = RecordedRun.CurrentSchemaVersion };
         Validate(run);
+        // Journals retain v3 until every sample has been read. Only finalized new
+        // recordings without any positive object evidence can omit the optional
+        // fields; imports and edits of existing files retain their declared format.
+        if (finalizeContactFormat && run.SchemaVersion == RecordedRun.CurrentSchemaVersion &&
+            !run.Samples.Any(sample => sample.State.SmashableVelocityLossMetersPerSecond is > 0 || sample.State.SmashableMassKilograms is > 0))
+            run = run with
+            {
+                SchemaVersion = run.TuneAttachment is null ? RecordedRun.BaseSchemaVersion : RecordedRun.TuneAttachmentSchemaVersion,
+                Samples = run.Samples.Select(sample => HasContactData(sample.State) ? sample with
+                {
+                    State = sample.State with { SmashableVelocityLossMetersPerSecond = null, SmashableMassKilograms = null }
+                } : sample).ToArray()
+            };
         if (!overwrite) EnsureCapacity(run.Id);
         var destination = RunPath(run.Id);
         var temporary = Path.Combine(_directory, $".{run.Id:N}-{Guid.NewGuid():N}.tmp");
@@ -370,7 +393,7 @@ public sealed partial class RunStore
                         IsIncomplete = true,
                         TuneAttachment = header.TuneAttachment is { } attachment ? attachment with { DrivingContinuityInterrupted = true } : null,
                         FinishReason = "Recovered after Wisp closed before the run finished"
-                    }, false).ConfigureAwait(false);
+                    }, overwrite: false, finalizeContactFormat: true).ConfigureAwait(false);
                 reader.Dispose();
                 file.Dispose();
                 File.Delete(path);
@@ -407,6 +430,8 @@ public sealed partial class RunStore
         foreach (var sample in run.Samples)
         {
             ValidateSample(sample, previous);
+            if (run.SchemaVersion < RecordedRun.CurrentSchemaVersion && HasContactData(sample.State))
+                throw new InvalidDataException("Object-contact telemetry requires run format version 3.");
             if (sample.State.CarOrdinal != run.Samples[0].State.CarOrdinal || sample.State.Drivetrain != run.Samples[0].State.Drivetrain)
                 throw new InvalidDataException("A run cannot combine different cars or drivetrains.");
             previous = sample;
@@ -429,9 +454,13 @@ public sealed partial class RunStore
     private static bool ValidSchema(RecordedRun run) => run.SchemaVersion switch
     {
         RecordedRun.BaseSchemaVersion => run.TuneAttachment is null,
-        RecordedRun.CurrentSchemaVersion => run.TuneAttachment is { IsValid: true },
+        RecordedRun.TuneAttachmentSchemaVersion => run.TuneAttachment is { IsValid: true },
+        RecordedRun.CurrentSchemaVersion => run.TuneAttachment is null or { IsValid: true },
         _ => false
     };
+
+    private static bool HasContactData(VehicleState state) =>
+        state.SmashableVelocityLossMetersPerSecond.HasValue || state.SmashableMassKilograms.HasValue;
 
     private static void ValidateMarker(RunMarker marker, RunMarker? previous, double duration)
     {
@@ -451,6 +480,9 @@ public sealed partial class RunStore
             (state.LocalVelocityXMetersPerSecond is { } localX && !FiniteBound(localX, 500)) ||
             (state.LocalVelocityYMetersPerSecond is { } localY && !FiniteBound(localY, 500)) ||
             (state.LocalVelocityZMetersPerSecond is { } localZ && !FiniteBound(localZ, 500)) ||
+            state.SmashableVelocityLossMetersPerSecond.HasValue != state.SmashableMassKilograms.HasValue ||
+            (state.SmashableVelocityLossMetersPerSecond is { } impactLoss && (!FiniteBound(impactLoss, 500) || impactLoss < 0)) ||
+            (state.SmashableMassKilograms is { } impactMass && (!FiniteBound(impactMass, 10_000_000) || impactMass < 0)) ||
             !FiniteBound(state.EngineMaximumRpm, 30_000) || state.EngineMaximumRpm < 0 ||
             !FiniteBound(state.PowerWatts, 100_000_000) || !FiniteBound(state.TorqueNm, 10_000_000) || !FiniteBound(state.BoostPressurePsi, 200) ||
             !FiniteBound(state.LateralAccelerationMetersPerSecondSquared, 10_000) || !FiniteBound(state.LongitudinalAccelerationMetersPerSecondSquared, 10_000) ||

@@ -137,11 +137,17 @@ public sealed class CalmSidebarTests
         Assert.Same(window.FindResource("CardStyle"), runLibrary.Style.BasedOn);
         var runToggles = LogicalDescendants(runs).OfType<CheckBox>().ToArray();
         Assert.Equal(
-            ["AutomaticRecording", "FullThrottleOnly", "HotkeyEnabled", "MarkerHotkeyEnabled", "SameSpeed"],
+            ["AutomaticRecording", "FullThrottleOnly", "HotkeyEnabled", "MarkerHotkeyEnabled", "SameSpeed", "SharedSpace", "ShowContacts"],
             runToggles.Select(runToggle => Assert.IsType<Binding>(
                     BindingOperations.GetBinding(runToggle, ToggleButton.IsCheckedProperty)).Path.Path)
                 .OrderBy(path => path, StringComparer.Ordinal));
         Assert.All(runToggles, runToggle => Assert.Same(window.FindResource("ToggleSwitchStyle"), runToggle.Style));
+        var sharedSpace = Assert.Single(runToggles, runToggle => runToggle.Name == "SharedSpaceToggle");
+        Assert.Equal("Shared space", sharedSpace.Content);
+        Assert.Equal("SharedSpace", Assert.IsType<Binding>(
+            BindingOperations.GetBinding(sharedSpace, ToggleButton.IsCheckedProperty)).Path.Path);
+        Assert.Equal("CanUseSharedSpace", Assert.IsType<Binding>(
+            BindingOperations.GetBinding(sharedSpace, UIElement.IsEnabledProperty)).Path.Path);
         foreach (var name in new[] { "ShowGraphsButton", "RunRecordButton" })
             Assert.Same(window.FindResource("PrimaryButtonStyle"), Assert.IsType<Button>(runs.FindName(name)).Style);
         var binding = Assert.IsType<Binding>(BindingOperations.GetBinding(navigation, Selector.SelectedIndexProperty));

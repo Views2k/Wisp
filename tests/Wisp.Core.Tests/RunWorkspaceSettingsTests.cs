@@ -8,6 +8,23 @@ namespace Wisp.Core.Tests;
 
 public sealed class RunWorkspaceSettingsTests
 {
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(60, 70)]
+    [InlineData(920, 920)]
+    [InlineData(1800, 1400)]
+    [InlineData(double.NaN, 0)]
+    [InlineData(double.PositiveInfinity, 0)]
+    public void LapMapHeightIsBoundedAndSurvivesWorkspaceCloning(double input, double expected)
+    {
+        var settings = new RunWorkspaceSettings { LapMapHeight = input };
+        settings.Normalize();
+        Assert.Equal(expected, settings.LapMapHeight);
+        var clone = settings.Clone();
+        Assert.Equal(expected, clone.LapMapHeight);
+        Assert.Equal(expected, JsonSerializer.Deserialize<RunWorkspaceSettings>(JsonSerializer.Serialize(clone))!.LapMapHeight);
+    }
+
     [Fact]
     public void CatalogHasElevenDistinctModulesAndEveryPresetUsesKnownModules()
     {

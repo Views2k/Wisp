@@ -66,12 +66,13 @@ public sealed class RunWorkspaceSettings
 {
     public RunWorkspacePreset Preset { get; set; } = RunWorkspacePreset.Overview;
     public RunWorkspaceComparisonMode ComparisonMode { get; set; }
+    public double LapMapHeight { get; set; }
     public List<RunWorkspacePanelSettings> Panels { get; set; } = RunWorkspaceCatalog.CreatePanels(RunWorkspacePreset.Overview);
 
     public RunWorkspaceSettings Clone()
     {
         var copy = new RunWorkspaceSettings
-        { Preset = Preset, ComparisonMode = ComparisonMode, Panels = Panels?.Where(panel => panel is not null).Select(panel => panel.Clone()).ToList()! };
+        { Preset = Preset, ComparisonMode = ComparisonMode, LapMapHeight = LapMapHeight, Panels = Panels?.Where(panel => panel is not null).Select(panel => panel.Clone()).ToList()! };
         copy.Normalize();
         return copy;
     }
@@ -82,6 +83,7 @@ public sealed class RunWorkspaceSettings
         if (!Enum.IsDefined(Preset) || Preset is RunWorkspacePreset.Acceleration or RunWorkspacePreset.Drifting)
             Preset = RunWorkspacePreset.Overview;
         if (!Enum.IsDefined(ComparisonMode)) ComparisonMode = RunWorkspaceComparisonMode.Overlay;
+        LapMapHeight = double.IsFinite(LapMapHeight) && LapMapHeight > 0 ? Math.Clamp(LapMapHeight, 70, 1400) : 0;
         if (Panels is null) Panels = RunWorkspaceCatalog.CreatePanels(Preset);
         var clean = new List<RunWorkspacePanelSettings>(RunWorkspaceCatalog.MaximumModules);
         var ids = new HashSet<string>(StringComparer.Ordinal);

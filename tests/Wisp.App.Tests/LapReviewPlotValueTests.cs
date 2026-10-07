@@ -116,6 +116,89 @@ public sealed class LapReviewPlotValueTests
         }, 0)!.Value, 8);
     }
 
+    [Fact]
+    public void SameStoredLapDoesNotShowADuplicateReferencePath()
+    {
+        var data = DistinctData();
+        Assert.True(data.HasDistinctReference);
+        var original = data.Lap!;
+        Assert.False((data with { Reference = original with { Points = original.Points.ToArray() } }).HasDistinctReference);
+        Assert.False((data with { Comparison = data.Comparison! with { CanCompare = false } }).HasDistinctReference);
+        Assert.False((data with { Reference = null }).HasDistinctReference);
+        Assert.False((data with { Reference = original with { Points = [] } }).HasDistinctReference);
+        Assert.True((data with { Reference = original with { Number = original.Number + 1 } }).HasDistinctReference);
+        Assert.True((data with { Reference = original with { TimingMode = LapTimingMode.TimeAttack } }).HasDistinctReference);
+        Assert.True((data with
+        {
+            Reference = original with { Points = [original.Points[0] with { SampleIndex = 10 }, original.Points[1]] }
+        }).HasDistinctReference);
+    }
+
+    [Fact]
+    public void ReferencePositionUsesMatchedTimeAcrossAllThreeAxes()
+    {
+        var data = DistinctData();
+        Assert.Equal(new LapPosition(20, 30, 40), LapReviewPlot.ReferencePosition(data, 0));
+        Assert.Equal(new LapPosition(10, 20, 30), LapReviewPlot.ReferencePosition(At(0, 0), 0));
+        Assert.Equal(new LapPosition(30, 40, 50), LapReviewPlot.ReferencePosition(At(1, 1), 0));
+        Assert.Equal(new LapPosition(30, 40, 50), LapReviewPlot.ReferencePosition(At(1, 0), 0));
+
+        LapReviewPlotData At(double seconds, int lower) => data with
+        { Comparison = data.Comparison! with { Points = [new(0, 0, seconds, 0, lower)] } };
+    }
+
+    [Theory]
+    [InlineData(double.NaN, 0)]
+    [InlineData(double.PositiveInfinity, 0)]
+    [InlineData(-.1, 0)]
+    [InlineData(1.1, 0)]
+    [InlineData(.5, -1)]
+    [InlineData(.5, 2)]
+    [InlineData(2, 1)]
+    public void ReferencePositionRejectsInvalidOrExtrapolatedMatches(double seconds, int lower)
+    {
+        var data = DistinctData();
+        Assert.Null(LapReviewPlot.ReferencePosition(data with
+        { Comparison = data.Comparison! with { Points = [new(0, 0, seconds, 0, lower)] } }, 0));
+    }
+
+    [Fact]
+    public void ReferencePositionDoesNotCrossGapsOrNonFinitePositions()
+    {
+        var data = DistinctData();
+        var points = data.Reference!.Points;
+        foreach (var upper in new[]
+        {
+            points[1] with { BreakBefore = true },
+            points[1] with { LapSeconds = points[0].LapSeconds },
+            points[1] with { LapSeconds = double.NaN },
+            points[1] with { Position = new(30, float.NaN, 50) }
+        })
+            Assert.Null(LapReviewPlot.ReferencePosition(data with
+            { Reference = data.Reference with { Points = [points[0], upper] } }, 0));
+        Assert.Null(LapReviewPlot.ReferencePosition(data with
+        { Reference = data.Reference with { Points = [points[0] with { Position = new(float.PositiveInfinity, 20, 30) }, points[1]] } }, 0));
+        Assert.Null(LapReviewPlot.ReferencePosition(data, -1));
+        Assert.Null(LapReviewPlot.ReferencePosition(data, 2));
+        Assert.Null(LapReviewPlot.ReferencePosition(data with { Comparison = data.Comparison! with { CanCompare = false } }, 0));
+        Assert.Null(LapReviewPlot.ReferencePosition(data with { Reference = data.Lap }, 0));
+    }
+
+    private static LapReviewPlotData DistinctData()
+    {
+        var data = Data(LapReviewChannel.Speed);
+        var lap = data.Lap! with { RunId = Guid.Parse("81e8316f-b849-49aa-a092-7cebe761057a"), Number = 1 };
+        return data with
+        {
+            Lap = lap,
+            Reference = lap with
+            {
+                RunId = Guid.Parse("044e2a9e-75f3-468b-981b-8a3c6fa3434e"),
+                Points = [lap.Points[0] with { Position = new(10, 20, 30) }, lap.Points[1] with { Position = new(30, 40, 50) }]
+            }
+        };
+    }
+
     private static LapReviewPlotData Data(LapReviewChannel channel)
     {
         var a = RunTestData.State() with { GroundSpeedMetersPerSecond = 10, Gear = TransmissionGear.Third, Brake = 0 };

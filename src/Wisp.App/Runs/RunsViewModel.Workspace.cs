@@ -135,6 +135,7 @@ public sealed partial class RunsViewModel
         {
             Preset = SelectedWorkspacePreset.Id,
             ComparisonMode = WorkspaceComparisonMode.Id,
+            LapMapHeight = _settings.RunWorkspace.LapMapHeight,
             Panels = AvailableWorkspaceModules.Select(module => module.Snapshot()).ToList()
         };
         settings.Normalize();

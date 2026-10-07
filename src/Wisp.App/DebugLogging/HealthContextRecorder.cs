@@ -9,7 +9,7 @@ internal enum HealthEventCode
 {
     ApplicationStarted, ApplicationStopping, RecorderChanged, PlayerChanged,
     ClipSelected, ClipClosed, ClipExportStarted, ClipExportFinished,
-    ClipActionFailed, TuneReadFailed, SettingsSaveFailed, RendererFailed, HealthCollectionFailed
+    ClipActionFailed, TuneReadFailed, SettingsSaveFailed, RendererFailed, HealthCollectionFailed, LapReviewFailed
 }
 
 internal enum HealthPlayerState { Closed, Preparing, ReadyPaused, Playing, Buffering, Ended, Failed }

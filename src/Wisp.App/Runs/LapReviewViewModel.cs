@@ -15,18 +15,18 @@ public sealed record LapReviewWheelReadout(string Label, string FrontLeft, strin
 public sealed record LapReviewCursorReadout(string Position, string Speed, string Powertrain, string Throttle, string Brake,
     string Steering, string LateralG, string LongitudinalG, string Delta, LapReviewWheelReadout Temperatures,
     LapReviewWheelReadout SlipRatio, LapReviewWheelReadout SlipAngle, LapReviewWheelReadout Suspension);
-public enum LapReviewChannel { Speed, Delta, Throttle, Brake, Steering, LateralG, LongitudinalG, CombinedG, Rpm, Gear, TireTemperature, SlipRatio, SlipAngle, Suspension }
+public enum LapReviewChannel { Speed, Delta, Throttle, Brake, Steering, LateralG, LongitudinalG, CombinedG, Rpm, Gear, TireTemperature, SlipRatio, SlipAngle, Suspension, Power, Torque, Elevation }
 
-public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
+public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly AppSettings _settings;
     private readonly RunStore _store;
     private readonly Action _save;
-    private RecordedRun? _run, _comparisonRun;
+    private RecordedRun? _run, _comparisonRun, _referenceRun;
     private CancellationTokenSource? _loadCancellation, _analysisCancellation;
     private readonly List<RunUiCommand> _commands = [];
     private LapReviewLap? _lap, _reference;
-    private LapReviewComparison? _comparison;
+    private LapReviewComparison? _comparison, _reverseComparison;
     private LapTimingChoice _timing;
     private LapChannelChoice _channel;
     private int _cursor, _sectionStart, _sectionEnd;
@@ -46,7 +46,7 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<LapReviewMetric> Metrics { get; } = [];
     public ObservableCollection<string> Events { get; } = [];
     public LapTimingChoice[] TimingChoices { get; } = [new("Race / Rivals laps", LapTimingMode.GameLaps), new("Time Attack", LapTimingMode.TimeAttack)];
-    public LapChannelChoice[] Channels { get; } = [new("Speed", LapReviewChannel.Speed), new("Time delta", LapReviewChannel.Delta), new("Throttle", LapReviewChannel.Throttle), new("Brake", LapReviewChannel.Brake), new("Steering input", LapReviewChannel.Steering), new("Lateral G", LapReviewChannel.LateralG), new("Longitudinal G", LapReviewChannel.LongitudinalG), new("Combined G", LapReviewChannel.CombinedG), new("Engine RPM", LapReviewChannel.Rpm), new("Gear", LapReviewChannel.Gear), new("Tire temperature", LapReviewChannel.TireTemperature), new("Tire slip ratio", LapReviewChannel.SlipRatio), new("Tire slip angle (raw)", LapReviewChannel.SlipAngle), new("Suspension travel", LapReviewChannel.Suspension)];
+    public LapChannelChoice[] Channels { get; } = [new("Speed", LapReviewChannel.Speed), new("Time delta", LapReviewChannel.Delta), new("Throttle", LapReviewChannel.Throttle), new("Brake", LapReviewChannel.Brake), new("Steering input", LapReviewChannel.Steering), new("Lateral G", LapReviewChannel.LateralG), new("Longitudinal G", LapReviewChannel.LongitudinalG), new("Combined G", LapReviewChannel.CombinedG), new("Engine RPM", LapReviewChannel.Rpm), new("Gear", LapReviewChannel.Gear), new("Tire temperature", LapReviewChannel.TireTemperature), new("Tire slip ratio", LapReviewChannel.SlipRatio), new("Tire slip angle (raw)", LapReviewChannel.SlipAngle), new("Suspension travel", LapReviewChannel.Suspension), new("Horsepower", LapReviewChannel.Power), new("Torque", LapReviewChannel.Torque), new("Elevation", LapReviewChannel.Elevation)];
     public ICommand SectionStartCommand { get; }
     public ICommand SectionEndCommand { get; }
     public ICommand WholeLapCommand { get; }
@@ -86,16 +86,34 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
         get => _lap;
         set
         {
-            if (_disposed || !Set(ref _lap, value)) return;
-            _cursor = _sectionStart = 0; _sectionEnd = Math.Max(0, MaximumCursor);
-            Changed(nameof(MaximumCursor)); Changed(nameof(Cursor)); Changed(nameof(HasLap)); Changed(nameof(CanPin));
-            RaiseCommands();
-            if (_applying) RefreshCursor();
-            else if (_comparisonRun is null && _settings.LapReviewBenchmarkRunId is not null) _ = LoadAsync();
-            else RefreshComparison();
+            if (_disposed || Equals(_lap, value)) return;
+            ChangeScrubContext(() =>
+            {
+                Set(ref _lap, value);
+                _cursor = _sectionStart = 0; _sectionEnd = Math.Max(0, MaximumCursor);
+                Changed(nameof(MaximumCursor)); Changed(nameof(Cursor)); Changed(nameof(HasLap)); Changed(nameof(CanPin));
+                RaiseCommands();
+                if (_applying) RefreshCursor();
+                else if (_comparisonRun is null && _settings.LapReviewBenchmarkRunId is not null) _ = LoadAsync();
+                else RefreshComparison();
+            });
         }
     }
-    public LapReviewLap? Reference { get => _reference; set { if (!_disposed && Set(ref _reference, value) && !_applying) RefreshComparison(); } }
+    public LapReviewLap? Reference
+    {
+        get => _reference;
+        set
+        {
+            if (_disposed || Equals(_reference, value)) return;
+            ChangeScrubContext(() =>
+            {
+                Set(ref _reference, value);
+                _referenceCursor = 0;
+                _referenceMapContacts = [];
+                if (!_applying) RefreshComparison();
+            });
+        }
+    }
     public string Status { get => _status; private set => Set(ref _status, value); }
     public string ReferenceStatus { get => _referenceStatus; private set => Set(ref _referenceStatus, value); }
     public string CaptureStatus { get => _captureStatus; set => Set(ref _captureStatus, value); }
@@ -104,11 +122,28 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
     public bool CanPin => !_disposed && !_busy && UsableBenchmark(Lap);
     public bool IsBusy => _busy;
     public int MaximumCursor => Math.Max(0, (Lap?.Points.Length ?? 1) - 1);
-    public int Cursor { get => _cursor; set { if (!_disposed && Set(ref _cursor, Math.Clamp(value, 0, Math.Max(0, MaximumCursor)))) { RefreshCursor(); Changed(nameof(Plot)); if (Lap is { Points.Length: > 0 }) CursorMoved?.Invoke(Lap.Points[Cursor].RunSeconds); } } }
+    public int Cursor
+    {
+        get => _cursor;
+        set
+        {
+            if (_disposed) return;
+            value = Math.Clamp(value, 0, MaximumCursor);
+            // Every primary cursor entry point shares Both-mode synchronization:
+            // map/graph picking, keyboard navigation and the lap-position slider.
+            var referenceChanged = SynchronizeRelativeReferenceCursor(value);
+            if (Set(ref _cursor, value))
+            {
+                RefreshCursor(); Changed(nameof(Plot));
+                if (Lap is { Points.Length: > 0 }) CursorMoved?.Invoke(Lap.Points[Cursor].RunSeconds);
+            }
+            else if (referenceChanged) NotifyReferenceCursor();
+        }
+    }
     public LapReviewCursorReadout? CursorDetails { get; private set; }
     public string CursorText => CursorDetails is { } details ? $"{details.Position} · {details.Speed} · {details.Powertrain}" : "";
     public string SectionText { get; private set; } = "";
-    public LapReviewPlotData Plot => new(Lap, Reference, _comparison, Channel.Channel, _settings.SpeedUnit, Cursor, _sectionStart, _sectionEnd, SelectedWheel, _settings.TireTemperatureUnit);
+    public LapReviewPlotData Plot => new(Lap, Reference, _comparison, Channel.Channel, _settings.SpeedUnit, Cursor, _sectionStart, _sectionEnd, SelectedWheel, _settings.TireTemperatureUnit, _settings.TorqueUnit, VisibleContacts);
     public void RefreshSettings() { if (_disposed) return; Changed(nameof(AutomaticRecording)); RefreshCursor(); FormatSection(); Changed(nameof(Plot)); RaiseCommands(); }
     public void SetRuns(RecordedRun? run, RecordedRun? comparison)
     {
@@ -154,12 +189,15 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
                 return (a, b, current, usePin, pinMatch);
             }, cancel.Token);
             if (_disposed || cancel.IsCancellationRequested) return;
+            _referenceRun = result.usePin ? pinned : comparisonRun ?? run;
             _applying = true;
             try
             {
                 Laps.Clear(); foreach (var lap in result.a.Laps) Laps.Add(lap);
                 ReferenceLaps.Clear(); foreach (var lap in result.b.Laps) ReferenceLaps.Add(lap);
-                Reference = ReferenceLaps.Where(UsableBenchmark).MinBy(lap => lap.DurationSeconds);
+                Reference = ReferenceLaps.Where(UsableBenchmark).MinBy(lap => lap.DurationSeconds) ??
+                    (comparisonRun is null ? null : ReferenceLaps.LastOrDefault(lap => lap.IsComplete && lap.Points.Length > 1) ??
+                        ReferenceLaps.LastOrDefault(lap => lap.Points.Length > 1));
                 Lap = result.current;
                 if (Lap is not null && selected is not null && Lap.RunId == selected.RunId &&
                     Lap.TimingMode == selected.TimingMode && Lap.Points.FirstOrDefault()?.SampleIndex == selected.Points.FirstOrDefault()?.SampleIndex)
@@ -189,7 +227,8 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
     }
     private void RefreshComparison()
     {
-        _comparison = null;
+        _comparison = _reverseComparison = null;
+        SynchronizeRelativeReferenceCursor(Cursor);
         RefreshCursor(); Changed(nameof(Plot));
         _ = AnalyzeAsync(compare: true);
     }
@@ -210,11 +249,14 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
     }
     private void ClearReview()
     {
+        ScrubContextChanging?.Invoke();
         _applying = true;
         try
         {
-            _lap = _reference = null; _comparison = null;
-            _cursor = _sectionStart = _sectionEnd = 0;
+            _lap = _reference = null; _comparison = _reverseComparison = null;
+            _referenceRun = null; _referenceMapContacts = [];
+            ClearTelemetryContacts();
+            _cursor = _referenceCursor = _sectionStart = _sectionEnd = 0;
             Laps.Clear(); ReferenceLaps.Clear();
             _sectionStatistics = _referenceStatistics = null; _referenceSectionSeconds = null;
             Metrics.Clear(); Events.Clear(); CursorDetails = null; SectionText = "";
@@ -222,7 +264,7 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
                 nameof(CanPin), nameof(CursorDetails), nameof(CursorText), nameof(SectionText), nameof(Plot) }) Changed(property);
             RaiseCommands();
         }
-        finally { _applying = false; }
+        finally { _applying = false; NotifyScrubState(); ScrubContextChanged?.Invoke(); }
     }
 
     private void RefreshSection() => _ = AnalyzeAsync(compare: false);
@@ -232,7 +274,7 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
         if (_disposed || _applying) return;
         _analysisCancellation?.Cancel();
         var cancel = new CancellationTokenSource(); _analysisCancellation = cancel;
-        var lap = Lap; var reference = Reference; var comparison = _comparison;
+        var lap = Lap; var reference = Reference; var comparison = _comparison; var reverse = _reverseComparison;
         _sectionStatistics = _referenceStatistics = null; _referenceSectionSeconds = null;
         Metrics.Clear(); Events.Clear();
         SectionText = lap is { Points.Length: > 1 } ? "Preparing the selected section…" : "";
@@ -242,9 +284,22 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
             if (lap is not { Points.Length: > 1 }) return;
             _sectionStart = Math.Clamp(_sectionStart, 0, MaximumCursor); _sectionEnd = Math.Clamp(_sectionEnd, _sectionStart, MaximumCursor);
             var first = _sectionStart; var last = _sectionEnd;
+            var cachedContacts = PreparedTelemetryContacts(lap);
+            var referenceMarkers = _referenceRun?.Markers ?? [];
+            var cachedReferenceContacts = _referenceMapContacts;
             var result = await Task.Run(() =>
             {
-                if (compare) comparison = reference is null ? null : LapReviewAnalysis.Compare(lap, reference, cancel.Token);
+                var contacts = cachedContacts ?? LapReviewContacts.Find(lap, cancel.Token);
+                var referenceContacts = compare && reference is not null
+                    ? LapReviewContacts.Find(reference, cancel.Token).Concat(LapReviewContacts.FromMarkers(reference, referenceMarkers)).OrderBy(contact => contact.PointIndex).ToArray()
+                    : cachedReferenceContacts;
+                if (compare)
+                {
+                    comparison = reference is null ? null : LapReviewAnalysis.Compare(lap, reference, cancel.Token);
+                    reverse = comparison?.CanCompare == true && reference is not null &&
+                        new LapReviewPlotData(lap, reference, comparison, LapReviewChannel.Speed, default, 0, 0, 0).HasDistinctReference
+                        ? LapReviewAnalysis.Compare(reference, lap, cancel.Token) : null;
+                }
                 var stats = LapReviewAnalysis.AnalyzeSection(lap, first, last, cancel.Token);
                 LapSectionStatistics? other = null;
                 double? referenceSeconds = null;
@@ -257,12 +312,14 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
                     if (from.ReferenceLapSeconds is { } start && to.ReferenceLapSeconds is { } end && end >= start)
                         referenceSeconds = end - start;
                 }
-                return (comparison, stats, other, referenceSeconds);
+                return (comparison, reverse, stats, other, referenceSeconds, contacts, referenceContacts);
             }, cancel.Token);
             if (_disposed || cancel.IsCancellationRequested || !ReferenceEquals(_analysisCancellation, cancel) ||
                 !ReferenceEquals(lap, Lap) || !ReferenceEquals(reference, Reference)) return;
-            _comparison = result.comparison; _sectionStatistics = result.stats;
+            _comparison = result.comparison; _reverseComparison = result.reverse; _sectionStatistics = result.stats;
             _referenceStatistics = result.other; _referenceSectionSeconds = result.referenceSeconds;
+            AdoptTelemetryContacts(lap, result.contacts);
+            _referenceMapContacts = result.referenceContacts;
             FormatSection(); RefreshCursor(); Changed(nameof(Plot));
         }
         catch (OperationCanceledException) { }
@@ -270,7 +327,7 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
         {
             if (!_disposed && !cancel.IsCancellationRequested)
             {
-                _comparison = null;
+                _comparison = _reverseComparison = null;
                 SectionText = "This section could not be prepared. Select the lap again to retry.";
                 Changed(nameof(SectionText)); RefreshCursor(); Changed(nameof(Plot));
             }
@@ -338,6 +395,10 @@ public sealed class LapReviewViewModel : INotifyPropertyChanged, IDisposable
     }
     private static string Summaries(LapWheelSummaries wheels, Func<double?, string> format) => string.Join(" / ", new[] { wheels.FrontLeft, wheels.FrontRight, wheels.RearLeft, wheels.RearRight }.Select(n => format(n.Mean)));
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null) { if (EqualityComparer<T>.Default.Equals(field, value)) return false; field = value; Changed(name); return true; }
-    private void Changed([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
+    private void Changed([CallerMemberName] string? name = null)
+    {
+        PropertyChanged?.Invoke(this, new(name));
+        if (name == nameof(Plot)) RefreshMapDetails();
+    }
     public void Dispose() { _disposed = true; _loadCancellation?.Cancel(); _analysisCancellation?.Cancel(); RaiseCommands(); }
 }

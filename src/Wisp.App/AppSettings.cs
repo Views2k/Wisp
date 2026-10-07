@@ -207,7 +207,20 @@ public sealed class AppSettings
     internal bool InstallerSetupRequired { get; private set; }
 
     [JsonIgnore]
-    public bool RequiresSetup => InstallerSetupRequired || SetupCompletion?.IsValid != true;
+    internal bool PrivateSetupSkippedForSession { get; private set; }
+
+    private bool VerifiedSetupRequired => InstallerSetupRequired || SetupCompletion?.IsValid != true;
+
+    [JsonIgnore]
+    public bool RequiresSetup => PrivateSetupPolicy.RequiresSetup(
+        VerifiedSetupRequired, PrivateSetupSkippedForSession);
+
+    internal bool TrySkipSetupForPrivateSession()
+    {
+        if (!PrivateSetupPolicy.IsAvailable) return false;
+        PrivateSetupSkippedForSession = true;
+        return true;
+    }
 
     public Dictionary<string, OverlayPlacement> Placements { get; set; } = new();
     public Dictionary<string, OverlayPlacement> GForcePlacements { get; set; } = new();
@@ -442,7 +455,7 @@ public sealed class AppSettings
         }
         // Older releases set this flag on the first packet. Only an explicit,
         // versioned wizard completion can now satisfy the startup gate.
-        HasCompletedSetup = !RequiresSetup;
+        HasCompletedSetup = !VerifiedSetupRequired;
         Calibrations = Calibrations
             .Where(snapshot =>
                 snapshot is not null &&

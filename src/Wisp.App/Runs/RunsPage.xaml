@@ -341,42 +341,40 @@
                             <TextBlock Text="{Binding RunBLabel}" Foreground="{x:Static local:RunComparisonColors.RunB}" ToolTip="{Binding RunBLabel}" FontSize="11" TextTrimming="CharacterEllipsis" Visibility="{Binding HasComparison, Converter={StaticResource RunVisibility}}" />
                         </StackPanel>
                     </DockPanel>
-                    <Expander x:Name="RunComparisonControls" Style="{StaticResource RunDrawer}" Expanded="RunComparisonControls_Changed" Collapsed="RunComparisonControls_Changed" AutomationProperties.Name="Run comparison controls">
-                        <ScrollViewer x:Name="RunComparisonScroll" MaxHeight="180" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <app:OrbitSurface Style="{DynamicResource RunCard}" Margin="0,8,0,0" Padding="12">
-                                <StackPanel>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                        <TextBlock Text="Run B" Foreground="{x:Static local:RunComparisonColors.RunB}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                        <ComboBox x:Name="ComparisonRunSelector" Grid.Column="1" ItemsSource="{Binding Library}" SelectedItem="{Binding ComparisonChoice, Mode=TwoWay}" DisplayMemberPath="Name" IsEnabled="{Binding CanManageLibrary}" AutomationProperties.Name="Choose Run B for comparison" />
-                                        <Button Grid.Column="2" Content="Compare selected" Command="{Binding CompareCommand}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" Margin="8,0,0,0" />
-                                    </Grid>
-                                    <WrapPanel Margin="0,8,0,0">
-                                        <Button Content="Compare previous" Command="{Binding ComparePreviousCommand}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" Margin="0,0,8,0" />
-                                        <Button Content="Remove comparison" Command="{Binding RemoveComparisonCommand}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" Visibility="{Binding HasComparison, Converter={StaticResource RunVisibility}}" />
-                                    </WrapPanel>
-                                    <Expander x:Name="CompareExpander" Style="{StaticResource RunDrawer}" IsExpanded="True" Visibility="{Binding HasComparison, Converter={StaticResource RunVisibility}}" AutomationProperties.Name="Match a speed range">
-                                        <StackPanel Margin="0,12,0,0">
-                                            <CheckBox Content="Match an acceleration speed range" IsChecked="{Binding SameSpeed}" IsEnabled="{Binding CanEditRecordingOptions}" Margin="0,0,0,8" Style="{DynamicResource ToggleSwitchStyle}" />
-                                            <WrapPanel IsEnabled="{Binding CanEditRecordingOptions}">
-                                                <TextBlock Text="From" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                                <TextBox Text="{Binding FromSpeed, UpdateSourceTrigger=PropertyChanged}" Width="58" AutomationProperties.Name="Acceleration start speed" />
-                                                <TextBlock Text="to" VerticalAlignment="Center" Margin="8,0" />
-                                                <TextBox Text="{Binding ToSpeed, UpdateSourceTrigger=PropertyChanged}" Width="58" AutomationProperties.Name="Acceleration end speed" />
-                                                <TextBlock Text="{Binding SpeedUnitText}" VerticalAlignment="Center" Margin="8,0" />
-                                                <Button Content="Apply range" Command="{Binding ApplySpeedRangeCommand}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" />
-                                            </WrapPanel>
-                                            <TextBlock Text="{Binding ComparisonNote}" Style="{StaticResource RunHint}" FontSize="11" Margin="0,8,0,0" />
-                                        </StackPanel>
-                                    </Expander>
-                                </StackPanel>
-                            </app:OrbitSurface>
-                        </ScrollViewer>
-                    </Expander>
                 </StackPanel>
                 <Grid Grid.Row="2">
                     <ScrollViewer x:Name="RunsScroll" Visibility="{Binding IsSummaryVisible, Converter={StaticResource RunVisibility}}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="0,0,4,14">
+                        <StackPanel x:Name="RunSummaryContent" Margin="0,0,4,14">
+                            <Expander x:Name="RunComparisonControls" Style="{StaticResource RunDrawer}" Expanded="RunComparisonControls_Changed" Collapsed="RunComparisonControls_Changed" AutomationProperties.Name="Run comparison controls" Visibility="{Binding HasRun, Converter={StaticResource RunVisibility}}">
+                                <app:OrbitSurface Style="{DynamicResource RunCard}" Margin="0,0,0,8" Padding="12">
+                                    <StackPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <TextBlock Text="Run B" Foreground="{x:Static local:RunComparisonColors.RunB}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <ComboBox x:Name="ComparisonRunSelector" Grid.Column="1" ItemsSource="{Binding Library}" SelectedItem="{Binding ComparisonChoice, Mode=TwoWay}" DisplayMemberPath="Name" IsEnabled="{Binding CanManageLibrary}" AutomationProperties.Name="Choose Run B for comparison" />
+                                            <Button Grid.Column="2" Content="Compare selected" Command="{Binding CompareCommand}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" Margin="8,0,0,0" />
+                                        </Grid>
+                                        <WrapPanel Margin="0,8,0,0">
+                                            <Button Content="Compare previous" Command="{Binding ComparePreviousCommand}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" Margin="0,0,8,0" />
+                                            <Button Content="Remove comparison" Command="{Binding RemoveComparisonCommand}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" Visibility="{Binding HasComparison, Converter={StaticResource RunVisibility}}" />
+                                        </WrapPanel>
+                                        <Expander x:Name="CompareExpander" Style="{StaticResource RunDrawer}" IsExpanded="True" Visibility="{Binding HasComparison, Converter={StaticResource RunVisibility}}" AutomationProperties.Name="Match a speed range">
+                                            <StackPanel Margin="0,12,0,0">
+                                                <CheckBox Content="Match an acceleration speed range" IsChecked="{Binding SameSpeed}" IsEnabled="{Binding CanEditRecordingOptions}" Margin="0,0,0,8" Style="{DynamicResource ToggleSwitchStyle}" />
+                                                <WrapPanel IsEnabled="{Binding CanEditRecordingOptions}">
+                                                    <TextBlock Text="From" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                                    <TextBox Text="{Binding FromSpeed, UpdateSourceTrigger=PropertyChanged}" Width="58" AutomationProperties.Name="Acceleration start speed" />
+                                                    <TextBlock Text="to" VerticalAlignment="Center" Margin="8,0" />
+                                                    <TextBox Text="{Binding ToSpeed, UpdateSourceTrigger=PropertyChanged}" Width="58" AutomationProperties.Name="Acceleration end speed" />
+                                                    <TextBlock Text="{Binding SpeedUnitText}" VerticalAlignment="Center" Margin="8,0" />
+                                                    <Button Content="Apply range" Command="{Binding ApplySpeedRangeCommand}" Style="{DynamicResource {x:Type Button}}" Padding="10,6" MinHeight="30" FontSize="12" />
+                                                </WrapPanel>
+                                                <TextBlock x:Name="ComparisonHint" Text="{Binding ComparisonNote}" Style="{StaticResource RunHint}" FontSize="11" Margin="0,8,0,0" />
+                                            </StackPanel>
+                                        </Expander>
+                                    </StackPanel>
+                                </app:OrbitSurface>
+                            </Expander>
                             <Grid>
                                 <Grid.Style>
                                     <Style TargetType="Grid">
@@ -515,7 +513,7 @@
                             </WrapPanel>
                         </DockPanel>
                         <ScrollViewer x:Name="GraphScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel>
+                        <StackPanel x:Name="RunGraphContent">
                             <Expander x:Name="CustomizeWorkspaceExpander" Style="{StaticResource RunDrawer}" Expanded="Drawer_Expanded" Collapsed="GraphDrawer_Collapsed" AutomationProperties.Name="Customize visible graph modules">
                                     <app:OrbitSurface Style="{DynamicResource RunCard}" Padding="12" Margin="0,0,0,8">
                                         <StackPanel IsEnabled="{Binding WorkspaceCanEdit}">

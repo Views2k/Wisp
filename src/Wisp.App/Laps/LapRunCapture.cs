@@ -88,6 +88,7 @@ internal sealed class LapRunCapture
             {
                 var run = new RecordedRun
                 {
+                    SchemaVersion = RecordedRun.CurrentSchemaVersion,
                     Name = AutomaticLapName(_samples[0].State, timing),
                     StartedAtUtc = _samples[0].State.ReceivedAtUtc,
                     FinishReason = timing == LapTimingMode.TimeAttack ? "Completed Time Attack lap" : "Completed game lap",

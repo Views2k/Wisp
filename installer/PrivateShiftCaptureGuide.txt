@@ -1,38 +1,94 @@
-Wisp 2.6.3 Compatibility and drift test
-Private build ID: adaptive-drift-20261006-01
+Wisp 2.6.4 Lap review 3D test
+Private build ID: lap-review-3d-20261006-07
 
-This is a private test build, not a published release. It updates your existing
-Wisp installation and keeps settings, profiles, calibrations, saved runs and
-the Clips library. It is not a separate installation.
+This is a private test build, not a public release. It updates your existing
+Wisp installation and keeps your settings, profiles, calibrations, runs and
+clips. It is not a separate installation.
 
-Changes in this build
-- Restores Drift Zone angle-bonus guidance for the current Steam and Xbox PC
-  builds. If bonus guidance is unavailable, the gauge still shows your angle.
-- A dismissible note from Views appears when opening Wisp, at most once per
-  24 hours. It stays open until you press its X. Its GitHub repo button opens
-  Views2k/Wisp so you can leave a star without dismissing the note.
-- Wisp can recognize unchanged HUD and Tune readers after a Forza update on
-  both Steam and Xbox PC. A changed version number alone no longer blocks them.
-- Game identity, reader structure, current-car ownership and value checks remain
-  required. If an optional reader changes, the verified features stay available.
-- Temporary read failures can be retried without restarting Wisp.
+Choose Skip setup to test this private build without opening Forza. The skip
+lasts for the current session and does not change your saved setup evidence.
+Public releases keep the normal setup flow.
+
+Changes
+- Switch between the existing 2D lap map and a 3D view of recorded elevation.
+- Rotate, tilt, roll, pan and zoom the 3D map; reset the camera at any time.
+- Keep every existing map/graph channel, wheel selector, comparison, cursor,
+  section analysis and graph shortcut. Add horsepower, torque and elevation.
+- Read the color legend and the selected point's value next to the map.
+- Show reported object contacts, possible impacts and saved manual markers.
+- Save the current 2D or 3D map, including its legend, as a PNG image.
+- Optionally compare two 3D laps in Shared space, using the same channel and
+  color scale. Click a track to move closer; zoom back out to see both.
+- Keep the lap-position slider above the map and batch drag updates to one
+  per UI render cycle, preserving the final position when released.
+- Use one page scrollbar for the comparison controls and lap review.
+- Compare recorded tracks from different cars in Shared space. Timing and
+  matched-section checks remain separate from visual comparison.
+- Give the track more room with a taller automatic view and a draggable lower edge.
+- Keep camera zoom steady while rotating either the shared overview or a focused lap.
+- Choose Both, A or B beside Lap position to move paired or independent cursors.
+- Use zoom, reset, Show both laps and Show contacts directly from the top toolbar.
+- View the channel graph directly below the legend, with Lap settings and
+  benchmark beneath it. Drag the clearly marked divider handle to resize the map.
+- Use mouse camera gestures without manual angle sliders or a contact editor.
+- Center the close icon in the A note from Views popup.
+- Move both lap cursors with track/graph clicks, keyboard navigation and the slider.
+- Step through slower comparison laps without sticking on the same sample.
+- Keep the map height when reopening the view, and show imperial elevation in feet.
+- Distinguish reported/saved contacts from estimated contacts in the legend.
+- Select the visible track at overpasses and restore the single-map layout correctly.
+- Read styled, wrapping tooltips without a blank white bar over the track.
+
+Controls
+Lap position: Both moves paired cursors; A or B moves only that lap. Both uses
+matched positions where available, otherwise relative recorded lap distance.
+Relative progress does not establish a valid time delta or matched section.
+Drag: rotate. Shift-drag or right-drag: pan. Ctrl-drag: roll.
+Right-click or click empty map space to enable scroll zoom without selecting a
+lap point. Otherwise the wheel scrolls the page.
+Double-click or Reset camera: restore the workspace camera.
+Drag Resize map on the divider to resize it. Focus the grip and use Up/Down to
+adjust the height, or Home to restore automatic sizing.
+Click the line: select a point. Arrow keys: move along the lap.
+Home/End: first/last point.
+Choose Run B using Compare above, or choose a reference in Lap settings and
+benchmark, then enable Shared space in 3D. Both tracks remain in the same scene,
+laid out side by side. With Shared space off, the original single-lap view remains.
+Click a track to bring the camera toward it. Scroll back out, choose Show
+both laps or press Escape to frame both again. Rotation and pan
+gestures affect the shared camera. PNG saves the current camera view.
+Each map shows its recorded and saved contact markers. Show contacts hides
+or shows those markers; this view does not add or remove saved contacts.
 
 Suggested checks
-1. Start your usual Steam or Xbox PC version of Forza, then Wisp. Drive into the
-   open world and check the HUD against the car and the game's displayed values.
-2. Open Tune and refresh. Compare the displayed values with your current tune.
-3. Switch cars and confirm the HUD and Tune show the new car's values.
-4. Close and reopen Forza with Wisp still running. Confirm Wisp reconnects.
-5. Save and play a short clip with your existing recording settings.
-6. Check Drift Zone angle-bonus guidance and Custom target. The selected mode,
-   target, gauge position and appearance should stay as you set them.
+1. Open an existing saved lap in Runs and expand Lap review.
+2. Switch between 2D and 3D. Rotate and zoom, then reset the view.
+3. Change channels and wheels. Select a point, compare Run B, select a section
+   and open it in graphs. The selected point/section should stay consistent.
+4. Toggle Show contacts and check the recorded markers on each lap.
+5. Save a PNG in both modes. Check the current view, colors and legend.
+6. Record a new lap on your usual Steam or Xbox PC installation. Object
+   contacts use the same Data Out fields on both editions.
 
-If a read fails, use Copy details on Tune or export a debug ZIP from Diagnostics.
-Include the private build ID above with your report. This build does not enable
-per-frame diagnostic logging or change your recording settings.
+Contact coverage
+Forza reports velocity loss and mass for breakable-object impacts. Those
+appear as Object contact in new recordings. Possible contact is an estimate
+from movement; it is not a verified wall/car collision. Old recordings did
+not retain the object-impact fields. Previously saved markers remain visible.
 
-Steam and Xbox read-only comparisons passed on the October 5 game builds.
-Unknown future builds still need to pass the same validation; changed game
-readers, inaccessible memory or ambiguous matches must be rejected.
-Drift angle readings use Data Out. Automatic HUD/Tune validation does not verify
-new Drift Zone scoring rules; unverified rules leave the gauge in Angle only.
+Saved-run compatibility
+Existing saved runs retain their original format. New finalized runs without
+positive object-impact telemetry omit those optional fields and remain readable
+in public 2.6.4. Runs with positive object-impact telemetry use run format 3 and
+require this build or newer. Public 2.6.4 keeps those files but cannot open them.
+Recording journals declare format 3 from the start so older Wisp cannot recover
+an incomplete prefix and lose contact data. This build safely recovers them.
+Existing format-3 files are preserved rather than rewritten during metadata edits.
+
+The 3D line uses recorded world positions at equal scale on all axes. Its floor
+projection is a visual reference, not a terrain model. Dense laps are simplified
+for display while keeping original samples for analysis and cursor selection.
+
+Include the private build ID above with feedback. Use Diagnostics to export
+redacted debug details if needed. No game-memory readers or recording settings
+are changed by this build.

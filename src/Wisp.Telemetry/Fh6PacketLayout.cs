@@ -24,6 +24,8 @@ public static class Fh6PacketLayout
     // The 324-byte Horizon packet inserts 12 Horizon-specific bytes after the
     // common 232-byte Sled prefix. The Dash fields therefore begin at 244.
     public const int HorizonExtension = 232;
+    public const int SmashableVelocityLoss = 236;
+    public const int SmashableMass = 240;
     public const int GroundSpeed = 256;
     public const int Position = 244;
     public const int LastLap = 300;

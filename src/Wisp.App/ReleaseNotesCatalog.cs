@@ -15,11 +15,24 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.5",
+            "October 7, 2026",
+            "3D LAP REVIEW",
+            "Review recorded elevation in 3D, compare two laps in a shared space and save the map as a PNG.",
+            true,
+            [
+                Group("Lap review",
+                    "Added an optional 3D track map with recorded elevation and mouse controls for rotation, pan and zoom. The 2D view remains available.",
+                    "Added Shared space to compare two lap maps with the same color scale. Focus either lap or view both, and move their cursors together or independently.",
+                    "Added power and torque channels, a color legend, contact markers and Save PNG. Recorded object contacts and estimated possible contacts use distinct markers.",
+                    "Moved lap-position controls above the map and added a resizable map area with a camera reset button.")
+            ]),
+        new(
             "2.6.4",
             "October 6, 2026",
             "FORZA COMPATIBILITY",
             "Improved HUD and Tune compatibility with Forza updates, restored Drift Zone guidance and a note from Views.",
-            true,
+            false,
             [
                 Group("Fixes and improvements",
                     "Improved HUD and Tune compatibility with Forza updates on Steam and Xbox PC.",

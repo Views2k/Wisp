@@ -16,6 +16,7 @@
     </PackageReference>
     <ProjectReference Include="..\..\src\Wisp.Core\Wisp.Core.csproj" />
     <Compile Include="..\..\src\Wisp.App\AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="..\..\src\Wisp.App\PrivateSetupPolicy.cs" Link="PrivateSetupPolicy.cs" />
     <Compile Include="..\..\src\Wisp.App\AppStyleSettings.cs" Link="AppStyleSettings.cs" />
     <Compile Include="..\..\src\Wisp.App\Runs\RunWorkspaceSettings.cs" Link="RunWorkspaceSettings.cs" />
     <Compile Include="..\..\src\Wisp.App\Clips\ClipsSettings.cs" Link="ClipsSettings.cs" />
