@@ -29,12 +29,19 @@ public sealed partial class LapReviewTrack3D
     private long _cameraMotionStarted;
     private Point3D _motionStartTarget, _motionEndTarget;
     private double _motionStartZoom, _motionEndZoom;
+    private LapReviewTrackFit? _projectionFit;
+    private LapReviewTrackFit _motionStartFit, _motionEndFit;
     private LapReviewPlotData? EffectiveComparison => Data?.HasDistinctMapReference == true && ComparisonData is { Lap.Points.Length: > 1 } data ? data : null;
     internal int PreparedReferenceSegmentCount => _comparisonScene?.SegmentCount ?? 0;
     internal bool HasBothPreparedModels => _path.Content is not null && _comparisonPath.Content is not null;
     internal bool IsCameraMotionActive => _cameraMotionActive;
-    private LapReviewTrackFit? CurrentOverviewFit => IsComparison && _arrangement is { } arrangement
-        ? arrangement.ProjectedFit(Yaw, Pitch, Roll) : _arrangement?.Overview;
+    private LapReviewTrackFit? CurrentOverviewFit => _projectionFit ?? _arrangement?.Overview;
+
+    private static LapReviewTrackFit ScaleProjectionFit(LapReviewTrackFit fit, double width, double aspect)
+    {
+        var scale = width / fit.Width(aspect);
+        return fit with { HorizontalSpan = Math.Max(.03, fit.HorizontalSpan) * scale, VerticalSpan = fit.VerticalSpan * scale };
+    }
 
     private static bool SameOptionalScene(LapReviewPlotData? a, LapReviewPlotData? b) =>
         a is null ? b is null : b is not null && SameScene(a, b);
@@ -45,22 +52,24 @@ public sealed partial class LapReviewTrack3D
         var selected = arrangement.ProjectedFit(Yaw, Pitch, Roll, lap);
         SetValue(FocusedLapPropertyKey, lap);
         var aspect = ActualWidth / Math.Max(1, ActualHeight);
-        AnimateCamera(arrangement.ProjectedFit(Yaw, Pitch, Roll, lap).Target,
-            Math.Clamp(arrangement.ProjectedFit(Yaw, Pitch, Roll).Width(aspect) / selected.Width(aspect), 1.8, 50));
+        var overview = arrangement.ProjectedFit(Yaw, Pitch, Roll);
+        AnimateCamera(selected.Target, Math.Clamp(overview.Width(aspect) / selected.Width(aspect), 1, 50), overview);
     }
 
     public void ShowAll()
     {
         if (_arrangement is not { } arrangement) return;
         SetValue(FocusedLapPropertyKey, 0);
-        AnimateCamera(IsComparison ? arrangement.ProjectedFit(Yaw, Pitch, Roll).Target : arrangement.Overview.Target, 1);
+        var fit = IsComparison ? arrangement.ProjectedFit(Yaw, Pitch, Roll) : arrangement.Overview;
+        AnimateCamera(fit.Target, 1, fit);
     }
 
-    private void AnimateCamera(Point3D target, double zoom)
+    private void AnimateCamera(Point3D target, double zoom, LapReviewTrackFit fit)
     {
         StopCameraMotion();
         _motionStartTarget = _target; _motionEndTarget = target;
         _motionStartZoom = ZoomFactor; _motionEndZoom = zoom;
+        _motionStartFit = CurrentOverviewFit ?? fit; _motionEndFit = fit;
         _cameraMotionStarted = Environment.TickCount64;
         _cameraMotionActive = true;
         CompositionTarget.Rendering += RenderCameraMotion;
@@ -79,7 +88,17 @@ public sealed partial class LapReviewTrack3D
         try
         {
             _target = _motionStartTarget + (_motionEndTarget - _motionStartTarget) * fraction;
-            SetCurrentValue(ZoomFactorProperty, _motionStartZoom + (_motionEndZoom - _motionStartZoom) * fraction);
+            var aspect = ActualWidth / Math.Max(1, ActualHeight);
+            var zoom = _motionStartZoom + (_motionEndZoom - _motionStartZoom) * fraction;
+            var startWidth = _motionStartFit.Width(aspect) / _motionStartZoom;
+            var endWidth = _motionEndFit.Width(aspect) / _motionEndZoom;
+            var fit = _motionEndFit with
+            {
+                HorizontalSpan = _motionStartFit.HorizontalSpan + (_motionEndFit.HorizontalSpan - _motionStartFit.HorizontalSpan) * fraction,
+                VerticalSpan = _motionStartFit.VerticalSpan + (_motionEndFit.VerticalSpan - _motionStartFit.VerticalSpan) * fraction
+            };
+            _projectionFit = ScaleProjectionFit(fit, (startWidth + (endWidth - startWidth) * fraction) * zoom, aspect);
+            SetCurrentValue(ZoomFactorProperty, zoom);
             UpdateCamera();
         }
         finally { _updatingCameraMotion = false; }

@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using Wisp.App.Runs;
 using Wisp.Core;
@@ -308,6 +309,166 @@ public sealed class LapReviewTrack3DTests
         Assert.Equal(0, track.FocusedLap); Assert.Equal(123, track.Yaw); Assert.Equal(78, track.Roll);
         track.FocusLap(2); track.CompleteCameraMotionForTest(); track.ZoomBy(.1);
         Assert.Equal(0, track.FocusedLap); Assert.True(track.HasBothPreparedModels);
+        Assert.Equal(2, track.SceneBuildCount);
+    });
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 0)]
+    [InlineData(true, 1)]
+    [InlineData(true, 2)]
+    public void RotationPreservesCameraScaleAndLapPosition(bool comparison, int focusedLap) => OnSta(async () =>
+    {
+        var track = comparison ? ComparisonTrack() : Track();
+        await track.PrepareForTestAsync();
+        if (focusedLap != 0) { track.FocusLap(focusedLap); track.CompleteCameraMotionForTest(); }
+        track.ZoomBy(1.3); track.PanBy(12, -7);
+        var camera = (OrthographicCamera)track.Children.OfType<Viewport3D>().Single().Camera;
+        var width = camera.Width; var zoom = track.ZoomFactor;
+        var target = camera.Position + camera.LookDirection * 4;
+        var sceneBuilds = track.SceneBuildCount;
+        var selections = 0;
+        track.PointChosen += _ => selections++;
+        track.ReferencePointChosen += _ => selections++;
+        foreach (var angle in new[] { -80d, 0d, 45d, 90d, 150d })
+        {
+            track.Yaw = angle; track.Pitch = angle / 2; track.Roll = angle / 3;
+            Assert.Equal(width, camera.Width, 10);
+            Assert.Equal(zoom, track.ZoomFactor);
+            Assert.True((camera.Position + camera.LookDirection * 4 - target).Length < 1e-10);
+        }
+        Assert.Equal(focusedLap, track.FocusedLap);
+        Assert.Equal(0, selections); Assert.Equal(sceneBuilds, track.SceneBuildCount);
+    });
+
+    [Fact]
+    public void ExplicitFocusAndOverviewAfterRotationStartWithoutAScaleJump() => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        var camera = (OrthographicCamera)track.Children.OfType<Viewport3D>().Single().Camera;
+        track.Yaw = 78; track.Pitch = 55; track.Roll = 32;
+        var width = camera.Width;
+        track.FocusLap(2);
+        Assert.Equal(width, camera.Width, 10);
+        track.CompleteCameraMotionForTest();
+        track.Yaw = -42; track.Roll = -15;
+        width = camera.Width;
+        track.ShowAll();
+        Assert.Equal(width, camera.Width, 10);
+        track.CompleteCameraMotionForTest();
+        for (var i = 0; i < 4; i++)
+            foreach (var point in new[] { track.ProjectPoint(i), track.ProjectReferencePoint(i) })
+            {
+                Assert.InRange(point.X, 0, track.ActualWidth);
+                Assert.InRange(point.Y, 0, track.ActualHeight);
+            }
+        width = camera.Width;
+        track.Yaw += 37;
+        track.ZoomBy(.8);
+        Assert.Equal(width / .8, camera.Width, 10);
+        Assert.Equal(2, track.SceneBuildCount);
+    });
+
+    [Theory]
+    [InlineData(.2)]
+    [InlineData(50)]
+    public void FramingFromZoomLimitsDoesNotJumpBeforeAnimation(double zoom) => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        var camera = (OrthographicCamera)track.Children.OfType<Viewport3D>().Single().Camera;
+        foreach (var focus in new[] { 1, 2, 0 })
+        {
+            track.Yaw = 85; track.Pitch = 5; track.Roll = 90; track.ZoomFactor = zoom;
+            var width = camera.Width; var position = camera.Position;
+            if (focus == 0) track.ShowAll(); else track.FocusLap(focus);
+            Assert.Equal(width, camera.Width, 10); Assert.Equal(position, camera.Position);
+            track.CompleteCameraMotionForTest();
+            Assert.True(double.IsFinite(camera.Width) && camera.Width > 0);
+            Assert.InRange(track.ZoomFactor, .2, 50);
+        }
+        for (var i = 0; i < 4; i++)
+            foreach (var point in new[] { track.ProjectPoint(i), track.ProjectReferencePoint(i) })
+            {
+                Assert.InRange(point.X, 0, track.ActualWidth);
+                Assert.InRange(point.Y, 0, track.ActualHeight);
+            }
+    });
+
+    [Fact]
+    public void PressingTheMapStopsFocusAnimationBeforeDragging() => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        track.FocusLap(2); Assert.True(track.IsCameraMotionActive);
+        typeof(LapReviewTrack3D).GetMethod("ApplyCameraMotion", System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic)!.Invoke(track, [.5d]);
+        var camera = (OrthographicCamera)track.Children.OfType<Viewport3D>().Single().Camera;
+        var width = camera.Width; var position = camera.Position;
+        var input = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+        { RoutedEvent = Mouse.MouseDownEvent };
+        track.RaiseEvent(input);
+        Assert.True(input.Handled); Assert.False(track.IsCameraMotionActive);
+        track.CompleteCameraMotionForTest();
+        Assert.Equal(width, camera.Width); Assert.Equal(position, camera.Position);
+        track.Yaw += 75; track.Pitch = 67; track.Roll = 20;
+        Assert.Equal(width, camera.Width);
+        if (track.IsMouseCaptured) track.ReleaseMouseCapture();
+    });
+
+    [Fact]
+    public void FocusAnimationDoesNotOvershootScaleWhenTheFittedAxisChanges() => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        var camera = (OrthographicCamera)track.Children.OfType<Viewport3D>().Single().Camera;
+        var animate = typeof(LapReviewTrack3D).GetMethod("ApplyCameraMotion", System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic)!;
+        foreach (var yaw in new[] { -80d, 0d, 50d, 90d })
+            foreach (var pitch in new[] { 5d, 55d })
+                foreach (var roll in new[] { 0d, 60d })
+                    foreach (var focus in new[] { 1, 2 })
+                    {
+                        track.ResetView(); track.Yaw = yaw; track.Pitch = pitch; track.Roll = roll;
+                        var start = camera.Width;
+                        track.FocusLap(focus);
+                        var widths = new List<double> { start };
+                        foreach (var fraction in new[] { .25, .5, .75 })
+                        {
+                            animate.Invoke(track, [fraction]); widths.Add(camera.Width);
+                        }
+                        track.CompleteCameraMotionForTest(); widths.Add(camera.Width);
+                        var end = camera.Width;
+                        for (var i = 1; i < widths.Count; i++)
+                        {
+                            Assert.InRange(widths[i], Math.Min(start, end) - 1e-10, Math.Max(start, end) + 1e-10);
+                            Assert.True(end >= start ? widths[i] >= widths[i - 1] - 1e-10 : widths[i] <= widths[i - 1] + 1e-10);
+                        }
+                    }
+    });
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void ZoomingOutOfARotatedFocusedLapKeepsEachScaleStepAndRevealsBoth(int focus) => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        track.FocusLap(focus); track.CompleteCameraMotionForTest();
+        track.ZoomBy(4); track.Yaw += 87; track.Pitch = 70; track.Roll = 55;
+        var camera = (OrthographicCamera)track.Children.OfType<Viewport3D>().Single().Camera;
+        var overviewEvents = 0; track.ZoomOutAtOverview += (_, _) => overviewEvents++;
+        for (var step = 0; step < 50 && track.FocusedLap != 0; step++)
+        {
+            var expectedWidth = camera.Width * track.ZoomFactor / Math.Clamp(track.ZoomFactor * .8, .2, 50);
+            track.ZoomBy(.8);
+            Assert.Equal(expectedWidth, camera.Width, 10);
+            Assert.InRange(track.ZoomFactor, .2, 50);
+            Assert.Equal(track.FocusedLap == 0 ? 1 : 0, overviewEvents);
+        }
+        Assert.Equal(0, track.FocusedLap); Assert.Equal(1, overviewEvents);
+        for (var i = 0; i < 4; i++)
+            foreach (var point in new[] { track.ProjectPoint(i), track.ProjectReferencePoint(i) })
+            {
+                Assert.InRange(point.X, 0, track.ActualWidth);
+                Assert.InRange(point.Y, 0, track.ActualHeight);
+            }
         Assert.Equal(2, track.SceneBuildCount);
     });
 

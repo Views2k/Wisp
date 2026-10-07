@@ -92,7 +92,9 @@ public sealed partial class LapReviewTrack3D : Grid
         SetCurrentValue(PitchProperty, LapReviewTrackFit.DefaultPitch);
         SetCurrentValue(RollProperty, 0d);
         SetCurrentValue(ZoomFactorProperty, 1d);
-        if (IsComparison && _arrangement is { } arrangement) _target = arrangement.ProjectedFit(Yaw, Pitch, Roll).Target;
+        _projectionFit = IsComparison && _arrangement is { } arrangement
+            ? arrangement.ProjectedFit(Yaw, Pitch, Roll) : _arrangement?.Overview ?? _scene?.Fit;
+        if (_projectionFit is { } fit) _target = fit.Target;
         _updatingCameraMotion = false;
         SetValue(FocusedLapPropertyKey, 0);
         UpdateCamera();
@@ -106,14 +108,26 @@ public sealed partial class LapReviewTrack3D : Grid
         var next = Math.Clamp(previous * factor, .2, 50);
         if (factor < 1 && IsComparison && _arrangement is { } arrangement)
         {
-            var fraction = previous > 1 ? Math.Clamp((next - 1) / (previous - 1), 0, 1) : 0;
-            var overview = arrangement.ProjectedFit(Yaw, Pitch, Roll).Target;
-            _target = overview + (_target - overview) * fraction;
-            if (next <= 1) SetValue(FocusedLapPropertyKey, 0);
+            var fit = arrangement.ProjectedFit(Yaw, Pitch, Roll);
+            var aspect = ActualWidth / Math.Max(1, ActualHeight);
+            var width = _camera.Width * previous / next;
+            var overviewWidth = fit.Width(aspect);
+            var previousRelativeZoom = overviewWidth / _camera.Width;
+            var nextRelativeZoom = overviewWidth / width;
+            var fraction = previousRelativeZoom > 1 ? Math.Clamp((nextRelativeZoom - 1) / (previousRelativeZoom - 1), 0, 1) : 0;
+            _target = fit.Target + (_target - fit.Target) * fraction;
+            if (nextRelativeZoom <= 1) SetValue(FocusedLapPropertyKey, 0);
+            next = Math.Clamp(nextRelativeZoom, .2, 50);
+            // Preserve the requested screen scale even when the new framing basis
+            // would otherwise push the relative zoom outside its limits.
+            _projectionFit = ScaleProjectionFit(fit, width * next, aspect);
         }
         SetCurrentValue(ZoomFactorProperty, next);
         UpdateCamera();
-        if (factor < 1 && ZoomFactor <= 1) ZoomOutAtOverview?.Invoke(this, EventArgs.Empty);
+        var atOverview = IsComparison && _arrangement is { } current
+            ? _camera.Width >= current.ProjectedFit(Yaw, Pitch, Roll).Width(ActualWidth / Math.Max(1, ActualHeight))
+            : ZoomFactor <= 1;
+        if (factor < 1 && atOverview) ZoomOutAtOverview?.Invoke(this, EventArgs.Empty);
     }
 
     public void PanBy(double horizontalPixels, double verticalPixels)
@@ -313,6 +327,7 @@ public sealed partial class LapReviewTrack3D : Grid
     {
         base.OnMouseDown(e);
         if (e.ChangedButton is not MouseButton.Left and not MouseButton.Right and not MouseButton.Middle) return;
+        StopCameraMotion();
         Focus();
         if (e.ChangedButton == MouseButton.Left && e.ClickCount == 2) { ResetView(); e.Handled = true; return; }
         _dragStart = _dragPrevious = e.GetPosition(this); _dragMoved = false; _dragButton = e.ChangedButton;

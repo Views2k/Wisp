@@ -9,6 +9,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using Wisp.App;
 using Wisp.App.Runs;
@@ -96,6 +97,24 @@ internal static class LapRecordedComparisonReview
                     var bounds = LapReviewTrackBounds.From(track.Data!, track.ComparisonData!.Lap);
                     var aDistance = SpatialDistance(track.Data!, bounds); var bDistance = SpatialDistance(track.ComparisonData!, bounds);
                     Check(aDistance > 0 && bDistance > 0, name + "/same-xyz-normalization");
+                    var cameraChecks = new List<object>();
+                    foreach (var focus in new[] { 0, 1, 2 })
+                    {
+                        track.ResetView();
+                        if (focus != 0) { track.FocusLap(focus); track.CompleteCameraMotionForTest(); }
+                        var camera = (OrthographicCamera)track.Children.OfType<Viewport3D>().Single().Camera;
+                        var widthBefore = camera.Width; var zoomBefore = track.ZoomFactor;
+                        var buildsBefore = track.SceneBuildCount;
+                        var cursorBefore = review.Cursor; var referenceCursorBefore = track.ComparisonData!.Cursor;
+                        track.Yaw += 70; track.Pitch = 65; track.Roll = 32;
+                        var widthAfter = camera.Width;
+                        Check(Math.Abs(widthAfter - widthBefore) < 1e-10 && track.ZoomFactor == zoomBefore,
+                            name + "/rotation-preserves-scale-" + focus);
+                        Check(review.Cursor == cursorBefore && track.ComparisonData!.Cursor == referenceCursorBefore &&
+                            track.SceneBuildCount == buildsBefore, name + "/rotation-preserves-selection-and-models-" + focus);
+                        cameraChecks.Add(new { focus, widthBefore, widthAfter, zoomBefore, zoomAfter = track.ZoomFactor });
+                    }
+                    track.ResetView();
                     stage = name + "/select-reference";
                     var cursorA = review.Cursor; var indexB = Math.Min(100, review.Reference!.Points.Length - 1);
                     track.Choose(track.ProjectReferencePoint(indexB)); track.CompleteCameraMotionForTest(); Pump();
@@ -129,6 +148,7 @@ internal static class LapRecordedComparisonReview
                         sharedBoundsSpan = bounds.Span,
                         aDistance,
                         bDistance,
+                        cameraChecks,
                         png = new { width = png.PixelWidth, height = png.PixelHeight }
                     });
                 }

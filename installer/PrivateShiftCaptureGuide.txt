@@ -1,5 +1,5 @@
 Wisp 2.6.4 Lap review 3D test
-Private build ID: lap-review-3d-20261006-03
+Private build ID: lap-review-3d-20261006-04
 
 This is a private test build, not a public release. It updates your existing
 Wisp installation and keeps your settings, profiles, calibrations, runs and
@@ -25,6 +25,7 @@ Changes
 - Compare recorded tracks from different cars in Shared space. Timing and
   matched-section checks remain separate; incompatible laps use independent cursors.
 - Give the track more room with a taller automatic view and a draggable lower edge.
+- Keep camera zoom steady while rotating either the shared overview or a focused lap.
 
 Controls
 Drag: rotate. Shift-drag or right-drag: pan. Ctrl-drag: roll.
