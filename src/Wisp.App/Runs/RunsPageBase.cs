@@ -19,6 +19,7 @@ public class RunsPageBase : UserControl
     private Button ActiveShortcutButton => _capturingMarkerShortcut ? _elements.MarkerShortcutCaptureButton : _elements.ShortcutCaptureButton;
     protected RunsViewModel? Model => DataContext as RunsViewModel;
     protected virtual bool UsesModularWorkspace => false;
+    protected virtual FrameworkElement ReportFocusTarget => _elements.RunHeading;
 
     protected sealed record PageElements(
         Button ShortcutCaptureButton,
@@ -82,7 +83,7 @@ public class RunsPageBase : UserControl
     {
         Model?.ShowSummary();
         if (!IsVisible) return;
-        _ = Dispatcher.InvokeAsync(() => { if (IsVisible) ScrollTo(_elements.RunHeading, _elements.RunsScroll); }, System.Windows.Threading.DispatcherPriority.Loaded);
+        _ = Dispatcher.InvokeAsync(() => { if (IsVisible) ScrollTo(ReportFocusTarget, _elements.RunsScroll); }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
     private void ScrollTo(FrameworkElement target, ScrollViewer scroll)
     {

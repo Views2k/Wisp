@@ -51,8 +51,112 @@
         </DataTemplate>
     </UserControl.Resources>
     <StackPanel>
-        <TextBlock Text="Lap review" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,8" />
-        <TextBlock Text="Review your recorded line and inputs. Select a reference lap to see where time changed." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,12" />
+        <StackPanel>
+            <Border IsEnabled="{Binding HasLap}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="14" Background="{DynamicResource InputBrush}" Margin="0,4,0,14">
+            <StackPanel>
+            <WrapPanel x:Name="MapToolbar" Margin="16,10,16,4">
+                <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="11" Padding="3" Margin="0,0,14,6">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="View2D" Content="2D" Style="{StaticResource LapMapMode}" GroupName="LapMapMode" IsChecked="{Binding Is2D}" AutomationProperties.Name="2D lap map" />
+                        <RadioButton x:Name="View3D" Content="3D" Style="{StaticResource LapMapMode}" GroupName="LapMapMode" IsChecked="{Binding Is3D}" Margin="3,0,0,0" AutomationProperties.Name="3D lap map" />
+                    </StackPanel>
+                </Border>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,6">
+                    <TextBlock Text="Color" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox Width="155" ItemsSource="{Binding Channels}" SelectedItem="{Binding Channel}" DisplayMemberPath="Label" AutomationProperties.Name="Lap map and graph channel" />
+                </StackPanel>
+                <ComboBox Width="130" ItemsSource="{Binding Wheels}" SelectedIndex="{Binding SelectedWheel}" IsEnabled="{Binding IsWheelChannel}" Visibility="{Binding IsWheelChannel, Converter={StaticResource MapVisibility}}" Margin="0,0,12,6" VerticalAlignment="Center" AutomationProperties.Name="Wheel for tire or suspension channel" />
+                <Button x:Name="SaveMapPng" Content="Save PNG" Click="SaveMapPng_Click" Padding="14,8" Margin="0,0,8,6" VerticalAlignment="Center" AutomationProperties.Name="Save the current lap map as PNG">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Is3D}" Value="True" />
+                                        <Condition Binding="{Binding IsPreparing, ElementName=Track3D}" Value="True" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+
+            </WrapPanel>
+            <Grid x:Name="ScrubBar" Margin="16,0,16,4">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <DockPanel><TextBlock Text="Lap position" FontSize="11" FontWeight="SemiBold" Margin="0,0,12,0"/><TextBlock Text="{Binding CursorDetails.Position}" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" /></DockPanel>
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Slider x:Name="LapCursorSlider" Minimum="0" Maximum="{Binding MaximumCursor}" Value="{Binding Cursor, Mode=TwoWay, UpdateSourceTrigger=Explicit}" TickFrequency="1" IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" SmallChange="1" LargeChange="60" AutomationProperties.Name="Lap position cursor" ValueChanged="LapCursorSlider_ValueChanged" />
+                    <Button x:Name="ShowBothMaps" Grid.Column="1" Content="Show both laps" Click="ShowBothMaps_Click" Padding="10,5" Margin="12,0,0,0" Visibility="{Binding IsMapComparison, Converter={StaticResource MapVisibility}}" />
+                </Grid>
+            </Grid>
+            <Grid x:Name="MapExportSurface" Background="{DynamicResource InputBrush}" Margin="1,0,1,0">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid x:Name="MapViewport" Grid.Row="1" Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource LapReviewMapHeight}}" Margin="12,0,12,0">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Grid Margin="4,3,4,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,10,0">
+                            <TextBlock Text="{Binding MapATitle}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding MapATitle}" Foreground="{DynamicResource MutedBrush}"/>
+                            <TextBlock Text="{Binding MapCursorValue}" FontSize="15" FontWeight="SemiBold" Margin="0,3,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Visibility="{Binding IsMapComparison, Converter={StaticResource MapVisibility}}">
+                            <TextBlock Text="{Binding MapBTitle}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding MapBTitle}" Foreground="{DynamicResource MutedBrush}"/>
+                            <TextBlock Text="{Binding MapBCursorValue}" FontSize="15" FontWeight="SemiBold" Margin="0,3,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                    <Grid Grid.Row="1">
+                        <local:LapReviewPlot x:Name="Track" Data="{Binding MapPlotA}" IsMap="True" Visibility="{Binding Is2D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="Recorded lap map. Click to select a location; arrow keys move through samples." />
+                        <local:LapReviewTrack3D x:Name="Track3D" Data="{Binding MapPlotA}" ComparisonData="{Binding ComparisonMapPlot}" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="3D lap workspace. Click a track to move closer, drag to rotate, scroll out to see both. Arrow keys select points." />
+                    </Grid>
+                </Grid>
+                <StackPanel Grid.Row="2" Margin="16,8,16,16">
+                    <Border Background="{DynamicResource StrokeBrush}" Height="1" Margin="0,0,0,14" Opacity="0.65" />
+                    <WrapPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding LegendTitle}" FontWeight="SemiBold" Margin="0,0,12,8" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding LegendMinimum}" Margin="0,0,8,8" VerticalAlignment="Center" />
+                        <Rectangle Width="160" Height="8" RadiusX="4" RadiusY="4" Fill="{x:Static local:LapReviewPalette.LegendBrush}" Margin="0,0,8,8" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding LegendMaximum}" Margin="0,0,18,8" VerticalAlignment="Center" />
+                        <TextBlock Text="○ Start" Foreground="{x:Static local:LapReviewPalette.StartBrush}" Margin="0,0,14,8" />
+                        <TextBlock Text="━ Reference" Foreground="{x:Static local:RunComparisonColors.RunB}" Margin="0,0,14,8" Visibility="{Binding HasMapReference, Converter={StaticResource MapVisibility}}" />
+                        <TextBlock Text="✦ Contact marker" Foreground="{x:Static local:LapReviewPalette.ContactBrush}" Margin="0,0,12,8" Visibility="{Binding ShowContacts, Converter={StaticResource MapVisibility}}" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding ElevationSummary}" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+            <StackPanel Margin="16,0,16,8" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}">
+                <TextBlock Text="{Binding MapComparisonHint}" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                <TextBlock Text="Drag to rotate · Shift/right drag to pan · Ctrl drag to roll · Scroll to zoom · Double-click to reset" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                <Expander Header="Camera controls" Margin="0,0,0,8">
+                    <WrapPanel x:Name="CameraControls" Margin="0,8,0,0">
+                        <TextBlock Text="Workspace camera" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,8"/>
+                        <StackPanel Width="130" Margin="0,0,14,8"><TextBlock Text="Yaw" FontSize="11" /><Slider Minimum="-180" Maximum="180" Value="{Binding Yaw, Mode=TwoWay}" AutomationProperties.Name="3D camera yaw" /></StackPanel>
+                        <StackPanel Width="130" Margin="0,0,14,8"><TextBlock Text="Pitch" FontSize="11" /><Slider Minimum="-89" Maximum="89" Value="{Binding Pitch, Mode=TwoWay}" AutomationProperties.Name="3D camera pitch" /></StackPanel>
+                        <StackPanel Width="130" Margin="0,0,14,8"><TextBlock Text="Roll" FontSize="11" /><Slider Minimum="-180" Maximum="180" Value="{Binding Roll, Mode=TwoWay}" AutomationProperties.Name="3D camera roll" /></StackPanel>
+                        <Button Content="Zoom in" Click="ZoomMapIn_Click" Padding="10,6" Margin="0,0,8,8" /><Button Content="Zoom out" Click="ZoomMapOut_Click" Padding="10,6" Margin="0,0,8,8" />
+                        <Button x:Name="ResetCamera" Content="Reset camera" Click="ResetMapView_Click" Padding="10,6" Margin="0,0,8,8" AutomationProperties.Name="Reset the 3D workspace camera"/>
+                    </WrapPanel>
+                </Expander>
+            </StackPanel>
+            <Expander Header="Contacts · Run A" Margin="16,0,16,12">
+            <StackPanel Margin="0,10,0,0">
+                <CheckBox Content="Show contacts" IsChecked="{Binding ShowContacts}" Style="{DynamicResource ToggleSwitchStyle}" VerticalAlignment="Center" Margin="0,0,8,6" />
+            <TextBlock Text="{Binding ContactSummary}" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,8" />
+            <WrapPanel Margin="0,0,0,6">
+                <ComboBox Width="290" ItemsSource="{Binding ContactChoices}" SelectedItem="{Binding SelectedContact}" IsEnabled="{Binding HasItems, RelativeSource={RelativeSource Self}}" DisplayMemberPath="Label" AutomationProperties.Name="Lap contact markers" Margin="0,0,8,6" />
+                <Button Content="Mark contact here" Command="{Binding MarkContactCommand}" Padding="10,6" Margin="0,0,8,6" />
+                <Button Content="Remove marked contact" Command="{Binding RemoveContactCommand}" Padding="10,6" Margin="0,0,8,6" />
+            </WrapPanel>
+            <TextBlock Text="Object contacts come from Forza's breakable-object telemetry in new recordings. Possible contacts are estimates, including on older laps. Mark known contacts to keep them with the run." FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+            </StackPanel>
+            </Expander>
+            <TextBlock Text="{Binding MapStatus}" TextWrapping="Wrap" FontSize="12" AutomationProperties.LiveSetting="Polite" Margin="16,0,16,8" />
+            </StackPanel>
+            </Border>
+            <Expander Header="Lap settings and benchmark" Margin="0,0,0,12"><StackPanel Margin="12,10,12,0">
         <CheckBox Content="Save completed laps automatically" IsChecked="{Binding AutomaticRecording}" Style="{DynamicResource ToggleSwitchStyle}" Margin="0,0,0,8" />
         <TextBlock Text="Uses the lap timing mode chosen in HUD settings. Saves locally while Wisp is running; older run recordings can also be reviewed here." TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,5" />
         <TextBlock Text="{Binding CaptureStatus}" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MutedBrush}" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8" />
@@ -97,91 +201,8 @@
             <Button Content="Unpin benchmark" Command="{Binding UnpinCommand}" Padding="10,6" Margin="0,0,8,4" />
             <TextBlock Text="{Binding ReferenceStatus}" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" />
         </WrapPanel>
-        <StackPanel IsEnabled="{Binding HasLap}">
-            <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="14" Background="{DynamicResource InputBrush}" Margin="0,4,0,14">
-            <StackPanel>
-            <WrapPanel x:Name="MapToolbar" Margin="16,14,16,8">
-                <TextBlock Text="Track map" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,20,6" />
-                <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="11" Padding="3" Margin="0,0,14,6">
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton x:Name="View2D" Content="2D" Style="{StaticResource LapMapMode}" GroupName="LapMapMode" IsChecked="{Binding Is2D}" AutomationProperties.Name="2D lap map" />
-                        <RadioButton x:Name="View3D" Content="3D" Style="{StaticResource LapMapMode}" GroupName="LapMapMode" IsChecked="{Binding Is3D}" Margin="3,0,0,0" AutomationProperties.Name="3D lap map" />
-                    </StackPanel>
-                </Border>
-                <Button x:Name="SaveMapPng" Content="Save PNG" Click="SaveMapPng_Click" Padding="14,8" Margin="0,0,8,6" VerticalAlignment="Center" AutomationProperties.Name="Save the current lap map as PNG">
-                    <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                            <Style.Triggers>
-                                <MultiDataTrigger>
-                                    <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding Is3D}" Value="True" />
-                                        <Condition Binding="{Binding IsPreparing, ElementName=Track3D}" Value="True" />
-                                    </MultiDataTrigger.Conditions>
-                                    <Setter Property="IsEnabled" Value="False" />
-                                </MultiDataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-                <Button Content="Reset view" Click="ResetMapView_Click" Padding="14,8" Margin="0,0,16,6" VerticalAlignment="Center" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}" />
-                <CheckBox Content="Show contacts" IsChecked="{Binding ShowContacts}" Style="{DynamicResource ToggleSwitchStyle}" VerticalAlignment="Center" Margin="0,0,8,6" />
-            </WrapPanel>
-            <WrapPanel Margin="16,0,16,12">
-                <TextBlock Text="Map and graph channel" VerticalAlignment="Center" Margin="0,0,10,0" />
-                <ComboBox Width="190" ItemsSource="{Binding Channels}" SelectedItem="{Binding Channel}" DisplayMemberPath="Label" AutomationProperties.Name="Lap map and graph channel" />
-                <ComboBox Width="145" ItemsSource="{Binding Wheels}" SelectedIndex="{Binding SelectedWheel}" IsEnabled="{Binding IsWheelChannel}" Margin="8,0,0,0" AutomationProperties.Name="Wheel for tire or suspension channel" />
-            </WrapPanel>
-            <Grid x:Name="MapExportSurface" Background="{DynamicResource InputBrush}" Margin="1,0,1,0">
-                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                <StackPanel Margin="16,10,16,6">
-                    <TextBlock Text="{Binding MapTitle}" FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding MapCursorValue}" FontSize="18" FontWeight="SemiBold" Margin="0,5,0,0" />
-                </StackPanel>
-                <Grid Grid.Row="1" Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource LapReviewMapHeight}}">
-                    <local:LapReviewPlot x:Name="Track" Data="{Binding Plot}" IsMap="True" Visibility="{Binding Is2D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="Recorded lap map. Click to select a location; arrow keys move through samples." />
-                    <local:LapReviewTrack3D x:Name="Track3D" Data="{Binding Plot}" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="3D recorded lap map. Drag to rotate, shift drag to pan, control drag to roll, scroll to zoom. Click or use arrow keys to select." />
-                </Grid>
-                <StackPanel Grid.Row="2" Margin="16,8,16,16">
-                    <Border Background="{DynamicResource StrokeBrush}" Height="1" Margin="0,0,0,14" Opacity="0.65" />
-                    <WrapPanel VerticalAlignment="Center">
-                        <TextBlock Text="{Binding LegendTitle}" FontWeight="SemiBold" Margin="0,0,12,8" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding LegendMinimum}" Margin="0,0,8,8" VerticalAlignment="Center" />
-                        <Rectangle Width="160" Height="8" RadiusX="4" RadiusY="4" Fill="{x:Static local:LapReviewPalette.LegendBrush}" Margin="0,0,8,8" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding LegendMaximum}" Margin="0,0,18,8" VerticalAlignment="Center" />
-                        <TextBlock Text="○ Start" Foreground="{x:Static local:LapReviewPalette.StartBrush}" Margin="0,0,14,8" />
-                        <TextBlock Text="━ Reference" Foreground="{x:Static local:RunComparisonColors.RunB}" Margin="0,0,14,8" Visibility="{Binding HasMapReference, Converter={StaticResource MapVisibility}}" />
-                        <TextBlock Text="✦ Contact marker" Foreground="{x:Static local:LapReviewPalette.ContactBrush}" Margin="0,0,12,8" Visibility="{Binding ShowContacts, Converter={StaticResource MapVisibility}}" />
-                    </WrapPanel>
-                    <TextBlock Text="{Binding ElevationSummary}" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
-                </StackPanel>
-            </Grid>
-            <StackPanel Margin="16,0,16,8" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}">
-                <TextBlock Text="Drag to rotate · Shift/right drag to pan · Ctrl drag to roll · Scroll to zoom · Double-click to reset" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
-                <Expander Header="Camera controls" Margin="0,0,0,8">
-                    <WrapPanel Margin="0,8,0,0">
-                        <StackPanel Width="160" Margin="0,0,14,8"><TextBlock Text="Yaw" FontSize="11" /><Slider Minimum="-180" Maximum="180" Value="{Binding Yaw, ElementName=Track3D, Mode=TwoWay}" AutomationProperties.Name="3D camera yaw" /></StackPanel>
-                        <StackPanel Width="160" Margin="0,0,14,8"><TextBlock Text="Pitch" FontSize="11" /><Slider Minimum="-89" Maximum="89" Value="{Binding Pitch, ElementName=Track3D, Mode=TwoWay}" AutomationProperties.Name="3D camera pitch" /></StackPanel>
-                        <StackPanel Width="160" Margin="0,0,14,8"><TextBlock Text="Roll" FontSize="11" /><Slider Minimum="-180" Maximum="180" Value="{Binding Roll, ElementName=Track3D, Mode=TwoWay}" AutomationProperties.Name="3D camera roll" /></StackPanel>
-                        <Button Content="Zoom in" Click="ZoomMapIn_Click" Padding="10,6" Margin="0,0,8,8" /><Button Content="Zoom out" Click="ZoomMapOut_Click" Padding="10,6" Margin="0,0,8,8" />
-                    </WrapPanel>
-                </Expander>
-            </StackPanel>
-            <Expander Header="Contacts" Margin="16,0,16,12">
-            <StackPanel Margin="0,10,0,0">
-            <TextBlock Text="{Binding ContactSummary}" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,8" />
-            <WrapPanel Margin="0,0,0,6">
-                <ComboBox Width="290" ItemsSource="{Binding ContactChoices}" SelectedItem="{Binding SelectedContact}" IsEnabled="{Binding HasItems, RelativeSource={RelativeSource Self}}" DisplayMemberPath="Label" AutomationProperties.Name="Lap contact markers" Margin="0,0,8,6" />
-                <Button Content="Mark contact here" Command="{Binding MarkContactCommand}" Padding="10,6" Margin="0,0,8,6" />
-                <Button Content="Remove marked contact" Command="{Binding RemoveContactCommand}" Padding="10,6" Margin="0,0,8,6" />
-            </WrapPanel>
-            <TextBlock Text="Object contacts come from Forza's breakable-object telemetry in new recordings. Possible contacts are estimates, including on older laps. Mark known contacts to keep them with the run." FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
-            </StackPanel>
-            </Expander>
-            <TextBlock Text="{Binding MapStatus}" TextWrapping="Wrap" FontSize="12" AutomationProperties.LiveSetting="Polite" Margin="16,0,16,8" />
-            </StackPanel>
-            </Border>
+            </StackPanel></Expander>
             <local:LapReviewPlot x:Name="Trace" Data="{Binding Plot}" Height="190" Margin="0,0,0,8" AutomationProperties.Name="Lap channel by distance. Click or use arrow keys to move the shared cursor." />
-            <Slider Minimum="0" Maximum="{Binding MaximumCursor}" Value="{Binding Cursor}" TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="60" AutomationProperties.Name="Lap position cursor" Margin="0,0,0,8" />
             <Border x:Name="CursorReadout" Background="{DynamicResource InputBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,12">
                 <StackPanel>
                     <DockPanel Margin="0,0,0,12">

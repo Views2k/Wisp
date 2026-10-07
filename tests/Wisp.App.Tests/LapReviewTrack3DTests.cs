@@ -39,6 +39,40 @@ public sealed class LapReviewTrack3DTests
     });
 
     [Fact]
+    public void ExplicitZoomOutRequestsOverviewButResetAndCameraBindingDoNot() => OnSta(async () =>
+    {
+        var track = Track(); await track.PrepareForTestAsync();
+        var requests = 0; track.ZoomOutAtOverview += (_, _) => requests++;
+        track.ZoomBy(4); track.ZoomBy(.5);
+        Assert.Equal(0, requests);
+        track.ZoomBy(.5);
+        Assert.Equal(1, requests);
+        track.ZoomBy(.9);
+        Assert.Equal(2, requests);
+        track.ZoomFactor = .4; track.ResetView();
+        track.ZoomBy(double.NaN); track.ZoomBy(0); track.ZoomBy(1);
+        Assert.Equal(2, requests);
+        Assert.Equal(1, track.SceneBuildCount);
+    });
+
+    [Fact]
+    public void ComparisonRangeAndPathChangesRebuildWhileMatchedCursorUpdatesDoNot() => OnSta(async () =>
+    {
+        var track = Track();
+        var reference = Data([new(0, 0, 0), new(40, 30, 50), new(80, 35, 40)]).Lap! with { RunId = Guid.NewGuid() };
+        track.Data = track.Data! with { Reference = reference, Comparison = new([], 1, true, string.Empty) };
+        await track.PrepareForTestAsync();
+        track.Data = track.Data! with { ColorRangeOverride = new(0, 100, true) };
+        await track.PrepareForTestAsync();
+        Assert.Equal(2, track.SceneBuildCount);
+        track.Data = track.Data! with { ShowReferencePath = false };
+        await track.PrepareForTestAsync();
+        Assert.Equal(3, track.SceneBuildCount);
+        for (var i = 0; i < 100; i++) track.Data = track.Data! with { Cursor = i % 3 };
+        Assert.Equal(3, track.SceneBuildCount); Assert.True(track.IsReady);
+    });
+
+    [Fact]
     public void RapidChannelReturnCancelsTheStaleBuildAndRestoresTheCachedScene() => OnSta(async () =>
     {
         var track = Track(); var original = track.Data!;
@@ -165,6 +199,123 @@ public sealed class LapReviewTrack3DTests
         Assert.InRange(Math.Abs(pixel[1] - expected.G), 0, 2);
         Assert.InRange(Math.Abs(pixel[2] - expected.R), 0, 2);
         Assert.Equal(255, pixel[3]);
+    }
+
+    [Fact]
+    public void InterpolatedCursorMovesWithoutMovingContactsOrRebuildingGeometry() => OnSta(async () =>
+    {
+        var data = Data([new(-100, 0, 0), new(0, 0, 0), new(100, 0, 0)]) with
+        { Cursor = 1, Contacts = [new(1, 1, 100, LapReviewContactKind.PossibleContact)] };
+        var track = new LapReviewTrack3D { Data = data };
+        var surface = new Border { Background = Brushes.Black, Child = track };
+        surface.Measure(new Size(800, 400)); surface.Arrange(new Rect(0, 0, 800, 400));
+        await track.PrepareForTestAsync();
+        track.Yaw = 0; track.Pitch = 90; track.Roll = 0;
+        var sample = track.ProjectPoint(1);
+        var interpolated = sample + (track.ProjectPoint(2) - sample) * .4;
+        track.Data = data with { CursorPositionOverride = new(40, 0, 0) };
+        AssertPixel(surface, interpolated, Colors.White);
+        AssertPixel(surface, sample, ((SolidColorBrush)LapReviewPalette.ContactBrush).Color);
+        AssertPixel(surface, new(sample.X + 10, sample.Y), ((SolidColorBrush)LapReviewPalette.GetBrush(.5)).Color);
+        for (var i = 0; i < 100; i++) track.Data = data with { CursorPositionOverride = new(i, 0, 0) };
+        Assert.Equal(1, track.SceneBuildCount); Assert.True(track.IsReady);
+    });
+
+    [Fact]
+    public void ComparisonModelsShareOneSceneAndClickingEitherTrackFocusesWithoutRemovingTheOther() => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        Assert.True(track.IsComparison); Assert.True(track.HasBothPreparedModels);
+        Assert.Equal(2, track.SceneBuildCount); Assert.Equal(3, track.PreparedReferenceSegmentCount);
+        var overviewWidth = Enumerable.Range(0, 4).Max(i => track.ProjectReferencePoint(i).X) - Enumerable.Range(0, 4).Min(i => track.ProjectReferencePoint(i).X);
+        Assert.True(Enumerable.Range(0, 4).Max(i => track.ProjectPoint(i).X) < Enumerable.Range(0, 4).Min(i => track.ProjectReferencePoint(i).X));
+        var primary = new List<int>(); var reference = new List<int>();
+        track.PointChosen += primary.Add; track.ReferencePointChosen += reference.Add;
+        track.Choose(track.ProjectReferencePoint(1));
+        Assert.Equal(1, Assert.Single(reference)); Assert.Empty(primary); Assert.Equal(2, track.FocusedLap);
+        Assert.True(track.IsCameraMotionActive); track.CompleteCameraMotionForTest();
+        var focusedWidth = Enumerable.Range(0, 4).Max(i => track.ProjectReferencePoint(i).X) - Enumerable.Range(0, 4).Min(i => track.ProjectReferencePoint(i).X);
+        Assert.True(focusedWidth > overviewWidth * 1.15);
+        Assert.True(track.HasBothPreparedModels); Assert.Equal(2, track.SceneBuildCount);
+        Assert.True(SendKey(track, Key.Right).Handled); Assert.Equal(1, reference[^1]);
+        track.ShowAll(); track.CompleteCameraMotionForTest();
+        track.Choose(track.ProjectPoint(2)); track.CompleteCameraMotionForTest();
+        Assert.Equal(2, Assert.Single(primary)); Assert.Equal(1, track.FocusedLap);
+        Assert.True(track.HasBothPreparedModels); Assert.Equal(2, track.SceneBuildCount);
+    });
+
+    [Fact]
+    public void RotatedOverviewFitsBothTracksAndCursorUpdatesDoNotPrepareNewMeshes() => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        for (var i = 0; i < 100; i++)
+        {
+            track.Data = track.Data! with { Cursor = i % 4 };
+            track.ComparisonData = track.ComparisonData! with { Cursor = (i + 1) % 4 };
+        }
+        Assert.Equal(2, track.SceneBuildCount);
+        track.Yaw = 123; track.Pitch = 47; track.Roll = 78; track.ZoomBy(3); track.PanBy(400, -250);
+        track.ShowAll(); track.CompleteCameraMotionForTest();
+        for (var i = 0; i < 4; i++)
+            foreach (var point in new[] { track.ProjectPoint(i), track.ProjectReferencePoint(i) })
+            {
+                Assert.InRange(point.X, 0, track.ActualWidth);
+                Assert.InRange(point.Y, 0, track.ActualHeight);
+            }
+        Assert.Equal(0, track.FocusedLap); Assert.Equal(123, track.Yaw); Assert.Equal(78, track.Roll);
+        track.FocusLap(2); track.CompleteCameraMotionForTest(); track.ZoomBy(.1);
+        Assert.Equal(0, track.FocusedLap); Assert.True(track.HasBothPreparedModels);
+        Assert.Equal(2, track.SceneBuildCount);
+    });
+
+    [Fact]
+    public void SelectingAnotherPointOnTheFocusedLapPreservesManualCameraAdjustments() => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); await track.PrepareForTestAsync();
+        track.Choose(track.ProjectPoint(0));
+        Assert.Equal(1, track.FocusedLap); Assert.True(track.IsCameraMotionActive);
+        track.CompleteCameraMotionForTest();
+        track.Yaw += 12; track.Pitch = 35; track.Roll = 8;
+        track.ZoomBy(2); track.PanBy(18, -7);
+        var zoom = track.ZoomFactor; var projection = track.ProjectPoint(1);
+        track.Choose(projection);
+        Assert.Equal(1, track.FocusedLap); Assert.False(track.IsCameraMotionActive);
+        Assert.Equal(zoom, track.ZoomFactor); Assert.Equal(projection, track.ProjectPoint(1));
+        track.Choose(track.ProjectReferencePoint(1));
+        Assert.Equal(2, track.FocusedLap); Assert.True(track.IsCameraMotionActive);
+        track.CompleteCameraMotionForTest();
+        Assert.True(track.HasBothPreparedModels); Assert.Equal(2, track.SceneBuildCount);
+    });
+
+    [Fact]
+    public void RemovingComparisonAndUnloadingCancelCameraMotionAndKeepPrimaryGeometryReusable() => OnSta(async () =>
+    {
+        var track = ComparisonTrack(); var other = track.ComparisonData;
+        await track.PrepareForTestAsync();
+        track.FocusLap(2); Assert.True(track.IsCameraMotionActive);
+        track.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+        Assert.False(track.IsCameraMotionActive);
+        track.ComparisonData = null; await track.PrepareForTestAsync();
+        Assert.False(track.IsComparison); Assert.False(track.HasBothPreparedModels);
+        Assert.True(track.IsReady); Assert.Equal(2, track.SceneBuildCount);
+        track.ComparisonData = other; await track.PrepareForTestAsync();
+        Assert.True(track.IsComparison); Assert.True(track.HasBothPreparedModels); Assert.Equal(3, track.SceneBuildCount);
+        track.FocusLap(1); track.Data = null;
+        Assert.False(track.IsCameraMotionActive); Assert.False(track.IsReady);
+    });
+
+    private static LapReviewTrack3D ComparisonTrack()
+    {
+        var first = Data([new(-100, 0, 0), new(-50, 15, 30), new(0, 30, 70), new(100, 5, 0)]);
+        var second = Data([new(-100, 1, 0), new(-40, 20, 35), new(0, 35, 75), new(100, 10, 0)]);
+        second = second with { Lap = second.Lap! with { RunId = Guid.NewGuid() } };
+        var track = new LapReviewTrack3D
+        {
+            Data = first with { Reference = second.Lap, Comparison = new([], 1, true, string.Empty), ShowReferencePath = false },
+            ComparisonData = second with { Reference = first.Lap, Comparison = new([], 1, true, string.Empty), ShowReferencePath = false }
+        };
+        track.Measure(new Size(800, 400)); track.Arrange(new Rect(0, 0, 800, 400));
+        return track;
     }
 
     private static LapReviewTrack3D Track()

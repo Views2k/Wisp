@@ -14,7 +14,7 @@ internal readonly record struct LapReviewTrackBounds(Point3D Center, double Span
     internal static bool IsFinite(LapPosition position) => float.IsFinite(position.X) &&
         float.IsFinite(position.Y) && float.IsFinite(position.Z);
 
-    internal static LapReviewTrackBounds From(LapReviewPlotData data)
+    internal static LapReviewTrackBounds From(LapReviewPlotData data, LapReviewLap? extraLap = null)
     {
         var minimum = new Point3D(double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity);
         var maximum = new Point3D(double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity);
@@ -29,7 +29,8 @@ internal readonly record struct LapReviewTrackBounds(Point3D Center, double Span
             }
         }
         if (data.Lap is { } lap) Include(lap.Points);
-        if (data.Comparison?.CanCompare == true && data.Reference is { } reference) Include(reference.Points);
+        if (data.HasDistinctReference && data.Reference is { } reference) Include(reference.Points);
+        if (extraLap is not null) Include(extraLap.Points);
         if (!double.IsFinite(minimum.X)) return new(new(), 1, 0);
         return new(new((minimum.X + maximum.X) / 2, (minimum.Y + maximum.Y) / 2, (minimum.Z + maximum.Z) / 2),
             Math.Max(1, Math.Max(maximum.X - minimum.X, Math.Max(maximum.Y - minimum.Y, maximum.Z - minimum.Z))), minimum.Y);
@@ -60,9 +61,9 @@ internal readonly record struct LapReviewTrackFit(Point3D Target, double Horizon
 {
     internal const double DefaultPitch = 22;
     internal double Width(double aspect) => Math.Max(.03, Math.Max(HorizontalSpan, VerticalSpan * Math.Max(.01, aspect))) * 1.12;
-    internal static LapReviewTrackFit From(LapReviewPlotData data, LapReviewTrackBounds bounds)
+    internal static LapReviewTrackFit From(LapReviewPlotData data, LapReviewTrackBounds bounds, double? yawOverride = null)
     {
-        var yaw = PrincipalYaw(data.Lap?.Points ?? [], bounds);
+        var yaw = yawOverride ?? PrincipalYaw(data.Lap?.Points ?? [], bounds);
         var frame = LapReviewCameraFrame.From(yaw, DefaultPitch, 0);
         var left = double.PositiveInfinity; var right = double.NegativeInfinity;
         var bottom = double.PositiveInfinity; var top = double.NegativeInfinity;
@@ -84,7 +85,7 @@ internal readonly record struct LapReviewTrackFit(Point3D Target, double Horizon
             }
         }
         if (data.Lap is { } lap) Include(lap.Points, true);
-        if (data.Comparison?.CanCompare == true && data.Reference is { } reference) Include(reference.Points, false);
+        if (data.HasDistinctReference && data.Reference is { } reference) Include(reference.Points, false);
         if (!double.IsFinite(left)) return new(new(), 1, 1, yaw);
         return new(new Point3D() + frame.Right * ((left + right) / 2) + frame.Up * ((bottom + top) / 2),
             right - left, top - bottom, yaw);
@@ -115,6 +116,72 @@ internal readonly record struct LapReviewTrackFit(Point3D Target, double Horizon
 }
 
 internal sealed record LapReviewTrackScene(Model3DGroup Model, LapReviewTrackBounds Bounds, LapReviewTrackFit Fit, int SegmentCount);
+
+internal sealed record LapReviewTrackArrangement(Vector3D PrimaryOffset, Vector3D ReferenceOffset,
+    LapReviewTrackFit Overview, LapReviewTrackFit PrimaryFit, LapReviewTrackFit? ReferenceFit,
+    Point3D[] PrimaryCorners, Point3D[] ReferenceCorners)
+{
+    internal static LapReviewTrackArrangement Create(LapReviewPlotData primary, LapReviewPlotData? reference, LapReviewTrackBounds bounds)
+    {
+        var overview = LapReviewTrackFit.From(primary, bounds);
+        if (reference?.Lap is null) return new(new(), new(), overview, overview, null, [], []);
+        var first = LapReviewTrackFit.From(primary with { Reference = null, Comparison = null }, bounds, overview.Yaw);
+        var second = LapReviewTrackFit.From(reference with { Reference = null, Comparison = null }, bounds, overview.Yaw);
+        var frame = LapReviewCameraFrame.From(overview.Yaw, LapReviewTrackFit.DefaultPitch, 0);
+        double Horizontal(Point3D point) => Vector3D.DotProduct(point - new Point3D(), frame.Right);
+        double Vertical(Point3D point) => Vector3D.DotProduct(point - new Point3D(), frame.Up);
+        var center = Horizontal(overview.Target);
+        var gap = Math.Max(.06, Math.Max(first.HorizontalSpan, second.HorizontalSpan) * .14);
+        var offsetA = frame.Right * (center - gap / 2 - first.HorizontalSpan / 2 - Horizontal(first.Target));
+        var offsetB = frame.Right * (center + gap / 2 + second.HorizontalSpan / 2 - Horizontal(second.Target));
+        first = first with { Target = first.Target + offsetA };
+        second = second with { Target = second.Target + offsetB };
+        var left = Horizontal(first.Target) - first.HorizontalSpan / 2;
+        var right = Horizontal(second.Target) + second.HorizontalSpan / 2;
+        var bottom = Math.Min(Vertical(first.Target) - first.VerticalSpan / 2, Vertical(second.Target) - second.VerticalSpan / 2);
+        var top = Math.Max(Vertical(first.Target) + first.VerticalSpan / 2, Vertical(second.Target) + second.VerticalSpan / 2);
+        overview = new(new Point3D() + frame.Right * ((left + right) / 2) + frame.Up * ((bottom + top) / 2), right - left, top - bottom, overview.Yaw);
+        return new(offsetA, offsetB, overview, first, second,
+            Corners(primary.Lap!, bounds, offsetA), Corners(reference.Lap, bounds, offsetB));
+    }
+
+    internal LapReviewTrackFit ProjectedFit(double yaw, double pitch, double roll, int lap = 0)
+    {
+        if (ReferenceCorners.Length == 0) return Overview;
+        var frame = LapReviewCameraFrame.From(yaw, pitch, roll);
+        var left = double.PositiveInfinity; var right = double.NegativeInfinity;
+        var bottom = double.PositiveInfinity; var top = double.NegativeInfinity;
+        void Include(Point3D[] points)
+        {
+            foreach (var point in points)
+            {
+                var vector = point - new Point3D();
+                var x = Vector3D.DotProduct(vector, frame.Right); var y = Vector3D.DotProduct(vector, frame.Up);
+                left = Math.Min(left, x); right = Math.Max(right, x); bottom = Math.Min(bottom, y); top = Math.Max(top, y);
+            }
+        }
+        if (lap != 2) Include(PrimaryCorners);
+        if (lap != 1) Include(ReferenceCorners);
+        return new(new Point3D() + frame.Right * ((left + right) / 2) + frame.Up * ((bottom + top) / 2), right - left, top - bottom, yaw);
+    }
+
+    private static Point3D[] Corners(LapReviewLap lap, LapReviewTrackBounds bounds, Vector3D offset)
+    {
+        var low = new Point3D(double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity);
+        var high = new Point3D(double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity);
+        foreach (var sample in lap.Points)
+        {
+            if (!LapReviewTrackBounds.IsFinite(sample.Position)) continue;
+            var point = bounds.Normalize(sample.Position) + offset;
+            low = new(Math.Min(low.X, point.X), Math.Min(low.Y, point.Y), Math.Min(low.Z, point.Z));
+            high = new(Math.Max(high.X, point.X), Math.Max(high.Y, point.Y), Math.Max(high.Z, point.Z));
+        }
+        if (!double.IsFinite(low.X)) return [new Point3D() + offset];
+        low.Y = Math.Min(low.Y, (bounds.MinimumHeight - bounds.Center.Y) / bounds.Span - .025 + offset.Y);
+        return [new(low.X, low.Y, low.Z), new(low.X, low.Y, high.Z), new(low.X, high.Y, low.Z), new(low.X, high.Y, high.Z),
+            new(high.X, low.Y, low.Z), new(high.X, low.Y, high.Z), new(high.X, high.Y, low.Z), new(high.X, high.Y, high.Z)];
+    }
+}
 
 internal static class LapReviewTrackGeometry
 {
@@ -166,6 +233,11 @@ internal static class LapReviewTrackGeometry
     internal static LapReviewTrackScene Build(LapReviewPlotData data, CancellationToken cancellationToken)
     {
         var bounds = LapReviewTrackBounds.From(data);
+        return Build(data, bounds, cancellationToken);
+    }
+
+    internal static LapReviewTrackScene Build(LapReviewPlotData data, LapReviewTrackBounds bounds, CancellationToken cancellationToken)
+    {
         var fit = LapReviewTrackFit.From(data, bounds);
         var model = new Model3DGroup();
         if (data.Lap is not { Points.Length: > 0 } lap) { model.Freeze(); return new(model, bounds, fit, 0); }
@@ -201,7 +273,7 @@ internal static class LapReviewTrackGeometry
         }
         Add(model, shadow, Brush(26, 32, 42));
         Add(model, posts, Brush(40, 48, 59));
-        if (data.Comparison?.CanCompare == true && data.Reference is { } reference)
+        if (data.ShowReferencePath && data.HasDistinctReference && data.Reference is { } reference)
         {
             var referenceCount = 0;
             var referenceSegments = Segments(reference.Points, RetainedIndices(reference.Points, cancellationToken: cancellationToken)).ToArray();

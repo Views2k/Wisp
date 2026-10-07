@@ -1,0 +1,243 @@
+using System.IO;
+using System.Runtime.ExceptionServices;
+using System.Windows.Threading;
+using Wisp.App.Runs;
+using Wisp.Core;
+using Wisp.Core.Runs;
+using Wisp.UiReview;
+using Xunit;
+
+namespace Wisp.App.Tests;
+
+public sealed class LapReviewMapComparisonTests
+{
+    [Fact]
+    public void DistinctComparableLapsUseOneScaleForBothMapsAndTheLegend() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        var reference = LapReviewFixtures.Create(reference: true);
+        reference = reference with
+        {
+            Samples = reference.Samples.Select(s => s with { State = s.State with { PowerWatts = s.State.PowerWatts * 2 } }).ToArray()
+        };
+        model.SetRuns(LapReviewFixtures.Create(), reference);
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true;
+        Assert.True(model.HasMapComparison);
+        Assert.False(model.MapPlotA.ShowReferencePath);
+        Assert.False(model.MapPlotB.ShowReferencePath);
+        foreach (var channel in new[] { LapReviewChannel.Speed, LapReviewChannel.Power, LapReviewChannel.Brake })
+        {
+            model.Channel = model.Channels.Single(c => c.Channel == channel);
+            var a = model.MapPlotA; var b = model.MapPlotB;
+            var first = LapReviewColorRange.From(a with { ColorRangeOverride = null });
+            var second = LapReviewColorRange.From(b with { ColorRangeOverride = null });
+            var expected = new LapReviewColorRange(Math.Min(first.Minimum, second.Minimum), Math.Max(first.Maximum, second.Maximum), true);
+            Assert.Equal(expected, a.ColorRangeOverride);
+            Assert.Equal(expected, b.ColorRangeOverride);
+            Assert.Equal($"{expected.Minimum:0.##} {LapReviewPlot.Unit(a)}", model.LegendMinimum);
+            Assert.Equal($"{expected.Maximum:0.##} {LapReviewPlot.Unit(a)}", model.LegendMaximum);
+        }
+        var scale = model.MapPlotA.ColorRangeOverride;
+        var metrics = model.Metrics[0];
+        model.Cursor = 150;
+        Assert.Equal(scale, model.MapPlotA.ColorRangeOverride);
+        Assert.Same(metrics, model.Metrics[0]);
+        Assert.False(model.IsBusy);
+    });
+
+    [Fact]
+    public void ReferenceCursorAndSectionUseSpatialMatchesAndPickingBMovesTheSharedCursor() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        model.SetRuns(LapReviewFixtures.Create(), LapReviewFixtures.Create(reference: true));
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Cursor = 150;
+        Assert.Equal(model.Plot.Comparison!.Points[150].ReferencePointIndex, model.MapPlotB.Cursor);
+        Assert.InRange(model.MapPlotB.Cursor, 0, model.Reference!.Points.Length - 1);
+        var reverse = model.MapPlotB.Comparison!.Points[220].ReferencePointIndex;
+        Assert.NotNull(reverse);
+        model.PickReferencePoint(220);
+        Assert.Equal(reverse.Value, model.Cursor);
+        model.Cursor = 75;
+        model.SectionStartCommand.Execute(null);
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Cursor = 180;
+        model.SectionEndCommand.Execute(null);
+        await LapReviewComparisonTestSupport.Ready(model);
+        Assert.Equal(model.Plot.Comparison!.Points[75].ReferencePointIndex, model.MapPlotB.SectionStart);
+        Assert.Equal(model.Plot.Comparison.Points[180].ReferencePointIndex, model.MapPlotB.SectionEnd);
+        var selected = model.Cursor;
+        model.PickReferencePoint(-1); model.PickReferencePoint(int.MaxValue);
+        Assert.Equal(selected, model.Cursor);
+    });
+
+    [Fact]
+    public void ReferenceCursorInterpolatesBetweenOriginalSamplesInsteadOfSnappingToTheEarlierOne() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        var reference = LapReviewFixtures.Create(reference: true);
+        reference = reference with
+        {
+            Samples = reference.Samples.Select((sample, index) =>
+            {
+                var angle = (index % 600 + .5) / 600 * Math.Tau;
+                var lap = sample.State.Lap!;
+                return sample with
+                {
+                    State = sample.State with
+                    {
+                        Lap = lap with
+                        {
+                            Position = new((float)(210 * Math.Cos(angle)),
+                                (float)(80 + 24 * Math.Sin(angle) + 7 * Math.Sin(angle * 3)), (float)(140 * Math.Sin(angle)))
+                        }
+                    }
+                };
+            }).ToArray()
+        };
+        model.SetRuns(LapReviewFixtures.Create(), reference);
+        await LapReviewComparisonTestSupport.Ready(model);
+        Assert.True(model.HasMapComparison);
+        model.Cursor = 150;
+        var match = model.Plot.Comparison!.Points[model.Cursor];
+        var lower = Assert.IsType<int>(match.ReferencePointIndex);
+        var seconds = Assert.IsType<double>(match.ReferenceLapSeconds);
+        var a = model.Reference!.Points[lower]; var b = model.Reference.Points[lower + 1];
+        var fraction = (seconds - a.LapSeconds) / (b.LapSeconds - a.LapSeconds);
+        Assert.InRange(fraction, .1, .9);
+        var cursor = Assert.IsType<LapPosition>(model.MapPlotB.CursorPositionOverride);
+        Assert.Equal(a.Position.X + (b.Position.X - a.Position.X) * fraction, cursor.X, 4);
+        Assert.Equal(a.Position.Y + (b.Position.Y - a.Position.Y) * fraction, cursor.Y, 4);
+        Assert.Equal(a.Position.Z + (b.Position.Z - a.Position.Z) * fraction, cursor.Z, 4);
+        Assert.NotEqual(a.Position, cursor);
+    });
+
+    [Fact]
+    public void UnmatchedSectionEndpointHidesReferenceSelectionAndUnmatchedCursor() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        model.SetRuns(LapReviewFixtures.Create(), LapReviewFixtures.Create(reference: true));
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Cursor = 75;
+        model.SectionStartCommand.Execute(null);
+        await LapReviewComparisonTestSupport.Ready(model);
+        // An accepted route may still contain individual unmatched positions.
+        var comparison = model.Plot.Comparison!;
+        comparison.Points[75] = comparison.Points[75] with
+        { ReferencePointIndex = null, ReferenceLapSeconds = null, DeltaSeconds = null };
+        model.Cursor = 180;
+        model.SectionEndCommand.Execute(null);
+        await LapReviewComparisonTestSupport.Ready(model);
+        Assert.True(model.HasMapComparison);
+        Assert.Equal(-1, model.MapPlotB.SectionStart);
+        Assert.Equal(-1, model.MapPlotB.SectionEnd);
+        model.Cursor = 75;
+        Assert.Equal(-1, model.MapPlotB.Cursor);
+        Assert.Null(model.MapPlotB.CursorPositionOverride);
+        Assert.Contains("Unavailable", model.MapBCursorValue);
+    });
+
+    [Fact]
+    public void EachMapKeepsItsOwnContactsAndTheVisibilityToggleAppliesToBoth() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        model.SetRuns(LapReviewFixtures.Create() with { Markers = [new(10, "Contact")] },
+            LapReviewFixtures.Create(reference: true) with { Markers = [new(15, "Contact")] });
+        await LapReviewComparisonTestSupport.Ready(model);
+        Assert.True(model.HasMapComparison);
+        var first = Assert.Single(model.MapPlotA.Contacts!, c => c.Kind == LapReviewContactKind.UserMarkedContact);
+        var second = Assert.Single(model.MapPlotB.Contacts!, c => c.Kind == LapReviewContactKind.UserMarkedContact);
+        Assert.Equal(10, first.RunSeconds); Assert.Equal(15, second.RunSeconds);
+        Assert.InRange(first.PointIndex, 0, model.Lap!.Points.Length - 1);
+        Assert.InRange(second.PointIndex, 0, model.Reference!.Points.Length - 1);
+        model.ShowContacts = false;
+        Assert.Empty(model.MapPlotA.Contacts ?? []); Assert.Empty(model.MapPlotB.Contacts ?? []);
+        model.ShowContacts = true;
+        Assert.Contains(first, model.MapPlotA.Contacts!); Assert.Contains(second, model.MapPlotB.Contacts!);
+    });
+
+    [Fact]
+    public void SelfReferenceMissingReferenceAndClearDoNotCreateASecondMap() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        model.SetRuns(LapReviewFixtures.Create(), null);
+        await LapReviewComparisonTestSupport.Ready(model);
+        Assert.True(model.HasLap); Assert.NotNull(model.Reference);
+        Assert.False(model.HasMapComparison);
+        model.Reference = null;
+        await LapReviewComparisonTestSupport.Ready(model);
+        Assert.False(model.HasMapComparison); Assert.Null(model.MapPlotB.Lap);
+        Assert.Equal("", model.MapBCursorValue);
+        model.SetRuns(null, null);
+        await LapReviewComparisonTestSupport.Ready(model);
+        Assert.False(model.HasLap); Assert.False(model.HasMapComparison);
+        Assert.Null(model.MapPlotA.Lap); Assert.Null(model.MapPlotB.Lap);
+    });
+
+    [Fact]
+    public void IncompatibleRoutesDoNotOfferMatchedReferenceNavigation() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var reference = LapReviewFixtures.Create(reference: true);
+        reference = reference with
+        {
+            Samples = reference.Samples.Select(s =>
+            {
+                var lap = s.State.Lap!;
+                return s with { State = s.State with { Lap = lap with { Position = lap.Position with { X = lap.Position.X + 2000 } } } };
+            }).ToArray()
+        };
+        fixture.Model.SetRuns(LapReviewFixtures.Create(), reference);
+        await LapReviewComparisonTestSupport.Ready(fixture.Model);
+        Assert.False(fixture.Model.HasMapComparison);
+        fixture.Model.Cursor = 120;
+        fixture.Model.PickReferencePoint(220);
+        Assert.Equal(120, fixture.Model.Cursor);
+    });
+}
+
+internal sealed class LapReviewComparisonTestSupport : IDisposable
+{
+    private readonly string _directory = Path.Combine(Path.GetTempPath(), "Wisp.LapReviewComparisonTests", Guid.NewGuid().ToString("N"));
+    internal LapReviewViewModel Model { get; }
+    internal LapReviewComparisonTestSupport() => Model = new(new AppSettings(), new RunStore(_directory), () => { });
+    public void Dispose()
+    {
+        Model.Dispose();
+        if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
+    }
+    internal static async Task Ready(LapReviewViewModel model)
+    {
+        for (var i = 0; i < 500 && model.IsBusy; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+        Assert.False(model.IsBusy);
+        Assert.DoesNotContain("could not be prepared", model.Status);
+        Assert.DoesNotContain("could not be prepared", model.SectionText);
+    }
+    internal static void OnDispatcher(Func<Task> test)
+    {
+        Exception? error = null;
+        using var finished = new ManualResetEventSlim();
+        var thread = new Thread(() =>
+        {
+            var dispatcher = Dispatcher.CurrentDispatcher;
+            _ = dispatcher.InvokeAsync(async () =>
+            {
+                try { await test(); }
+                catch (Exception failure) { error = failure; }
+                finally { finished.Set(); dispatcher.BeginInvokeShutdown(DispatcherPriority.Send); }
+            });
+            Dispatcher.Run();
+        })
+        { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA); thread.Start();
+        Assert.True(finished.Wait(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken), "Lap map comparison exceeded the dispatcher deadline.");
+        if (error is not null) ExceptionDispatchInfo.Capture(error).Throw();
+    }
+}

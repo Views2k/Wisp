@@ -16,6 +16,7 @@ public partial class RunsPage : RunsPageBase
     public bool IsWorkspaceShort => (bool)GetValue(IsWorkspaceShortProperty);
 
     protected override bool UsesModularWorkspace => true;
+    protected override FrameworkElement ReportFocusTarget => LapReviewExpander.IsExpanded ? LapReviewExpander : base.ReportFocusTarget;
 
     public RunsPage()
     {

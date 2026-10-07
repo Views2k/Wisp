@@ -10,7 +10,16 @@ namespace Wisp.App.Runs;
 public sealed record LapReviewPlotData(LapReviewLap? Lap, LapReviewLap? Reference,
     LapReviewComparison? Comparison, LapReviewChannel Channel, SpeedUnit SpeedUnit, int Cursor, int SectionStart, int SectionEnd,
     int Wheel = 0, TireTemperatureUnit TemperatureUnit = TireTemperatureUnit.Fahrenheit,
-    TorqueUnit TorqueUnit = TorqueUnit.NewtonMeters, IReadOnlyList<LapReviewContact>? Contacts = null);
+    TorqueUnit TorqueUnit = TorqueUnit.NewtonMeters, IReadOnlyList<LapReviewContact>? Contacts = null)
+{
+    public bool ShowReferencePath { get; init; } = true;
+    internal LapReviewColorRange? ColorRangeOverride { get; init; }
+    internal LapPosition? CursorPositionOverride { get; init; }
+    public bool HasDistinctReference => Comparison?.CanCompare == true &&
+        Lap is { Points.Length: > 0 } lap && Reference is { Points.Length: > 0 } reference &&
+        (lap.RunId != reference.RunId || lap.TimingMode != reference.TimingMode || lap.Number != reference.Number ||
+         lap.Points[0].SampleIndex != reference.Points[0].SampleIndex);
+}
 
 public sealed class LapReviewPlot : FrameworkElement
 {
@@ -58,7 +67,8 @@ public sealed class LapReviewPlot : FrameworkElement
     private static bool SamePlot(LapReviewPlotData? a, LapReviewPlotData b) => a is not null &&
         ReferenceEquals(a.Lap, b.Lap) && ReferenceEquals(a.Reference, b.Reference) && ReferenceEquals(a.Comparison, b.Comparison) &&
         a.Channel == b.Channel && a.SpeedUnit == b.SpeedUnit && a.SectionStart == b.SectionStart && a.SectionEnd == b.SectionEnd &&
-        a.Wheel == b.Wheel && a.TemperatureUnit == b.TemperatureUnit && a.TorqueUnit == b.TorqueUnit && ReferenceEquals(a.Contacts, b.Contacts);
+        a.Wheel == b.Wheel && a.TemperatureUnit == b.TemperatureUnit && a.TorqueUnit == b.TorqueUnit && ReferenceEquals(a.Contacts, b.Contacts) &&
+        a.ShowReferencePath == b.ShowReferencePath && a.ColorRangeOverride == b.ColorRangeOverride;
     private void Prepare(DrawingContext dc, LapReviewPlotData data, Brush muted, Brush background)
     {
         _hitPoints.Clear();
@@ -69,6 +79,8 @@ public sealed class LapReviewPlot : FrameworkElement
         if (!IsMap) values = values.Concat(Enumerable.Range(0, points.Length).Select(index => ReferenceValue(data, index)));
         var finite = values.Where(value => value is { } number && double.IsFinite(number)).Select(value => value!.Value).ToArray();
         var minimum = finite.Length == 0 ? 0 : finite.Min(); var maximum = finite.Length == 0 ? 1 : finite.Max();
+        if (IsMap && data.ColorRangeOverride is { HasValues: true } range)
+        { minimum = range.Minimum; maximum = range.Maximum; }
         var colorMinimum = minimum; var colorMaximum = maximum;
         var constant = maximum == minimum;
         if (maximum - minimum < .001) maximum = minimum + 1;
@@ -76,7 +88,7 @@ public sealed class LapReviewPlot : FrameworkElement
         if (IsMap)
         {
             var all = points.AsEnumerable();
-            if (data.Comparison?.CanCompare == true && data.Reference is { } reference) all = all.Concat(reference.Points);
+            if (data.HasDistinctReference && data.Reference is { } reference) all = all.Concat(reference.Points);
             var array = all.ToArray();
             var left = array.Min(point => point.Position.X); var right = array.Max(point => point.Position.X);
             var bottom = array.Min(point => point.Position.Z); var top = array.Max(point => point.Position.Z);
@@ -86,7 +98,7 @@ public sealed class LapReviewPlot : FrameworkElement
             project = point => new(ox + (point.Position.X - left) * scale, oy + (top - point.Position.Z) * scale);
         }
         else project = point => new(area.Left + point.DistanceMeters / Math.Max(1, data.Lap.RecordedDistanceMeters) * area.Width, area.Bottom);
-        if (IsMap && data.Comparison?.CanCompare == true && data.Reference is { } mapReference)
+        if (IsMap && data.ShowReferencePath && data.HasDistinctReference && data.Reference is { } mapReference)
             DrawPath(dc, mapReference.Points, project, new(RunComparisonColors.RunB, 1.5));
         var stride = Math.Max(1, (int)Math.Ceiling(points.Length / 3000d));
         Point? prior = null; var broken = false;
@@ -140,6 +152,27 @@ public sealed class LapReviewPlot : FrameworkElement
         Point? previous = null; var broken = false;
         var stride = Math.Max(1, (int)Math.Ceiling(points.Length / 3000d));
         for (var i = 0; i < points.Length; i++) { broken |= points[i].BreakBefore; if (i % stride != 0 && i != points.Length - 1) continue; var p = project(points[i]); if (previous is { } prior && !broken) dc.DrawLine(pen, prior, p); previous = p; broken = false; }
+    }
+    internal static LapPosition? ReferencePosition(LapReviewPlotData data, int index)
+    {
+        if (!data.HasDistinctReference || data.Reference is not { } reference ||
+            data.Comparison is not { } comparison || index < 0 || index >= comparison.Points.Length) return null;
+        var match = comparison.Points[index];
+        if (match.ReferencePointIndex is not { } lower || lower < 0 || lower >= reference.Points.Length ||
+            match.ReferenceLapSeconds is not { } seconds || !double.IsFinite(seconds)) return null;
+        var a = reference.Points[lower];
+        if (!Finite(a.Position) || !double.IsFinite(a.LapSeconds)) return null;
+        if (seconds == a.LapSeconds) return a.Position;
+        if (lower + 1 >= reference.Points.Length) return null;
+        var b = reference.Points[lower + 1];
+        if (b.BreakBefore || !Finite(b.Position) || !double.IsFinite(b.LapSeconds) ||
+            b.LapSeconds <= a.LapSeconds || seconds < a.LapSeconds || seconds > b.LapSeconds) return null;
+        var fraction = (seconds - a.LapSeconds) / (b.LapSeconds - a.LapSeconds);
+        return new((float)(a.Position.X + ((double)b.Position.X - a.Position.X) * fraction),
+            (float)(a.Position.Y + ((double)b.Position.Y - a.Position.Y) * fraction),
+            (float)(a.Position.Z + ((double)b.Position.Z - a.Position.Z) * fraction));
+
+        static bool Finite(LapPosition position) => float.IsFinite(position.X) && float.IsFinite(position.Y) && float.IsFinite(position.Z);
     }
     internal static double? ReferenceValue(LapReviewPlotData data, int index)
     {

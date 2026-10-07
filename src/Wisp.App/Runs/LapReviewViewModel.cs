@@ -22,11 +22,11 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
     private readonly AppSettings _settings;
     private readonly RunStore _store;
     private readonly Action _save;
-    private RecordedRun? _run, _comparisonRun;
+    private RecordedRun? _run, _comparisonRun, _referenceRun;
     private CancellationTokenSource? _loadCancellation, _analysisCancellation;
     private readonly List<RunUiCommand> _commands = [];
     private LapReviewLap? _lap, _reference;
-    private LapReviewComparison? _comparison;
+    private LapReviewComparison? _comparison, _reverseComparison;
     private LapTimingChoice _timing;
     private LapChannelChoice _channel;
     private int _cursor, _sectionStart, _sectionEnd;
@@ -155,6 +155,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
                 return (a, b, current, usePin, pinMatch);
             }, cancel.Token);
             if (_disposed || cancel.IsCancellationRequested) return;
+            _referenceRun = result.usePin ? pinned : comparisonRun ?? run;
             _applying = true;
             try
             {
@@ -190,7 +191,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
     }
     private void RefreshComparison()
     {
-        _comparison = null;
+        _comparison = _reverseComparison = null;
         RefreshCursor(); Changed(nameof(Plot));
         _ = AnalyzeAsync(compare: true);
     }
@@ -214,7 +215,8 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
         _applying = true;
         try
         {
-            _lap = _reference = null; _comparison = null;
+            _lap = _reference = null; _comparison = _reverseComparison = null;
+            _referenceRun = null; _referenceMapContacts = [];
             ClearTelemetryContacts();
             _cursor = _sectionStart = _sectionEnd = 0;
             Laps.Clear(); ReferenceLaps.Clear();
@@ -234,7 +236,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
         if (_disposed || _applying) return;
         _analysisCancellation?.Cancel();
         var cancel = new CancellationTokenSource(); _analysisCancellation = cancel;
-        var lap = Lap; var reference = Reference; var comparison = _comparison;
+        var lap = Lap; var reference = Reference; var comparison = _comparison; var reverse = _reverseComparison;
         _sectionStatistics = _referenceStatistics = null; _referenceSectionSeconds = null;
         Metrics.Clear(); Events.Clear();
         SectionText = lap is { Points.Length: > 1 } ? "Preparing the selected section…" : "";
@@ -245,10 +247,21 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
             _sectionStart = Math.Clamp(_sectionStart, 0, MaximumCursor); _sectionEnd = Math.Clamp(_sectionEnd, _sectionStart, MaximumCursor);
             var first = _sectionStart; var last = _sectionEnd;
             var cachedContacts = PreparedTelemetryContacts(lap);
+            var referenceMarkers = _referenceRun?.Markers ?? [];
+            var cachedReferenceContacts = _referenceMapContacts;
             var result = await Task.Run(() =>
             {
                 var contacts = cachedContacts ?? LapReviewContacts.Find(lap, cancel.Token);
-                if (compare) comparison = reference is null ? null : LapReviewAnalysis.Compare(lap, reference, cancel.Token);
+                var referenceContacts = compare && reference is not null
+                    ? LapReviewContacts.Find(reference, cancel.Token).Concat(LapReviewContacts.FromMarkers(reference, referenceMarkers)).OrderBy(contact => contact.PointIndex).ToArray()
+                    : cachedReferenceContacts;
+                if (compare)
+                {
+                    comparison = reference is null ? null : LapReviewAnalysis.Compare(lap, reference, cancel.Token);
+                    reverse = comparison?.CanCompare == true && reference is not null &&
+                        new LapReviewPlotData(lap, reference, comparison, LapReviewChannel.Speed, default, 0, 0, 0).HasDistinctReference
+                        ? LapReviewAnalysis.Compare(reference, lap, cancel.Token) : null;
+                }
                 var stats = LapReviewAnalysis.AnalyzeSection(lap, first, last, cancel.Token);
                 LapSectionStatistics? other = null;
                 double? referenceSeconds = null;
@@ -261,13 +274,14 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
                     if (from.ReferenceLapSeconds is { } start && to.ReferenceLapSeconds is { } end && end >= start)
                         referenceSeconds = end - start;
                 }
-                return (comparison, stats, other, referenceSeconds, contacts);
+                return (comparison, reverse, stats, other, referenceSeconds, contacts, referenceContacts);
             }, cancel.Token);
             if (_disposed || cancel.IsCancellationRequested || !ReferenceEquals(_analysisCancellation, cancel) ||
                 !ReferenceEquals(lap, Lap) || !ReferenceEquals(reference, Reference)) return;
-            _comparison = result.comparison; _sectionStatistics = result.stats;
+            _comparison = result.comparison; _reverseComparison = result.reverse; _sectionStatistics = result.stats;
             _referenceStatistics = result.other; _referenceSectionSeconds = result.referenceSeconds;
             AdoptTelemetryContacts(lap, result.contacts);
+            _referenceMapContacts = result.referenceContacts;
             FormatSection(); RefreshCursor(); Changed(nameof(Plot));
         }
         catch (OperationCanceledException) { }
@@ -275,7 +289,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
         {
             if (!_disposed && !cancel.IsCancellationRequested)
             {
-                _comparison = null;
+                _comparison = _reverseComparison = null;
                 SectionText = "This section could not be prepared. Select the lap again to retry.";
                 Changed(nameof(SectionText)); RefreshCursor(); Changed(nameof(Plot));
             }

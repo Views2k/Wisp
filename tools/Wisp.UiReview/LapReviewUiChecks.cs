@@ -47,6 +47,11 @@ internal static class LapReviewUiChecks
             var review = model.LapReview;
             var track = (LapReviewPlot)view.FindName("Track");
             var track3D = (LapReviewTrack3D)view.FindName("Track3D");
+            var mapViewport = (FrameworkElement)view.FindName("MapViewport");
+            var scrubBar = (FrameworkElement)view.FindName("ScrubBar");
+            var showBoth = (Button)view.FindName("ShowBothMaps");
+            var resetCamera = (Button)view.FindName("ResetCamera");
+            var cameraControls = (FrameworkElement)view.FindName("CameraControls");
             var trace = (LapReviewPlot)view.FindName("Trace");
             var view2D = (RadioButton)view.FindName("View2D");
             var view3D = (RadioButton)view.FindName("View3D");
@@ -61,6 +66,7 @@ internal static class LapReviewUiChecks
             var emptyReferenceHint = (TextBlock)view.FindName("EmptyReferenceHint");
             var cursorReadout = (Border)view.FindName("CursorReadout");
             var wheelReadings = (Expander)view.FindName("WheelReadings");
+            var lapSettings = Descendants(view).OfType<Expander>().Single(item => Equals(item.Header, "Lap settings and benchmark"));
             var slider = Descendants(view).OfType<Slider>().Single(item => AutomationProperties.GetName(item) == "Lap position cursor");
             check(review.Lap?.IsComplete == true && review.Reference?.IsComplete == true, "completed-A-and-B");
             check(review.Plot.Comparison?.CanCompare == true, "comparison-ready");
@@ -82,7 +88,8 @@ internal static class LapReviewUiChecks
             foreach (var (name, size) in new[] { ("normal", new Size(980, 750)), ("compact", new Size(720, 440)) })
             {
                 model.ShowSummary(); Arrange(surface, size);
-                ScrollTo(expander); Capture("controls");
+                lapSettings.IsExpanded = true;
+                ScrollTo(laps); Capture("controls");
                 foreach (var combo in combos) CheckCombo(combo);
                 var originalChannel = review.Channel;
                 channel.SetCurrentValue(Selector.SelectedIndexProperty, 0);
@@ -90,6 +97,8 @@ internal static class LapReviewUiChecks
                 SendKey(channel, Key.Down, surface); Pump();
                 check(channel.SelectedIndex == 1 && review.Channel.Channel == LapReviewChannel.Delta, name + "/combo-keyboard-selection");
                 channel.SetCurrentValue(Selector.SelectedItemProperty, originalChannel); Pump();
+                lapSettings.IsExpanded = false;
+                CheckMapAndScrubber(); Capture("map-and-scrubber");
 
                 slider.SetCurrentValue(RangeBase.ValueProperty, 120d); Pump();
                 check(review.Cursor == 120 && track.Data?.Cursor == 120 && trace.Data?.Cursor == 120, name + "/shared-slider-cursor");
@@ -99,6 +108,17 @@ internal static class LapReviewUiChecks
                 check(review.Cursor == review.MaximumCursor, name + "/graph-end-cursor");
                 SendKey(track, Key.Home, surface); Pump();
                 check(review.Cursor == 0, name + "/map-home-cursor");
+
+                var beforeScrub = view.ScrubUpdates;
+                view.BeginScrub();
+                for (var cursor = 60; cursor < 120; cursor++) slider.SetCurrentValue(RangeBase.ValueProperty, (double)cursor);
+                check(review.Cursor == 0 && view.ScrubUpdates == beforeScrub, name + "/drag-coalesces-before-frame");
+                view.FlushScrub();
+                check(review.Cursor == 119 && view.ScrubUpdates == beforeScrub + 1, name + "/drag-flushes-latest-position");
+                slider.SetCurrentValue(RangeBase.ValueProperty, 120d);
+                view.EndScrub(); Pump();
+                check(review.Cursor == 120 && trace.Data?.Cursor == 120 && (int)slider.Value == 120,
+                    name + "/drag-end-keeps-final-position");
 
                 review.Cursor = 125; review.SectionStartCommand.Execute(null); Ready(model);
                 review.Cursor = 265; review.SectionEndCommand.Execute(null); Ready(model);
@@ -124,12 +144,22 @@ internal static class LapReviewUiChecks
                 check(review.Is3D && view3D.IsChecked == true && track.Visibility == Visibility.Collapsed &&
                     track3D.Visibility == Visibility.Visible, name + "/3d-mode-binding");
                 check(track3D.IsReady && track3D.PreparedSegmentCount > 0, name + "/3d-scene-ready");
+                check(review.HasMapComparison && track3D.IsComparison && track3D.PreparedReferenceSegmentCount > 0 && track3D.FocusedLap == 0,
+                    name + "/3d-comparison-opens-both-tracks-in-one-scene");
+                CheckMapAndScrubber();
+                check(Descendants(mapViewport).OfType<Viewport3D>().Count() == 1 &&
+                    Descendants(mapViewport).OfType<LapReviewTrack3D>().Count() == 1,
+                    name + "/3d-comparison-has-one-continuous-viewport");
                 check(ReferenceEquals(review.Lap, selectedLap) && ReferenceEquals(review.Reference, selectedReference) &&
                     ReferenceEquals(review.Channel, selectedChannel) && review.Cursor == selectedCursor &&
                     review.Plot.SectionStart == 125 && review.Plot.SectionEnd == 265, name + "/3d-keeps-review-state");
                 check(ReferenceEquals(track3D.Data?.Lap, review.Lap) && ReferenceEquals(track3D.Data?.Reference, review.Reference) &&
                     track3D.Data?.Cursor == review.Cursor && track3D.Data?.Channel == review.Channel.Channel,
                     name + "/3d-shares-recorded-data");
+                check(ReferenceEquals(track3D.ComparisonData?.Lap, review.Reference) && ReferenceEquals(track3D.ComparisonData?.Reference, review.Lap) &&
+                    track3D.Data?.ShowReferencePath == false && track3D.ComparisonData?.ShowReferencePath == false,
+                    name + "/3d-each-track-colors-its-own-lap");
+                CheckSharedColorScale();
                 var camera = (track3D.Yaw, track3D.Pitch, track3D.Roll, track3D.ZoomFactor);
                 track3D.Yaw = camera.Yaw + 35; track3D.Pitch = camera.Pitch + 8; track3D.Roll = camera.Roll + 12;
                 track3D.ZoomBy(1.2); track3D.PanBy(12, -8); Pump();
@@ -142,24 +172,75 @@ internal static class LapReviewUiChecks
                 check(review.Cursor == 181 && trace.Data?.Cursor == 181, name + "/3d-arrow-cursor");
                 foreach (var choice in review.Channels)
                 {
-                    channel.SetCurrentValue(Selector.SelectedItemProperty, choice); Pump(); Await(track3D.PrepareForTestAsync());
-                    check(track3D.IsReady && track3D.Data?.Channel == choice.Channel && trace.Data?.Channel == choice.Channel,
+                    channel.SetCurrentValue(Selector.SelectedItemProperty, choice); Pump();
+                    Await(track3D.PrepareForTestAsync());
+                    check(track3D.IsReady && track3D.Data?.Channel == choice.Channel &&
+                        track3D.ComparisonData?.Channel == choice.Channel && trace.Data?.Channel == choice.Channel,
                         name + "/3d-channel-" + choice.Channel);
+                    CheckSharedColorScale();
                 }
                 review.Channel = review.Channels.First(item => item.Channel == LapReviewChannel.TireTemperature);
                 review.SelectedWheel = 3; Pump();
-                check(track3D.Data?.Wheel == 3 && trace.Data?.Wheel == 3, name + "/3d-retains-wheel-selection");
-                review.SelectedWheel = 0; review.Channel = selectedChannel; Pump(); Await(track3D.PrepareForTestAsync());
+                check(track3D.Data?.Wheel == 3 && track3D.ComparisonData?.Wheel == 3 && trace.Data?.Wheel == 3, name + "/3d-retains-wheel-selection");
+                review.SelectedWheel = 0; review.Channel = selectedChannel; Pump();
+                Await(track3D.PrepareForTestAsync());
                 check(saveMap.IsEnabled && mapExportSurface.ActualWidth > 100 && mapExportSurface.ActualHeight > 100,
                     name + "/map-export-surface-ready");
-                track3D.ResetView(); Pump();
+                track3D.ResetView(); track3D.CompleteCameraMotionForTest(); Pump();
                 check(track3D.Yaw == camera.Yaw && track3D.Pitch == camera.Pitch && track3D.Roll == camera.Roll &&
                     track3D.ZoomFactor == camera.ZoomFactor, name + "/3d-reset-camera");
                 ScrollTo(mapExportSurface); Capture("map-3d-brake-section");
-                VerifyMapImage("3d", track3D);
+                VerifyMapImage("3d-overview", track3D);
+                var sceneBuilds = track3D.SceneBuildCount;
+                var segmentCounts = (track3D.PreparedSegmentCount, track3D.PreparedReferenceSegmentCount);
+                var overviewSize = track3D.RenderSize;
+                var overviewA = ProjectedTrackBounds(reference: false);
+                var overviewB = ProjectedTrackBounds(reference: true);
+                check(overviewA.Width > 10 && overviewB.Width > 10 &&
+                    (overviewA.Right <= overviewB.Left || overviewB.Right <= overviewA.Left),
+                    name + "/3d-overview-projects-tracks-side-by-side");
+                track3D.FocusLap(1); track3D.CompleteCameraMotionForTest(); Arrange(surface, size);
+                check(track3D.FocusedLap == 1 && track3D.RenderSize == overviewSize && showBoth.Visibility == Visibility.Visible &&
+                    ProjectedTrackBounds(reference: false).Width > overviewA.Width * 1.15 &&
+                    ReferenceEquals(cameraControls.DataContext, track3D), name + "/focus-A-moves-shared-camera");
+                CheckBothGeometriesRetained();
+                ScrollTo(scrubBar); Capture("map-3d-focus-A");
+                VerifyMapImage("3d-focus-A", track3D);
+                showBoth.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); track3D.CompleteCameraMotionForTest(); Arrange(surface, size);
+                check(track3D.FocusedLap == 0 &&
+                    showBoth.Visibility == Visibility.Visible, name + "/show-both-restores-overview");
+                CheckBothGeometriesRetained();
+
+                track3D.FocusLap(2); track3D.CompleteCameraMotionForTest(); Arrange(surface, size);
+                check(track3D.FocusedLap == 2 && track3D.RenderSize == overviewSize &&
+                    ProjectedTrackBounds(reference: true).Width > overviewB.Width * 1.15 &&
+                    ReferenceEquals(cameraControls.DataContext, track3D), name + "/focus-B-moves-shared-camera");
+                CheckBothGeometriesRetained();
+                var referenceCursor = track3D.ComparisonData!.Cursor;
+                var nextReference = Math.Clamp(referenceCursor + 1, 0, review.Reference!.Points.Length - 1);
+                var expectedCursor = track3D.ComparisonData.Comparison?.Points.ElementAtOrDefault(nextReference)?.ReferencePointIndex;
+                SendKey(track3D, Key.Right, surface); Pump();
+                check(expectedCursor is { } matched && review.Cursor == matched && trace.Data?.Cursor == matched,
+                    name + "/focused-reference-arrow-selects-corresponding-A-position");
+                ScrollTo(scrubBar); Capture("map-3d-focus-B");
+                VerifyMapImage("3d-focus-B", track3D);
+                var zoomOut = Descendants(cameraControls).OfType<Button>().Single(item => Equals(item.Content, "Zoom out"));
+                for (var zoom = 0; zoom < 12 && track3D.FocusedLap != 0; zoom++)
+                { zoomOut.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); track3D.CompleteCameraMotionForTest(); }
+                Arrange(surface, size);
+                check(track3D.FocusedLap == 0, name + "/zoom-out-reveals-both-tracks");
+                CheckBothGeometriesRetained();
+                track3D.FocusLap(2); track3D.CompleteCameraMotionForTest();
+                track3D.Yaw += 28; track3D.Pitch += 7; track3D.Roll = 11; track3D.ZoomBy(1.3);
+                resetCamera.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); track3D.CompleteCameraMotionForTest(); Pump();
+                check(track3D.FocusedLap == 0 && track3D.Yaw == camera.Yaw && track3D.Pitch == camera.Pitch &&
+                    track3D.Roll == camera.Roll && track3D.ZoomFactor == camera.ZoomFactor,
+                    name + "/reset-restores-whole-scene-camera");
+                CheckMapAndScrubber(); Capture("map-3d-comparison-overview");
                 view2D.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump(); Arrange(surface, size);
                 check(!review.Is3D && track.Visibility == Visibility.Visible && track3D.Visibility == Visibility.Collapsed &&
-                    track.Data?.Cursor == review.Cursor && review.Plot.SectionStart == 125 && review.Plot.SectionEnd == 265,
+                    track.Data?.Cursor == review.Cursor &&
+                    review.Plot.SectionStart == 125 && review.Plot.SectionEnd == 265,
                     name + "/2d-restores-with-shared-state");
                 var metrics = Descendants(view).OfType<ItemsControl>().Single(item => ReferenceEquals(item.ItemsSource, review.Metrics));
                 ScrollTo(metrics); Capture("section-metrics");
@@ -183,12 +264,49 @@ internal static class LapReviewUiChecks
                     {
                         var bounds = track.TransformToAncestor(scroll).TransformBounds(new Rect(track.RenderSize));
                         check(bounds.Top >= -.5 && bounds.Bottom <= scroll.ViewportHeight + .5, name + "/whole-map-fits-aligned-viewport");
-                        check(name == "normal" ? Math.Abs(track.ActualHeight - 360) < .5 : track.ActualHeight is >= 180 and < 360,
-                            name + "/responsive-map-height");
+                        check(mapViewport.ActualHeight is >= 100 and <= 360 && track.ActualHeight >= 60 &&
+                            track.ActualHeight <= mapViewport.ActualHeight, name + "/responsive-map-keeps-renderable-height");
                     }
                 }
+                void CheckMapAndScrubber()
+                {
+                    scroll.ScrollToHome();
+                    Arrange(surface, size);
+                    var sliderBounds = slider.TransformToAncestor(scroll).TransformBounds(new Rect(slider.RenderSize));
+                    var mapsBounds = mapViewport.TransformToAncestor(scroll).TransformBounds(new Rect(mapViewport.RenderSize));
+                    var visibleTogether = scroll.VerticalOffset <= .5 && sliderBounds.Top >= -.5 &&
+                        sliderBounds.Bottom <= scroll.ViewportHeight + .5 && mapsBounds.Top >= sliderBounds.Bottom &&
+                        mapsBounds.Bottom <= scroll.ViewportHeight + .5;
+                    check(visibleTogether, name + "/slider-and-map-visible-at-scroll-top");
+                    if (!visibleTogether)
+                        Console.WriteLine($"{name}/map-at-top: offset={scroll.VerticalOffset:0.##}; viewport={scroll.ViewportHeight:0.##}; slider={sliderBounds.Top:0.##}..{sliderBounds.Bottom:0.##}; maps={mapsBounds.Top:0.##}..{mapsBounds.Bottom:0.##}; map-height={mapViewport.ActualHeight:0.##}; mode={(review.Is3D ? "3d" : "2d")}");
+                }
+                void CheckSharedColorScale()
+                {
+                    var a = track3D.Data; var b = track3D.ComparisonData;
+                    check(a is not null && b is not null && a.ColorRangeOverride is { } shared && b.ColorRangeOverride == shared &&
+                        LapReviewColorRange.From(a) == LapReviewColorRange.From(b), name + "/A-B-share-value-color-range-" + review.Channel.Channel);
+                }
+                Rect ProjectedTrackBounds(bool reference)
+                {
+                    var points = (reference ? track3D.ComparisonData : track3D.Data)!.Lap!.Points;
+                    var bounds = Rect.Empty;
+                    for (var index = 0; index < points.Length; index++)
+                    {
+                        var point = reference ? track3D.ProjectReferencePoint(index) : track3D.ProjectPoint(index);
+                        if (double.IsFinite(point.X) && double.IsFinite(point.Y)) bounds.Union(point);
+                    }
+                    return bounds;
+                }
+                void CheckBothGeometriesRetained()
+                {
+                    check(track3D.SceneBuildCount == sceneBuilds &&
+                        (track3D.PreparedSegmentCount, track3D.PreparedReferenceSegmentCount) == segmentCounts &&
+                        ReferenceEquals(track3D.Data?.Lap, review.Lap) && ReferenceEquals(track3D.ComparisonData?.Lap, review.Reference),
+                        name + "/camera-focus-retains-both-prepared-tracks");
+                }
                 void Capture(string stage) { Arrange(surface, size); capture?.Invoke(name + "-" + stage, surface, size); }
-                void VerifyMapImage(string mode, FrameworkElement map)
+                void VerifyMapImage(string mode, params FrameworkElement[] maps)
                 {
                     Arrange(surface, size);
                     var bitmap = view.CaptureMapImage();
@@ -200,12 +318,47 @@ internal static class LapReviewUiChecks
                     var opaque = corners.Length == 4 && corners.All(alpha => alpha == 255);
                     check(opaque, code + "opaque-corners-without-layout-offset");
                     if (!opaque) Console.WriteLine($"{code}corner-alpha=[{string.Join(",", corners)}]; pixels={bitmap.PixelWidth}x{bitmap.PixelHeight}; surface={mapExportSurface.RenderSize.Width:R}x{mapExportSurface.RenderSize.Height:R}");
-                    var mapBounds = map.TransformToAncestor(mapExportSurface).TransformBounds(new Rect(map.RenderSize));
                     var legend = Descendants(mapExportSurface).OfType<System.Windows.Shapes.Rectangle>()
                         .Single(item => ReferenceEquals(item.Fill, LapReviewPalette.LegendBrush));
                     var legendBounds = legend.TransformToAncestor(mapExportSurface).TransformBounds(new Rect(legend.RenderSize));
-                    check(ColorfulPixels(pixels, bitmap, mapBounds, mapExportSurface.RenderSize) > 50, code + "contains-map-line");
-                    check(ColorfulPixels(pixels, bitmap, legendBounds, mapExportSurface.RenderSize) > 150, code + "contains-color-legend");
+                    var mapPixelsPassed = true;
+                    foreach (var map in maps)
+                    {
+                        var mapBounds = map.TransformToAncestor(mapExportSurface).TransformBounds(new Rect(map.RenderSize));
+                        var count = ColorfulPixels(pixels, bitmap, mapBounds, mapExportSurface.RenderSize);
+                        var passed = count > 50;
+                        mapPixelsPassed &= passed;
+                        check(passed, code + "contains-map-line-" + map.Name);
+                        if (!passed)
+                            Console.WriteLine($"{code}map={map.Name}; colorful-pixels={count}; bounds={mapBounds.X:R},{mapBounds.Y:R},{mapBounds.Width:R},{mapBounds.Height:R}");
+                    }
+                    if (mode == "3d-overview")
+                    {
+                        foreach (var reference in new[] { false, true })
+                        {
+                            var projectedBounds = ProjectedTrackBounds(reference);
+                            projectedBounds.Inflate(3, 3);
+                            var sceneBounds = track3D.TransformToAncestor(mapExportSurface).TransformBounds(projectedBounds);
+                            var count = ColorfulPixels(pixels, bitmap, sceneBounds, mapExportSurface.RenderSize);
+                            mapPixelsPassed &= count > 50;
+                            check(count > 50, code + (reference ? "contains-reference-track" : "contains-current-track"));
+                            if (count <= 50)
+                                Console.WriteLine($"{code}track={(reference ? "B" : "A")}; colorful-pixels={count}; projected={sceneBounds}");
+                        }
+                    }
+                    var legendPixels = ColorfulPixels(pixels, bitmap, legendBounds, mapExportSurface.RenderSize);
+                    check(legendPixels > 150, code + "contains-color-legend");
+                    if (!mapPixelsPassed || legendPixels <= 150 || !opaque)
+                    {
+                        var descendantBounds = VisualTreeHelper.GetDescendantBounds(mapExportSurface);
+                        var clip = VisualTreeHelper.GetClip(mapExportSurface)?.Bounds;
+                        Console.WriteLine($"{code}legend-pixels={legendPixels}; legend={legendBounds.X:R},{legendBounds.Y:R},{legendBounds.Width:R},{legendBounds.Height:R}; bitmap={bitmap.PixelWidth}x{bitmap.PixelHeight}; dpi={bitmap.DpiX:R},{bitmap.DpiY:R}; surface={mapExportSurface.ActualWidth:R}x{mapExportSurface.ActualHeight:R}; descendants={descendantBounds}; clip={clip}; scroll={scroll.VerticalOffset:R}; map-height={track.ActualHeight:R}");
+                        var outputDirectory = Path.GetDirectoryName(Path.GetFullPath(unusedStoreDirectory))!;
+                        Directory.CreateDirectory(outputDirectory);
+                        var fileName = $"lap-map-failure-{name}-{mode}-{Guid.NewGuid():N}.png";
+                        Await(RunImageExporter.WriteAsync(bitmap, Path.Combine(outputDirectory, fileName)));
+                        Console.WriteLine($"{code}exact-export-bitmap={fileName}");
+                    }
                     if (name != "normal") return;
 
                     var parent = Path.GetDirectoryName(Path.GetFullPath(unusedStoreDirectory))!;

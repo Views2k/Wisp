@@ -15,7 +15,7 @@ public sealed partial class LapReviewViewModel
     private LapReviewPlotData? _legendData;
     private LapContactChoice? _selectedContact;
     private string _mapStatus = "";
-    public bool Is3D { get => _is3D; set { if (Set(ref _is3D, value)) Changed(nameof(Is2D)); } }
+    public bool Is3D { get => _is3D; set { if (Set(ref _is3D, value)) { Changed(nameof(Is2D)); Changed(nameof(MapPlotA)); Changed(nameof(ComparisonMapPlot)); Changed(nameof(IsMapComparison)); Changed(nameof(HasMapReference)); } } }
     public bool Is2D { get => !Is3D; set { if (value) Is3D = false; } }
     public bool ShowContacts { get => _showContacts; set { if (Set(ref _showContacts, value)) Changed(nameof(Plot)); } }
     public string MapStatus { get => _mapStatus; set => Set(ref _mapStatus, value); }
@@ -26,7 +26,7 @@ public sealed partial class LapReviewViewModel
     public string MapCursorValue => Lap is { Points.Length: > 0 } lap ?
         $"{Channel.Label}: {RunPresentation.Number(LapReviewPlot.Value(lap.Points[Cursor], Plot, Cursor), " " + LapReviewPlot.Unit(Plot))}" : "";
     public string ElevationSummary { get; private set; } = "";
-    public bool HasMapReference => _comparison?.CanCompare == true && Reference is not null;
+    public bool HasMapReference => !Is3D && Plot.HasDistinctReference;
     public string ContactSummary => _contacts.Length == 0 ? "No contact markers" : $"{_contacts.Length} contact marker{(_contacts.Length == 1 ? "" : "s")}";
     public IReadOnlyList<LapContactChoice> ContactChoices { get; private set; } = [];
     public LapContactChoice? SelectedContact
@@ -128,15 +128,21 @@ public sealed partial class LapReviewViewModel
             old.TemperatureUnit != data.TemperatureUnit || old.TorqueUnit != data.TorqueUnit)
         {
             _legendData = data;
-            var range = LapReviewColorRange.From(data);
+            var range = SharedMapRange(data);
+            _sharedMapRange = range;
             LegendTitle = Channel.Label + (IsWheelChannel ? " · " + Wheels[SelectedWheel] : "");
             LegendMinimum = range.HasValues ? $"{range.Minimum:0.##} {LapReviewPlot.Unit(data)}" : "Unavailable";
             LegendMaximum = range.HasValues ? $"{range.Maximum:0.##} {LapReviewPlot.Unit(data)}" : "Unavailable";
-            ElevationSummary = data.Lap is { Points.Length: > 0 } lap ?
-                $"Recorded elevation: {lap.Points.Min(p => p.Position.Y):0.0}–{lap.Points.Max(p => p.Position.Y):0.0} m · true scale" : "";
-            foreach (var name in new[] { nameof(LegendMinimum), nameof(LegendMaximum), nameof(LegendTitle), nameof(ElevationSummary), nameof(MapTitle) }) Changed(name);
+            var positions = HasMapComparison && Reference is { } reference
+                ? data.Lap!.Points.Concat(reference.Points) : data.Lap?.Points ?? [];
+            ElevationSummary = data.Lap is { Points.Length: > 0 } ?
+                $"{(HasMapComparison ? "Both laps’ recorded elevation" : "Recorded elevation")}: {positions.Min(p => p.Position.Y):0.0}–{positions.Max(p => p.Position.Y):0.0} m · true scale" : "";
+            foreach (var name in new[] { nameof(LegendMinimum), nameof(LegendMaximum), nameof(LegendTitle), nameof(ElevationSummary), nameof(MapTitle), nameof(MapATitle), nameof(MapBTitle) }) Changed(name);
         }
-        Changed(nameof(MapCursorValue)); Changed(nameof(HasMapReference)); Changed(nameof(CanMarkContact)); Changed(nameof(CanRemoveContact));
+        Changed(nameof(MapCursorValue)); Changed(nameof(MapBCursorValue)); Changed(nameof(MapPlotA)); Changed(nameof(MapPlotB));
+        Changed(nameof(ComparisonMapPlot));
+        Changed(nameof(IsMapComparison));
+        Changed(nameof(HasMapComparison)); Changed(nameof(MapComparisonHint)); Changed(nameof(HasMapReference)); Changed(nameof(CanMarkContact)); Changed(nameof(CanRemoveContact));
         if (MarkContactCommand is RunUiCommand mark) mark.RaiseCanExecuteChanged();
         if (RemoveContactCommand is RunUiCommand remove) remove.RaiseCanExecuteChanged();
     }

@@ -28,9 +28,45 @@ public sealed class LapReviewTrackGeometryTests
     public void OnlyAnAcceptedReferenceCanExpandTheBounds()
     {
         var data = Data([new(0, 0, 0), new(10, 1, 0)]);
-        var reference = Data([new(0, 0, 0), new(1000, 100, 0)]).Lap;
+        var reference = Data([new(0, 0, 0), new(1000, 100, 0)]).Lap! with { RunId = Guid.NewGuid() };
         Assert.Equal(10, LapReviewTrackBounds.From(data with { Reference = reference }).Span);
         Assert.Equal(1000, LapReviewTrackBounds.From(data with { Reference = reference, Comparison = new([], 1, true, string.Empty) }).Span);
+    }
+
+    [Fact]
+    public void SeparateComparisonViewsKeepUnionBoundsWithoutDrawingTheOtherLapsPath()
+    {
+        var first = Data([new(0, 0, 0), new(100, 10, 50)]);
+        var second = Data([new(0, 0, 0), new(1000, 100, 0)]).Lap! with { RunId = Guid.NewGuid() };
+        var combined = first with { Reference = second, Comparison = new([], 1, true, string.Empty) };
+        var split = combined with { ShowReferencePath = false };
+        var overlay = LapReviewTrackGeometry.Build(combined, TestContext.Current.CancellationToken);
+        var separate = LapReviewTrackGeometry.Build(split, TestContext.Current.CancellationToken);
+        Assert.Equal(overlay.Bounds, separate.Bounds);
+        Assert.Equal(overlay.Fit, separate.Fit);
+        Assert.Equal(1000, separate.Bounds.Span);
+        Assert.Equal(overlay.Model.Children.Count - 1, separate.Model.Children.Count);
+        Assert.Equal(overlay.SegmentCount, separate.SegmentCount);
+
+        var sameLap = first with { Reference = first.Lap! with { }, Comparison = new([], 1, true, string.Empty) };
+        Assert.False(sameLap.HasDistinctReference);
+        Assert.Equal(LapReviewTrackBounds.From(first), LapReviewTrackBounds.From(sameLap));
+    }
+
+    [Fact]
+    public void SideBySidePlacementPreservesEqualScaleAndTrueElevationInOneCoordinateSystem()
+    {
+        var first = Data([new(0, 20, 0), new(100, 35, 50)]);
+        var second = Data([new(0, 40, 0), new(200, 80, 75)]);
+        var bounds = LapReviewTrackBounds.From(first, second.Lap);
+        var placement = LapReviewTrackArrangement.Create(first, second, bounds);
+        Assert.Equal(0, placement.PrimaryOffset.Y); Assert.Equal(0, placement.ReferenceOffset.Y);
+        var a = first.Lap!.Points.Select(point => bounds.Normalize(point.Position) + placement.PrimaryOffset).ToArray();
+        var b = second.Lap!.Points.Select(point => bounds.Normalize(point.Position) + placement.ReferenceOffset).ToArray();
+        Assert.Equal(2, (b[1].X - b[0].X) / (a[1].X - a[0].X), 8);
+        Assert.Equal(15, (a[1].Y - a[0].Y) * bounds.Span, 8);
+        Assert.Equal(40, (b[1].Y - b[0].Y) * bounds.Span, 8);
+        Assert.Equal(8, placement.PrimaryCorners.Length); Assert.Equal(8, placement.ReferenceCorners.Length);
     }
 
     [Fact]

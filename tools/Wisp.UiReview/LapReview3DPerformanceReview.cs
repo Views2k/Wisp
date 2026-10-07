@@ -4,7 +4,10 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -13,6 +16,7 @@ using Wisp.App;
 using Wisp.App.Runs;
 using Wisp.Core;
 using Wisp.Core.Runs;
+using Wisp.Telemetry;
 
 namespace Wisp.UiReview;
 
@@ -20,13 +24,15 @@ internal static class LapReview3DPerformanceReview
 {
     internal static int Run(string source, string output, Func<ResourceDictionary> loadResources)
     {
-        using var deadline = new System.Threading.Timer(_ => Environment.Exit(124), null, TimeSpan.FromSeconds(120), Timeout.InfiniteTimeSpan);
+        using var deadline = new System.Threading.Timer(_ => Environment.Exit(124), null, TimeSpan.FromSeconds(180), Timeout.InfiniteTimeSpan);
         using var bindings = new BindingTrace();
         var previousContext = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         var application = new ResourceApplication { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         var failures = new List<string>();
         var measurements = new List<Measurement>();
+        var scrubMeasurements = new List<ScrubMeasurement>();
+        var dragBatching = new List<object>();
         string? sourceSha256 = null;
         var sourceSamples = 0; var lapPoints = 0; var maximumPoints = 0; var realSegments = 0; var stressSegments = 0;
         double elevationSpan = 0;
@@ -89,6 +95,7 @@ internal static class LapReview3DPerformanceReview
             track.Yaw = -65; track.Pitch = 18; track.Roll = 5; track.ZoomFactor = 1;
             Capture(surface, "recorded-3d-rotated");
             CaptureActualView(run, Path.GetDirectoryName(path)!);
+            MeasureActualRunsPageScrubbing(run);
 
             // Dense interpolation of this recorded geometry exercises the accepted size limit;
             // it is a synthetic stress case, not another measured gameplay recording.
@@ -124,7 +131,9 @@ internal static class LapReview3DPerformanceReview
         if (bindings.TotalCount != 0) failures.Add("binding-diagnostics");
         File.WriteAllText(Path.Combine(output, "lap-review-3d-performance.json"), JsonSerializer.Serialize(new
         {
-            method = "Read-only stored lap analysis and actual WPF 3D scene. Detached 1280x720 software rendering and the production Lap Review view at 1280x900; its map PNG uses the production bounded 2x export. No game, window, controller, UDP listener or settings access. Camera/cursor timings measure CPU property updates, not rendered or displayed FPS. Allocation deltas are process-wide managed allocations. The 180000-point case is dense interpolation of recorded geometry, not gameplay.",
+            method = "Read-only stored lap analysis and actual WPF 3D scene. Detached 1280x720 software rendering and the production Lap Review view at 1280x900; its map PNG uses the production bounded 2x export. RunsPage scrub measurements use the loaded recorded run through RunsViewModel and the actual Lap position cursor Slider binding, with DataBind/Render dispatcher work and layout flushed after each change. They are programmatic slider changes, not physical mouse input. Separate bounded samples rasterize the actual page in software. No game, window, controller, UDP listener or settings-file access. Timings measure CPU work and elapsed time, not displayed FPS. Allocation deltas are process-wide managed allocations. The 180000-point case is dense interpolation of recorded geometry, not gameplay.",
+            appAssemblySha256 = Hash(typeof(RunsPage).Assembly.Location),
+            coreAssemblySha256 = Hash(typeof(RecordedRun).Assembly.Location),
             sourceSha256,
             sourceSamples,
             lapPoints,
@@ -138,6 +147,8 @@ internal static class LapReview3DPerformanceReview
                 note = "Only production contact analysis and original stored run markers are used. No synthetic contact markers are added. PossibleContact entries are estimates, not confirmed collisions."
             },
             measurements,
+            scrubMeasurements,
+            dragBatching,
             failures,
             bindingDiagnosticCount = bindings.TotalCount
         }, new JsonSerializerOptions { WriteIndented = true }));
@@ -226,6 +237,155 @@ internal static class LapReview3DPerformanceReview
                 Await(actualTrack.PrepareForTestAsync());
             }
         }
+
+        void MeasureActualRunsPageScrubbing(RecordedRun run)
+        {
+            var receiver = new TelemetryUdpReceiver(); // Never started.
+            var service = new RunRecordingService(receiver, Path.Combine(output, "unused-scrub-library"));
+            var settings = new AppSettings { StartWithWindows = false, StartWithForza = false, AutomaticApplicationUpdateChecks = false };
+            var model = new RunsViewModel(service, settings, Dispatcher.CurrentDispatcher);
+            var page = new RunsPage { DataContext = model };
+            var surface = new Border
+            {
+                Padding = new Thickness(16),
+                Background = (Brush)application.FindResource("WindowBrush"),
+                DataContext = new DiagnosticsViewModel(settings),
+                Child = page
+            };
+            LapReviewTrack3D? actualTrack = null;
+            try
+            {
+                VisualTreeHelper.SetRootDpi(surface, new DpiScale(1, 1));
+                Await(model.ShowReviewAsync(run));
+                WaitForReview();
+                var expander = (Expander)page.FindName("LapReviewExpander");
+                expander.IsExpanded = true;
+                var size = new Size(1280, 900);
+                LapReviewUiChecks.Arrange(surface, size);
+                var view = Descendants(expander).OfType<LapReviewView>().Single();
+                actualTrack = (LapReviewTrack3D)view.FindName("Track3D");
+                var slider = Descendants(view).OfType<Slider>().Single(item =>
+                    AutomationProperties.GetName(item) == "Lap position cursor");
+                var review = model.LapReview;
+                Check(BindingOperations.IsDataBound(slider, RangeBase.ValueProperty), "scrub-production-slider-bound");
+                Check(review.Lap is { Points.Length: > 1 }, "scrub-production-lap-ready");
+                var scroll = (ScrollViewer)page.FindName("RunsScroll");
+                var toolbar = (FrameworkElement)view.FindName("MapToolbar");
+                using var process = Process.GetCurrentProcess();
+                foreach (var is3D in new[] { false, true })
+                {
+                    review.Is3D = is3D;
+                    LapReviewUiChecks.Arrange(surface, size);
+                    if (is3D) Await(actualTrack.PrepareForTestAsync());
+                    WaitForReview();
+                    if (scroll.Content is UIElement scrollContent)
+                        scroll.ScrollToVerticalOffset(Math.Max(0, toolbar.TranslatePoint(new Point(), scrollContent).Y - 8));
+                    LapReviewUiChecks.Arrange(surface, size);
+                    for (var warm = 0; warm < 8; warm++) SetCursor(warm * review.MaximumCursor / 7);
+                    var mode = is3D ? "3d" : "2d";
+                    Scrub(mode, 120, render: false);
+                    Scrub(mode, 240, render: false);
+                    Scrub(mode, 12, render: true);
+                    CheckDragBatching(mode);
+                }
+                Check(!receiver.IsRunning && !service.IsRecording, "scrub-no-telemetry-or-recording-started");
+                Check(PresentationSource.FromVisual(surface) is null && application.Windows.Count == 0, "scrub-no-presentation-window");
+
+                void Scrub(string mode, int changes, bool render)
+                {
+                    var bitmap = render ? new RenderTargetBitmap(1280, 900, 96, 96, PixelFormats.Pbgra32) : null;
+                    var durations = new double[changes];
+                    var buildsBefore = actualTrack.SceneBuildCount;
+                    var allocated = GC.GetTotalAllocatedBytes(precise: true);
+                    var cpu = process.TotalProcessorTime;
+                    var timer = Stopwatch.StartNew();
+                    for (var index = 0; index < changes; index++)
+                    {
+                        var began = Stopwatch.GetTimestamp();
+                        SetCursor(index * review.MaximumCursor / (changes - 1));
+                        bitmap?.Render(surface);
+                        durations[index] = Stopwatch.GetElapsedTime(began).TotalMilliseconds;
+                    }
+                    timer.Stop();
+                    var cpuMilliseconds = (process.TotalProcessorTime - cpu).TotalMilliseconds;
+                    var allocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocated;
+                    var buildsAfter = actualTrack.SceneBuildCount;
+                    Array.Sort(durations);
+                    scrubMeasurements.Add(new(mode, changes, render, review.Lap!.Points.Length,
+                        timer.Elapsed.TotalMilliseconds, cpuMilliseconds, durations[changes / 2],
+                        durations[(int)Math.Ceiling(changes * .95) - 1], durations[^1], allocatedBytes,
+                        buildsBefore, buildsAfter, review.Cursor, (int)slider.Value));
+                    Check(review.Cursor == review.MaximumCursor && (int)slider.Value == review.Cursor,
+                        $"scrub-{mode}-{changes}-slider-reached-model");
+                    Check(buildsBefore == buildsAfter, $"scrub-{mode}-{changes}-keeps-3d-scene");
+                    if (bitmap is not null)
+                    {
+                        bitmap.Freeze();
+                        Await(RunImageExporter.WriteAsync(bitmap, Path.Combine(output, $"actual-runs-page-scrub-{mode}.png")));
+                    }
+                }
+                void SetCursor(int value)
+                {
+                    // Preserve the production two-way binding and exercise its normal
+                    // ValueChanged path, parent cursor synchronization and all readouts.
+                    slider.SetCurrentValue(RangeBase.ValueProperty, (double)value);
+                    Dispatcher.CurrentDispatcher.Invoke(static () => { }, DispatcherPriority.DataBind);
+                    surface.UpdateLayout();
+                    Dispatcher.CurrentDispatcher.Invoke(static () => { }, DispatcherPriority.Render);
+                    surface.UpdateLayout();
+                }
+                void CheckDragBatching(string mode)
+                {
+                    SetCursor(0);
+                    var before = view.ScrubUpdates;
+                    var builds = actualTrack.SceneBuildCount;
+                    var timer = Stopwatch.StartNew();
+                    view.BeginScrub();
+                    try
+                    {
+                        for (var frame = 0; frame < 10; frame++)
+                        {
+                            for (var input = 0; input < 50; input++)
+                                slider.SetCurrentValue(RangeBase.ValueProperty,
+                                    (double)((frame * 50 + input) * review.MaximumCursor / 499));
+                            // Deterministic rendering-boundary simulation; not a displayed-frame measurement.
+                            view.FlushScrub();
+                        }
+                    }
+                    finally { view.EndScrub(); }
+                    timer.Stop();
+                    Check(view.ScrubUpdates - before == 10 && review.Cursor == review.MaximumCursor,
+                        $"scrub-{mode}-500-inputs-coalesce-to-10-final-updates");
+                    Check(actualTrack.SceneBuildCount == builds, $"scrub-{mode}-batched-drag-keeps-scene");
+                    dragBatching.Add(new
+                    {
+                        mode,
+                        inputChanges = 500,
+                        simulatedFrameBoundaries = 10,
+                        committedUpdates = view.ScrubUpdates - before,
+                        finalCursor = review.Cursor,
+                        elapsedMilliseconds = timer.Elapsed.TotalMilliseconds
+                    });
+                }
+            }
+            finally
+            {
+                page.DataContext = null;
+                model.Dispose();
+                if (actualTrack is not null) { actualTrack.Data = null; Await(actualTrack.PrepareForTestAsync()); }
+                Await(service.DisposeAsync().AsTask());
+                Await(receiver.DisposeAsync().AsTask());
+            }
+            void WaitForReview()
+            {
+                var timer = Stopwatch.StartNew();
+                do { Await(Task.Delay(10)); }
+                while ((model.IsBusy || model.IsPreparingCharts || model.LapReview.IsBusy) && timer.Elapsed < TimeSpan.FromSeconds(20));
+                Dispatcher.CurrentDispatcher.Invoke(static () => { }, DispatcherPriority.ContextIdle);
+                if (model.IsBusy || model.IsPreparingCharts || model.LapReview.IsBusy || model.HasError)
+                    throw new InvalidOperationException("The actual Runs page did not finish preparing its recorded lap.");
+            }
+        }
     }
 
     private static LapReviewLap Densify(LapReviewLap lap)
@@ -264,5 +424,23 @@ internal static class LapReview3DPerformanceReview
         task.GetAwaiter().GetResult();
     }
     private sealed record Measurement(string Name, int Operations, double TotalMilliseconds, long ManagedAllocatedBytes);
+    private sealed record ScrubMeasurement(string Mode, int SliderChanges, bool SoftwareRasterized, int RecordedLapPoints,
+        double TotalMilliseconds, double ProcessCpuMilliseconds, double MedianUpdateMilliseconds,
+        double P95UpdateMilliseconds, double MaximumUpdateMilliseconds, long ManagedAllocatedBytes,
+        int SceneBuildsBefore, int SceneBuildsAfter, int ModelCursor, int SliderCursor);
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        var pending = new Queue<DependencyObject>();
+        var seen = new HashSet<DependencyObject>();
+        pending.Enqueue(root);
+        while (pending.TryDequeue(out var item))
+        {
+            if (!seen.Add(item)) continue;
+            yield return item;
+            foreach (var child in LogicalTreeHelper.GetChildren(item).OfType<DependencyObject>()) pending.Enqueue(child);
+            for (var index = 0; item is Visual && index < VisualTreeHelper.GetChildrenCount(item); index++)
+                pending.Enqueue(VisualTreeHelper.GetChild(item, index));
+        }
+    }
     private sealed class ResourceApplication : Application { protected override void OnStartup(StartupEventArgs e) { } }
 }

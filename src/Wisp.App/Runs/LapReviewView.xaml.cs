@@ -16,6 +16,8 @@ public partial class LapReviewView : UserControl
         Track.PointChosen += Pick;
         Track3D.PointChosen += Pick;
         Trace.PointChosen += Pick;
+        InitializeMapWorkspace();
+        InitializeScrubbing();
     }
     private void Pick(int index) { if (DataContext is LapReviewViewModel model) model.Cursor = index; }
     private void ResetMapView_Click(object sender, RoutedEventArgs e) => Track3D.ResetView();
@@ -78,7 +80,12 @@ public partial class LapReviewView : UserControl
         {
             drawing.DrawRectangle(MapExportSurface.Background, null,
                 new Rect(0, 0, bitmap.PixelWidth / scale, bitmap.PixelHeight / scale));
-            var brush = new VisualBrush(MapExportSurface) { Stretch = Stretch.Fill };
+            var brush = new VisualBrush(MapExportSurface)
+            {
+                Stretch = Stretch.Fill,
+                ViewboxUnits = BrushMappingMode.Absolute,
+                Viewbox = new Rect((Point)VisualTreeHelper.GetOffset(MapExportSurface), size)
+            };
             drawing.DrawRectangle(brush, null, new Rect(size));
         }
         bitmap.Render(visual); bitmap.Freeze();
@@ -89,6 +96,6 @@ public partial class LapReviewView : UserControl
 public sealed class LapReviewMapHeightConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
-        value is double height && double.IsFinite(height) && height > 0 ? Math.Clamp(height - 8, 180, 360) : 360d;
+        value is double height && double.IsFinite(height) && height > 0 ? Math.Clamp(height - 180, 128, 360) : 360d;
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
 }

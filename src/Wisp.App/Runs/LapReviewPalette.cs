@@ -66,6 +66,7 @@ internal readonly record struct LapReviewColorRange(double Minimum, double Maxim
     internal double Fraction(double value) => Maximum > Minimum ? Math.Clamp((value - Minimum) / (Maximum - Minimum), 0, 1) : .5;
     internal static LapReviewColorRange From(LapReviewPlotData data)
     {
+        if (data.ColorRangeOverride is { } shared) return shared;
         var minimum = double.PositiveInfinity; var maximum = double.NegativeInfinity;
         if (data.Lap is { } lap)
             for (var i = 0; i < lap.Points.Length; i++)
