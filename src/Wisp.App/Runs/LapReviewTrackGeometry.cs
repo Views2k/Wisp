@@ -163,7 +163,7 @@ internal static class LapReviewTrackGeometry
         }
     }
 
-    internal static LapReviewTrackScene Build(LapReviewPlotData data, bool showContacts, CancellationToken cancellationToken)
+    internal static LapReviewTrackScene Build(LapReviewPlotData data, CancellationToken cancellationToken)
     {
         var bounds = LapReviewTrackBounds.From(data);
         var fit = LapReviewTrackFit.From(data, bounds);
@@ -215,26 +215,6 @@ internal static class LapReviewTrackGeometry
             Add(model, referenceMesh, RunComparisonColors.RunB);
         }
         for (var i = 0; i < colors.Length; i++) Add(model, colors[i], i == 64 ? Brush(139, 146, 159) : LapReviewPalette.GetBrush(i / 63d));
-        var start = new MeshBuilder();
-        if (LapReviewTrackBounds.IsFinite(points[0].Position))
-        {
-            var position = bounds.Normalize(points[0].Position);
-            for (var i = 0; i < 32; i++)
-            {
-                var a = i * Math.PI / 16; var b = (i + 1) * Math.PI / 16;
-                start.Tube(position + new Vector3D(Math.Cos(a) * .012, 0, Math.Sin(a) * .012),
-                    position + new Vector3D(Math.Cos(b) * .012, 0, Math.Sin(b) * .012), .002);
-            }
-        }
-        Add(model, start, LapReviewPalette.StartBrush);
-        if (showContacts && data.Contacts is { } contacts)
-        {
-            var markers = new MeshBuilder();
-            foreach (var contact in contacts)
-                if ((uint)contact.PointIndex < (uint)points.Length && LapReviewTrackBounds.IsFinite(points[contact.PointIndex].Position))
-                    markers.Diamond(bounds.Normalize(points[contact.PointIndex].Position), .009);
-            Add(model, markers, LapReviewPalette.ContactBrush);
-        }
         cancellationToken.ThrowIfCancellationRequested();
         model.Freeze();
         return new(model, bounds, fit, segmentCount);
@@ -255,14 +235,6 @@ internal static class LapReviewTrackGeometry
             }
         }
         return frames;
-    }
-
-    internal static GeometryModel3D CursorModel()
-    {
-        var marker = new MeshBuilder(); marker.Diamond(new(), .008);
-        var mesh = marker.Finish(); var material = new DiffuseMaterial(Brushes.White); material.Freeze();
-        var result = new GeometryModel3D(mesh, material) { BackMaterial = material };
-        result.Freeze(); return result;
     }
 
     private static Brush Brush(byte r, byte g, byte b) { var brush = new SolidColorBrush(Color.FromRgb(r, g, b)); brush.Freeze(); return brush; }
@@ -319,14 +291,6 @@ internal static class LapReviewTrackGeometry
                 var center = _positions.Count; _positions.Add(b);
                 for (var side = 0; side < sides; side++) _triangles.AddRange([center, offset + side * 2 + 1, offset + (side + 1) % sides * 2 + 1]);
             }
-        }
-        internal void Diamond(Point3D p, double radius)
-        {
-            var offset = _positions.Count;
-            _positions.AddRange([p + new Vector3D(radius, 0, 0), p + new Vector3D(-radius, 0, 0),
-                p + new Vector3D(0, radius, 0), p + new Vector3D(0, -radius, 0),
-                p + new Vector3D(0, 0, radius), p + new Vector3D(0, 0, -radius)]);
-            foreach (var i in new[] { 0, 2, 4, 4, 2, 1, 1, 2, 5, 5, 2, 0, 0, 4, 3, 4, 1, 3, 1, 5, 3, 5, 0, 3 }) _triangles.Add(offset + i);
         }
         internal MeshGeometry3D Finish()
         {

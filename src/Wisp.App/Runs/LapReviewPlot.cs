@@ -129,10 +129,7 @@ public sealed class LapReviewPlot : FrameworkElement
                 if (contact.PointIndex < 0 || contact.PointIndex >= _hitPoints.Count) continue;
                 var p = _hitPoints[contact.PointIndex].Position;
                 if (!IsMap) p.Y = area.Top + 7;
-                var marker = new StreamGeometry();
-                using (var shape = marker.Open()) { shape.BeginFigure(new Point(p.X, p.Y - 5), true, true); shape.LineTo(new Point(p.X + 5, p.Y + 4), true, false); shape.LineTo(new Point(p.X - 5, p.Y + 4), true, false); }
-                marker.Freeze();
-                dc.DrawGeometry(LapReviewPalette.ContactBrush, new Pen(background, 1), marker);
+                LapReviewPalette.DrawContact(dc, p, background);
             }
         var unit = Unit(data);
         Label(dc, finite.Length == 0 ? "No comparable values for this channel" : $"{colorMinimum:0.##} → {colorMaximum:0.##} {unit}" + (IsMap ? " · low = blue, high = red" : " · lap = cyan, reference = amber"), new(10, 5), muted);

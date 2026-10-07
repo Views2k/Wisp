@@ -122,6 +122,51 @@ public sealed class LapReviewTrack3DTests
         Assert.Equal(255, pixel[3]);
     });
 
+    [Fact]
+    public void ContactAnnotationStaysAboveAnOccludingTrackAndFollowsTheCameraWithoutRebuilding() => OnSta(async () =>
+    {
+        // The raised return segment passes directly above the contact in a top view.
+        // Coloring by elevation proves the red foreground track really covers that position.
+        var data = Data([new(-100, 0, 0), new(0, 0, 0), new(100, 0, 0), new(100, 60, 0), new(-100, 60, 0)]) with
+        { Channel = LapReviewChannel.Elevation, Contacts = [new(1, 1, 100, LapReviewContactKind.PossibleContact)] };
+        var track = new LapReviewTrack3D { Data = data, ShowContacts = false };
+        var surface = new Border { Background = Brushes.Black, Child = track };
+        surface.Measure(new Size(800, 400)); surface.Arrange(new Rect(0, 0, 800, 400));
+        await track.PrepareForTestAsync();
+        track.Yaw = 0; track.Pitch = 90; track.Roll = 0;
+        var originalAnchor = track.ProjectPoint(1);
+        AssertPixel(surface, originalAnchor, ((SolidColorBrush)LapReviewPalette.GetBrush(1)).Color);
+        track.ShowContacts = true;
+        AssertPixel(surface, originalAnchor, ((SolidColorBrush)LapReviewPalette.ContactBrush).Color);
+
+        track.Yaw = 35; track.Pitch = 48; track.Roll = 14; track.ZoomBy(1.4); track.PanBy(22, -16);
+        var movedAnchor = track.ProjectPoint(1);
+        Assert.NotEqual(originalAnchor, movedAnchor);
+        AssertPixel(surface, movedAnchor, ((SolidColorBrush)LapReviewPalette.ContactBrush).Color);
+        track.Data = data with { Cursor = 1 };
+        AssertPixel(surface, movedAnchor, ((SolidColorBrush)LapReviewPalette.ContactBrush).Color);
+        track.Data = data with { Contacts = null };
+        track.ResetView(); track.Yaw = 0; track.Pitch = 90;
+        AssertPixel(surface, track.ProjectPoint(1), ((SolidColorBrush)LapReviewPalette.GetBrush(1)).Color);
+        track.Data = data;
+        AssertPixel(surface, track.ProjectPoint(1), ((SolidColorBrush)LapReviewPalette.ContactBrush).Color);
+        Assert.Equal(1, track.SceneBuildCount);
+        Assert.True(track.IsReady); Assert.False(track.IsPreparing);
+    });
+
+    private static void AssertPixel(FrameworkElement surface, Point anchor, Color expected)
+    {
+        surface.UpdateLayout();
+        var bitmap = new RenderTargetBitmap((int)surface.ActualWidth, (int)surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(surface);
+        var pixel = new byte[4];
+        bitmap.CopyPixels(new Int32Rect((int)Math.Round(anchor.X), (int)Math.Round(anchor.Y), 1, 1), pixel, 4, 0);
+        Assert.InRange(Math.Abs(pixel[0] - expected.B), 0, 2);
+        Assert.InRange(Math.Abs(pixel[1] - expected.G), 0, 2);
+        Assert.InRange(Math.Abs(pixel[2] - expected.R), 0, 2);
+        Assert.Equal(255, pixel[3]);
+    }
+
     private static LapReviewTrack3D Track()
     {
         var track = new LapReviewTrack3D { Data = Data([new(0, 0, 0), new(20, 10, 30), new(60, 15, 10)]) };

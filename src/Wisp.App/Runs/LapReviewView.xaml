@@ -146,7 +146,7 @@
                         <TextBlock Text="{Binding LegendMaximum}" Margin="0,0,18,8" VerticalAlignment="Center" />
                         <TextBlock Text="○ Start" Foreground="{x:Static local:LapReviewPalette.StartBrush}" Margin="0,0,14,8" />
                         <TextBlock Text="━ Reference" Foreground="{x:Static local:RunComparisonColors.RunB}" Margin="0,0,14,8" Visibility="{Binding HasMapReference, Converter={StaticResource MapVisibility}}" />
-                        <TextBlock Text="▲ Contact marker" Foreground="{x:Static local:LapReviewPalette.ContactBrush}" Margin="0,0,12,8" Visibility="{Binding ShowContacts, Converter={StaticResource MapVisibility}}" />
+                        <TextBlock Text="✦ Contact marker" Foreground="{x:Static local:LapReviewPalette.ContactBrush}" Margin="0,0,12,8" Visibility="{Binding ShowContacts, Converter={StaticResource MapVisibility}}" />
                     </WrapPanel>
                     <TextBlock Text="{Binding ElevationSummary}" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
                 </StackPanel>

@@ -33,20 +33,18 @@ public sealed class LapReviewTrack3D : Grid
     public bool IsPreparing => (bool)GetValue(IsPreparingProperty);
     public string StatusText => (string)GetValue(StatusTextProperty);
     public bool IsReady => _scene is not null && _path.Content is not null && Data is { } data &&
-        SameScene(_preparedData, data) && _preparedContacts == ShowContacts && !IsPreparing && string.IsNullOrEmpty(StatusText);
+        SameScene(_preparedData, data) && !IsPreparing && string.IsNullOrEmpty(StatusText);
     public event Action<int>? PointChosen;
 
     private readonly Viewport3D _viewport = new() { IsHitTestVisible = false, ClipToBounds = true };
     private readonly OrthographicCamera _camera = new() { NearPlaneDistance = .01, FarPlaneDistance = 20 };
     private readonly ModelVisual3D _path = new();
-    private readonly ModelVisual3D _cursor = new();
-    private readonly TranslateTransform3D _cursorPosition = new();
+    private readonly ContactOverlay _contactOverlay;
     private readonly TextBlock _status = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
     private LapReviewTrackScene? _scene;
     private LapReviewPlotData? _preparedData, _requestedData;
     private CancellationTokenSource? _preparation;
     private Task _preparationTask = Task.CompletedTask;
-    private bool _preparedContacts, _requestedContacts;
     private Point3D _target;
     private Point _dragStart, _dragPrevious;
     private bool _dragMoved;
@@ -65,11 +63,11 @@ public sealed class LapReviewTrack3D : Grid
         var ambient = new AmbientLight(Colors.White); ambient.Freeze();
         _viewport.Children.Add(new ModelVisual3D { Content = ambient });
         _viewport.Children.Add(_path);
-        _cursor.Content = LapReviewTrackGeometry.CursorModel();
-        _cursor.Transform = _cursorPosition;
-        _viewport.Children.Add(_cursor);
+        _contactOverlay = new ContactOverlay(this) { IsHitTestVisible = false, ClipToBounds = true };
+        _contactOverlay.SetResourceReference(ContactOverlay.OutlineProperty, "InputBrush");
         _status.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         Children.Add(_viewport);
+        Children.Add(_contactOverlay);
         Children.Add(_status);
         Loaded += (_, _) => RefreshScene();
         Unloaded += (_, _) => CancelPreparation();
@@ -130,42 +128,43 @@ public sealed class LapReviewTrack3D : Grid
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
-        if (e.Property == ShowContactsProperty) RefreshScene();
+        if (e.Property == ShowContactsProperty) _contactOverlay?.InvalidateVisual();
         if (e.Property == FocusCues.ShowKeyboardFocusProperty) InvalidateVisual();
     }
 
     private static bool SameScene(LapReviewPlotData? a, LapReviewPlotData b) => a is not null &&
         ReferenceEquals(a.Lap, b.Lap) && ReferenceEquals(a.Reference, b.Reference) && ReferenceEquals(a.Comparison, b.Comparison) &&
-        ReferenceEquals(a.Contacts, b.Contacts) && a.Channel == b.Channel && a.SpeedUnit == b.SpeedUnit && a.TorqueUnit == b.TorqueUnit &&
+        a.Channel == b.Channel && a.SpeedUnit == b.SpeedUnit && a.TorqueUnit == b.TorqueUnit &&
         a.SectionStart == b.SectionStart && a.SectionEnd == b.SectionEnd && a.Wheel == b.Wheel && a.TemperatureUnit == b.TemperatureUnit;
 
     private void RefreshScene()
     {
+        _contactOverlay.InvalidateVisual();
         if ((!IsLoaded || !IsVisible) && !_testPreparation) return;
         if (Data is not { Lap.Points.Length: > 1 } data)
         {
-            CancelPreparation(); _scene = null; _preparedData = null; _path.Content = null; _cursor.Content = null;
+            CancelPreparation(); _scene = null; _preparedData = null; _path.Content = null;
             SetStatus("No recorded lap positions", false); return;
         }
-        if (_scene is not null && SameScene(_preparedData, data) && _preparedContacts == ShowContacts)
+        if (_scene is not null && SameScene(_preparedData, data))
         { CancelPreparation(); _path.Content = _scene.Model; SetStatus(string.Empty, false); UpdateCursor(); return; }
-        if (_preparation is not null && SameScene(_requestedData, data) && _requestedContacts == ShowContacts) return;
+        if (_preparation is not null && SameScene(_requestedData, data)) return;
         CancelPreparation();
         var cancellation = new CancellationTokenSource(); _preparation = cancellation;
-        _requestedData = data; _requestedContacts = ShowContacts;
-        _path.Content = null; _cursor.Content = null;
+        _requestedData = data;
+        _path.Content = null;
         SetStatus("Preparing 3D map…", true);
-        _preparationTask = PrepareAsync(data, ShowContacts, cancellation);
+        _preparationTask = PrepareAsync(data, cancellation);
     }
 
-    private async Task PrepareAsync(LapReviewPlotData data, bool showContacts, CancellationTokenSource cancellation)
+    private async Task PrepareAsync(LapReviewPlotData data, CancellationTokenSource cancellation)
     {
         try
         {
-            var scene = await Task.Run(() => LapReviewTrackGeometry.Build(data, showContacts, cancellation.Token), cancellation.Token);
+            var scene = await Task.Run(() => LapReviewTrackGeometry.Build(data, cancellation.Token), cancellation.Token);
             if (cancellation.IsCancellationRequested || !ReferenceEquals(_preparation, cancellation)) return;
             var firstScene = _scene is null;
-            _scene = scene; _preparedData = data; _preparedContacts = showContacts;
+            _scene = scene; _preparedData = data;
             if (firstScene) ResetView();
             _path.Content = scene.Model; SceneBuildCount++;
             SetStatus(string.Empty, false); UpdateCursor(); UpdateCamera();
@@ -174,7 +173,7 @@ public sealed class LapReviewTrack3D : Grid
         catch (Exception exception)
         {
             if (!ReferenceEquals(_preparation, cancellation)) return;
-            _scene = null; _preparedData = null; _path.Content = null; _cursor.Content = null;
+            _scene = null; _preparedData = null; _path.Content = null;
             HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.LapReviewFailed, exception.HResult);
             SetStatus("The 3D map could not be prepared. Switch to 2D or reopen this lap.", false);
         }
@@ -195,17 +194,10 @@ public sealed class LapReviewTrack3D : Grid
     {
         SetValue(IsPreparingPropertyKey, preparing); SetValue(StatusTextPropertyKey, message);
         _status.Text = message; _status.Visibility = message.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _contactOverlay.InvalidateVisual();
     }
 
-    private void UpdateCursor()
-    {
-        if (_scene is null || Data is not { Lap.Points.Length: > 0 } data) { _cursor.Content = null; return; }
-        var position = data.Lap.Points[Math.Clamp(data.Cursor, 0, data.Lap.Points.Length - 1)].Position;
-        if (!LapReviewTrackBounds.IsFinite(position)) { _cursor.Content = null; return; }
-        _cursor.Content ??= LapReviewTrackGeometry.CursorModel();
-        var p = _scene.Bounds.Normalize(position);
-        _cursorPosition.OffsetX = p.X; _cursorPosition.OffsetY = p.Y; _cursorPosition.OffsetZ = p.Z;
-    }
+    private void UpdateCursor() => _contactOverlay.InvalidateVisual();
 
     private void UpdateCamera()
     {
@@ -215,6 +207,7 @@ public sealed class LapReviewTrack3D : Grid
         _camera.LookDirection = frame.Forward;
         _camera.UpDirection = frame.Up;
         _camera.Width = (_scene?.Fit.Width(ActualWidth / Math.Max(1, ActualHeight)) ?? 1.5) / ZoomFactor;
+        _contactOverlay?.InvalidateVisual();
     }
 
     internal Task PrepareForTestAsync()
@@ -293,5 +286,38 @@ public sealed class LapReviewTrack3D : Grid
         base.OnRender(dc);
         if (IsKeyboardFocused && FocusCues.GetShowKeyboardFocus(this) && ActualWidth > 2 && ActualHeight > 2)
             dc.DrawRectangle(null, new Pen(TryFindResource("TextBrush") as Brush ?? Brushes.White, 1), new Rect(1, 1, ActualWidth - 2, ActualHeight - 2));
+    }
+
+    private sealed class ContactOverlay(LapReviewTrack3D owner) : FrameworkElement
+    {
+        internal static readonly DependencyProperty OutlineProperty = DependencyProperty.Register(nameof(Outline), typeof(Brush), typeof(ContactOverlay),
+            new FrameworkPropertyMetadata(Brushes.Black, FrameworkPropertyMetadataOptions.AffectsRender));
+        private Brush Outline => (Brush)GetValue(OutlineProperty);
+
+        protected override void OnRender(DrawingContext dc)
+        {
+            base.OnRender(dc);
+            if (!owner.IsReady || owner._scene is not { } scene || owner.Data is not { Lap: { } lap } data) return;
+            var camera = LapReviewCameraFrame.From(owner.Yaw, owner.Pitch, owner.Roll);
+            Point? Project(int index)
+            {
+                if ((uint)index >= (uint)lap.Points.Length || !LapReviewTrackBounds.IsFinite(lap.Points[index].Position)) return null;
+                var point = camera.Project(scene.Bounds.Normalize(lap.Points[index].Position), owner._target, owner._camera.Width, RenderSize);
+                return point.X < -10 || point.Y < -10 || point.X > ActualWidth + 10 || point.Y > ActualHeight + 10 ? null : point;
+            }
+            if (Project(0) is { } start)
+            {
+                dc.DrawEllipse(null, new Pen(Outline, 4), start, 6, 6);
+                dc.DrawEllipse(null, new Pen(LapReviewPalette.StartBrush, 2), start, 6, 6);
+            }
+            var cursorContact = owner.ShowContacts && data.Contacts?.Any(contact => contact.PointIndex == data.Cursor) == true;
+            if (Project(data.Cursor) is { } cursor)
+                dc.DrawEllipse(cursorContact ? null : Brushes.White,
+                    new Pen(cursorContact ? Brushes.White : Outline, 1.5), cursor, cursorContact ? 10 : 4, cursorContact ? 10 : 4);
+            if (owner.ShowContacts && data.Contacts is { } contacts)
+                foreach (var contact in contacts)
+                    if (Project(contact.PointIndex) is { } anchor)
+                        LapReviewPalette.DrawContact(dc, anchor, Outline, contact.PointIndex == data.Cursor);
+        }
     }
 }

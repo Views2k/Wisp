@@ -16,6 +16,27 @@ public static class LapReviewPalette
     public static Brush LegendBrush { get; } = CreateLegend();
     public static Brush ContactBrush { get; } = Freeze(Color.FromRgb(255, 105, 116));
     public static Brush StartBrush { get; } = Freeze(Color.FromRgb(46, 220, 175));
+    private static Geometry ContactSymbol { get; } = CreateContactSymbol();
+
+    internal static void DrawContact(DrawingContext drawing, Point position, Brush outline, bool selected = false)
+    {
+        drawing.PushTransform(new TranslateTransform(position.X, position.Y));
+        drawing.DrawGeometry(ContactBrush, new Pen(selected ? System.Windows.Media.Brushes.White : outline, 1.5), ContactSymbol);
+        drawing.Pop();
+    }
+
+    private static Geometry CreateContactSymbol()
+    {
+        var shape = new StreamGeometry();
+        using (var drawing = shape.Open())
+        {
+            drawing.BeginFigure(new Point(0, -7), true, true);
+            drawing.PolyLineTo(new Point[] { new(2.3, -2.3), new(7, 0), new(2.3, 2.3),
+                new(0, 7), new(-2.3, 2.3), new(-7, 0), new(-2.3, -2.3) }, true, false);
+        }
+        shape.Freeze();
+        return shape;
+    }
 
     internal static Color GetColor(double fraction)
     {

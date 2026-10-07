@@ -140,7 +140,7 @@ public sealed class LapReviewTrackGeometryTests
     public void AdjacentColoredSegmentsShareTheirEntireRingAtABend()
     {
         var data = Data([new(0, 0, 0), new(100, 10, 0), new(150, 30, 80)]);
-        var scene = LapReviewTrackGeometry.Build(data, false, TestContext.Current.CancellationToken);
+        var scene = LapReviewTrackGeometry.Build(data, TestContext.Current.CancellationToken);
         var color = ((SolidColorBrush)LapReviewPalette.GetBrush(.5)).Color;
         var path = scene.Model.Children.OfType<GeometryModel3D>().Single(model =>
             model.Material is DiffuseMaterial { Brush: SolidColorBrush brush } && brush.Color == color);
@@ -152,20 +152,20 @@ public sealed class LapReviewTrackGeometryTests
     public void BuiltGeometryIsFrozenAndCancelledPreparationCannotPublishAPartialScene()
     {
         var data = Data([new(0, 0, 0), new(100, 25, 50), new(200, 30, 100)]);
-        var scene = LapReviewTrackGeometry.Build(data, true, CancellationToken.None);
+        var scene = LapReviewTrackGeometry.Build(data, CancellationToken.None);
         Assert.True(scene.Model.IsFrozen); Assert.Equal(2, scene.SegmentCount); Assert.NotEmpty(scene.Model.Children);
-        Assert.Throws<OperationCanceledException>(() => LapReviewTrackGeometry.Build(data, true, new CancellationToken(true)));
+        Assert.Throws<OperationCanceledException>(() => LapReviewTrackGeometry.Build(data, new CancellationToken(true)));
     }
 
     [Fact]
-    public void MissingChannelStillDrawsTheRecordedPathAndContactsAreOptional()
+    public void MissingChannelStillDrawsTheRecordedPathAndContactsAreNotBakedIntoTheMesh()
     {
         var data = Data([new(0, 0, 0), new(100, 10, 50)]) with
         { Channel = LapReviewChannel.Delta, Contacts = [new(1, 1, 100, LapReviewContactKind.PossibleContact)] };
-        var without = LapReviewTrackGeometry.Build(data, false, CancellationToken.None);
-        var with = LapReviewTrackGeometry.Build(data, true, CancellationToken.None);
+        var without = LapReviewTrackGeometry.Build(data with { Contacts = null }, CancellationToken.None);
+        var with = LapReviewTrackGeometry.Build(data, CancellationToken.None);
         Assert.Equal(1, without.SegmentCount);
-        Assert.Equal(without.Model.Children.Count + 1, with.Model.Children.Count);
+        Assert.Equal(without.Model.Children.Count, with.Model.Children.Count);
     }
 
     private static LapReviewPlotData Data(LapPosition[] positions) => new(new LapReviewLap
