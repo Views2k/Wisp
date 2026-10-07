@@ -5,7 +5,7 @@
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
   <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to the latest release.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.4/Wisp-Setup-2.6.4.exe"><strong>Download Wisp 2.6.4</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.5/Wisp-Setup-2.6.5.exe"><strong>Download Wisp 2.6.5</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -13,11 +13,11 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.4
+## Wisp 2.6.5
 
-2.6.4 improves HUD and Tune compatibility with Forza updates on Steam and Xbox PC, restores Drift Zone angle-bonus guidance on the latest builds, and adds a dismissible note from Views.
+2.6.5 adds 3D lap review with recorded elevation, shared-space comparison, channel legends, contact markers and PNG export.
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.4 release notes](docs/releases/Wisp-2.6.4-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.5 release notes](docs/releases/Wisp-2.6.5-release-notes.md)
 
 ### Clips
 
@@ -59,7 +59,9 @@ Current-car reading supports **Steam and Xbox app / Microsoft Store FH6 with imp
 
 ### Lap review
 
-Open a saved run in **Runs → Lap review** to inspect the line you drove. Move one cursor across the map and graphs to review speed, inputs, G-force, RPM, gear and wheel readings. Choose a section and compare its time, distance and inputs with another lap or a pinned benchmark. Events mark braking, throttle pickup and shifts.
+Open a saved run in **Runs → Lap review** to inspect the line you drove in **2D or 3D**. The 3D view preserves recorded elevation at the same scale as horizontal distance. Rotate, pan and zoom the map, color it by speed, inputs, G-force, RPM, gear, wheel readings, horsepower, torque or elevation, and follow the selected point in the graph. Choose a section and compare its time, distance and inputs with another lap or a pinned benchmark. Events mark braking, throttle pickup and shifts.
+
+Optional **Shared space** places two laps beside each other with one camera and color scale. Focus either track, move both cursors together or inspect A and B independently, then return to the overview. Resize the map and use **Save PNG** to share the current view and legend. Contact markers distinguish recorded object evidence and saved annotations from possible-contact estimates; they do not identify every collision. [Read the lap-review guide](docs/LAP-REVIEW.md).
 
 Turn on **Save completed laps automatically** to keep laps for later review, grouped by day and car. It uses the timing mode selected in HUD settings while Wisp is running. Choosing Run B takes priority over a compatible pinned benchmark.
 
@@ -244,8 +246,8 @@ An optional quick tour introduces Clips, Tune, live map, lap delta and lap
 review. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.6.4](https://github.com/Views2k/Wisp/releases/download/v2.6.4/Wisp-Setup-2.6.4.exe) ·
-[2.6.4 release notes](docs/releases/Wisp-2.6.4-release-notes.md) ·
+[Download Wisp 2.6.5](https://github.com/Views2k/Wisp/releases/download/v2.6.5/Wisp-Setup-2.6.5.exe) ·
+[2.6.5 release notes](docs/releases/Wisp-2.6.5-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Older interface screenshots retain their original version labels. The gameplay
@@ -372,11 +374,11 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Download [Wisp-Setup-2.6.4.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.4/Wisp-Setup-2.6.4.exe).
+1. Download [Wisp-Setup-2.6.5.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.5/Wisp-Setup-2.6.5.exe).
 2. Run the installer.
 3. Complete the required setup wizard on first launch.
 
-The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.4) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
+The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.5) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
 
 **[WINDOWS POWERSHELL]**
 
@@ -496,6 +498,7 @@ To build the self-contained installer:
 
 ## Documentation
 
+- [Wisp 2.6.5 release notes](docs/releases/Wisp-2.6.5-release-notes.md)
 - [Wisp 2.6.4 release notes](docs/releases/Wisp-2.6.4-release-notes.md)
 - [Wisp 2.6.3 release notes](docs/releases/Wisp-2.6.3-release-notes.md)
 - [Wisp 2.6.2 release notes](docs/releases/Wisp-2.6.2-release-notes.md)

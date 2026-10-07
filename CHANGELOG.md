@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.5 - 2026-10-07
+
+- Add an optional 3D lap-review map with recorded elevation and mouse controls for rotation, pan and zoom. Keep the existing 2D view.
+- Add Shared space to compare two lap maps with the same color scale, focus either lap and move their cursors together or independently.
+- Add power and torque channels, a color legend, contact markers and PNG export. Distinguish recorded object contacts from estimated possible contacts.
+- Move lap-position controls above the map and add a resizable map area with a camera reset button.
+
 ## 2.6.4 - 2026-10-06
 
 - Improve HUD and Tune compatibility with Forza updates on Steam and Xbox PC.

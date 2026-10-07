@@ -1,5 +1,8 @@
 # Lap review 3D private test
 
+Historical engineering notes for the private test builds that became Wisp 2.6.5.
+For current controls and usage, see the [lap-review guide](LAP-REVIEW.md).
+
 The 2D review stays the default. 3D uses saved XYZ positions with the same scale
 on every axis; the ground projection is a depth cue, not a terrain reconstruction.
 Camera and cursor changes reuse frozen geometry. Scene preparation is cancellable
