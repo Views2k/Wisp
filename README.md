@@ -49,11 +49,11 @@ Search clips by name, date, resolution, frame rate, HDR or lossless. To rename o
 
 ### Tune
 
-View the tuning settings fitted to your current car, **including locked tunes on Steam**. Save a named setup with a description, open it later in Wisp, or compare saved setups or the current car side by side. Comparisons highlight changed values. Delete saved tunes you no longer need; snapshots attached to runs are kept.
+View the tuning settings fitted to your current car, **including locked tunes**. Save a named setup with a description, open it later in Wisp, or compare saved setups or the current car side by side. Comparisons highlight changed values. Delete saved tunes you no longer need; snapshots attached to runs are kept.
 
 Browse tires, gearing, alignment, antiroll bars, springs, damping, aero, brakes and differential settings. Attach a checked tune snapshot when recording a run to keep its setup with the results.
 
-Current-car reading supports **Steam and Xbox app / Microsoft Store FH6 with imperial game units**. Saved setups are local snapshots for viewing and comparison, and can be opened with the game closed. Wisp checks for updated Forza support automatically.
+Current-car reading requires **imperial game units**. Saved setups are local snapshots for viewing and comparison, and can be opened with the game closed. Wisp checks for updated Forza support automatically.
 
 ![Tune in Wisp 2.6](https://wispoverlay.com/images/wisp-2.6-tune.webp)
 
@@ -99,7 +99,7 @@ Adds **lap delta (beta)**: see how far ahead or behind your session best or prev
 
 ## Wisp 2.4.1
 
-Fixes Drift Zone angle-bonus guidance showing **UNVERIFIED BUILD** on Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC. Beta shift guidance remains Steam-only and is now marked unavailable on Game Pass. [Release notes](docs/releases/Wisp-2.4.1-release-notes.md).
+Fixes Drift Zone angle-bonus guidance showing **UNVERIFIED BUILD** on Xbox app / Microsoft Store FH6 3.440.853.0 on Windows PC. Clarifies beta shift guidance's supported build in settings. [Release notes](docs/releases/Wisp-2.4.1-release-notes.md).
 
 ## Wisp 2.4 performance hotfix
 
@@ -270,7 +270,7 @@ for FWD, RWD, or AWD. The result appears in the Windows overlay.
 ## Features
 
 - [Clips](#clips): save recent gameplay, watch it in Wisp and export an MP4.
-- [Tune](#tune): view current settings, including locked tunes on Steam, save setups and compare them.
+- [Tune](#tune): view current settings, including locked tunes, save setups and compare them.
 - [Lap review](#lap-review): inspect your line and telemetry, compare sections and save completed laps automatically when enabled.
 
 - Wheel-indicated speed with separate front and rear calibration for staggered

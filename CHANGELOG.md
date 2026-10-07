@@ -11,14 +11,14 @@ Notable changes to Wisp are recorded here.
 
 ## 2.6.4 - 2026-10-06
 
-- Improve HUD and Tune compatibility with Forza updates on Steam and Xbox PC.
-- Fix Drift Zone angle-bonus guidance on the latest Steam and Xbox PC builds.
+- Improve HUD and Tune compatibility with Forza updates.
+- Fix Drift Zone angle-bonus guidance on the latest Forza builds.
 - Show ANGLE ONLY on the drift gauge when bonus guidance is unavailable.
-- Add a note from Views with a GitHub link, shown when you open Wisp and once a day while it stays open. Close it with X.
+- Add a GitHub star reminder, shown when you open Wisp and once a day while it stays open. Close it with X.
 
 ## 2.6.3 - 2026-10-05
 
-- Restore the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store.
+- Restore the HUD and Tune reading after the latest Forza update.
 - Recheck compatibility automatically while waiting for support for a game build.
 - Make compatibility status messages clearer and remove repeated text.
 
@@ -53,7 +53,7 @@ Notable changes to Wisp are recorded here.
 
 - Save recent gameplay with Clips, watch it in Wisp and export an MP4 with a chosen filename and location. Select 30 seconds to 5 minutes, 360p to 2160p, 30 or 60 fps, quality, audio scope, shortcuts and reminders. Supported NVIDIA encoders also offer lossless video.
 - Keep recorded footage and in-progress saves when switching away from Forza. Preserve ultrawide and 16:10 proportions, add optional shortcut sounds and recover unfinished saves.
-- View current tuning values, including locked tunes on Steam, save or delete named setups, compare saved tunes or the current car, and attach a checked snapshot to a run. Current-car reading supports Steam and Xbox app FH6 with imperial game units. An unsuccessful optional tune check no longer blocks recording.
+- View current tuning values, including locked tunes, save or delete named setups, compare saved tunes or the current car, and attach a checked snapshot to a run. Current-car reading requires imperial game units. An unsuccessful optional tune check no longer blocks recording.
 - Review recorded laps on the driven line with linked telemetry graphs, section statistics, events and reference-lap comparisons. Save completed laps automatically when enabled.
 - Group automatic laps by day and car, and respect an explicit Run B choice before a pinned benchmark.
 - Save HUD and driving settings, including gauge positions, in profiles. Preserve first-time Forza-monitor placement and manual placement on other monitors.

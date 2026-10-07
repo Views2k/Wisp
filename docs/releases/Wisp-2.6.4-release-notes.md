@@ -4,7 +4,7 @@
 
 ## Fixes and improvements
 
-- Improved HUD and Tune compatibility with Forza updates on Steam and Xbox PC.
-- Fixed Drift Zone angle-bonus guidance on the latest Steam and Xbox PC builds.
+- Improved HUD and Tune compatibility with Forza updates.
+- Fixed Drift Zone angle-bonus guidance on the latest Forza builds.
 - The drift gauge shows **ANGLE ONLY** when bonus guidance is unavailable.
-- Added a note from Views with a GitHub link, shown when you open Wisp and once a day while it stays open. Close it with **X**.
+- Added a GitHub star reminder, shown when you open Wisp and once a day while it stays open. Close it with **X**.
