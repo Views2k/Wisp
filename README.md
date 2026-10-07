@@ -63,6 +63,10 @@ Open a saved run in **Runs → Lap review** to inspect the line you drove in **2
 
 Optional **Shared space** places two laps beside each other with one camera and color scale. Focus either track, move both cursors together or inspect A and B independently, then return to the overview. Resize the map and use **Save PNG** to share the current view and legend. Contact markers distinguish recorded object evidence and saved annotations from possible-contact estimates; they do not identify every collision. [Read the lap-review guide](docs/LAP-REVIEW.md).
 
+![Wisp lap review comparing two recorded laps in Shared space with a common speed color scale](docs/images/wisp-2.6.5-lap-review-shared-space.png)
+
+*Shared space: two recorded laps with one speed color scale.*
+
 Turn on **Save completed laps automatically** to keep laps for later review, grouped by day and car. It uses the timing mode selected in HUD settings while Wisp is running. Choosing Run B takes priority over a compatible pinned benchmark.
 
 ### Live map and lap delta

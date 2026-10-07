@@ -51,6 +51,8 @@ Choose **Both** to move the cursors together. Compatible comparisons follow matc
 
 Shared space can display different cars or routes when both laps have usable positions. That visual comparison does not relax the timing and benchmark requirements above.
 
+![Two recorded laps shown together in Wisp's 3D Shared space, with speed colors and paired cursor controls](images/wisp-2.6.5-lap-review-shared-space.png)
+
 ## Contact markers
 
 **Show contacts** displays filled stars for recorded breakable-object evidence or existing saved Contact annotations, and hollow stars for **Possible contact (estimate)**. Object evidence comes from the game's reported breakable-object velocity loss and mass. Possible contacts are inferred from movement; they can be wrong. These markers do not establish every wall/car collision, an officially clean lap, or the absence of contact when no marker appears.
