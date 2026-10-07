@@ -53,7 +53,7 @@ public sealed partial class LapReviewTrack3D
         SetValue(FocusedLapPropertyKey, lap);
         var aspect = ActualWidth / Math.Max(1, ActualHeight);
         var overview = arrangement.ProjectedFit(Yaw, Pitch, Roll);
-        AnimateCamera(selected.Target, Math.Clamp(overview.Width(aspect) / selected.Width(aspect), 1, 50), overview);
+        AnimateCamera(selected.Target, Math.Clamp(overview.Width(aspect) / selected.Width(aspect), 1.8, 50), overview);
     }
 
     public void ShowAll()
