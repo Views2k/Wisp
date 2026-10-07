@@ -311,7 +311,7 @@ public sealed class LapReviewMapComparisonTests
         Assert.Contains("Pinned benchmark is not used", model.ReferenceStatus);
         Assert.False(model.Plot.Comparison!.CanCompare);
         Assert.Contains("different cars", model.SectionText);
-        Assert.Contains("Cursors are independent", model.MapComparisonHint);
+        Assert.Contains("Matched sections and time delta are unavailable", model.MapComparisonHint);
         Assert.DoesNotContain("Choose Run B", model.MapComparisonHint);
         Assert.Null(model.MapPlotB.Comparison);
 
@@ -386,6 +386,131 @@ public sealed class LapReviewMapComparisonTests
         Assert.Null(model.ComparisonMapPlot);
         Assert.Contains("Run B has no second lap with recorded positions", model.MapComparisonHint);
         Assert.DoesNotContain("Choose Run B", model.MapComparisonHint);
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IndependentSliderTargetsHoldTheOtherLapAndReadTheirOwnValues(bool differentCar) => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        var reference = LapReviewFixtures.Create(reference: true);
+        if (differentCar) reference = WithCar(reference, 4200);
+        model.SetRuns(LapReviewFixtures.Create(), reference);
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
+        Assert.True(model.ScrubBoth);
+        model.ScrubCursor = 150;
+        var originalB = model.MapPlotB.Cursor;
+        model.ScrubA = true;
+        model.ScrubCursor = 250;
+        Assert.Equal(250, model.Cursor);
+        Assert.Equal(originalB, model.MapPlotB.Cursor);
+        Assert.Null(model.MapPlotB.CursorPositionOverride);
+        Assert.StartsWith("A · ", model.ScrubPosition);
+
+        var cursorEvents = 0;
+        model.CursorMoved += _ => cursorEvents++;
+        var metrics = model.Metrics[0];
+        model.ScrubB = true;
+        model.ScrubCursor = 320;
+        Assert.Equal(250, model.Cursor);
+        Assert.Equal(250, model.Plot.Cursor);
+        Assert.Equal(320, model.MapPlotB.Cursor);
+        Assert.Equal(0, cursorEvents);
+        Assert.Same(metrics, model.Metrics[0]);
+        Assert.False(model.IsBusy);
+        Assert.StartsWith("B · ", model.ScrubPosition);
+        Assert.Equal(model.Reference!.Points.Length - 1, model.MaximumScrubCursor);
+        foreach (var channel in new[] { LapReviewChannel.Speed, LapReviewChannel.Power, LapReviewChannel.LateralG, LapReviewChannel.Delta })
+        {
+            model.Channel = model.Channels.Single(c => c.Channel == channel);
+            var data = model.MapPlotB;
+            var expected = LapReviewPlot.Value(data.Lap!.Points[320], data, 320);
+            Assert.Equal($"{model.Channel.Label}: {RunPresentation.Number(expected, " " + LapReviewPlot.Unit(data))}", model.MapBCursorValue);
+        }
+        model.PickReferencePoint(340);
+        Assert.Equal(250, model.Cursor); Assert.Equal(340, model.ScrubCursor);
+        model.Cursor = 270;
+        Assert.Equal(340, model.MapPlotB.Cursor);
+        model.ScrubBoth = true;
+        model.ScrubCursor = 400;
+        Assert.Equal(400, model.Cursor);
+        Assert.NotEqual(340, model.MapPlotB.Cursor);
+        if (!differentCar)
+        {
+            Assert.Equal(model.Plot.Comparison!.Points[400].ReferencePointIndex, model.MapPlotB.Cursor);
+            Assert.NotNull(model.MapPlotB.CursorPositionOverride);
+            Assert.Contains("matching track positions", model.ScrubHint);
+        }
+        else
+        {
+            Assert.Null(model.MapPlotB.Comparison);
+            Assert.Contains("relative lap progress", model.ScrubHint);
+            Assert.Contains("unavailable", model.ScrubHint);
+        }
+    });
+
+    [Fact]
+    public void BothFallbackUsesRecordedDistanceAndIndependentModesDoNotChangeBenchmarkValidity() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        var reference = WithCar(LapReviewFixtures.Create(reference: true), 4200);
+        reference = reference with { Samples = reference.Samples.Where((_, index) => index < 200 || index % 3 == 0).ToArray() };
+        model.SetRuns(LapReviewFixtures.Create(), reference);
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
+        Assert.False(model.Plot.Comparison!.CanCompare);
+        Assert.True(model.Reference!.Points.Length < model.Lap!.Points.Length);
+        var target = model.MaximumCursor * 2 / 3;
+        model.ScrubCursor = target;
+        var progress = model.Lap.Points[target].DistanceMeters / model.Lap.RecordedDistanceMeters;
+        var distance = progress * model.Reference.RecordedDistanceMeters;
+        var expected = Enumerable.Range(0, model.Reference.Points.Length)
+            .MinBy(index => Math.Abs(model.Reference.Points[index].DistanceMeters - distance));
+        Assert.Equal(expected, model.MapPlotB.Cursor);
+        Assert.Null(model.MapPlotB.CursorPositionOverride);
+        Assert.Null(model.MapPlotB.Comparison);
+        Assert.Equal("No match", model.CursorDetails!.Delta);
+        Assert.Equal(-1, model.MapPlotB.SectionStart);
+        Assert.Equal(-1, model.MapPlotB.SectionEnd);
+        Assert.True(model.Reference.Quality.HasFlag(LapReviewQuality.TelemetryGap));
+        Assert.Equal(model.Reference.Points[^2].DistanceMeters, model.Reference.Points[^1].DistanceMeters);
+        model.ScrubCursor = model.MaximumScrubCursor;
+        Assert.Equal(model.Reference.Points.Length - 1, model.MapPlotB.Cursor);
+        model.ScrubCursor = 0;
+        Assert.Equal(0, model.MapPlotB.Cursor);
+        Assert.Contains("A · ", model.ScrubPosition); Assert.Contains("B · ", model.ScrubPosition);
+    });
+
+    [Fact]
+    public void LeavingSharedSpaceOrRemovingRunBRestoresTheNormalASlider() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        model.SetRuns(LapReviewFixtures.Create(), LapReviewFixtures.Create(reference: true));
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
+        model.ScrubA = true; model.ScrubCursor = 120;
+        model.ScrubB = true; model.ScrubCursor = 250;
+        model.Is3D = false;
+        Assert.Equal(120, model.ScrubCursor); Assert.Equal(model.MaximumCursor, model.MaximumScrubCursor);
+        Assert.Equal(model.CursorDetails!.Position, model.ScrubPosition); Assert.Equal("", model.ScrubHint);
+        model.ScrubCursor = 180;
+        Assert.Equal(180, model.Cursor);
+        model.Is3D = true;
+        Assert.Equal(250, model.ScrubCursor);
+        model.Reference = null;
+        await LapReviewComparisonTestSupport.Ready(model);
+        Assert.False(model.IsMapComparison);
+        Assert.Equal(180, model.ScrubCursor);
+        model.ScrubCursor = 200;
+        Assert.Equal(200, model.Cursor);
+        model.SetRuns(null, null);
+        await LapReviewComparisonTestSupport.Ready(model);
+        Assert.Equal(0, model.ScrubCursor); Assert.Equal(0, model.MaximumScrubCursor);
     });
 
     private static RecordedRun WithCar(RecordedRun run, int carOrdinal) => run with

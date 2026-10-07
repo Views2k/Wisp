@@ -30,6 +30,7 @@ internal static class SupportReminderUiTests
         var message = Assert.IsType<TextBlock>(popup.FindName("Message"));
         var repository = Assert.IsType<Button>(popup.FindName("RepositoryButton"));
         var dismiss = Assert.IsType<Button>(popup.FindName("DismissButton"));
+        var dismissIcon = Assert.IsType<System.Windows.Shapes.Path>(dismiss.Content);
         Assert.Equal("Wisp is a project I’ve spent months and thousands of hours working on. Keeping it free and accessible to everyone has always been a priority for me, so all I ask is: if you enjoy Wisp, please leave a star on GitHub :) -Views", message.Text);
         Assert.Equal(TextWrapping.Wrap, message.TextWrapping);
         Assert.Equal("Views2k/Wisp — star on GitHub", new ButtonAutomationPeer(repository).GetName());
@@ -45,6 +46,9 @@ internal static class SupportReminderUiTests
             AssertFits(card, popup);
             AssertFits(scroll, card);
             AssertFits(dismiss, card);
+            var iconBounds = dismissIcon.TransformToAncestor(dismiss).TransformBounds(new Rect(dismissIcon.RenderSize));
+            Assert.InRange(Math.Abs(iconBounds.Left + iconBounds.Width / 2 - dismiss.ActualWidth / 2), 0, 0.25);
+            Assert.InRange(Math.Abs(iconBounds.Top + iconBounds.Height / 2 - dismiss.ActualHeight / 2), 0, 0.25);
             Assert.True(scroll.ViewportHeight > 0);
             Assert.True(scroll.ExtentWidth <= scroll.ViewportWidth + 1);
             Assert.True(content.ActualWidth <= scroll.ViewportWidth + 1);
@@ -82,6 +86,7 @@ internal static class SupportReminderUiTests
         Assert.Same(panel, card.Background);
         Assert.Same(text, message.Foreground);
         Assert.Same(text, repository.Foreground);
+        Assert.Same(dismiss.Foreground, dismissIcon.Stroke);
         Assert.Same(raised, repository.Background);
         Assert.Same(stroke, card.BorderBrush);
         Assert.Same(stroke, repository.BorderBrush);

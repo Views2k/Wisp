@@ -87,13 +87,17 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
         get => _lap;
         set
         {
-            if (_disposed || !Set(ref _lap, value)) return;
-            _cursor = _sectionStart = 0; _sectionEnd = Math.Max(0, MaximumCursor);
-            Changed(nameof(MaximumCursor)); Changed(nameof(Cursor)); Changed(nameof(HasLap)); Changed(nameof(CanPin));
-            RaiseCommands();
-            if (_applying) RefreshCursor();
-            else if (_comparisonRun is null && _settings.LapReviewBenchmarkRunId is not null) _ = LoadAsync();
-            else RefreshComparison();
+            if (_disposed || Equals(_lap, value)) return;
+            ChangeScrubContext(() =>
+            {
+                Set(ref _lap, value);
+                _cursor = _sectionStart = 0; _sectionEnd = Math.Max(0, MaximumCursor);
+                Changed(nameof(MaximumCursor)); Changed(nameof(Cursor)); Changed(nameof(HasLap)); Changed(nameof(CanPin));
+                RaiseCommands();
+                if (_applying) RefreshCursor();
+                else if (_comparisonRun is null && _settings.LapReviewBenchmarkRunId is not null) _ = LoadAsync();
+                else RefreshComparison();
+            });
         }
     }
     public LapReviewLap? Reference
@@ -101,10 +105,14 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
         get => _reference;
         set
         {
-            if (_disposed || !Set(ref _reference, value)) return;
-            _referenceCursor = 0;
-            _referenceMapContacts = [];
-            if (!_applying) RefreshComparison();
+            if (_disposed || Equals(_reference, value)) return;
+            ChangeScrubContext(() =>
+            {
+                Set(ref _reference, value);
+                _referenceCursor = 0;
+                _referenceMapContacts = [];
+                if (!_applying) RefreshComparison();
+            });
         }
     }
     public string Status { get => _status; private set => Set(ref _status, value); }
@@ -224,6 +232,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
     }
     private void ClearReview()
     {
+        ScrubContextChanging?.Invoke();
         _applying = true;
         try
         {
@@ -238,7 +247,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
                 nameof(CanPin), nameof(CursorDetails), nameof(CursorText), nameof(SectionText), nameof(Plot) }) Changed(property);
             RaiseCommands();
         }
-        finally { _applying = false; }
+        finally { _applying = false; NotifyScrubState(); ScrubContextChanged?.Invoke(); }
     }
 
     private void RefreshSection() => _ = AnalyzeAsync(compare: false);

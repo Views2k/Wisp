@@ -53,6 +53,10 @@ internal static class LapReviewScrubbingTests
             model.Cursor = 45;
             Assert.Equal(45d, slider.Value);
 
+            AssertTargetSwitching(view, slider, model);
+            model.Is3D = false;
+            model.Cursor = 45;
+
             view.BeginScrub();
             slider.SetCurrentValue(RangeBase.ValueProperty, 55d);
             view.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
@@ -72,6 +76,53 @@ internal static class LapReviewScrubbingTests
             Assert.Null(PresentationSource.FromVisual(view));
         }
         finally { view.EndScrub(); view.DataContext = null; }
+    }
+
+    private static void AssertTargetSwitching(LapReviewView view, Slider slider, LapReviewViewModel model)
+    {
+        model.Is3D = true; model.SharedSpace = true;
+        model.ScrubA = true;
+        var b = model.MapPlotB.Cursor;
+        var updates = view.ScrubUpdates;
+        view.BeginScrub();
+        slider.SetCurrentValue(RangeBase.ValueProperty, 75d);
+        Assert.Equal(45, model.Cursor);
+        model.ScrubB = true;
+        Assert.Equal(75, model.Cursor);
+        Assert.Equal(b, model.MapPlotB.Cursor);
+        Assert.Equal((double)b, slider.Value);
+        Assert.Equal(updates + 1, view.ScrubUpdates);
+        view.BeginScrub();
+        slider.SetCurrentValue(RangeBase.ValueProperty, 120d);
+        model.ScrubA = true;
+        Assert.Equal(75, model.Cursor); Assert.Equal(120, model.MapPlotB.Cursor);
+        Assert.Equal(75d, slider.Value);
+
+        // A shorter replacement must not clamp A through B's slider maximum.
+        model.Cursor = 300;
+        model.Reference = model.Reference! with { Points = model.Reference.Points.Take(90).ToArray() };
+        Await(LapReviewComparisonTestSupport.Ready(model));
+        model.ScrubB = true;
+        Assert.Equal(89d, slider.Maximum);
+        Assert.Equal(300, model.Cursor);
+        Assert.Equal(0d, slider.Value);
+        view.BeginScrub();
+        slider.SetCurrentValue(RangeBase.ValueProperty, 70d);
+        model.Is3D = false;
+        Assert.Equal(300, model.Cursor);
+        Assert.Equal(300d, slider.Value);
+        Assert.Equal((double)model.MaximumCursor, slider.Maximum);
+        model.Is3D = true;
+        Assert.Equal(70d, slider.Value);
+        Assert.Equal(70, model.MapPlotB.Cursor);
+        view.BeginScrub();
+        slider.SetCurrentValue(RangeBase.ValueProperty, 80d);
+        model.Reference = null;
+        Await(LapReviewComparisonTestSupport.Ready(model));
+        Assert.Equal(300, model.Cursor);
+        Assert.Equal(300d, slider.Value);
+        Assert.False(model.IsMapComparison);
+        Assert.Equal((double)model.MaximumCursor, slider.Maximum);
     }
 
     private static void ReadyBindings(LapReviewView view, Slider slider)

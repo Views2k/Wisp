@@ -93,14 +93,25 @@ public partial class LapReviewView : UserControl
     }
 }
 
+public sealed class LapReviewCompactViewportConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        value is double height && double.IsFinite(height) && height > 0 && height < 420;
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+}
+
 public sealed class LapReviewMapHeightConverter : IMultiValueConverter
 {
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
         if (values.Length > 1 && values[1] is double requested && double.IsFinite(requested))
             return Math.Clamp(requested, 180, 1400);
+        var overhead = 235d;
+        if (values.Length >= 6 && values[2] is double toolbar && values[3] is double scrub &&
+            values[4] is double readout && values[5] is bool compact)
+            overhead = 110 + toolbar + scrub + (compact ? 0 : readout + 16);
         return values.Length > 0 && values[0] is double height && double.IsFinite(height) && height > 0
-            ? Math.Clamp(height - 235, 70, 640) : 480d;
+            ? Math.Clamp(height - overhead, 70, 640) : 480d;
     }
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) =>
         targetTypes.Select(_ => Binding.DoNothing).ToArray();

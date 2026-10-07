@@ -97,6 +97,22 @@ internal static class LapRecordedComparisonReview
                     var bounds = LapReviewTrackBounds.From(track.Data!, track.ComparisonData!.Lap);
                     var aDistance = SpatialDistance(track.Data!, bounds); var bDistance = SpatialDistance(track.ComparisonData!, bounds);
                     Check(aDistance > 0 && bDistance > 0, name + "/same-xyz-normalization");
+                    var slider = (Slider)view.FindName("LapCursorSlider");
+                    var buildsBeforeScrub = track.SceneBuildCount;
+                    ((RadioButton)view.FindName("ScrubBoth")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true); Pump();
+                    slider.SetCurrentValue(RangeBase.ValueProperty, (double)review.MaximumScrubCursor); Pump();
+                    Check(review.Cursor == review.MaximumCursor && track.ComparisonData!.Cursor == review.Reference!.Points.Length - 1,
+                        name + "/both-reaches-end-of-each-recorded-lap");
+                    ((RadioButton)view.FindName("ScrubB")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true); Pump();
+                    slider.SetCurrentValue(RangeBase.ValueProperty, 80d); Pump();
+                    Check(review.Cursor == review.MaximumCursor && track.ComparisonData!.Cursor == 80, name + "/B-slider-holds-A");
+                    ((RadioButton)view.FindName("ScrubA")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true); Pump();
+                    slider.SetCurrentValue(RangeBase.ValueProperty, 150d); Pump();
+                    Check(review.Cursor == 150 && track.ComparisonData!.Cursor == 80, name + "/A-slider-holds-B");
+                    ((RadioButton)view.FindName("ScrubBoth")).SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true); Pump();
+                    slider.SetCurrentValue(RangeBase.ValueProperty, review.MaximumScrubCursor / 2d); Pump();
+                    Check(track.SceneBuildCount == buildsBeforeScrub && review.Plot.Comparison?.CanCompare == false,
+                        name + "/scrubbing-preserves-meshes-and-benchmark-validity");
                     var cameraChecks = new List<object>();
                     foreach (var focus in new[] { 0, 1, 2 })
                     {

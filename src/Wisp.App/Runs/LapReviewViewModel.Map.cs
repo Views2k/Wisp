@@ -15,7 +15,7 @@ public sealed partial class LapReviewViewModel
     private LapReviewPlotData? _legendData;
     private LapContactChoice? _selectedContact;
     private string _mapStatus = "";
-    public bool Is3D { get => _is3D; set { if (Set(ref _is3D, value)) { Changed(nameof(Is2D)); RefreshMapMode(); } } }
+    public bool Is3D { get => _is3D; set { if (_is3D != value) ChangeScrubContext(() => { Set(ref _is3D, value); Changed(nameof(Is2D)); RefreshMapMode(); }); } }
     public bool Is2D { get => !Is3D; set { if (value) Is3D = false; } }
     public bool ShowContacts { get => _showContacts; set { if (Set(ref _showContacts, value)) Changed(nameof(Plot)); } }
     public string MapStatus { get => _mapStatus; set => Set(ref _mapStatus, value); }
@@ -145,6 +145,7 @@ public sealed partial class LapReviewViewModel
         Changed(nameof(IsMapComparison));
         Changed(nameof(CanUseSharedSpace));
         Changed(nameof(HasMapComparison)); Changed(nameof(MapComparisonHint)); Changed(nameof(HasMapReference)); Changed(nameof(CanMarkContact)); Changed(nameof(CanRemoveContact));
+        NotifyScrubState();
         if (MarkContactCommand is RunUiCommand mark) mark.RaiseCanExecuteChanged();
         if (RemoveContactCommand is RunUiCommand remove) remove.RaiseCanExecuteChanged();
     }

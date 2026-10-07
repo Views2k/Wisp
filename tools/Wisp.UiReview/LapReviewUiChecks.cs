@@ -54,6 +54,12 @@ internal static class LapReviewUiChecks
             var sharedSpace = (CheckBox)view.FindName("SharedSpaceToggle");
             var resetCamera = (Button)view.FindName("ResetCamera");
             var cameraControls = (FrameworkElement)view.FindName("CameraControls");
+            var cameraAxes = (FrameworkElement)view.FindName("CameraAxes");
+            var mapToolbar = (FrameworkElement)view.FindName("MapToolbar");
+            var showContacts = (CheckBox)view.FindName("ShowContactsToggle");
+            var scrubBoth = (RadioButton)view.FindName("ScrubBoth");
+            var scrubA = (RadioButton)view.FindName("ScrubA");
+            var scrubB = (RadioButton)view.FindName("ScrubB");
             var trace = (LapReviewPlot)view.FindName("Trace");
             var view2D = (RadioButton)view.FindName("View2D");
             var view3D = (RadioButton)view.FindName("View3D");
@@ -154,6 +160,16 @@ internal static class LapReviewUiChecks
                     name + "/normal-3d-preserves-original-map-and-reference");
                 check(sharedSpace.IsEnabled && sharedSpace.Visibility == Visibility.Visible && review.CanUseSharedSpace,
                     name + "/shared-space-toggle-available-for-comparison");
+                check(mapToolbar.IsAncestorOf(cameraControls) && cameraControls.IsAncestorOf(resetCamera) &&
+                    mapToolbar.IsAncestorOf(showContacts) && mapToolbar.IsAncestorOf(showBoth) &&
+                    cameraControls.Visibility == Visibility.Visible &&
+                    !Descendants(view).OfType<Expander>().Any(item => Equals(item.Header, "Camera controls")),
+                    name + "/camera-buttons-and-contact-toggle-in-top-toolbar");
+                var elevation = (FrameworkElement)view.FindName("MapElevationSummary");
+                var elevationBottom = elevation.TranslatePoint(new Point(0, elevation.ActualHeight), view).Y;
+                var settingsTop = lapSettings.TranslatePoint(new Point(), view).Y;
+                check(settingsTop >= elevationBottom && settingsTop - elevationBottom <= 20 &&
+                    !mapExportSurface.IsAncestorOf(lapSettings), name + "/lap-settings-below-elevation-outside-PNG");
                 CheckMapAndScrubber(); Capture("map-3d-normal");
                 VerifyMapImage("3d-normal", track3D);
                 var normalData = track3D.Data!;
@@ -177,6 +193,20 @@ internal static class LapReviewUiChecks
                 check(ReferenceEquals(track3D.ComparisonData?.Lap, review.Reference) && ReferenceEquals(track3D.ComparisonData?.Reference, review.Lap) &&
                     track3D.Data?.ShowReferencePath == false && track3D.ComparisonData?.ShowReferencePath == false,
                     name + "/3d-each-track-colors-its-own-lap");
+                check(scrubBoth.IsChecked == true && review.ScrubBoth, name + "/both-lap-scrubbing-default");
+                scrubB.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump();
+                var heldA = review.Cursor;
+                slider.SetCurrentValue(RangeBase.ValueProperty, 80d); Pump();
+                check(review.ScrubB && review.Cursor == heldA && track3D.ComparisonData?.Cursor == 80 &&
+                    slider.Maximum == review.Reference!.Points.Length - 1, name + "/B-slider-holds-A-and-selects-B");
+                scrubA.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump();
+                slider.SetCurrentValue(RangeBase.ValueProperty, 150d); Pump();
+                check(review.ScrubA && review.Cursor == 150 && track3D.ComparisonData?.Cursor == 80,
+                    name + "/A-slider-holds-B-and-selects-A");
+                scrubBoth.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump();
+                slider.SetCurrentValue(RangeBase.ValueProperty, (double)selectedCursor); Pump();
+                check(review.ScrubBoth && track3D.ComparisonData?.Cursor == review.MapPlotB.Cursor,
+                    name + "/both-slider-restores-paired-cursors");
                 CheckSharedColorScale();
                 var camera = (track3D.Yaw, track3D.Pitch, track3D.Roll, track3D.ZoomFactor);
                 track3D.Yaw = camera.Yaw + 35; track3D.Pitch = camera.Pitch + 8; track3D.Roll = camera.Roll + 12;
@@ -330,7 +360,7 @@ internal static class LapReviewUiChecks
                 }
                 bool CameraBindingsMatch()
                 {
-                    var controls = Descendants(cameraControls).OfType<Slider>().ToArray();
+                    var controls = Descendants(cameraAxes).OfType<Slider>().ToArray();
                     return new[] { (Name: "3D camera yaw", Property: nameof(LapReviewTrack3D.Yaw), Value: track3D.Yaw),
                         (Name: "3D camera pitch", Property: nameof(LapReviewTrack3D.Pitch), Value: track3D.Pitch),
                         (Name: "3D camera roll", Property: nameof(LapReviewTrack3D.Roll), Value: track3D.Roll) }
@@ -447,6 +477,9 @@ internal static class LapReviewUiChecks
             check(!review.HasLap && !review.PinCommand.CanExecute(null) && !review.SectionStartCommand.CanExecute(null), "empty-review-disables-commands");
             check(!channel.IsEnabled && !slider.IsEnabled, "empty-review-disables-channel-and-cursor");
             check(!view2D.IsEnabled && !view3D.IsEnabled && !saveMap.IsEnabled, "empty-review-disables-map-tools");
+            check(((Expander)view.FindName("LapSettings")).IsEnabled &&
+                Descendants((Expander)view.FindName("LapSettings")).OfType<CheckBox>().All(item => item.IsEnabled),
+                "empty-review-keeps-recording-settings-available");
             check(!laps.HasItems && !references.HasItems && !laps.IsEnabled && !references.IsEnabled, "empty-lap-selectors-disabled");
             check(emptyLapHint.Visibility == Visibility.Visible && emptyReferenceHint.Visibility == Visibility.Visible &&
                 !emptyLapHint.IsHitTestVisible && !emptyReferenceHint.IsHitTestVisible, "empty-lap-selectors-show-passive-hints");

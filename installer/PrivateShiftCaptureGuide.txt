@@ -1,5 +1,5 @@
 Wisp 2.6.4 Lap review 3D test
-Private build ID: lap-review-3d-20261006-04
+Private build ID: lap-review-3d-20261006-05
 
 This is a private test build, not a public release. It updates your existing
 Wisp installation and keeps your settings, profiles, calibrations, runs and
@@ -23,11 +23,18 @@ Changes
   per UI render cycle, preserving the final position when released.
 - Use one page scrollbar for the comparison controls and lap review.
 - Compare recorded tracks from different cars in Shared space. Timing and
-  matched-section checks remain separate; incompatible laps use independent cursors.
+  matched-section checks remain separate from visual comparison.
 - Give the track more room with a taller automatic view and a draggable lower edge.
 - Keep camera zoom steady while rotating either the shared overview or a focused lap.
+- Choose Both, A or B beside Lap position to move paired or independent cursors.
+- Use zoom, reset, Show both laps and Show contacts directly from the top toolbar.
+- Find Lap settings and benchmark directly below the elevation summary.
+- Center the close icon in the A note from Views popup.
 
 Controls
+Lap position: Both moves paired cursors; A or B moves only that lap. Both uses
+matched positions where available, otherwise relative recorded lap distance.
+Relative progress does not establish a valid time delta or matched section.
 Drag: rotate. Shift-drag or right-drag: pan. Ctrl-drag: roll.
 Click the map before using scroll to zoom; otherwise the wheel scrolls the page.
 Double-click or Reset camera: restore the workspace camera.
