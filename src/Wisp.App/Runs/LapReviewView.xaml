@@ -81,8 +81,7 @@
                         </Style>
                     </Button.Style>
                 </Button>
-
-
+                <CheckBox x:Name="SharedSpaceToggle" Content="Shared space" IsChecked="{Binding SharedSpace}" IsEnabled="{Binding CanUseSharedSpace}" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}" Style="{DynamicResource ToggleSwitchStyle}" VerticalAlignment="Center" Margin="0,0,8,6" AutomationProperties.Name="Compare laps in a shared 3D space" />
             </WrapPanel>
             <Grid x:Name="ScrubBar" Margin="16,0,16,4">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -95,24 +94,27 @@
             </Grid>
             <Grid x:Name="MapExportSurface" Background="{DynamicResource InputBrush}" Margin="1,0,1,0">
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                <Grid x:Name="MapViewport" Grid.Row="1" Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource LapReviewMapHeight}}" Margin="12,0,12,0">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                    <Grid Margin="4,3,4,4">
+                    <Grid Margin="16,10,16,6">
                         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
                         <StackPanel Margin="0,0,10,0">
-                            <TextBlock Text="{Binding MapATitle}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding MapATitle}" Foreground="{DynamicResource MutedBrush}"/>
-                            <TextBlock Text="{Binding MapCursorValue}" FontSize="15" FontWeight="SemiBold" Margin="0,3,0,0"/>
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Grid.ColumnSpan" Value="2" />
+                                    <Style.Triggers><DataTrigger Binding="{Binding IsMapComparison}" Value="True"><Setter Property="Grid.ColumnSpan" Value="1" /></DataTrigger></Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <TextBlock Text="{Binding MapATitle}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding MapATitle}" Foreground="{DynamicResource MutedBrush}"/>
+                            <TextBlock Text="{Binding MapCursorValue}" FontSize="18" FontWeight="SemiBold" Margin="0,5,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Visibility="{Binding IsMapComparison, Converter={StaticResource MapVisibility}}">
-                            <TextBlock Text="{Binding MapBTitle}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding MapBTitle}" Foreground="{DynamicResource MutedBrush}"/>
-                            <TextBlock Text="{Binding MapBCursorValue}" FontSize="15" FontWeight="SemiBold" Margin="0,3,0,0"/>
+                            <TextBlock Text="{Binding MapBTitle}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding MapBTitle}" Foreground="{DynamicResource MutedBrush}"/>
+                            <TextBlock Text="{Binding MapBCursorValue}" FontSize="18" FontWeight="SemiBold" Margin="0,5,0,0"/>
                         </StackPanel>
                     </Grid>
-                    <Grid Grid.Row="1">
+                    <Grid x:Name="MapViewport" Grid.Row="1" Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource LapReviewMapHeight}}">
                         <local:LapReviewPlot x:Name="Track" Data="{Binding MapPlotA}" IsMap="True" Visibility="{Binding Is2D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="Recorded lap map. Click to select a location; arrow keys move through samples." />
                         <local:LapReviewTrack3D x:Name="Track3D" Data="{Binding MapPlotA}" ComparisonData="{Binding ComparisonMapPlot}" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="3D lap workspace. Click a track to move closer, drag to rotate, scroll out to see both. Arrow keys select points." />
                     </Grid>
-                </Grid>
                 <StackPanel Grid.Row="2" Margin="16,8,16,16">
                     <Border Background="{DynamicResource StrokeBrush}" Height="1" Margin="0,0,0,14" Opacity="0.65" />
                     <WrapPanel VerticalAlignment="Center">

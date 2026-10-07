@@ -13,7 +13,7 @@ Changes
 - Read the color legend and the selected point's value next to the map.
 - Show reported object contacts, possible impacts and saved manual markers.
 - Save the current 2D or 3D map, including its legend, as a PNG image.
-- Compare two 3D laps in one continuous workspace, using the same channel and
+- Optionally compare two 3D laps in Shared space, using the same channel and
   color scale. Click a track to move closer; zoom back out to see both.
 - Keep the lap-position slider above the map and batch drag updates to one
   per UI render cycle, preserving the final position when released.
@@ -24,7 +24,8 @@ Scroll: zoom. Double-click or Reset camera: restore the workspace camera.
 Click the line: select a point. Arrow keys: move along the lap.
 Home/End: first/last point. Camera controls also provide axis sliders.
 Choose Run B using Compare above, or choose a reference in Lap settings and
-benchmark. In 3D, both tracks remain in the same scene, laid out side by side.
+benchmark, then enable Shared space in 3D. Both tracks remain in the same scene,
+laid out side by side. With Shared space off, the original single-lap view remains.
 Click a track to bring the camera toward it. Scroll back out, choose Show
 both laps or press Escape to frame both again. Rotation, pan and axis
 controls affect the shared camera. PNG saves the current camera view.

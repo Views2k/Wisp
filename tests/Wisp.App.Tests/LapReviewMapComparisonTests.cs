@@ -12,6 +12,74 @@ namespace Wisp.App.Tests;
 public sealed class LapReviewMapComparisonTests
 {
     [Fact]
+    public void SharedSpaceIsOptInAndTogglingRestoresTheOriginalMapAndLegend() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
+    {
+        using var fixture = new LapReviewComparisonTestSupport();
+        var model = fixture.Model;
+        var reference = LapReviewFixtures.Create(reference: true);
+        reference = reference with
+        {
+            Samples = reference.Samples.Select(s => s with { State = s.State with { PowerWatts = s.State.PowerWatts * 2 } }).ToArray()
+        };
+        model.SetRuns(LapReviewFixtures.Create(), reference);
+        await LapReviewComparisonTestSupport.Ready(model);
+        model.Channel = model.Channels.Single(c => c.Channel == LapReviewChannel.Power);
+        model.Cursor = 150;
+        Assert.True(model.HasMapComparison);
+        Assert.False(model.SharedSpace);
+        Assert.False(model.CanUseSharedSpace);
+        AssertOriginalMap();
+        model.Is3D = true;
+        Assert.True(model.CanUseSharedSpace);
+        Assert.False(model.SharedSpace);
+        AssertOriginalMap();
+        var original = model.Plot;
+        var minimum = model.LegendMinimum; var maximum = model.LegendMaximum;
+        var elevation = model.ElevationSummary;
+        var metrics = model.Metrics[0];
+
+        model.SharedSpace = true;
+        Assert.True(model.IsMapComparison);
+        Assert.NotNull(model.ComparisonMapPlot);
+        Assert.False(model.MapPlotA.ShowReferencePath);
+        Assert.False(model.HasMapReference);
+        Assert.True(model.MapPlotA.ColorRangeOverride!.Value.Maximum > LapReviewColorRange.From(original).Maximum);
+        Assert.NotEqual(maximum, model.LegendMaximum);
+        Assert.StartsWith("Both laps", model.ElevationSummary);
+        Assert.Equal(original, model.Plot);
+        Assert.Same(metrics, model.Metrics[0]);
+
+        model.Is3D = false;
+        Assert.False(model.CanUseSharedSpace);
+        AssertOriginalMap();
+        Assert.Equal(minimum, model.LegendMinimum); Assert.Equal(maximum, model.LegendMaximum);
+        Assert.Equal(elevation, model.ElevationSummary);
+
+        model.Is3D = true;
+        model.SharedSpace = true;
+        Assert.True(model.IsMapComparison);
+        model.SharedSpace = false;
+        AssertOriginalMap();
+        Assert.Equal(original, model.MapPlotA);
+        Assert.Equal(minimum, model.LegendMinimum); Assert.Equal(maximum, model.LegendMaximum);
+        Assert.Equal(elevation, model.ElevationSummary);
+        Assert.Same(metrics, model.Metrics[0]);
+
+        void AssertOriginalMap()
+        {
+            Assert.False(model.IsMapComparison);
+            Assert.Null(model.ComparisonMapPlot);
+            Assert.Equal(model.Plot, model.MapPlotA);
+            Assert.Null(model.MapPlotA.ColorRangeOverride);
+            Assert.True(model.MapPlotA.ShowReferencePath);
+            Assert.True(model.HasMapReference);
+            var range = LapReviewColorRange.From(model.Plot);
+            Assert.Equal($"{range.Minimum:0.##} {LapReviewPlot.Unit(model.Plot)}", model.LegendMinimum);
+            Assert.Equal($"{range.Maximum:0.##} {LapReviewPlot.Unit(model.Plot)}", model.LegendMaximum);
+        }
+    });
+
+    [Fact]
     public void DistinctComparableLapsUseOneScaleForBothMapsAndTheLegend() => LapReviewComparisonTestSupport.OnDispatcher(async () =>
     {
         using var fixture = new LapReviewComparisonTestSupport();
@@ -24,7 +92,9 @@ public sealed class LapReviewMapComparisonTests
         model.SetRuns(LapReviewFixtures.Create(), reference);
         await LapReviewComparisonTestSupport.Ready(model);
         model.Is3D = true;
+        model.SharedSpace = true;
         Assert.True(model.HasMapComparison);
+        Assert.True(model.IsMapComparison);
         Assert.False(model.MapPlotA.ShowReferencePath);
         Assert.False(model.MapPlotB.ShowReferencePath);
         foreach (var channel in new[] { LapReviewChannel.Speed, LapReviewChannel.Power, LapReviewChannel.Brake })
@@ -54,6 +124,7 @@ public sealed class LapReviewMapComparisonTests
         var model = fixture.Model;
         model.SetRuns(LapReviewFixtures.Create(), LapReviewFixtures.Create(reference: true));
         await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
         model.Cursor = 150;
         Assert.Equal(model.Plot.Comparison!.Points[150].ReferencePointIndex, model.MapPlotB.Cursor);
         Assert.InRange(model.MapPlotB.Cursor, 0, model.Reference!.Points.Length - 1);
@@ -101,6 +172,7 @@ public sealed class LapReviewMapComparisonTests
         };
         model.SetRuns(LapReviewFixtures.Create(), reference);
         await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
         Assert.True(model.HasMapComparison);
         model.Cursor = 150;
         var match = model.Plot.Comparison!.Points[model.Cursor];
@@ -123,6 +195,7 @@ public sealed class LapReviewMapComparisonTests
         var model = fixture.Model;
         model.SetRuns(LapReviewFixtures.Create(), LapReviewFixtures.Create(reference: true));
         await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
         model.Cursor = 75;
         model.SectionStartCommand.Execute(null);
         await LapReviewComparisonTestSupport.Ready(model);
@@ -150,6 +223,7 @@ public sealed class LapReviewMapComparisonTests
         model.SetRuns(LapReviewFixtures.Create() with { Markers = [new(10, "Contact")] },
             LapReviewFixtures.Create(reference: true) with { Markers = [new(15, "Contact")] });
         await LapReviewComparisonTestSupport.Ready(model);
+        model.Is3D = true; model.SharedSpace = true;
         Assert.True(model.HasMapComparison);
         var first = Assert.Single(model.MapPlotA.Contacts!, c => c.Kind == LapReviewContactKind.UserMarkedContact);
         var second = Assert.Single(model.MapPlotB.Contacts!, c => c.Kind == LapReviewContactKind.UserMarkedContact);
@@ -170,14 +244,23 @@ public sealed class LapReviewMapComparisonTests
         model.SetRuns(LapReviewFixtures.Create(), null);
         await LapReviewComparisonTestSupport.Ready(model);
         Assert.True(model.HasLap); Assert.NotNull(model.Reference);
+        model.Is3D = true; model.SharedSpace = true;
         Assert.False(model.HasMapComparison);
+        Assert.False(model.CanUseSharedSpace); Assert.False(model.IsMapComparison);
+        Assert.Null(model.ComparisonMapPlot);
         model.Reference = null;
         await LapReviewComparisonTestSupport.Ready(model);
+        model.SharedSpace = true;
         Assert.False(model.HasMapComparison); Assert.Null(model.MapPlotB.Lap);
+        Assert.False(model.CanUseSharedSpace); Assert.False(model.IsMapComparison);
+        Assert.Null(model.ComparisonMapPlot);
         Assert.Equal("", model.MapBCursorValue);
         model.SetRuns(null, null);
         await LapReviewComparisonTestSupport.Ready(model);
+        model.SharedSpace = true;
         Assert.False(model.HasLap); Assert.False(model.HasMapComparison);
+        Assert.False(model.CanUseSharedSpace); Assert.False(model.IsMapComparison);
+        Assert.Null(model.ComparisonMapPlot);
         Assert.Null(model.MapPlotA.Lap); Assert.Null(model.MapPlotB.Lap);
     });
 
@@ -196,7 +279,10 @@ public sealed class LapReviewMapComparisonTests
         };
         fixture.Model.SetRuns(LapReviewFixtures.Create(), reference);
         await LapReviewComparisonTestSupport.Ready(fixture.Model);
+        fixture.Model.Is3D = true; fixture.Model.SharedSpace = true;
         Assert.False(fixture.Model.HasMapComparison);
+        Assert.False(fixture.Model.CanUseSharedSpace); Assert.False(fixture.Model.IsMapComparison);
+        Assert.Null(fixture.Model.ComparisonMapPlot);
         fixture.Model.Cursor = 120;
         fixture.Model.PickReferencePoint(220);
         Assert.Equal(120, fixture.Model.Cursor);

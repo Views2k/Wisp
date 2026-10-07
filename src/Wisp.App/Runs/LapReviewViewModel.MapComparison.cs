@@ -6,13 +6,17 @@ public sealed partial class LapReviewViewModel
 {
     private LapReviewColorRange? _sharedMapRange;
     private LapReviewContact[] _referenceMapContacts = [];
+    private bool _sharedSpace;
     public bool HasMapComparison => Plot.HasDistinctReference && _reverseComparison?.CanCompare == true;
-    public bool IsMapComparison => Is3D && HasMapComparison;
-    public string MapATitle => Lap is { } lap ? $"A · {lap.RunName} · {lap.Label}" : "Run A";
+    public bool CanUseSharedSpace => Is3D && HasMapComparison;
+    public bool SharedSpace { get => _sharedSpace; set { if (Set(ref _sharedSpace, value)) RefreshMapMode(); } }
+    public bool IsMapComparison => CanUseSharedSpace && SharedSpace;
+    public string MapATitle => IsMapComparison ? Lap is { } lap ? $"A · {lap.RunName} · {lap.Label}" : "Run A" : MapTitle;
     public string MapBTitle => Reference is { } lap ? $"B · {lap.RunName} · {lap.Label}" : "Run B";
-    public string MapComparisonHint => HasMapComparison
+    public string MapComparisonHint => IsMapComparison
         ? "Both laps use the same color scale. Click a track to focus it; zoom out to see both."
-        : "Use Compare above to choose Run B, or choose another reference lap in Lap settings.";
+        : HasMapComparison ? "Enable Shared space to view both laps beside each other."
+        : "Choose Run B using Compare to enable Shared space.";
     public string MapBCursorValue
     {
         get
@@ -25,7 +29,8 @@ public sealed partial class LapReviewViewModel
             return $"{Channel.Label}: {RunPresentation.Number(value, " " + LapReviewPlot.Unit(data))}";
         }
     }
-    public LapReviewPlotData MapPlotA => Plot with { ShowReferencePath = !Is3D, ColorRangeOverride = _sharedMapRange };
+    public LapReviewPlotData MapPlotA => IsMapComparison
+        ? Plot with { ShowReferencePath = false, ColorRangeOverride = _sharedMapRange } : Plot;
     public LapReviewPlotData? ComparisonMapPlot => IsMapComparison ? MapPlotB : null;
     public LapReviewPlotData MapPlotB
     {
@@ -59,10 +64,17 @@ public sealed partial class LapReviewViewModel
         Cursor = matched;
     }
 
+    private void RefreshMapMode()
+    {
+        _legendData = null;
+        RefreshMapDetails();
+        Changed(nameof(CanUseSharedSpace));
+    }
+
     private LapReviewColorRange SharedMapRange(LapReviewPlotData data)
     {
         var a = LapReviewColorRange.From(data);
-        if (!HasMapComparison) return a;
+        if (!IsMapComparison) return a;
         var b = LapReviewColorRange.From(ReferencePlot());
         if (!a.HasValues) return b;
         if (!b.HasValues) return a;

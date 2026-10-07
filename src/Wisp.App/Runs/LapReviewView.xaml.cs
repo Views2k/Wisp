@@ -96,6 +96,6 @@ public partial class LapReviewView : UserControl
 public sealed class LapReviewMapHeightConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
-        value is double height && double.IsFinite(height) && height > 0 ? Math.Clamp(height - 180, 128, 360) : 360d;
+        value is double height && double.IsFinite(height) && height > 0 ? Math.Clamp(height - 235, 70, 360) : 360d;
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
 }

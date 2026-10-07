@@ -50,6 +50,7 @@ internal static class LapReviewUiChecks
             var mapViewport = (FrameworkElement)view.FindName("MapViewport");
             var scrubBar = (FrameworkElement)view.FindName("ScrubBar");
             var showBoth = (Button)view.FindName("ShowBothMaps");
+            var sharedSpace = (CheckBox)view.FindName("SharedSpaceToggle");
             var resetCamera = (Button)view.FindName("ResetCamera");
             var cameraControls = (FrameworkElement)view.FindName("CameraControls");
             var trace = (LapReviewPlot)view.FindName("Trace");
@@ -77,6 +78,7 @@ internal static class LapReviewUiChecks
             check(review.PinCommand.CanExecute(null) && !review.UnpinCommand.CanExecute(null), "benchmark-command-availability");
             check(!review.Is3D && view2D.IsChecked == true && track.Visibility == Visibility.Visible &&
                 track3D.Visibility == Visibility.Collapsed, "existing-2d-default-preserved");
+            check(!review.SharedSpace && sharedSpace.IsChecked == false, "shared-space-is-opt-in");
             check(review.Lap!.Points.Max(point => point.Position.Y) - review.Lap.Points.Min(point => point.Position.Y) > 30,
                 "elevated-recording-fixture");
             check(new[] { LapReviewChannel.Speed, LapReviewChannel.Delta, LapReviewChannel.Throttle, LapReviewChannel.Brake,
@@ -144,6 +146,20 @@ internal static class LapReviewUiChecks
                 check(review.Is3D && view3D.IsChecked == true && track.Visibility == Visibility.Collapsed &&
                     track3D.Visibility == Visibility.Visible, name + "/3d-mode-binding");
                 check(track3D.IsReady && track3D.PreparedSegmentCount > 0, name + "/3d-scene-ready");
+                check(!review.SharedSpace && !review.IsMapComparison && !track3D.IsComparison && track3D.ComparisonData is null &&
+                    track3D.Data is { ShowReferencePath: true, HasDistinctReference: true } originalMap &&
+                    ReferenceEquals(originalMap.Reference, selectedReference) && showBoth.Visibility == Visibility.Collapsed,
+                    name + "/normal-3d-preserves-original-map-and-reference");
+                check(sharedSpace.IsEnabled && sharedSpace.Visibility == Visibility.Visible && review.CanUseSharedSpace,
+                    name + "/shared-space-toggle-available-for-comparison");
+                CheckMapAndScrubber(); Capture("map-3d-normal");
+                VerifyMapImage("3d-normal", track3D);
+                var normalData = track3D.Data!;
+                var normalRange = LapReviewColorRange.From(normalData);
+                sharedSpace.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump(); Arrange(surface, size);
+                Await(track3D.PrepareForTestAsync()); Pump();
+                check(review.SharedSpace && review.IsMapComparison && sharedSpace.IsChecked == true,
+                    name + "/shared-space-toggle-activates-comparison");
                 check(review.HasMapComparison && track3D.IsComparison && track3D.PreparedReferenceSegmentCount > 0 && track3D.FocusedLap == 0,
                     name + "/3d-comparison-opens-both-tracks-in-one-scene");
                 CheckMapAndScrubber();
@@ -237,6 +253,17 @@ internal static class LapReviewUiChecks
                     track3D.Roll == camera.Roll && track3D.ZoomFactor == camera.ZoomFactor,
                     name + "/reset-restores-whole-scene-camera");
                 CheckMapAndScrubber(); Capture("map-3d-comparison-overview");
+                var cursorBeforeNormal = review.Cursor;
+                sharedSpace.SetCurrentValue(ToggleButton.IsCheckedProperty, false); Pump(); Arrange(surface, size);
+                Await(track3D.PrepareForTestAsync()); Pump();
+                check(!review.SharedSpace && !review.IsMapComparison && !track3D.IsComparison &&
+                    track3D.ComparisonData is null && track3D.Data is { ShowReferencePath: true, HasDistinctReference: true } restoredMap &&
+                    ReferenceEquals(restoredMap.Lap, selectedLap) && ReferenceEquals(restoredMap.Reference, selectedReference) &&
+                    LapReviewColorRange.From(restoredMap) == normalRange &&
+                    review.Cursor == cursorBeforeNormal && review.Plot.SectionStart == 125 && review.Plot.SectionEnd == 265,
+                    name + "/shared-space-off-restores-original-3d-with-state");
+                CheckMapAndScrubber(); Capture("map-3d-normal-restored");
+                VerifyMapImage("3d-normal-restored", track3D);
                 view2D.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump(); Arrange(surface, size);
                 check(!review.Is3D && track.Visibility == Visibility.Visible && track3D.Visibility == Visibility.Collapsed &&
                     track.Data?.Cursor == review.Cursor &&
@@ -264,7 +291,7 @@ internal static class LapReviewUiChecks
                     {
                         var bounds = track.TransformToAncestor(scroll).TransformBounds(new Rect(track.RenderSize));
                         check(bounds.Top >= -.5 && bounds.Bottom <= scroll.ViewportHeight + .5, name + "/whole-map-fits-aligned-viewport");
-                        check(mapViewport.ActualHeight is >= 100 and <= 360 && track.ActualHeight >= 60 &&
+                        check(mapViewport.ActualHeight is >= 60 and <= 360 && track.ActualHeight >= 60 &&
                             track.ActualHeight <= mapViewport.ActualHeight, name + "/responsive-map-keeps-renderable-height");
                     }
                 }
