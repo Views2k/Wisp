@@ -213,7 +213,7 @@ public sealed class AppSettings
 
     [JsonIgnore]
     public bool RequiresSetup => PrivateSetupPolicy.RequiresSetup(
-        VerifiedSetupRequired, PrivateSetupSkippedForSession, ApplicationVersionInfo.DiagnosticBuildId);
+        VerifiedSetupRequired, PrivateSetupSkippedForSession);
 
     internal bool TrySkipSetupForPrivateSession()
     {
