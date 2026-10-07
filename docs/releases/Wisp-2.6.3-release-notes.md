@@ -4,6 +4,6 @@
 
 ## Fixes and improvements
 
-- Fixed the HUD and Tune reading after the latest Forza update on Steam and Xbox app / Microsoft Store.
+- Fixed the HUD and Tune reading after the latest Forza update.
 - Wisp now rechecks compatibility automatically while waiting for support for a game build.
 - Compatibility status messages are clearer and no longer repeat the same text.

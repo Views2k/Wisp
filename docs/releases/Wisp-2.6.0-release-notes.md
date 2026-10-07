@@ -20,11 +20,11 @@ With clipping off, recover unfinished saves or dismiss their notice while keepin
 
 ## Tune
 
-View the tuning settings fitted to your current car, **including locked tunes on Steam**. Save a named setup with a description, open it later in Wisp, or compare saved setups or the current car side by side. Delete saved tunes you no longer need; snapshots attached to runs are kept.
+View the tuning settings fitted to your current car, **including locked tunes**. Save a named setup with a description, open it later in Wisp, or compare saved setups or the current car side by side. Delete saved tunes you no longer need; snapshots attached to runs are kept.
 
 The Tune menu covers tires, gearing, alignment, antiroll bars, springs, damping, aero, brakes and differential settings. Comparisons highlight the values that changed. Attach a checked tune snapshot when recording a run to keep its setup with the results.
 
-Current-car reading supports Steam and Xbox app / Microsoft Store FH6 with imperial game units. Saved setups can be viewed with the game closed. Wisp checks for updated Forza support automatically. If an optional tune check fails before a run, the run still records without that attachment.
+Current-car reading requires imperial game units. Saved setups can be viewed with the game closed. Wisp checks for updated Forza support automatically. If an optional tune check fails before a run, the run still records without that attachment.
 
 ## Lap review
 
