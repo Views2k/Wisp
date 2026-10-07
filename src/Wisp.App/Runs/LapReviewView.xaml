@@ -1,6 +1,7 @@
 <UserControl x:Class="Wisp.App.Runs.LapReviewView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:focus="clr-namespace:Wisp.App"
     xmlns:local="clr-namespace:Wisp.App.Runs">
     <UserControl.Resources>
         <local:LapReviewMapHeightConverter x:Key="LapReviewMapHeight" />
@@ -22,7 +23,10 @@
                                 <Setter TargetName="ModeSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                 <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
                             </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ModeSurface" Property="BorderBrush" Value="{DynamicResource TextBrush}" /></Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions><Condition Property="IsKeyboardFocused" Value="True" /><Condition Property="focus:FocusCues.ShowKeyboardFocus" Value="True" /></MultiTrigger.Conditions>
+                                <Setter TargetName="ModeSurface" Property="BorderBrush" Value="{DynamicResource TextBrush}" />
+                            </MultiTrigger>
                             <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ModeSurface" Property="Opacity" Value="0.45" /></Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

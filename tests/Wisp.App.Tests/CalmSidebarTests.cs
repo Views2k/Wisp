@@ -137,7 +137,7 @@ public sealed class CalmSidebarTests
         Assert.Same(window.FindResource("CardStyle"), runLibrary.Style.BasedOn);
         var runToggles = LogicalDescendants(runs).OfType<CheckBox>().ToArray();
         Assert.Equal(
-            ["AutomaticRecording", "FullThrottleOnly", "HotkeyEnabled", "MarkerHotkeyEnabled", "SameSpeed"],
+            ["AutomaticRecording", "FullThrottleOnly", "HotkeyEnabled", "MarkerHotkeyEnabled", "SameSpeed", "ShowContacts"],
             runToggles.Select(runToggle => Assert.IsType<Binding>(
                     BindingOperations.GetBinding(runToggle, ToggleButton.IsCheckedProperty)).Path.Path)
                 .OrderBy(path => path, StringComparer.Ordinal));
