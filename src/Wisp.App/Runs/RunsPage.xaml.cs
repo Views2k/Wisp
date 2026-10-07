@@ -10,6 +10,9 @@ public partial class RunsPage : RunsPageBase
     private bool _graphDrawerSession;
     private double _graphReturnOffset;
     private long _graphDrawerRevision;
+    private ScrollViewer? _comparisonReturnScroll;
+    private double _comparisonReturnOffset;
+    private long _comparisonDrawerRevision;
     public static readonly DependencyProperty IsWorkspaceShortProperty = DependencyProperty.Register(
         nameof(IsWorkspaceShort), typeof(bool), typeof(RunsPage), new PropertyMetadata(false));
 
@@ -34,10 +37,42 @@ public partial class RunsPage : RunsPageBase
         if (!ReferenceEquals(e.OriginalSource, RunComparisonControls)) return;
         var open = RunComparisonControls.IsExpanded;
         if (open) CloseDrawers(RunComparisonControls);
+        UpdateComparisonScroll(open);
         RunComparisonButton.Content = open ? "Done" : "Compare";
-        RunComparisonButton.ToolTip = open ? "Close comparison controls and return space to the graph" : "Choose Run B or match a speed range";
+        RunComparisonButton.ToolTip = open ? "Close comparison controls" : "Choose Run B or match a speed range";
         System.Windows.Automation.AutomationProperties.SetName(RunComparisonButton,
             open ? "Close run comparison controls" : "Open run comparison controls");
+    }
+
+    private void UpdateComparisonScroll(bool open)
+    {
+        var revision = ++_comparisonDrawerRevision;
+        var scroll = open ? (Model?.IsGraphWorkspaceOpen == true ? GraphScroll : RunsScroll) : _comparisonReturnScroll;
+        if (scroll is null) return;
+        if (open)
+        {
+            _comparisonReturnScroll = scroll;
+            _comparisonReturnOffset = scroll.VerticalOffset;
+        }
+        var returnOffset = _comparisonReturnOffset;
+        if (!open) _comparisonReturnScroll = null;
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            if (revision != _comparisonDrawerRevision || RunComparisonControls.IsExpanded != open) return;
+            scroll.UpdateLayout();
+            scroll.ScrollToVerticalOffset(open ? 0 : Math.Clamp(returnOffset, 0, scroll.ScrollableHeight));
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void UpdateComparisonHost()
+    {
+        if (RunComparisonControls is null) return;
+        var host = Model?.IsGraphWorkspaceOpen == true ? RunGraphContent : RunSummaryContent;
+        if (ReferenceEquals(RunComparisonControls.Parent, host)) return;
+        // Keep one editor and one active scrolling surface in both workspaces.
+        RunComparisonControls.IsExpanded = false;
+        if (RunComparisonControls.Parent is Panel previous) previous.Children.Remove(RunComparisonControls);
+        host.Children.Insert(0, RunComparisonControls);
     }
 
     private void RecordingOptionsButton_Click(object sender, RoutedEventArgs e) =>
@@ -103,6 +138,7 @@ public partial class RunsPage : RunsPageBase
 
     protected override void OnModelPropertyChanged(System.ComponentModel.PropertyChangedEventArgs? change)
     {
+        if (change is null || change.PropertyName == nameof(RunsViewModel.IsGraphWorkspaceOpen)) UpdateComparisonHost();
         if (change?.PropertyName == nameof(RunsViewModel.SelectedWorkspacePreset)) _graphReturnOffset = 0;
         if (change is null) { _graphDrawerRevision++; _graphDrawerSession = false; _graphReturnOffset = 0; }
     }
@@ -150,7 +186,6 @@ public partial class RunsPage : RunsPageBase
         RunWorkspaceToolbar.Margin = new Thickness(0, 0, 0, shortWorkspace ? 4 : 8);
         var drawerHeight = Math.Clamp(e.NewSize.Height * 0.36, 85, 200);
         RecordingOptionsScroll.MaxHeight = drawerHeight;
-        RunComparisonScroll.MaxHeight = drawerHeight;
     }
 }
 

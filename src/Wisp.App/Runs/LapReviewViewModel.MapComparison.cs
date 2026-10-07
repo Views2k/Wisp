@@ -7,15 +7,19 @@ public sealed partial class LapReviewViewModel
     private LapReviewColorRange? _sharedMapRange;
     private LapReviewContact[] _referenceMapContacts = [];
     private bool _sharedSpace;
-    public bool HasMapComparison => Plot.HasDistinctReference && _reverseComparison?.CanCompare == true;
+    private int _referenceCursor;
+    public bool HasMapComparison => Plot.HasDistinctMapReference;
+    private bool HasMatchedMapComparison => Plot.HasDistinctReference && _reverseComparison?.CanCompare == true;
     public bool CanUseSharedSpace => Is3D && HasMapComparison;
     public bool SharedSpace { get => _sharedSpace; set { if (Set(ref _sharedSpace, value)) RefreshMapMode(); } }
     public bool IsMapComparison => CanUseSharedSpace && SharedSpace;
     public string MapATitle => IsMapComparison ? Lap is { } lap ? $"A · {lap.RunName} · {lap.Label}" : "Run A" : MapTitle;
     public string MapBTitle => Reference is { } lap ? $"B · {lap.RunName} · {lap.Label}" : "Run B";
     public string MapComparisonHint => IsMapComparison
-        ? "Both laps use the same color scale. Click a track to focus it; zoom out to see both."
+        ? HasMatchedMapComparison ? "Both laps use the same color scale. Click a track to focus it; zoom out to see both."
+        : "Both laps use the same color scale. Cursors are independent; matched sections and time delta are unavailable."
         : HasMapComparison ? "Enable Shared space to view both laps beside each other."
+        : _comparisonRun is not null ? "Run B has no second lap with recorded positions. Choose another run or lap."
         : "Choose Run B using Compare to enable Shared space.";
     public string MapBCursorValue
     {
@@ -23,7 +27,10 @@ public sealed partial class LapReviewViewModel
         {
             if (!HasMapComparison) return "";
             var data = ReferencePlot();
-            var value = LapReviewPlot.ReferencePosition(Plot, Cursor) is null ? null :
+            var value = !HasMatchedMapComparison
+                ? data.Lap is { } lap && (uint)data.Cursor < (uint)lap.Points.Length
+                    ? LapReviewPlot.Value(lap.Points[data.Cursor], data, data.Cursor) : null
+                : LapReviewPlot.ReferencePosition(Plot, Cursor) is null ? null :
                 Channel.Channel == LapReviewChannel.Delta
                     ? -_comparison?.Points.ElementAtOrDefault(Cursor)?.DeltaSeconds : LapReviewPlot.ReferenceValue(Plot, Cursor);
             return $"{Channel.Label}: {RunPresentation.Number(value, " " + LapReviewPlot.Unit(data))}";
@@ -37,12 +44,12 @@ public sealed partial class LapReviewViewModel
         get
         {
             var data = ReferencePlot();
-            var position = LapReviewPlot.ReferencePosition(Plot, Cursor);
+            var position = HasMatchedMapComparison ? LapReviewPlot.ReferencePosition(Plot, Cursor) : null;
             return data with
             {
                 ShowReferencePath = false,
                 ColorRangeOverride = _sharedMapRange,
-                Cursor = position.HasValue ? data.Cursor : -1,
+                Cursor = !HasMatchedMapComparison || position.HasValue ? data.Cursor : -1,
                 CursorPositionOverride = position
             };
         }
@@ -50,6 +57,10 @@ public sealed partial class LapReviewViewModel
 
     private LapReviewPlotData ReferencePlot()
     {
+        if (!HasMatchedMapComparison)
+            return new(Reference, Lap, null, Channel.Channel, _settings.SpeedUnit,
+                Reference is { Points.Length: > 0 } reference ? Math.Clamp(_referenceCursor, 0, reference.Points.Length - 1) : -1,
+                -1, -1, SelectedWheel, _settings.TireTemperatureUnit, _settings.TorqueUnit, ShowContacts ? _referenceMapContacts : null);
         int Match(int index) => _comparison?.Points.ElementAtOrDefault(index)?.ReferencePointIndex ?? -1;
         var start = Match(_sectionStart); var end = Match(_sectionEnd);
         var matchedSection = start >= 0 && end >= start;
@@ -60,7 +71,15 @@ public sealed partial class LapReviewViewModel
 
     public void PickReferencePoint(int index)
     {
-        if (!HasMapComparison || _reverseComparison!.Points.ElementAtOrDefault(index)?.ReferencePointIndex is not { } matched) return;
+        if (!HasMapComparison || Reference is not { } reference || (uint)index >= (uint)reference.Points.Length) return;
+        if (!HasMatchedMapComparison)
+        {
+            if (_referenceCursor == index) return;
+            _referenceCursor = index;
+            Changed(nameof(MapPlotB)); Changed(nameof(ComparisonMapPlot)); Changed(nameof(MapBCursorValue));
+            return;
+        }
+        if (_reverseComparison!.Points.ElementAtOrDefault(index)?.ReferencePointIndex is not { } matched) return;
         Cursor = matched;
     }
 

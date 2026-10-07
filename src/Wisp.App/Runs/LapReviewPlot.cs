@@ -15,6 +15,9 @@ public sealed record LapReviewPlotData(LapReviewLap? Lap, LapReviewLap? Referenc
     public bool ShowReferencePath { get; init; } = true;
     internal LapReviewColorRange? ColorRangeOverride { get; init; }
     internal LapPosition? CursorPositionOverride { get; init; }
+    public bool HasDistinctMapReference => Lap is { Points.Length: > 1 } lap && Reference is { Points.Length: > 1 } reference &&
+        (lap.RunId != reference.RunId || lap.TimingMode != reference.TimingMode || lap.Number != reference.Number ||
+         lap.Points[0].SampleIndex != reference.Points[0].SampleIndex);
     public bool HasDistinctReference => Comparison?.CanCompare == true &&
         Lap is { Points.Length: > 0 } lap && Reference is { Points.Length: > 0 } reference &&
         (lap.RunId != reference.RunId || lap.TimingMode != reference.TimingMode || lap.Number != reference.Number ||

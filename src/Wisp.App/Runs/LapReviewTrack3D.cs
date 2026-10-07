@@ -342,7 +342,13 @@ public sealed partial class LapReviewTrack3D : Grid
         }
         ReleaseMouseCapture(); e.Handled = true;
     }
-    protected override void OnMouseWheel(MouseWheelEventArgs e) { base.OnMouseWheel(e); ZoomBy(Math.Pow(1.15, e.Delta / 120d)); e.Handled = true; }
+    protected override void OnMouseWheel(MouseWheelEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        if (!IsKeyboardFocusWithin) return;
+        ZoomBy(Math.Pow(1.15, e.Delta / 120d));
+        e.Handled = true;
+    }
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);

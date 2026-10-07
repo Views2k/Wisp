@@ -307,6 +307,10 @@
                            AutomationProperties.LiveSetting="Assertive" Margin="0,0,0,10" Visibility="Collapsed" />
                 <DockPanel LastChildFill="False">
                     <Button x:Name="BackButton" Content="Back" Click="Back_Click" DockPanel.Dock="Left" />
+                    <Button x:Name="PrivateSkipButton" Content="Skip setup" Click="PrivateSkip_Click" DockPanel.Dock="Left"
+                            Visibility="Collapsed" Margin="10,0,0,0"
+                            ToolTip="Private test only. Use saved settings for this session; setup will be required next launch."
+                            AutomationProperties.Name="Skip setup for this private test session" />
                     <Button x:Name="NextButton" Content="Continue" Click="Next_Click" DockPanel.Dock="Right"
                             Style="{StaticResource PrimaryButtonStyle}" IsDefault="True" MinWidth="145" />
                 </DockPanel>

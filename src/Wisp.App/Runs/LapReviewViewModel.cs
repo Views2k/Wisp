@@ -96,7 +96,17 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
             else RefreshComparison();
         }
     }
-    public LapReviewLap? Reference { get => _reference; set { if (!_disposed && Set(ref _reference, value) && !_applying) RefreshComparison(); } }
+    public LapReviewLap? Reference
+    {
+        get => _reference;
+        set
+        {
+            if (_disposed || !Set(ref _reference, value)) return;
+            _referenceCursor = 0;
+            _referenceMapContacts = [];
+            if (!_applying) RefreshComparison();
+        }
+    }
     public string Status { get => _status; private set => Set(ref _status, value); }
     public string ReferenceStatus { get => _referenceStatus; private set => Set(ref _referenceStatus, value); }
     public string CaptureStatus { get => _captureStatus; set => Set(ref _captureStatus, value); }
@@ -161,7 +171,9 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
             {
                 Laps.Clear(); foreach (var lap in result.a.Laps) Laps.Add(lap);
                 ReferenceLaps.Clear(); foreach (var lap in result.b.Laps) ReferenceLaps.Add(lap);
-                Reference = ReferenceLaps.Where(UsableBenchmark).MinBy(lap => lap.DurationSeconds);
+                Reference = ReferenceLaps.Where(UsableBenchmark).MinBy(lap => lap.DurationSeconds) ??
+                    (comparisonRun is null ? null : ReferenceLaps.LastOrDefault(lap => lap.IsComplete && lap.Points.Length > 1) ??
+                        ReferenceLaps.LastOrDefault(lap => lap.Points.Length > 1));
                 Lap = result.current;
                 if (Lap is not null && selected is not null && Lap.RunId == selected.RunId &&
                     Lap.TimingMode == selected.TimingMode && Lap.Points.FirstOrDefault()?.SampleIndex == selected.Points.FirstOrDefault()?.SampleIndex)
@@ -218,7 +230,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
             _lap = _reference = null; _comparison = _reverseComparison = null;
             _referenceRun = null; _referenceMapContacts = [];
             ClearTelemetryContacts();
-            _cursor = _sectionStart = _sectionEnd = 0;
+            _cursor = _referenceCursor = _sectionStart = _sectionEnd = 0;
             Laps.Clear(); ReferenceLaps.Clear();
             _sectionStatistics = _referenceStatistics = null; _referenceSectionSeconds = null;
             Metrics.Clear(); Events.Clear(); CursorDetails = null; SectionText = "";

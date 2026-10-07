@@ -91,6 +91,7 @@ internal static class LapReviewUiChecks
             foreach (var (name, size) in new[] { ("normal", new Size(980, 750)), ("compact", new Size(720, 440)) })
             {
                 model.ShowSummary(); Arrange(surface, size);
+                CheckComparisonLayout(page, model, surface, size, name, check, capture);
                 lapSettings.IsExpanded = true;
                 ScrollTo(laps); Capture("controls");
                 foreach (var combo in combos) CheckCombo(combo);
@@ -265,6 +266,18 @@ internal static class LapReviewUiChecks
                     name + "/shared-space-off-restores-original-3d-with-state");
                 CheckMapAndScrubber(); Capture("map-3d-normal-restored");
                 VerifyMapImage("3d-normal-restored", track3D);
+                var automaticHeight = mapViewport.ActualHeight;
+                var geometryBeforeResize = track3D.SceneBuildCount;
+                var grip = (Thumb)view.FindName("MapResizeGrip");
+                grip.RaiseEvent(new DragDeltaEventArgs(0, 160) { RoutedEvent = Thumb.DragDeltaEvent });
+                grip.RaiseEvent(new DragDeltaEventArgs(0, 40) { RoutedEvent = Thumb.DragDeltaEvent });
+                Arrange(surface, size);
+                check(Math.Abs(mapViewport.ActualHeight - Math.Clamp(automaticHeight + 200, 180, 1400)) < .1 &&
+                    track3D.SceneBuildCount == geometryBeforeResize, name + "/track-resize-accumulates-without-rebuilding-geometry");
+                VerifyMapImage("3d-taller", track3D);
+                SendKey(grip, Key.Home, surface); Arrange(surface, size);
+                check(double.IsNaN(view.RequestedMapHeight) && Math.Abs(mapViewport.ActualHeight - automaticHeight) < .1,
+                    name + "/track-size-keyboard-reset");
                 view2D.SetCurrentValue(ToggleButton.IsCheckedProperty, true); Pump(); Arrange(surface, size);
                 check(!review.Is3D && track.Visibility == Visibility.Visible && track3D.Visibility == Visibility.Collapsed &&
                     track.Data?.Cursor == review.Cursor &&
@@ -292,7 +305,7 @@ internal static class LapReviewUiChecks
                     {
                         var bounds = track.TransformToAncestor(scroll).TransformBounds(new Rect(track.RenderSize));
                         check(bounds.Top >= -.5 && bounds.Bottom <= scroll.ViewportHeight + .5, name + "/whole-map-fits-aligned-viewport");
-                        check(mapViewport.ActualHeight is >= 60 and <= 360 && track.ActualHeight >= 60 &&
+                        check(mapViewport.ActualHeight is >= 60 and <= 640 && track.ActualHeight >= 60 &&
                             track.ActualHeight <= mapViewport.ActualHeight, name + "/responsive-map-keeps-renderable-height");
                     }
                 }
@@ -479,6 +492,85 @@ internal static class LapReviewUiChecks
             item.IsEnabled = false; Pump();
             check(itemBorder?.Opacity == .45, "disabled-popup-item-theme");
             check(popup?.IsOpen == false, "popup-not-shown");
+        }
+    }
+
+    private static void CheckComparisonLayout(RunsPage page, RunsViewModel model, FrameworkElement surface,
+        Size size, string name, Action<bool, string> check, Action<string, FrameworkElement, Size>? capture)
+    {
+        var editor = (Expander)page.FindName("RunComparisonControls");
+        var button = (Button)page.FindName("RunComparisonButton");
+        var selector = (ComboBox)page.FindName("ComparisonRunSelector");
+        var hint = (TextBlock)page.FindName("ComparisonHint");
+        var summaryScroll = (ScrollViewer)page.FindName("RunsScroll");
+        var graphScroll = (ScrollViewer)page.FindName("GraphScroll");
+        var lapReview = (Expander)page.FindName("LapReviewExpander");
+        var selectedA = model.SelectedRun?.Id;
+        var selectedB = model.ComparisonChoice?.Id;
+
+        foreach (var graphs in new[] { false, true })
+        {
+            if (graphs) model.ShowGraphs(); else model.ShowSummary();
+            Ready(model); Arrange(surface, size);
+            var scroll = graphs ? graphScroll : summaryScroll;
+            var host = (StackPanel)page.FindName(graphs ? "RunGraphContent" : "RunSummaryContent");
+            var code = name + (graphs ? "/graph-comparison/" : "/lap-comparison/");
+            scroll.ScrollToVerticalOffset(Math.Min(130, scroll.ScrollableHeight)); Arrange(surface, size);
+            var returnOffset = scroll.VerticalOffset;
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Arrange(surface, size);
+            check(editor.IsExpanded && ReferenceEquals(editor.Parent, host) && ReferenceEquals(host.Children[0], editor), code + "single-editor-in-active-content");
+            // Text boxes and popup lists have their own template scroll hosts. Only a
+            // scroll viewer wrapping the editor's actual controls splits this workspace.
+            var editorControls = Descendants(editor).OfType<FrameworkElement>()
+                .Where(element => element is Button or TextBox or CheckBox or ComboBox || ReferenceEquals(element, hint));
+            check(ReferenceEquals(scroll.Content, host) && NearestScrollViewer(editor) == scroll &&
+                editorControls.All(element => NearestScrollViewer(element) == scroll),
+                code + "editor-has-no-nested-scroll-region");
+            check(Descendants(page).OfType<Expander>().Count(item => item.Name == "RunComparisonControls") == 1,
+                code + "one-comparison-editor");
+            check(scroll.VerticalOffset <= .5 && IsInViewport(selector, scroll), code + "open-shows-run-selector");
+            check(Descendants(editor).OfType<Button>().Any(item => Equals(item.Content, "Compare selected")) &&
+                Descendants(editor).OfType<TextBox>().Count() == 2, code + "all-existing-comparison-controls-retained");
+            var editorBounds = editor.TransformToAncestor(host).TransformBounds(new Rect(editor.RenderSize));
+            var hintBounds = hint.TransformToAncestor(host).TransformBounds(new Rect(hint.RenderSize));
+            check(hint.ActualHeight > 0 && hint.Text == model.ComparisonNote &&
+                hintBounds.Top >= editorBounds.Top && hintBounds.Bottom <= editorBounds.Bottom,
+                code + "full-hint-measured-inside-editor");
+            if (!graphs)
+            {
+                var lapBounds = lapReview.TransformToAncestor(host).TransformBounds(new Rect(lapReview.RenderSize));
+                check(lapBounds.Top >= editorBounds.Bottom, code + "editor-and-lap-review-do-not-overlap");
+            }
+            if (editor.ActualHeight <= scroll.ViewportHeight)
+                check(IsInViewport(editor, scroll), code + "complete-editor-fits-viewport");
+            // Short windows use the same page scrollbar to reach the lower controls and hint.
+            scroll.ScrollToVerticalOffset(Math.Max(0, hintBounds.Bottom - scroll.ViewportHeight + 24));
+            Arrange(surface, size);
+            check(IsInViewport(hint, scroll), code + "full-hint-reachable-in-page-scroll");
+            capture?.Invoke(name + (graphs ? "-graph-comparison-controls" : "-lap-comparison-controls"), surface, size);
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Arrange(surface, size);
+            check(!editor.IsExpanded && Math.Abs(scroll.VerticalOffset - Math.Min(returnOffset, scroll.ScrollableHeight)) < .5,
+                code + "close-restores-reading-position");
+            check(model.SelectedRun?.Id == selectedA && model.ComparisonChoice?.Id == selectedB &&
+                model.IsGraphWorkspaceOpen == graphs, code + "navigation-keeps-run-selection-and-workspace");
+        }
+        model.ShowSummary(); Ready(model); Arrange(surface, size);
+        check(ReferenceEquals(editor.Parent, page.FindName("RunSummaryContent")) && !editor.IsExpanded,
+            name + "/comparison-editor-returns-to-summary");
+        summaryScroll.ScrollToHome(); Arrange(surface, size);
+
+        static bool IsInViewport(FrameworkElement element, ScrollViewer scroll)
+        {
+            var bounds = element.TransformToAncestor(scroll).TransformBounds(new Rect(element.RenderSize));
+            return bounds.Top >= -.5 && bounds.Bottom <= scroll.ViewportHeight + .5 &&
+                bounds.Left >= -.5 && bounds.Right <= scroll.ViewportWidth + .5;
+        }
+
+        static ScrollViewer? NearestScrollViewer(DependencyObject element)
+        {
+            for (var parent = VisualTreeHelper.GetParent(element); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+                if (parent is ScrollViewer scroll) return scroll;
+            return null;
         }
     }
 

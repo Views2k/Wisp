@@ -34,6 +34,7 @@ public partial class SetupWindow : Window
         InitializeComponent();
         _controller = controller;
         DataContext = controller.ViewModel;
+        PrivateSkipButton.Visibility = PrivateSetupPolicy.IsAvailable ? Visibility.Visible : Visibility.Collapsed;
         var settings = controller.Settings;
         PortBox.Text = settings.UdpPort.ToString(CultureInfo.InvariantCulture);
         MinimalChoice.IsChecked = settings.LayoutMode == HudLayoutMode.Minimal;
@@ -98,6 +99,7 @@ public partial class SetupWindow : Window
         }
 
         BackButton.IsEnabled = _step > 0 && !_closing;
+        PrivateSkipButton.IsEnabled = !_testing && !_closing;
         PortBox.IsEnabled = !_testing;
         DataOutConfirmation.IsEnabled = !_testing;
         TestButton.IsEnabled = !_testing && DataOutConfirmation.IsChecked == true;
@@ -224,6 +226,13 @@ public partial class SetupWindow : Window
         {
             ShowError(exception.Message);
         }
+    }
+
+    private void PrivateSkip_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_ready || _testing || _closing || _controller.SetupTelemetry.IsRunning ||
+            !_controller.Settings.TrySkipSetupForPrivateSession()) return;
+        DialogResult = true;
     }
 
     private HudLayoutMode SelectedLayout => NativeChoice.IsChecked == true

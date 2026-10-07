@@ -124,6 +124,12 @@ internal static class Program
                 var output = PrepareOutput(args[2]);
                 return TuneUiReview.Run(output, () => LoadApplicationResources(output, out _), DetachSurface, SetOffscreenDpi);
             }
+            if (args.Length == 9 && args[0] == "--lap-recorded-comparison-check" && args[1] == "--source" &&
+                args[3] == "--compare" && args[5] == "--compare" && args[7] == "--output")
+            {
+                var output = PrepareOutput(args[8]);
+                return LapRecordedComparisonReview.Run([args[2], args[4], args[6]], output, () => LoadApplicationResources(output, out _));
+            }
             if (args.Length == 3 && args[0] == "--lap-review-check" && args[1] == "--output")
             {
                 var output = PrepareOutput(args[2]);

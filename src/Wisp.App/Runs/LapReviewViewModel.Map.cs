@@ -123,7 +123,8 @@ public sealed partial class LapReviewViewModel
     {
         var data = Plot;
         EnsureContacts();
-        if (_legendData is not { } old || !ReferenceEquals(old.Lap, data.Lap) || !ReferenceEquals(old.Comparison, data.Comparison) ||
+        if (_legendData is not { } old || !ReferenceEquals(old.Lap, data.Lap) || !ReferenceEquals(old.Reference, data.Reference) ||
+            !ReferenceEquals(old.Comparison, data.Comparison) ||
             old.Channel != data.Channel || old.Wheel != data.Wheel || old.SpeedUnit != data.SpeedUnit ||
             old.TemperatureUnit != data.TemperatureUnit || old.TorqueUnit != data.TorqueUnit)
         {

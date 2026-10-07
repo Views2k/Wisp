@@ -56,6 +56,27 @@ public sealed class LapReviewTrack3DTests
     });
 
     [Fact]
+    public void ScrollingOverAnUnfocusedMapBubblesWithoutShrinkingTheTrack() => OnSta(async () =>
+    {
+        var track = Track();
+        var parent = new Border { Child = track };
+        parent.Measure(new Size(800, 400)); parent.Arrange(new Rect(0, 0, 800, 400));
+        await track.PrepareForTestAsync();
+        Assert.False(track.IsKeyboardFocusWithin);
+        var point = track.ProjectPoint(1); var bubbled = 0;
+        parent.MouseWheel += (_, _) => bubbled++;
+        for (var i = 0; i < 12; i++)
+        {
+            var input = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, -120)
+            { RoutedEvent = Mouse.MouseWheelEvent };
+            track.RaiseEvent(input);
+            Assert.False(input.Handled);
+        }
+        Assert.Equal(12, bubbled); Assert.Equal(1, track.ZoomFactor);
+        Assert.Equal(point, track.ProjectPoint(1)); Assert.Equal(1, track.SceneBuildCount);
+    });
+
+    [Fact]
     public void ComparisonRangeAndPathChangesRebuildWhileMatchedCursorUpdatesDoNot() => OnSta(async () =>
     {
         var track = Track();
@@ -241,6 +262,28 @@ public sealed class LapReviewTrack3DTests
         track.ShowAll(); track.CompleteCameraMotionForTest();
         track.Choose(track.ProjectPoint(2)); track.CompleteCameraMotionForTest();
         Assert.Equal(2, Assert.Single(primary)); Assert.Equal(1, track.FocusedLap);
+        Assert.True(track.HasBothPreparedModels); Assert.Equal(2, track.SceneBuildCount);
+    });
+
+    [Fact]
+    public void DistinctLapsRemainVisibleWhenBenchmarkComparisonIsUnavailable() => OnSta(async () =>
+    {
+        var track = ComparisonTrack();
+        var primary = track.Data!.Lap! with { CarOrdinal = 3141, IsComplete = true };
+        var reference = track.ComparisonData!.Lap! with { CarOrdinal = 1229, IsComplete = true };
+        var comparison = LapReviewAnalysis.Compare(primary, reference, TestContext.Current.CancellationToken);
+        Assert.False(comparison.CanCompare);
+        track.Data = track.Data! with { Lap = primary, Reference = reference, Comparison = comparison };
+        track.ComparisonData = track.ComparisonData! with { Lap = reference, Reference = primary, Comparison = null, SectionStart = -1, SectionEnd = -1 };
+        Assert.False(track.Data.HasDistinctReference);
+        Assert.True(track.Data.HasDistinctMapReference);
+        await track.PrepareForTestAsync();
+        Assert.True(track.IsComparison); Assert.True(track.HasBothPreparedModels);
+        Assert.Equal(2, track.SceneBuildCount); Assert.Equal(3, track.PreparedReferenceSegmentCount);
+        Assert.True(Enumerable.Range(0, 4).Max(i => track.ProjectPoint(i).X) < Enumerable.Range(0, 4).Min(i => track.ProjectReferencePoint(i).X));
+        var chosen = -1; track.ReferencePointChosen += index => chosen = index;
+        track.Choose(track.ProjectReferencePoint(2)); track.CompleteCameraMotionForTest();
+        Assert.Equal(2, chosen); Assert.Equal(2, track.FocusedLap);
         Assert.True(track.HasBothPreparedModels); Assert.Equal(2, track.SceneBuildCount);
     });
 

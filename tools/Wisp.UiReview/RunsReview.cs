@@ -51,7 +51,7 @@ internal static class RunsReview
             var backToSummary = (Button)page.FindName("BackToSummaryButton");
             var compareOptions = (Expander)page.FindName("CompareExpander");
             var comparisonControls = (Expander)page.FindName("RunComparisonControls");
-            var comparisonScroll = (ScrollViewer)page.FindName("RunComparisonScroll");
+            var comparisonScroll = (ScrollViewer)page.FindName("GraphScroll");
             var comparisonSelector = (ComboBox)page.FindName("ComparisonRunSelector");
             var surface = (FrameworkElement)source.Content;
             var names = NameScope.GetNameScope(source);
@@ -132,7 +132,8 @@ internal static class RunsReview
                     .Single(button => Equals(button.Content, "Compare selected"));
                 comparisonScroll.ScrollToVerticalOffset(comparisonScroll.VerticalOffset + compareButton.TranslatePoint(new Point(), comparisonScroll).Y - 10);
                 Settle(surface);
-                if (!WithinPage(comparisonControls) || !WithinPage(compareButton) || !compareButton.IsEnabled || compareButton.Command?.CanExecute(null) != true)
+                if (!WithinPage(compareButton) || !comparisonControls.IsAncestorOf(compareButton) ||
+                    !comparisonScroll.IsAncestorOf(comparisonControls) || !compareButton.IsEnabled || compareButton.Command?.CanExecute(null) != true)
                     failures.Add("comparison-controls-unavailable-from-graphs");
                 compareButton.Command?.Execute(compareButton.CommandParameter); AwaitReady(controller.Runs); Settle(surface);
                 if (!controller.Runs.IsGraphWorkspaceOpen || controller.Runs.SelectedGraph != graphBeforeComparison || controller.Runs.SelectedRun?.Id != runAId || !controller.Runs.HasComparison)

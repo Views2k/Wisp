@@ -1,9 +1,13 @@
 Wisp 2.6.4 Lap review 3D test
-Private build ID: lap-review-3d-20261006-02
+Private build ID: lap-review-3d-20261006-03
 
 This is a private test build, not a public release. It updates your existing
 Wisp installation and keeps your settings, profiles, calibrations, runs and
 clips. It is not a separate installation.
+
+Choose Skip setup to test this private build without opening Forza. The skip
+lasts for the current session and does not change your saved setup evidence.
+Public releases keep the normal setup flow.
 
 Changes
 - Switch between the existing 2D lap map and a 3D view of recorded elevation.
@@ -17,10 +21,17 @@ Changes
   color scale. Click a track to move closer; zoom back out to see both.
 - Keep the lap-position slider above the map and batch drag updates to one
   per UI render cycle, preserving the final position when released.
+- Use one page scrollbar for the comparison controls and lap review.
+- Compare recorded tracks from different cars in Shared space. Timing and
+  matched-section checks remain separate; incompatible laps use independent cursors.
+- Give the track more room with a taller automatic view and a draggable lower edge.
 
 Controls
 Drag: rotate. Shift-drag or right-drag: pan. Ctrl-drag: roll.
-Scroll: zoom. Double-click or Reset camera: restore the workspace camera.
+Click the map before using scroll to zoom; otherwise the wheel scrolls the page.
+Double-click or Reset camera: restore the workspace camera.
+Drag the grip below the map to resize it. Focus the grip and use Up/Down to
+adjust the height, or Home to restore automatic sizing.
 Click the line: select a point. Arrow keys: move along the lap.
 Home/End: first/last point. Camera controls also provide axis sliders.
 Choose Run B using Compare above, or choose a reference in Lap settings and

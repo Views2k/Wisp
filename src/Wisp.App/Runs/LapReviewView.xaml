@@ -1,4 +1,4 @@
-<UserControl x:Class="Wisp.App.Runs.LapReviewView"
+<UserControl x:Class="Wisp.App.Runs.LapReviewView" x:Name="ReviewView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:focus="clr-namespace:Wisp.App"
@@ -111,7 +111,8 @@
                             <TextBlock Text="{Binding MapBCursorValue}" FontSize="18" FontWeight="SemiBold" Margin="0,5,0,0"/>
                         </StackPanel>
                     </Grid>
-                    <Grid x:Name="MapViewport" Grid.Row="1" Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}, Converter={StaticResource LapReviewMapHeight}}">
+                    <Grid x:Name="MapViewport" Grid.Row="1">
+                        <Grid.Height><MultiBinding Converter="{StaticResource LapReviewMapHeight}"><Binding Path="ViewportHeight" RelativeSource="{RelativeSource AncestorType={x:Type ScrollViewer}}"/><Binding Path="RequestedMapHeight" ElementName="ReviewView"/></MultiBinding></Grid.Height>
                         <local:LapReviewPlot x:Name="Track" Data="{Binding MapPlotA}" IsMap="True" Visibility="{Binding Is2D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="Recorded lap map. Click to select a location; arrow keys move through samples." />
                         <local:LapReviewTrack3D x:Name="Track3D" Data="{Binding MapPlotA}" ComparisonData="{Binding ComparisonMapPlot}" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}" AutomationProperties.Name="3D lap workspace. Click a track to move closer, drag to rotate, scroll out to see both. Arrow keys select points." />
                     </Grid>
@@ -129,9 +130,26 @@
                     <TextBlock Text="{Binding ElevationSummary}" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
                 </StackPanel>
             </Grid>
+            <Thumb x:Name="MapResizeGrip" Height="20" Margin="16,0" Cursor="SizeNS" Focusable="True" IsTabStop="True"
+                DragDelta="MapResizeGrip_DragDelta" KeyDown="MapResizeGrip_KeyDown"
+                AutomationProperties.Name="Resize track area" AutomationProperties.HelpText="Drag to resize. Up and Down adjust height; Home restores automatic size."
+                ToolTip="Drag to resize track area · Up/Down to adjust · Home to reset">
+                <Thumb.Template><ControlTemplate TargetType="Thumb">
+                    <Border x:Name="ResizeBorder" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="4">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Border Width="32" Height="3" CornerRadius="1.5" Background="{DynamicResource StrokeBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="Resize map" FontSize="11" Foreground="{DynamicResource MutedBrush}"/>
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ResizeBorder" Property="Background" Value="{DynamicResource RaisedBrush}"/></Trigger>
+                        <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsKeyboardFocused" Value="True"/><Condition Property="focus:FocusCues.ShowKeyboardFocus" Value="True"/></MultiTrigger.Conditions><Setter TargetName="ResizeBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate></Thumb.Template>
+            </Thumb>
             <StackPanel Margin="16,0,16,8" Visibility="{Binding Is3D, Converter={StaticResource MapVisibility}}">
                 <TextBlock Text="{Binding MapComparisonHint}" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,6" />
-                <TextBlock Text="Drag to rotate · Shift/right drag to pan · Ctrl drag to roll · Scroll to zoom · Double-click to reset" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                <TextBlock Text="Drag to rotate · Shift/right drag to pan · Ctrl drag to roll · Click the map to use scroll zoom · Double-click to reset" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
                 <Expander Header="Camera controls" Margin="0,0,0,8">
                     <WrapPanel x:Name="CameraControls" Margin="0,8,0,0">
                         <TextBlock Text="Workspace camera" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,8"/>

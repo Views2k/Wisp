@@ -29,7 +29,7 @@ public sealed partial class LapReviewTrack3D
     private long _cameraMotionStarted;
     private Point3D _motionStartTarget, _motionEndTarget;
     private double _motionStartZoom, _motionEndZoom;
-    private LapReviewPlotData? EffectiveComparison => Data?.HasDistinctReference == true && ComparisonData is { Lap.Points.Length: > 1 } data ? data : null;
+    private LapReviewPlotData? EffectiveComparison => Data?.HasDistinctMapReference == true && ComparisonData is { Lap.Points.Length: > 1 } data ? data : null;
     internal int PreparedReferenceSegmentCount => _comparisonScene?.SegmentCount ?? 0;
     internal bool HasBothPreparedModels => _path.Content is not null && _comparisonPath.Content is not null;
     internal bool IsCameraMotionActive => _cameraMotionActive;
