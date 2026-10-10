@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using Wisp.App.Clips;
 using Wisp.Core;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App.DebugLogging;
 
@@ -203,6 +204,10 @@ internal sealed class HealthContextRecorder
                 CollectorFailures = Math.Max(0, sample.CollectorFailures),
                 Renderer = renderer
             };
+            SupplementarySessionRecorder.Current.RecordSample(safe.ListenerRunning, safe.ListenerError, safe.PacketAgeMs,
+                safe.CpuPercent, safe.WorkingSetBytes, safe.ManagedHeapBytes,
+                safe.NativeGamePlatform switch { DiagnosticGamePlatform.Steam => "steam", DiagnosticGamePlatform.XboxStore => "store", _ => "unknown" },
+                safe.NativeGameVersion);
             if (_samples.Count == SampleCapacity) _samples.Dequeue();
             _samples.Enqueue(safe);
             Volatile.Write(ref _snapshot, new(safe.TimestampUtc, _samples.ToImmutableArray(), ReadBreadcrumbs(),

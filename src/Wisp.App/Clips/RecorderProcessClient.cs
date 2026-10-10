@@ -494,8 +494,10 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                     var value = bytes[index];
                     if (value == (byte)'\n')
                     {
-                        if (!oversized && RecorderFailureDiagnostic.Parse(line.AsMemory(0, length)) is { } diagnostic)
-                            Interlocked.CompareExchange(ref _failureDiagnostic, diagnostic, null);
+                        if (!oversized && RecorderFailureDiagnostic.Parse(line.AsMemory(0, length)) is { } diagnostic &&
+                            Interlocked.CompareExchange(ref _failureDiagnostic, diagnostic, null) is null &&
+                            diagnostic.Reason is not ("cancelled" or "none" or "stopped" or "parent_closed"))
+                            DebugLogging.SupplementaryIncidentCapture.RecordRecorder(diagnostic.Reason, diagnostic);
                         length = 0; oversized = false;
                     }
                     else if (length < line.Length) line[length++] = value;

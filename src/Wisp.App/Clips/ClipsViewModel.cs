@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using Wisp.App.Supplementary;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
@@ -423,6 +424,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         await _recorder.SetEnabledAsync(next, Recording(), _token);
         RefreshRecorder();
         if (_snapshot.Enabled != next) { ErrorText("Clipping did not change state. Check the recorder status."); return; }
+        SupplementaryObservations.Record("feature", "clips", "success", "chosen");
         if (!next) PersistEnabled(false);
     }, "Clipping could not change state. Check the recorder status.", CanToggle);
 
@@ -544,7 +546,8 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             catch (OperationCanceledException) when (_token.IsCancellationRequested) { }
             catch (Exception error) when (error is not OutOfMemoryException)
             { ErrorText("The clip was saved, but the full list could not be refreshed. Its card is shown below."); }
-        }, "The clip could not be saved. Any unfinished save and its file have been kept.", CanSave, SaveFailureText);
+        }, "The clip could not be saved. Any unfinished save and its file have been kept.", CanSave, SaveFailureText,
+            observationStage: "save", observationOutcome: () => saved ? "success" : "unknown");
         return saved;
     }
 
@@ -843,6 +846,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     }
     private Task ExportSelectedAsync(string destination, bool useDirectory, ClipExportFormat format = ClipExportFormat.Original)
     {
+        var supplementaryExportOutcome = "unknown";
         var selected = _selected;
         var revision = _selectionRevision;
         var failure = format == ClipExportFormat.Compatible
@@ -867,6 +871,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                     ? await library.ExportCompatibleAsync(selected!.Id, destination, progress, operation.Token)
                     : useDirectory ? await library.ExportToDirectoryAsync(selected!.Id, destination, operation.Token)
                     : await library.ExportAsync(selected!.Id, destination, operation.Token);
+                supplementaryExportOutcome = "success";
                 var message = !result.ExportStateSaved ? "Export successful. The file is ready, but Wisp could not update its saved status."
                     : result.FileCreated ? "Export successful." : "Export successful. This clip is already in your export folder; no duplicate was created.";
                 if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(message, true);
@@ -891,6 +896,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             }
             catch (OperationCanceledException) when (operation.IsCancellationRequested && !_token.IsCancellationRequested)
             {
+                supplementaryExportOutcome = "cancelled";
                 const string cancelled = "Export cancelled. The original clip is kept.";
                 if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(cancelled, false);
                 if (!_disposed) NoticeText(cancelled);
@@ -903,7 +909,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             SetPreviewExportStatus(report.Message, false);
             SetExportFailureDetails(report.Details);
             return report.Message;
-        });
+        }, observationStage: "export", observationOutcome: () => supplementaryExportOutcome);
     }
 
     public bool ConfigureShortcut(bool save, bool enabled, OverlayHotkeyChord chord)
@@ -1060,13 +1066,22 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         _exportFailureDetails = details;
         OnChanged(nameof(ExportFailureDetails)); OnChanged(nameof(HasExportFailureDetails));
     }
-    private async Task Operation(Func<Task> action, string errorText, bool allowed, Func<Exception, string?>? failureText = null)
+    private async Task Operation(Func<Task> action, string errorText, bool allowed, Func<Exception, string?>? failureText = null,
+        string? observationStage = null, Func<string>? observationOutcome = null)
     {
         if (!allowed || _busy || _disposed) return;
+        using var supplementaryOperation = observationStage is null ? null : SupplementaryObservations.Begin("clips", "clips", observationStage);
         _busy = true; ErrorText(""); NoticeText(""); NotifyState();
-        try { CommitQuality(); await action(); }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception error) when (error is not OutOfMemoryException) { ErrorText(failureText?.Invoke(error) ?? errorText); }
+        try { CommitQuality(); await action(); supplementaryOperation?.Complete(observationOutcome?.Invoke() ?? "unknown"); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        { supplementaryOperation?.Complete(observationOutcome?.Invoke() == "success" ? "success" : "cancelled"); }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            var outcome = observationOutcome?.Invoke() == "success" ? "success" : "failure";
+            supplementaryOperation?.Complete(outcome, outcome == "failure" && observationStage == "export"
+                ? DebugLogging.SupplementaryIncidentCapture.Export(error, DateTimeOffset.UtcNow) : null);
+            ErrorText(failureText?.Invoke(error) ?? errorText);
+        }
         finally { _busy = false; if (!_disposed) { RefreshRecorder(); NotifyState(); } }
     }
     private void RecorderChanged(object? sender, EventArgs e)

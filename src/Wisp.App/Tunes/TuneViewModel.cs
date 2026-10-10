@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using System.Windows.Threading;
 using Wisp.Core.Tunes;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App.Tunes;
 
@@ -218,15 +219,17 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     public async Task LoadSelectedAsync()
     {
         if (_selected is not { } choice || _busy || _dialogOpen || _disposed) return;
+        using var supplementaryLoad = SupplementaryObservations.Begin("saved-data", "tune", "load");
         _busy = true; SetError(""); NotifyCommands();
         try
         {
             var loaded = await _store.LoadAsync(choice.Id, _lifetime.Token);
+            supplementaryLoad?.Complete("success");
             if (_disposed) return;
             OpenSaved(loaded); _status = "Saved tune opened in Wisp.";
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception error) when (error is not OutOfMemoryException) { SetError("That tune could not be opened. Its saved file has been kept."); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { supplementaryLoad?.Complete("cancelled"); }
+        catch (Exception error) when (error is not OutOfMemoryException) { supplementaryLoad?.Complete("failure"); SetError("That tune could not be opened. Its saved file has been kept."); }
         finally { _busy = false; OpenPendingView(); NotifyView(); }
     }
 
@@ -324,17 +327,18 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         if (_deleting) { await ConfirmDeleteAsync(); return; }
         if (string.IsNullOrWhiteSpace(_dialogName) || _dialogName.Trim().Length > 40) { DialogFail("Enter a name between 1 and 40 characters."); return; }
         if (_dialogDescription.Trim().Length > 2000) { DialogFail("Keep the description within 2,000 characters."); return; }
+        using var supplementarySave = SupplementaryObservations.Begin("saved-data", "tune", "save");
         _busy = true; _dialogError = ""; Changed(nameof(DialogError)); NotifyCommands();
         try
         {
             if (_editingId is null && !_isCurrent(snapshot))
-            { DialogFail("The car or session changed. Cancel and refresh before saving."); return; }
+            { supplementarySave?.Complete("failure"); DialogFail("The car or session changed. Cancel and refresh before saving."); return; }
             if (_editingId is null)
             {
                 var latest = await _capture(_lifetime.Token);
                 if (!_isCurrent(snapshot) || latest.Snapshot is not { } current || !TuneComparison.HaveSameSetupIdentity(snapshot, current))
                 {
-                    _currentValid = false;
+                    _currentValid = false; supplementarySave?.Complete("failure");
                     DialogFail("The tune changed or could not be confirmed. Your text is kept; cancel and refresh before saving.");
                     return;
                 }
@@ -342,6 +346,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
             var saved = _editingId is { } id
                 ? await _store.UpdateMetadataAsync(id, _dialogName, _dialogDescription, _lifetime.Token)
                 : await _store.SaveAsync(snapshot, _dialogName, _dialogDescription, _lifetime.Token);
+            supplementarySave?.Complete("success");
             if (_disposed) return;
             _saved = [.. _saved.Where(item => item.Id != saved.Id), saved];
             if (_a?.Id == saved.Id) _a = saved;
@@ -349,19 +354,21 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
             SortLibrary(); OpenSaved(saved); _status = _editingId is null ? "Tune saved." : "Tune details saved.";
             _dialogOpen = false; _dialogSnapshot = null; _editingId = null; Changed(nameof(IsDialogOpen));
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (ArgumentException) { DialogFail("Check the name and description, then try again."); }
-        catch (Exception error) when (error is not OutOfMemoryException) { DialogFail("The tune could not be saved. Check storage and try again; your text is kept here."); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { supplementarySave?.Complete("cancelled"); }
+        catch (ArgumentException) { supplementarySave?.Complete("failure"); DialogFail("Check the name and description, then try again."); }
+        catch (Exception error) when (error is not OutOfMemoryException) { supplementarySave?.Complete("failure"); DialogFail("The tune could not be saved. Check storage and try again; your text is kept here."); }
         finally { _busy = false; OpenPendingView(); NotifyView(); }
     }
 
     private async Task ConfirmDeleteAsync()
     {
         if (_editingId is not { } id) return;
+        using var supplementaryDelete = SupplementaryObservations.Begin("saved-data", "tune", "delete");
         _busy = true; _dialogError = ""; Changed(nameof(DialogError)); NotifyCommands();
         try
         {
             await _store.DeleteAsync(id, _lifetime.Token);
+            supplementaryDelete?.Complete("success");
             if (_disposed) return;
             _saved = _saved.Where(item => item.Id != id).ToArray();
             if (_selected?.Id == id) _selected = null;
@@ -372,9 +379,9 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
             _status = "Saved tune deleted. Attached run snapshots were kept.";
             Changed(nameof(IsDialogOpen));
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { supplementaryDelete?.Complete("cancelled"); }
         catch (Exception error) when (error is not OutOfMemoryException)
-        { DialogFail("The tune could not be deleted. Check local storage and try again."); }
+        { supplementaryDelete?.Complete("failure"); DialogFail("The tune could not be deleted. Check local storage and try again."); }
         finally { _busy = false; OpenPendingView(); NotifyView(); }
     }
 

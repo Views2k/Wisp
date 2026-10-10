@@ -1,4 +1,5 @@
 using Wisp.App.DebugLogging;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App.Clips;
 
@@ -11,6 +12,7 @@ internal sealed class ClipsPlaybackState
     private bool _hasStarted;
     private string _failure = "";
     private HealthPlayerState _healthState;
+    private readonly SupplementaryPlaybackObservation _supplementary = new();
 
     public long Revision { get; private set; }
     public bool Preparing => _phase == Phase.Preparing;
@@ -42,6 +44,7 @@ internal sealed class ClipsPlaybackState
 
     public void Reset()
     {
+        _supplementary.Reset();
         Revision++;
         _phase = Phase.Closed;
         Paused = Ended = Buffering = _viewed = _hasStarted = false;
@@ -52,7 +55,7 @@ internal sealed class ClipsPlaybackState
         RecordHealthState();
     }
 
-    public void Prepare() { Reset(); Paused = true; _phase = Phase.Preparing; RecordHealthState(); }
+    public void Prepare() { Reset(); Paused = true; _phase = Phase.Preparing; _supplementary.Prepare(); RecordHealthState(); }
 
     public void CopyPreparationChanged(long revision, bool preparing, double? progress)
     {
@@ -68,6 +71,7 @@ internal sealed class ClipsPlaybackState
         DurationSeconds = seconds;
         _lastObservedPosition = 0;
         _phase = Phase.Ready;
+        _supplementary.Decoded();
         RecordHealthState();
         return true;
     }
@@ -112,12 +116,13 @@ internal sealed class ClipsPlaybackState
             !double.IsFinite(seconds) || seconds < 0 || seconds > DurationSeconds) return false;
         var advanced = _lastObservedPosition is { } previous && seconds > previous;
         _lastObservedPosition = seconds;
-        if (advanced) _viewed = true;
+        if (advanced) { _viewed = true; _supplementary.Progressed(); }
         return advanced;
     }
 
     public void Fail(string message)
     {
+        _supplementary.Failed();
         Reset();
         _phase = Phase.Failed;
         _failure = message;

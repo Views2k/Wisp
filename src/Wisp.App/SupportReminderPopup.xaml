@@ -17,7 +17,7 @@
             Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.5"
             StrokeStartLineCap="Round" StrokeEndLineCap="Round" IsHitTestVisible="False"/>
      </Button>
-     <TextBlock Text="A note from Views" FontSize="23" FontWeight="SemiBold" VerticalAlignment="Center"
+     <TextBlock x:Name="NoteTitle" Text="A note from Views" FontSize="23" FontWeight="SemiBold" VerticalAlignment="Center"
                 Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap"/>
     </DockPanel>
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">

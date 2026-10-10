@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using Wisp.App.Supplementary;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
@@ -333,6 +334,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             else _pendingSelection = selected;
             Status = "Stop recording to open the selected run. Your current report stays available."; return;
         }
+        using var supplementaryLoad = SupplementaryObservations.Begin("saved-data", "runs", "load");
         var revision = ++_selectionRevision;
         _loadingComparison = false; _comparisonNeedsAnalysis = false;
         ++_analysisRevision;
@@ -352,6 +354,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             if (RecordingActive) { _pendingSelection = selected; return; }
             var opened = await AnalyzeAsync(run);
             if (revision != _selectionRevision) return;
+            supplementaryLoad?.Complete(opened ? "success" : "failure");
             if (opened)
             {
                 if (!hadRun) ReportOpened?.Invoke(this, EventArgs.Empty);
@@ -368,6 +371,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             {
                 _selectedRun = Library.FirstOrDefault(item => item.Id == _runA?.Id);
                 OnChanged(nameof(SelectedRun));
+                supplementaryLoad?.Complete("failure");
                 Fail("This run could not be opened. The file may be incomplete or unavailable.");
             }
         }
@@ -676,6 +680,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
     public async Task ExportSelectedAsync(string destination)
     {
         if (_runA is null || !CanManageRun) return;
+        using var supplementaryExport = SupplementaryObservations.Begin("saved-data", "runs", "export");
         var id = _runA.Id;
         IsBusy = true;
         try
@@ -686,22 +691,26 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             await StoreOperationAsync(() => System.IO.Path.GetExtension(destination).Equals(".csv", StringComparison.OrdinalIgnoreCase)
                 ? RunCsvExporter.WriteAsync(run, destination) : _service.Store.ExportAsync(run.Id, destination));
             Status = "Run exported. Nothing was uploaded.";
+            supplementaryExport?.Complete("success");
         }
-        catch (Exception error) when (error is not OutOfMemoryException) { Fail("Export failed. Choose a new filename and try again."); }
+        catch (Exception error) when (error is not OutOfMemoryException) { supplementaryExport?.Complete("failure"); Fail("Export failed. Choose a new filename and try again."); }
         finally { IsBusy = false; }
     }
     public async Task ImportAsync(string source)
     {
         if (!CanManageLibrary) return;
+        using var supplementaryImport = SupplementaryObservations.Begin("saved-data", "runs", "import");
         IsBusy = true;
         try
         {
-            var summary = await StoreOperationAsync(() => _service.Store.ImportAsync(source)); await LoadLibraryAsync();
+            var summary = await StoreOperationAsync(() => _service.Store.ImportAsync(source));
+            supplementaryImport?.Complete("success");
+            await LoadLibraryAsync();
             if (Library.FirstOrDefault(item => item.Id == summary.Id) is { } imported)
             { _selectedRun = imported; OnChanged(nameof(SelectedRun)); await LoadSelectionAsync(imported); }
             Status = "Run imported.";
         }
-        catch (Exception error) when (error is not OutOfMemoryException) { Fail("This file could not be imported. Choose a complete Wisp run file."); }
+        catch (Exception error) when (error is not OutOfMemoryException) { supplementaryImport?.Complete("failure"); Fail("This file could not be imported. Choose a complete Wisp run file."); }
         finally { IsBusy = false; }
     }
     internal async Task ShowReviewAsync(RecordedRun a, RecordedRun? b = null, RunPurpose purpose = RunPurpose.General)

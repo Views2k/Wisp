@@ -157,6 +157,8 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         AnalogHudPendingFrame? pending = null;
         NativeGaugeFrame latestFrame = default;
         long queuedTimestamp = 0, sequence = 0, operationStarted = 0;
+        long toolsLastSubmittedAt = 0;
+        var toolsPerformance = ToolsPerformanceRecorder.Current;
         string operation = "state";
         DirectCompositionWaitMetrics waitMetrics = default;
         bool measuredWaitCompleted = false;
@@ -173,6 +175,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     motionGeneration = _motionGeneration;
                     if (_reset)
                     {
+                        toolsLastSubmittedAt = 0;
                         announcedHud = null;
                         playback.Reset();
                         hudPlayback.Reset();
@@ -197,6 +200,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 }
                 if (!presentation.Active)
                 {
+                    toolsLastSubmittedAt = 0;
                     if (device is not null && _surfaceVisible)
                     {
                         // Clear the independent surface before the parent can
@@ -231,6 +235,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 }
                 if (!hasFrame)
                 {
+                    toolsLastSubmittedAt = 0;
                     WaitHandle.WaitAny(waitHandles);
                     continue;
                 }
@@ -354,6 +359,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 if (pending is null && hudShown && presentation.Hud is not null &&
                     hudPlayback.IdleWhenUnchanged(Stopwatch.GetTimestamp()))
                 {
+                    toolsLastSubmittedAt = 0;
                     WaitHandle.WaitAny(waitHandles, 50);
                     continue;
                 }
@@ -417,7 +423,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                         Transform(commands, presentation);
                         commandCount = commands.Length;
                     }
-                    var sceneTicks = measure ? Stopwatch.GetTimestamp() - operationStarted : 0;
+                    var sceneTicks = operationStarted > 0 ? Stopwatch.GetTimestamp() - operationStarted : 0;
                     pending = new(sample, presentation, queuedTimestamp, ++sequence);
                     hudShown = false;
                     if (ShiftCaptureHub.Current is not null)
@@ -472,6 +478,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 {
                     if (device.LastRenderWasOccluded)
                     {
+                        toolsLastSubmittedAt = 0;
                         frameReady = false;
                         // Initialization succeeded even when Windows cannot show
                         // this HWND. Do not count this as a submitted needle frame.
@@ -519,7 +526,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 void BeginOperation(string stage)
                 {
                     operation = stage;
-                    operationStarted = measure ? Stopwatch.GetTimestamp() : 0;
+                    operationStarted = measure || toolsPerformance.Enabled ? Stopwatch.GetTimestamp() : 0;
                     waitMetrics = default;
                     measuredWaitCompleted = false;
                 }
@@ -577,13 +584,44 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             int drawCommands = 0, DirectCompositionDrawMetrics drawMetrics = default,
             DirectCompositionPresentMetrics presentMetrics = default, int dropped = 0, int hResult = 0)
         {
+            var completed = stage == "present" || started > 0 ? Stopwatch.GetTimestamp() : 0;
             if (dropped > 0) HealthContextRecorder.Current.RecordQueueDrop(dropped);
             if (result == "error") HealthContextRecorder.Current.RecordRendererFailure(hResult);
             if (stage == "present")
                 HealthContextRecorder.Current.RecordPresent(result == "submitted" ? HealthPresentResult.Submitted :
                     result == "occluded" ? HealthPresentResult.Occluded :
                     result == "error" ? HealthPresentResult.Failed : HealthPresentResult.Busy,
-                    pending?.QueuedTimestamp ?? queuedTimestamp, Stopwatch.GetTimestamp());
+                    pending?.QueuedTimestamp ?? queuedTimestamp, completed);
+            if (toolsPerformance.Enabled)
+            {
+                ToolsPerformanceMetric? metric = stage switch
+                {
+                    "frame_wait" => ToolsPerformanceMetric.FrameWait,
+                    "draw" => ToolsPerformanceMetric.RenderWork,
+                    "present" => ToolsPerformanceMetric.PresentCall,
+                    "compositor_update" => ToolsPerformanceMetric.CompositorUpdate,
+                    "retry_wait" => ToolsPerformanceMetric.RetryWait,
+                    _ => null
+                };
+                if (metric is { } measured && started > 0 && completed >= started)
+                    toolsPerformance.RecordTicks(measured, _cpuRendering, completed - started);
+                if (stage == "draw" && started > 0)
+                    toolsPerformance.RecordTicks(ToolsPerformanceMetric.SceneBuild, _cpuRendering, sceneTicks);
+                if (stage == "present" && result == "submitted")
+                {
+                    if (toolsLastSubmittedAt > 0 && completed >= toolsLastSubmittedAt)
+                        toolsPerformance.RecordTicks(ToolsPerformanceMetric.SubmissionInterval,
+                            _cpuRendering, completed - toolsLastSubmittedAt);
+                    toolsLastSubmittedAt = completed;
+                    var queued = pending?.QueuedTimestamp ?? queuedTimestamp;
+                    var received = pending?.Sample.Frame.ReceivedTimestamp ?? latestFrame.ReceivedTimestamp;
+                    if (queued > 0 && completed >= queued)
+                        toolsPerformance.RecordTicks(ToolsPerformanceMetric.QueueToSubmit, _cpuRendering, completed - queued);
+                    if (received is { } receivedAt && receivedAt > 0 && completed >= receivedAt)
+                        toolsPerformance.RecordTicks(ToolsPerformanceMetric.ReceiveToSubmit, _cpuRendering, completed - receivedAt);
+                }
+            }
+            else toolsLastSubmittedAt = 0;
             if (started == 0 || !TachDiagnostics.IsEnabled) return;
             var hasWaitDetails = stage == "frame_wait" && (measuredWaitCompleted || waitMetrics.TotalTicks > 0);
             var diagnostic = new TachRendererDiagnostic

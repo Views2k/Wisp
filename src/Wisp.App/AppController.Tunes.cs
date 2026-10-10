@@ -3,6 +3,7 @@ using Wisp.App.Runs;
 using Wisp.App.Tunes;
 using Wisp.Core.Runs;
 using Wisp.Core.Tunes;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App;
 
@@ -31,10 +32,24 @@ public sealed partial class AppController
         Runs.AttachedTuneComparisonRequested += CompareAttachedTunes;
     }
 
-    private Task<TuneCaptureResult> CaptureTuneAsync(CancellationToken token) => _tuneCapture is { } capture
-        ? capture.RequestSnapshotAsync(token)
-        : Task.FromResult(new TuneCaptureResult(null, TuneCaptureStatus.Unavailable,
-            "Current-car reading is unavailable in this preview. Saved tunes can still be opened."));
+    private async Task<TuneCaptureResult> CaptureTuneAsync(CancellationToken token)
+    {
+        using var observation = SupplementaryObservations.Begin("feature", "tune", "capture");
+        try
+        {
+            var result = _tuneCapture is { } capture ? await capture.RequestSnapshotAsync(token)
+                : new TuneCaptureResult(null, TuneCaptureStatus.Unavailable,
+                    "Current-car reading is unavailable in this preview. Saved tunes can still be opened.");
+            observation?.Complete(result.Success && result.Snapshot is { IsComplete: true } ? "success" : result.Success ? "unknown" : result.Status switch
+            {
+                TuneCaptureStatus.Cancelled => "cancelled", TuneCaptureStatus.UnsupportedBuild => "unsupported",
+                TuneCaptureStatus.GameNotRunning => "idle", _ => "failure"
+            });
+            return result;
+        }
+        catch (OperationCanceledException) { observation?.Complete("cancelled"); throw; }
+        catch { observation?.Complete("failure"); throw; }
+    }
 
     private async Task<RunTunePreparation> PrepareRunTuneAsync(RunTuneChoice choice, CancellationToken token)
     {

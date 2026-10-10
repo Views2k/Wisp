@@ -158,6 +158,7 @@ public abstract partial class ControlPanelWindow : Window
         RootTabs.SelectedItem = DashboardTab;
         InitializeFeatureTour();
         InitializeSupportReminder();
+        InitializeSupplementaryContentSurfaces();
         UpdateLockButtonLabels(controller.Settings.OverlayLocked);
         SourceInitialized += (_, _) =>
         {

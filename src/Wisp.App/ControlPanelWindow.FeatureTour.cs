@@ -63,15 +63,19 @@ public abstract partial class ControlPanelWindow
 
     internal void RefreshFeatureTour()
     {
-        RefreshWhatsNew();
-        if (_featureTourBanner is null) return;
+        if (_featureTourBanner is not null)
+            _featureTourBanner.TourSaveFeedback.Visibility = FeatureTour.HasPendingReceipt ? Visibility.Visible : Visibility.Collapsed;
+        RefreshDashboardBannerVisibility();
+    }
+
+    private bool ShouldOfferFeatureTour()
+    {
         var offer = FeatureTourSession.ShouldOffer(_controller.Settings.CompletedFeatureTourId,
             _featureTourDiscoveryAllowed, _controller.Settings.RequiresSetup,
             this is MainWindow { IsDashboardDisplayMode: true });
         offer |= FeatureTour.HasPendingReceipt && _featureTourDiscoveryAllowed && !_controller.Settings.RequiresSetup &&
                  this is not MainWindow { IsDashboardDisplayMode: true };
-        _featureTourBanner.Visibility = offer && !FeatureTour.IsOpen ? Visibility.Visible : Visibility.Collapsed;
-        _featureTourBanner.TourSaveFeedback.Visibility = FeatureTour.HasPendingReceipt ? Visibility.Visible : Visibility.Collapsed;
+        return offer;
     }
 
     internal void StartFeatureTour()
@@ -109,7 +113,7 @@ public abstract partial class ControlPanelWindow
         CloseFeatureTour();
         if (IsActive && HudProfileDialog.Visibility != Visibility.Visible && ApplicationUpdateConfirmation.Visibility != Visibility.Visible && !IsTuneDialogOpen &&
             previous is UIElement { IsVisible: true, IsEnabled: true } element) element.Focus();
-        if (FeatureTour.HasPendingReceipt)
+        if (FeatureTour.HasPendingReceipt && _featureTourBanner?.Visibility == Visibility.Visible)
         {
             RootTabs.SelectedItem = DashboardTab;
             _featureTourBanner?.BringIntoView();
