@@ -87,6 +87,7 @@ public partial class App : Application
         var settings = settingsService.Load();
         _controller = new AppController(settings, settingsService);
         StartSupplementaryReporting();
+        RecordSupplementarySignal("settings", "settings", settingsService.LoadOutcome, "load");
         _controller.ViewModel.InitializeCrashReport(_previousCrashReport, _crashReports.AcknowledgeThrough);
         if (_runExitMarker?.Previous is { } previous)
         {

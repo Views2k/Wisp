@@ -81,6 +81,8 @@ internal sealed record SupplementaryEnvironment(int SchemaVersion, DateTimeOffse
     string GraphicsStatus, string GraphicsReason, ImmutableArray<SupplementaryAdapter> Adapters,
     ImmutableArray<SupplementaryDisplay> Displays, SupplementarySettings Settings, SupplementaryCoverage Coverage, int? MemoryGiB = null)
 {
+    public SupplementaryPower? Power { get; init; }
+    public ImmutableArray<SupplementarySoftware>? Software { get; init; }
     internal bool IsValid(DateTimeOffset observedAt) => SchemaVersion == 1 && CollectedAt.Offset == TimeSpan.Zero &&
         CollectedAt <= observedAt + TimeSpan.FromMinutes(5) && CollectedAt >= observedAt - TimeSpan.FromMinutes(10) &&
         OsBuild is >= 1 and <= 100000 && LogicalProcessors is >= 1 and <= 1024 && MemoryGiB is null or >= 1 and <= 4096 &&
@@ -94,6 +96,9 @@ internal sealed record SupplementaryEnvironment(int SchemaVersion, DateTimeOffse
         Settings is not null && Settings.IsValid &&
         Coverage is not null && Coverage.DisplayedFrames == "not-measured" && Coverage.GameRenderAdapter == "not-measured" &&
         Coverage.Vrr == "not-measured" && Coverage.Foreground is "available" or "unavailable" &&
+        (Power is null || Power.IsValid) &&
+        (Software is null || !Software.Value.IsDefault && Software.Value.Length <= 6 &&
+            Software.Value.All(s => s is not null && s.IsValid) && Software.Value.Select(s => s.Family).Distinct(StringComparer.Ordinal).Count() == Software.Value.Length) &&
         JsonSerializer.SerializeToUtf8Bytes(this, SupplementarySchema.Json).Length <= 8192;
 
     internal static bool ValidModel(string? value) => value is { Length: > 0 and <= 128 } && !string.IsNullOrWhiteSpace(value) &&
@@ -142,7 +147,8 @@ internal sealed class SupplementaryEnvironmentCollector
     {
         var result = new SupplementaryEnvironment(1, now, Environment.OSVersion.Version.Build,
             Environment.ProcessorCount, "unavailable", "api-unavailable", [], [], settings,
-            new("not-measured", "not-measured", "not-measured", "available"));
+            new("not-measured", "not-measured", "not-measured", "available"))
+        { Power = SupplementarySystemContext.ReadPower(), Software = SupplementarySystemContext.ReadSoftware() };
         try
         {
             var memory = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };

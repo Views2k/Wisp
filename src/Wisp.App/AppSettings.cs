@@ -696,6 +696,7 @@ public sealed class SettingsService
     private readonly string _setupRequiredMarkerPath;
 
     internal string DataDirectory => Path.GetDirectoryName(_settingsPath)!;
+    internal string LoadOutcome { get; private set; } = "unknown";
 
     public SettingsService(string? settingsPath = null)
     {
@@ -718,10 +719,13 @@ public sealed class SettingsService
 
     public AppSettings Load()
     {
+        LoadOutcome = "unknown";
         try
         {
             if (!File.Exists(_settingsPath))
             {
+                // Existing File.Exists fallback is preserved; it cannot distinguish absence from access failure.
+                LoadOutcome = "none";
                 return PrepareForLoad(new AppSettings
                 {
                     BackgroundTheme = AppBackgroundThemes.FreshInstallName,
@@ -736,24 +740,29 @@ public sealed class SettingsService
                 });
             }
 
-            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), JsonOptions)
-                           ?? new AppSettings();
-            return PrepareForLoad(settings);
+            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), JsonOptions);
+            var prepared = PrepareForLoad(settings ?? new AppSettings());
+            LoadOutcome = settings is null ? "failure" : "success";
+            return prepared;
         }
         catch (JsonException)
         {
+            LoadOutcome = "failure";
             return PrepareForLoad(new AppSettings());
         }
         catch (IOException)
         {
+            LoadOutcome = "failure";
             return PrepareForLoad(new AppSettings());
         }
         catch (UnauthorizedAccessException)
         {
+            LoadOutcome = "failure";
             return PrepareForLoad(new AppSettings());
         }
         catch (SecurityException)
         {
+            LoadOutcome = "failure";
             return PrepareForLoad(new AppSettings());
         }
     }

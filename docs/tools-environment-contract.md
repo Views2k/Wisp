@@ -23,6 +23,11 @@ latest published selection. The service hashes content excluding `collectedAt`.
   lossless/HDR/system-audio settings. Invalid optional values are omitted.
 - Explicit coverage for physical/displayed frames, game render adapter and actual
   VRR operation: all remain `not-measured` in this contract.
+- Optional power context: built-in plan family or custom/unknown, AC/battery/unknown,
+  and battery-saver enabled/disabled/unknown. No custom plan GUID or name is sent.
+- Optional software presence for six fixed families: Discord, RTSS, Game Bar,
+  OBS, SimHub and Overwolf. Values are present/not-observed/unknown; they do not
+  indicate whether an overlay is enabled, injected or causing an issue.
 
 Adapter model identifiers describe products, not unique units. No LUID, EDID,
 monitor name, serial number, window title, process ID, path or account identifier
@@ -47,6 +52,14 @@ These are inventory facts for comparisons, not automatic causal conclusions.
 `unknown`. It is one point observation, not a foreground-duration percentage.
 The collector never activates or moves a window.
 
+Power facts use Windows `PowerGetActiveScheme` and `GetSystemPowerStatus`.
+Built-in plan identity does not prove the plan's settings are unmodified or the
+effective CPU performance. Software uses fixed local `GetProcessesByName`
+lookups; no full process list enters the projection. Errors and a 500 ms budget
+for additional lookups produce unknown values. An in-flight OS lookup is not
+claimed cancelable. These fields share the five-minute inventory cache, so they
+are context observations rather than interval-aligned causality.
+
 ## Crash locations
 
 The existing fourteen reviewed readable method labels remain valid. Other
@@ -60,6 +73,10 @@ The PE-only `tools/Wisp.SymbolCatalog` utility exports the matching method map,
 assembly module identities and exact source revision. CI retains this separately
 from the installer. A reader must distinguish matching-build resolution from an
 unresolved location; it must never invent a name for an unknown digest.
+Automatic build identities use the actual app MVID even for private candidates,
+so reused private labels cannot bind crash hashes to a different compilation.
+Older stored crash reports without an MVID retain their legacy identity and may
+remain unresolved. The local human-readable diagnostic label is unchanged.
 
 ## Lifecycle outcomes
 
@@ -72,3 +89,8 @@ handoff observations. A consumed installed receipt is successful only when its
 target version matches the running build; helper readiness alone is never an
 installed outcome. Existing installations gaining reporting are not called new
 installations, and missing exit reports remain unknown.
+
+Settings loading reports its fixed outcome after reporting initialization.
+Malformed/null JSON and read failures report failure; a prepared parsed object
+reports success. The existing no-file fallback reports none, not first install
+or success: `File.Exists` cannot distinguish every access failure from absence.

@@ -88,8 +88,7 @@ public partial class App
         SupplementaryActivityRecorder.Current.Start();
         _supplementaryVersion = ApplicationVersionInfo.MachineVersion;
         _supplementaryChannel = ApplicationVersionInfo.IsPrivateCandidate || ApplicationVersionInfo.DiagnosticBuildId is not null ? "private" : "stable";
-        _supplementaryBuild = SupplementarySchema.BuildIdentity(ApplicationVersionInfo.DiagnosticBuildId)
-            ? ApplicationVersionInfo.DiagnosticBuildId! : typeof(App).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+        _supplementaryBuild = SupplementarySchema.CompiledBuildIdentity(typeof(App).Assembly.ManifestModule.ModuleVersionId);
         var runId = _runExitMarker?.RunId;
         // File reads, identity creation and network initialization never hold the startup dispatcher.
         _ = Task.Run(() =>
@@ -379,7 +378,7 @@ public partial class App
                 value: report.Exceptions.FirstOrDefault() is { } error ? unchecked((uint)error.HResult) : null,
                 eventId: report.Id, observedAt: report.TimeUtc,
                 relatedRun: runId == _reportingSessionId ? null : new(runId, report.WispVersion,
-                    SupplementarySchema.BuildIdentity(report.PrivateBuildId) ? report.PrivateBuildId! : report.ModuleVersionId?.ToString("N") ?? "unknown",
+                    SupplementarySchema.CompiledBuildIdentity(report.ModuleVersionId, report.PrivateBuildId),
                     report.PrivateBuildId is not null ? "private" : "stable"),
                 platform: prior?.NativeGamePlatform switch { DiagnosticGamePlatform.Steam => "steam", DiagnosticGamePlatform.XboxStore => "store", _ => "unknown" },
                 gameBuild: prior?.NativeGameVersion, historical: true, incident: SupplementaryIncidentCapture.Crash(report)))

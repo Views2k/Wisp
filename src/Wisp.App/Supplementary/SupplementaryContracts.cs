@@ -164,6 +164,8 @@ internal static partial class SupplementarySchema
     internal static bool Token(string? value, int maximum) => value is { Length: > 0 } && value.Length <= maximum &&
         value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.');
     internal static bool BuildIdentity(string? value) => Token(value, 64) && char.IsAsciiLetterOrDigit(value![0]);
+    internal static string CompiledBuildIdentity(Guid? moduleVersionId, string? legacyBuildId = null) =>
+        moduleVersionId is { } id && id != Guid.Empty ? id.ToString("N") : BuildIdentity(legacyBuildId) ? legacyBuildId! : "unknown";
     internal static bool NumericVersion(string? value, bool app)
     {
         if (value is not { Length: > 0 and <= 32 }) return false;
