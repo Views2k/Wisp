@@ -49,28 +49,11 @@ public sealed class SupplementaryClientTests
         using var f = new SupplementaryFixture();
         var transport = new StubTransport();
         using var client = Client(f, transport);
-        var histogram = new int[16]; histogram[1] = 100;
-        var measurements = new SupplementaryMeasurements(100, 1.5, 2, 2, 2, 2, 1.9, histogram.ToImmutableArray());
-        var count = 0;
-        foreach (var metric in Enum.GetValues<Wisp.App.DebugLogging.ToolsPerformanceMetric>())
-        {
-            var modes = SupplementaryPerformanceProjection.HasRenderMode(metric) ? new string?[] { "cpu", "gpu" } : [null];
-            foreach (var mode in modes)
-            {
-                Assert.True(client.TryEnqueue(f.Event() with
-                {
-                    Kind = "resource",
-                    Feature = SupplementaryPerformanceProjection.Feature(metric),
-                    Stage = SupplementaryPerformanceProjection.Stage(metric),
-                    DurationMs = null,
-                    Value = null,
-                    Measurements = measurements,
-                    RenderMode = mode
-                }));
-                count++;
-            }
-        }
-        // Health counters/distributions, latest resources and heartbeat plus a bounded feature/incident burst.
+        var collection = FullCollection(f).ToArray();
+        Assert.Equal(58, collection.Length);
+        foreach (var value in collection) Assert.True(client.TryEnqueue(value));
+        var count = collection.Length;
+        // Actual fixed summaries plus a bounded feature/incident burst, not stand-ins for health measurements.
         for (var i = 0; i < 40; i++)
         {
             Assert.True(client.TryEnqueue(f.Event() with
@@ -90,6 +73,85 @@ public sealed class SupplementaryClientTests
         Assert.Equal(count, transport.Bodies.Sum(bytes =>
         { using var document = JsonDocument.Parse(bytes); return document.RootElement.GetProperty("events").GetArrayLength(); }));
         Assert.All(transport.Bodies, bytes => Assert.InRange(bytes.Length, 1, SupplementarySchema.MaximumBatchBytes));
+    }
+
+    [Fact]
+    public async Task PriorityReservationAndEvictionPreserveIncidentAndOperationOrder()
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport();
+        using var client = Client(f, transport);
+        var periodic = f.Event() with { Kind = "resource", Feature = "app", Outcome = "none", Stage = "cpu", DurationMs = null, Value = 2 };
+        for (var index = 0; index < 112; index++) Assert.True(client.TryEnqueue(periodic with { EventId = Guid.NewGuid() }));
+        Assert.False(client.TryEnqueue(periodic with { EventId = Guid.NewGuid() }));
+        var priority = Enumerable.Range(0, 40).Select(_ => f.Event()).ToArray();
+        foreach (var value in priority) Assert.True(client.TryEnqueue(value));
+        Assert.Equal(128, client.PendingEvents);
+        Assert.Equal(25, client.DroppedEvents); // One rejected periodic report and 24 displaced periodic reports.
+        Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+        Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+        var delivered = transport.Bodies.SelectMany(bytes =>
+        {
+            using var body = JsonDocument.Parse(bytes);
+            return body.RootElement.GetProperty("events").EnumerateArray()
+                .Where(value => value.GetProperty("kind").GetString() == "connection")
+                .Select(value => value.GetProperty("eventId").GetGuid()).ToArray();
+        });
+        Assert.Equal(priority.Select(value => value.EventId), delivered);
+    }
+
+    [Fact]
+    public async Task BytePressureKeepsPriorityResidualsAcrossCollectionsAndDoesNotChangeInflightBatch()
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport { Pause = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        using var client = Client(f, transport);
+        foreach (var value in FullCollection(f)) Assert.True(client.TryEnqueue(value));
+        var incident = LargeIncident();
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+        var priority = Enumerable.Range(0, 96).Select(_ => f.Event() with
+        { Kind = "exception", Outcome = "failure", Stage = "continuing-exception", Incident = incident }).ToArray();
+        foreach (var value in priority) Assert.True(client.TryEnqueue(value));
+        Assert.Equal(128, client.PendingEvents);
+        var sending = client.FlushBatchAsync(TestContext.Current.CancellationToken);
+        await transport.Entered.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        var inflight = transport.Bodies.Single().ToArray();
+        foreach (var value in FullCollection(f)) client.TryEnqueue(value);
+        var added = f.Event() with { Kind = "exception", Outcome = "failure", Stage = "continuing-exception", Incident = incident };
+        Assert.True(client.TryEnqueue(added));
+        Assert.Equal(inflight, transport.Bodies.Single());
+        transport.Pause.SetResult();
+        Assert.True(await sending);
+        Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+        Assert.True(client.PendingEvents > 0); // Two byte-bounded sends do not pretend to drain large incidents.
+        for (var cycle = 0; cycle < 8 && client.PendingEvents > 0; cycle++)
+        {
+            foreach (var value in FullCollection(f)) client.TryEnqueue(value);
+            Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+            Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+        }
+        var ids = transport.Bodies.SelectMany(bytes =>
+        {
+            using var body = JsonDocument.Parse(bytes);
+            return body.RootElement.GetProperty("events").EnumerateArray()
+                .Where(value => value.GetProperty("kind").GetString() == "exception")
+                .Select(value => value.GetProperty("eventId").GetGuid()).ToArray();
+        }).ToArray();
+        Assert.Equal(priority.Select(value => value.EventId).Append(added.EventId), ids);
+        Assert.Equal(0, client.PendingEvents);
+        Assert.True(client.DroppedEvents > 0);
+        Assert.All(transport.Bodies, bytes => Assert.InRange(bytes.Length, 1, SupplementarySchema.MaximumBatchBytes));
+    }
+
+    [Fact]
+    public void FullPriorityQueueRejectsNewWorkWithoutEvictingAcceptedPriority()
+    {
+        using var f = new SupplementaryFixture();
+        using var client = Client(f, new StubTransport());
+        for (var index = 0; index < 128; index++) Assert.True(client.TryEnqueue(f.Event()));
+        Assert.False(client.TryEnqueue(f.Event()));
+        Assert.Equal(128, client.PendingEvents);
+        Assert.Equal(1, client.DroppedEvents);
     }
 
     [Fact]
@@ -473,6 +535,61 @@ public sealed class SupplementaryClientTests
         transport.Pause.SetResult();
         await Task.WhenAll(first, second);
         Assert.Equal(1, transport.MaximumConcurrent);
+    }
+
+    private static IEnumerable<SupplementaryEvent> FullCollection(SupplementaryFixture f)
+    {
+        var histogram = new int[16]; histogram[1] = 100;
+        var measurements = new SupplementaryMeasurements(100, 1.5, 2, 2, 2, 2, 1.9, histogram.ToImmutableArray());
+        foreach (var metric in Enum.GetValues<Wisp.App.DebugLogging.ToolsPerformanceMetric>())
+        {
+            var modes = !SupplementaryPerformanceProjection.HasRenderMode(metric) ? new string?[] { null }
+                : metric is Wisp.App.DebugLogging.ToolsPerformanceMetric.CompositorMotionWork or Wisp.App.DebugLogging.ToolsPerformanceMetric.CompositorMotionSourceAge
+                    ? new string?[] { "gpu" } : new string?[] { "cpu", "gpu" };
+            foreach (var mode in modes) yield return f.Event() with
+            {
+                Kind = "resource",
+                Feature = SupplementaryPerformanceProjection.Feature(metric),
+                Outcome = "none",
+                Stage = SupplementaryPerformanceProjection.Stage(metric),
+                DurationMs = null,
+                Measurements = measurements,
+                RenderMode = mode
+            };
+        }
+        string[] counters = ["accepted-packets", "rejected-packets", "native-attempts", "native-failures", "renderer-submissions",
+            "renderer-busy", "renderer-occluded", "renderer-failures", "queue-dropped", "collector-failures", "received-datagrams",
+            "drained-datagrams", "processed-packets", "gc-gen2-collections", "health-samples", "dispatcher-pending-samples"];
+        foreach (var stage in counters) yield return f.Event() with
+        { Kind = "resource", Feature = "app", Outcome = "none", Stage = stage, DurationMs = 60000, Value = 1 };
+        foreach (var stage in new[] { "cpu", "working-set", "managed-heap" })
+        {
+            yield return f.Event() with { Kind = "resource", Feature = "app", Outcome = "none", Stage = stage, DurationMs = null, Value = 2 };
+            yield return f.Event() with { Kind = "resource", Feature = "app", Outcome = "none", Stage = stage, DurationMs = null, Value = 2, SessionAgeMs = 60000 };
+        }
+        foreach (var stage in new[] { "telemetry-age", "native-age", "dispatcher", "ui-heartbeat-age", "composition-maximum-gap", "health-collection-gap", "composition-callback-age" })
+            yield return f.Event() with { Kind = "resource", Feature = "app", Outcome = "none", Stage = stage, DurationMs = null, Measurements = measurements };
+        yield return f.Event() with
+        {
+            Kind = "heartbeat",
+            Feature = "app",
+            Outcome = "fresh",
+            Stage = "ready",
+            DurationMs = null,
+            SessionSummary = new(60000, 10000, 50000, 0, 0, 60000),
+            ActivitySummary = new(30000, 20000, 10000, 0, 60000, 300000, 20000, 2, "moving")
+        };
+        yield return f.Event() with { Outcome = "fresh", Stage = "data-out", DurationMs = null };
+    }
+
+    private static SupplementaryIncident LargeIncident()
+    {
+        var methods = SupplementaryIncidentSchema.Methods.OrderByDescending(value => value.Length).Take(4).ToImmutableArray();
+        return SupplementaryIncidentSchema.Create("recorder", "encoder_failed", "video_output", uint.MaxValue,
+            Enumerable.Range(0, 3).Select(_ => new SupplementaryIncidentException("ApplicationUpdateHelperUnavailableException", uint.MaxValue, methods)).ToImmutableArray(),
+            new[] { 30000, 15000, 0 }.Select(age => new SupplementaryIncidentContext(age, "fresh", 99.123456789, 1_000_000_000_000,
+                1_000_000_000_000, 59999.123456789, 59999.123456789, 59999.123456789)).ToImmutableArray(),
+            new(1_000_000_000_000, 1_000_000_000_000, 1_000_000_000_000, 59999.123456789, 59999.123456789, 59999.123456789));
     }
 
     private static SupplementaryClient Client(SupplementaryFixture fixture, StubTransport transport) =>

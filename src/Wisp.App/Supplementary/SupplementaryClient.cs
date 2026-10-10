@@ -6,6 +6,7 @@ namespace Wisp.App.Supplementary;
 internal sealed class SupplementaryClient : IDisposable
 {
     internal const int QueueCapacity = 128;
+    internal const int PriorityReservation = 16;
     internal const int MaximumAttempts = 3;
     internal static readonly TimeSpan MaximumEventAge = TimeSpan.FromHours(1);
     private readonly object _gate = new();
@@ -66,12 +67,35 @@ internal sealed class SupplementaryClient : IDisposable
         if (!IsReportingEnabled || !SupplementarySchema.Valid(value, _clock.GetUtcNow())) return false;
         lock (_gate)
         {
-            if (_stopped || _queue.Count >= QueueCapacity) { Interlocked.Increment(ref _dropped); return false; }
+            if (_stopped) { Interlocked.Increment(ref _dropped); return false; }
             if (_runIdentity is not null && !SameRun(_runIdentity, value)) return false;
+            var periodic = IsPeriodic(value);
+            if (periodic && _queue.Count >= QueueCapacity - PriorityReservation ||
+                _queue.Count >= QueueCapacity && !EvictPeriodic())
+            { Interlocked.Increment(ref _dropped); return false; }
             _runIdentity ??= value;
             _queue.Enqueue(new(value, _clock.GetTimestamp()));
             return true;
         }
+    }
+
+    private static bool IsPeriodic(SupplementaryEvent value) => value.Incident is null &&
+        (value.Kind is "heartbeat" or "udp-summary" || value.Kind == "resource" && value.Outcome is "none" or "unknown");
+
+    // Called only with the queue lock, at the fixed capacity. In-flight immutable batches are never touched.
+    // Keep the relative order of surviving observations, including attempt/terminal and cumulative snapshots.
+    private bool EvictPeriodic()
+    {
+        var removed = false;
+        var count = _queue.Count;
+        for (var index = 0; index < count; index++)
+        {
+            var pending = _queue.Dequeue();
+            if (!removed && IsPeriodic(pending.Event)) removed = true;
+            else _queue.Enqueue(pending);
+        }
+        if (removed) Interlocked.Increment(ref _dropped);
+        return removed;
     }
 
     // The caller previews SupplementarySchema.RedactForPreview(report) and passes that unchanged DTO after confirmation.

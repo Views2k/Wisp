@@ -19,6 +19,7 @@ public partial class App
     private long _supplementaryStartedAt;
     private string _supplementaryVersion = "0.0.0", _supplementaryBuild = "unconfigured", _supplementaryChannel = "stable";
     private HashSet<DateTimeOffset> _reportedHealthTimes = [];
+    private readonly HashSet<DateTimeOffset> _reportedNativeHealthTimes = [];
     private HashSet<HealthBreadcrumb> _reportedBreadcrumbs = [];
     private HashSet<Guid> _reportedCrashes = [];
     private HealthContextSample? _previousReportedHealth;
@@ -181,7 +182,7 @@ public partial class App
         if (!client.IsReportingEnabled)
         {
             _ = ToolsPerformanceRecorder.Current.Drain();
-            _reportedHealthTimes.Clear(); _reportedBreadcrumbs.Clear(); _previousReportedHealth = null;
+            _reportedHealthTimes.Clear(); _reportedNativeHealthTimes.Clear(); _reportedBreadcrumbs.Clear(); _previousReportedHealth = null;
             return;
         }
         var context = HealthContextRecorder.Current.Snapshot();
@@ -211,23 +212,26 @@ public partial class App
         if (_reportedConnectionState != connection)
         {
             // This is an observed state transition. It is not an invented connection attempt denominator.
-            EnqueueSupplementary(client, "connection", "telemetry", connection, "data-out");
-            _reportedConnectionState = connection;
+            if (EnqueueSupplementary(client, "connection", "telemetry", connection, "data-out"))
+                _reportedConnectionState = connection;
         }
         if (samples.Length > 0) CollectSupplementaryHealth(client, samples);
-        foreach (var sample in samples)
+        _reportedNativeHealthTimes.IntersectWith(context.Samples.Select(sample => sample.TimestampUtc));
+        foreach (var sample in context.Samples.Where(sample => !_reportedNativeHealthTimes.Contains(sample.TimestampUtc)))
         {
             if (_reportedNativeStatus != sample.NativeStatus && sample.NativeStatus is NativeAssistProviderStatus.AccessDenied or NativeAssistProviderStatus.UnsupportedBuild)
-                EnqueueSupplementary(client, "connection", "native", sample.NativeStatus == NativeAssistProviderStatus.AccessDenied ? "failure" : "unsupported",
+                if (!EnqueueSupplementary(client, "connection", "native", sample.NativeStatus == NativeAssistProviderStatus.AccessDenied ? "failure" : "unsupported",
                     "validation", observedAt: sample.TimestampUtc, incident: SupplementaryIncidentCapture.Native(sample, context),
                     platform: sample.NativeGamePlatform switch { DiagnosticGamePlatform.Steam => "steam", DiagnosticGamePlatform.XboxStore => "store", _ => "unknown" },
-                    gameBuild: sample.NativeGameVersion, historical: true);
+                    gameBuild: sample.NativeGameVersion, historical: true)) break;
             _reportedNativeStatus = sample.NativeStatus;
+            _reportedNativeHealthTimes.Add(sample.TimestampUtc);
         }
         CollectSupplementarySessionResources(client);
         foreach (var distribution in ToolsPerformanceRecorder.Current.Drain()) CollectSupplementaryPerformance(client, distribution);
-        foreach (var breadcrumb in context.Breadcrumbs.Where(b => !_reportedBreadcrumbs.Contains(b))) CollectSupplementaryBreadcrumb(client, breadcrumb);
-        _reportedBreadcrumbs = context.Breadcrumbs.ToHashSet();
+        _reportedBreadcrumbs.IntersectWith(context.Breadcrumbs);
+        foreach (var breadcrumb in context.Breadcrumbs.Where(b => !_reportedBreadcrumbs.Contains(b)))
+            if (CollectSupplementaryBreadcrumb(client, breadcrumb)) _reportedBreadcrumbs.Add(breadcrumb);
         CollectSupplementaryCrashes(client);
         var dropped = client.DroppedEvents;
         if (dropped > _previousDroppedEvents &&
@@ -321,7 +325,7 @@ public partial class App
         EnqueueSupplementary(client, "resource", feature, "none", stage, measurements: measurement, mode: mode);
     }
 
-    private void CollectSupplementaryBreadcrumb(SupplementaryClient client, HealthBreadcrumb b)
+    private bool CollectSupplementaryBreadcrumb(SupplementaryClient client, HealthBreadcrumb b)
     {
         var mapped = b.Code switch
         {
@@ -342,15 +346,17 @@ public partial class App
                 HealthEventCode.LapReviewFailed => "saved-data",
                 _ => null
             };
-            EnqueueSupplementary(client, mapped.Item1, mapped.Item2!, mapped.Item3!, mapped.Item4,
+            return EnqueueSupplementary(client, mapped.Item1, mapped.Item2!, mapped.Item3!, mapped.Item4,
                 value: b.ErrorCode == 0 ? null : unchecked((uint)b.ErrorCode), observedAt: b.TimestampUtc,
                 incident: category is null ? null : SupplementaryIncidentCapture.Breadcrumb(category, b, HealthContextRecorder.Current.Snapshot()));
         }
+        return true; // Unmapped local breadcrumbs are intentionally outside the automatic schema.
     }
 
     private void CollectSupplementaryCrashes(SupplementaryClient client)
     {
         if (!_crashReports.TryReadAll(out var reports)) return;
+        _reportedCrashes.IntersectWith(reports.Select(report => report.Id));
         foreach (var report in reports.Where(r => !_reportedCrashes.Contains(r.Id)))
         {
             // Only the explicit incident projection is uploaded; the complete local report stays local.
@@ -361,16 +367,16 @@ public partial class App
             // A report without a recorded originating run cannot be safely attributed to this session.
             if (report.RunId is not { } runId || !SupplementarySchema.Uuid4(runId)) continue;
             var prior = report.Context?.Samples.LastOrDefault();
-            EnqueueSupplementary(client, "exception", "app", stage == "unexpected-exit" ? "unknown" : "failure", stage,
+            if (EnqueueSupplementary(client, "exception", "app", stage == "unexpected-exit" ? "unknown" : "failure", stage,
                 value: report.Exceptions.FirstOrDefault() is { } error ? unchecked((uint)error.HResult) : null,
                 eventId: report.Id, observedAt: report.TimeUtc,
                 relatedRun: runId == _reportingSessionId ? null : new(runId, report.WispVersion,
                     SupplementarySchema.BuildIdentity(report.PrivateBuildId) ? report.PrivateBuildId! : report.ModuleVersionId?.ToString("N") ?? "unknown",
                     report.PrivateBuildId is not null ? "private" : "stable"),
                 platform: prior?.NativeGamePlatform switch { DiagnosticGamePlatform.Steam => "steam", DiagnosticGamePlatform.XboxStore => "store", _ => "unknown" },
-                gameBuild: prior?.NativeGameVersion, historical: true, incident: SupplementaryIncidentCapture.Crash(report));
+                gameBuild: prior?.NativeGameVersion, historical: true, incident: SupplementaryIncidentCapture.Crash(report)))
+                _reportedCrashes.Add(report.Id);
         }
-        _reportedCrashes = reports.Select(r => r.Id).ToHashSet();
     }
 
     private bool EnqueueSupplementary(SupplementaryClient client, string kind, string feature, string outcome, string? stage,
