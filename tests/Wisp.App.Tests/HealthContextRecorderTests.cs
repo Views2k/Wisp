@@ -85,6 +85,17 @@ public sealed class HealthContextRecorderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void LastDeclaredBreadcrumbIsRetainedAndUnknownValuesAreRejected()
+    {
+        var recorder = new HealthContextRecorder();
+        recorder.RecordBreadcrumb(HealthEventCode.LapReviewFailed);
+        recorder.RecordBreadcrumb((HealthEventCode)999);
+        var report = recorder.CaptureForReport();
+        Assert.Equal(HealthEventCode.LapReviewFailed, Assert.Single(report.Breadcrumbs).Code);
+        Assert.True(HealthContextRecorder.IsValidSnapshot(report));
+    }
+
+    [Fact]
     public void RendererCountersDescribeSubmissionAndActualQueueAgeNotDisplayedFrames()
     {
         long now = 1;

@@ -15,11 +15,29 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.6",
+            "October 10, 2026",
+            "WISP TOOLS",
+            "Send feedback from Extras, receive verified notices and share automatic health measurements to help investigate problems.",
+            true,
+            [
+                Group("Wisp Tools",
+                    "Extras now has Diagnostics, Suggestions and Feedback. Review the exact message before sending, cancel before submission and keep the confirmation reference.",
+                    "One message is accepted per installation each UTC day. Wisp shows when another can be sent; retrying an uncertain submission keeps the same message identity."),
+                Group("Automatic reporting",
+                    "Wisp automatically sends bounded feature outcomes, connection states, timing summaries and process resource measurements. Random installation and session identifiers link these observations; there is no in-app opt-out.",
+                    "Failure evidence includes fixed error codes, selected Wisp method names and up to three preceding performance samples from 30 seconds. Raw exception messages, paths, gameplay packets, saved runs, tunes, clips and raw logs are not uploaded automatically.",
+                    "Detailed event and support content is retained for 30 days. Download history is retained separately. Timing summaries describe measured work and callbacks, not displayed frames or end-to-end latency."),
+                Group("Developer notices",
+                    "Verified notices can update A note from Views separately from the dashboard banner, while keeping the note's existing timing and close controls.",
+                    "A custom dashboard banner contains text only. The normal update notice returns when that message expires or is withdrawn; update controls remain available in Extras.")
+            ]),
+        new(
             "2.6.5",
             "October 7, 2026",
             "3D LAP REVIEW",
             "Review recorded elevation in 3D, compare two laps in a shared space and save the map as a PNG.",
-            true,
+            false,
             [
                 Group("Lap review",
                     "Added an optional 3D track map with recorded elevation and mouse controls for rotation, pan and zoom. The 2D view remains available.",

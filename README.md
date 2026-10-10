@@ -5,7 +5,7 @@
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
   <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to the latest release.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.5/Wisp-Setup-2.6.5.exe"><strong>Download Wisp 2.6.5</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.6/Wisp-Setup-2.6.6.exe"><strong>Download Wisp 2.6.6</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -13,11 +13,11 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.5
+## Wisp 2.6.6
 
-2.6.5 adds 3D lap review with recorded elevation, shared-space comparison, channel legends, contact markers and PNG export.
+2.6.6 adds Wisp Tools feedback in Extras, verified developer notices and automatic health reporting. Reporting uses random installation and session identifiers, has no in-app opt-out and retains detailed event and support content for 30 days. See [privacy and compatibility](#privacy-and-compatibility).
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.5 release notes](docs/releases/Wisp-2.6.5-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.6 release notes](docs/releases/Wisp-2.6.6-release-notes.md)
 
 ### Clips
 
@@ -250,8 +250,8 @@ An optional quick tour introduces Clips, Tune, live map, lap delta and lap
 review. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.6.5](https://github.com/Views2k/Wisp/releases/download/v2.6.5/Wisp-Setup-2.6.5.exe) ·
-[2.6.5 release notes](docs/releases/Wisp-2.6.5-release-notes.md) ·
+[Download Wisp 2.6.6](https://github.com/Views2k/Wisp/releases/download/v2.6.6/Wisp-Setup-2.6.6.exe) ·
+[2.6.6 release notes](docs/releases/Wisp-2.6.6-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Older interface screenshots retain their original version labels. The gameplay
@@ -378,11 +378,11 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Download [Wisp-Setup-2.6.5.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.5/Wisp-Setup-2.6.5.exe).
+1. Download [Wisp-Setup-2.6.6.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.6/Wisp-Setup-2.6.6.exe).
 2. Run the installer.
 3. Complete the required setup wizard on first launch.
 
-The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.5) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
+The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.6) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
 
 **[WINDOWS POWERSHELL]**
 
@@ -463,6 +463,17 @@ builds, validation boundary, and update behavior.
 
 - Telemetry is accepted only from `127.0.0.1`.
 - Settings and tire profiles remain in the current user's local application data.
+- Wisp 2.6.6 automatically reports bounded app health and usage measurements, including
+  timing distributions, categorized failures and Wisp process resource usage. A random
+  installation identifier links sessions. There is no in-app opt-out. Client and support
+  details expire after 30 days; download history is retained separately. Driving packets,
+  runs, tunes, clips, personal paths and raw diagnostic logs are not uploaded automatically.
+  Failure reports use fixed error codes, selected Wisp method names, and at most three preceding
+  performance samples from 30 seconds. They exclude exception messages, file paths, and raw stacks.
+  Activity summaries include observed moving and stationary time, estimated distance and speed,
+  and unmeasured intervals. They require fresh telemetry and supported gameplay visibility;
+  unsupported contexts stay unknown. No coordinates, car identifiers or individual driving samples are uploaded.
+  See the [privacy details](https://wispoverlay.com/legal/#privacy).
 - The installer is not code-signed.
 - A changed FH6 build identity requires a reviewed compatibility map and may
   require an application update.
@@ -502,6 +513,7 @@ To build the self-contained installer:
 
 ## Documentation
 
+- [Wisp 2.6.6 release notes](docs/releases/Wisp-2.6.6-release-notes.md)
 - [Wisp 2.6.5 release notes](docs/releases/Wisp-2.6.5-release-notes.md)
 - [Wisp 2.6.4 release notes](docs/releases/Wisp-2.6.4-release-notes.md)
 - [Wisp 2.6.3 release notes](docs/releases/Wisp-2.6.3-release-notes.md)

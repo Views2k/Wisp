@@ -2,6 +2,15 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.6 - 2026-10-10
+
+- Add Wisp Tools in Extras for Diagnostics, Suggestions and Feedback, with an exact message preview, cancellation and a confirmation reference. Accept one message per installation each UTC day and show the next allowed time.
+- Connect automatic, bounded app health and usage reporting to the Wisp Tools service. Use random installation and session identifiers; reporting has no in-app opt-out.
+- Record observed feature outcomes, connection states, Clips stages, timing summaries, process resource measurements and observed session durations without uploading gameplay packets or saved content.
+- Include sanitized failure codes, selected product methods and up to three preceding performance samples from 30 seconds. Distinguish audio, encoding, native access-denied and unsupported-build observations. Keep raw messages, paths and logs local.
+- Retain detailed event and support content for 30 days; retain download history separately. Report measured work and callbacks without describing them as displayed frames or end-to-end latency.
+- Update A note from Views through verified notices independently of a custom text-only dashboard banner. Restore the automatic update notice when the custom banner expires or is withdrawn, while keeping update controls in Extras.
+
 ## 2.6.5 - 2026-10-07
 
 - Add an optional 3D lap-review map with recorded elevation and mouse controls for rotation, pan and zoom. Keep the existing 2D view.

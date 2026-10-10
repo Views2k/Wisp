@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using Wisp.Core;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App;
 
@@ -22,6 +23,7 @@ public partial class SetupWindow : Window
     private CancellationTokenSource? _testCancellation;
     private Task<SetupTestResult>? _testTask;
     private int _step;
+    private int _supplementaryReachedSteps;
     private int _testGeneration;
     private bool _ready;
     private bool _testing;
@@ -76,6 +78,12 @@ public partial class SetupWindow : Window
         StepScroll.ScrollToTop();
         ClearError();
         UpdateNavigation();
+        if ((_supplementaryReachedSteps & (1 << _step)) == 0)
+        {
+            _supplementaryReachedSteps |= 1 << _step;
+            var stage = _step switch { 0 => "setup-welcome", 1 => "setup-connection", 2 => "setup-display", _ => "setup-appearance" };
+            SupplementaryObservations.Record("setup", "setup", "detected", stage);
+        }
     }
 
     private void UpdateStepBadges()

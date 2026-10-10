@@ -233,11 +233,6 @@
                                                     <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
                                                         <Setter Property="Visibility" Value="Collapsed" />
                                                         <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsApplicationUpdateAvailable}" Value="True">
-                                                                <Setter Property="Visibility" Value="Visible" />
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
                                                     </Style>
                                                 </Border.Style>
                                                 <Grid>
@@ -252,17 +247,17 @@
                                                         CornerRadius="19"
                                                         Background="{DynamicResource RaisedBrush}"
                                                         VerticalAlignment="Center">
-                                                        <TextBlock Text="↓" FontSize="20" FontWeight="SemiBold"
+                                                        <TextBlock x:Name="DashboardUpdateIcon" Text="↓" FontSize="20" FontWeight="SemiBold"
                                                            Foreground="{DynamicResource AccentBrush}"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                                                     </Border>
                                                     <StackPanel Grid.Column="1" Margin="14,0,20,0" VerticalAlignment="Center">
-                                                        <TextBlock Text="Wisp update available" FontSize="15" FontWeight="SemiBold" />
-                                                        <TextBlock Text="{Binding ApplicationUpdateStatus}"
+                                                        <TextBlock x:Name="DashboardUpdateTitle" TextWrapping="Wrap" Text="Wisp update available" FontSize="15" FontWeight="SemiBold" />
+                                                        <TextBlock x:Name="DashboardUpdateMessage" Text="{Binding ApplicationUpdateStatus}"
                                                            Foreground="{DynamicResource MutedBrush}" Margin="0,3,0,0"
                                                            TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                                                     </StackPanel>
-                                                    <Button
+                                                    <Button x:Name="DashboardUpdateAction"
                                                         Grid.Column="2"
                                                         Content="{Binding ApplicationUpdateAction}"
                                                         IsEnabled="{Binding CanCheckApplicationUpdate}"
@@ -2089,6 +2084,15 @@
                         <TabItem x:Name="ExtrasTab" Header="Extras">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Margin="0,0,0,22">
+                                    <local:OrbitSurface Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="WISP TOOLS" Style="{StaticResource EyebrowTextStyle}" />
+                                            <TextBlock Text="News and feedback" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,8" />
+                                            <TextBlock Text="Current notices for your version, and a private way to report a problem or suggest an improvement."
+                                                       TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" />
+                                            <ContentControl x:Name="SupplementaryPanel" Loaded="SupplementaryPanel_Loaded" HorizontalContentAlignment="Stretch" />
+                                        </StackPanel>
+                                    </local:OrbitSurface>
 
 
                                     <local:OrbitSurface Style="{StaticResource CardStyle}" Margin="0,14,0,0">
@@ -2582,8 +2586,6 @@
             </Grid>
 
             <Grid x:Name="ShellFooter" Grid.Row="2" Margin="29,0">
-                <TextBlock Text="Telemetry stays on this PC" VerticalAlignment="Center"
-                           FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource FaintBrush}" />
                 <TextBlock x:Name="ApplicationVersionFooter" Text="{x:Static local:ApplicationVersionInfo.FooterText}" HorizontalAlignment="Right" VerticalAlignment="Center"
                            FontSize="10" Foreground="{DynamicResource FaintBrush}" />
             </Grid>

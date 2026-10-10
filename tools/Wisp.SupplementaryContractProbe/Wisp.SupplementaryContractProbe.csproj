@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifiers></RuntimeIdentifiers>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Wisp.App/Supplementary/SupplementaryContracts.cs" Link="SupplementaryContracts.cs" />
+    <Compile Include="../../src/Wisp.App/Supplementary/SupplementaryIncident.cs" Link="SupplementaryIncident.cs" />
+    <Compile Include="../../src/Wisp.App/Supplementary/SupplementaryContent.cs" Link="SupplementaryContent.cs" />
+  </ItemGroup>
+</Project>

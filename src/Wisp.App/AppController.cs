@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Wisp.App.DebugLogging;
 using Wisp.App.CrashDiagnostics;
+using Wisp.App.Supplementary;
 using Wisp.Core;
 using Wisp.Telemetry;
 using Wisp.Update;
@@ -558,6 +559,7 @@ public sealed partial class AppController : IAsyncDisposable
             return null;
         }
 
+        using var supplementaryCheck = SupplementaryObservations.Begin("update", "update", "check");
         try
         {
             _applicationUpdateTimer.Stop();
@@ -582,6 +584,8 @@ public sealed partial class AppController : IAsyncDisposable
             var release = await _checkForApplicationUpdate(
                 installedVersion,
                 _applicationUpdateLifetime.Token);
+            supplementaryCheck?.Complete("success");
+            if (release is not null) SupplementaryObservations.Record("update", "update", "detected", "prompt");
             _availableApplicationRelease = release;
             if (automatic && TryShowPendingApplicationUpdate())
             {
@@ -603,10 +607,12 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (OperationCanceledException) when (_applicationUpdateLifetime.IsCancellationRequested)
         {
+            supplementaryCheck?.Complete("cancelled");
             return null;
         }
         catch (OperationCanceledException)
         {
+            supplementaryCheck?.Complete("timeout");
             if (automatic)
             {
                 RestoreAutomaticApplicationUpdateStatus();
@@ -622,6 +628,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (HttpRequestException)
         {
+            supplementaryCheck?.Complete("failure");
             if (automatic)
             {
                 RestoreAutomaticApplicationUpdateStatus();
@@ -637,6 +644,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (UpdateSecurityException)
         {
+            supplementaryCheck?.Complete("failure");
             if (automatic && TryShowPendingApplicationUpdate())
             {
                 return null;
@@ -717,6 +725,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         string? createdAttemptDirectory = null;
+        SupplementaryOperation? supplementaryDownload = null;
         try
         {
             var retainedAttemptDirectory = _pendingInstaller is { } retainedPending &&
@@ -748,6 +757,7 @@ public sealed partial class AppController : IAsyncDisposable
                 return null;
             }
 
+            supplementaryDownload = SupplementaryObservations.Begin("update", "update", "download");
             createdAttemptDirectory = ApplicationUpdateStaging.CreateAttemptDirectory(release.Version);
             var progress = new Progress<UpdateDownloadProgress>(value =>
             {
@@ -761,6 +771,7 @@ public sealed partial class AppController : IAsyncDisposable
                 createdAttemptDirectory,
                 progress,
                 _applicationUpdateLifetime.Token);
+            supplementaryDownload?.Complete("success");
             _pendingApplicationUpdateDetails = ApplicationUpdateDetailsFrom(release);
             _availableApplicationRelease = null;
             ViewModel.UpdateApplicationUpdateStatus(
@@ -772,10 +783,12 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (OperationCanceledException) when (_applicationUpdateLifetime.IsCancellationRequested)
         {
+            supplementaryDownload?.Complete("cancelled");
             return null;
         }
         catch (OperationCanceledException)
         {
+            supplementaryDownload?.Complete("timeout");
             ViewModel.UpdateApplicationUpdateStatus(
                 "The update download timed out. No files were installed.",
                 "Try again",
@@ -785,6 +798,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (HttpRequestException)
         {
+            supplementaryDownload?.Complete("failure");
             ViewModel.UpdateApplicationUpdateStatus(
                 "The installer could not be downloaded. Check the connection and try again.",
                 "Try again",
@@ -794,6 +808,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (UpdateSecurityException)
         {
+            supplementaryDownload?.Complete("failure");
             ViewModel.UpdateApplicationUpdateStatus(
                 "The installer could not be verified. No update was installed.",
                 "Try again",
@@ -803,6 +818,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            supplementaryDownload?.Complete("failure");
             ViewModel.UpdateApplicationUpdateStatus(
                 "Wisp could not prepare the update on this PC. No update was installed.",
                 "Try again",
@@ -812,6 +828,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         finally
         {
+            supplementaryDownload?.Dispose();
             if (createdAttemptDirectory is not null && _pendingInstaller is null)
             {
                 ApplicationUpdateStaging.TryDeleteAttemptDirectory(createdAttemptDirectory);
@@ -823,6 +840,7 @@ public sealed partial class AppController : IAsyncDisposable
     public void MarkApplicationUpdateDeferred(VerifiedInstaller installer)
     {
         ArgumentNullException.ThrowIfNull(installer);
+        SupplementaryObservations.Record("update", "update", "cancelled", "install-handoff");
         ViewModel.UpdateApplicationUpdateStatus(
             $"Wisp {installer.Version} is downloaded and ready to install.",
             "Install update",
@@ -842,6 +860,7 @@ public sealed partial class AppController : IAsyncDisposable
     public void MarkApplicationUpdatePreparing(VerifiedInstaller installer)
     {
         ArgumentNullException.ThrowIfNull(installer);
+        SupplementaryObservations.Record("update", "update", "attempt", "install-handoff");
         ViewModel.UpdateApplicationUpdateStatus(
             $"Preparing verified Wisp {installer.Version} for installation…",
             "Preparing…",
@@ -912,6 +931,7 @@ public sealed partial class AppController : IAsyncDisposable
             await _runRecording.StopAsync("Telemetry listener restarted");
             ViewModel.ResetShiftCueObservations();
             await _receiver.RestartAsync(port);
+            BeginSupplementaryFirstTelemetry();
         }
         catch
         {
@@ -1382,21 +1402,22 @@ public sealed partial class AppController : IAsyncDisposable
 
     public bool TryCreateHudPreset(string? name, out HudPreset? preset, out string error)
     {
+        using var supplementaryProfile = SupplementaryObservations.Begin("feature", "profiles", "create");
         preset = null;
         if (!HudPreset.TryNormalizeName(name, out var normalizedName, out error))
         {
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
         if (Settings.HudPresets.Count >= HudPreset.MaximumCount)
         {
             error = $"You can save up to {HudPreset.MaximumCount} HUD profiles.";
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
         if (Settings.HudPresets.Any(candidate =>
                 string.Equals(candidate.Name, normalizedName, StringComparison.OrdinalIgnoreCase)))
         {
             error = $"A profile named {normalizedName} already exists.";
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
 
         CaptureCurrentHudPlacements();
@@ -1405,17 +1426,18 @@ public sealed partial class AppController : IAsyncDisposable
         Settings.HudPresets.Add(preset);
         ScheduleSettingsSave();
         error = string.Empty;
-        return true;
+        supplementaryProfile?.Complete("success"); return true;
     }
 
     public bool TryUpdateHudPreset(Guid id, out HudPreset? preset, out string error)
     {
+        using var supplementaryProfile = SupplementaryObservations.Begin("feature", "profiles", "save");
         var index = Settings.HudPresets.FindIndex(candidate => candidate.Id == id);
         if (index < 0)
         {
             preset = null;
             error = "Select a saved profile first.";
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
 
         var existing = Settings.HudPresets[index];
@@ -1425,68 +1447,73 @@ public sealed partial class AppController : IAsyncDisposable
         Settings.HudPresets[index] = preset;
         ScheduleSettingsSave();
         error = string.Empty;
-        return true;
+        supplementaryProfile?.Complete("success"); return true;
     }
 
     public bool TryRenameHudPreset(Guid id, string? name, out string error)
     {
+        using var supplementaryProfile = SupplementaryObservations.Begin("feature", "profiles", "rename");
         if (!HudPreset.TryNormalizeName(name, out var normalizedName, out error))
         {
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
         var preset = Settings.HudPresets.FirstOrDefault(candidate => candidate.Id == id);
         if (preset is null)
         {
             error = "Select a saved profile first.";
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
         if (Settings.HudPresets.Any(candidate => candidate.Id != id &&
                 string.Equals(candidate.Name, normalizedName, StringComparison.OrdinalIgnoreCase)))
         {
             error = $"A profile named {normalizedName} already exists.";
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
 
         preset.Name = normalizedName;
         ScheduleSettingsSave();
         error = string.Empty;
-        return true;
+        supplementaryProfile?.Complete("success"); return true;
     }
 
     public bool DeleteHudPreset(Guid id)
     {
+        using var supplementaryDelete = SupplementaryObservations.Begin("feature", "profiles", "delete");
         var removed = Settings.HudPresets.RemoveAll(candidate => candidate.Id == id) > 0;
         if (removed)
         {
             ScheduleSettingsSave();
         }
+        supplementaryDelete?.Complete(removed ? "success" : "failure");
         return removed;
     }
 
     public bool TryApplyHudPreset(Guid id, out string error)
     {
+        using var supplementaryProfile = SupplementaryObservations.Begin("feature", "profiles", "apply");
         if (Settings.RequiresSetup)
         {
             error = "Finish setup before applying a HUD profile.";
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
         var preset = Settings.HudPresets.FirstOrDefault(candidate => candidate.Id == id);
         if (preset is null)
         {
             error = "Select a saved profile first.";
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
         if (!Runs.CanEditRecordingOptions)
         {
             error = "Stop the recording or countdown before applying a driving profile.";
-            return false;
+            supplementaryProfile?.Complete("failure"); return false;
         }
 
         var previousLayoutMode = Settings.LayoutMode;
         var previousNativeGaugeMode = Settings.NativeGaugeMode;
         var previousSpeedSource = Settings.SpeedSource;
         preset.Normalize();
-        if (preset.Revision >= 2 && !TryRegisterProfileShortcuts(preset, out error)) return false;
+        if (preset.Revision >= 2 && !TryRegisterProfileShortcuts(preset, out error))
+        { supplementaryProfile?.Complete("failure"); return false; }
         _applyingHudPreset = preset.Revision >= 2;
         try
         {
@@ -1536,7 +1563,7 @@ public sealed partial class AppController : IAsyncDisposable
         Overlay?.ApplyTractionCueCustomization(ColorCustomization.ResolveTractionCue(Settings));
         ScheduleSettingsSave();
         error = string.Empty;
-        return true;
+        supplementaryProfile?.Complete("success"); return true;
     }
 
     private void SyncHudPresetToViewModel()
@@ -2027,6 +2054,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         DisposeHealthContext();
+        DisposeSupplementaryObservations();
         _disposed = true;
         var tunesDisposed = DisposeTunesAsync();
         var clipsDisposed = DisposeClipsAsync();
@@ -2221,10 +2249,22 @@ public sealed partial class AppController : IAsyncDisposable
             return;
         }
 
-        if (ViewModel.UpdateNativeHudSnapshot(nativeHud))
+        var timingStarted = ToolsPerformanceRecorder.Current.Enabled ? Stopwatch.GetTimestamp() : 0;
+        var adopted = false;
+        try
         {
-            _lastNativeHudPublication = publication;
-            _hasNativeHudPublication = true;
+            adopted = ViewModel.UpdateNativeHudSnapshot(nativeHud);
+            if (adopted)
+            {
+                _lastNativeHudPublication = publication;
+                _hasNativeHudPublication = true;
+            }
+        }
+        finally
+        {
+            if (timingStarted > 0)
+                SupplementaryAdoptionTiming.RecordNative(ToolsPerformanceRecorder.Current, timingStarted,
+                    Stopwatch.GetTimestamp(), adopted, nativeHud.NativeGaugeObservedTimestamp);
         }
     }
 
@@ -2236,6 +2276,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void ProcessUiUpdate(bool processLatestPacket = true)
     {
+        _receiver.CapturePublicationTimings = ToolsPerformanceRecorder.Current.Enabled;
         if (Settings.RequiresSetup)
         {
             PublishDebugHealthContext();
@@ -2278,6 +2319,15 @@ public sealed partial class AppController : IAsyncDisposable
 
         var shiftNativeSnapshot = _nativeHudProcessService.SnapshotFor(latest?.CarOrdinal ?? 0);
         var nowTimestamp = Stopwatch.GetTimestamp();
+        if (Supplementary.SupplementaryActivityRecorder.Current.Enabled)
+        {
+            var visibility = EvaluateNativeGameplayVisibility(shiftNativeSnapshot, nowTimestamp);
+            Supplementary.SupplementaryActivityRecorder.Current.Observe(latest?.ReceivedTimestamp is { } received
+                ? new(received, latest.GameTimestampMilliseconds, latest.CarOrdinal, (int)latest.Drivetrain,
+                    latest.GroundSpeedMetersPerSecond, latest.IsRaceOn,
+                    visibility.Fresh && visibility.Visibility == NativeGameplayVisibility.Visible)
+                : null);
+        }
         var connectionState = _freshness.GetState(nowTimestamp);
         var age = _freshness.GetAge(nowTimestamp);
         ViewModel.RefreshShiftCalibration(latest, shiftNativeSnapshot,
@@ -2430,7 +2480,11 @@ public sealed partial class AppController : IAsyncDisposable
         PublishRunContext();
         var detachedBoostWasEnabled = IsDetachedBoostGaugeEnabled;
         var detachedTireTemperatureWasEnabled = IsDetachedTireTemperatureGaugeEnabled;
-        ViewModel.Update(
+        var adoptionStarted = ToolsPerformanceRecorder.Current.Enabled ? Stopwatch.GetTimestamp() : 0;
+        var adopted = false;
+        try
+        {
+            ViewModel.Update(
             displayState,
             indicated,
             calibration,
@@ -2442,7 +2496,18 @@ public sealed partial class AppController : IAsyncDisposable
             refreshDiagnostics,
             gForceVisible,
             Settings.SpeedSource,
-            rawShiftState: current);
+                rawShiftState: current);
+            adopted = true;
+        }
+        finally
+        {
+            if (adoptionStarted > 0)
+            {
+                var completed = Stopwatch.GetTimestamp();
+                SupplementaryAdoptionTiming.Record(ToolsPerformanceRecorder.Current, adoptionStarted, completed, adopted,
+                    adopted && _receiver.TryGetPublicationTiming(current, out var timing) ? timing : null);
+            }
+        }
         var detachedBoostEnabled = IsDetachedBoostGaugeEnabled;
         var detachedTireTemperatureEnabled = IsDetachedTireTemperatureGaugeEnabled;
         if (detachedBoostEnabled != detachedBoostWasEnabled ||
@@ -2749,8 +2814,8 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.UpdateDebugLogging(
             true,
             dropped > 0
-                ? $"On — expires in {hours} h · {dropped} samples skipped · local only"
-                : $"On — expires in {hours} h · local only");
+                ? $"On — expires in {hours} h · {dropped} samples skipped"
+                : $"On — expires in {hours} h");
     }
 
     internal static bool ShouldPreserveHudVisuals(
@@ -2952,6 +3017,8 @@ public sealed partial class AppController : IAsyncDisposable
         _overlayVisibleRequested = overlayVisible;
         Overlay?.SetTelemetryVisible(overlayVisible, Settings.OverlayOpacity, hideImmediately);
         DriftGaugeOverlay?.SetTelemetryVisible(overlayVisible && driftEnabled, Settings.OverlayOpacity, hideImmediately || !driftEnabled);
+        ObserveSupplementaryPresentationRequested(overlayVisible && telemetryFresh && Overlay is not null,
+            overlayVisible && telemetryFresh && driftEnabled);
         LapDeltaOverlay?.SetTelemetryVisible(overlayVisible && lapEnabled, Settings.OverlayOpacity, hideImmediately || !lapEnabled);
         LapMapOverlay?.SetTelemetryVisible(overlayVisible && mapEnabled, Settings.OverlayOpacity, hideImmediately || !mapEnabled);
         PowerGaugeOverlay?.SetTelemetryVisible(overlayVisible && detachedPowerEnabled, Settings.OverlayOpacity, hideImmediately || !detachedPowerEnabled);
@@ -3238,9 +3305,11 @@ public sealed partial class AppController : IAsyncDisposable
 
     private bool WriteSettings()
     {
+        using var supplementarySettings = SupplementaryObservations.Begin("settings", "settings", "save");
         try
         {
             _saveSettings(Settings);
+            supplementarySettings?.Complete("success");
             return true;
         }
         catch (IOException error)
@@ -3258,6 +3327,7 @@ public sealed partial class AppController : IAsyncDisposable
             // Local policy can temporarily block the settings directory.
             HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.SettingsSaveFailed, error.HResult);
         }
+        supplementarySettings?.Complete("failure");
         return false;
     }
 

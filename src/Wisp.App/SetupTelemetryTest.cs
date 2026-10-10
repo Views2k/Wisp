@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Security;
 using Wisp.Core;
 using Wisp.Telemetry;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App;
 
@@ -78,25 +79,30 @@ public sealed class SetupTelemetryTest
         }
 
         SuccessfulEvidence = null;
+        using var supplementaryTest = SupplementaryObservations.Begin("setup", "setup", "data-out");
         try
         {
             var result = await RunCoreAsync(portText, progress, cancellationToken).ConfigureAwait(false);
             if (cancellationToken.IsCancellationRequested)
             {
+                supplementaryTest?.Complete("cancelled");
                 return new SetupTestResult(null, "Test cancelled. Your settings have not changed. You can retry when ready.");
             }
 
             SuccessfulEvidence = result.Evidence;
+            supplementaryTest?.Complete(result.Passed ? "success" : "failure");
             return result;
         }
         catch (Exception exception) when (IsExpectedListenerFailure(exception))
         {
+            supplementaryTest?.Complete("failure");
             return new SetupTestResult(null,
                 "The listener could not finish or close cleanly. Setup remains unverified. " +
                 "Close other telemetry tools and retry; if it repeats, exit Wisp and reopen setup.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            supplementaryTest?.Complete("cancelled");
             return new SetupTestResult(null, "Test cancelled. Your settings have not changed. You can retry when ready.");
         }
         finally

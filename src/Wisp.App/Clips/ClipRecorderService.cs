@@ -437,6 +437,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     {
         var transition = false;
         var pausedTransition = false;
+        var audioDegraded = false;
         long revision;
         lock (_sync)
         {
@@ -444,6 +445,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             pausedTransition = state.State == "paused" && !_capturePaused;
             if (state.State == "paused") { _capturePaused = true; _nativePauseSequence++; }
             else if (state.State == "buffering") _capturePaused = false;
+            audioDegraded = state.State == "buffering" && state.Reason is "audio_unavailable" or "audio_capture_failed" &&
+                (_nativeState?.State != "buffering" || _nativeState.Reason != state.Reason);
             _nativeState = state;
             if (pausedTransition)
             {
@@ -467,6 +470,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             }
             revision = _revision;
         }
+        // Video can continue while selected audio is unavailable. This does not declare the capture failed.
+        if (audioDegraded) DebugLogging.SupplementaryIncidentCapture.RecordRecorder(state.Reason);
         if (transition)
         {
             Publish(new(IsPausedTarget(state.Reason) ? ClipRecorderState.Paused : ClipRecorderState.WaitingForGame,
@@ -673,6 +678,9 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             IsManagedStorageFailure(reason) ? null : owner?.FailureDiagnostic, ClipStorageDiagnostic.From(error));
         _failureReport ??= report;
         _diagnosticHistory.RecordGenerated(DebugLogging.DiagnosticComponent.Recorder, FormatFailure(report));
+        // Native failures arrive once on the bounded diagnostic pipe; report managed-only failures here.
+        if (IsManagedStorageFailure(reason) || reason is "helper_start_failed" or "helper_timeout" or "helper_exited" or "helper_shutdown_failed")
+            DebugLogging.SupplementaryIncidentCapture.RecordRecorder(reason, storage: report.Storage);
     }
 
     // Call only while holding _sync and before cancelling the current session.

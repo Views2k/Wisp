@@ -176,6 +176,7 @@ public abstract partial class ControlPanelWindow
             _supportReminderDeferred = false;
             UnsubscribeSupportReminderConnection();
             if (!_controller.TryRecordSupportReminderShown(now, manualOpening)) return;
+            RefreshSupplementaryContentSurfaces();
             _focusBeforeSupportReminder = Keyboard.FocusedElement;
             ControlBody.IsEnabled = false;
             _supportReminder.Visibility = Visibility.Visible;

@@ -86,6 +86,7 @@ public partial class App : Application
         var settingsService = new SettingsService();
         var settings = settingsService.Load();
         _controller = new AppController(settings, settingsService);
+        StartSupplementaryReporting();
         _controller.ViewModel.InitializeCrashReport(_previousCrashReport, _crashReports.AcknowledgeThrough);
         if (_runExitMarker?.Previous is { } previous)
         {
@@ -143,10 +144,12 @@ public partial class App : Application
         var setupRequired = settings.RequiresSetup;
         if (setupRequired)
         {
+            RecordSupplementarySignal("setup", "setup", "attempt", "setup-start");
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             _setupWindow = new SetupWindow(_controller);
             MainWindow = _setupWindow;
             var completed = _setupWindow.ShowDialog() == true;
+            RecordSupplementarySignal("setup", "setup", completed && !settings.RequiresSetup ? "success" : "cancelled", "setup-complete");
             _setupWindow = null;
             if (!completed || settings.RequiresSetup)
             {
@@ -255,6 +258,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _exiting = true;
+        StopSupplementaryReporting();
         _previousRunCancellation?.Cancel();
         var shutdownCompleted = false;
         _forzaStartupTimer?.Stop();
@@ -452,12 +456,15 @@ public partial class App : Application
 
             try
             {
+                RecordSupplementarySignal("connection", "telemetry", "attempt", "binding");
                 await _controller.StartAsync();
                 _runtimeActive = true;
+                RecordSupplementaryRuntimeReady();
                 _startupTray?.SetWaiting(false);
             }
             catch (Exception exception) when (exception is ArgumentOutOfRangeException or System.Net.Sockets.SocketException)
             {
+                RecordSupplementarySignal("connection", "telemetry", "failure", "binding");
                 _runtimeActive = false;
                 _startupTray?.SetWaiting(true);
                 _controller.ViewModel.ReportControlError(exception.Message);

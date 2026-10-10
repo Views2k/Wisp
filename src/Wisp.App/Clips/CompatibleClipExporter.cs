@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App.Clips;
 
@@ -40,6 +41,7 @@ internal sealed class CompatibleClipExporter : ICompatibleClipExporter
         IProgress<double>? progress, CancellationToken cancellationToken) => Task.Run(() =>
     {
         LosslessMpvNative? native = null;
+        SupplementaryOperation? encodingObservation = null;
         var stage = "source-inspection";
         try
         {
@@ -64,6 +66,7 @@ internal sealed class CompatibleClipExporter : ICompatibleClipExporter
             };
             if (clip.Media.HdrVideo && _target == CompatibleClipTarget.Sdr) transfer = "iec61966-2-1";
             stage = "encoding";
+            encodingObservation = SupplementaryObservations.Begin("clips", "clips", "encode");
             native = new LosslessMpvNative();
             native.InitializeHeadless(EncodingOptions(stagingPath, clip.Media.FrameRate, clip.Media.HasAudio, transfer,
                 clip.Media.HdrVideo, _decoderThreads, _target, clip.Media.LosslessVideo, clip.Media.Width, clip.Media.Height));
@@ -94,6 +97,7 @@ internal sealed class CompatibleClipExporter : ICompatibleClipExporter
             }
             // Shutdown follows mux finalization; destroy joins all native work.
             native.Close(); native = null;
+            encodingObservation?.Complete("success");
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report(96);
             stage = "output-inspection";
@@ -107,12 +111,19 @@ internal sealed class CompatibleClipExporter : ICompatibleClipExporter
                 throw Failure(finished.Length <= 0 ? "output-empty" : "export-size-limit", output);
             progress?.Report(98);
         }
-        catch (Exception error) when (error is not OutOfMemoryException and not OperationCanceledException)
+        catch (OperationCanceledException)
         {
-            error.Data["wisp-export-stage"] = stage;
+            encodingObservation?.Complete("cancelled");
             throw;
         }
-        finally { native?.Close(); }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            error.Data["wisp-export-stage"] = stage;
+            encodingObservation?.Complete(error is TimeoutException ? "timeout" : error is NotSupportedException ? "unsupported" : "failure",
+                DebugLogging.SupplementaryIncidentCapture.Export(error, DateTimeOffset.UtcNow));
+            throw;
+        }
+        finally { encodingObservation?.Dispose(); native?.Close(); }
     }, cancellationToken);
 
     internal static string EncoderFor(bool hdrVideo, CompatibleClipTarget target) =>

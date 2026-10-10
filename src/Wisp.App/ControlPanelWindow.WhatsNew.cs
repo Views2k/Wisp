@@ -10,17 +10,12 @@ public abstract partial class ControlPanelWindow
     internal static bool ShouldShowWhatsNew(string? dismissed, bool requiresSetup, bool displayMode) =>
         !requiresSetup && !displayMode && dismissed != CurrentWhatsNewId;
 
-    internal void RefreshWhatsNew()
-    {
-        if (FindName("WhatsNewBanner") is not FrameworkElement banner) return;
-        banner.Visibility = ShouldShowWhatsNew(_controller.Settings.DismissedWhatsNewId, _controller.Settings.RequiresSetup,
-            this is MainWindow { IsDashboardDisplayMode: true }) ? Visibility.Visible : Visibility.Collapsed;
-    }
+    internal void RefreshWhatsNew() => RefreshDashboardBannerVisibility();
 
     // A failed save still hides the banner for this session; it returns next time Wisp opens.
     protected void WhatsNewClose_Click(object sender, RoutedEventArgs e)
     {
         _controller.TryDismissWhatsNew(CurrentWhatsNewId);
-        if (FindName("WhatsNewBanner") is FrameworkElement banner) banner.Visibility = Visibility.Collapsed;
+        RefreshDashboardBannerVisibility();
     }
 }

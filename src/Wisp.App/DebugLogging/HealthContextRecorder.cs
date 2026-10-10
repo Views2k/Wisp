@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using Wisp.App.Clips;
 using Wisp.Core;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App.DebugLogging;
 
@@ -31,6 +32,9 @@ internal sealed record HealthContextSample
     public double ProcessedPacketsPerSecond { get; init; }
     public long AcceptedPackets { get; init; }
     public long RejectedPackets { get; init; }
+    public long ReceivedDatagrams { get; init; }
+    public long DrainedDatagrams { get; init; }
+    public long ProcessedPackets { get; init; }
     public double? PacketAgeMs { get; init; }
     public bool ListenerRunning { get; init; }
     public bool ListenerError { get; init; }
@@ -104,7 +108,7 @@ internal sealed class HealthContextRecorder
     internal void RecordBreadcrumb(HealthEventCode code, int errorCode = 0,
         ClipRecorderState? recorderState = null, HealthPlayerState? playerState = null)
     {
-        if ((uint)code > (uint)HealthEventCode.HealthCollectionFailed ||
+        if ((uint)code > (uint)HealthEventCode.LapReviewFailed ||
             recorderState is { } checkedRecorder && (uint)checkedRecorder > (uint)ClipRecorderState.Paused ||
             playerState is { } checkedPlayer && (uint)checkedPlayer > (uint)HealthPlayerState.Failed) return;
         var sequence = Interlocked.Increment(ref _breadcrumbSequence);
@@ -175,6 +179,9 @@ internal sealed class HealthContextRecorder
                 ProcessedPacketsPerSecond = Number(sample.ProcessedHz),
                 AcceptedPackets = Math.Max(0, sample.AcceptedPackets),
                 RejectedPackets = Math.Max(0, sample.RejectedPackets),
+                ReceivedDatagrams = Math.Max(0, sample.ReceivedDatagrams),
+                DrainedDatagrams = Math.Max(0, sample.DrainedDatagrams),
+                ProcessedPackets = Math.Max(0, sample.ProcessedPackets),
                 PacketAgeMs = Optional(sample.PacketAgeMilliseconds),
                 ListenerRunning = sample.ListenerRunning,
                 ListenerError = sample.ListenerError,
@@ -203,6 +210,10 @@ internal sealed class HealthContextRecorder
                 CollectorFailures = Math.Max(0, sample.CollectorFailures),
                 Renderer = renderer
             };
+            SupplementarySessionRecorder.Current.RecordSample(safe.ListenerRunning, safe.ListenerError, safe.PacketAgeMs,
+                safe.CpuPercent, safe.WorkingSetBytes, safe.ManagedHeapBytes,
+                safe.NativeGamePlatform switch { DiagnosticGamePlatform.Steam => "steam", DiagnosticGamePlatform.XboxStore => "store", _ => "unknown" },
+                safe.NativeGameVersion);
             if (_samples.Count == SampleCapacity) _samples.Dequeue();
             _samples.Enqueue(safe);
             Volatile.Write(ref _snapshot, new(safe.TimestampUtc, _samples.ToImmutableArray(), ReadBreadcrumbs(),
@@ -219,7 +230,8 @@ internal sealed class HealthContextRecorder
 
     private static bool ValidSample(HealthContextSample? s) => s is not null && Utc(s.TimestampUtc) &&
         Valid(s.CollectionGapMs) && Valid(s.IncomingDatagramsPerSecond) && Valid(s.ProcessedPacketsPerSecond) &&
-        s.AcceptedPackets >= 0 && s.RejectedPackets >= 0 && Valid(s.PacketAgeMs) && Valid(s.UiHeartbeatAgeMs) &&
+        s.AcceptedPackets >= 0 && s.RejectedPackets >= 0 && s.ReceivedDatagrams >= 0 && s.DrainedDatagrams >= 0 && s.ProcessedPackets >= 0 &&
+        Valid(s.PacketAgeMs) && Valid(s.UiHeartbeatAgeMs) &&
         Valid(s.DispatcherDelayMs) && Valid(s.CompositionCallbacksPerSecond) && Valid(s.CompositionCallbackAgeMs) &&
         Valid(s.CompositionMaximumGapMs) && Enum.IsDefined(s.NativeStatus) && s.NativeReadAttempts >= 0 && s.NativeReadFailures >= 0 &&
         s.NativeGameVersion == SafeGameVersion(s.NativeGameVersion) &&

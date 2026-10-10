@@ -190,7 +190,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         _debugLoggingEnabled = settings.DebugLoggingEnabled;
         if (_debugLoggingEnabled && settings.DebugLoggingExpiresAtUtc is { } expiresAtUtc)
         {
-            _debugLoggingStatus = $"On — expires {expiresAtUtc.ToLocalTime():g} · local only";
+            _debugLoggingStatus = $"On — expires {expiresAtUtc.ToLocalTime():g}";
         }
         if (!_automaticApplicationUpdateChecks)
         {

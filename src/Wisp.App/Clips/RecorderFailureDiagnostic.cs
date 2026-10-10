@@ -18,7 +18,7 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
         "capture_freshness", "video_output", "video_spool_append", "audio_output", "audio_spool_append",
         "audio_source", "audio_encode", "audio_timeline", "aac_initialize", "spool_initialize", "spool_bootstrap",
         "capture_target", "video_pump", "video_schedule", "video_submit", "startup_readiness", "spool_health",
-        "save_destination", "save_retain", "save_create", "save_worker", "save_begin", "save_finalize", "host_configuration", "host_loop", "host_exception"
+        "save_destination", "save_retain", "save_create", "save_worker", "save_begin", "save_finalize", "host_configuration", "host_loop", "host_exception", "video_cleanup"
     };
 
     internal static RecorderFailureDiagnostic? Parse(ReadOnlyMemory<byte> line)

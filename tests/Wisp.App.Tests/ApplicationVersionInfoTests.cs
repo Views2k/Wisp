@@ -36,8 +36,8 @@ public sealed class ApplicationVersionInfoTests
     [Fact]
     public void CurrentVersionLabelsShareTheAssemblyVersion()
     {
-        Assert.Equal("2.6.5", ApplicationVersionInfo.MachineVersion);
-        Assert.Equal("2.6.5", ApplicationVersionInfo.DisplayVersion);
+        Assert.Equal("2.6.6", ApplicationVersionInfo.MachineVersion);
+        Assert.Equal("2.6.6", ApplicationVersionInfo.DisplayVersion);
         var project = ProjectMetadata();
         Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildId"), ApplicationVersionInfo.DiagnosticBuildId);
         Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildLabel"), ApplicationVersionInfo.DiagnosticBuildLabel);
@@ -49,13 +49,13 @@ public sealed class ApplicationVersionInfoTests
             Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
             if (ApplicationVersionInfo.IsPrivateCandidate)
             {
-                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.6.5 (private test)", ApplicationVersionInfo.FooterText);
-                Assert.Contains("private 2.6.5 candidate. It has not been published.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.6.6 (private test)", ApplicationVersionInfo.FooterText);
+                Assert.Contains("private 2.6.6 candidate. It has not been published.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
             }
             else
             {
-                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.6.5", ApplicationVersionInfo.FooterText);
-                Assert.Contains("current 2.6.5 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.6.6", ApplicationVersionInfo.FooterText);
+                Assert.Contains("current 2.6.6 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
             }
         }
         else
@@ -90,7 +90,7 @@ public sealed class ApplicationVersionInfoTests
         Assert.False(ApplicationVersionInfo.IsPrivateCandidate);
         Assert.False(ApplicationVersionInfo.LapDiagnosticsEnabled);
         Assert.DoesNotContain("private", ApplicationVersionInfo.FooterText, StringComparison.Ordinal);
-        Assert.Contains("current 2.6.5 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction,
+        Assert.Contains("current 2.6.6 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction,
             StringComparison.Ordinal);
     }
 
