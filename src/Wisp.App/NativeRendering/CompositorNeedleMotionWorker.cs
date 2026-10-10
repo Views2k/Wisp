@@ -163,7 +163,17 @@ internal sealed class CompositorNeedleMotionWorker : IDisposable
                     if (copied)
                     {
                         var started = Stopwatch.GetTimestamp();
-                        var accepted = channel.Update(in geometry, curve, points, generation, out var status);
+                        var accepted = false;
+                        CompositorMotionStatus status;
+                        try
+                        {
+                            accepted = channel.Update(in geometry, curve, points, generation, out status);
+                        }
+                        finally
+                        {
+                            RecordToolsObservation(ToolsPerformanceRecorder.Current, started, Stopwatch.GetTimestamp(),
+                                curve.LatestObservationTimestamp, accepted);
+                        }
                         if (!accepted) throw new InvalidOperationException("Independent needle motion became unavailable.");
                         committed = true;
                         Volatile.Write(ref _material, new(generation, geometry, curve, points[0]));
@@ -207,7 +217,11 @@ internal sealed class CompositorNeedleMotionWorker : IDisposable
             Volatile.Write(ref _material, null);
             if (!committed || channel is null) return;
             var started = Stopwatch.GetTimestamp();
-            channel.Clear();
+            try { channel.Clear(); }
+            finally
+            {
+                RecordToolsObservation(ToolsPerformanceRecorder.Current, started, Stopwatch.GetTimestamp(), 0, false);
+            }
             committed = false;
             Record("discarded", started, default, default);
         }
@@ -236,6 +250,17 @@ internal sealed class CompositorNeedleMotionWorker : IDisposable
             };
             TachDiagnostics.RecordRenderer(in row);
         }
+    }
+
+    // CPU-side Update/Clear completion only. Source age is measured at an accepted
+    // Update return; neither measurement establishes GPU completion or displayed motion.
+    internal static void RecordToolsObservation(ToolsPerformanceRecorder recorder, long started,
+        long completed, long observed, bool accepted)
+    {
+        if (!recorder.Enabled || started <= 0 || completed < started) return;
+        recorder.RecordTicks(ToolsPerformanceMetric.CompositorMotionWork, false, completed - started);
+        if (accepted && observed > 0 && observed <= completed)
+            recorder.RecordTicks(ToolsPerformanceMetric.CompositorMotionSourceAge, false, completed - observed);
     }
 
     private static bool CompatiblePresentation(AnalogHudPresentation current, AnalogHudPresentation previous) =>

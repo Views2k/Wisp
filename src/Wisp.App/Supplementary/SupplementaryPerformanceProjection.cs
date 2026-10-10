@@ -29,7 +29,25 @@ internal static class SupplementaryPerformanceProjection
         ToolsPerformanceMetric.ReceiveToSubmit => "receive-to-submit",
         ToolsPerformanceMetric.CompositorUpdate => "compositor-update",
         ToolsPerformanceMetric.RetryWait => "retry-wait",
+        ToolsPerformanceMetric.CompositorMotionWork => "compositor-motion-work",
+        ToolsPerformanceMetric.CompositorMotionSourceAge => "compositor-motion-source-age",
+        ToolsPerformanceMetric.TelemetryParseWork => "telemetry-parse-work",
+        ToolsPerformanceMetric.ParseToUiAdoption => "parse-to-ui-adoption",
+        ToolsPerformanceMetric.ReceiveToUiAdoption => "receive-to-ui-adoption",
+        ToolsPerformanceMetric.UiUpdateWork => "ui-update-work",
+        ToolsPerformanceMetric.NativeUiUpdateWork => "native-ui-update-work",
+        ToolsPerformanceMetric.NativeObservationToUiAdoption => "native-observation-to-ui-adoption",
+        ToolsPerformanceMetric.PublishToUiAdoption => "publish-to-ui-adoption",
         _ => null
+    };
+
+    internal static bool HasRenderMode(ToolsPerformanceMetric metric) => metric < ToolsPerformanceMetric.TelemetryParseWork;
+    internal static string Feature(ToolsPerformanceMetric metric) => metric switch
+    {
+        ToolsPerformanceMetric.TelemetryParseWork or ToolsPerformanceMetric.ParseToUiAdoption or ToolsPerformanceMetric.ReceiveToUiAdoption or ToolsPerformanceMetric.PublishToUiAdoption => "telemetry",
+        ToolsPerformanceMetric.UiUpdateWork => "app",
+        ToolsPerformanceMetric.NativeUiUpdateWork or ToolsPerformanceMetric.NativeObservationToUiAdoption => "native",
+        _ => "hud"
     };
     internal static SupplementaryMeasurements? Measurements(ToolsPerformanceDistribution d)
     {

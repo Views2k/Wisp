@@ -20,13 +20,15 @@ public sealed class SupplementaryClientTests
             new(f.Verifier, f.Directory), new FixedClock(f.Now), transport, () => 0,
             (_, _) => Task.CompletedTask);
         var summary = new SupplementarySessionSummary(8_000, 2_000, 4_000, 2_000, 2_000, 10_000);
-        var eventValue = f.Event() with { Kind = "heartbeat", SessionSummary = summary };
+        var activity = new SupplementaryActivitySummary(4000, 2000, 2000, 2000, 10000, 40000, 20000, 4, "moving");
+        var eventValue = f.Event() with { Kind = "heartbeat", SessionSummary = summary, ActivitySummary = activity };
         Assert.True(client.TryEnqueue(eventValue));
         Assert.False(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
         Assert.Equal(3, transport.Bodies.Count);
         Assert.All(transport.Bodies, bytes => Assert.Equal(transport.Bodies[0], bytes));
         using var failed = JsonDocument.Parse(transport.Bodies[0]);
         Assert.Equal(8_000, failed.RootElement.GetProperty("events")[0].GetProperty("sessionSummary").GetProperty("observedOpenMs").GetInt64());
+        Assert.Equal(40000, failed.RootElement.GetProperty("events")[0].GetProperty("activitySummary").GetProperty("distanceMillimeters").GetInt64());
         for (var i = 0; i < SupplementaryClient.QueueCapacity; i++) Assert.True(client.TryEnqueue(f.Event()));
         var next = summary with { ObservedOpenMs = 10_000, ConnectedMs = 6_000, SessionAgeMs = 12_000 };
         Assert.False(client.TryEnqueue(f.Event() with { Kind = "heartbeat", SessionSummary = next }));
@@ -39,6 +41,55 @@ public sealed class SupplementaryClientTests
         using var delivered = JsonDocument.Parse(transport.Bodies[^1]);
         Assert.Equal(10_000, delivered.RootElement.GetProperty("events")[0].GetProperty("sessionSummary").GetProperty("observedOpenMs").GetInt64());
         Assert.Equal(4, delivered.RootElement.GetProperty("batchSequence").GetInt64());
+    }
+
+    [Fact]
+    public async Task ExpandedNormalCollectionPlusFeatureIncidentsFitsTwoBoundedDeliveries()
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport();
+        using var client = Client(f, transport);
+        var histogram = new int[16]; histogram[1] = 100;
+        var measurements = new SupplementaryMeasurements(100, 1.5, 2, 2, 2, 2, 1.9, histogram.ToImmutableArray());
+        var count = 0;
+        foreach (var metric in Enum.GetValues<Wisp.App.DebugLogging.ToolsPerformanceMetric>())
+        {
+            var modes = SupplementaryPerformanceProjection.HasRenderMode(metric) ? new string?[] { "cpu", "gpu" } : [null];
+            foreach (var mode in modes)
+            {
+                Assert.True(client.TryEnqueue(f.Event() with
+                {
+                    Kind = "resource",
+                    Feature = SupplementaryPerformanceProjection.Feature(metric),
+                    Stage = SupplementaryPerformanceProjection.Stage(metric),
+                    DurationMs = null,
+                    Value = null,
+                    Measurements = measurements,
+                    RenderMode = mode
+                }));
+                count++;
+            }
+        }
+        // Health counters/distributions, latest resources and heartbeat plus a bounded feature/incident burst.
+        for (var i = 0; i < 40; i++)
+        {
+            Assert.True(client.TryEnqueue(f.Event() with
+            {
+                Kind = "exception",
+                Outcome = "failure",
+                Stage = "continuing-exception",
+                Incident = SupplementaryIncidentSchema.Create("managed-exception")
+            }));
+            count++;
+        }
+        Assert.InRange(count, 65, SupplementaryClient.QueueCapacity);
+        Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+        Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, client.PendingEvents);
+        Assert.Equal(0, client.DroppedEvents);
+        Assert.Equal(count, transport.Bodies.Sum(bytes =>
+        { using var document = JsonDocument.Parse(bytes); return document.RootElement.GetProperty("events").GetArrayLength(); }));
+        Assert.All(transport.Bodies, bytes => Assert.InRange(bytes.Length, 1, SupplementarySchema.MaximumBatchBytes));
     }
 
     [Fact]

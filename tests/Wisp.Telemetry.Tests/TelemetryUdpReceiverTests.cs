@@ -26,7 +26,7 @@ public sealed class TelemetryUdpReceiverTests
     {
         var port = GetAvailablePort();
 
-        await using var receiver = new TelemetryUdpReceiver();
+        await using var receiver = new TelemetryUdpReceiver { CapturePublicationTimings = true };
         await receiver.StartAsync(port, TestContext.Current.CancellationToken);
         using var sender = new UdpClient(AddressFamily.InterNetwork);
         var packet = Fh6PacketFixture.Create();
@@ -35,6 +35,9 @@ public sealed class TelemetryUdpReceiverTests
         await WaitForCarAsync(receiver, 2468);
 
         Assert.NotNull(receiver.Latest);
+        Assert.True(receiver.TryGetPublicationTiming(receiver.Latest!, out var timing));
+        Assert.True(timing.IsOrdered);
+        Assert.Equal(receiver.Latest!.ReceivedTimestamp, timing.Received);
         Assert.Equal(2468, receiver.Latest!.CarOrdinal);
         Assert.Equal(1, receiver.ReceivedDatagrams);
         Assert.Equal(0, receiver.DrainedDatagrams);

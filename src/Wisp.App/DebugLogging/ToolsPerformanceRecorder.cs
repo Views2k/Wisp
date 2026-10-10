@@ -5,7 +5,9 @@ namespace Wisp.App.DebugLogging;
 internal enum ToolsPerformanceMetric
 {
     FrameWait, RenderWork, SceneBuild, PresentCall, SubmissionInterval,
-    QueueToSubmit, ReceiveToSubmit, CompositorUpdate, RetryWait
+    QueueToSubmit, ReceiveToSubmit, CompositorUpdate, RetryWait,
+    CompositorMotionWork, CompositorMotionSourceAge, TelemetryParseWork, ParseToUiAdoption,
+    ReceiveToUiAdoption, UiUpdateWork, NativeUiUpdateWork, NativeObservationToUiAdoption, PublishToUiAdoption
 }
 
 internal sealed record ToolsPerformanceDistribution(
@@ -21,7 +23,7 @@ internal sealed class ToolsPerformanceRecorder
         [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 60000];
     internal static ReadOnlySpan<double> BucketUpperBoundsMs => BucketBounds;
 
-    private const int MetricCount = (int)ToolsPerformanceMetric.RetryWait + 1;
+    private const int MetricCount = (int)ToolsPerformanceMetric.PublishToUiAdoption + 1;
     private readonly Histogram[] _histograms = Enumerable.Range(0, MetricCount * 2)
         .Select(_ => new Histogram()).ToArray();
     private int _enabled;
@@ -37,6 +39,12 @@ internal sealed class ToolsPerformanceRecorder
         if (!Enabled || (uint)metric >= MetricCount || ticks < 0) return;
         var milliseconds = ticks * (1000d / Stopwatch.Frequency);
         _histograms[(int)metric * 2 + (cpuRendering ? 1 : 0)].Record(milliseconds);
+    }
+
+    internal void RecordDropped(ToolsPerformanceMetric metric, bool cpuRendering)
+    {
+        if (Enabled && (uint)metric < MetricCount)
+            _histograms[(int)metric * 2 + (cpuRendering ? 1 : 0)].Drop();
     }
 
     // Only the background reporting worker drains these fixed-size histograms.
@@ -56,6 +64,8 @@ internal sealed class ToolsPerformanceRecorder
         private int _gate;
         private long _count, _dropped;
         private double _sum, _maximum, _minimum = double.PositiveInfinity;
+
+        internal void Drop() => Interlocked.Increment(ref _dropped);
 
         internal void Record(double milliseconds)
         {

@@ -2249,10 +2249,22 @@ public sealed partial class AppController : IAsyncDisposable
             return;
         }
 
-        if (ViewModel.UpdateNativeHudSnapshot(nativeHud))
+        var timingStarted = ToolsPerformanceRecorder.Current.Enabled ? Stopwatch.GetTimestamp() : 0;
+        var adopted = false;
+        try
         {
-            _lastNativeHudPublication = publication;
-            _hasNativeHudPublication = true;
+            adopted = ViewModel.UpdateNativeHudSnapshot(nativeHud);
+            if (adopted)
+            {
+                _lastNativeHudPublication = publication;
+                _hasNativeHudPublication = true;
+            }
+        }
+        finally
+        {
+            if (timingStarted > 0)
+                SupplementaryAdoptionTiming.RecordNative(ToolsPerformanceRecorder.Current, timingStarted,
+                    Stopwatch.GetTimestamp(), adopted, nativeHud.NativeGaugeObservedTimestamp);
         }
     }
 
@@ -2264,6 +2276,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void ProcessUiUpdate(bool processLatestPacket = true)
     {
+        _receiver.CapturePublicationTimings = ToolsPerformanceRecorder.Current.Enabled;
         if (Settings.RequiresSetup)
         {
             PublishDebugHealthContext();
@@ -2306,6 +2319,15 @@ public sealed partial class AppController : IAsyncDisposable
 
         var shiftNativeSnapshot = _nativeHudProcessService.SnapshotFor(latest?.CarOrdinal ?? 0);
         var nowTimestamp = Stopwatch.GetTimestamp();
+        if (Supplementary.SupplementaryActivityRecorder.Current.Enabled)
+        {
+            var visibility = EvaluateNativeGameplayVisibility(shiftNativeSnapshot, nowTimestamp);
+            Supplementary.SupplementaryActivityRecorder.Current.Observe(latest?.ReceivedTimestamp is { } received
+                ? new(received, latest.GameTimestampMilliseconds, latest.CarOrdinal, (int)latest.Drivetrain,
+                    latest.GroundSpeedMetersPerSecond, latest.IsRaceOn,
+                    visibility.Fresh && visibility.Visibility == NativeGameplayVisibility.Visible)
+                : null);
+        }
         var connectionState = _freshness.GetState(nowTimestamp);
         var age = _freshness.GetAge(nowTimestamp);
         ViewModel.RefreshShiftCalibration(latest, shiftNativeSnapshot,
@@ -2458,7 +2480,11 @@ public sealed partial class AppController : IAsyncDisposable
         PublishRunContext();
         var detachedBoostWasEnabled = IsDetachedBoostGaugeEnabled;
         var detachedTireTemperatureWasEnabled = IsDetachedTireTemperatureGaugeEnabled;
-        ViewModel.Update(
+        var adoptionStarted = ToolsPerformanceRecorder.Current.Enabled ? Stopwatch.GetTimestamp() : 0;
+        var adopted = false;
+        try
+        {
+            ViewModel.Update(
             displayState,
             indicated,
             calibration,
@@ -2470,7 +2496,18 @@ public sealed partial class AppController : IAsyncDisposable
             refreshDiagnostics,
             gForceVisible,
             Settings.SpeedSource,
-            rawShiftState: current);
+                rawShiftState: current);
+            adopted = true;
+        }
+        finally
+        {
+            if (adoptionStarted > 0)
+            {
+                var completed = Stopwatch.GetTimestamp();
+                SupplementaryAdoptionTiming.Record(ToolsPerformanceRecorder.Current, adoptionStarted, completed, adopted,
+                    adopted && _receiver.TryGetPublicationTiming(current, out var timing) ? timing : null);
+            }
+        }
         var detachedBoostEnabled = IsDetachedBoostGaugeEnabled;
         var detachedTireTemperatureEnabled = IsDetachedTireTemperatureGaugeEnabled;
         if (detachedBoostEnabled != detachedBoostWasEnabled ||

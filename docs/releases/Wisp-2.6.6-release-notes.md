@@ -12,6 +12,7 @@
 - Wisp now sends bounded app health and usage measurements to the Wisp Tools service automatically. These include observed feature outcomes, connection states, Clips stages, timing summaries, process CPU and memory measurements, and observed session durations.
 - Random installation and session identifiers link these observations. **There is no in-app opt-out.** Detailed event and support content is retained for **30 days**; download history is retained separately.
 - Failure evidence uses fixed error codes, selected Wisp method names and up to three preceding performance samples from 30 seconds. Audio failures, encoding failures, native access denial and unsupported game builds remain distinct observations.
+- Activity summaries include observed moving and stationary time, estimated distance, average speed and peak observed speed. Fresh supported gameplay evidence is required; pauses, gaps and unsupported contexts remain separate. Coordinates, car identifiers and individual driving samples are not uploaded.
 - Gameplay packets, saved runs, tunes, clips, personal paths, raw exception messages and raw diagnostic logs are not uploaded automatically. A message you write in Extras is sent only after review and confirmation.
 
 These measurements help compare failures and performance; they do not establish an exact root cause. Work timings and callbacks are not displayed-frame or end-to-end latency measurements. [Privacy details](https://wispoverlay.com/legal/#privacy).

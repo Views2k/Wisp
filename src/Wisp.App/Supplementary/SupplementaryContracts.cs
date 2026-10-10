@@ -10,7 +10,20 @@ internal sealed record SupplementaryEvent(int SchemaVersion, Guid EventId, Guid 
     string Outcome, string Platform, double? DurationMs = null, double? Value = null, string? GameBuild = null,
     string? Stage = null, SupplementaryMeasurements? Measurements = null, string? RenderMode = null,
     SupplementaryRelatedRun? RelatedRun = null, SupplementarySessionSummary? SessionSummary = null,
-    long? SessionAgeMs = null, SupplementaryIncident? Incident = null);
+    long? SessionAgeMs = null, SupplementaryIncident? Incident = null, SupplementaryActivitySummary? ActivitySummary = null);
+
+internal sealed record SupplementaryActivitySummary(long ObservedMovingMs, long ObservedStationaryMs, long ActivityUnknownMs,
+    long UnobservedMs, long SessionAgeMs, long DistanceMillimeters, long PeakSpeedMillimetersPerSecond,
+    long DiscardedIntervals, string CurrentState)
+{
+    internal bool IsValid => ObservedMovingMs is >= 0 and <= 1_000_000_000_000 &&
+        ObservedStationaryMs is >= 0 and <= 1_000_000_000_000 && ActivityUnknownMs is >= 0 and <= 1_000_000_000_000 &&
+        UnobservedMs is >= 0 and <= 1_000_000_000_000 && SessionAgeMs is >= 0 and <= 1_000_000_000_000 &&
+        DistanceMillimeters is >= 0 and <= 1_000_000_000_000 && PeakSpeedMillimetersPerSecond is >= 0 and <= 500_000 &&
+        DiscardedIntervals is >= 0 and <= 1_000_000_000_000 && CurrentState is "moving" or "stationary" or "unknown" &&
+        ObservedMovingMs + ObservedStationaryMs + ActivityUnknownMs + UnobservedMs == SessionAgeMs &&
+        DistanceMillimeters <= (ObservedMovingMs + ObservedStationaryMs) * 500;
+}
 
 // Cumulative observed intervals in this reporting run; idle means no fresh parsed telemetry, not player inactivity.
 internal sealed record SupplementarySessionSummary(long ObservedOpenMs, long IdleMs, long ConnectedMs,
@@ -83,11 +96,16 @@ internal static partial class SupplementarySchema
         "native-failures", "renderer-busy", "renderer-occluded", "renderer-failures", "renderer-submissions", "queue-dropped", "collector-failures",
         "native-age", "ui-heartbeat-age", "composition-maximum-gap", "fatal-exception", "continuing-exception", "unexpected-exit", "windows-fault",
         "create", "apply", "rename", "delete", "first-telemetry", "runtime-ready", "check", "install-handoff",
-        "presentation-requested", "setup-welcome", "setup-connection", "setup-display", "setup-appearance"
+        "presentation-requested", "setup-welcome", "setup-connection", "setup-display", "setup-appearance",
+        "compositor-motion-work", "compositor-motion-source-age", "telemetry-parse-work", "parse-to-ui-adoption",
+        "receive-to-ui-adoption", "publish-to-ui-adoption", "ui-update-work", "native-ui-update-work", "native-observation-to-ui-adoption",
+        "received-datagrams", "drained-datagrams", "processed-packets", "gc-gen2-collections", "health-samples", "dispatcher-pending-samples",
+        "health-collection-gap", "composition-callback-age"
     };
     internal static readonly HashSet<string> CountStages = new(StringComparer.Ordinal)
     { "measurement-dropped", "accepted-packets", "rejected-packets", "native-attempts", "native-failures", "renderer-busy",
-        "renderer-occluded", "renderer-failures", "renderer-submissions", "queue-dropped", "collector-failures", "packet-count", "parse-failure" };
+        "renderer-occluded", "renderer-failures", "renderer-submissions", "queue-dropped", "collector-failures", "packet-count", "parse-failure",
+        "received-datagrams", "drained-datagrams", "processed-packets", "gc-gen2-collections", "health-samples", "dispatcher-pending-samples" };
 
     internal static bool Valid(SupplementaryEvent? value, DateTimeOffset now) => value is not null &&
         Identity(value.SchemaVersion, value.EventId, value.SessionId, value.InstallationId, value.ObservedAt,
@@ -97,6 +115,7 @@ internal static partial class SupplementarySchema
         (value.GameBuild is null || NumericVersion(value.GameBuild, app: false)) &&
         (value.Stage is null || Stages.Contains(value.Stage)) && (value.RenderMode is null or "cpu" or "gpu") &&
         (value.SessionSummary is null || value.Kind == "heartbeat" && value.SessionSummary.IsValid) &&
+        (value.ActivitySummary is null || value.Kind == "heartbeat" && value.ActivitySummary.IsValid) &&
         (value.Incident is null || (value.Kind == "exception" || value.Outcome is "failure" or "unsupported" or "timeout" or "unknown") &&
             value.Outcome is not ("success" or "attempt") && SupplementaryIncidentSchema.Valid(value.Incident)) &&
         (value.SessionAgeMs is null || value.Kind == "resource" && value.SessionAgeMs is >= 0 and <= 1_000_000_000_000 &&

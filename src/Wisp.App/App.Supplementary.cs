@@ -82,6 +82,7 @@ public partial class App
         _controller?.InitializeSupplementaryObservations();
         _supplementaryStartedAt = Stopwatch.GetTimestamp();
         SupplementarySessionRecorder.Current.Start();
+        SupplementaryActivityRecorder.Current.Start();
         _supplementaryVersion = ApplicationVersionInfo.MachineVersion;
         _supplementaryChannel = ApplicationVersionInfo.IsPrivateCandidate || ApplicationVersionInfo.DiagnosticBuildId is not null ? "private" : "stable";
         _supplementaryBuild = SupplementarySchema.BuildIdentity(ApplicationVersionInfo.DiagnosticBuildId)
@@ -94,7 +95,7 @@ public partial class App
             {
                 var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp", "Supplementary");
                 var identity = SupplementaryIdentityStore.LoadOrCreate(directory);
-                if (identity is null) { SupplementarySessionRecorder.Current.Enabled = false; return; }
+                if (identity is null) { SupplementarySessionRecorder.Current.Enabled = false; SupplementaryActivityRecorder.Current.Enabled = false; return; }
                 var content = new SupplementaryContentStore(new(SupplementaryRuntime.PublicKeys), Path.Combine(directory, "Content"));
                 var client = new SupplementaryClient(SupplementaryRuntime.Configuration, content, collect: CollectSupplementaryObservations,
                     contentChanged: NotifySupplementaryContentChanged);
@@ -112,15 +113,16 @@ public partial class App
                     _supplementarySignals.Clear();
                     ToolsPerformanceRecorder.Current.Enabled = client.IsReportingEnabled;
                     SupplementarySessionRecorder.Current.Enabled = client.IsReportingEnabled;
+                    SupplementaryActivityRecorder.Current.Enabled = client.IsReportingEnabled;
                     client.Start();
                 }
                 NotifySupplementaryContentChanged();
                 _ = client.Completion.ContinueWith(_ =>
-                    { ToolsPerformanceRecorder.Current.Enabled = false; SupplementarySessionRecorder.Current.Enabled = false; },
+                    { ToolsPerformanceRecorder.Current.Enabled = false; SupplementarySessionRecorder.Current.Enabled = false; SupplementaryActivityRecorder.Current.Enabled = false; },
                     CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             }
             catch (Exception)
-            { ToolsPerformanceRecorder.Current.Enabled = false; SupplementarySessionRecorder.Current.Enabled = false; } // Supplementary service has no authority over startup.
+            { ToolsPerformanceRecorder.Current.Enabled = false; SupplementarySessionRecorder.Current.Enabled = false; SupplementaryActivityRecorder.Current.Enabled = false; } // Supplementary service has no authority over startup.
         });
     }
 
@@ -157,6 +159,7 @@ public partial class App
         _controller?.DisposeSupplementaryObservations();
         ToolsPerformanceRecorder.Current.Enabled = false;
         SupplementarySessionRecorder.Current.Enabled = false;
+        SupplementaryActivityRecorder.Current.Enabled = false;
         lock (_supplementaryGate)
         {
             _supplementaryStopped = true;
@@ -173,6 +176,7 @@ public partial class App
         {
             ToolsPerformanceRecorder.Current.Enabled = !_supplementaryStopped && client.IsReportingEnabled;
             SupplementarySessionRecorder.Current.Enabled = !_supplementaryStopped && client.IsReportingEnabled;
+            SupplementaryActivityRecorder.Current.Enabled = !_supplementaryStopped && client.IsReportingEnabled;
         }
         if (!client.IsReportingEnabled)
         {
@@ -202,7 +206,8 @@ public partial class App
             : latest.ListenerRunning && latest.PacketAgeMs is >= 0 and <= 300 ? "fresh"
             : latest.NativeStatus is NativeAssistProviderStatus.Ready or NativeAssistProviderStatus.UnsupportedBuild or NativeAssistProviderStatus.AccessDenied ? "detected"
             : latest.ListenerRunning && latest.PacketAgeMs is not null ? "stale" : "idle";
-        EnqueueSupplementary(client, "heartbeat", "app", connection, "ready", sessionSummary: SupplementarySessionRecorder.Current.Snapshot());
+        EnqueueSupplementary(client, "heartbeat", "app", connection, "ready", sessionSummary: SupplementarySessionRecorder.Current.Snapshot(),
+            activitySummary: SupplementaryActivityRecorder.Current.Snapshot());
         if (_reportedConnectionState != connection)
         {
             // This is an observed state transition. It is not an invented connection attempt denominator.
@@ -252,11 +257,16 @@ public partial class App
         var intervalMs = _previousReportedHealth is { } baseline ? (samples[^1].TimestampUtc - baseline.TimestampUtc).TotalMilliseconds : (double?)null;
         if (intervalMs is <= 0 or > 604800000) intervalMs = null;
         long accepted = 0, rejected = 0, nativeAttempts = 0, nativeFailures = 0, submissions = 0, busy = 0, occluded = 0, failures = 0, queueDropped = 0, collectorFailures = 0;
+        long received = 0, drained = 0, processed = 0, gen2 = 0;
         foreach (var s in samples)
         {
             var previous = _previousReportedHealth;
             accepted += Delta(s.AcceptedPackets, previous?.AcceptedPackets);
             rejected += Delta(s.RejectedPackets, previous?.RejectedPackets);
+            received += Delta(s.ReceivedDatagrams, previous?.ReceivedDatagrams);
+            drained += Delta(s.DrainedDatagrams, previous?.DrainedDatagrams);
+            processed += Delta(s.ProcessedPackets, previous?.ProcessedPackets);
+            gen2 += Delta(s.Gen2Collections, previous?.Gen2Collections);
             nativeAttempts += Delta(s.NativeReadAttempts, previous?.NativeReadAttempts);
             nativeFailures += Delta(s.NativeReadFailures, previous?.NativeReadFailures);
             submissions += Delta(s.Renderer.Submissions, previous?.Renderer.Submissions);
@@ -269,7 +279,9 @@ public partial class App
         }
         foreach (var (stage, value, feature) in new (string, long, string)[] { ("accepted-packets", accepted, "telemetry"), ("rejected-packets", rejected, "telemetry"),
             ("native-attempts", nativeAttempts, "native"), ("native-failures", nativeFailures, "native"), ("renderer-submissions", submissions, "hud"),
-            ("renderer-busy", busy, "hud"), ("renderer-occluded", occluded, "hud"), ("renderer-failures", failures, "hud"), ("queue-dropped", queueDropped, "hud"), ("collector-failures", collectorFailures, "app") })
+            ("renderer-busy", busy, "hud"), ("renderer-occluded", occluded, "hud"), ("renderer-failures", failures, "hud"), ("queue-dropped", queueDropped, "hud"), ("collector-failures", collectorFailures, "app"),
+            ("received-datagrams", received, "telemetry"), ("drained-datagrams", drained, "telemetry"), ("processed-packets", processed, "telemetry"),
+            ("gc-gen2-collections", gen2, "app"), ("health-samples", samples.Length, "app"), ("dispatcher-pending-samples", samples.Count(s => s.DispatcherProbePending), "app") })
             EnqueueSupplementary(client, feature == "telemetry" ? "udp-summary" : "resource", feature, "none", stage, durationMs: intervalMs, value: value);
         var cpu = samples.Where(s => s.CpuPercent.HasValue).Select(s => s.CpuPercent!.Value).ToArray();
         if (cpu.Length > 0) EnqueueSupplementary(client, "resource", "app", "none", "cpu", value: cpu.Average());
@@ -280,6 +292,8 @@ public partial class App
         CollectSupplementarySampleDistribution(client, "dispatcher", samples.Select(s => s.DispatcherDelayMs));
         CollectSupplementarySampleDistribution(client, "ui-heartbeat-age", samples.Select(s => s.UiHeartbeatAgeMs));
         CollectSupplementarySampleDistribution(client, "composition-maximum-gap", samples.Where(s => s.OverlayExpectedVisible).Select(s => (double?)s.CompositionMaximumGapMs));
+        CollectSupplementarySampleDistribution(client, "health-collection-gap", samples.Select(s => (double?)s.CollectionGapMs));
+        CollectSupplementarySampleDistribution(client, "composition-callback-age", samples.Where(s => s.OverlayExpectedVisible).Select(s => s.CompositionCallbackAgeMs));
     }
 
     private void CollectSupplementarySampleDistribution(SupplementaryClient client, string stage, IEnumerable<double?> values)
@@ -297,13 +311,14 @@ public partial class App
     {
         var stage = SupplementaryPerformanceProjection.Stage(d.Metric);
         if (stage is null) return;
-        var mode = d.CpuRendering ? "cpu" : "gpu";
-        if (d.Dropped > 0) EnqueueSupplementary(client, "resource", "hud", "unknown", "measurement-dropped", value: d.Dropped, mode: mode);
+        var mode = SupplementaryPerformanceProjection.HasRenderMode(d.Metric) ? d.CpuRendering ? "cpu" : "gpu" : null;
+        var feature = SupplementaryPerformanceProjection.Feature(d.Metric);
+        if (d.Dropped > 0) EnqueueSupplementary(client, "resource", feature, "unknown", "measurement-dropped", value: d.Dropped, mode: mode);
         if (d.Count <= 0) return;
         var measurement = SupplementaryPerformanceProjection.Measurements(d);
         if (measurement is null)
-        { EnqueueSupplementary(client, "resource", "hud", "unknown", "measurement-dropped", value: d.Count, mode: mode); return; }
-        EnqueueSupplementary(client, "resource", "hud", "none", stage, measurements: measurement, mode: mode);
+        { EnqueueSupplementary(client, "resource", feature, "unknown", "measurement-dropped", value: d.Count, mode: mode); return; }
+        EnqueueSupplementary(client, "resource", feature, "none", stage, measurements: measurement, mode: mode);
     }
 
     private void CollectSupplementaryBreadcrumb(SupplementaryClient client, HealthBreadcrumb b)
@@ -362,12 +377,13 @@ public partial class App
         double? durationMs = null, double? value = null, SupplementaryMeasurements? measurements = null, string? mode = null,
         Guid? eventId = null, DateTimeOffset? observedAt = null, SupplementaryRelatedRun? relatedRun = null,
         string? platform = null, string? gameBuild = null, bool historical = false,
-        SupplementarySessionSummary? sessionSummary = null, long? sessionAgeMs = null, SupplementaryIncident? incident = null)
+        SupplementarySessionSummary? sessionSummary = null, long? sessionAgeMs = null, SupplementaryIncident? incident = null,
+        SupplementaryActivitySummary? activitySummary = null)
     {
         return client.TryEnqueue(new(1, eventId ?? Guid.NewGuid(), _reportingSessionId, _reportingInstallationId,
             observedAt ?? DateTimeOffset.UtcNow, _supplementaryVersion, _supplementaryBuild,
             _supplementaryChannel, kind, feature, outcome, platform ?? _reportingPlatform, durationMs, value,
-            historical ? gameBuild : _reportingGameBuild, stage, measurements, mode, relatedRun, sessionSummary, sessionAgeMs, incident));
+            historical ? gameBuild : _reportingGameBuild, stage, measurements, mode, relatedRun, sessionSummary, sessionAgeMs, incident, activitySummary));
     }
     private static long Delta(long current, long? previous) => current >= (previous ?? 0) ? current - (previous ?? 0) : current;
 }

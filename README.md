@@ -470,6 +470,9 @@ builds, validation boundary, and update behavior.
   runs, tunes, clips, personal paths and raw diagnostic logs are not uploaded automatically.
   Failure reports use fixed error codes, selected Wisp method names, and at most three preceding
   performance samples from 30 seconds. They exclude exception messages, file paths, and raw stacks.
+  Activity summaries include observed moving and stationary time, estimated distance and speed,
+  and unmeasured intervals. They require fresh telemetry and supported gameplay visibility;
+  unsupported contexts stay unknown. No coordinates, car identifiers or individual driving samples are uploaded.
   See the [privacy details](https://wispoverlay.com/legal/#privacy).
 - The installer is not code-signed.
 - A changed FH6 build identity requires a reviewed compatibility map and may

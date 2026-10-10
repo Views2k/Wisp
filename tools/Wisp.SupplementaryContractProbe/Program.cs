@@ -21,7 +21,8 @@ if (args[0] == "generate")
     events[2] = events[2] with { Kind = "udp-summary", Stage = "accepted-packets", Measurements = null, Value = 123 };
     events[3] = events[3] with { Kind = "startup", Stage = "first-telemetry", Measurements = null, DurationMs = 123.456 };
     events[4] = events[4] with { Kind = "heartbeat", Feature = "app", Stage = "ready", Measurements = null, RenderMode = null,
-        SessionSummary = new(60000, 20000, 30000, 10000, 2000, 62000) };
+        SessionSummary = new(60000, 20000, 30000, 10000, 2000, 62000),
+        ActivitySummary = new(30000, 20000, 10000, 2000, 62000, 300000, 15000, 20, "moving") };
     events[5] = events[5] with { Feature = "app", Stage = "working-set", Measurements = null, RenderMode = null, Value = 123456789, SessionAgeMs = 62000 };
     events[6] = events[6] with { Feature = "app", Stage = "managed-heap", Measurements = null, RenderMode = null, Value = 1234567, SessionAgeMs = 62000 };
     events[7] = events[7] with { Feature = "app", Stage = "cpu", Measurements = null, RenderMode = null, Value = 2.5, SessionAgeMs = 62000 };
@@ -33,6 +34,17 @@ if (args[0] == "generate")
     events[9] = events[9] with { Kind = "clips", Feature = "clips", Stage = "audio", Outcome = "failure", Measurements = null,
         Incident = SupplementaryIncidentSchema.Create("recorder", "audio_failed", "audio_encode", 5,
             recorder: new(10, 20, 30, 1.25, 2.5, 3.75)) };
+    string[] diagnosticStages = ["compositor-motion-work", "compositor-motion-source-age", "telemetry-parse-work", "parse-to-ui-adoption",
+        "receive-to-ui-adoption", "publish-to-ui-adoption", "ui-update-work", "native-ui-update-work", "native-observation-to-ui-adoption",
+        "received-datagrams", "drained-datagrams", "processed-packets", "gc-gen2-collections", "health-samples", "dispatcher-pending-samples",
+        "health-collection-gap", "composition-callback-age"];
+    for (var i = 0; i < diagnosticStages.Length; i++)
+    {
+        var stage = diagnosticStages[i];
+        var count = SupplementarySchema.CountStages.Contains(stage);
+        events[10 + i] = events[10 + i] with { Stage = stage, Feature = "app", RenderMode = null,
+            Measurements = count ? null : measurements, Value = count ? 2 : null };
+    }
     var support = SupplementarySchema.RedactForPreview(new(1, Guid.Parse("20000000-0000-4000-8000-000000000001"),
         session, installation, now, "2.6.6", "contract-fixture", "stable", "feedback", "Contract fixture",
         "A synthetic report.\nNo personal information is included.", new("steam", "fresh", "none", "6.461.691.0")));

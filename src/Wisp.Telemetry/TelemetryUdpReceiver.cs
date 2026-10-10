@@ -35,6 +35,8 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     private int _disposed;
     private RunDatagramCapture? _runCapture;
     private Action<VehicleState?>? _validatedStateObserver;
+    private readonly TelemetryPublicationTimingLedger _publicationTimings = new();
+    private int _capturePublicationTimings;
 
     public TelemetryUdpReceiver(Fh6PacketParser? parser = null)
     {
@@ -57,6 +59,15 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     }
 
     public VehicleState? Latest => Volatile.Read(ref _latest);
+
+    public bool CapturePublicationTimings
+    {
+        get => Volatile.Read(ref _capturePublicationTimings) != 0;
+        set => Volatile.Write(ref _capturePublicationTimings, value ? 1 : 0);
+    }
+
+    public bool TryGetPublicationTiming(VehicleState state, out TelemetryPublicationTiming timing) =>
+        _publicationTimings.TryGet(state, out timing);
 
     public long ReceivedDatagrams => Interlocked.Read(ref _receivedDatagrams);
     public long DrainedDatagrams => Interlocked.Read(ref _drainedDatagrams);
@@ -323,10 +334,14 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
                 var receivedAt = DateTimeOffset.UtcNow;
                 var stateObserver = Volatile.Read(ref _validatedStateObserver);
                 var receivedTimestamp = stateObserver is null ? Stopwatch.GetTimestamp() : LastDatagramTimestamp;
+                var parseStarted = CapturePublicationTimings ? Stopwatch.GetTimestamp() : 0;
                 if (_parser.TryParse(buffer.AsSpan(0, receivedBytes), receivedAt, out var state, out var error,
                         receivedTimestamp))
                 {
+                    var parsed = parseStarted > 0 ? Stopwatch.GetTimestamp() : 0;
                     if (stateObserver is not null) ObserveValidatedState(stateObserver, state!);
+                    if (parseStarted > 0)
+                        _publicationTimings.Record(state!, new(receivedTimestamp, parseStarted, parsed, Stopwatch.GetTimestamp()));
                     Volatile.Write(ref _latest, state);
                     Interlocked.Increment(ref _acceptedPackets);
                     ObserveParsed(state!, PacketParseError.None, receivedTimestamp);
