@@ -293,8 +293,13 @@ public abstract partial class ControlPanelWindow
 
     private static string SupplementaryNoticeKind(string kind) => kind switch
     {
-        "support-note" => "Support", "announcement" => "News", "troubleshooting" => "Troubleshooting",
-        "changelog" => "What's new", "incident" => "Known issue", "recommendation" => "Recommendation", _ => "Notice"
+        "support-note" => "Support",
+        "announcement" => "News",
+        "troubleshooting" => "Troubleshooting",
+        "changelog" => "What's new",
+        "incident" => "Known issue",
+        "recommendation" => "Recommendation",
+        _ => "Notice"
     };
 
     private static TextBlock SupplementaryText(string text, bool bold = false, bool muted = false)

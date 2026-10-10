@@ -42,8 +42,10 @@ public sealed partial class AppController
                     "Current-car reading is unavailable in this preview. Saved tunes can still be opened.");
             observation?.Complete(result.Success && result.Snapshot is { IsComplete: true } ? "success" : result.Success ? "unknown" : result.Status switch
             {
-                TuneCaptureStatus.Cancelled => "cancelled", TuneCaptureStatus.UnsupportedBuild => "unsupported",
-                TuneCaptureStatus.GameNotRunning => "idle", _ => "failure"
+                TuneCaptureStatus.Cancelled => "cancelled",
+                TuneCaptureStatus.UnsupportedBuild => "unsupported",
+                TuneCaptureStatus.GameNotRunning => "idle",
+                _ => "failure"
             });
             return result;
         }

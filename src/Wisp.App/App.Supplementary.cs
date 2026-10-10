@@ -320,8 +320,13 @@ public partial class App
         };
         if (mapped.Item1 is not null)
         {
-            var category = b.Code switch { HealthEventCode.RendererFailed => "renderer", HealthEventCode.HealthCollectionFailed => "collector",
-                HealthEventCode.LapReviewFailed => "saved-data", _ => null };
+            var category = b.Code switch
+            {
+                HealthEventCode.RendererFailed => "renderer",
+                HealthEventCode.HealthCollectionFailed => "collector",
+                HealthEventCode.LapReviewFailed => "saved-data",
+                _ => null
+            };
             EnqueueSupplementary(client, mapped.Item1, mapped.Item2!, mapped.Item3!, mapped.Item4,
                 value: b.ErrorCode == 0 ? null : unchecked((uint)b.ErrorCode), observedAt: b.TimestampUtc,
                 incident: category is null ? null : SupplementaryIncidentCapture.Breadcrumb(category, b, HealthContextRecorder.Current.Snapshot()));

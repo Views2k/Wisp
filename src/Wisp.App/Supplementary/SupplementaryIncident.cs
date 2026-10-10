@@ -107,11 +107,11 @@ internal static class SupplementaryIncidentSchema
         var text = new StringBuilder("wisp-tools-incident-v1\n").Append(value.Category).Append('\n').Append(value.Reason).Append('\n')
             .Append(value.FailureStage ?? "").Append('\n').Append(value.Code?.ToString(CultureInfo.InvariantCulture) ?? "").Append('\n');
         if (value.Exceptions is { IsDefault: false } exceptions) foreach (var exception in exceptions)
-        {
-            text.Append(exception.Type).Append('\n').Append(exception.Code.ToString(CultureInfo.InvariantCulture)).Append('\n');
-            foreach (var method in exception.Methods) text.Append(method).Append('\n');
-            text.Append('\n');
-        }
+            {
+                text.Append(exception.Type).Append('\n').Append(exception.Code.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                foreach (var method in exception.Methods) text.Append(method).Append('\n');
+                text.Append('\n');
+            }
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString()))).ToLowerInvariant();
     }
 

@@ -33,8 +33,12 @@ public sealed class SupplementaryIncidentCaptureTests
         var now = DateTimeOffset.UtcNow;
         var samples = Enumerable.Range(0, 20).Select(i => new HealthContextSample
         {
-            TimestampUtc = now - TimeSpan.FromSeconds(i * 2), WorkingSetBytes = 100 + i, ManagedHeapBytes = -1,
-            CpuPercent = double.PositiveInfinity, PacketAgeMs = 70000, ListenerRunning = true
+            TimestampUtc = now - TimeSpan.FromSeconds(i * 2),
+            WorkingSetBytes = 100 + i,
+            ManagedHeapBytes = -1,
+            CpuPercent = double.PositiveInfinity,
+            PacketAgeMs = 70000,
+            ListenerRunning = true
         }).Append(new() { TimestampUtc = now + TimeSpan.FromSeconds(1) }).ToImmutableArray();
         var context = SupplementaryIncidentCapture.Context(new(now, samples, []), now)!.Value;
         Assert.Equal(new[] { 30000, 14000, 0 }, context.Select(c => c.AgeMs));
@@ -47,9 +51,18 @@ public sealed class SupplementaryIncidentCaptureTests
     {
         var parsed = RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(new
         {
-            mode = "recorder_failure", v = 1, reason = "cleanup_failed", stage = "video_cleanup", hr = 5,
-            videoPackets = ulong.MaxValue, audioPackets = 12, submittedFrames = 9,
-            schedulerLagKnown = true, schedulerLag100ns = 12500, sourceAgeKnown = true, sourceAge100ns = -1
+            mode = "recorder_failure",
+            v = 1,
+            reason = "cleanup_failed",
+            stage = "video_cleanup",
+            hr = 5,
+            videoPackets = ulong.MaxValue,
+            audioPackets = 12,
+            submittedFrames = 9,
+            schedulerLagKnown = true,
+            schedulerLag100ns = 12500,
+            sourceAgeKnown = true,
+            sourceAge100ns = -1
         }));
         Assert.NotNull(parsed);
         var incident = SupplementaryIncidentCapture.Recorder(parsed.Reason, parsed, null, DateTimeOffset.UtcNow);

@@ -31,10 +31,17 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
         _clock = clock;
         _http = new HttpClient(testHandler ?? new SocketsHttpHandler
         {
-            AllowAutoRedirect = false, AutomaticDecompression = DecompressionMethods.None, UseCookies = false,
-            Credentials = null, PreAuthenticate = false, MaxConnectionsPerServer = 1, MaxResponseHeadersLength = 16,
-            ConnectTimeout = TimeSpan.FromSeconds(5), PooledConnectionLifetime = TimeSpan.FromMinutes(5)
-        }) { Timeout = Timeout.InfiniteTimeSpan };
+            AllowAutoRedirect = false,
+            AutomaticDecompression = DecompressionMethods.None,
+            UseCookies = false,
+            Credentials = null,
+            PreAuthenticate = false,
+            MaxConnectionsPerServer = 1,
+            MaxResponseHeadersLength = 16,
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+        })
+        { Timeout = Timeout.InfiniteTimeSpan };
     }
 
     public async Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximumResponseBytes, CancellationToken cancellation)

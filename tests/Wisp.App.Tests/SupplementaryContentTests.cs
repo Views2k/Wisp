@@ -205,14 +205,23 @@ internal sealed class SupplementaryFixture : IDisposable
     internal SupplementaryFixture() => Verifier = new(new Dictionary<string, byte[]> { ["fixture-only"] = _key.ExportSubjectPublicKeyInfo() });
     internal JsonObject Payload(int revision = 1) => new()
     {
-        ["schemaVersion"] = 1, ["purpose"] = "wisp-supplementary-content", ["revision"] = revision,
+        ["schemaVersion"] = 1,
+        ["purpose"] = "wisp-supplementary-content",
+        ["revision"] = revision,
         ["issuedAt"] = Now.AddMinutes(-1).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-        ["expiresAt"] = Now.AddDays(1).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"), ["reportingDisabled"] = false,
+        ["expiresAt"] = Now.AddDays(1).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+        ["reportingDisabled"] = false,
         ["items"] = new JsonArray(new JsonObject
         {
-            ["id"] = "notice", ["kind"] = "announcement", ["title"] = "Wisp update", ["message"] = "A reviewed change is available.",
-            ["url"] = "https://github.com/Views2k/Wisp/releases", ["severity"] = "info", ["startsAt"] = Now.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-            ["expiresAt"] = Now.AddHours(2).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"), ["dismissible"] = true,
+            ["id"] = "notice",
+            ["kind"] = "announcement",
+            ["title"] = "Wisp update",
+            ["message"] = "A reviewed change is available.",
+            ["url"] = "https://github.com/Views2k/Wisp/releases",
+            ["severity"] = "info",
+            ["startsAt"] = Now.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+            ["expiresAt"] = Now.AddHours(2).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+            ["dismissible"] = true,
             ["audience"] = new JsonObject
             { ["minVersion"] = "2.6.6", ["maxVersion"] = null, ["channels"] = new JsonArray("stable"), ["platforms"] = new JsonArray("steam"), ["gameBuilds"] = new JsonArray() }
         })
@@ -220,7 +229,9 @@ internal sealed class SupplementaryFixture : IDisposable
     internal byte[] Envelope(JsonObject? payload = null) => Sign(Encoding.UTF8.GetBytes((payload ?? Payload()).ToJsonString()));
     internal byte[] Sign(byte[] payload) => JsonSerializer.SerializeToUtf8Bytes(new
     {
-        schemaVersion = 1, keyId = "fixture-only", payload = Convert.ToBase64String(payload),
+        schemaVersion = 1,
+        keyId = "fixture-only",
+        payload = Convert.ToBase64String(payload),
         signature = Convert.ToBase64String(_key.SignData(payload, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
     });
     internal SupplementaryEvent Event() => new(1, Guid.NewGuid(), _session, _installation, Now, "2.6.6", "test-revision", "stable",

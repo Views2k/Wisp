@@ -96,8 +96,14 @@ public sealed class SupplementaryClientTests
         var bins = Enumerable.Repeat(62500, 16).ToImmutableArray();
         for (var i = 0; i < 64; i++) Assert.True(client.TryEnqueue(f.Event() with
         {
-            AppVersion = "65535.65535.65535", BuildId = new string('a', 64), Kind = "exception", Stage = "renderer-queue",
-            GameBuild = "999999999.999999999.999999999", RenderMode = "cpu", DurationMs = 604800000, Value = 1000000000000,
+            AppVersion = "65535.65535.65535",
+            BuildId = new string('a', 64),
+            Kind = "exception",
+            Stage = "renderer-queue",
+            GameBuild = "999999999.999999999.999999999",
+            RenderMode = "cpu",
+            DurationMs = 604800000,
+            Value = 1000000000000,
             Measurements = new(1000000, 1.234567891, 12345.67891234, 45678.91234567, 56789.12345678, 59999.123456789, 23456.78912345, bins),
             RelatedRun = new(Guid.NewGuid(), "65535.65535.65535", new string('b', 64), "private")
         }));
@@ -197,8 +203,14 @@ public sealed class SupplementaryClientTests
         Assert.False(client.TryEnqueue(current with { BuildId = "other-build" }));
         Assert.False(client.TryEnqueue(current with { Channel = "private" }));
         var prior = new SupplementaryRelatedRun(Guid.NewGuid(), "2.6.5", "previous-build", "private");
-        var historical = current with { EventId = Guid.NewGuid(), Kind = "exception", Stage = "fatal-exception",
-            ObservedAt = f.Now.AddHours(-1), RelatedRun = prior };
+        var historical = current with
+        {
+            EventId = Guid.NewGuid(),
+            Kind = "exception",
+            Stage = "fatal-exception",
+            ObservedAt = f.Now.AddHours(-1),
+            RelatedRun = prior
+        };
         Assert.True(client.TryEnqueue(historical));
         Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
         using var body = JsonDocument.Parse(transport.Bodies.Single());
@@ -306,8 +318,11 @@ public sealed class SupplementaryClientTests
     public async Task SupportAcceptsOnlyInboxCategoriesAndReturnsServerQuota(string category)
     {
         using var f = new SupplementaryFixture();
-        var transport = new StubTransport { SupportResponse = new(SupplementaryRequestStatus.Success,
-            Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"reference\":\"WSP-12345678901234567890123456789012\",\"nextAllowedAt\":\"2026-10-11T00:00:00.000Z\",\"quota\":{\"policy\":\"installation-utc-day\",\"limit\":1}}"), 201) };
+        var transport = new StubTransport
+        {
+            SupportResponse = new(SupplementaryRequestStatus.Success,
+            Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"reference\":\"WSP-12345678901234567890123456789012\",\"nextAllowedAt\":\"2026-10-11T00:00:00.000Z\",\"quota\":{\"policy\":\"installation-utc-day\",\"limit\":1}}"), 201)
+        };
         using var client = Client(f, transport);
         var report = new SupplementarySupportReport(1, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), f.Now,
             "2.6.6", "test", "stable", category, "Example message", "A useful observation.");
@@ -456,8 +471,12 @@ public sealed class SupplementaryClientTests
                 if (route.EndsWith("support", StringComparison.Ordinal)) return SupportResponse ?? new(SupplementaryRequestStatus.Success, Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"reference\":\"WISP-ABCDEF\"}"));
                 if (EventReceipt is not null) return new(SupplementaryRequestStatus.Success, EventReceipt);
                 using var doc = JsonDocument.Parse(body!);
-                return new(SupplementaryRequestStatus.Success, JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1,
-                    accepted = doc.RootElement.GetProperty("events").GetArrayLength(), duplicate = 0 }));
+                return new(SupplementaryRequestStatus.Success, JsonSerializer.SerializeToUtf8Bytes(new
+                {
+                    schemaVersion = 1,
+                    accepted = doc.RootElement.GetProperty("events").GetArrayLength(),
+                    duplicate = 0
+                }));
             }
             finally { Interlocked.Decrement(ref _concurrent); }
         }

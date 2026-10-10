@@ -20,11 +20,16 @@ internal static class SupplementaryPerformanceProjection
 
     internal static string? Stage(ToolsPerformanceMetric metric) => metric switch
     {
-        ToolsPerformanceMetric.FrameWait => "frame-wait", ToolsPerformanceMetric.RenderWork => "render-work",
-        ToolsPerformanceMetric.SceneBuild => "scene-build", ToolsPerformanceMetric.PresentCall => "present-call",
-        ToolsPerformanceMetric.SubmissionInterval => "submission-interval", ToolsPerformanceMetric.QueueToSubmit => "queue-to-submit",
-        ToolsPerformanceMetric.ReceiveToSubmit => "receive-to-submit", ToolsPerformanceMetric.CompositorUpdate => "compositor-update",
-        ToolsPerformanceMetric.RetryWait => "retry-wait", _ => null
+        ToolsPerformanceMetric.FrameWait => "frame-wait",
+        ToolsPerformanceMetric.RenderWork => "render-work",
+        ToolsPerformanceMetric.SceneBuild => "scene-build",
+        ToolsPerformanceMetric.PresentCall => "present-call",
+        ToolsPerformanceMetric.SubmissionInterval => "submission-interval",
+        ToolsPerformanceMetric.QueueToSubmit => "queue-to-submit",
+        ToolsPerformanceMetric.ReceiveToSubmit => "receive-to-submit",
+        ToolsPerformanceMetric.CompositorUpdate => "compositor-update",
+        ToolsPerformanceMetric.RetryWait => "retry-wait",
+        _ => null
     };
     internal static SupplementaryMeasurements? Measurements(ToolsPerformanceDistribution d)
     {

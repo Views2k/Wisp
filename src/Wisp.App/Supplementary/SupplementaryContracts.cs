@@ -118,7 +118,7 @@ internal static partial class SupplementarySchema
             (d.GameBuild is null || NumericVersion(d.GameBuild, app: false)));
 
     internal static SupplementarySupportReport RedactForPreview(SupplementarySupportReport report) => report with
-        { Title = Redact(report.Title), Message = Redact(report.Message) };
+    { Title = Redact(report.Title), Message = Redact(report.Message) };
 
     // This is a minimization boundary, not a claim that arbitrary prose can be proven free of personal data.
     // Callers must display this exact result for deliberate review before submission. Raw input is never queued.
