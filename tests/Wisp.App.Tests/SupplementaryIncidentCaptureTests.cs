@@ -17,6 +17,18 @@ public sealed class SupplementaryIncidentCaptureTests
     { Assert.All(SupplementaryIncidentSchema.Methods, symbol => Assert.True(CrashReportSymbols.IsKnownMethod(symbol), symbol)); }
 
     [Fact]
+    public void OtherCompiledProductMethodsHaveStablePrivateSafeLocations()
+    {
+        const string symbol = "Wisp.App.Supplementary.SupplementaryEnvironmentCollector.Snapshot";
+        var result = SupplementaryIncidentCapture.Exceptions([new("InvalidOperationException", 5, [symbol, "Wisp.App.Forged.PrivateMethod"])]);
+        var location = Assert.Single(Assert.Single(result!.Value).Methods);
+        Assert.Equal(SupplementaryIncidentSchema.MethodId(symbol), location);
+        Assert.True(SupplementaryIncidentSchema.ValidMethod(location));
+        Assert.DoesNotContain(symbol, JsonSerializer.Serialize(result));
+        Assert.True(SupplementaryIncidentSchema.Valid(SupplementaryIncidentSchema.Create("managed-exception", exceptions: result)));
+    }
+
+    [Fact]
     public void ExceptionProjectionDropsMessagesAndUncataloguedOrForgedSymbols()
     {
         var result = SupplementaryIncidentCapture.Exceptions([

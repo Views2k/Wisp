@@ -85,7 +85,7 @@ internal static class SupplementaryIncidentSchema
         Reasons.Contains(value.Reason) && (value.FailureStage is null || FailureStages.Contains(value.FailureStage)) &&
         (value.Exceptions is null || value.Exceptions is { IsDefault: false, Length: > 0 and <= 3 } exceptions && exceptions.All(e =>
             e is not null && ExceptionTypes.Contains(e.Type) && !e.Methods.IsDefault && e.Methods.Length <= 4 &&
-            e.Methods.All(Methods.Contains) && e.Methods.Distinct(StringComparer.Ordinal).Count() == e.Methods.Length)) &&
+            e.Methods.All(ValidMethod) && e.Methods.Distinct(StringComparer.Ordinal).Count() == e.Methods.Length)) &&
         (value.Context is null || value.Context is { IsDefault: false, Length: > 0 and <= 3 } context && context.All(ValidContext) &&
             context.Select(c => c.AgeMs).SequenceEqual(context.Select(c => c.AgeMs).Distinct().OrderDescending())) &&
         (value.Recorder is null || value.Category == "recorder" && ValidRecorder(value.Recorder)) &&
@@ -100,6 +100,11 @@ internal static class SupplementaryIncidentSchema
         Count(r.SubmittedFrames) && Milliseconds(r.SchedulerLagMs) && Milliseconds(r.SourceAgeMs) && Milliseconds(r.LocalFrameAgeMs);
     private static bool Count(long? value) => value is null or >= 0 and <= 1_000_000_000_000;
     private static bool Milliseconds(double? value) => SupplementarySchema.Number(value, 60000);
+
+    internal static bool ValidMethod(string value) => Methods.Contains(value) || value is { Length: 71 } &&
+        value.StartsWith("sha256:", StringComparison.Ordinal) && value.AsSpan(7).IndexOfAnyExcept("0123456789abcdef") < 0;
+    internal static string MethodId(string compiledSymbol) => "sha256:" + Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes("wisp-tools-method-v1\n" + compiledSymbol))).ToLowerInvariant();
 
     // Domain-separated UTF-8, LF delimiters, invariant unsigned decimal; excludes changing sample measurements.
     internal static string Signature(SupplementaryIncident value)

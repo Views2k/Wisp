@@ -275,6 +275,7 @@ public sealed partial class AppController : IAsyncDisposable
         Settings.CpuRenderingEnabled = enabled;
         var saved = SaveSettings();
         if (!saved) Settings.CpuRenderingEnabled = previous;
+        PublishSupplementarySettings();
         ViewModel.UpdateCpuRendering(Settings.CpuRenderingEnabled, saved);
     }
 
@@ -480,6 +481,7 @@ public sealed partial class AppController : IAsyncDisposable
 
         SetupCompletion.Save(
             Settings, preferences, SetupTelemetry.SuccessfulEvidence, _saveCompletedSetup, DateTimeOffset.UtcNow);
+        PublishSupplementarySettings();
         ViewModel.UdpPort = Settings.UdpPort;
         ViewModel.UnitSelectionIndex = (int)Settings.SpeedUnit;
         ViewModel.TorqueUnitSelectionIndex = Settings.TorqueUnit == TorqueUnit.PoundFeet ? 1 : 0;
@@ -3305,6 +3307,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     private bool WriteSettings()
     {
+        PublishSupplementarySettings();
         using var supplementarySettings = SupplementaryObservations.Begin("settings", "settings", "save");
         try
         {

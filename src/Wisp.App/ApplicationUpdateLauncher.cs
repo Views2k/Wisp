@@ -13,7 +13,7 @@ internal enum ApplicationUpdateHandoffState
     TimedOut
 }
 
-internal readonly record struct ApplicationUpdateResultStatus(string Status, string Action);
+internal readonly record struct ApplicationUpdateResultStatus(string Status, string Action, string Outcome = "unknown");
 
 internal sealed class ApplicationUpdateHandoff : IDisposable
 {
@@ -284,7 +284,7 @@ internal static class ApplicationUpdateLauncher
             {
                 result = new ApplicationUpdateResultStatus(
                     $"Wisp {targetVersion} was installed successfully.",
-                    "Check again");
+                    "Check again", targetVersion.ToString() == ApplicationVersionInfo.MachineVersion ? "success" : "unknown");
                 return true;
             }
 
@@ -298,7 +298,7 @@ internal static class ApplicationUpdateLauncher
                     : null;
                 result = new ApplicationUpdateResultStatus(
                     FailureStatus(recoveryState),
-                    "Try again");
+                    "Try again", "failure");
                 return true;
             }
 

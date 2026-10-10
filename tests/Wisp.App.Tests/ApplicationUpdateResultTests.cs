@@ -18,6 +18,7 @@ public sealed class ApplicationUpdateResultTests
         Assert.True(consumed);
         Assert.Equal("Wisp 1.2.3 was installed successfully.", result.Status);
         Assert.Equal("Check again", result.Action);
+        Assert.Equal("unknown", result.Outcome); // The recorded target is not this running build.
         Assert.False(File.Exists(layout.ResultPath));
         Assert.Empty(Directory.EnumerateFiles(layout.ResultDirectory, "*.consumed"));
     }
@@ -34,6 +35,7 @@ public sealed class ApplicationUpdateResultTests
 
         Assert.True(consumed);
         Assert.DoesNotContain("untrusted", result.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("failure", result.Outcome);
         Assert.Equal(
             "The previous update did not complete. Wisp restarted the verified installation.",
             result.Status);
@@ -56,6 +58,15 @@ public sealed class ApplicationUpdateResultTests
 
         Assert.True(consumed);
         Assert.Contains(expectedText, result.Status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MatchingRunningBuildConfirmsInstalledOutcome()
+    {
+        using var layout = new ResultLayout($$"""{"schemaVersion":1,"state":"installed","targetVersion":"{{ApplicationVersionInfo.MachineVersion}}"}""");
+        Assert.True(ApplicationUpdateLauncher.TryConsumeResult(layout.Root, out var result));
+        Assert.Equal("success", result.Outcome);
+        Assert.False(ApplicationUpdateLauncher.TryConsumeResult(layout.Root, out _));
     }
 
     [Fact]

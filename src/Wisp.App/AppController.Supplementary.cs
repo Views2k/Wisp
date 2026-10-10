@@ -9,6 +9,9 @@ public sealed partial class AppController
     private bool _supplementaryObservationsAttached, _supplementaryRunRecording, _supplementaryRunPreparing;
     private SupplementaryOperation? _supplementaryRunSave, _supplementaryFirstTelemetry;
     private bool _supplementaryHudRequested, _supplementaryDriftRequested;
+    private SupplementarySettings? _supplementarySettings;
+    internal SupplementarySettings? SupplementarySettingsSnapshot => Volatile.Read(ref _supplementarySettings);
+    private void PublishSupplementarySettings() => Volatile.Write(ref _supplementarySettings, SupplementarySettings.Capture(Settings));
 
     private void ObserveSupplementaryPresentationRequested(bool hud, bool drift)
     {
@@ -30,6 +33,7 @@ public sealed partial class AppController
     {
         if (_supplementaryObservationsAttached) return;
         _supplementaryObservationsAttached = true;
+        PublishSupplementarySettings();
         _runRecording.StateChanged += ObserveSupplementaryRunState;
         _runRecording.RunSaved += ObserveSupplementaryRunSaved;
     }

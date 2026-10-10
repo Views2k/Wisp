@@ -172,6 +172,28 @@ jobs:
         shell: pwsh
         run: python ./tools/release_sources.py prepare --directory outputs
 
+      - name: Export exact-build diagnostic symbols
+        if: needs.validation-plan.outputs.mode == 'full'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $revision = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') { throw 'Exact source revision unavailable.' }
+          dotnet run --project tools/Wisp.SymbolCatalog/Wisp.SymbolCatalog.csproj --configuration Release -- `
+            src/Wisp.App/bin/Release/net8.0-windows/win-x64 outputs/Wisp-diagnostic-symbols.json $revision
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic symbol catalog export failed.' }
+          $catalog = Get-Content -LiteralPath outputs/Wisp-diagnostic-symbols.json -Raw | ConvertFrom-Json
+          if ($catalog.sourceRevision -cne $revision -or $catalog.sourceState -ne 'clean') { throw 'Diagnostic symbols do not identify the clean CI source.' }
+
+      - name: Upload exact-build diagnostic symbols
+        if: needs.validation-plan.outputs.mode == 'full'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wisp-diagnostic-symbols-${{ github.sha }}
+          path: outputs/Wisp-diagnostic-symbols.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Capture reviewed setup wizard
         if: github.event_name == 'workflow_dispatch' && inputs.capture_ui
         run: dotnet run --project tools/Wisp.UiReview/Wisp.UiReview.csproj --configuration Release --no-build --no-restore --no-launch-profile -- --output .\work\ui-review\ci-wizard --scope wizard --step welcome --dpi 144

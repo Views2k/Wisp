@@ -25,6 +25,7 @@
 #include "DigitalGaugePixel.h"
 
 using Microsoft::WRL::ComPtr;
+#include "EnvironmentDiagnostics.h"
 #define CHECK_HR(expression) do { const HRESULT checkedResult = (expression); if (FAILED(checkedResult)) return checkedResult; } while (false)
 
 namespace

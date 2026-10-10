@@ -85,7 +85,8 @@ internal static class SupplementaryIncidentCapture
     {
         if (errors is null || errors.Length == 0) return null;
         return errors.Take(3).Select(e => new SupplementaryIncidentException(CrashReportSymbols.SafeExceptionType(e.Type), unchecked((uint)e.HResult),
-            (e.Methods ?? []).Where(m => SupplementaryIncidentSchema.Methods.Contains(m) && CrashReportSymbols.IsKnownMethod(m))
+            (e.Methods ?? []).Where(CrashReportSymbols.IsKnownMethod)
+                .Select(m => SupplementaryIncidentSchema.Methods.Contains(m) ? m : SupplementaryIncidentSchema.MethodId(m))
                 .Distinct(StringComparer.Ordinal).Take(4).ToImmutableArray())).ToImmutableArray();
     }
 
