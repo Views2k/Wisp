@@ -190,21 +190,23 @@ public abstract partial class ControlPanelWindow
             catch (ExternalException) { _supplementarySupportStatus.Text = "The reference could not be copied. You can select it above."; }
         };
         content.Children.Add(copy);
-        DateTimeOffset? nextAllowedAt = null;
+        var quotaStarted = Stopwatch.GetTimestamp();
+        var quotaDelay = TimeSpan.Zero;
+        TimeSpan QuotaRemaining() => quotaDelay - Stopwatch.GetElapsedTime(quotaStarted);
         var quotaTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
         void UpdateQuota()
         {
             quotaTimer.Stop();
-            var remaining = nextAllowedAt - DateTimeOffset.UtcNow;
+            var remaining = QuotaRemaining();
             var limited = remaining > TimeSpan.Zero;
             send.IsEnabled = !limited && confirmation.IsChecked == true && _supplementarySendCancellation is null;
             reviewButton.IsEnabled = !limited;
             quotaStatus.Text = limited
-                ? $"Next message available {nextAllowedAt!.Value.ToLocalTime():f} (local time). The daily limit resets at 00:00 UTC."
+                ? $"Next message in {Math.Ceiling(remaining.TotalMinutes):N0} minutes. The daily limit resets at 00:00 UTC."
                 : "One accepted message per installation per day, resetting at 00:00 UTC.";
             if (limited && !_supplementaryUiClosed)
             {
-                quotaTimer.Interval = remaining!.Value;
+                quotaTimer.Interval = remaining;
                 quotaTimer.Start();
             }
         }
@@ -213,7 +215,7 @@ public abstract partial class ControlPanelWindow
         Closed += (_, _) => quotaTimer.Stop();
         reviewButton.Click += (_, _) =>
         {
-            if (nextAllowedAt > DateTimeOffset.UtcNow || Application.Current is not App app) return;
+            if (QuotaRemaining() > TimeSpan.Zero || Application.Current is not App app) return;
             var category = bug.IsChecked == true ? "bug" : suggestion.IsChecked == true ? "suggestion" : "feedback";
             var reviewed = app.CreateSupplementarySupportPreview(category, title.Text.Trim(), message.Text.Trim(), diagnostics.IsChecked == true);
             if (reviewed is null) { _supplementarySupportStatus.Text = "Feedback is temporarily unavailable. Your draft stays here; try reviewing again later."; return; }
@@ -243,7 +245,7 @@ public abstract partial class ControlPanelWindow
         cancel.Click += (_, _) => _supplementarySendCancellation?.Cancel();
         send.Click += async (_, _) =>
         {
-            if (nextAllowedAt > DateTimeOffset.UtcNow || _supplementarySendCancellation is not null || confirmation.IsChecked != true ||
+            if (QuotaRemaining() > TimeSpan.Zero || _supplementarySendCancellation is not null || confirmation.IsChecked != true ||
                 _supplementaryReviewedReport is not { } reviewed || Application.Current is not App app) return;
             using var cancellation = new CancellationTokenSource();
             _supplementarySendCancellation = cancellation;
@@ -261,7 +263,11 @@ public abstract partial class ControlPanelWindow
                 UpdateQuota();
             }
             if (_supplementaryUiClosed) return;
-            if (result.NextAllowedAt is { } next) nextAllowedAt = next;
+            if (result.NextAllowedAt is { } next)
+            {
+                quotaDelay = result.RetryAfterSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : TimeSpan.FromSeconds(Math.Clamp((next - DateTimeOffset.UtcNow).TotalSeconds, 0, 86400));
+                quotaStarted = Stopwatch.GetTimestamp();
+            }
             UpdateQuota();
             if (result is { Status: SupplementaryRequestStatus.Success, Reference: { } reference })
             {
@@ -283,6 +289,7 @@ public abstract partial class ControlPanelWindow
                 SupplementaryRequestStatus.DailyLimit => "Today's message limit has been reached. Your reviewed draft stays here; the next available time is shown above.",
                 SupplementaryRequestStatus.Unconfigured or SupplementaryRequestStatus.Disabled => "Feedback is currently unavailable. Your reviewed report stays here.",
                 SupplementaryRequestStatus.Rejected => "The service did not accept this report. Your reviewed report stays here; check its contents before trying again.",
+                SupplementaryRequestStatus.ClockSkew => "Windows time does not match the service. Enable automatic date and time, then retry this same reviewed report.",
                 _ => "Delivery could not be confirmed. Your reviewed report stays here. Retrying it uses the same report identifier to avoid duplicates."
             };
         };

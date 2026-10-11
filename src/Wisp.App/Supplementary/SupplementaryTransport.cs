@@ -65,7 +65,8 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
             var code = (int)response.StatusCode;
             if (code == 204 && body is null) return new(SupplementaryRequestStatus.Success, [], code);
             var supportLimit = route == "/api/v1/support" && code == 429;
-            if (!response.IsSuccessStatusCode && !supportLimit)
+            var validationError = code == 400 && body is not null;
+            if (!response.IsSuccessStatusCode && !supportLimit && !validationError)
                 return new(code is 408 or 429 or >= 500 ? SupplementaryRequestStatus.Unavailable : SupplementaryRequestStatus.Rejected, [], code);
             if (response.Content.Headers.ContentType?.MediaType != "application/json" ||
                 response.Content.Headers.ContentEncoding.Count != 0 || response.Content.Headers.ContentLength > maximumResponseBytes)
@@ -79,6 +80,20 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
                 if (read == 0) break;
                 if (buffer.Length + read > maximumResponseBytes) return new(SupplementaryRequestStatus.Rejected, [], code);
                 buffer.Write(block, 0, read);
+            }
+            if (validationError)
+            {
+                try
+                {
+                    using var document = System.Text.Json.JsonDocument.Parse(buffer.ToArray(), new System.Text.Json.JsonDocumentOptions { MaxDepth = 8 });
+                    var root = document.RootElement;
+                    if (root.ValueKind == System.Text.Json.JsonValueKind.Object && root.TryGetProperty("schemaVersion", out var schema) && schema.ValueKind == System.Text.Json.JsonValueKind.Number && schema.TryGetInt32(out var version) && version == 1 &&
+                        root.TryGetProperty("error", out var error) && error.ValueKind == System.Text.Json.JsonValueKind.Object && error.TryGetProperty("code", out var reason) &&
+                        reason.ValueKind == System.Text.Json.JsonValueKind.String && reason.GetString() == "invalid_time")
+                        return new(SupplementaryRequestStatus.ClockSkew, [], code);
+                }
+                catch (System.Text.Json.JsonException) { }
+                return new(SupplementaryRequestStatus.Rejected, [], code);
             }
             return new(supportLimit ? SupplementaryRequestStatus.Unavailable : SupplementaryRequestStatus.Success, buffer.ToArray(), code);
         }

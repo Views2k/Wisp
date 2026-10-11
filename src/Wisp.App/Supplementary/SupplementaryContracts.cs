@@ -56,10 +56,10 @@ internal sealed record SupplementarySupportDiagnostics(string Platform, string C
 
 internal sealed record SupplementarySupportReport(int SchemaVersion, Guid EventId, Guid SessionId, Guid InstallationId,
     DateTimeOffset ObservedAt, string AppVersion, string BuildId, string Channel, string Category, string Title,
-    string Message, SupplementarySupportDiagnostics? Diagnostics = null);
+    string Message, SupplementarySupportDiagnostics? Diagnostics = null, int ReceiptVersion = 2);
 
-internal enum SupplementaryRequestStatus { Success, Unconfigured, Disabled, Invalid, Cancelled, TimedOut, Unavailable, Rejected, DailyLimit }
-internal sealed record SupplementarySupportResult(SupplementaryRequestStatus Status, string? Reference = null, DateTimeOffset? NextAllowedAt = null);
+internal enum SupplementaryRequestStatus { Success, Unconfigured, Disabled, Invalid, Cancelled, TimedOut, Unavailable, Rejected, DailyLimit, ClockSkew }
+internal sealed record SupplementarySupportResult(SupplementaryRequestStatus Status, string? Reference = null, DateTimeOffset? NextAllowedAt = null, int? RetryAfterSeconds = null);
 
 // Automatic events contain only compiled categories and bounded scalar measurements. No dictionary extension bag.
 internal static partial class SupplementarySchema
@@ -131,7 +131,7 @@ internal static partial class SupplementarySchema
 
     internal static bool Valid(SupplementarySupportReport? value, DateTimeOffset now) => value is not null &&
         Identity(value.SchemaVersion, value.EventId, value.SessionId, value.InstallationId, value.ObservedAt,
-            value.AppVersion, value.BuildId, value.Channel, now) && value.Category is "bug" or "suggestion" or "feedback" &&
+            value.AppVersion, value.BuildId, value.Channel, now, checkObservationTime: false) && value.ReceiptVersion == 2 && value.Category is "bug" or "suggestion" or "feedback" &&
         PlainText(value.Title, 100, multiline: false) && PlainText(value.Message, 4000, multiline: true) &&
         IsRedacted(value.Title) && IsRedacted(value.Message) &&
         (value.Diagnostics is not { } d || Platforms.Contains(d.Platform) &&
@@ -152,9 +152,9 @@ internal static partial class SupplementarySchema
     }
     private static bool IsRedacted(string value) => Redact(value) == value;
     private static bool Identity(int schema, Guid eventId, Guid sessionId, Guid installationId, DateTimeOffset observed,
-        string app, string build, string channel, DateTimeOffset now) => schema == 1 && Uuid4(eventId) && Uuid4(sessionId) &&
-        Uuid4(installationId) && observed.Offset == TimeSpan.Zero && observed >= now - TimeSpan.FromHours(24) &&
-        observed <= now + TimeSpan.FromMinutes(5) && NumericVersion(app, app: true) && BuildIdentity(build) && Channels.Contains(channel);
+        string app, string build, string channel, DateTimeOffset now, bool checkObservationTime = true) => schema == 1 && Uuid4(eventId) && Uuid4(sessionId) &&
+        Uuid4(installationId) && observed.Offset == TimeSpan.Zero && (!checkObservationTime || observed >= now - TimeSpan.FromHours(24) &&
+        observed <= now + TimeSpan.FromMinutes(5)) && NumericVersion(app, app: true) && BuildIdentity(build) && Channels.Contains(channel);
     internal static bool Uuid4(Guid value)
     {
         var bytes = value.ToByteArray();

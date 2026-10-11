@@ -485,6 +485,34 @@ public sealed class SupplementaryClientTests
         Assert.Empty((await transport.SendAsync("/api/v1/support", [1], 32, TestContext.Current.CancellationToken)).Body);
     }
 
+    [Theory]
+    [InlineData(-100)]
+    [InlineData(100)]
+    public void VersionTwoSupportQuotaUsesServerTimeInsteadOfWrongLocalClock(int skewDays)
+    {
+        var server = new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero);
+        var success = "{\"schemaVersion\":1,\"reference\":\"WSP-12345678901234567890123456789012\",\"nextAllowedAt\":\"2026-10-11T00:00:00.000Z\",\"quota\":{\"policy\":\"installation-utc-day\",\"limit\":1},\"serverTime\":\"2026-10-10T12:00:00.000Z\",\"retryAfterSeconds\":43200}";
+        var receipt = SupplementarySupportReceipts.Read(new(SupplementaryRequestStatus.Success, Encoding.UTF8.GetBytes(success), 201), server.AddDays(skewDays));
+        Assert.Equal(SupplementaryRequestStatus.Success, receipt.Status);
+        Assert.Equal(43200, receipt.RetryAfterSeconds);
+        var quota = "{\"schemaVersion\":1,\"error\":{\"code\":\"support_daily_limit\",\"message\":\"One message per day.\",\"nextAllowedAt\":\"2026-10-11T00:00:00.000Z\",\"retryAfterSeconds\":43200,\"serverTime\":\"2026-10-10T12:00:00.000Z\"}}";
+        Assert.Equal(SupplementaryRequestStatus.DailyLimit, SupplementarySupportReceipts.Read(new(SupplementaryRequestStatus.Unavailable, Encoding.UTF8.GetBytes(quota), 429), server.AddDays(skewDays)).Status);
+        Assert.Equal(SupplementaryRequestStatus.Unavailable, SupplementarySupportReceipts.Read(new(SupplementaryRequestStatus.Success, Encoding.UTF8.GetBytes(success.Replace("43200", "43201", StringComparison.Ordinal)), 201), server).Status);
+        var report = new SupplementarySupportReport(1, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), server.AddDays(skewDays), "2.6.6", "test", "stable", "feedback", "Example", "Useful observation.");
+        Assert.True(SupplementarySchema.Valid(report, server));
+        Assert.False(SupplementarySchema.Valid(report with { ReceiptVersion = 3 }, server));
+    }
+
+    [Fact]
+    public async Task ClockErrorsAreCategorizedWithoutReturningArbitraryServerMessages()
+    {
+        using var transport = new SupplementaryHttpTransport(new("https://console.example.invalid/"), TimeProvider.System,
+            new ResponseHandler(() => new(HttpStatusCode.BadRequest) { Content = new StringContent("{\"schemaVersion\":1,\"error\":{\"code\":\"invalid_time\",\"message\":\"untrusted diagnostic text\"}}", Encoding.UTF8, "application/json") }));
+        var response = await transport.SendAsync("/api/v1/events", [1], 2048, TestContext.Current.CancellationToken);
+        Assert.Equal(SupplementaryRequestStatus.ClockSkew, response.Status);
+        Assert.Empty(response.Body);
+    }
+
     [Fact]
     public async Task HttpTransportRejectsRedirectsOversizedAndUnexpectedResponses()
     {
