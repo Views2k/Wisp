@@ -2,17 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
-## 2.6.6 - 2026-10-10
+## 2.6.6 - 2026-10-11
 
-- Add Wisp Tools in Extras for Diagnostics, Suggestions and Feedback, with an exact message preview, cancellation and a confirmation reference. Accept one message per installation each UTC day and show the next allowed time.
-- Connect automatic, bounded app health and usage reporting to the Wisp Tools service. Use random installation and session identifiers; reporting has no in-app opt-out.
-- Record observed feature outcomes, connection states, Clips stages, timing summaries, process resource measurements and observed session durations without uploading gameplay packets or saved content.
-- Add bounded Windows, GPU model/driver, display, Wisp settings and power context to diagnostic reports. Check whether six supported companion applications are present; presence alone does not establish a conflict. Keep unavailable measurements explicit.
-- Include sanitized failure codes, compiled Wisp method fingerprints and up to three preceding performance samples from 30 seconds. Resolve methods only against a matching build catalog. Distinguish settings-load failures, audio, encoding, native access-denied and unsupported-build observations. Keep raw messages, paths and logs local.
-- Retain detailed event and support content for 30 days; retain download history separately. Report measured work and callbacks without describing them as displayed frames or end-to-end latency.
-- Update A note from Views through verified notices independently of a custom text-only dashboard banner. Restore the automatic update notice when the custom banner expires or is withdrawn, while keeping update controls in Extras.
-- Keep reporting and support available when the notice cache is damaged, and support redirected Windows profile folders. Preserve signed-content replay protection.
-- Calibrate automatic observation times against the service without replacing the original timestamp. Keep quota cooldowns accurate when the PC clock is wrong.
+- Add News and feedback in Extras for Diagnostics, Suggestions and Feedback, with a message preview and confirmation reference. Accept one message per day and show when another can be sent.
+- Use a live API for automatic diagnostics, combining app health, performance measurements, configuration details and recent failure context to help investigate issues.
+- Include session time, estimated distance, average speed and peak observed speed in activity summaries.
+- Refresh A note from Views, news, known issues and troubleshooting automatically. Show temporary dashboard announcements and restore the automatic update notice when they end.
+- Improve spacing in the unexpected-shutdown notice.
 
 ## 2.6.5 - 2026-10-07
 

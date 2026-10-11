@@ -15,7 +15,7 @@
 
 ## Wisp 2.6.6
 
-The 2.6.6 source adds Wisp Tools feedback in Extras, verified developer notices and automatic health reporting. Download links always open the latest published release. Reporting uses random installation and session identifiers. See [privacy and compatibility](#privacy-and-compatibility).
+The 2.6.6 source adds News and feedback in Extras, developer notices and improved diagnostic collection. Download links open the latest published release. See [privacy and compatibility](#privacy-and-compatibility).
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.6 release notes](docs/releases/Wisp-2.6.6-release-notes.md)
 
@@ -461,22 +461,15 @@ builds, validation boundary, and update behavior.
 
 ## Privacy and compatibility
 
-- Telemetry is accepted only from `127.0.0.1`.
+- Forza sends telemetry to Wisp over the local loopback connection.
 - Settings and tire profiles remain in the current user's local application data.
-- Wisp 2.6.6 automatically reports bounded app health and usage measurements, including
-  timing distributions, categorized failures and Wisp process resource usage. A random
-  installation identifier links sessions. Client and support
-  details expire after 30 days; download history is retained separately. Driving packets,
-  runs, tunes, clips, personal paths and raw diagnostic logs are not uploaded automatically.
-  Failure reports use fixed error codes, selected Wisp method names, and at most three preceding
-  performance samples from 30 seconds. They exclude exception messages, file paths, and raw stacks.
-  Activity summaries include observed moving and stationary time, estimated distance and speed,
-  and unmeasured intervals. They require fresh telemetry and supported gameplay visibility;
-  unsupported contexts stay unknown. No coordinates, car identifiers or individual driving samples are uploaded.
+- Wisp 2.6.6 sends automatic diagnostics with app health, performance measurements,
+  Windows, graphics-driver, display and Wisp configuration details. Recent performance
+  context helps investigate failures. Activity summaries include session time,
+  estimated distance and speed. Random installation and session identifiers link reports.
+  Client and support details expire after 30 days; download history is kept separately.
   See the [privacy details](https://wispoverlay.com/legal/#privacy).
-- The installer is not code-signed.
-- A changed FH6 build identity requires a reviewed compatibility map and may
-  require an application update.
+- Wisp checks for Forza compatibility updates automatically.
 - Relearn the current tires after changing wheel or tire diameter.
 
 ## Build from source

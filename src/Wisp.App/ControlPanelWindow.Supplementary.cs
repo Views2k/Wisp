@@ -51,10 +51,6 @@ public abstract partial class ControlPanelWindow
             _supplementarySendCancellation?.Cancel();
         };
         panel.Children.Add(CreateSupplementarySupportForm());
-        var privacy = new Expander { Header = "About automatic reporting", Margin = new Thickness(0, 14, 0, 0) };
-        privacy.SetResourceReference(StyleProperty, "MoreOptionsStyle");
-        privacy.Content = SupplementaryText("Wisp automatically reports bounded usage counts, reliability outcomes and performance measurements using random installation and session identifiers. Reporting has no opt-out setting. It does not automatically upload your typed report, raw logs, paths, screenshots, saved runs or tune files. Private event and support detail is retained for 30 days. A signed service notice can temporarily pause reporting. Feedback below is sent only after you review and confirm it.");
-        panel.Children.Add(privacy);
     }
 
     private void UpdateSupplementaryNoticeActivity()
@@ -149,22 +145,24 @@ public abstract partial class ControlPanelWindow
         var message = new TextBox { MaxLength = 4000, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 120, MaxHeight = 280, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         SupplementaryLabel(editor, "What happened, or what would help? (up to 4,000 characters)", message);
         var diagnostics = new CheckBox { Content = "Include game platform, version and connection state", IsChecked = true, Margin = new Thickness(0, 12, 0, 8) };
+        diagnostics.SetResourceReference(StyleProperty, "ToggleSwitchStyle");
         diagnostics.SetResourceReference(Control.ForegroundProperty, "TextBrush");
         editor.Children.Add(diagnostics);
-        editor.Children.Add(SupplementaryText("No files are attached. Remove names, contact details, account information, tokens and anything else private before review.", muted: true));
+        editor.Children.Add(SupplementaryText("Review your message for personal or account details before sending.", muted: true));
         content.Children.Add(editor);
-        var quotaStatus = SupplementaryText("One accepted message per installation per day, resetting at 00:00 UTC.", muted: true);
+        var quotaStatus = SupplementaryText("One accepted message per day.", muted: true);
         AutomationProperties.SetLiveSetting(quotaStatus, AutomationLiveSetting.Polite);
         content.Children.Add(quotaStatus);
         var reviewButton = SupplementaryButton("Review before sending", primary: true);
         content.Children.Add(reviewButton);
         var reviewPanel = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 12, 0, 0) };
         reviewPanel.Children.Add(SupplementaryText("Review the exact report", bold: true));
-        reviewPanel.Children.Add(SupplementaryText("Known sensitive patterns are redacted locally. Review all text yourself: automatic redaction cannot detect every private detail. Random identifiers and the exact app build are included for grouping. The content below is exactly what will be sent."));
+        reviewPanel.Children.Add(SupplementaryText("Review your message and the included details below, then confirm to send."));
         var preview = new TextBox { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MinHeight = 160, MaxHeight = 360, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         AutomationProperties.SetName(preview, "Exact redacted report preview");
         reviewPanel.Children.Add(preview);
         var confirmation = new CheckBox { Content = "I reviewed this report and want to send it", Margin = new Thickness(0, 12, 0, 8) };
+        confirmation.SetResourceReference(StyleProperty, "ToggleSwitchStyle");
         confirmation.SetResourceReference(Control.ForegroundProperty, "TextBrush");
         reviewPanel.Children.Add(confirmation);
         var buttons = new WrapPanel();
@@ -203,7 +201,7 @@ public abstract partial class ControlPanelWindow
             reviewButton.IsEnabled = !limited;
             quotaStatus.Text = limited
                 ? $"Next message in {Math.Ceiling(remaining.TotalMinutes):N0} minutes. The daily limit resets at 00:00 UTC."
-                : "One accepted message per installation per day, resetting at 00:00 UTC.";
+                : "One accepted message per day.";
             if (limited && !_supplementaryUiClosed)
             {
                 quotaTimer.Interval = remaining;
@@ -227,7 +225,7 @@ public abstract partial class ControlPanelWindow
             reviewButton.Visibility = Visibility.Collapsed;
             reviewPanel.Visibility = Visibility.Visible;
             confirmation.IsChecked = false;
-            _supplementarySupportStatus.Text = "Nothing has been sent.";
+            _supplementarySupportStatus.Text = "Ready for your confirmation.";
             preview.Focus();
         };
         confirmation.Checked += (_, _) => UpdateQuota();
