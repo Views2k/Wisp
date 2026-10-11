@@ -193,7 +193,9 @@
                                             <Button Content="Copy details" Click="CopyCrashDetails_Click" Padding="12,5" Margin="0,0,8,4" AutomationProperties.Name="Copy Wisp error report details"/>
                                             <Button Content="Dismiss" Click="DismissCrashReport_Click" Padding="12,5" Margin="0,0,0,4" AutomationProperties.Name="Dismiss Wisp error report"/>
                                         </WrapPanel>
-                                        <TextBlock Text="{Binding CrashReportCopyStatus}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
+                                        <TextBlock Text="{Binding CrashReportCopyStatus}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedBrush}" AutomationProperties.LiveSetting="Polite">
+                                            <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Style.Triggers><DataTrigger Binding="{Binding CrashReportCopyStatus}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                        </TextBlock>
                                     </StackPanel>
                                 </Border>
                                 <Border x:Name="DashboardClipPanel" Grid.Row="0" MaxWidth="400" HorizontalAlignment="Right"

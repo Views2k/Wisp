@@ -45,7 +45,7 @@ Browse saved clips by thumbnail and see which are new, viewed or exported. Saved
 
 Search clips by name, date, resolution, frame rate, HDR or lossless. To rename or delete a clip, right-click it, select it and press F2 or Delete, or use the player's buttons. Each name can be used once, and deleting asks first.
 
-![Clips in Wisp 2.6](https://wispoverlay.com/images/wisp-2.6-clips.webp)
+![Clips in Wisp 2.6](docs/images/wisp-2.6.5-clips.webp)
 
 ### Tune
 
@@ -55,7 +55,7 @@ Browse tires, gearing, alignment, antiroll bars, springs, damping, aero, brakes 
 
 Current-car reading requires **imperial game units**. Saved setups are local snapshots for viewing and comparison, and can be opened with the game closed. Wisp checks for updated Forza support automatically.
 
-![Tune in Wisp 2.6](https://wispoverlay.com/images/wisp-2.6-tune.webp)
+![Tune in Wisp 2.6](docs/images/wisp-2.6.5-tune.webp)
 
 ### Lap review
 
