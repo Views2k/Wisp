@@ -11,6 +11,8 @@ Notable changes to Wisp are recorded here.
 - Include sanitized failure codes, compiled Wisp method fingerprints and up to three preceding performance samples from 30 seconds. Resolve methods only against a matching build catalog. Distinguish settings-load failures, audio, encoding, native access-denied and unsupported-build observations. Keep raw messages, paths and logs local.
 - Retain detailed event and support content for 30 days; retain download history separately. Report measured work and callbacks without describing them as displayed frames or end-to-end latency.
 - Update A note from Views through verified notices independently of a custom text-only dashboard banner. Restore the automatic update notice when the custom banner expires or is withdrawn, while keeping update controls in Extras.
+- Keep reporting and support available when the notice cache is damaged, and support redirected Windows profile folders. Preserve signed-content replay protection.
+- Calibrate automatic observation times against the service without replacing the original timestamp. Keep quota cooldowns accurate when the PC clock is wrong.
 
 ## 2.6.5 - 2026-10-07
 

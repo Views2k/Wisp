@@ -1,6 +1,6 @@
 # Wisp 2.6.6
 
-[Download Wisp 2.6.6 for Windows](https://github.com/Views2k/Wisp/releases/download/v2.6.6/Wisp-Setup-2.6.6.exe)
+[Download the latest published Wisp release for Windows](https://github.com/Views2k/Wisp/releases/latest)
 
 ## Wisp Tools
 
@@ -9,14 +9,16 @@
 
 ## Automatic diagnostics
 
-- Wisp now sends bounded app health and usage measurements to the Wisp Tools service automatically. These include observed feature outcomes, connection states, Clips stages, timing summaries, process CPU and memory measurements, and observed session durations.
+- Wisp now uses a live API for automatic diagnostic collection: app health, feature outcomes, connection states, Clips stages, timing summaries, process CPU and memory use, and session durations.
 - Random installation and session identifiers link these observations. **There is no in-app opt-out.** Detailed event and support content is retained for **30 days**; download history is retained separately.
-- Reports include bounded Windows version, processor count, memory capacity, GPU model/driver, connected display settings, Wisp settings and power context. Wisp also checks whether Discord, RivaTuner Statistics Server, Xbox Game Bar, OBS, SimHub or Overwolf are present. This does not establish whether an overlay is enabled or causing a problem. Missing measurements stay unknown.
+- Reports include Windows version, processor count, memory capacity, GPU model and driver, display settings, Wisp settings and power context. They also record the presence of Discord, RivaTuner Statistics Server, Xbox Game Bar, OBS, SimHub or Overwolf to help compare affected setups.
 - Failure evidence uses fixed error codes, compiled Wisp method fingerprints and up to three preceding performance samples from 30 seconds. A matching build catalog resolves those fingerprints. Settings-load failures, audio failures, encoding failures, native access denial and unsupported game builds remain distinct observations.
-- Activity summaries include observed moving and stationary time, estimated distance, average speed and peak observed speed. Fresh supported gameplay evidence is required; pauses, gaps and unsupported contexts remain separate. Coordinates, car identifiers and individual driving samples are not uploaded.
+- Activity summaries include moving and stationary time, estimated distance, average speed and peak observed speed, using fresh supported gameplay measurements.
 - Gameplay packets, saved runs, tunes, clips, personal paths, hardware serial numbers, full process lists, raw exception messages and raw diagnostic logs are not uploaded automatically. A message you write in Extras is sent only after review and confirmation.
 
-These measurements help compare failures and performance; they do not establish an exact root cause. Work timings and callbacks are not displayed-frame or end-to-end latency measurements. [Privacy details](https://wispoverlay.com/legal/#privacy).
+- Reporting tolerates incorrect PC clocks using a server-time check, while keeping the original observation time. A damaged notice cache no longer disables diagnostics or support.
+
+[Privacy details](https://wispoverlay.com/legal/#privacy).
 
 ## Developer notices
 

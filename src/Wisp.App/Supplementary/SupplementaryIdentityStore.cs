@@ -8,14 +8,14 @@ internal sealed record SupplementaryInstallationIdentity(Guid Id, bool NewlyCrea
 // Independent of settings/profile exports and never derived from a device, account, address or game identity.
 internal static class SupplementaryIdentityStore
 {
-    internal static SupplementaryInstallationIdentity? LoadOrCreate(string directory)
+    internal static SupplementaryInstallationIdentity? LoadOrCreate(string directory, string? ownedRoot = null)
     {
         try
         {
             directory = Path.GetFullPath(directory);
+            SupplementaryPaths.CheckDirectory(directory, ownedRoot);
             Directory.CreateDirectory(directory);
-            for (var d = new DirectoryInfo(directory); d is not null; d = d.Parent)
-                if ((d.Attributes & FileAttributes.ReparsePoint) != 0) return null;
+            SupplementaryPaths.CheckDirectory(directory, ownedRoot);
             var path = Path.Combine(directory, "reporting-identity.txt");
             if (File.Exists(path)) return Read(path);
             var id = Guid.NewGuid();

@@ -13,6 +13,7 @@ internal sealed class SupplementaryClient : IDisposable
     private readonly Queue<PendingEvent> _queue = new(QueueCapacity);
     private readonly SupplementaryContentStore _content;
     private readonly TimeProvider _clock;
+    private readonly SupplementaryClock _serverClock;
     private readonly ISupplementaryTransport? _transport;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _cancellation;
@@ -29,7 +30,7 @@ internal sealed class SupplementaryClient : IDisposable
     private bool _started, _stopped;
     private int _disposed;
     private int _supportPending;
-    private sealed record PendingEvent(SupplementaryEvent Event, long QueuedAt);
+    private sealed record PendingEvent(SupplementaryEvent Event, long QueuedAt, long OriginalAgeMs);
 
     internal SupplementaryClient(SupplementaryConfiguration configuration, SupplementaryContentStore content,
         TimeProvider? clock = null, ISupplementaryTransport? transport = null, Func<double>? jitter = null,
@@ -38,6 +39,7 @@ internal sealed class SupplementaryClient : IDisposable
         _content = content;
         _cancellation = _lifetime.Token;
         _clock = clock ?? TimeProvider.System;
+        _serverClock = new(_clock);
         _jitter = jitter ?? Random.Shared.NextDouble;
         _delay = delay ?? ((duration, cancellation) => Task.Delay(duration, _clock, cancellation));
         _collect = collect;
@@ -46,7 +48,8 @@ internal sealed class SupplementaryClient : IDisposable
             _transport = transport ?? new SupplementaryHttpTransport(configuration.Origin, _clock);
     }
     internal bool IsConfigured => _transport is not null;
-    internal bool IsReportingEnabled => IsConfigured && _content.IsHealthy && !Content.ReportingDisabled && !_lifetime.IsCancellationRequested;
+    // Content cache availability has no authority over reporting or support. Invalid content stays unused.
+    internal bool IsReportingEnabled => IsConfigured && !Content.ReportingDisabled && !_lifetime.IsCancellationRequested;
     internal SupplementaryContentSnapshot Content => _content.Current(_clock.GetUtcNow());
     internal Task Completion { get { lock (_gate) return _completion; } }
     internal long DroppedEvents => Interlocked.Read(ref _dropped);
@@ -64,7 +67,8 @@ internal sealed class SupplementaryClient : IDisposable
 
     internal bool TryEnqueue(SupplementaryEvent value)
     {
-        if (!IsReportingEnabled || !SupplementarySchema.Valid(value, _clock.GetUtcNow())) return false;
+        var now = _clock.GetUtcNow();
+        if (!IsReportingEnabled || value.Clock is not null || !SupplementarySchema.Valid(value, now)) return false;
         lock (_gate)
         {
             if (_stopped) { Interlocked.Increment(ref _dropped); return false; }
@@ -74,7 +78,8 @@ internal sealed class SupplementaryClient : IDisposable
                 _queue.Count >= QueueCapacity && !EvictPeriodic())
             { Interlocked.Increment(ref _dropped); return false; }
             _runIdentity ??= value;
-            _queue.Enqueue(new(value, _clock.GetTimestamp()));
+            var age = (now - value.ObservedAt).TotalMilliseconds;
+            _queue.Enqueue(new(value, _clock.GetTimestamp(), age is >= 0 and <= 86_400_000 ? (long)age : -1));
             return true;
         }
     }
@@ -142,19 +147,19 @@ internal sealed class SupplementaryClient : IDisposable
             while (!_lifetime.IsCancellationRequested)
             {
                 var now = _clock.GetTimestamp();
-                if (nextContent == long.MinValue || _clock.GetElapsedTime(nextContent, now) >= TimeSpan.FromHours(1))
+                if (nextContent == long.MinValue || !_serverClock.IsFresh || _clock.GetElapsedTime(nextContent, now) >= TimeSpan.FromHours(1))
                 {
                     await RefreshContentAsync(_cancellation).ConfigureAwait(false);
-                    nextContent = _clock.GetTimestamp();
+                    if (_serverClock.IsFresh) nextContent = _clock.GetTimestamp();
                 }
                 _collect?.Invoke(this);
-                if (IsReportingEnabled)
+                if (IsReportingEnabled && _serverClock.IsFresh)
                 {
                     // Drain at most the bounded queue per cycle. An outage stops this cycle after one failed batch.
                     for (var batch = 0; batch < QueueCapacity / SupplementarySchema.MaximumBatchEvents && PendingEvents > 0; batch++)
                         if (!await FlushBatchAsync(_cancellation).ConfigureAwait(false)) break;
                 }
-                else ClearPending();
+                else if (!IsReportingEnabled) ClearPending();
                 await _delay(TimeSpan.FromSeconds(60 + 30 * Math.Clamp(_jitter(), 0, 1)), _cancellation).ConfigureAwait(false);
             }
         }
@@ -168,8 +173,9 @@ internal sealed class SupplementaryClient : IDisposable
 
     internal async Task RefreshContentAsync(CancellationToken cancellation)
     {
-        if (!IsConfigured || !_content.IsHealthy) return;
+        if (!IsConfigured) return;
         var result = await SendAsync("/api/v1/content", null, SupplementaryContentVerifier.MaximumEnvelopeBytes, cancellation).ConfigureAwait(false);
+        _serverClock.Observe(result);
         if (result.Status == SupplementaryRequestStatus.Success && result.Body.Length > 0)
         {
             _content.Accept(result.Body, _clock.GetUtcNow());
@@ -197,15 +203,17 @@ internal sealed class SupplementaryClient : IDisposable
             while (_queue.Count > 0 && values.Count < SupplementarySchema.MaximumBatchEvents)
             {
                 var item = _queue.Peek();
-                if (_clock.GetElapsedTime(item.QueuedAt, now) > MaximumEventAge || !SupplementarySchema.Valid(item.Event, _clock.GetUtcNow()))
+                var value = item.Event with { Clock = _serverClock.Capture(item.QueuedAt, item.OriginalAgeMs) };
+                if (_clock.GetElapsedTime(item.QueuedAt, now) > MaximumEventAge || !SupplementarySchema.Valid(value, _clock.GetUtcNow()))
                 { _queue.Dequeue(); Interlocked.Increment(ref _dropped); }
                 else
                 {
                     if (values.Count > 0 && !SameRun(values[0], item.Event)) break;
-                    var size = JsonSerializer.SerializeToUtf8Bytes(item.Event, SupplementarySchema.Json).Length + 1;
+                    var size = JsonSerializer.SerializeToUtf8Bytes(value, SupplementarySchema.Json).Length + 1;
                     if (encodedBytes + size > SupplementarySchema.MaximumBatchBytes) break;
                     encodedBytes += size;
-                    values.Add(_queue.Dequeue().Event);
+                    _queue.Dequeue();
+                    values.Add(value);
                 }
             }
         }

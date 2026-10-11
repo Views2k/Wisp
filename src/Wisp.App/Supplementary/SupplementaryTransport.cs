@@ -10,7 +10,8 @@ internal sealed record SupplementaryConfiguration(Uri? Origin)
     // Deployment must deliberately pin a real origin and independently provisioned public key. No test trust ships.
     internal static SupplementaryConfiguration Unconfigured { get; } = new((Uri?)null);
 }
-internal sealed record SupplementaryResponse(SupplementaryRequestStatus Status, byte[] Body, int HttpStatus = 0);
+internal sealed record SupplementaryResponse(SupplementaryRequestStatus Status, byte[] Body, int HttpStatus = 0,
+    DateTimeOffset? ServerTime = null, int? UncertaintyMs = null);
 internal interface ISupplementaryTransport : IDisposable
 {
     Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximumResponseBytes, CancellationToken cancellation);
@@ -54,6 +55,7 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, timeout.Token);
         try
         {
+            var started = _clock.GetTimestamp();
             using var request = new HttpRequestMessage(body is null ? HttpMethod.Get : HttpMethod.Post, new Uri(_origin, route));
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             if (body is not null)
@@ -63,7 +65,23 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
             }
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token).ConfigureAwait(false);
             var code = (int)response.StatusCode;
-            if (code == 204 && body is null) return new(SupplementaryRequestStatus.Success, [], code);
+            SupplementaryResponse Success(byte[] bytes)
+            {
+                DateTimeOffset? serverTime = null;
+                int? uncertainty = null;
+                var elapsed = _clock.GetElapsedTime(started, _clock.GetTimestamp()).TotalMilliseconds;
+                if (body is null && response.Headers.CacheControl?.NoStore == true && elapsed is >= 0 and <= 15000 &&
+                    response.Headers.TryGetValues("X-Wisp-Server-Time", out var times))
+                {
+                    var values = times.Take(2).ToArray();
+                    if (values.Length == 1 && DateTimeOffset.TryParseExact(values[0], "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                        System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal |
+                        System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsed))
+                    { serverTime = parsed; uncertainty = (int)Math.Ceiling(elapsed); }
+                }
+                return new(SupplementaryRequestStatus.Success, bytes, code, serverTime, uncertainty);
+            }
+            if (code == 204 && body is null) return Success([]);
             var supportLimit = route == "/api/v1/support" && code == 429;
             var validationError = code == 400 && body is not null;
             if (!response.IsSuccessStatusCode && !supportLimit && !validationError)
@@ -95,7 +113,7 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
                 catch (System.Text.Json.JsonException) { }
                 return new(SupplementaryRequestStatus.Rejected, [], code);
             }
-            return new(supportLimit ? SupplementaryRequestStatus.Unavailable : SupplementaryRequestStatus.Success, buffer.ToArray(), code);
+            return supportLimit ? new(SupplementaryRequestStatus.Unavailable, buffer.ToArray(), code) : Success(buffer.ToArray());
         }
         catch (OperationCanceledException)
         { return new(cancellation.IsCancellationRequested ? SupplementaryRequestStatus.Cancelled : SupplementaryRequestStatus.TimedOut, []); }

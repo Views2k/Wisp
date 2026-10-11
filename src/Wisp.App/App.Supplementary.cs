@@ -95,10 +95,11 @@ public partial class App
         {
             try
             {
-                var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp", "Supplementary");
-                var identity = SupplementaryIdentityStore.LoadOrCreate(directory);
+                var ownedRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp");
+                var directory = Path.Combine(ownedRoot, "Supplementary");
+                var identity = SupplementaryIdentityStore.LoadOrCreate(directory, ownedRoot);
                 if (identity is null) { SupplementarySessionRecorder.Current.Enabled = false; SupplementaryActivityRecorder.Current.Enabled = false; return; }
-                var content = new SupplementaryContentStore(new(SupplementaryRuntime.PublicKeys), Path.Combine(directory, "Content"));
+                var content = new SupplementaryContentStore(new(SupplementaryRuntime.PublicKeys), Path.Combine(directory, "Content"), ownedRoot);
                 var client = new SupplementaryClient(SupplementaryRuntime.Configuration, content, collect: CollectSupplementaryObservations,
                     contentChanged: NotifySupplementaryContentChanged);
                 lock (_supplementaryGate)

@@ -12,6 +12,50 @@ namespace Wisp.App.Tests;
 public sealed class SupplementaryClientTests
 {
     [Fact]
+    public async Task IngestionBusyRetriesTheExactBatchWithBoundedDelay()
+    {
+        using var f = new SupplementaryFixture();
+        var attempts = 0;
+        var bodies = new List<byte[]>();
+        var delays = new List<TimeSpan>();
+        using var transport = new SupplementaryHttpTransport(new("https://console.example.invalid/"), TimeProvider.System,
+            new ResponseHandler(() => ++attempts < 3
+                ? new(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{\"schemaVersion\":1,\"error\":{\"code\":\"ingestion_busy\"}}", Encoding.UTF8, "application/json") }
+                : JsonResponse("{\"schemaVersion\":1,\"accepted\":1,\"duplicate\":0}"),
+                request => bodies.Add(request.Content!.ReadAsByteArrayAsync().GetAwaiter().GetResult())));
+        using var client = new SupplementaryClient(new(new Uri("https://console.example.invalid/")), new(f.Verifier, f.Directory),
+            new FixedClock(f.Now), transport, () => 0, (delay, _) => { delays.Add(delay); return Task.CompletedTask; });
+        Assert.True(client.TryEnqueue(f.Event()));
+        Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(3, attempts);
+        Assert.All(bodies, body => Assert.Equal(bodies[0], body));
+        Assert.Equal(new[] { TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30) }, delays);
+        Assert.Equal(0, client.DroppedEvents);
+    }
+
+    [Theory]
+    [InlineData("identity_conflict")]
+    [InlineData("sequence_conflict")]
+    [InlineData("revision_conflict")]
+    public async Task ConflictResponsesRemainTerminal(string code)
+    {
+        using var f = new SupplementaryFixture();
+        var attempts = 0;
+        using var transport = new SupplementaryHttpTransport(new("https://console.example.invalid/"), TimeProvider.System,
+            new ResponseHandler(() =>
+            {
+                attempts++; return new(HttpStatusCode.Conflict)
+                { Content = new StringContent($"{{\"schemaVersion\":1,\"error\":{{\"code\":\"{code}\"}}}}", Encoding.UTF8, "application/json") };
+            }));
+        using var client = new SupplementaryClient(new(new Uri("https://console.example.invalid/")), new(f.Verifier, f.Directory),
+            new FixedClock(f.Now), transport, delay: (_, _) => throw new InvalidOperationException("Terminal conflicts must not retry."));
+        Assert.True(client.TryEnqueue(f.Event()));
+        Assert.False(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, attempts);
+        Assert.Equal(1, client.DroppedEvents);
+    }
+
+    [Fact]
     public async Task CumulativeSessionSummarySurvivesQueueLossAndRetriesAnImmutableSnapshot()
     {
         using var f = new SupplementaryFixture();

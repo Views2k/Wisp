@@ -11,7 +11,14 @@ internal sealed record SupplementaryEvent(int SchemaVersion, Guid EventId, Guid 
     string? Stage = null, SupplementaryMeasurements? Measurements = null, string? RenderMode = null,
     SupplementaryRelatedRun? RelatedRun = null, SupplementarySessionSummary? SessionSummary = null,
     long? SessionAgeMs = null, SupplementaryIncident? Incident = null, SupplementaryActivitySummary? ActivitySummary = null,
-    SupplementaryEnvironment? Environment = null, string? ForegroundState = null);
+    SupplementaryEnvironment? Environment = null, string? ForegroundState = null, SupplementaryObservationClock? Clock = null);
+
+internal sealed record SupplementaryObservationClock(int SchemaVersion, DateTimeOffset ServerAnchorAt, long AnchorAgeMs,
+    long ObservationAgeMs, int UncertaintyMs)
+{
+    internal bool IsValid => SchemaVersion == 1 && ServerAnchorAt.Offset == TimeSpan.Zero &&
+        AnchorAgeMs is >= 0 and <= 3_600_000 && ObservationAgeMs is >= 0 and <= 86_400_000 && UncertaintyMs is >= 0 and <= 15_000;
+}
 
 internal sealed record SupplementaryActivitySummary(long ObservedMovingMs, long ObservedStationaryMs, long ActivityUnknownMs,
     long UnobservedMs, long SessionAgeMs, long DistanceMillimeters, long PeakSpeedMillimetersPerSecond,
@@ -110,7 +117,8 @@ internal static partial class SupplementarySchema
 
     internal static bool Valid(SupplementaryEvent? value, DateTimeOffset now) => value is not null &&
         Identity(value.SchemaVersion, value.EventId, value.SessionId, value.InstallationId, value.ObservedAt,
-            value.AppVersion, value.BuildId, value.Channel, now) && Kinds.Contains(value.Kind) && Features.Contains(value.Feature) &&
+            value.AppVersion, value.BuildId, value.Channel, now, checkObservationTime: value.Clock is null) &&
+        (value.Clock is null || value.Clock.IsValid) && Kinds.Contains(value.Kind) && Features.Contains(value.Feature) &&
         Outcomes.Contains(value.Outcome) && Platforms.Contains(value.Platform) &&
         Number(value.DurationMs, 604_800_000) && Number(value.Value, 1_000_000_000_000) &&
         (value.GameBuild is null || NumericVersion(value.GameBuild, app: false)) &&

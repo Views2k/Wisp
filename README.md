@@ -5,7 +5,7 @@
   Supports Steam and Xbox app / Microsoft Store editions on Windows PC.<br>
   <br><strong>Versions before 2.4 can show delayed or choppy tachometer motion on NVIDIA systems when G-SYNC/VRR is enabled. I recommend updating to the latest release.</strong>
   
-  <a href="https://github.com/Views2k/Wisp/releases/download/v2.6.6/Wisp-Setup-2.6.6.exe"><strong>Download Wisp 2.6.6</strong></a> ·
+  <a href="https://github.com/Views2k/Wisp/releases/latest"><strong>Download the latest Wisp release</strong></a> ·
   <a href="https://wispoverlay.com/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="docs/HOW-WISP-WAS-BUILT.md">Architecture</a><br><br>
@@ -15,7 +15,7 @@
 
 ## Wisp 2.6.6
 
-2.6.6 adds Wisp Tools feedback in Extras, verified developer notices and automatic health reporting. Reporting uses random installation and session identifiers. See [privacy and compatibility](#privacy-and-compatibility).
+The 2.6.6 source adds Wisp Tools feedback in Extras, verified developer notices and automatic health reporting. Download links always open the latest published release. Reporting uses random installation and session identifiers. See [privacy and compatibility](#privacy-and-compatibility).
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.6 release notes](docs/releases/Wisp-2.6.6-release-notes.md)
 
@@ -250,7 +250,7 @@ An optional quick tour introduces Clips, Tune, live map, lap delta and lap
 review. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
-[Download Wisp 2.6.6](https://github.com/Views2k/Wisp/releases/download/v2.6.6/Wisp-Setup-2.6.6.exe) ·
+[Download the latest Wisp release](https://github.com/Views2k/Wisp/releases/latest) ·
 [2.6.6 release notes](docs/releases/Wisp-2.6.6-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
@@ -378,11 +378,11 @@ require administrator access or a separate .NET runtime.
 
 ## Install
 
-1. Download [Wisp-Setup-2.6.6.exe](https://github.com/Views2k/Wisp/releases/download/v2.6.6/Wisp-Setup-2.6.6.exe).
+1. Download the Windows installer from the [latest release](https://github.com/Views2k/Wisp/releases/latest).
 2. Run the installer.
 3. Complete the required setup wizard on first launch.
 
-The [release page](https://github.com/Views2k/Wisp/releases/tag/v2.6.6) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
+The [release page](https://github.com/Views2k/Wisp/releases/latest) also provides the installer checksum and a ZIP containing the same installer. To verify the download, compare its SHA-256 with the `.sha256` file:
 
 **[WINDOWS POWERSHELL]**
 

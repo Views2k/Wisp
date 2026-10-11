@@ -10,6 +10,7 @@ internal sealed class SupplementaryContentStore
 {
     private readonly SupplementaryContentVerifier _verifier;
     private readonly string? _directory;
+    private readonly string? _ownedRoot;
     private readonly object _gate = new();
     private SupplementaryVerifiedContent? _current;
     private bool _healthy = true;
@@ -19,10 +20,11 @@ internal sealed class SupplementaryContentStore
     internal bool IsConfigured => _verifier.IsConfigured && _directory is not null;
     internal long HighestRevision => Volatile.Read(ref _current)?.Snapshot.Revision ?? 0;
 
-    internal SupplementaryContentStore(SupplementaryContentVerifier verifier, string? directory)
+    internal SupplementaryContentStore(SupplementaryContentVerifier verifier, string? directory, string? ownedRoot = null)
     {
         _verifier = verifier;
         _directory = directory is null ? null : Path.GetFullPath(directory);
+        _ownedRoot = ownedRoot is null ? null : Path.GetFullPath(ownedRoot);
         if (_directory is null || !_verifier.IsConfigured) return;
         try { _current = ReadReceipt(); }
         catch (Exception error) when (IsExpected(error)) { _healthy = false; RecordFailure(error); }
@@ -46,6 +48,7 @@ internal sealed class SupplementaryContentStore
             var stage = "create-directory";
             try
             {
+                CheckDirectory();
                 Directory.CreateDirectory(_directory);
                 stage = "check-directory";
                 CheckDirectory();
@@ -109,9 +112,7 @@ internal sealed class SupplementaryContentStore
     }
     private void CheckDirectory()
     {
-        for (var directory = new DirectoryInfo(_directory!); directory is not null; directory = directory.Parent)
-            if (directory.Exists && (directory.Attributes & FileAttributes.ReparsePoint) != 0)
-                throw new IOException("Supplementary cache cannot follow a directory link.");
+        SupplementaryPaths.CheckDirectory(_directory!, _ownedRoot);
         var lease = Path.Combine(_directory!, "content.lock");
         if (File.Exists(lease)) CheckFile(lease);
     }
