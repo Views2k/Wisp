@@ -76,10 +76,11 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
         return json.loads(self.evaluate(
             "ConvertTo-Json -InputObject @(Get-InstallerLogStages $log) -Compress"))
 
-    def isolation(self, scenario):
+    def isolation(self, scenario, application_name="Wisp.exe"):
         output = self.evaluate(r"""
             $scenario = '__SCENARIO__'
-            $application = Join-Path $FixtureDirectory 'Wisp.exe'
+            $application = Join-Path $FixtureDirectory '__APPLICATION_NAME__'
+            $expectedApplication = [IO.Path]::GetFullPath($application)
             [IO.File]::WriteAllText($application, 'fixture; never executed')
             $script:rules = @{}
             $script:removed = @()
@@ -139,9 +140,9 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
             @{ launched = $script:launched; remaining = $script:rules.Count;
                removed = $script:removed.Count; failure = $failure;
                settings = $script:settings; pathMatches = $script:settings.ContainsKey('Program') -and
-                   $script:settings.Program -ceq $application
+                   [string]::Equals($script:settings.Program, $expectedApplication, [StringComparison]::OrdinalIgnoreCase)
             } | ConvertTo-Json -Depth 4 -Compress
-        """.replace("__SCENARIO__", scenario))
+        """.replace("__SCENARIO__", scenario).replace("__APPLICATION_NAME__", application_name))
         return json.loads(output.splitlines()[-1])
 
     def test_canary_launch_is_scoped_offline_and_rule_is_removed(self):
@@ -163,6 +164,12 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
                 self.assertFalse(result["launched"])
                 self.assertEqual(result["removed"], 0)
                 self.assertIn("active firewall", result["failure"])
+
+    def test_equivalent_executable_path_is_scoped_to_the_canonical_file(self):
+        result = self.isolation("success", r".\Wisp.exe")
+        self.assertTrue(result["launched"])
+        self.assertTrue(result["pathMatches"])
+        self.assertEqual((result["remaining"], result["removed"], result["failure"]), (0, 1, ""))
 
     def test_missing_or_misdirected_active_block_refuses_launch_and_cleans_up(self):
         for scenario in ("creation-failed", "inactive", "allow", "not-enforced",

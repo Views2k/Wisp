@@ -1128,6 +1128,11 @@ try {
         throw 'Python was not found. Pass -Python <path> to run the compatibility-audit release gate.'
     }
 
+    & $pythonExecutable -m unittest discover -s $pythonTests -p 'test_*.py' -v
+    if ($LASTEXITCODE -ne 0) {
+        throw "Compatibility-audit tests failed with exit code $LASTEXITCODE. The installer was not built."
+    }
+
     $projectText = [System.IO.File]::ReadAllText($project)
     $projectVersionMatch = [System.Text.RegularExpressions.Regex]::Match(
         $projectText,
@@ -1276,11 +1281,6 @@ try {
         -p:UseSharedCompilation=false
     if ($LASTEXITCODE -ne 0) {
         throw "UI review harness build failed with exit code $LASTEXITCODE. The installer was not built."
-    }
-
-    & $pythonExecutable -m unittest discover -s $pythonTests -p 'test_*.py' -v
-    if ($LASTEXITCODE -ne 0) {
-        throw "Compatibility-audit tests failed with exit code $LASTEXITCODE. The installer was not built."
     }
 
     & $dotnetExecutable restore $project --runtime win-x64 `
