@@ -148,11 +148,11 @@ A validation plan first chooses the scope of each workflow run.
 Changes to executable inputs run on `windows-latest`. The packaging script
 performs:
 
-1. an audited, locked NuGet restore;
-2. `dotnet format --verify-no-changes`;
-3. the complete Release .NET solution tests;
-4. a locked Release build of the UI review harness;
-5. the Python compatibility-audit tests.
+1. the Python compatibility-audit tests;
+2. an audited, locked NuGet restore;
+3. `dotnet format --verify-no-changes`;
+4. the complete Release .NET solution tests;
+5. a locked Release build of the UI review harness.
 
 Documentation-only changes run on `ubuntu-latest`. They check the changed
 documentation and reuse the full validation of the unchanged executable inputs.

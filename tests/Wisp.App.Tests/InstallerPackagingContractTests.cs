@@ -95,8 +95,8 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("--verify-no-changes", script, StringComparison.Ordinal);
         Assert.Contains("-s $pythonTests -p 'test_*.py' -v", script, StringComparison.Ordinal);
         Assert.Contains("$env:PYTHONDONTWRITEBYTECODE = '1'", script, StringComparison.Ordinal);
-        Assert.True(restore >= 0 && format > restore && tests > format && uiBuild > tests &&
-                    pythonTests > uiBuild && publish > pythonTests);
+        Assert.True(pythonTests >= 0 && restore > pythonTests && format > restore && tests > format &&
+                    uiBuild > tests && publish > uiBuild);
     }
 
     [Fact]
