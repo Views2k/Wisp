@@ -149,6 +149,7 @@ public sealed class AppSettings
     public string? CompletedFeatureTourId { get; set; }
     public DateTimeOffset? LastSupportReminderShownUtc { get; set; }
     public string? DismissedWhatsNewId { get; set; }
+    public string? DismissedDashboardBannerKey { get; set; }
     public bool ResizableDashboardDisplay { get; set; }
     public bool GameAwareVisibility { get; set; } = true;
     public bool OverlayHotkeyEnabled { get; set; }

@@ -10,6 +10,36 @@ namespace Wisp.App.Tests;
 
 public sealed class SupplementaryContentTests
 {
+    [Fact]
+    public void OptionalBannerDismissalPersistsWithoutDismissingNewOrRequiredMessages()
+    {
+        using var f = new SupplementaryFixture();
+        var payload = f.Payload();
+        payload["items"]![0]!["kind"] = "dashboard-banner";
+        payload["items"]![0]!["url"] = null;
+        payload["items"]![0]!["dismissible"] = true;
+        var banner = Assert.Single(f.Verifier.Verify(f.Envelope(payload), f.Now).Snapshot.Items);
+        Assert.False(DashboardBannerDismissal.IsDismissed(banner, null));
+        var path = Path.Combine(Path.GetTempPath(), $"wisp-banner-dismissal-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        try
+        {
+            var service = new SettingsService(Path.Combine(path, "settings.json"));
+            service.Save(new AppSettings { DismissedDashboardBannerKey = DashboardBannerDismissal.Key(banner), OverlayOpacity = 0.63 });
+            var restored = service.Load();
+            Assert.Equal(0.63, restored.OverlayOpacity);
+            Assert.True(DashboardBannerDismissal.IsDismissed(banner, restored.DismissedDashboardBannerKey));
+            Assert.False(DashboardBannerDismissal.IsDismissed(banner with { Dismissible = false }, restored.DismissedDashboardBannerKey));
+            Assert.False(DashboardBannerDismissal.IsDismissed(banner with { Message = "Updated announcement" }, restored.DismissedDashboardBannerKey));
+            Assert.False(DashboardBannerDismissal.IsDismissed(banner with { Id = "new-message" }, restored.DismissedDashboardBannerKey));
+            Assert.False(DashboardBannerDismissal.IsDismissed(banner with { ExpiresAt = banner.ExpiresAt.AddHours(1) }, restored.DismissedDashboardBannerKey));
+            payload["revision"] = 2;
+            var republished = Assert.Single(f.Verifier.Verify(f.Envelope(payload), f.Now).Snapshot.Items);
+            Assert.True(DashboardBannerDismissal.IsDismissed(republished, restored.DismissedDashboardBannerKey));
+        }
+        finally { Directory.Delete(path, recursive: true); }
+    }
+
     [Theory]
     [InlineData("support-note")]
     [InlineData("dashboard-banner")]

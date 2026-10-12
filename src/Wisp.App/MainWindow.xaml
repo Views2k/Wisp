@@ -267,6 +267,10 @@
                                                         Click="CheckApplicationUpdate_Click"
                                                         VerticalAlignment="Center"
                                                         AutomationProperties.Name="Review available Wisp update" />
+                                                    <Button x:Name="DashboardBannerClose" Grid.Column="2" Content="✕"
+                                                        Click="DashboardBannerClose_Click"
+                                                        Padding="12,8" VerticalAlignment="Center" Visibility="Collapsed"
+                                                        ToolTip="Dismiss message" AutomationProperties.Name="Dismiss message" />
                                                 </Grid>
                                             </local:OrbitSurface>
                                     <local:OrbitSurface x:Name="WhatsNewBanner" Style="{StaticResource CardStyle}" BorderBrush="{DynamicResource AccentBrush}"

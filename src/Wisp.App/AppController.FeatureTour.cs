@@ -19,4 +19,11 @@ public sealed partial class AppController
         Settings.DismissedWhatsNewId = id;
         return TrySavePendingSettings();
     }
+
+    internal bool TryDismissDashboardBanner(string key)
+    {
+        if (_disposed) return false;
+        Settings.DismissedDashboardBannerKey = key;
+        return TrySavePendingSettings();
+    }
 }

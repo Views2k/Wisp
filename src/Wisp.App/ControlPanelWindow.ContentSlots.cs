@@ -11,7 +11,7 @@ public abstract partial class ControlPanelWindow
     private DispatcherTimer? _contentSlotTimer;
     private Border? _contentBanner;
     private TextBlock? _contentBannerTitle, _contentBannerMessage, _contentBannerIcon;
-    private Button? _contentBannerAction;
+    private Button? _contentBannerAction, _contentBannerClose;
     private BindingBase? _automaticBannerMessage;
     private string? _automaticBannerTitle, _automaticBannerIcon;
     private SupplementaryContentItem? _appliedBanner;
@@ -24,6 +24,7 @@ public abstract partial class ControlPanelWindow
         _contentBannerMessage = FindControl<TextBlock>("DashboardUpdateMessage");
         _contentBannerIcon = FindControl<TextBlock>("DashboardUpdateIcon");
         _contentBannerAction = FindControl<Button>("DashboardUpdateAction");
+        _contentBannerClose = FindControl<Button>("DashboardBannerClose");
         _automaticBannerTitle = _contentBannerTitle.Text;
         _automaticBannerIcon = _contentBannerIcon.Text;
         _automaticBannerMessage = BindingOperations.GetBindingBase(_contentBannerMessage, TextBlock.TextProperty);
@@ -61,10 +62,14 @@ public abstract partial class ControlPanelWindow
         var now = DateTimeOffset.UtcNow;
         var slots = SupplementaryContentSlots.Select(content, audience, now);
         _supportReminder?.ApplyNote(slots.Note?.Title, slots.Note?.Message);
-        if (_appliedBanner != slots.Banner)
+        var selectedBanner = slots.Banner is { } candidate &&
+            !DashboardBannerDismissal.IsDismissed(candidate, _controller.Settings.DismissedDashboardBannerKey)
+                ? candidate : null;
+        if (_appliedBanner != selectedBanner)
         {
-            _appliedBanner = slots.Banner;
-            if (slots.Banner is { } banner)
+            _appliedBanner = selectedBanner;
+            _contentBannerClose!.Visibility = selectedBanner?.Dismissible == true ? Visibility.Visible : Visibility.Collapsed;
+            if (selectedBanner is { } banner)
             {
                 _contentBannerTitle!.Text = banner.Title;
                 _contentBannerMessage!.Text = banner.Message;
@@ -86,5 +91,12 @@ public abstract partial class ControlPanelWindow
             timer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, (next - now).TotalMilliseconds));
             timer.Start();
         }
+    }
+
+    protected void DashboardBannerClose_Click(object sender, RoutedEventArgs e)
+    {
+        if (_appliedBanner is not { Dismissible: true } banner) return;
+        _controller.TryDismissDashboardBanner(DashboardBannerDismissal.Key(banner));
+        RefreshSupplementaryContentSurfaces();
     }
 }

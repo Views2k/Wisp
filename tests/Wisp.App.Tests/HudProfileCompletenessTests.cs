@@ -16,7 +16,7 @@ public sealed class HudProfileCompletenessTests
         "BackgroundParticlesEnabled", "AnimatedBackground", "AutomaticApplicationUpdateChecks",
         "LastApplicationUpdateCheckUtc", "CpuRenderingEnabled", "DebugLoggingEnabled", "DebugLoggingExpiresAtUtc",
         "ApplicationStyle", "HudPresets", "SidebarCollapsed", "UseLegacyInterface", "CompletedFeatureTourId", "LastSupportReminderShownUtc",
-        "DismissedWhatsNewId", "ResizableDashboardDisplay", "RunWorkspace", "RunStatisticsView", "Clips",
+        "DismissedWhatsNewId", "DismissedDashboardBannerKey", "ResizableDashboardDisplay", "RunWorkspace", "RunStatisticsView", "Clips",
         "AutoMinimizeOnTelemetry", "HasCompletedSetup", "SetupCompletion", "Calibrations",
         "LapReviewBenchmarkRunId", "LapReviewBenchmarkLapNumber", "LapReviewBenchmarkTimingMode", "LapReviewBenchmarkSampleIndex",
         "LastOverlayPlacementKey", "LastGForcePlacementKey", "LastBoostGaugePlacementKey",
