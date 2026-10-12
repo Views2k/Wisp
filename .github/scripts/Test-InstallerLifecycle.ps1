@@ -317,10 +317,14 @@ function Invoke-IsolatedCanaryApplication {
         $rules = @(Get-NetFirewallRule -Name $ruleName -PolicyStore ActiveStore -ErrorAction Stop)
         if ($rules.Count -ne 1 -or [string]$rules[0].Enabled -ne 'True' -or
             [string]$rules[0].Direction -ne 'Outbound' -or [string]$rules[0].Action -ne 'Block' -or
-            [string]$rules[0].Profile -ne 'Any' -or
-            @($rules[0].EnforcementStatus).Count -ne 1 -or
-            [string]$rules[0].EnforcementStatus -ne 'Full') {
+            [string]$rules[0].Profile -ne 'Any') {
             throw 'The canary outbound block is not active.'
+        }
+        # ActiveStore reports each profile: 1 is enforced; 5 is an inactive profile.
+        $enforcement = @($rules[0].CimInstanceProperties['EnforcementStatus'].Value)
+        if ($enforcement -notcontains 1 -or
+            @($enforcement | Where-Object { $_ -notin @(1, 5) }).Count -ne 0) {
+            throw 'The canary outbound block is not enforced on active profiles.'
         }
         $filters = @($rules[0] | Get-NetFirewallApplicationFilter -ErrorAction Stop)
         if ($filters.Count -ne 1 -or

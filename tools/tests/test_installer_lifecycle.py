@@ -102,7 +102,7 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
                 $script:rules[$Name] = [pscustomobject]@{
                     Name = $Name; Enabled = $Enabled; Direction = $Direction;
                     Action = $Action; Profile = $Profile; Program = $Program;
-                    EnforcementStatus = @('Full')
+                    CimInstanceProperties = @{ EnforcementStatus = @{ Value = @(5, 1, 1, 1) } }
                 }
                 if ($scenario -eq 'creation-failed') { throw 'fixture creation failed' }
                 $script:rules[$Name]
@@ -112,7 +112,9 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
                     if ($PolicyStore -eq 'ActiveStore' -and $scenario -eq 'inactive') { return }
                     $rule = $script:rules[$Name]
                     if ($PolicyStore -eq 'ActiveStore' -and $scenario -eq 'allow') { $rule.Action = 'Allow' }
-                    if ($scenario -eq 'not-enforced') { $rule.EnforcementStatus = @('LocalFirewallRulesDisallowed') }
+                    if ($scenario -eq 'not-enforced') { $rule.CimInstanceProperties['EnforcementStatus'].Value = @(1, 16) }
+                    if ($scenario -eq 'all-inactive') { $rule.CimInstanceProperties['EnforcementStatus'].Value = @(5, 5) }
+                    if ($scenario -eq 'empty-status') { $rule.CimInstanceProperties['EnforcementStatus'].Value = @() }
                     $rule
                 }
             }
@@ -163,7 +165,8 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
                 self.assertIn("active firewall", result["failure"])
 
     def test_missing_or_misdirected_active_block_refuses_launch_and_cleans_up(self):
-        for scenario in ("creation-failed", "inactive", "allow", "not-enforced", "wrong-program"):
+        for scenario in ("creation-failed", "inactive", "allow", "not-enforced",
+                         "all-inactive", "empty-status", "wrong-program"):
             with self.subTest(scenario=scenario):
                 result = self.isolation(scenario)
                 self.assertFalse(result["launched"])
