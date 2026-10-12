@@ -95,7 +95,7 @@ public partial class ClipsPage : UserControl
             _player?.Pause(); _losslessPlayer?.SetPaused(true); _playback.SetPaused(true);
             UpdatePlaybackStatus(); UpdatePlaybackTimer();
         }
-        catch (InvalidOperationException) { FailPlayback(); }
+        catch (InvalidOperationException error) { FailPlayback(error: error); }
     }
     private void UpdateGalleryVisibility() => Model?.SetGalleryActive(IsLoaded && IsVisible &&
         _hostWindow?.WindowState != WindowState.Minimized && Model?.SelectedClip?.Entry.Media.RequiresMpvPlayer != true);
@@ -371,7 +371,7 @@ public partial class ClipsPage : UserControl
             {
                 var seconds = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan.TotalSeconds : 0;
                 if (!_playback.TryOpen(revision, player.HasVideo, player.NaturalVideoWidth, player.NaturalVideoHeight, seconds))
-                { FailPlayback("This clip has no playable video or duration. Choose another clip."); return; }
+                { FailPlayback("This clip has no playable video or duration. Choose another clip.", new InvalidDataException()); return; }
                 // Opening the decoder must not advance the clip before the user's Play action.
                 player.Pause(); player.Position = TimeSpan.Zero;
                 _playback.BufferingChanged(revision, player.IsBuffering);
@@ -383,7 +383,7 @@ public partial class ClipsPage : UserControl
                 SetTimelinePosition(0); UpdatePlaybackStatus(); UpdatePlayerSize(); UpdatePlaybackTimer();
                 if (_hostWindow?.IsActive != true) PausePreviewForSystemCapture();
             }
-            catch (InvalidOperationException) { FailPlayback(); }
+            catch (InvalidOperationException error) { FailPlayback(error: error); }
         };
         player.BufferingStarted += (_, _) =>
         {
@@ -400,7 +400,7 @@ public partial class ClipsPage : UserControl
             if (!_playback.Preparing) _preparationElapsed.Stop();
             UpdatePlaybackStatus(); UpdatePlaybackTimer();
         };
-        player.MediaFailed += (_, _) => { if (Current()) FailPlayback(); };
+        player.MediaFailed += (_, failure) => { if (Current()) FailPlayback(error: failure.ErrorException); };
         player.MediaEnded += (_, _) =>
         {
             if (!Current() || !_playback.Ready) return;
@@ -411,13 +411,13 @@ public partial class ClipsPage : UserControl
                 if (!_seeking) SetTimelinePosition(_playback.DurationSeconds);
                 UpdatePlaybackStatus();
             }
-            catch (InvalidOperationException) { FailPlayback(); }
+            catch (InvalidOperationException error) { FailPlayback(error: error); }
         };
         PlayerHost.Content = player;
         _preparationElapsed.Restart(); UpdatePlaybackStatus(); UpdatePlaybackTimer();
         try { player.Source = new Uri(path, UriKind.Absolute); player.Pause(); }
         catch (Exception error) when (error is InvalidOperationException or ArgumentException or IOException)
-        { FailPlayback(); return; }
+        { FailPlayback(error: error); return; }
         _ = Dispatcher.InvokeAsync(() =>
         {
             if (!Current() || !PlaybackSurface.IsVisible || ClipsScroll.Content is not FrameworkElement content) return;
@@ -440,7 +440,7 @@ public partial class ClipsPage : UserControl
         {
             if (!Current()) return;
             var state = player.Snapshot;
-            if (state.Failure is { } failure) { FailPlayback(failure); return; }
+            if (state.Failure is { } failure) { FailPlayback(failure, incident: state.Incident); return; }
             var wasPreparingCopy = _playback.PreparingPlaybackCopy;
             _playback.CopyPreparationChanged(revision, state.PreparingPlaybackCopy, state.PreparationProgress);
             model.SetPreparingPlaybackCopy(state.PreparingPlaybackCopy);
@@ -453,7 +453,7 @@ public partial class ClipsPage : UserControl
             if (_playback.Preparing)
             {
                 if (!_playback.TryOpen(revision, true, clip.Media.Width, clip.Media.Height, state.Duration))
-                { FailPlayback("This clip has no playable video or duration."); return; }
+                { FailPlayback("This clip has no playable video or duration.", new InvalidDataException()); return; }
                 _preparationElapsed.Stop();
                 _updatingTimeline = true;
                 try { PlaybackPosition.Maximum = state.Duration; }
@@ -480,12 +480,13 @@ public partial class ClipsPage : UserControl
         }, DispatcherPriority.Loaded);
     }
 
-    private void StopPlayer()
+    private void StopPlayer(bool resetPlayback = true)
     {
         _playbackFailureDetails = "";
         _playbackFailureOwner = null;
         if (CopyPlaybackDetails is not null) CopyPlaybackDetails.Visibility = Visibility.Collapsed;
-        _playback.Reset(); _preparationElapsed.Reset(); _playingClipId = null;
+        if (resetPlayback) _playback.Reset();
+        _preparationElapsed.Reset(); _playingClipId = null;
         Model?.SetPreparingPlaybackCopy(false);
         _playbackTimer.Stop(); _seekPlayer = null; _seekLosslessPlayer = null; _seeking = false;
         var lossless = _losslessPlayer; _losslessPlayer = null;
@@ -507,11 +508,13 @@ public partial class ClipsPage : UserControl
         if (PlaybackTime is not null) PlaybackTime.Text = "0:00 / 0:00";
         UpdatePlaybackStatus();
     }
-    private void FailPlayback(string message = "This clip could not be played. Choose the clip again to retry.")
+    private void FailPlayback(string message = "This clip could not be played. Choose the clip again to retry.",
+        Exception? error = null, Supplementary.SupplementaryIncident? incident = null)
     {
         var lossless = _losslessPlayer;
         var failureStage = lossless?.DiagnosticStage;
-        StopPlayer(); _playback.Fail(message); UpdatePlaybackStatus(); Model?.PlaybackFailed();
+        // Preserve the current observation until its failure has been recorded.
+        StopPlayer(resetPlayback: false); _playback.Fail(message, error, incident); UpdatePlaybackStatus(); Model?.PlaybackFailed();
         if (lossless is not null)
         {
             _playbackFailureDetails = $"{message}\nFailure stage: {failureStage}";
@@ -566,7 +569,7 @@ public partial class ClipsPage : UserControl
             else _player!.Pause();
             UpdatePlaybackStatus(); UpdatePlaybackTimer();
         }
-        catch (InvalidOperationException) { FailPlayback(); }
+        catch (InvalidOperationException error) { FailPlayback(error: error); }
     }
     private void PlaybackVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
@@ -600,7 +603,7 @@ public partial class ClipsPage : UserControl
         if (_playback.Preparing || _playback.WaitingForInitialBuffer)
         {
             if (_playback.OpeningTimedOut(_preparationElapsed.Elapsed))
-                FailPlayback("This clip is taking too long to prepare. Choose it again to retry.");
+                FailPlayback("This clip is taking too long to prepare. Choose it again to retry.", new TimeoutException());
             return;
         }
         if (!CanTrackPlayback || _seeking) { _playbackTimer.Stop(); return; }
@@ -613,7 +616,7 @@ public partial class ClipsPage : UserControl
             if (_playback.ObservePosition(_playback.Revision, seconds) && _playingClipId is { } id && Model is { } model)
                 _ = model.PlaybackOpenedAsync(id);
         }
-        catch (InvalidOperationException) { FailPlayback(); }
+        catch (InvalidOperationException error) { FailPlayback(error: error); }
     }
     private void SetTimelinePosition(double seconds)
     {
@@ -670,7 +673,7 @@ public partial class ClipsPage : UserControl
             SetTimelinePosition(seconds); UpdatePlaybackStatus(); UpdatePlaybackTimer();
         }
         catch (Exception error) when (error is InvalidOperationException or ArgumentException)
-        { FailPlayback(); }
+        { FailPlayback(error: error); }
     }
 
     private void CaptureShortcut_Click(object sender, RoutedEventArgs e)

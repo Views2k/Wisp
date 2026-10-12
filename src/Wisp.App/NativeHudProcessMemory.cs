@@ -207,7 +207,8 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath));
+            memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath),
+                NativeGameVerification.InspectSteamApi(process, identity.ExecutablePath));
             handle = null;
             status = NativeAssistProviderStatus.Ready;
             return true;
@@ -253,7 +254,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 return false;
             }
 
-            var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath));
+            var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath), NativeGameVerification.Store);
             if (!MatchesStoreImage(storeBuild, candidate, identity.ModuleBase))
             {
                 status = NativeAssistProviderStatus.UnsupportedBuild;
@@ -342,7 +343,8 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 return false;
             }
             cancellationToken.ThrowIfCancellationRequested();
-            memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath));
+            memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath),
+                package is null ? NativeGameVerification.InspectSteamApi(process, identity.ExecutablePath) : NativeGameVerification.Store);
             handle = null;
             status = NativeAssistProviderStatus.Ready;
             var capabilities = pack!.Tune is null ? "HUD verified; Tune layout unavailable" : "HUD and Tune verified automatically";
@@ -400,7 +402,7 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
     private readonly SafeProcessHandle _handle;
 
     internal NativeHudProcessMemory(SafeProcessHandle handle, ulong moduleBase, NativeHudCompatibilityPack compatibilityPack,
-        string sessionIdentity = "", string? gameDirectory = null)
+        string sessionIdentity = "", string? gameDirectory = null, NativeGameVerification? gameVerification = null)
     {
         ArgumentNullException.ThrowIfNull(handle);
         ArgumentNullException.ThrowIfNull(compatibilityPack);
@@ -414,12 +416,14 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
         CompatibilityPack = compatibilityPack;
         SessionIdentity = sessionIdentity;
         GameDirectory = gameDirectory;
+        GameVerification = gameVerification ?? NativeGameVerification.Unavailable;
     }
 
     public ulong ModuleBase { get; }
     public NativeHudCompatibilityPack CompatibilityPack { get; }
     public string SessionIdentity { get; }
     public string? GameDirectory { get; }
+    public NativeGameVerification GameVerification { get; }
 
     public static bool TryOpen(out NativeHudProcessMemory? memory, out NativeAssistProviderStatus status) =>
         DefaultFactory.Value.TryOpenConcrete(out memory, out status);

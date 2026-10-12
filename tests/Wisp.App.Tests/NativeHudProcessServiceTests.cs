@@ -15,6 +15,7 @@ public sealed class NativeHudProcessServiceTests
     public async Task AttachedBuildIdentityExpiresOnDisconnectAndDisposal()
     {
         var memory = ValidMemory(314, Provider, tcrOn: true);
+        memory.GameVerification = NativeGameVerification.Steam;
         var service = new NativeHudProcessService(new FakeFactory(memory));
         try
         {
@@ -22,14 +23,17 @@ public sealed class NativeHudProcessServiceTests
             service.UpdateTelemetry(State(314), nativeLayoutActive: true);
             await WaitForAsync(() => service.AttachedCompatibilityPack, pack => pack is not null);
             Assert.Same(NativeHudBuildContract.BuiltIn, service.AttachedCompatibilityPack);
+            Assert.Equal(NativeGameVerification.Steam, service.GameVerification);
             service.UpdateTelemetry(null, nativeLayoutActive: false);
             Assert.Null(service.AttachedCompatibilityPack);
+            Assert.NotEqual("verified", service.GameVerification.Status);
             await WaitForAsync(() => memory.DisposeCount, count => count > 0);
             service.UpdateTelemetry(State(314), nativeLayoutActive: true);
             await WaitForAsync(() => service.AttachedCompatibilityPack, pack => pack is not null);
         }
         finally { await service.DisposeAsync(); }
         Assert.Null(service.AttachedCompatibilityPack);
+        Assert.NotEqual("verified", service.GameVerification.Status);
     }
 
     [Fact]
@@ -563,6 +567,7 @@ public sealed class NativeHudProcessServiceTests
 
     private sealed class FakeProcessMemory(ulong moduleBase) : INativeHudProcessMemory
     {
+        public NativeGameVerification GameVerification { get; set; } = NativeGameVerification.Unavailable;
         private readonly Dictionary<ulong, byte> _bytes = [];
         private readonly Dictionary<ulong, uint> _uint32 = [];
         private readonly Dictionary<ulong, ulong> _uint64 = [];

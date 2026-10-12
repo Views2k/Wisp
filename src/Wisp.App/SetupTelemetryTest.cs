@@ -17,6 +17,8 @@ public sealed record SetupTelemetryEvidence(
 public sealed record SetupTestResult(SetupTelemetryEvidence? Evidence, string Message)
 {
     public bool Passed => Evidence is not null;
+    internal SupplementaryIncident? Incident { get; init; }
+    internal string Outcome { get; init; } = "failure";
 }
 
 internal interface ISetupTelemetrySource
@@ -90,12 +92,12 @@ public sealed class SetupTelemetryTest
             }
 
             SuccessfulEvidence = result.Evidence;
-            supplementaryTest?.Complete(result.Passed ? "success" : "failure");
+            supplementaryTest?.Complete(result.Passed ? "success" : result.Outcome, result.Incident);
             return result;
         }
         catch (Exception exception) when (IsExpectedListenerFailure(exception))
         {
-            supplementaryTest?.Complete("failure");
+            supplementaryTest?.Fail(exception);
             return new SetupTestResult(null,
                 "The listener could not finish or close cleanly. Setup remains unverified. " +
                 "Close other telemetry tools and retry; if it repeats, exit Wisp and reopen setup.");
@@ -132,7 +134,8 @@ public sealed class SetupTelemetryTest
             cancellationToken.ThrowIfCancellationRequested();
             if (!_source.IsRunning || _source.ListeningPort != port)
             {
-                return new SetupTestResult(null, "The listener could not stay open. Close other telemetry tools and retry.");
+                return new SetupTestResult(null, "The listener could not stay open. Close other telemetry tools and retry.")
+                { Incident = SetupIncident("listener-stopped") };
             }
 
             var validator = new SetupTelemetryValidator(_clock.GetUtcNow(), _clock.GetTimestamp());
@@ -183,18 +186,21 @@ public sealed class SetupTelemetryTest
         }
         catch (ArgumentOutOfRangeException exception)
         {
-            return new SetupTestResult(null, exception.Message.Split(Environment.NewLine)[0]);
+            return new SetupTestResult(null, exception.Message.Split(Environment.NewLine)[0]) { Outcome = "idle" };
         }
         catch (SocketException exception)
         {
             var detail = exception.SocketErrorCode == SocketError.AddressAlreadyInUse
                 ? "Another app is already using this port. Close its listener, or choose an unused port and update FH6 to match."
                 : "Windows could not bind this port. Try an unused port; check local firewall/security rules if it still fails.";
-            return new SetupTestResult(null, $"Cannot listen on UDP port {port}. {detail}");
+            return new SetupTestResult(null, $"Cannot listen on UDP port {port}. {detail}")
+            { Incident = DebugLogging.SupplementaryOperationFailure.Capture("setup", "data-out", exception, _clock.GetUtcNow()) };
         }
         catch (TimeoutException)
         {
-            return new SetupTestResult(null, TimeoutMessage(_source.GetStatistics(_clock.GetUtcNow()), _source.IsRunning));
+            var statistics = _source.GetStatistics(_clock.GetUtcNow());
+            return new SetupTestResult(null, TimeoutMessage(statistics, _source.IsRunning))
+            { Incident = SetupIncident(TimeoutReason(statistics, _source.IsRunning)), Outcome = "timeout" };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -213,6 +219,15 @@ public sealed class SetupTelemetryTest
             }
         }
     }
+
+    private SupplementaryIncident SetupIncident(string reason) => SupplementaryIncidentSchema.Create("telemetry", reason,
+        "setup-data-out", context: DebugLogging.SupplementaryIncidentCapture.Context(
+            DebugLogging.HealthContextRecorder.Current.Snapshot(), _clock.GetUtcNow()));
+
+    internal static string TimeoutReason(ReceiverStatistics statistics, bool listenerRunning) =>
+        !listenerRunning || statistics.ListenerError is not null ? "listener-stopped" :
+        statistics.AcceptedPackets == 0 && statistics.RejectedPackets > 0 ? "packets-rejected" :
+        statistics.AcceptedPackets > 0 ? "sequence-incomplete" : "no-datagrams";
 
     internal static string TimeoutMessage(ReceiverStatistics statistics, bool listenerRunning)
     {

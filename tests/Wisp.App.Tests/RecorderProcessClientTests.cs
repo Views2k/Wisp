@@ -8,8 +8,81 @@ using Xunit;
 
 namespace Wisp.App.Tests;
 
+[Collection("Supplementary instrumentation")]
 public sealed class RecorderProcessClientTests
 {
+    [Fact]
+    public async Task SaveDiagnosticDoesNotConsumeLaterCaptureFailure()
+    {
+        using var fixture = new Fixture();
+        var save = RecorderFailureDiagnosticTests.Fields();
+        save["reason"] = "storage_failed"; save["stage"] = "save_create";
+        var cancelled = RecorderFailureDiagnosticTests.Fields(); cancelled["reason"] = "cancelled";
+        var adaptation = RecorderFailureDiagnosticTests.Fields();
+        adaptation["notice"] = true; adaptation["reason"] = "hdr_encoder_unsupported"; adaptation["stage"] = "video_initialize";
+        var diagnostic = JsonSerializer.SerializeToUtf8Bytes(cancelled).Append((byte)10)
+            .Concat(JsonSerializer.SerializeToUtf8Bytes(adaptation)).Append((byte)10)
+            .Concat(JsonSerializer.SerializeToUtf8Bytes(save)).Append((byte)10)
+            .Concat(RecorderFailureDiagnosticTests.Line()).Append((byte)10).ToArray();
+        var child = new FakeChild { ExitDiagnostic = diagnostic, DelayDiagnosticUntilWait = true };
+        var observed = new System.Collections.Concurrent.ConcurrentQueue<Supplementary.SupplementaryObservation>();
+        var previous = Supplementary.SupplementaryObservations.Observer;
+        Supplementary.SupplementaryObservations.Observer = observed.Enqueue;
+        try
+        {
+            await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+            await client.OpenAsync(Recording, fixture.Directory, TestToken);
+            await client.StopAsync(TestToken);
+            Assert.Equal("video_submit", client.FailureDiagnostic?.Stage);
+            Assert.Equal(new[] { "video_initialize", "save_create", "video_submit" }, observed.Select(x => x.Incident?.FailureStage));
+            Assert.Equal("idle", observed.First().Outcome);
+            Assert.All(observed, x => Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(x.Incident!)));
+        }
+        finally { Supplementary.SupplementaryObservations.Observer = previous; }
+    }
+
+    [Fact]
+    public async Task LaunchFailureKeepsNativeErrorWithoutExceptionText()
+    {
+        using var fixture = new Fixture();
+        await using var client = new RecorderProcessClient(fixture.Helper,
+            _ => throw new System.ComponentModel.Win32Exception(5, "PRIVATE_DO_NOT_COPY"), fixture.BufferRoot);
+        var error = await Assert.ThrowsAsync<RecorderClientException>(() => client.OpenAsync(Recording, fixture.Directory, TestToken));
+        var incident = DebugLogging.SupplementaryIncidentCapture.Recorder(error.Reason, null, null, DateTimeOffset.UtcNow, error);
+        Assert.Equal(5u, incident.Code);
+        Assert.Equal("helper-launch", incident.FailureStage);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(incident));
+        Assert.DoesNotContain("PRIVATE_DO_NOT_COPY", JsonSerializer.Serialize(incident));
+    }
+
+    [Fact]
+    public async Task AlreadyExitedChildKeepsObservedExitCodeBeforeCleanup()
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild { ReportedExitCode = 35 };
+        await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+        var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.StateChanged += (_, state) => { if (state.Reason == "helper_exited") terminal.TrySetResult(); };
+        await client.OpenAsync(Recording, fixture.Directory, TestToken);
+        child.CompleteOutput();
+        await terminal.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.Equal(35u, client.ClientFailure?.FailureCode);
+        Assert.Equal("helper-exit", client.ClientFailure?.FailureStage);
+    }
+
+    [Theory]
+    [InlineData("config", "helper-config")]
+    [InlineData("pause", "helper-pause")]
+    [InlineData("resume", "helper-resume")]
+    [InlineData("save", "helper-save")]
+    [InlineData("stop", "helper-stop")]
+    public void TimeoutCommandsRetainTheirOperation(string command, string expected)
+    {
+        var error = new RecorderClientException("helper_timeout") { FailureStage = RecorderProcessClient.CommandStage(command) };
+        var incident = DebugLogging.SupplementaryIncidentCapture.Recorder(error.Reason, null, null, DateTimeOffset.UtcNow, error);
+        Assert.Equal(expected, incident.FailureStage);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(incident));
+    }
     private static readonly ClipRecordingSpec Recording = new(60, 1080, 60, 75);
     private static CancellationToken TestToken => TestContext.Current.CancellationToken;
 
@@ -453,6 +526,8 @@ public sealed class RecorderProcessClientTests
         internal bool IgnoreKill { get; init; }
         internal bool ExitOnNextWait { get; set; }
         internal bool Exited => _exit.Task.IsCompleted;
+        internal int? ReportedExitCode { get; init; }
+        public int? ExitCode => ReportedExitCode;
         public Stream Input { get; }
         public Stream Output => _output;
         public Stream Error => _error;

@@ -120,9 +120,9 @@ internal sealed class ClipsPlaybackState
         return advanced;
     }
 
-    public void Fail(string message)
+    public void Fail(string message, Exception? error = null, Supplementary.SupplementaryIncident? incident = null)
     {
-        _supplementary.Failed();
+        _supplementary.Failed(error, incident);
         Reset();
         _phase = Phase.Failed;
         _failure = message;

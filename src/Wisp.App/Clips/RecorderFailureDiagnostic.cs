@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Collections.Immutable;
+using Wisp.App.Supplementary;
 using System.Text;
 using System.Text.Json;
 
@@ -10,6 +12,11 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
     ulong VideoPackets, ulong AudioPackets, uint SubmittedFrames, long? SchedulerLag100ns, long? SourceAge100ns,
     long? LocalFrameAge100ns)
 {
+    internal ImmutableArray<SupplementaryRecorderComponent>? Components { get; init; }
+    internal string? Resolution { get; init; }
+    internal uint? AdapterVendorId { get; init; }
+    internal uint? AdapterDeviceId { get; init; }
+    internal uint? HardwareCandidates { get; init; }
     internal const int MaximumBytes = 4096;
     private static readonly HashSet<string> Stages = new(StringComparer.Ordinal)
     {
@@ -17,7 +24,7 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
         "conversion_initialize", "video_initialize", "audio_initialize", "capture_start", "capture_submit",
         "capture_freshness", "video_output", "video_spool_append", "audio_output", "audio_spool_append",
         "audio_source", "audio_encode", "audio_timeline", "aac_initialize", "spool_initialize", "spool_bootstrap",
-        "capture_target", "video_pump", "video_schedule", "video_submit", "startup_readiness", "spool_health",
+        "capture_target", "capture_pause", "capture_resume", "save_storage_preflight", "video_pump", "video_schedule", "video_submit", "startup_readiness", "spool_health",
         "save_destination", "save_retain", "save_create", "save_worker", "save_begin", "save_finalize", "host_configuration", "host_loop", "host_exception", "video_cleanup"
     };
 
@@ -35,6 +42,14 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
             var reason = root.GetProperty("reason").GetString() ?? "";
             var stage = root.GetProperty("stage").GetString() ?? "";
             if (!RecorderProtocol.Reasons.Contains(reason) || !Stages.Contains(stage)) return null;
+            var notice = root.TryGetProperty("notice", out var noticeValue) && noticeValue.GetBoolean();
+            var resolution = notice ? reason switch
+            {
+                "hdr_encoder_unsupported" when stage == "video_initialize" => "sdr-fallback",
+                "audio_unavailable" when stage == "audio_initialize" => "video-only",
+                _ => null
+            } : null;
+            if (notice && resolution is null) return null;
             long? localFrameAge = null;
             if (root.TryGetProperty("localFrameAgeKnown", out var localKnown))
             {
@@ -47,10 +62,35 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
                 root.GetProperty("submittedFrames").GetUInt32(),
                 root.GetProperty("schedulerLagKnown").GetBoolean() ? root.GetProperty("schedulerLag100ns").GetInt64() : null,
                 root.GetProperty("sourceAgeKnown").GetBoolean() ? root.GetProperty("sourceAge100ns").GetInt64() : null,
-                localFrameAge);
+                localFrameAge)
+            {
+                Components = ReadComponents(root),
+                Resolution = resolution,
+                AdapterVendorId = KnownNumber(root, "adapterKnown", "adapterVendorId"),
+                AdapterDeviceId = KnownNumber(root, "adapterKnown", "adapterDeviceId"),
+                HardwareCandidates = KnownNumber(root, "hardwareCandidatesKnown", "hardwareCandidates")
+            };
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or OverflowException)
         { return null; }
+    }
+    private static uint? KnownNumber(JsonElement root, string known, string name) =>
+        root.TryGetProperty(known, out var value) && value.GetBoolean() ? root.GetProperty(name).GetUInt32() : null;
+    private static ImmutableArray<SupplementaryRecorderComponent>? ReadComponents(JsonElement root)
+    {
+        var result = ImmutableArray.CreateBuilder<SupplementaryRecorderComponent>();
+        foreach (var name in RecorderComponentCatalog.Components)
+        {
+            if (!root.TryGetProperty(name, out var component) || component.ValueKind != JsonValueKind.Object) continue;
+            var fields = component.EnumerateObject().ToArray();
+            if (fields.Length != 2 || fields.Select(field => field.Name).Distinct(StringComparer.Ordinal).Count() != 2 ||
+                !component.TryGetProperty("reason", out var reason) || reason.ValueKind != JsonValueKind.String ||
+                !RecorderComponentCatalog.Reasons.Contains(reason.GetString()!) ||
+                !component.TryGetProperty("hr", out var code) || code.ValueKind != JsonValueKind.Number || !code.TryGetUInt32(out var hr)) continue;
+            // Successful component state is not failure identity; retain only observed failures.
+            if ((hr & 0x80000000u) != 0) result.Add(new(name, reason.GetString()!, hr));
+        }
+        return result.Count == 0 ? null : result.ToImmutable();
     }
 }
 
@@ -58,7 +98,7 @@ internal sealed record ClipStorageDiagnostic(string Stage, int HResult)
 {
     internal static ClipStorageDiagnostic? From(RecorderClientException? error) =>
         error?.StorageHResult is { } hr && error.StorageStage is
-            "validate_destination" or "open_private_media" or "private_media_identity" or "write_recovery_record" or
+            "buffer-open" or "validate_destination" or "open_private_media" or "private_media_identity" or "write_recovery_record" or
             "open_destination" or "create_publication_temporary" or "copy_media" or "verify_copy" or
             "rename_publication" or "published_identity" or "reopen_publication"
             ? new(error.StorageStage, hr) : null;

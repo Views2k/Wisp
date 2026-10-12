@@ -129,7 +129,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             if (_disposed) return;
             _stop.Set();
         }
-        HealthContextRecorder.Current.RecordRendererFailure(error);
+        HealthContextRecorder.Current.RecordRendererFailure(error, HealthFailureStage.RendererMotion);
         _status(false, error);
     }
 
@@ -160,6 +160,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         long toolsLastSubmittedAt = 0;
         var toolsPerformance = ToolsPerformanceRecorder.Current;
         string operation = "state";
+        var failurePhase = HealthFailureStage.RendererState;
         DirectCompositionWaitMetrics waitMetrics = default;
         bool measuredWaitCompleted = false;
         try
@@ -205,7 +206,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     {
                         // Clear the independent surface before the parent can
                         // be shown again in a different layout.
-                        BeginOperation("state");
+                        BeginOperation("state", HealthFailureStage.RendererVisibility);
                         device.SetVisible(false);
                         RecordStage(operation, "ready", operationStarted);
                     }
@@ -241,7 +242,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 }
                 if (device is null)
                 {
-                    BeginOperation("state");
+                    BeginOperation("state", HealthFailureStage.RendererCreate);
                     device = DirectCompositionDevice.Create(_window, presentation.Width, presentation.Height, _cpuRendering,
                         compositorNeedle: !_cpuRendering);
                     if (_motion is not null) _motion.Attach(device.CreateMotionChannel());
@@ -255,7 +256,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 if (width != presentation.Width || height != presentation.Height)
                 {
                     pending = null;
-                    BeginOperation("state");
+                    BeginOperation("state", HealthFailureStage.RendererResize);
                     device.Resize(presentation.Width, presentation.Height);
                     appliedHostX = appliedHostY = float.NaN;
                     compositorActive = false;
@@ -271,7 +272,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 var hostY = presentation.Hud?.HostOffsetY ?? 0;
                 if (appliedHostX != hostX || appliedHostY != hostY)
                 {
-                    BeginOperation("state");
+                    BeginOperation("state", HealthFailureStage.RendererPosition);
                     device.SetOffset(hostX, hostY);
                     appliedHostX = hostX;
                     appliedHostY = hostY;
@@ -281,7 +282,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 // Resume with a transparent swapchain before making it visible.
                 if (!_surfaceVisible)
                 {
-                    BeginOperation("state");
+                    BeginOperation("state", HealthFailureStage.RendererResume);
                     if (device.PrepareForResume()) frameReady = false;
                     compositorActive = false;
                     pending = null;
@@ -290,7 +291,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 }
                 if (appliedOpacity != presentation.Opacity || !_surfaceVisible)
                 {
-                    BeginOperation("state");
+                    BeginOperation("state", HealthFailureStage.RendererVisibility);
                     device.SetOpacity(presentation.Opacity);
                     device.SetVisible(true);
                     appliedOpacity = presentation.Opacity;
@@ -523,9 +524,18 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 bool HasCurrentMotion() => _motion?.Material is { } latest &&
                     latest.Generation == motionGeneration && Stopwatch.GetTimestamp() < latest.Curve.FreshUntilTimestamp;
 
-                void BeginOperation(string stage)
+                void BeginOperation(string stage, HealthFailureStage? phase = null)
                 {
                     operation = stage;
+                    failurePhase = phase ?? stage switch
+                    {
+                        "frame_wait" => HealthFailureStage.RendererFrameWait,
+                        "draw" => HealthFailureStage.RendererDraw,
+                        "present" => HealthFailureStage.RendererPresent,
+                        "compositor_update" => HealthFailureStage.RendererMotion,
+                        "retry_wait" => HealthFailureStage.RendererRetryWait,
+                        _ => HealthFailureStage.RendererState
+                    };
                     operationStarted = measure || toolsPerformance.Enabled ? Stopwatch.GetTimestamp() : 0;
                     waitMetrics = default;
                     measuredWaitCompleted = false;
@@ -586,7 +596,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         {
             var completed = stage == "present" || started > 0 ? Stopwatch.GetTimestamp() : 0;
             if (dropped > 0) HealthContextRecorder.Current.RecordQueueDrop(dropped);
-            if (result == "error") HealthContextRecorder.Current.RecordRendererFailure(hResult);
+            if (result == "error") HealthContextRecorder.Current.RecordRendererFailure(hResult, failurePhase);
             if (stage == "present")
                 HealthContextRecorder.Current.RecordPresent(result == "submitted" ? HealthPresentResult.Submitted :
                     result == "occluded" ? HealthPresentResult.Occluded :

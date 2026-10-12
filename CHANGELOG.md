@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.7 - 2026-10-11
+
+- Improved diagnostic details for Clips, Tune, saved data, settings, updates and the HUD.
+- Preserve recent health measurements after an interrupted session and match reports to the originating run.
+- Distinguish requested shutdowns, Windows shutdowns and update restarts when recovering the previous session.
+
 ## 2.6.6 - 2026-10-11
 
 - Add News and feedback in Extras for Diagnostics, Suggestions and Feedback, with a message preview and confirmation reference. Accept one message per day and show when another can be sent.

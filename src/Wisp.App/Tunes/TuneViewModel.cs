@@ -229,7 +229,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
             OpenSaved(loaded); _status = "Saved tune opened in Wisp.";
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { supplementaryLoad?.Complete("cancelled"); }
-        catch (Exception error) when (error is not OutOfMemoryException) { supplementaryLoad?.Complete("failure"); SetError("That tune could not be opened. Its saved file has been kept."); }
+        catch (Exception error) when (error is not OutOfMemoryException) { supplementaryLoad?.Fail(error); SetError("That tune could not be opened. Its saved file has been kept."); }
         finally { _busy = false; OpenPendingView(); NotifyView(); }
     }
 
@@ -332,13 +332,13 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             if (_editingId is null && !_isCurrent(snapshot))
-            { supplementarySave?.Complete("failure"); DialogFail("The car or session changed. Cancel and refresh before saving."); return; }
+            { supplementarySave?.Complete("idle"); DialogFail("The car or session changed. Cancel and refresh before saving."); return; }
             if (_editingId is null)
             {
                 var latest = await _capture(_lifetime.Token);
                 if (!_isCurrent(snapshot) || latest.Snapshot is not { } current || !TuneComparison.HaveSameSetupIdentity(snapshot, current))
                 {
-                    _currentValid = false; supplementarySave?.Complete("failure");
+                    _currentValid = false; supplementarySave?.Complete("idle");
                     DialogFail("The tune changed or could not be confirmed. Your text is kept; cancel and refresh before saving.");
                     return;
                 }
@@ -355,8 +355,8 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
             _dialogOpen = false; _dialogSnapshot = null; _editingId = null; Changed(nameof(IsDialogOpen));
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { supplementarySave?.Complete("cancelled"); }
-        catch (ArgumentException) { supplementarySave?.Complete("failure"); DialogFail("Check the name and description, then try again."); }
-        catch (Exception error) when (error is not OutOfMemoryException) { supplementarySave?.Complete("failure"); DialogFail("The tune could not be saved. Check storage and try again; your text is kept here."); }
+        catch (ArgumentException) { supplementarySave?.Complete("idle"); DialogFail("Check the name and description, then try again."); }
+        catch (Exception error) when (error is not OutOfMemoryException) { supplementarySave?.Fail(error); DialogFail("The tune could not be saved. Check storage and try again; your text is kept here."); }
         finally { _busy = false; OpenPendingView(); NotifyView(); }
     }
 
@@ -381,7 +381,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { supplementaryDelete?.Complete("cancelled"); }
         catch (Exception error) when (error is not OutOfMemoryException)
-        { supplementaryDelete?.Complete("failure"); DialogFail("The tune could not be deleted. Check local storage and try again."); }
+        { supplementaryDelete?.Fail(error); DialogFail("The tune could not be deleted. Check local storage and try again."); }
         finally { _busy = false; OpenPendingView(); NotifyView(); }
     }
 

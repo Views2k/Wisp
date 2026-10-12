@@ -8,6 +8,50 @@ namespace Wisp.Core.Tests;
 
 public sealed class AppSettingsTests
 {
+    [Theory]
+    [InlineData("{PRIVATE_SENTINEL", "failure", "invalid-data")]
+    [InlineData("null", "failure", "invalid-data")]
+    [InlineData("{}", "success", null)]
+    [InlineData(null, "none", null)]
+    public void LoadPreservesFailureEvidenceWithoutRetainingSettingsOrChangingFiles(string? content, string outcome, string? reason)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "Wisp.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "settings.json");
+        try
+        {
+            if (content is not null) File.WriteAllText(path, content);
+            var service = new SettingsService(path);
+            Assert.NotNull(service.Load());
+            Assert.Equal(outcome, service.LoadOutcome);
+            Assert.Equal(reason, service.LoadFailure?.Reason);
+            Assert.DoesNotContain("PRIVATE_SENTINEL", JsonSerializer.Serialize(service.LoadFailure));
+            if (content is not null) Assert.Equal(content, File.ReadAllText(path));
+            else Assert.False(File.Exists(path));
+            File.WriteAllText(path, "{}");
+            service.Load();
+            Assert.Equal("success", service.LoadOutcome);
+            Assert.Null(service.LoadFailure);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public void LockedSettingsAreAReadFailureInsteadOfAnAbsentInstallation()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"wisp-settings-{Guid.NewGuid():N}.json");
+        try
+        {
+            using var held = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+            var service = new SettingsService(path);
+            service.Load();
+            Assert.Equal("failure", service.LoadOutcome);
+            Assert.Equal("file-in-use", service.LoadFailure?.Reason);
+            Assert.Equal(32u, service.LoadFailure!.Code & 0xffff);
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public void VacuumPressureIsOptInForNewAndExistingSettings()
     {

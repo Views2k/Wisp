@@ -6,6 +6,26 @@ namespace Wisp.Telemetry.Tests;
 
 public sealed class TelemetryUdpReceiverTests
 {
+    [Fact]
+    public async Task UnexpectedSocketClosureRetainsFaultCodeAndRestartClearsIt()
+    {
+        await using var receiver = new TelemetryUdpReceiver();
+        await receiver.StartAsync(GetAvailablePort(), TestContext.Current.CancellationToken);
+        var session = typeof(TelemetryUdpReceiver).GetField("_session", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(receiver)!;
+        var socket = (Socket)session.GetType().GetProperty("Socket")!.GetValue(session)!;
+        var receive = (Task)session.GetType().GetProperty("ReceiveTask")!.GetValue(session)!;
+        socket.Dispose();
+        await receive.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.NotNull(receiver.GetStatistics(DateTimeOffset.UtcNow).ListenerError);
+        Assert.NotNull(receiver.ListenerFailure);
+        Assert.NotEqual(0, receiver.ListenerFailure.Code);
+        await receiver.RestartAsync(GetAvailablePort(), TestContext.Current.CancellationToken);
+        Assert.Null(receiver.ListenerFailure);
+        Assert.Null(receiver.GetStatistics(DateTimeOffset.UtcNow).ListenerError);
+        await receiver.StopAsync();
+        Assert.Null(receiver.ListenerFailure);
+    }
+
     [Theory]
     [InlineData(5200)]
     [InlineData(5250)]

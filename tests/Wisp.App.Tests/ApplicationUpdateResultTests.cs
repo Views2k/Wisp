@@ -5,6 +5,55 @@ namespace Wisp.App.Tests;
 
 public sealed class ApplicationUpdateResultTests
 {
+    [Theory]
+    [InlineData("UPDATE_INSTALLER_EXIT_FAILED", "restarted", 5u, "update-installer-exit-failed")]
+    [InlineData("UPDATE_INSTALLER_HASH_MISMATCH", "application-still-running", null, "update-installer-hash-mismatch")]
+    [InlineData("private-path-or-message", "untrusted-state", null, "update-unexpected-failure")]
+    public void FailedHelperResultRetainsBoundedEvidence(string code, string recovery, uint? exit, string expected)
+    {
+        using var layout = new ResultLayout(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1,
+            state = "failed",
+            errorCode = code,
+            recoveryState = recovery,
+            installerExitCode = exit,
+            nativeErrorCode = 32,
+            message = "sensitive content"
+        }));
+        Assert.True(ApplicationUpdateLauncher.TryConsumeResult(layout.Root, out var result));
+        var incident = Assert.IsType<Supplementary.SupplementaryIncident>(result.Incident);
+        Assert.Equal(expected, incident.Reason);
+        Assert.Equal(32u, incident.Code);
+        Assert.Equal(exit, incident.Update?.InstallerExitCode);
+        Assert.Equal(recovery == "untrusted-state" ? "unknown" : recovery, incident.Update?.Recovery);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(incident));
+        Assert.DoesNotContain("sensitive", System.Text.Json.JsonSerializer.Serialize(incident));
+        Assert.DoesNotContain("private-path", System.Text.Json.JsonSerializer.Serialize(incident));
+        Assert.False(ApplicationUpdateLauncher.TryConsumeResult(layout.Root, out _));
+    }
+
+    [Fact]
+    public void InvalidOptionalCodesCannotBreakResultConsumption()
+    {
+        using var layout = new ResultLayout("""{"schemaVersion":1,"state":"failed","nativeErrorCode":"private","installerExitCode":-1}""");
+        Assert.True(ApplicationUpdateLauncher.TryConsumeResult(layout.Root, out var result));
+        Assert.Null(result.Incident?.Code);
+        Assert.Null(result.Incident?.Update?.InstallerExitCode);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(result.Incident!));
+    }
+
+    [Fact]
+    public void RecoveryOutcomeDoesNotSplitTheFailureButInstallerExitCodeDoes()
+    {
+        var one = Supplementary.SupplementaryIncidentSchema.Create("update", "update-installer-exit-failed", "update-installed", update: new("restarted", 5));
+        var recoveredDifferently = one with { Update = new("deferred", 5) };
+        var differentExit = one with { Update = new("restarted", 2) };
+        Assert.Equal(one.Signature, Supplementary.SupplementaryIncidentSchema.Signature(recoveredDifferently));
+        Assert.NotEqual(one.Signature, Supplementary.SupplementaryIncidentSchema.Signature(differentExit));
+        Assert.False(Supplementary.SupplementaryIncidentSchema.Valid(one with { Category = "recorder" }));
+    }
+
     [Fact]
     public void AtomicallyConsumesInstalledResultAndReportsValidatedVersion()
     {

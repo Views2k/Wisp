@@ -74,6 +74,7 @@ namespace recorder::capture
             winrt::com_ptr<IDXGIAdapter1> adapter;
             winrt::com_ptr<IDXGIOutput6> output;
             LUID luid{};
+            UINT vendorId = 0, deviceId = 0;
             DXGI_COLOR_SPACE_TYPE color = DXGI_COLOR_SPACE_CUSTOM;
             UINT whiteLevel = 0;
         };
@@ -160,6 +161,8 @@ namespace recorder::capture
                     Require(color.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 ||
                         color.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, "display_color_unsupported");
                     result.adapter = adapter;
+                    result.vendorId = description.VendorId;
+                    result.deviceId = description.DeviceId;
                     result.luid = description.AdapterLuid;
                     result.color = color.ColorSpace;
                     if (result.color == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)
@@ -353,6 +356,9 @@ namespace recorder::capture
             value.monitorRect = monitor.rcMonitor;
             value.ValidateBasic();
             value.display = SelectDisplay(value.monitor);
+            evidence_.adapterKnown = true;
+            evidence_.adapterVendorId = value.display.vendorId;
+            evidence_.adapterDeviceId = value.display.deviceId;
             Check(value.display.output->GetDesc1(&value.outputDescription), "display_color_query_failed");
             Require(value.outputDescription.AttachedToDesktop && SameRect(value.outputDescription.DesktopCoordinates, value.monitorRect),
                 "display_configuration_changed");

@@ -12,6 +12,22 @@ namespace Wisp.App.Tests;
 public sealed class SupplementaryClientTests
 {
     [Fact]
+    public void InvalidAndMismatchedReportsAreCountedWhileDisabledReportingIsNotLoss()
+    {
+        using var f = new SupplementaryFixture();
+        using var client = new SupplementaryClient(new(new Uri("https://console.example.invalid/")), new(f.Verifier, f.Directory), new FixedClock(f.Now));
+        var value = f.Event();
+        Assert.False(client.TryEnqueue(value with { Outcome = "PRIVATE_DO_NOT_COPY" }));
+        Assert.Equal(1, client.DroppedEvents);
+        Assert.True(client.TryEnqueue(value));
+        Assert.False(client.TryEnqueue(value with { SessionId = Guid.NewGuid() }));
+        Assert.Equal(2, client.DroppedEvents);
+        using var disabled = new SupplementaryClient(new(null), new(f.Verifier, f.Directory), new FixedClock(f.Now));
+        Assert.False(disabled.TryEnqueue(value));
+        Assert.Equal(0, disabled.DroppedEvents);
+    }
+
+    [Fact]
     public async Task IngestionBusyRetriesTheExactBatchWithBoundedDelay()
     {
         using var f = new SupplementaryFixture();

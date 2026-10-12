@@ -17,6 +17,8 @@ internal sealed class RecorderClientException(string reason) : IOException("The 
     internal int? StorageHResult { get; init; }
     internal bool NativeRequestRejected { get; init; }
     internal bool SaveCompletedWithoutMedia { get; init; }
+    internal string? FailureStage { get; init; }
+    internal uint? FailureCode { get; init; }
 }
 
 internal static class RecorderProtocol
@@ -171,6 +173,7 @@ internal interface IRecorderChild : IDisposable
     Stream Input { get; }
     Stream Output { get; }
     Stream Error { get; }
+    int? ExitCode => null;
     Task WaitForExitAsync(CancellationToken cancellationToken);
     void Kill();
 }
@@ -187,6 +190,7 @@ internal sealed class RecorderProcessChild : IRecorderChild
     public Stream Input => _process.StandardInput.BaseStream;
     public Stream Output => _process.StandardOutput.BaseStream;
     public Stream Error => _process.StandardError.BaseStream;
+    public int? ExitCode { get { try { return _process.HasExited ? _process.ExitCode : null; } catch (InvalidOperationException) { return null; } } }
     public Task WaitForExitAsync(CancellationToken cancellationToken) => _process.WaitForExitAsync(cancellationToken);
     public void Kill() { try { if (!_process.HasExited) _process.Kill(); } catch (InvalidOperationException) { } }
     public void Dispose() => _process.Dispose();
@@ -214,12 +218,15 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
     private string? _terminalReason, _storage;
     private ClipRecordingSpec? _recording;
     private RecorderFailureDiagnostic? _failureDiagnostic;
+    private readonly HashSet<string> _reportedDiagnostics = new(StringComparer.Ordinal);
+    private RecorderClientException? _clientFailure;
     private ClipBufferStore? _buffer;
     private bool _recovering;
     internal Guid Session { get; } = Guid.NewGuid();
     internal bool BorderlessAllowed { get; set; }
     internal ClipBufferCleanup? StartupCleanup { get; private set; }
     internal RecorderFailureDiagnostic? FailureDiagnostic => Volatile.Read(ref _failureDiagnostic);
+    internal RecorderClientException? ClientFailure => Volatile.Read(ref _clientFailure);
     internal event EventHandler<RecorderStateUpdate>? StateChanged;
 
     internal RecorderProcessClient(string installedHelperPath, Func<ProcessStartInfo, IRecorderChild>? launch = null, string? bufferRoot = null)
@@ -294,7 +301,14 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
         {
             await ShutdownAsync().ConfigureAwait(false);
             if (error is RecorderClientException or OperationCanceledException) throw;
-            throw new RecorderClientException("helper_start_failed");
+            var failure = new RecorderClientException("helper_start_failed")
+            {
+                FailureStage = "helper-launch",
+                FailureCode = unchecked((uint)(error is System.ComponentModel.Win32Exception win32 ? win32.NativeErrorCode : error.HResult))
+            };
+            Volatile.Write(ref _clientFailure, failure);
+            DebugLogging.SupplementaryIncidentCapture.RecordRecorder(failure.Reason, clientFailure: failure);
+            throw failure;
         }
     }
 
@@ -407,19 +421,19 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
-            Fail(cancellationToken.IsCancellationRequested ? "cancelled" : "helper_timeout");
+            Fail(cancellationToken.IsCancellationRequested ? "cancelled" : "helper_timeout", CommandStage(command));
             await ShutdownAsync().ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            throw new RecorderClientException(_terminalReason ?? "helper_timeout");
+            throw ClientFailure ?? new RecorderClientException(_terminalReason ?? "helper_timeout");
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or OverflowException)
         {
             // A native refusal is explicit and may be recoverable (e.g. no keyframe).
             // Transport/protocol failures close the session; never retry the save.
             if (error is RecorderClientException native && RecorderProtocol.Reasons.Contains(native.Reason) && native.Reason != "protocol_error") throw;
-            Fail(error is RecorderClientException known ? known.Reason : "protocol_error");
+            Fail(error is RecorderClientException known ? known.Reason : "protocol_error", CommandStage(command), unchecked((uint)error.HResult));
             await ShutdownAsync().ConfigureAwait(false);
-            throw new RecorderClientException(_terminalReason ?? "protocol_error");
+            throw ClientFailure ?? new RecorderClientException(_terminalReason ?? "protocol_error");
         }
         finally { if (entered) _commands.Release(); }
     }
@@ -495,9 +509,16 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                     if (value == (byte)'\n')
                     {
                         if (!oversized && RecorderFailureDiagnostic.Parse(line.AsMemory(0, length)) is { } diagnostic &&
-                            Interlocked.CompareExchange(ref _failureDiagnostic, diagnostic, null) is null &&
                             diagnostic.Reason is not ("cancelled" or "none" or "stopped" or "parent_closed"))
-                            DebugLogging.SupplementaryIncidentCapture.RecordRecorder(diagnostic.Reason, diagnostic);
+                        {
+                            var previous = FailureDiagnostic;
+                            if (diagnostic.Resolution is null && (previous is null || previous.Stage.StartsWith("save_", StringComparison.Ordinal) &&
+                                !diagnostic.Stage.StartsWith("save_", StringComparison.Ordinal)))
+                                Volatile.Write(ref _failureDiagnostic, diagnostic);
+                            var incident = DebugLogging.SupplementaryIncidentCapture.Recorder(diagnostic.Reason, diagnostic, null, DateTimeOffset.UtcNow);
+                            if (_reportedDiagnostics.Count < 4 && _reportedDiagnostics.Add(incident.Signature))
+                                DebugLogging.SupplementaryIncidentCapture.RecordRecorder(diagnostic.Reason, diagnostic);
+                        }
                         length = 0; oversized = false;
                     }
                     else if (length < line.Length) line[length++] = value;
@@ -509,17 +530,35 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
         catch (Exception errorRead) when (errorRead is not OutOfMemoryException) { Fail("protocol_error"); }
     }
 
-    private void Fail(string reason)
+    internal static string CommandStage(string command) => command switch
+    {
+        "config" => "helper-config",
+        "start" => "helper-start",
+        "pause" => "helper-pause",
+        "resume" => "helper-resume",
+        "save" => "helper-save",
+        "stop" => "helper-stop",
+        _ => "helper-protocol"
+    };
+
+    private void Fail(string reason, string stage = "helper-protocol", uint? code = null)
     {
         IRecorderChild? child;
         lock (_sync)
         {
             if (_terminalReason is not null || (_stopping && _pending.Count == 0)) return;
             _terminalReason = reason;
+            if (reason == "helper_exited")
+            {
+                stage = "helper-exit";
+                if (_child?.ExitCode is { } exitCode) code = unchecked((uint)exitCode);
+            }
+            Volatile.Write(ref _clientFailure, new RecorderClientException(reason) { FailureStage = stage, FailureCode = code });
             FailPending(reason);
             child = _child;
         }
         _lifetime.Cancel();
+        if (reason != "cancelled") DebugLogging.SupplementaryIncidentCapture.RecordRecorder(reason, clientFailure: ClientFailure);
         try { child?.Kill(); } catch (Exception error) when (error is not OutOfMemoryException) { }
         StateChanged?.Invoke(this, new("error", reason));
     }

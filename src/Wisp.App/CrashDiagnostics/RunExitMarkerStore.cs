@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
@@ -8,13 +9,18 @@ using NativeFile = Wisp.App.Clips.ClipBufferStore.NativeFile;
 
 namespace Wisp.App.CrashDiagnostics;
 
+internal enum ShutdownIntent { None, Requested, OperatingSystem, Update }
+
 internal sealed record RunExitMarker(Guid RunId, int ProcessId, long ProcessCreationFileTime,
     DateTimeOffset StartedAtUtc, string ExecutableVersion, DiagnosticBuildIdentity Build, bool CleanExit = false)
 {
+    public HealthContextSnapshot? Context { get; init; }
+    public ShutdownIntent ShutdownIntent { get; init; }
+
     internal RunExitMarker? Sanitize()
     {
         if (RunId == Guid.Empty || ProcessId <= 0 || ProcessCreationFileTime <= 0 || Build is null ||
-            StartedAtUtc.Offset != TimeSpan.Zero || !SafeVersion(ExecutableVersion)) return null;
+            StartedAtUtc.Offset != TimeSpan.Zero || !SafeVersion(ExecutableVersion) || !Enum.IsDefined(ShutdownIntent)) return null;
         try
         {
             if (DateTime.FromFileTimeUtc(ProcessCreationFileTime).Ticks != StartedAtUtc.UtcTicks) return null;
@@ -25,7 +31,8 @@ internal sealed record RunExitMarker(Guid RunId, int ProcessId, long ProcessCrea
         return this with
         {
             Build = new(report.WispVersion, report.PrivateBuildId, module,
-            report.RuntimeVersion, report.WindowsVersion, architecture)
+            report.RuntimeVersion, report.WindowsVersion, architecture),
+            Context = ValidContext(Context) ? Context : null
         };
     }
 
@@ -35,8 +42,14 @@ internal sealed record RunExitMarker(Guid RunId, int ProcessId, long ProcessCrea
         RunId = RunId,
         ModuleVersionId = Build.ModuleVersionId,
         WindowsVersion = Build.WindowsVersion,
-        ProcessArchitecture = Build.ProcessArchitecture
+        ProcessArchitecture = Build.ProcessArchitecture,
+        Context = ValidContext(Context) ? Context : null
     };
+
+    private bool ValidContext(HealthContextSnapshot? context) => HealthContextRecorder.IsValidSnapshot(context) &&
+        context!.Samples.Length <= 3 && context.Breadcrumbs.Length == 0 && context.CapturedAtUtc >= StartedAtUtc &&
+        context.Samples.All(sample => sample.TimestampUtc >= StartedAtUtc && sample.TimestampUtc <= context.CapturedAtUtc &&
+            context.CapturedAtUtc - sample.TimestampUtc <= TimeSpan.FromSeconds(30));
 
     private static bool SafeVersion(string? value) => value is { Length: > 0 and <= 32 } &&
         value.All(character => char.IsAsciiDigit(character) || character == '.') && Version.TryParse(value, out _);
@@ -49,7 +62,9 @@ internal sealed class RunExitMarkerStore : IDisposable
     private const int MaximumMarkerBytes = 8192;
     private readonly string _directory;
     private readonly SafeFileHandle _parent, _lease;
-    private readonly RunExitMarker _current;
+    private RunExitMarker _current;
+    private readonly object _gate = new();
+    private Timer? _checkpointTimer;
     private bool _disposed;
     internal RunExitMarker? Previous { get; }
     internal Guid RunId => _current.RunId;
@@ -59,7 +74,7 @@ internal sealed class RunExitMarkerStore : IDisposable
         RunExitMarker current, RunExitMarker? previous)
     { _directory = directory; _parent = parent; _lease = lease; _current = current; Previous = previous; }
 
-    internal static RunExitMarkerStore? BeginCurrent()
+    internal static RunExitMarkerStore? BeginCurrent(Guid runId)
     {
         try
         {
@@ -68,9 +83,13 @@ internal sealed class RunExitMarkerStore : IDisposable
             var version = FileVersionInfo.GetVersionInfo(Environment.ProcessPath!);
             var executableVersion = string.Create(CultureInfo.InvariantCulture,
                 $"{version.FileMajorPart}.{version.FileMinorPart}.{version.FileBuildPart}.{version.FilePrivatePart}");
-            return TryBegin(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Wisp", "CrashReports"), new(Guid.NewGuid(), Environment.ProcessId, started.ToFileTimeUtc(),
+            var store = TryBegin(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Wisp", "CrashReports"), new(runId, Environment.ProcessId, started.ToFileTimeUtc(),
                 new DateTimeOffset(started), executableVersion, DiagnosticBuildIdentity.Current));
+            if (store is not null)
+                store._checkpointTimer = new Timer(_ => store.Checkpoint(HealthContextRecorder.Current.Snapshot()), null,
+                    TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+            return store;
         }
         catch (Exception) { return null; }
     }
@@ -98,14 +117,56 @@ internal sealed class RunExitMarkerStore : IDisposable
 
     internal bool MarkClean()
     {
-        if (_disposed) return false;
-        try
+        lock (_gate)
         {
-            if (Read(_parent)?.RunId != _current.RunId) return false;
-            Write(_current with { CleanExit = true });
-            return true;
+            if (_disposed) return false;
+            try
+            {
+                if (Read(_parent)?.RunId != _current.RunId) return false;
+                Write(_current with { CleanExit = true });
+                _current = _current with { CleanExit = true };
+                return true;
+            }
+            catch (Exception) { return false; }
         }
-        catch (Exception) { return false; }
+    }
+
+    internal bool MarkShutdownStarted(ShutdownIntent intent)
+    {
+        if (intent == ShutdownIntent.None || !Enum.IsDefined(intent)) return false;
+        lock (_gate)
+        {
+            if (_disposed || _current.CleanExit) return false;
+            try
+            {
+                if (Read(_parent)?.RunId != _current.RunId) return false;
+                var next = _current with { ShutdownIntent = _current.ShutdownIntent == ShutdownIntent.None ? intent : _current.ShutdownIntent };
+                Write(next); _current = next;
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
+    }
+
+    internal bool Checkpoint(HealthContextSnapshot snapshot)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _current.CleanExit || !HealthContextRecorder.IsValidSnapshot(snapshot)) return false;
+            var samples = snapshot.Samples.Where(sample => sample.TimestampUtc >= _current.StartedAtUtc &&
+                sample.TimestampUtc <= snapshot.CapturedAtUtc && snapshot.CapturedAtUtc - sample.TimestampUtc <= TimeSpan.FromSeconds(30))
+                .OrderBy(sample => sample.TimestampUtc).TakeLast(3).ToImmutableArray();
+            if (samples.Length == 0 || _current.Context?.CapturedAtUtc >= snapshot.CapturedAtUtc) return false;
+            var next = _current with { Context = new(snapshot.CapturedAtUtc, samples, []) };
+            try
+            {
+                if (Read(_parent)?.RunId != _current.RunId) return false;
+                Write(next);
+                _current = next;
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
     }
 
     private static RunExitMarker? Read(SafeFileHandle parent)
@@ -159,7 +220,10 @@ internal sealed class RunExitMarkerStore : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true; _lease.Dispose(); _parent.Dispose();
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true; _checkpointTimer?.Dispose(); _lease.Dispose(); _parent.Dispose();
+        }
     }
 }

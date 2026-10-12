@@ -8,8 +8,78 @@ using Xunit;
 
 namespace Wisp.App.Tests;
 
+[Collection("Supplementary instrumentation")]
 public sealed class ClipRecorderServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RepeatedStaleStatesProduceOneMeasuredIntervalOnRecoveryOrStop(bool stop)
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var clock = new CaptureClock();
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<Supplementary.SupplementaryObservation>();
+        var previous = Supplementary.SupplementaryObservations.Observer;
+        Supplementary.SupplementaryObservations.Observer = reports.Enqueue;
+        try
+        {
+            await using var service = new ClipRecorderService(() => fixture.Directory, factory.Create, true, clock: clock);
+            await service.SetEnabledAsync(true, Recording, TestToken);
+            service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+            var session = await factory.NextAsync();
+            await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            session.Emit("buffering", "capture_stale");
+            clock.Milliseconds = 1250;
+            session.Emit("buffering", "capture_stale");
+            Assert.DoesNotContain(reports, r => r.Outcome == "stale");
+            clock.Milliseconds = 2500;
+            if (stop) await service.SetEnabledAsync(false, Recording, TestToken);
+            else session.Emit("buffering", "none");
+            await ReconcileAsync(service);
+            var report = Assert.Single(reports, r => r.Outcome == "stale");
+            Assert.Equal("clips", report.Kind);
+            Assert.Equal("capture", report.Stage);
+            Assert.Equal(2500d, report.DurationMs);
+            Assert.Null(report.Incident);
+            Assert.DoesNotContain(reports, r => r.Outcome == "failure");
+            Assert.Equal(1, factory.Count);
+            if (!stop) { Assert.True(service.Snapshot.CanSave); Assert.Equal(0, session.Stops); }
+        }
+        finally { Supplementary.SupplementaryObservations.Observer = previous; }
+    }
+
+    private sealed class CaptureClock : TimeProvider
+    {
+        internal long Milliseconds;
+        public override long TimestampFrequency => 1000;
+        public override long GetTimestamp() => Milliseconds;
+    }
+
+    [Fact]
+    public async Task SilentVideoStateDoesNotPublishAnAudioFailure()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<Supplementary.SupplementaryObservation>();
+        var previous = Supplementary.SupplementaryObservations.Observer;
+        Supplementary.SupplementaryObservations.Observer = reports.Enqueue;
+        try
+        {
+            await using var service = fixture.Service(factory);
+            await service.SetEnabledAsync(true, Recording, TestToken);
+            service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+            var session = await factory.NextAsync();
+            await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            session.Emit("buffering", "audio_unavailable");
+            session.Emit("buffering", "audio_unavailable");
+            Assert.DoesNotContain(reports, r => r.Stage == "audio");
+            session.Emit("buffering", "audio_capture_failed");
+            Assert.Single(reports, r => r.Stage == "audio" && r.Incident?.Reason == "audio_capture_failed");
+        }
+        finally { Supplementary.SupplementaryObservations.Observer = previous; }
+    }
+
     private static readonly ClipRecordingSpec Recording = new(60, 1080, 60, 75);
     private static readonly RecorderTarget Target = new(42, 123, 456);
     private static CancellationToken TestToken => TestContext.Current.CancellationToken;

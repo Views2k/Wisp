@@ -370,7 +370,8 @@ internal sealed partial class ClipBufferStore : IAsyncDisposable
     }
     private static bool StorageError(Exception error) => error is IOException or UnauthorizedAccessException or JsonException or System.Security.SecurityException;
     private static RecorderClientException StorageFailure(Exception error, string fallback, string full = "buffer_storage_full") =>
-        error is RecorderClientException known ? known : new RecorderClientException((error.HResult & 0xffff) is 39 or 112 ? full : fallback);
+        error is RecorderClientException known ? known : new RecorderClientException((error.HResult & 0xffff) is 39 or 112 ? full : fallback)
+        { StorageStage = "buffer-open", StorageHResult = error.HResult };
 
     public async ValueTask DisposeAsync()
     {

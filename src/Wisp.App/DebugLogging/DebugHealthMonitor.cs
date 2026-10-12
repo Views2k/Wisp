@@ -11,7 +11,7 @@ internal sealed record DebugHealthUiContext(
     bool NativeExpected,
     bool RaceOn,
     int CarOrdinal,
-    uint GameTimestampMilliseconds);
+    uint GameTimestampMilliseconds, bool? CpuRendering = null, DebugFocus Focus = DebugFocus.Unknown);
 
 internal sealed class DebugHealthMonitor : IAsyncDisposable
 {
@@ -257,8 +257,8 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                     ListenerError = statistics.ListenerError is not null,
                     RaceOn = latest?.IsRaceOn ?? false,
                     GameTimestampAdvancing = gameTimestampAdvancing,
-                    // The automatic ring needs no additional foreground/process discovery.
-                    Focus = _log.IsEnabled ? _focus() : DebugFocus.Unknown,
+                    Focus = _log.IsEnabled ? _focus() : uiContextFresh ? context!.Focus : DebugFocus.Unknown,
+                    CpuRendering = uiContextFresh ? context?.CpuRendering : null,
                     UiContextFresh = uiContextFresh,
                     OverlayExpectedVisible = context?.OverlayExpectedVisible ?? false,
                     NativeExpected = context?.NativeExpected ?? false,
@@ -277,6 +277,7 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                     NativeGamePlatform = attachedBuild is null ? null : attachedBuild.StoreIdentity is null
                         ? DiagnosticGamePlatform.Steam : DiagnosticGamePlatform.XboxStore,
                     NativeCompatibilityRevision = attachedBuild?.Revision,
+                    GameVerification = _nativeHud.GameVerification,
                     NativeAgeMilliseconds = AgeMilliseconds(now, native.NativeGaugeObservedTimestamp),
                     NativeVisibilityAgeMilliseconds = AgeMilliseconds(now, native.VisibilityObservedTimestamp),
                     GameplayVisibility = native.GameplayVisibility.ToString(),

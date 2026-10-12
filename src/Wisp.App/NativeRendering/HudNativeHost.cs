@@ -55,7 +55,7 @@ internal sealed class HudNativeHost : IDisposable
         if (!Hosts.TryGetValue(window, out var host) || host._disposed || host._failed) return;
         try { host._compositionWindow?.Synchronize(host._snapshot?.Active == true); }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-        { host.OnStatus(false, error.HResult); }
+        { host.OnHostFailure(error.HResult); }
     }
     internal static void SetInteractive(Window window, bool interactive)
     {
@@ -69,7 +69,7 @@ internal sealed class HudNativeHost : IDisposable
                 host._sources.Any(source => IsPresented(source.Control)));
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-        { host.OnStatus(false, error.HResult); }
+        { host.OnHostFailure(error.HResult); }
         host.RequestCapture();
     }
 
@@ -162,7 +162,7 @@ internal sealed class HudNativeHost : IDisposable
             _capturing = true;
             try { Capture(); }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-            { OnStatus(false, error.HResult); }
+            { OnHostFailure(error.HResult); }
             finally { _capturing = false; }
         }));
     }
@@ -221,7 +221,7 @@ internal sealed class HudNativeHost : IDisposable
         _snapshot = new(width, height, visible && layers.Count > 0, layers.ToArray(), _vm?.NativeGaugeFrame ?? default, groupOpacity);
         if (_snapshot.Active)
         {
-            _compositionWindow ??= new NativeCompositionWindow(source, RequestCapture, error => OnStatus(false, error),
+            _compositionWindow ??= new NativeCompositionWindow(source, RequestCapture, OnHostFailure,
                 fillMonitor: _window is OverlayWindow);
             _compositionWindow.Synchronize(true);
             _snapshot = _snapshot with { HostOffsetX = _compositionWindow.OffsetX, HostOffsetY = _compositionWindow.OffsetY };
@@ -289,7 +289,7 @@ internal sealed class HudNativeHost : IDisposable
             if (_disposed || _failed || _snapshot is null || !presented.CompatibleWith(_snapshot)) return;
             try { _compositionWindow?.SetLayoutCloaked(!_interactive); }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-            { OnStatus(false, error.HResult); return; }
+            { OnHostFailure(error.HResult); return; }
             var visibleIds = presented.Layers.Select(layer => layer.Id).ToHashSet();
             foreach (var source in _sources)
             {
@@ -300,6 +300,12 @@ internal sealed class HudNativeHost : IDisposable
                 ? "HUD renderer: CPU (WARP) / DirectComposition" : "HUD renderer: Direct3D 11 / DirectComposition");
         }));
     }
+    private void OnHostFailure(int hresult)
+    {
+        DebugLogging.HealthContextRecorder.Current.RecordRendererFailure(hresult, DebugLogging.HealthFailureStage.RendererHost);
+        OnStatus(false, hresult);
+    }
+
     private void OnStatus(bool ready, int hresult)
     {
         if (_window.Dispatcher.HasShutdownStarted) return;

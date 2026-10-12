@@ -19,16 +19,7 @@ internal sealed record ClipExportFailureReport(string Message, string Details)
             "export-stopped-before-end" or "export-timeout" or "preparation-timeout" or "encoder-unavailable"
             ? code : "unspecified";
         var nativeCode = error is LosslessMpvException native ? SafeNativeCode(native.Code) : "none";
-        var category = nativeCode == "packet-queue-full" ? "media-queue-full"
-            : error is TimeoutException ? "timeout"
-            : error.HResult is unchecked((int)0x80070070) or unchecked((int)0x80070027) ? "disk-full"
-            : error is UnauthorizedAccessException or SecurityException || error.HResult == unchecked((int)0x80070005) ? "access-denied"
-            : reason == "export-size-limit" ? "size-limit"
-            : error is FileNotFoundException or DirectoryNotFoundException ? "file-unavailable"
-            : error is InvalidDataException ? "validation"
-            : error is NotSupportedException ? "unsupported-format"
-            : error is IOException ? "storage"
-            : error is LosslessMpvException ? "native-failure" : "unknown";
+        var category = FailureCategory(error, reason);
         var message = category switch
         {
             "media-queue-full" => "Export failed because the media queue filled. Copy the export details to report this.",
@@ -72,6 +63,18 @@ internal sealed record ClipExportFailureReport(string Message, string Details)
         DebugLogging.ComponentDiagnosticHistory.Current.RecordGenerated(DebugLogging.DiagnosticComponent.ClipExport, details);
         return new(message + " The original clip is kept.", details);
     }
+
+    internal static string FailureCategory(Exception error, string? reason = null) =>
+        error is LosslessMpvException { Code: "packet-queue-full" } ? "media-queue-full"
+            : error is TimeoutException ? "timeout"
+            : error.HResult is unchecked((int)0x80070070) or unchecked((int)0x80070027) ? "disk-full"
+            : error is UnauthorizedAccessException or SecurityException || error.HResult == unchecked((int)0x80070005) ? "access-denied"
+            : reason == "export-size-limit" ? "size-limit"
+            : error is FileNotFoundException or DirectoryNotFoundException ? "file-unavailable"
+            : error is InvalidDataException ? "validation"
+            : error is NotSupportedException ? "unsupported-format"
+            : error is IOException ? "storage"
+            : error is LosslessMpvException ? "native-failure" : "unknown";
 
     private static string SafeBuildId(string? value) => value is null ? "public"
         : value.Length is > 0 and <= 80 && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.')

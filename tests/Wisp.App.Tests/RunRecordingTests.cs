@@ -10,8 +10,47 @@ using Xunit;
 
 namespace Wisp.App.Tests;
 
+[Collection("Supplementary instrumentation")]
 public sealed class RunRecordingTests
 {
+    [Fact]
+    public async Task CaptureStartFailureReportsOnceAndLeavesReceiverAndReservationUsable()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "WispRunTests", Guid.NewGuid().ToString("N"));
+        var observations = new List<Supplementary.SupplementaryObservation>();
+        var previous = Supplementary.SupplementaryObservations.Observer;
+        Supplementary.SupplementaryObservations.Observer = observations.Add;
+        try
+        {
+            await using var receiver = new TelemetryUdpReceiver();
+            var port = AvailablePort();
+            await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+            using var sender = new UdpClient(AddressFamily.InterNetwork);
+            await sender.SendAsync(Packet(0), new IPEndPoint(IPAddress.Loopback, port), TestContext.Current.CancellationToken);
+            await WaitUntil(() => receiver.Latest is not null);
+            await using var service = new RunRecordingService(receiver, directory);
+            service.UpdateContext(new(Stopwatch.GetTimestamp(), 2468, DrivetrainType.RearWheelDrive, true));
+            var otherCapture = receiver.BeginRunCapture(2);
+            Assert.False(service.Start());
+            var failure = Assert.Single(observations, x => x.Feature == "runs" && x.Outcome == "failure");
+            Assert.Equal("runs-start", failure.Incident?.FailureStage);
+            Assert.Equal("InvalidOperationException", failure.Incident?.Exceptions?.Single().Type);
+            Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(failure.Incident!));
+            service.RefreshStatus();
+            service.RefreshStatus();
+            Assert.Single(observations, x => x.Feature == "runs" && x.Outcome == "failure");
+            Assert.True(receiver.IsRunning);
+            using var reservation = service.Store.TryReserveJournalStart();
+            Assert.NotNull(reservation);
+            receiver.EndRunCapture(otherCapture);
+        }
+        finally
+        {
+            Supplementary.SupplementaryObservations.Observer = previous;
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void TimestampWrapDuplicatesAndResetRetainDataWithoutInventingTime()
     {

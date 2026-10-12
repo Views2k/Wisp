@@ -6,8 +6,8 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Wisp.App;
 
-// Only the unknown-build path uses this gate. The caller still verifies the
-// file/process identity before and after it, and validates the reader layout.
+// Offline publisher checks shared by adaptive executable admission and Steam
+// runtime diagnostics. Reader admission retains its own process identity checks.
 internal static class NativeSteamPublisherTrust
 {
     internal static readonly Guid AuthenticodeAction = new("00AAC56B-CD44-11D0-8CC2-00C04FC295EE");
@@ -18,7 +18,10 @@ internal static class NativeSteamPublisherTrust
 
     internal static bool TryVerify(string executablePath) => TryVerify(executablePath, WindowsTrustApi.Instance);
 
-    internal static bool TryVerify(string executablePath, ITrustApi api)
+    internal static bool TryVerifySteamApi(string path) => TryVerify(path, WindowsTrustApi.Instance, true);
+    internal static bool TryVerify(string executablePath, ITrustApi api) => TryVerify(executablePath, api, false);
+
+    internal static bool TryVerify(string executablePath, ITrustApi api, bool steamApi)
     {
         ArgumentNullException.ThrowIfNull(api);
         var pathPointer = IntPtr.Zero;
@@ -56,7 +59,7 @@ internal static class NativeSteamPublisherTrust
             {
                 // WinVerifyTrust returns a LONG status, not a Win32 last-error value.
                 if (api.Verify(ref action, ref data) != 0 || data.StateData == IntPtr.Zero) return false;
-                return IsPlaygroundGamesPublisher(api.ReadPrimarySignerSubject(data.StateData));
+                return IsPublisher(api.ReadPrimarySignerSubject(data.StateData), steamApi);
             }
             finally
             {
@@ -82,7 +85,8 @@ internal static class NativeSteamPublisherTrust
         }
     }
 
-    internal static bool IsPlaygroundGamesPublisher(X500DistinguishedName? subject)
+    internal static bool IsPlaygroundGamesPublisher(X500DistinguishedName? subject) => IsPublisher(subject, false);
+    internal static bool IsPublisher(X500DistinguishedName? subject, bool steamApi)
     {
         if (subject is null) return false;
         string? commonName = null;
@@ -104,8 +108,9 @@ internal static class NativeSteamPublisherTrust
                     break;
             }
         }
-        return string.Equals(commonName, "Playground Games", StringComparison.Ordinal) &&
-               string.Equals(organization, "Playground Games", StringComparison.Ordinal);
+        var names = steamApi ? new[] { "Valve Corp.", "Valve Corporation" } : ["Playground Games"];
+        return names.Any(name => string.Equals(commonName, name, StringComparison.Ordinal) &&
+            string.Equals(organization, name, StringComparison.Ordinal));
     }
 
     internal interface ITrustApi

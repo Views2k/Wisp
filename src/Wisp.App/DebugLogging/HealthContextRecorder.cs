@@ -13,11 +13,18 @@ internal enum HealthEventCode
     ClipActionFailed, TuneReadFailed, SettingsSaveFailed, RendererFailed, HealthCollectionFailed, LapReviewFailed
 }
 
+internal enum HealthFailureStage
+{
+    Unknown, RendererState, RendererCreate, RendererResize, RendererPosition, RendererResume,
+    RendererVisibility, RendererFrameWait, RendererDraw, RendererPresent, RendererMotion,
+    RendererRetryWait, RendererHost, LapMap, LapExport
+}
+
 internal enum HealthPlayerState { Closed, Preparing, ReadyPaused, Playing, Buffering, Ended, Failed }
 internal enum HealthPresentResult { Submitted, Busy, Occluded, Failed }
 
 internal sealed record HealthBreadcrumb(DateTimeOffset TimestampUtc, HealthEventCode Code,
-    int ErrorCode, ClipRecorderState? RecorderState, HealthPlayerState? PlayerState);
+    int ErrorCode, ClipRecorderState? RecorderState, HealthPlayerState? PlayerState, HealthFailureStage FailureStage = HealthFailureStage.Unknown);
 
 internal sealed record HealthRendererSample(long PresentCalls, long Submissions, long BusyResults,
     long OccludedResults, long Failures, long QueueDropped, int LastErrorCode,
@@ -39,6 +46,9 @@ internal sealed record HealthContextSample
     public bool ListenerRunning { get; init; }
     public bool ListenerError { get; init; }
     public bool GameActive { get; init; }
+    public DebugFocus Focus { get; init; }
+    public bool? CpuRendering { get; init; }
+    public ClipRecorderState? RecorderState { get; init; }
     public bool GameTimestampAdvancing { get; init; }
     public bool OverlayExpectedVisible { get; init; }
     public double? UiHeartbeatAgeMs { get; init; }
@@ -50,6 +60,7 @@ internal sealed record HealthContextSample
     public bool NativeExpected { get; init; }
     public NativeAssistProviderStatus NativeStatus { get; init; }
     public string? NativeGameVersion { get; init; }
+    public NativeGameVerification? GameVerification { get; init; }
     public DiagnosticGamePlatform? NativeGamePlatform { get; init; }
     public int? NativeCompatibilityRevision { get; init; }
     public long NativeReadAttempts { get; init; }
@@ -83,6 +94,7 @@ internal sealed class HealthContextRecorder
     private long _presentCalls, _submissions, _busy, _occluded, _failures, _queueDropped;
     private long _queueAgeTicks, _maximumQueueAgeTicks, _queueAgeSamples;
     private int _lastErrorCode;
+    private int _recorderState = -1;
 
     internal HealthContextRecorder(Func<long>? timestamp = null) => _timestamp = timestamp ?? Stopwatch.GetTimestamp;
 
@@ -106,12 +118,13 @@ internal sealed class HealthContextRecorder
     // These hooks are allocation-free after initialization. Contended event slots are dropped,
     // never waited on; the drop count accompanies the next snapshot.
     internal void RecordBreadcrumb(HealthEventCode code, int errorCode = 0,
-        ClipRecorderState? recorderState = null, HealthPlayerState? playerState = null)
+        ClipRecorderState? recorderState = null, HealthPlayerState? playerState = null, HealthFailureStage failureStage = HealthFailureStage.Unknown)
     {
-        if ((uint)code > (uint)HealthEventCode.LapReviewFailed ||
+        if ((uint)code > (uint)HealthEventCode.LapReviewFailed || (uint)failureStage > (uint)HealthFailureStage.LapExport ||
             recorderState is { } checkedRecorder && (uint)checkedRecorder > (uint)ClipRecorderState.Paused ||
             playerState is { } checkedPlayer && (uint)checkedPlayer > (uint)HealthPlayerState.Failed) return;
         var sequence = Interlocked.Increment(ref _breadcrumbSequence);
+        if (recorderState is { } currentRecorder) Volatile.Write(ref _recorderState, (int)currentRecorder);
         var slot = _breadcrumbs[(int)((sequence - 1) % BreadcrumbCapacity)];
         if (Interlocked.CompareExchange(ref slot.Writing, 1, 0) != 0)
         { Interlocked.Increment(ref _droppedBreadcrumbs); return; }
@@ -121,7 +134,7 @@ internal sealed class HealthContextRecorder
             { Interlocked.Increment(ref _droppedBreadcrumbs); return; }
             Volatile.Write(ref slot.Sequence, 0);
             slot.UtcTicks = DateTimeOffset.UtcNow.UtcTicks;
-            slot.Code = (int)code; slot.ErrorCode = errorCode;
+            slot.Code = (int)code; slot.ErrorCode = errorCode; slot.FailureStage = (int)failureStage;
             slot.RecorderState = recorderState is { } recorder ? (int)recorder : -1;
             slot.PlayerState = playerState is { } player ? (int)player : -1;
             Volatile.Write(ref slot.Sequence, sequence);
@@ -143,11 +156,11 @@ internal sealed class HealthContextRecorder
         UpdateMaximum(ref _maximumQueueAgeTicks, age);
     }
 
-    internal void RecordRendererFailure(int hresult)
+    internal void RecordRendererFailure(int hresult, HealthFailureStage stage = HealthFailureStage.RendererState)
     {
         Interlocked.Increment(ref _failures);
         Volatile.Write(ref _lastErrorCode, hresult);
-        RecordBreadcrumb(HealthEventCode.RendererFailed, hresult);
+        RecordBreadcrumb(HealthEventCode.RendererFailed, hresult, failureStage: stage);
     }
 
     internal void RecordQueueDrop(int count)
@@ -186,6 +199,9 @@ internal sealed class HealthContextRecorder
                 ListenerRunning = sample.ListenerRunning,
                 ListenerError = sample.ListenerError,
                 GameActive = sample.RaceOn,
+                Focus = Enum.IsDefined(sample.Focus) ? sample.Focus : DebugFocus.Unknown,
+                CpuRendering = sample.CpuRendering,
+                RecorderState = Volatile.Read(ref _recorderState) is var recorder && recorder >= 0 ? (ClipRecorderState)recorder : null,
                 GameTimestampAdvancing = sample.GameTimestampAdvancing,
                 OverlayExpectedVisible = sample.OverlayExpectedVisible,
                 UiHeartbeatAgeMs = Optional(sample.UiHeartbeatAgeMilliseconds),
@@ -198,6 +214,7 @@ internal sealed class HealthContextRecorder
                 NativeStatus = Enum.TryParse<NativeAssistProviderStatus>(sample.NativeStatus, out var status) && Enum.IsDefined(status)
                     ? status : NativeAssistProviderStatus.Unavailable,
                 NativeGameVersion = SafeGameVersion(sample.NativeGameVersion),
+                GameVerification = sample.GameVerification is { IsValid: true } verified ? verified : null,
                 NativeGamePlatform = sample.NativeGamePlatform is { } platform && Enum.IsDefined(platform) ? platform : null,
                 NativeCompatibilityRevision = sample.NativeCompatibilityRevision is > 0 ? sample.NativeCompatibilityRevision : null,
                 NativeReadAttempts = Math.Max(0, sample.NativeReadAttempts),
@@ -225,18 +242,19 @@ internal sealed class HealthContextRecorder
         Utc(value.CapturedAtUtc) && !value.Samples.IsDefault && value.Samples.Length <= SampleCapacity &&
         !value.Breadcrumbs.IsDefault && value.Breadcrumbs.Length <= BreadcrumbCapacity && value.DroppedBreadcrumbs >= 0 &&
         value.Samples.All(ValidSample) && value.Breadcrumbs.All(entry => entry is not null && Utc(entry.TimestampUtc) &&
-            Enum.IsDefined(entry.Code) && (entry.RecorderState is null || Enum.IsDefined(entry.RecorderState.Value)) &&
+            Enum.IsDefined(entry.Code) && Enum.IsDefined(entry.FailureStage) && (entry.RecorderState is null || Enum.IsDefined(entry.RecorderState.Value)) &&
             (entry.PlayerState is null || Enum.IsDefined(entry.PlayerState.Value)));
 
     private static bool ValidSample(HealthContextSample? s) => s is not null && Utc(s.TimestampUtc) &&
         Valid(s.CollectionGapMs) && Valid(s.IncomingDatagramsPerSecond) && Valid(s.ProcessedPacketsPerSecond) &&
         s.AcceptedPackets >= 0 && s.RejectedPackets >= 0 && s.ReceivedDatagrams >= 0 && s.DrainedDatagrams >= 0 && s.ProcessedPackets >= 0 &&
-        Valid(s.PacketAgeMs) && Valid(s.UiHeartbeatAgeMs) &&
+        Valid(s.PacketAgeMs) && Valid(s.UiHeartbeatAgeMs) && Enum.IsDefined(s.Focus) &&
+        (s.RecorderState is null || Enum.IsDefined(s.RecorderState.Value)) &&
         Valid(s.DispatcherDelayMs) && Valid(s.CompositionCallbacksPerSecond) && Valid(s.CompositionCallbackAgeMs) &&
         Valid(s.CompositionMaximumGapMs) && Enum.IsDefined(s.NativeStatus) && s.NativeReadAttempts >= 0 && s.NativeReadFailures >= 0 &&
         s.NativeGameVersion == SafeGameVersion(s.NativeGameVersion) &&
         (s.NativeGamePlatform is null || Enum.IsDefined(s.NativeGamePlatform.Value)) &&
-        (s.NativeCompatibilityRevision is null or > 0) &&
+        (s.NativeCompatibilityRevision is null or > 0) && (s.GameVerification is null || s.GameVerification.IsValid) &&
         Valid(s.NativeAgeMs) && Valid(s.CpuPercent) && (s.CpuPercent is null || s.CpuPercent <= 100) &&
         s.WorkingSetBytes >= 0 && s.ManagedHeapBytes >= 0 && s.Gen2Collections >= 0 && s.CollectorFailures >= 0 &&
         s.Renderer is { } r && r.PresentCalls >= 0 && r.Submissions >= 0 && r.BusyResults >= 0 && r.OccludedResults >= 0 &&
@@ -252,10 +270,10 @@ internal sealed class HealthContextRecorder
             var sequence = Volatile.Read(ref slot.Sequence);
             if (sequence <= 0) continue;
             var ticks = slot.UtcTicks; var code = slot.Code; var error = slot.ErrorCode;
-            var recorder = slot.RecorderState; var player = slot.PlayerState;
+            var recorder = slot.RecorderState; var player = slot.PlayerState; var failureStage = slot.FailureStage;
             if (Volatile.Read(ref slot.Sequence) != sequence || Volatile.Read(ref slot.Writing) != 0) continue;
             result.Add((sequence, new(new DateTimeOffset(ticks, TimeSpan.Zero), (HealthEventCode)code, error,
-                recorder >= 0 ? (ClipRecorderState)recorder : null, player >= 0 ? (HealthPlayerState)player : null)));
+                recorder >= 0 ? (ClipRecorderState)recorder : null, player >= 0 ? (HealthPlayerState)player : null, (HealthFailureStage)failureStage)));
         }
         return result.OrderBy(item => item.Sequence).Select(item => item.Value).ToImmutableArray();
     }
@@ -279,7 +297,7 @@ internal sealed class HealthContextRecorder
 
     private sealed class BreadcrumbSlot
     {
-        internal int Writing, Code, ErrorCode, RecorderState, PlayerState;
+        internal int Writing, Code, ErrorCode, RecorderState, PlayerState, FailureStage;
         internal long Sequence, UtcTicks;
     }
 }

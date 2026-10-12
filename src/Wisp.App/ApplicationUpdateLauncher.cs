@@ -13,7 +13,7 @@ internal enum ApplicationUpdateHandoffState
     TimedOut
 }
 
-internal readonly record struct ApplicationUpdateResultStatus(string Status, string Action, string Outcome = "unknown");
+internal readonly record struct ApplicationUpdateResultStatus(string Status, string Action, string Outcome = "unknown", Supplementary.SupplementaryIncident? Incident = null);
 
 internal sealed class ApplicationUpdateHandoff : IDisposable
 {
@@ -298,7 +298,7 @@ internal static class ApplicationUpdateLauncher
                     : null;
                 result = new ApplicationUpdateResultStatus(
                     FailureStatus(recoveryState),
-                    "Try again", "failure");
+                    "Try again", "failure", UpdateResultIncident(root, recoveryState));
                 return true;
             }
 
@@ -313,6 +313,18 @@ internal static class ApplicationUpdateLauncher
         {
             TryDelete(consumedPath);
         }
+    }
+
+    private static Supplementary.SupplementaryIncident UpdateResultIncident(JsonElement root, string? recovery)
+    {
+        var reason = root.TryGetProperty("errorCode", out var error) && error.ValueKind == JsonValueKind.String
+            ? error.GetString()?.ToLowerInvariant().Replace('_', '-') : null;
+        if (reason is null || !Supplementary.SupplementaryIncidentSchema.UpdateFailureReasons.Contains(reason))
+            reason = "update-unexpected-failure";
+        if (recovery is null || !Supplementary.SupplementaryIncidentSchema.UpdateRecoveries.Contains(recovery)) recovery = "unknown";
+        uint? Number(string name) => root.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.Number && field.TryGetUInt32(out var number) ? number : null;
+        return Supplementary.SupplementaryIncidentSchema.Create("update", reason, "update-installed", Number("nativeErrorCode"),
+            update: new(recovery, Number("installerExitCode")));
     }
 
     private static string FailureStatus(string? recoveryState) => recoveryState switch

@@ -35,6 +35,7 @@ public partial class App : Application
     private readonly CrashReportStore _crashReports;
     private readonly CrashExceptionMonitor _crashMonitor;
     private readonly CrashReport? _previousCrashReport;
+    private readonly Guid _runId = Guid.NewGuid();
     private RunExitMarkerStore? _runExitMarker;
     private CancellationTokenSource? _previousRunCancellation;
     private int _fatalExit;
@@ -42,7 +43,7 @@ public partial class App : Application
     public App()
     {
         _crashReports = CrashReportStore.Current;
-        _crashMonitor = new CrashExceptionMonitor(_crashReports, runId: () => _runExitMarker?.RunId);
+        _crashMonitor = new CrashExceptionMonitor(_crashReports, runId: () => _runId);
         DispatcherUnhandledException += OnUnhandledUiException;
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledBackgroundException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
@@ -76,7 +77,7 @@ public partial class App : Application
             return;
         }
 
-        _runExitMarker = RunExitMarkerStore.BeginCurrent();
+        _runExitMarker = RunExitMarkerStore.BeginCurrent(_runId);
         _activationEvent = new EventWaitHandle(
             initialState: false,
             EventResetMode.AutoReset,
@@ -87,7 +88,9 @@ public partial class App : Application
         var settings = settingsService.Load();
         _controller = new AppController(settings, settingsService);
         StartSupplementaryReporting();
-        RecordSupplementarySignal("settings", "settings", settingsService.LoadOutcome, "load");
+        RecordSupplementarySignal("settings", "settings", settingsService.LoadOutcome, "load",
+            incident: settingsService.LoadFailure is { } loadFailure ? Supplementary.SupplementaryIncidentSchema.Create(
+                "settings", loadFailure.Reason, "settings-load", loadFailure.Code) : null);
         _controller.ViewModel.InitializeCrashReport(_previousCrashReport, _crashReports.AcknowledgeThrough);
         if (_runExitMarker?.Previous is { } previous)
         {
@@ -133,7 +136,7 @@ public partial class App : Application
         _controller.SetClipHotkeyRegistrations(_clipToggleHotkey.Apply, _clipSaveHotkey.Apply);
         if (ApplicationUpdateLauncher.TryConsumeResult(out var updateResult))
         {
-            RecordSupplementarySignal("update", "update", updateResult.Outcome, "installed");
+            RecordSupplementarySignal("update", "update", updateResult.Outcome, "installed", incident: updateResult.Incident);
             _controller.ViewModel.UpdateApplicationUpdateStatus(
                 updateResult.Status,
                 updateResult.Action,
@@ -257,9 +260,17 @@ public partial class App : Application
         catch (Exception) { } // Diagnostics and shutdown races must not interrupt startup.
     }
 
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        base.OnSessionEnding(e);
+        if (!e.Cancel && Volatile.Read(ref _fatalExit) == 0)
+            _runExitMarker?.MarkShutdownStarted(ShutdownIntent.OperatingSystem);
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         _exiting = true;
+        if (Volatile.Read(ref _fatalExit) == 0) _runExitMarker?.MarkShutdownStarted(ShutdownIntent.Requested);
         StopSupplementaryReporting();
         _previousRunCancellation?.Cancel();
         var shutdownCompleted = false;
@@ -466,7 +477,8 @@ public partial class App : Application
             }
             catch (Exception exception) when (exception is ArgumentOutOfRangeException or System.Net.Sockets.SocketException)
             {
-                RecordSupplementarySignal("connection", "telemetry", "failure", "binding");
+                RecordSupplementarySignal("connection", "telemetry", "failure", "binding", incident:
+                    DebugLogging.SupplementaryOperationFailure.Capture("telemetry", "binding", exception, DateTimeOffset.UtcNow));
                 _runtimeActive = false;
                 _startupTray?.SetWaiting(true);
                 _controller.ViewModel.ReportControlError(exception.Message);
@@ -594,7 +606,8 @@ public partial class App : Application
                                            System.Security.SecurityException)
         {
             var error = ApplicationUpdateLauncher.DescribeStartFailure(exception);
-            RecordSupplementarySignal("update", "update", "failure", "install-handoff");
+            RecordSupplementarySignal("update", "update", "failure", "install-handoff", incident:
+                DebugLogging.SupplementaryOperationFailure.Capture("update", "install-handoff", exception, DateTimeOffset.UtcNow));
             _applicationUpdateHandoffActive = false;
             _controller.Runs.CancelMetadataClosePreparation();
             _controller.ViewModel.UpdateApplicationUpdateStatus(error, "Try again", canCheck: true);
@@ -616,14 +629,17 @@ public partial class App : Application
                 _controller.Runs.CancelMetadataClosePreparation();
                 const string waitError =
                     "The update helper could not complete its safety checks. Wisp stayed open and no files were installed.";
-                RecordSupplementarySignal("update", "update", "failure", "install-handoff");
+                RecordSupplementarySignal("update", "update", "failure", "install-handoff", incident:
+                DebugLogging.SupplementaryOperationFailure.Capture("update", "install-handoff", exception, DateTimeOffset.UtcNow));
                 _controller.ViewModel.UpdateApplicationUpdateStatus(waitError, "Try again", canCheck: true);
                 return (false, waitError);
             }
 
             if (handoffState != ApplicationUpdateHandoffState.Ready)
             {
-                RecordSupplementarySignal("update", "update", handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "failure", "install-handoff");
+                RecordSupplementarySignal("update", "update", handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "failure", "install-handoff",
+                    incident: Supplementary.SupplementaryIncidentSchema.Create("update",
+                        handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "update-verification-failed", "update-install-handoff"));
                 handoff.StopIfRunning();
                 _applicationUpdateHandoffActive = false;
                 _controller.Runs.CancelMetadataClosePreparation();
@@ -636,6 +652,7 @@ public partial class App : Application
         }
 
         _controller.MarkApplicationUpdateStarting(installer);
+        _runExitMarker?.MarkShutdownStarted(ShutdownIntent.Update);
         _applicationUpdateHandoffActive = false;
         _exiting = true;
         _forzaStartupTimer?.Stop();

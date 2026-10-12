@@ -22,6 +22,7 @@ internal sealed record DebugHealthSample
     public bool RaceOn { get; init; }
     public bool GameTimestampAdvancing { get; init; }
     public DebugFocus Focus { get; init; }
+    public bool? CpuRendering { get; init; }
     public bool UiContextFresh { get; init; }
     public bool OverlayExpectedVisible { get; init; }
     public bool NativeExpected { get; init; }
@@ -36,6 +37,7 @@ internal sealed record DebugHealthSample
     public long NativeReadFailures { get; init; }
     public string NativeStatus { get; init; } = "Unknown";
     public string? NativeGameVersion { get; init; }
+    public NativeGameVerification? GameVerification { get; init; }
     public DiagnosticGamePlatform? NativeGamePlatform { get; init; }
     public int? NativeCompatibilityRevision { get; init; }
     public double? NativeAgeMilliseconds { get; init; }

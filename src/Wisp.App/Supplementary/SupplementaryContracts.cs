@@ -11,7 +11,7 @@ internal sealed record SupplementaryEvent(int SchemaVersion, Guid EventId, Guid 
     string? Stage = null, SupplementaryMeasurements? Measurements = null, string? RenderMode = null,
     SupplementaryRelatedRun? RelatedRun = null, SupplementarySessionSummary? SessionSummary = null,
     long? SessionAgeMs = null, SupplementaryIncident? Incident = null, SupplementaryActivitySummary? ActivitySummary = null,
-    SupplementaryEnvironment? Environment = null, string? ForegroundState = null, SupplementaryObservationClock? Clock = null);
+    SupplementaryEnvironment? Environment = null, string? ForegroundState = null, SupplementaryObservationClock? Clock = null, NativeGameVerification? GameVerification = null);
 
 internal sealed record SupplementaryObservationClock(int SchemaVersion, DateTimeOffset ServerAnchorAt, long AnchorAgeMs,
     long ObservationAgeMs, int UncertaintyMs)
@@ -120,6 +120,7 @@ internal static partial class SupplementarySchema
             value.AppVersion, value.BuildId, value.Channel, now, checkObservationTime: value.Clock is null) &&
         (value.Clock is null || value.Clock.IsValid) && Kinds.Contains(value.Kind) && Features.Contains(value.Feature) &&
         Outcomes.Contains(value.Outcome) && Platforms.Contains(value.Platform) &&
+        (value.GameVerification is null || value.GameVerification.IsValid) &&
         Number(value.DurationMs, 604_800_000) && Number(value.Value, 1_000_000_000_000) &&
         (value.GameBuild is null || NumericVersion(value.GameBuild, app: false)) &&
         (value.Stage is null || Stages.Contains(value.Stage)) && (value.RenderMode is null or "cpu" or "gpu") &&
@@ -127,8 +128,10 @@ internal static partial class SupplementarySchema
         (value.ActivitySummary is null || value.Kind == "heartbeat" && value.ActivitySummary.IsValid) &&
         (value.Environment is null || value.Kind == "heartbeat" && value.Environment.IsValid(value.ObservedAt)) &&
         (value.ForegroundState is null || value.Kind == "heartbeat" && value.ForegroundState is "game" or "wisp" or "other" or "unknown") &&
-        (value.Incident is null || (value.Kind == "exception" || value.Outcome is "failure" or "unsupported" or "timeout" or "unknown") &&
-            value.Outcome is not ("success" or "attempt") && SupplementaryIncidentSchema.Valid(value.Incident)) &&
+        (value.Incident is null || (value.Kind == "exception" || value.Outcome is "failure" or "unsupported" or "timeout" or "unknown" ||
+            value.Kind == "clips" && value.Outcome == "idle" && value.Incident.Recorder?.Resolution is not null) &&
+            value.Outcome is not ("success" or "attempt") &&
+            (value.Incident.Recorder?.Resolution is null || value.Kind == "clips" && value.Outcome == "idle") && SupplementaryIncidentSchema.Valid(value.Incident)) &&
         (value.SessionAgeMs is null || value.Kind == "resource" && value.SessionAgeMs is >= 0 and <= 1_000_000_000_000 &&
             value.Stage is "cpu" or "working-set" or "managed-heap" && value.Value is not null &&
             value.DurationMs is null && value.Measurements is null) &&

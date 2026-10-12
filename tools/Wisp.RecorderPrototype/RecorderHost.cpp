@@ -189,6 +189,8 @@ namespace recorder::host
         struct DiagnosticSnapshot
         {
             FailureDiagnostic first;
+            bool notice = false, adapterKnown = false, hardwareCandidatesKnown = false;
+            UINT adapterVendorId = 0, adapterDeviceId = 0, hardwareCandidates = 0;
             DiagnosticComponent capture, video, conversion, aac, spool, audio, mux;
             const char* timelineReason = "not_started";
             std::int64_t audioResidual100ns = 0;
@@ -225,7 +227,9 @@ namespace recorder::host
                 "\"conversion\":{\"reason\":\"%s\",\"hr\":%lu},\"aac\":{\"reason\":\"%s\",\"hr\":%lu},"
                 "\"spool\":{\"reason\":\"%s\",\"hr\":%lu},\"audioSourceCompleted\":%s,"
                 "\"audio\":{\"reason\":\"%s\",\"hr\":%lu},\"mux\":{\"reason\":\"%s\",\"hr\":%lu},"
-                "\"timelineReason\":\"%s\",\"audioResidual100ns\":%lld,\"audioMaxResidual100ns\":%llu,\"audioAllowance100ns\":%llu}\n",
+                "\"timelineReason\":\"%s\",\"audioResidual100ns\":%lld,\"audioMaxResidual100ns\":%llu,\"audioAllowance100ns\":%llu,"
+                "\"notice\":%s,\"adapterKnown\":%s,\"adapterVendorId\":%u,\"adapterDeviceId\":%u,"
+                "\"hardwareCandidatesKnown\":%s,\"hardwareCandidates\":%u}\n",
                 protocol::Name(first.reason), hr(first.hr), DiagnosticToken(first.stage),
                 static_cast<unsigned long long>(first.videoPackets), static_cast<unsigned long long>(first.audioPackets), first.submittedFrames,
                 first.schedulerLagKnown ? "true" : "false", static_cast<long long>(first.schedulerLag100ns),
@@ -236,7 +240,9 @@ namespace recorder::host
                 DiagnosticToken(value.spool.reason), hr(value.spool.hr), value.audioSourceCompleted ? "true" : "false",
                 DiagnosticToken(value.audio.reason), hr(value.audio.hr), DiagnosticToken(value.mux.reason), hr(value.mux.hr),
                 DiagnosticToken(value.timelineReason), static_cast<long long>(value.audioResidual100ns),
-                static_cast<unsigned long long>(value.audioMaxResidual100ns), static_cast<unsigned long long>(value.audioAllowance100ns));
+                static_cast<unsigned long long>(value.audioMaxResidual100ns), static_cast<unsigned long long>(value.audioAllowance100ns),
+                value.notice ? "true" : "false", value.adapterKnown ? "true" : "false", value.adapterVendorId, value.adapterDeviceId,
+                value.hardwareCandidatesKnown ? "true" : "false", value.hardwareCandidates);
             if (size <= 0 || static_cast<std::size_t>(size) >= output.size()) { output.fill(0); return 0; }
             return static_cast<std::size_t>(size);
         }
@@ -252,7 +258,19 @@ namespace recorder::host
             // Never retry the write or change those watchdog limits.
             (void)WriteFile(error, output.data(), static_cast<DWORD>(size), &written, nullptr);
         }
-        constexpr DWORD FatalExit = 30;
+        constexpr DWORD FatalExit = 30, WatchdogWaitExit = 31, ShutdownTimeoutExit = 32,
+            StartupTimeoutExit = 33, SaveTimeoutExit = 34, ProgressTimeoutExit = 35;
+        struct DiagnosticBudget
+        {
+            unsigned saves = 0;
+            bool terminal = false;
+            bool Take(bool save, Reason reason) noexcept
+            {
+                if (reason == Reason::Cancelled || (save ? saves >= 3 : terminal)) return false;
+                if (save) ++saves; else terminal = true;
+                return true;
+            }
+        };
         constexpr ULONGLONG StartupLimitMs = 14000, ProgressLimitMs = 12000, StopLimitMs = 4500;
         constexpr ULONGLONG SaveCancelMs = 290000, SaveKillMs = 295000;
         struct Failure { Reason reason; HRESULT hr; };
@@ -268,9 +286,9 @@ namespace recorder::host
                 throw Failure{ Reason::StorageFailed, HRESULT_FROM_WIN32(GetLastError()) };
             return available.QuadPart;
         }
-        [[noreturn]] void TerminateSelf() noexcept
+        [[noreturn]] void TerminateSelf(DWORD code = FatalExit) noexcept
         {
-            (void)TerminateProcess(GetCurrentProcess(), FatalExit);
+            (void)TerminateProcess(GetCurrentProcess(), code);
             std::terminate();
         }
         struct Handle
@@ -351,13 +369,14 @@ namespace recorder::host
                     {
                         const DWORD wait = WaitForSingleObject(watchdogStop.value, 100);
                         if (wait == WAIT_OBJECT_0) return;
-                        if (wait != WAIT_TIMEOUT) TerminateSelf();
+                        if (wait != WAIT_TIMEOUT) TerminateSelf(WatchdogWaitExit);
                         const auto now = GetTickCount64();
                         const auto stop = stopping.load(), start = startup.load(), save = saving.load();
                         if (abort.load() || (save && now - save >= SaveCancelMs)) exportCancel.store(true);
-                        if ((stop && now - stop >= StopLimitMs) || (start && now - start >= StartupLimitMs) ||
-                            (save && now - save >= SaveKillMs) ||
-                            (mediaActive.load() && now - progress.load() >= ProgressLimitMs)) TerminateSelf();
+                        if (stop && now - stop >= StopLimitMs) TerminateSelf(ShutdownTimeoutExit);
+                        if (start && now - start >= StartupLimitMs) TerminateSelf(StartupTimeoutExit);
+                        if (save && now - save >= SaveKillMs) TerminateSelf(SaveTimeoutExit);
+                        if (mediaActive.load() && now - progress.load() >= ProgressLimitMs) TerminateSelf(ProgressTimeoutExit);
                     }
                 });
                 writer = std::thread([this]
@@ -566,6 +585,7 @@ namespace recorder::host
             Reason Error() const noexcept { return reason_; }
             DWORD WaitMilliseconds() noexcept;
             void EmitFailureDiagnostic(Reason, HRESULT, const char*) noexcept;
+            DiagnosticSnapshot CaptureDiagnostic(Reason, HRESULT, const char*, bool) noexcept;
 
             HRESULT OnConfiguration(IMFMediaType*, const encoder::EncodeConfig&) noexcept override { return S_OK; }
             HRESULT OnPacket(IMFMediaType*, IMFSample*) noexcept override;
@@ -653,7 +673,10 @@ namespace recorder::host
             ULONGLONG resumeBegan_ = 0;
             const char* diagnosticStage_ = "not_started";
             FailureDiagnostic firstFailure_{};
-            bool diagnosticWritten_ = false, schedulerLagKnown_ = false, sourceAgeKnown_ = false, localFrameAgeKnown_ = false;
+            bool schedulerLagKnown_ = false, sourceAgeKnown_ = false, localFrameAgeKnown_ = false;
+            DiagnosticBudget diagnosticBudget_;
+            std::array<DiagnosticSnapshot, 2> startupNotices_{};
+            unsigned startupNoticeCount_ = 0;
             std::int64_t schedulerLag100ns_ = 0, sourceAge100ns_ = 0, localFrameAge100ns_ = 0;
         };
 
@@ -669,13 +692,33 @@ namespace recorder::host
         }
         void MediaSession::EmitFailureDiagnostic(Reason reason, HRESULT hr, const char* stage) noexcept
         {
-            if (diagnosticWritten_ || !shared_.watchdog.joinable()) return;
-            diagnosticWritten_ = true;
-            if (!firstFailure_.recorded) { diagnosticStage_ = stage; RememberFailure(reason, hr); }
+            if (!shared_.watchdog.joinable() || reason == Reason::Cancelled) return;
+            const bool saveFailure = stage && std::strncmp(stage, "save_", 5) == 0;
+            // Reserve one of four bounded lines for the terminal capture failure.
+            if (!diagnosticBudget_.Take(saveFailure, reason)) return;
+            WriteDiagnostic(CaptureDiagnostic(reason, hr, stage, false));
+        }
+        DiagnosticSnapshot MediaSession::CaptureDiagnostic(Reason reason, HRESULT hr, const char* stage, bool notice) noexcept
+        {
             DiagnosticSnapshot snapshot;
-            snapshot.first = firstFailure_;
+            snapshot.notice = notice;
+            if (notice || (stage && std::strncmp(stage, "save_", 5) == 0))
+            {
+                snapshot.first.Record(reason, hr, stage);
+                snapshot.first.videoPackets = videoPackets_; snapshot.first.audioPackets = audioPackets_;
+                snapshot.first.submittedFrames = UsesNvenc() ? losslessVideo_.Result().submitted : video_.Result().submitted;
+            }
+            else
+            {
+                if (!firstFailure_.recorded) { diagnosticStage_ = stage; RememberFailure(reason, hr); }
+                snapshot.first = firstFailure_;
+            }
             const auto capture = capture_.Result();
             snapshot.capture = { capture.reason, capture.hr };
+            snapshot.adapterKnown = capture.adapterKnown;
+            snapshot.adapterVendorId = capture.adapterVendorId; snapshot.adapterDeviceId = capture.adapterDeviceId;
+            snapshot.hardwareCandidatesKnown = !UsesNvenc() && std::strcmp(video_.Result().reason, "not_started") != 0;
+            snapshot.hardwareCandidates = video_.Result().hardwareCandidates;
             snapshot.video = { VideoReasonText(), VideoError() };
             snapshot.conversion = { conversionEvidence_.reason, conversionEvidence_.hr };
             snapshot.aac = { audioEncoder_.Result().reason, audioEncoder_.Result().hr };
@@ -691,7 +734,7 @@ namespace recorder::host
             snapshot.audioMaxResidual100ns = timeline.maximumAbsoluteResidual100ns;
             snapshot.audioAllowance100ns = timeline.policyAllowance100ns;
             if (save_ && save_->done.load()) snapshot.mux = { save_->result.media.reason, save_->result.media.hr };
-            WriteDiagnostic(snapshot);
+            return snapshot;
         }
         std::uint64_t MediaSession::Now()
         {
@@ -748,8 +791,10 @@ namespace recorder::host
                 Require(QueryPerformanceFrequency(&frequency) && frequency.QuadPart >= audio::SampleRate, Reason::CaptureFailed);
                 frequency_ = static_cast<std::uint64_t>(frequency.QuadPart);
                 qpcRounding_ = 10000000 / frequency_ + (10000000 % frequency_ != 0 ? 1 : 0);
+                diagnosticStage_ = "capture_target";
                 process_.value = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, command.processId);
-                Require(process_.value != nullptr && GetProcessId(process_.value) == command.processId, Reason::TargetChanged);
+                if (!process_.value) throw Failure{ Reason::CaptureFailed, HRESULT_FROM_WIN32(GetLastError()) };
+                Require(GetProcessId(process_.value) == command.processId, Reason::TargetChanged);
                 FILETIME creation{}, exit{}, kernel{}, user{};
                 Require(GetProcessTimes(process_.value, &creation, &exit, &kernel, &user) &&
                     FileTimeValue(creation) == command.creationFileTime &&
@@ -782,6 +827,7 @@ namespace recorder::host
                     {
                         if (!CanFallBackToSdr(hdrVideo_, config_.losslessVideo, losslessVideo_.Result()))
                             throw Failure{ VideoReason(VideoError(), hdrVideo_ ? Reason::HdrEncoderUnsupported : Reason::LosslessEncoderUnsupported), VideoError() };
+                        startupNotices_[startupNoticeCount_++] = CaptureDiagnostic(Reason::HdrEncoderUnsupported, VideoError(), "video_initialize", true);
                         // No frame has been captured or submitted. Retire every
                         // attempted HDR resource before choosing the SDR contract.
                         Check(losslessVideo_.Close(), Reason::CleanupFailed);
@@ -819,11 +865,17 @@ namespace recorder::host
                         Require(StopAudio(), Reason::CleanupFailed);
                         if (FAILED(audioEvidence_.hr))
                             throw Failure{ AudioReason(audioEvidence_.hr, audioEvidence_.reason), audioEvidence_.hr };
+                        startupNotices_[startupNoticeCount_++] = CaptureDiagnostic(Reason::AudioUnavailable, audioEvidence_.hr, "audio_initialize", true);
                     }
                 }
                 Require(!shared_.abort.load(), Reason::ParentClosed);
                 diagnosticStage_ = "capture_start";
                 if (!capture_.Start()) throw Failure{ CaptureReason(capture_.Result().reason, capture_.Result().hr), capture_.Result().hr };
+                // Publish adaptations only after startup succeeds, sharing the
+                // bounded nonterminal allowance and preserving terminal capacity.
+                for (unsigned i = 0; i < startupNoticeCount_; ++i)
+                    if (shared_.watchdog.joinable() && diagnosticBudget_.Take(true, startupNotices_[i].first.reason))
+                        WriteDiagnostic(startupNotices_[i]);
                 return true;
             }
             catch (const Failure& value) { return Fail(value.reason, value.hr); }
@@ -1225,6 +1277,7 @@ namespace recorder::host
                 Require(!failed_ && !closed_ && !shared_.abort.load(), reason_ == Reason::None ? Reason::ParentClosed : reason_);
                 if (paused_)
                 {
+                    diagnosticStage_ = "capture_pause";
                     Require(capture_.CheckIdentity(), CaptureReason(capture_.Result().reason, capture_.Result().hr));
                     // Retire only already-submitted GPU work. No capture call,
                     // audio source, CFR repetition or new encoder input here.
@@ -1251,6 +1304,7 @@ namespace recorder::host
                 ProcessAudio(8); InitializeSpool(); ProcessAudio(8);
                 if (resumeAnchoring_)
                 {
+                    diagnosticStage_ = "capture_resume";
                     if (GetTickCount64() - resumeBegan_ < 3500)
                     {
                         shared_.progress.store(GetTickCount64());
@@ -1412,12 +1466,11 @@ namespace recorder::host
             }
             catch (const Failure& value)
             {
-                RememberFailure(value.reason, value.hr); reason_ = value.reason;
+                EmitFailureDiagnostic(value.reason, value.hr, diagnosticStage_); reason_ = value.reason;
                 if (value.reason == Reason::LosslessStorageLow ||
                     (config_.losslessVideo && value.reason == Reason::StorageFailed)) failed_ = true;
             }
-            catch (...) { RememberFailure(Reason::StorageFailed, E_FAIL); reason_ = Reason::StorageFailed; }
-            EmitFailureDiagnostic(reason_, E_FAIL, "save_begin");
+            catch (...) { EmitFailureDiagnostic(Reason::StorageFailed, E_FAIL, "save_begin"); reason_ = Reason::StorageFailed; }
             preserveBuffer_ |= retainedAttempt;
             shared_.saving.store(0);
             if (file && !CloseHandle(file)) (void)Fail(Reason::StorageFailed);
@@ -1556,6 +1609,13 @@ namespace recorder::host
         unsigned count = 0;
         bool passed = true;
         const auto test = [&](bool value) { ++count; passed = passed && value; };
+        DiagnosticBudget budget;
+        test(!budget.Take(true, Reason::Cancelled));
+        test(budget.Take(true, Reason::StorageFailed) && budget.Take(true, Reason::MuxFailed) &&
+            budget.Take(true, Reason::StorageFailed));
+        test(!budget.Take(true, Reason::MuxFailed));
+        test(budget.Take(false, Reason::EncoderFailed) && !budget.Take(false, Reason::CleanupFailed));
+        test(budget.saves == 3 && budget.terminal);
         DiagnosticSnapshot value;
         std::array<char, DiagnosticCapacity> output{};
         test(SerializeDiagnostic(value, output) == 0 && output[0] == 0);
@@ -1582,6 +1642,13 @@ namespace recorder::host
         value.timelineReason = nullptr;
         size = SerializeDiagnostic(value, output);
         test(size > 0 && std::strstr(output.data(), "private") == nullptr && std::strstr(output.data(), "injected") == nullptr);
+        value.notice = true; value.adapterKnown = true; value.adapterVendorId = 4318; value.adapterDeviceId = 1234;
+        value.hardwareCandidatesKnown = true; value.hardwareCandidates = 2;
+        size = SerializeDiagnostic(value, output);
+        test(size > 0 && std::strstr(output.data(), "\"notice\":true") != nullptr &&
+            std::strstr(output.data(), "\"adapterVendorId\":4318") != nullptr &&
+            std::strstr(output.data(), "\"adapterDeviceId\":1234") != nullptr &&
+            std::strstr(output.data(), "\"hardwareCandidates\":2") != nullptr);
         test(std::strcmp(DiagnosticToken(""), "unknown") == 0 &&
             std::strcmp(DiagnosticToken("audio_timeline_clock_outside_policy"), "audio_timeline_clock_outside_policy") == 0);
         std::array<char, 97> longToken{}; longToken.fill('a'); longToken.back() = 0;

@@ -372,6 +372,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         if (_settings.LegacyLibraryDirectory.Length > 0 && !string.Equals(_settings.LegacyLibraryDirectory, _libraryDirectory, StringComparison.OrdinalIgnoreCase))
         {
             var imported = 0;
+            using var importObservation = SupplementaryObservations.Begin("clips", "clips", "import");
             try
             {
                 ClipImportResult result;
@@ -383,6 +384,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                     if (result.Remaining > 0 && result.Imported == 0)
                         throw new IOException("The existing clip import made no progress.");
                 } while (result.Remaining > 0);
+                importObservation?.Complete("success");
                 NoticeText(imported > 0 ? $"{imported} existing clip(s) added to Wisp. Original files are kept." : "");
                 if (result.PendingLegacySaves > 0)
                     LibraryWarningText("The previous clip folder contains unfinished saves. Those files have been kept.");
@@ -392,14 +394,14 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                     PreferencesChanged?.Invoke(this, EventArgs.Empty);
                 }
             }
-            catch (OperationCanceledException) when (_token.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException) when (_token.IsCancellationRequested) { importObservation?.Complete("cancelled"); throw; }
             catch (Exception error) when (error is not OutOfMemoryException)
-            { LibraryWarningText("Some existing clips could not be imported. Original files are kept; Wisp will try the import again on its next start."); }
+            { importObservation?.Fail(error); LibraryWarningText("Some existing clips could not be imported. Original files are kept; Wisp will try the import again on its next start."); }
         }
         else if (_settings.LegacyLibraryDirectory.Length > 0)
         { _settings.LegacyLibraryDirectory = ""; PreferencesChanged?.Invoke(this, EventArgs.Empty); }
         await ReadPageAsync(0);
-    }, "The clip library could not be read. Its files have been kept.", !_disposed);
+    }, "The clip library could not be read. Its files have been kept.", !_disposed, observationStage: "load");
     private void LibraryWarningText(string value)
     {
         _libraryWarning = value;
@@ -587,7 +589,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public Task LoadPageAsync(int pageIndex) => Operation(() => ReadPageAsync(Math.Max(0, pageIndex)),
-        "The clip library could not be read. Its files have been kept.", !IsBusy && !_disposed);
+        "The clip library could not be read. Its files have been kept.", !IsBusy && !_disposed, observationStage: "load");
 
     private void ScheduleSearch()
     {
@@ -610,7 +612,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     {
         _searchTimer?.Stop();
         return Operation(() => ReadPageAsync(0, keepSelection: true), "The clip library could not be searched. Its files have been kept.",
-            !_disposed && _library is not null && !IsBusy);
+            !_disposed && _library is not null && !IsBusy, observationStage: "load");
     }
 
     private bool CanManage(ClipCardItem item) => Clips.Contains(item) || ReferenceEquals(item, _selected);
@@ -657,7 +659,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             ArgumentException => $"Use a name of up to {ClipLibrary.MaximumNameLength} characters on one line.",
             ClipNameInUseException taken => taken.Message,
             _ => "The clip could not be renamed. Its file has been kept."
-        }));
+        }), observationStage: "rename");
     }
 
     internal Task ConfirmDeleteAsync()
@@ -678,7 +680,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         }, "The clip could not be deleted. Its file has been kept.", CanManageClips && _confirmingDelete && item is not null,
         error => ManagementFailure(ClipLibraryFiles.IsInUse(error)
             ? "This clip is still in use, possibly by another program. Close anything playing it and try again. Its file has been kept."
-            : "The clip could not be deleted. Its file has been kept."));
+            : "The clip could not be deleted. Its file has been kept."), observationStage: "delete");
     }
 
     // A failure before the panel closes belongs to the rename or delete; after it, only the list refresh failed.
@@ -734,7 +736,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
 
     internal Task RefreshGalleryOnActivationAsync() => Operation(() => ReadPageAsync(_pageIndex),
         "The clip library could not be read. Its files have been kept.",
-        _initialization is { IsCompletedSuccessfully: true } && _galleryActive && !HasSelection && !IsBusy && _library is not null);
+        _initialization is { IsCompletedSuccessfully: true } && _galleryActive && !HasSelection && !IsBusy && _library is not null, observationStage: "load");
 
     public Task RecoverPendingAsync() => Operation(async () =>
     {
@@ -742,7 +744,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         await ReadPageAsync(0);
         NoticeText($"Recovered {result.Recovered} clip(s); cleared {result.RemovedEmpty} empty save(s). " +
             (result.Remaining == 0 ? "No unfinished saves remain." : $"{result.Remaining} save(s) remain. You can try recovery again; existing files are kept."));
-    }, "Recovery could not finish. Existing files are kept; check free space and try again.", CanRecoverPending);
+    }, "Recovery could not finish. Existing files are kept; check free space and try again.", CanRecoverPending, observationStage: "recovery");
 
     public Task DismissPendingAsync() => Operation(async () =>
     {
@@ -801,7 +803,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
             SetPreviewExportStatus("", false);
             foreach (var name in new[] { nameof(SelectedClip), nameof(SelectedTitle), nameof(HasSelection), nameof(CanExport), nameof(SelectedIsLossless), nameof(HasPlaybackFormatNote), nameof(LosslessPlaybackNote) }) OnChanged(name);
             path = candidate;
-        }, "This clip could not be opened. Its file has been kept.", true);
+        }, "This clip could not be opened. Its file has been kept.", true, observationStage: "chosen");
         return path;
     }
 
@@ -818,7 +820,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception error) when (error is not OutOfMemoryException)
-        { ErrorText("The clip opened, but its viewed state could not be saved."); }
+        { ReportLibraryFailure("save", error); ErrorText("The clip opened, but its viewed state could not be saved."); }
     }
 
     public void PlaybackFailed() => ErrorText("This clip could not be played. Its file has been kept.");
@@ -888,6 +890,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                     catch (OperationCanceledException) when (_token.IsCancellationRequested) { throw; }
                     catch (Exception error) when (error is not OutOfMemoryException)
                     {
+                        ReportLibraryFailure("load", error);
                         const string saved = "Export successful. The file is ready, but Wisp could not refresh its saved status.";
                         if (revision == _selectionRevision && !_disposed) SetPreviewExportStatus(saved, true);
                         NoticeText(saved);
@@ -1072,17 +1075,27 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         if (!allowed || _busy || _disposed) return;
         using var supplementaryOperation = observationStage is null ? null : SupplementaryObservations.Begin("clips", "clips", observationStage);
         _busy = true; ErrorText(""); NoticeText(""); NotifyState();
-        try { CommitQuality(); await action(); supplementaryOperation?.Complete(observationOutcome?.Invoke() ?? "unknown"); }
+        try { CommitQuality(); await action(); supplementaryOperation?.Complete(observationOutcome?.Invoke() ?? "success"); }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         { supplementaryOperation?.Complete(observationOutcome?.Invoke() == "success" ? "success" : "cancelled"); }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             var outcome = observationOutcome?.Invoke() == "success" ? "success" : "failure";
-            supplementaryOperation?.Complete(outcome, outcome == "failure" && observationStage == "export"
-                ? DebugLogging.SupplementaryIncidentCapture.Export(error, DateTimeOffset.UtcNow) : null);
+            if (observationStage == "rename" && error is ArgumentException or ClipNameInUseException)
+                supplementaryOperation?.Complete("idle");
+            else if (outcome == "failure" && observationStage == "export")
+                supplementaryOperation?.Complete(outcome, DebugLogging.SupplementaryIncidentCapture.Export(error, DateTimeOffset.UtcNow));
+            else if (outcome == "failure") supplementaryOperation?.Fail(error);
+            else supplementaryOperation?.Complete(outcome);
             ErrorText(failureText?.Invoke(error) ?? errorText);
         }
         finally { _busy = false; if (!_disposed) { RefreshRecorder(); NotifyState(); } }
+    }
+    private static void ReportLibraryFailure(string stage, Exception error)
+    {
+        if (SupplementaryObservations.Observer is not null)
+            SupplementaryObservations.Record("clips", "clips", "failure", stage, incident:
+                DebugLogging.SupplementaryOperationFailure.Capture("clips", stage, error, DateTimeOffset.UtcNow));
     }
     private void RecorderChanged(object? sender, EventArgs e)
     {

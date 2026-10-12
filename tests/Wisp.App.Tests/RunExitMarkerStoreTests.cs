@@ -2,6 +2,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Wisp.App.CrashDiagnostics;
+using Wisp.App.DebugLogging;
+using Wisp.App.Supplementary;
 using Xunit;
 using NativeFile = Wisp.App.Clips.ClipBufferStore.NativeFile;
 
@@ -9,6 +11,97 @@ namespace Wisp.App.Tests;
 
 public sealed class RunExitMarkerStoreTests
 {
+    [Fact]
+    public void ExceptionBeforeMarkerCreationKeepsTheSameOriginatingRun()
+    {
+        using var directory = new TemporaryDirectory();
+        var marker = Marker(0);
+        CrashReport? saved = null;
+        var monitor = new CrashExceptionMonitor(new EarlyCrashSink(report => saved = report), runId: () => marker.RunId);
+        monitor.UiException(new IOException());
+        Assert.Equal(marker.RunId, saved!.RunId);
+        using var owner = RunExitMarkerStore.TryBegin(directory.Path, marker);
+        Assert.NotNull(owner);
+        Assert.Equal(saved.RunId, owner.RunId);
+        Assert.NotNull(saved.Sanitize());
+    }
+
+    private sealed class EarlyCrashSink(Action<CrashReport> save) : ICrashReportSink
+    {
+        public bool TrySave(CrashReport report) { save(report); return true; }
+    }
+
+    [Fact]
+    public void ShutdownIntentSurvivesCheckpointsAndRestartWithoutClaimingCompletedShutdown()
+    {
+        using var directory = new TemporaryDirectory();
+        var marker = Marker(0);
+        using (var owner = RunExitMarkerStore.TryBegin(directory.Path, marker))
+        {
+            Assert.False(owner!.MarkShutdownStarted(ShutdownIntent.None));
+            Assert.True(owner.MarkShutdownStarted(ShutdownIntent.Update));
+            Assert.True(owner.MarkShutdownStarted(ShutdownIntent.Requested));
+            Assert.True(owner.Checkpoint(new(marker.StartedAtUtc.AddSeconds(10),
+                [new() { TimestampUtc = marker.StartedAtUtc.AddSeconds(8) }], [])));
+        }
+        using var next = RunExitMarkerStore.TryBegin(directory.Path, Marker(1));
+        Assert.Equal(ShutdownIntent.Update, next!.Previous!.ShutdownIntent);
+        Assert.False(next.Previous.CleanExit);
+        Assert.Single(next.Previous.Context!.Samples);
+        File.WriteAllBytes(Path.Combine(directory.Path, "running.json"), JsonSerializer.SerializeToUtf8Bytes(Marker(2)));
+        Assert.False(next.MarkShutdownStarted(ShutdownIntent.Requested));
+    }
+
+    [Fact]
+    public void CheckpointSurvivesRestartWithBoundedSamplesAndOriginalAges()
+    {
+        using var directory = new TemporaryDirectory();
+        var first = Marker(0);
+        var captured = first.StartedAtUtc.AddSeconds(10);
+        var snapshot = new HealthContextSnapshot(captured,
+            [new() { TimestampUtc = captured.AddSeconds(-8) }, new() { TimestampUtc = captured.AddSeconds(-6) },
+             new() { TimestampUtc = captured.AddSeconds(-4), CpuPercent = 25 }, new() { TimestampUtc = captured.AddSeconds(-2), CpuPercent = 30, GameVerification = NativeGameVerification.Steam }], []);
+        using (var owner = RunExitMarkerStore.TryBegin(directory.Path, first))
+        {
+            Assert.NotNull(owner);
+            Assert.True(owner.Checkpoint(snapshot));
+            Assert.False(owner.Checkpoint(snapshot));
+        }
+        using var next = RunExitMarkerStore.TryBegin(directory.Path, Marker(2));
+        var previous = Assert.IsType<RunExitMarker>(next!.Previous);
+        Assert.Equal(3, previous.Context!.Samples.Length);
+        Assert.Equal(NativeGameVerification.Steam, previous.Context.Samples[^1].GameVerification);
+        Assert.Equal(captured, previous.Context.CapturedAtUtc);
+        var report = previous.ToReport(next.StartedAtUtc) with
+        { RecoveredExit = new(first.StartedAtUtc, next.StartedAtUtc, WindowsFaultLookupStatus.NoMatchingEvent, null) };
+        var incident = SupplementaryIncidentCapture.Crash(report);
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+        Assert.Equal(116000, incident.Context!.Value[0].AgeMs);
+        Assert.Equal(112000, incident.Context.Value[^1].AgeMs);
+        Assert.Equal(30, incident.Context.Value[^1].CpuPercent);
+    }
+
+    [Fact]
+    public void CheckpointCannotUndoCleanShutdownOrReplaceNewerOwner()
+    {
+        using var directory = new TemporaryDirectory();
+        var marker = Marker(0);
+        var snapshot = new HealthContextSnapshot(marker.StartedAtUtc.AddSeconds(10),
+            [new() { TimestampUtc = marker.StartedAtUtc.AddSeconds(8) }], []);
+        using (var owner = RunExitMarkerStore.TryBegin(directory.Path, marker))
+        {
+            Assert.True(owner!.Checkpoint(snapshot));
+            Assert.True(owner.MarkClean());
+            Assert.False(owner.Checkpoint(snapshot with { CapturedAtUtc = snapshot.CapturedAtUtc.AddSeconds(10) }));
+            Assert.True(Read(directory).CleanExit);
+        }
+        using var next = RunExitMarkerStore.TryBegin(directory.Path, Marker(1));
+        Assert.Null(next!.Previous);
+        File.WriteAllBytes(Path.Combine(directory.Path, "running.json"), JsonSerializer.SerializeToUtf8Bytes(Marker(2)));
+        Assert.False(next.Checkpoint(new(next.StartedAtUtc.AddSeconds(10),
+            [new() { TimestampUtc = next.StartedAtUtc.AddSeconds(8) }], [])));
+    }
+
     [Fact]
     public void HeldHandleRenameKeepsNoReplacementDefaultAndRequiresExplicitFixedTargetReplacement()
     {

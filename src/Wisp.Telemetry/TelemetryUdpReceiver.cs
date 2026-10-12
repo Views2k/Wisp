@@ -13,6 +13,8 @@ public readonly record struct ReceiverStatistics(
     PacketParseError LastParseError,
     string? ListenerError);
 
+public sealed record ReceiverFailure(bool IsSocketError, int Code);
+
 public sealed class TelemetryUdpReceiver : IAsyncDisposable
 {
     private const int MaximumDrainDatagrams = 64;
@@ -32,6 +34,8 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
     private double _cachedPacketRate;
     private int _lastParseError;
     private string? _listenerError;
+    private ReceiverFailure? _listenerFailure;
+    public ReceiverFailure? ListenerFailure => Volatile.Read(ref _listenerFailure);
     private int _disposed;
     private RunDatagramCapture? _runCapture;
     private Action<VehicleState?>? _validatedStateObserver;
@@ -367,6 +371,8 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
         }
         catch (Exception exception)
         {
+            Volatile.Write(ref _listenerFailure, exception is SocketException socketError
+                ? new(true, socketError.NativeErrorCode) : new(false, exception.HResult));
             Volatile.Write(ref _listenerError, exception.Message);
         }
         finally
@@ -514,6 +520,7 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
             Interlocked.Exchange(ref _lastDatagramTimestamp, 0);
             Volatile.Write(ref _lastParseError, (int)PacketParseError.None);
             Volatile.Write(ref _listenerError, null);
+            Volatile.Write(ref _listenerFailure, null);
             _previousAcceptedPackets = 0;
             _cachedPacketRate = 0;
             _previousRateAtUtc = DateTimeOffset.UtcNow;

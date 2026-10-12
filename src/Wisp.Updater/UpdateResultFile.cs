@@ -32,14 +32,14 @@ internal sealed class UpdateResultFile
         StableVersion? targetVersion,
         string errorCode,
         string safeMessage,
-        UpdateRecoveryState recoveryState) =>
+        UpdateRecoveryState recoveryState, uint? nativeErrorCode = null, uint? installerExitCode = null) =>
         TryWrite(
             "failed",
             sourceVersion?.ToString() ?? string.Empty,
             targetVersion?.ToString() ?? string.Empty,
             errorCode,
             safeMessage,
-            RecoveryStateValue(recoveryState));
+            RecoveryStateValue(recoveryState), nativeErrorCode, installerExitCode);
 
     private void TryWrite(
         string state,
@@ -47,7 +47,7 @@ internal sealed class UpdateResultFile
         string targetVersion,
         string errorCode,
         string safeMessage,
-        string recoveryState = "not-needed")
+        string recoveryState = "not-needed", uint? nativeErrorCode = null, uint? installerExitCode = null)
     {
         string? temporaryPath = null;
         try
@@ -84,6 +84,8 @@ internal sealed class UpdateResultFile
                 writer.WriteString("errorCode", errorCode);
                 writer.WriteString("message", safeMessage);
                 writer.WriteString("recoveryState", recoveryState);
+                if (nativeErrorCode is { } native) writer.WriteNumber("nativeErrorCode", native);
+                if (installerExitCode is { } exit) writer.WriteNumber("installerExitCode", exit);
                 writer.WriteString("recordedAtUtc", DateTimeOffset.UtcNow);
                 writer.WriteEndObject();
                 writer.Flush();

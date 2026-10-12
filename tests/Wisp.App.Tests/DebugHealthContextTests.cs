@@ -48,7 +48,7 @@ public sealed class DebugHealthContextTests
             await using var monitor = new DebugHealthMonitor(receiver, native, logger, () => 0,
                 _ => Interlocked.Increment(ref probes), () => { },
                 focus: () => throw new InvalidOperationException("Automatic health must not query foreground state."), healthContext: context);
-            monitor.PublishUiContext(new(Stopwatch.GetTimestamp(), true, false, false, 0, 0));
+            monitor.PublishUiContext(new(Stopwatch.GetTimestamp(), true, false, false, 0, 0, true, DebugFocus.Game));
             monitor.StartMonitoring(); monitor.StartMonitoring();
             var wait = Stopwatch.StartNew();
             while (context.Snapshot().Samples.Length < 2 && wait.Elapsed < TimeSpan.FromSeconds(6))
@@ -60,6 +60,10 @@ public sealed class DebugHealthContextTests
             Assert.True(samples[^1].DispatcherProbePending);
             Assert.True(samples[^1].DispatcherDelayMs >= 1500);
             Assert.True(samples[^1].UiHeartbeatAgeMs >= 1500);
+            Assert.Equal(DebugFocus.Game, samples[0].Focus);
+            Assert.True(samples[0].CpuRendering);
+            Assert.Equal(DebugFocus.Unknown, samples[^1].Focus);
+            Assert.Null(samples[^1].CpuRendering);
             Assert.False(logger.IsEnabled); Assert.False(Directory.Exists(root));
             Assert.Equal(0, factory.Opens);
         }

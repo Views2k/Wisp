@@ -9,6 +9,22 @@ namespace Wisp.App.Tests;
 
 public sealed class NativeSteamPublisherTrustTests
 {
+    [Theory]
+    [InlineData("CN=Valve Corp., O=Valve Corp.", true)]
+    [InlineData("CN=Valve Corporation, O=Valve Corporation", true)]
+    [InlineData("CN=Valve Corp., O=Other", false)]
+    [InlineData("CN=Valve Corp. Test, O=Valve Corp. Test", false)]
+    [InlineData("CN=Playground Games, O=Playground Games", false)]
+    [InlineData("CN=Valve Corp., CN=Valve Corp., O=Valve Corp.", false)]
+    public void SteamApiRequiresTrustedValvePrimaryPublisher(string subject, bool expected)
+    {
+        using var file = new TestFile();
+        var api = new FakeTrustApi(file.Path) { Subject = new X500DistinguishedName(subject) };
+        Assert.Equal(expected, NativeSteamPublisherTrust.TryVerify(file.Path, api, steamApi: true));
+        Assert.Equal(["verify", "primary-signer", "close"], api.Events);
+        var unsigned = new FakeTrustApi(file.Path) { Subject = new X500DistinguishedName(subject), Result = unchecked((int)0x800B0100) };
+        Assert.False(NativeSteamPublisherTrust.TryVerify(file.Path, unsigned, steamApi: true));
+    }
     [Fact]
     public void TrustedPrimaryPublisherUsesOfflinePolicyAndHoldsFileUntilStateIsClosed()
     {

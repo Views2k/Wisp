@@ -26,14 +26,29 @@ if (args[0] == "generate")
     events[5] = events[5] with { Feature = "app", Stage = "working-set", Measurements = null, RenderMode = null, Value = 123456789, SessionAgeMs = 62000 };
     events[6] = events[6] with { Feature = "app", Stage = "managed-heap", Measurements = null, RenderMode = null, Value = 1234567, SessionAgeMs = 62000 };
     events[7] = events[7] with { Feature = "app", Stage = "cpu", Measurements = null, RenderMode = null, Value = 2.5, SessionAgeMs = 62000 };
-    events[1] = events[1] with { Incident = SupplementaryIncidentSchema.Create("unexpected-exit") };
+    events[1] = events[1] with { Incident = SupplementaryIncidentSchema.Create("unexpected-exit", "shutdown-incomplete", "crash-recovered",
+        context: [new(112000, "fresh", CpuPercent: 15, Foreground: "game", GameBuild: "6.461.691.0", GameVerification: "verified", RecorderState: "paused", RenderMode: "gpu", GameActive: true, NativeExpected: true, OverlayExpectedVisible: true)],
+        crash: new("recovered", "no-match")) };
     events[8] = events[8] with { Kind = "exception", Feature = "app", Stage = "continuing-exception", Outcome = "failure", Measurements = null,
         Incident = SupplementaryIncidentSchema.Create("managed-exception", code: 0x80004005,
             exceptions: [new("InvalidOperationException", 0x80004005, ["Wisp.App.Clips.CompatibleClipExporter.Inspect"])],
             context: [new(2000, "fresh", 2.5, 123456789, 1234567, 20, 12, 15), new(0, "idle")]) };
     events[9] = events[9] with { Kind = "clips", Feature = "clips", Stage = "audio", Outcome = "failure", Measurements = null,
         Incident = SupplementaryIncidentSchema.Create("recorder", "audio_failed", "audio_encode", 5,
-            recorder: new(10, 20, 30, 1.25, 2.5, 3.75)) };
+            recorder: new(10, 20, 30, 1.25, 2.5, 3.75, [new("aac", "aac_process_input_failed", 0x80004005)])) };
+    events[60] = events[60] with { Kind = "exception", Feature = "app", Stage = "windows-fault", Outcome = "failure", Measurements = null,
+        Incident = SupplementaryIncidentSchema.Create("windows-fault", "windows-application-fault", "crash-windows", 0xc0000005,
+            context: [new(1000, "idle", Foreground: "wisp", GameBuild: "1.2.3", RecorderState: "stopping", RenderMode: "cpu")],
+            crash: new("windows", "matched", "ntdll.dll")) };
+    events[59] = events[59] with { Kind = "update", Feature = "update", Stage = "installed", Outcome = "failure", Measurements = null,
+        Incident = SupplementaryIncidentSchema.Create("update", "update-installer-exit-failed", "update-installed", 32,
+            update: new("restarted", 5)) };
+    events[58] = events[58] with { Kind = "clips", Feature = "clips", Stage = "encode", Outcome = "idle", Measurements = null,
+        Incident = SupplementaryIncidentSchema.Create("recorder", "hdr_encoder_unsupported", "video_initialize", 0x80004005,
+            recorder: new(AdapterVendorId: 4318, AdapterDeviceId: 1234, Resolution: "sdr-fallback")) };
+    events[57] = events[57] with { Kind = "clips", Feature = "clips", Stage = "audio", Outcome = "idle", Measurements = null,
+        Incident = SupplementaryIncidentSchema.Create("recorder", "audio_unavailable", "audio_initialize", 0,
+            recorder: new(AdapterVendorId: 4098, AdapterDeviceId: 5678, HardwareCandidates: 2, Resolution: "video-only")) };
     string[] diagnosticStages = ["compositor-motion-work", "compositor-motion-source-age", "telemetry-parse-work", "parse-to-ui-adoption",
         "receive-to-ui-adoption", "publish-to-ui-adoption", "ui-update-work", "native-ui-update-work", "native-observation-to-ui-adoption",
         "received-datagrams", "drained-datagrams", "processed-packets", "gc-gen2-collections", "health-samples", "dispatcher-pending-samples",
@@ -45,6 +60,27 @@ if (args[0] == "generate")
         events[10 + i] = events[10 + i] with { Stage = stage, Feature = "app", RenderMode = null,
             Measurements = count ? null : measurements, Value = count ? 2 : null };
     }
+    (string Kind, string Feature, string Stage, Exception Error)[] failures = [
+        ("update", "update", "check", new System.Net.Http.HttpRequestException("private-fixture", null, System.Net.HttpStatusCode.ServiceUnavailable)),
+        ("update", "update", "download", new Wisp.Update.UpdateSecurityException("private-fixture")),
+        ("settings", "settings", "save", new IOException("private-fixture", unchecked((int)0x80070070))),
+        ("saved-data", "runs", "load", new InvalidDataException("private-fixture")),
+        ("setup", "setup", "data-out", new System.Net.Sockets.SocketException(10048))
+    ];
+    for (var i = 0; i < failures.Length; i++)
+    {
+        var failure = failures[i];
+        var incident = Wisp.App.DebugLogging.SupplementaryOperationFailure.Capture(failure.Feature, failure.Stage, failure.Error, now);
+        if (incident is null) throw new InvalidOperationException("Operation evidence was lost.");
+        events[27 + i] = events[27 + i] with { Kind = failure.Kind, Feature = failure.Feature, Stage = failure.Stage,
+            Outcome = "failure", Measurements = null, Incident = incident };
+    }
+    Wisp.App.NativeGameVerification[] verification = [
+        Wisp.App.NativeGameVerification.Steam, Wisp.App.NativeGameVerification.Store,
+        Wisp.App.NativeGameVerification.SteamApiUnverified, Wisp.App.NativeGameVerification.Unavailable,
+        new("unavailable", "access-unavailable"), new("not-running", "game-not-running"), new("unverified", "identity-unverified")
+    ];
+    for (var i = 0; i < verification.Length; i++) events[32+i] = events[32+i] with { GameVerification = verification[i] };
     var support = SupplementarySchema.RedactForPreview(new(1, Guid.Parse("20000000-0000-4000-8000-000000000001"),
         session, installation, now, "2.6.6", "contract-fixture", "stable", "feedback", "Contract fixture",
         "A synthetic report.\nNo personal information is included.", new("steam", "fresh", "none", "6.461.691.0")));
@@ -60,7 +96,10 @@ if (args[0] == "generate")
         histogramEdges = SupplementaryMeasurements.BucketUpperBounds,
         incidentCatalog = new { categories = SupplementaryIncidentSchema.Categories.Order(), reasons = SupplementaryIncidentSchema.Reasons.Order(),
             failureStages = SupplementaryIncidentSchema.FailureStages.Order(), exceptionTypes = SupplementaryIncidentSchema.ExceptionTypes.Order(),
-            methods = SupplementaryIncidentSchema.Methods.Order() } };
+            methods = SupplementaryIncidentSchema.Methods.Order(),
+            updateFailureReasons = SupplementaryIncidentSchema.UpdateFailureReasons.Order(), updateRecoveries = SupplementaryIncidentSchema.UpdateRecoveries.Order(),
+            recorderComponents = RecorderComponentCatalog.Components.Order(),
+            recorderComponentReasons = RecorderComponentCatalog.Reasons.Order() } };
     File.WriteAllBytes(args[1], JsonSerializer.SerializeToUtf8Bytes(fixture, SupplementarySchema.Json));
     Console.WriteLine($"Generated real-client fixture: {events.Length} events, {batchBytes.Length} batch bytes; no network requests.");
 }

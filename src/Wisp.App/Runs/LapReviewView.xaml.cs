@@ -57,7 +57,7 @@ public partial class LapReviewView : UserControl
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
         {
             model.MapStatus = "The map image could not be saved. Check the destination and try again.";
-            DebugLogging.HealthContextRecorder.Current.RecordBreadcrumb(DebugLogging.HealthEventCode.LapReviewFailed, error.HResult);
+            DebugLogging.HealthContextRecorder.Current.RecordBreadcrumb(DebugLogging.HealthEventCode.LapReviewFailed, error.HResult, failureStage: DebugLogging.HealthFailureStage.LapExport);
         }
         finally { _exporting = false; SaveMapPng.ClearValue(IsEnabledProperty); }
     }

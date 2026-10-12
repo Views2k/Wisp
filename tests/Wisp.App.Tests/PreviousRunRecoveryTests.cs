@@ -6,6 +6,27 @@ namespace Wisp.App.Tests;
 
 public sealed class PreviousRunRecoveryTests
 {
+    [Theory]
+    [InlineData((int)ShutdownIntent.Requested, false)]
+    [InlineData((int)ShutdownIntent.OperatingSystem, false)]
+    [InlineData((int)ShutdownIntent.Update, false)]
+    [InlineData((int)ShutdownIntent.Requested, true)]
+    [InlineData((int)ShutdownIntent.OperatingSystem, true)]
+    [InlineData((int)ShutdownIntent.Update, true)]
+    public async Task RecordedShutdownIntentSuppressesOnlyUnconfirmedRecovery(int intent, bool confirmed)
+    {
+        using var fixture = new Fixture();
+        var marker = WindowsFaultEventReaderTests.Marker() with { ShutdownIntent = (ShutdownIntent)intent };
+        var source = new Source(_ => confirmed
+            ? WindowsFaultEventReader.Correlate([WindowsFaultEventReaderTests.Fault(marker)], marker,
+                WindowsFaultEventReaderTests.Started.AddMinutes(5))
+            : new(WindowsFaultLookupStatus.NoMatchingEvent));
+        var report = await fixture.Recover(marker, source);
+        if (confirmed) Assert.Equal(CrashOrigin.WindowsApplicationFault, Assert.IsType<CrashReport>(report).Origin);
+        else { Assert.Null(report); Assert.Null(fixture.Store.LatestPending()); }
+        Assert.Equal(1, source.Calls);
+    }
+
     [Fact]
     public void ManagedFatalReportsCarryTheActiveRunIdentity()
     {

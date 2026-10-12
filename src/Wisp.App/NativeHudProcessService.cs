@@ -38,7 +38,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable, INativeNeedleHis
     private Task? _disposeTask;
     private AttachmentIdentity? _attachmentIdentity;
 
-    private sealed record AttachmentIdentity(NativeHudCompatibilityPack Pack, long Epoch, long CompatibilityGeneration);
+    private sealed record AttachmentIdentity(NativeHudCompatibilityPack Pack, long Epoch, long CompatibilityGeneration, NativeGameVerification Verification);
 
     // Only the worker touches process memory, resolver caches, or attachment timing.
     private NativeHudMemoryResolver _resolver = new();
@@ -80,6 +80,20 @@ public sealed class NativeHudProcessService : IAsyncDisposable, INativeNeedleHis
                 identity.Epoch == Interlocked.Read(ref _sessionEpoch) &&
                 identity.CompatibilityGeneration == _memoryFactory.CompatibilityGeneration
                 ? identity.Pack : null;
+        }
+    }
+
+    internal NativeGameVerification GameVerification
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                var identity = _attachmentIdentity;
+                return identity is not null && !_disposed && identity.Epoch == _sessionEpoch &&
+                    identity.CompatibilityGeneration == _memoryFactory.CompatibilityGeneration
+                    ? identity.Verification : NativeGameVerification.FromStatus(_snapshot.Status);
+            }
         }
     }
 
@@ -433,7 +447,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable, INativeNeedleHis
             if (_memory is { } attached && (_attachmentIdentity is not { } identity ||
                 identity.Epoch != epoch || identity.CompatibilityGeneration != compatibilityGeneration ||
                 !ReferenceEquals(identity.Pack, attached.CompatibilityPack)))
-                Volatile.Write(ref _attachmentIdentity, new AttachmentIdentity(attached.CompatibilityPack, epoch, compatibilityGeneration));
+                Volatile.Write(ref _attachmentIdentity, new AttachmentIdentity(attached.CompatibilityPack, epoch, compatibilityGeneration, attached.GameVerification));
             return true;
         }
     }
@@ -556,6 +570,7 @@ public interface INativeHudProcessMemory : IReadOnlyProcessMemory, IDisposable
     NativeHudCompatibilityPack CompatibilityPack => NativeHudBuildContract.BuiltIn;
     string SessionIdentity => string.Empty;
     string? GameDirectory => null;
+    NativeGameVerification GameVerification => NativeGameVerification.Unavailable;
 }
 
 public interface INativeHudProcessMemoryFactory

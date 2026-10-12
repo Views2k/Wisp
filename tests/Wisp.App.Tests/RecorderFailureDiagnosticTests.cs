@@ -8,6 +8,89 @@ namespace Wisp.App.Tests;
 public sealed class RecorderFailureDiagnosticTests
 {
     [Theory]
+    [InlineData("hdr_encoder_unsupported", "video_initialize", "sdr-fallback")]
+    [InlineData("audio_unavailable", "audio_initialize", "video-only")]
+    public void StartupAdaptationsPreserveHardwareAndReasonWithoutBecomingTerminalFailures(string reason, string stage, string resolution)
+    {
+        var fields = Fields();
+        fields["reason"] = reason; fields["stage"] = stage; fields["notice"] = true;
+        fields["adapterKnown"] = true; fields["adapterVendorId"] = 4318; fields["adapterDeviceId"] = 1234;
+        fields["hardwareCandidatesKnown"] = true; fields["hardwareCandidates"] = 2;
+        var diagnostic = Assert.IsType<RecorderFailureDiagnostic>(RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields)));
+        var incident = DebugLogging.SupplementaryIncidentCapture.Recorder(reason, diagnostic, null, DateTimeOffset.UtcNow);
+        Assert.Equal(resolution, incident.Recorder!.Resolution);
+        Assert.Equal(4318u, incident.Recorder.AdapterVendorId);
+        Assert.Equal(1234u, incident.Recorder.AdapterDeviceId);
+        Assert.Equal(2u, incident.Recorder.HardwareCandidates);
+        Assert.Equal(3, incident.SchemaVersion);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(incident));
+        Assert.False(Supplementary.SupplementaryIncidentSchema.Valid(incident with { SchemaVersion = 2 }));
+        Assert.NotEqual(incident.Signature, Supplementary.SupplementaryIncidentSchema.Signature(incident with { Recorder = incident.Recorder with { Resolution = null } }));
+        fields["reason"] = "encoder_failed";
+        Assert.Null(RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields)));
+    }
+
+    [Fact]
+    public void ComponentFailureSurvivesParsingProjectionAndSignature()
+    {
+        var fields = Fields();
+        fields["capture"] = new { reason = "display_color_changed", hr = 0x80070057u };
+        fields["video"] = new { reason = "live_hardware_encoder_ready", hr = 0u };
+        fields["spool"] = new { reason = "PRIVATE_DO_NOT_COPY", hr = 0x80004005u };
+        var diagnostic = Assert.IsType<RecorderFailureDiagnostic>(RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields)));
+        var incident = DebugLogging.SupplementaryIncidentCapture.Recorder(diagnostic.Reason, diagnostic, null, DateTimeOffset.UtcNow);
+        var component = Assert.Single(incident.Recorder!.Components!.Value);
+        Assert.Equal("capture", component.Component);
+        Assert.Equal("display_color_changed", component.Reason);
+        Assert.Equal(0x80070057u, component.Code);
+        Assert.Equal(2, incident.SchemaVersion);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(incident));
+        Assert.DoesNotContain("PRIVATE_DO_NOT_COPY", JsonSerializer.Serialize(incident));
+        var changed = incident with { Recorder = incident.Recorder with { Components = [component with { Reason = "target_monitor_changed" }] } };
+        Assert.NotEqual(incident.Signature, Supplementary.SupplementaryIncidentSchema.Signature(changed));
+        Assert.Equal(incident.Signature, Supplementary.SupplementaryIncidentSchema.Signature(incident with { Recorder = incident.Recorder with { VideoPackets = 200 } }));
+        Assert.False(Supplementary.SupplementaryIncidentSchema.Valid(incident with { SchemaVersion = 1 }));
+    }
+
+    [Theory]
+    [InlineData("extra")]
+    [InlineData("duplicate")]
+    [InlineData("negative")]
+    [InlineData("unknown")]
+    public void MalformedComponentCannotDiscardTheMainFailureOrLeakText(string variant)
+    {
+        var json = Encoding.UTF8.GetString(Line());
+        var component = variant switch
+        {
+            "extra" => "{\"reason\":\"display_color_changed\",\"hr\":2147942487,\"path\":\"PRIVATE_DO_NOT_COPY\"}",
+            "duplicate" => "{\"reason\":\"display_color_changed\",\"reason\":\"PRIVATE_DO_NOT_COPY\",\"hr\":2147942487}",
+            "negative" => "{\"reason\":\"display_color_changed\",\"hr\":-1}",
+            _ => "{\"reason\":\"PRIVATE_DO_NOT_COPY\",\"hr\":2147942487}"
+        };
+        var parsed = Assert.IsType<RecorderFailureDiagnostic>(RecorderFailureDiagnostic.Parse(Encoding.UTF8.GetBytes(json[..^1] + ",\"capture\":" + component + "}")));
+        Assert.Equal("encoder_failed", parsed.Reason);
+        Assert.Null(parsed.Components);
+    }
+
+    [Fact]
+    public void EveryNativeRecorderStageCanReachAnIncident()
+    {
+        var root = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !System.IO.File.Exists(System.IO.Path.Combine(root.FullName, "tools", "Wisp.RecorderPrototype", "RecorderHost.cpp"))) root = root.Parent;
+        Assert.NotNull(root);
+        var source = System.IO.File.ReadAllText(System.IO.Path.Combine(root.FullName, "tools", "Wisp.RecorderPrototype", "RecorderHost.cpp"));
+        var stages = System.Text.RegularExpressions.Regex.Matches(source, "diagnosticStage_\\s*=\\s*\"([a-z_]+)\"")
+            .Select(match => match.Groups[1].Value).Distinct().ToArray();
+        Assert.True(stages.Length > 30);
+        foreach (var stage in stages)
+        {
+            var fields = Fields(); fields["stage"] = stage;
+            var parsed = Assert.IsType<RecorderFailureDiagnostic>(RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields)));
+            Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(DebugLogging.SupplementaryIncidentCapture.Recorder(parsed.Reason, parsed, null, DateTimeOffset.UtcNow)), stage);
+        }
+    }
+
+    [Theory]
     [InlineData(false, "Forza only")]
     [InlineData(true, "system playback")]
     public void ReportIdentifiesSelectedAudioScope(bool systemAudio, string expected)
@@ -42,6 +125,24 @@ public sealed class RecorderFailureDiagnosticTests
     };
 
     internal static byte[] Line() => JsonSerializer.SerializeToUtf8Bytes(Fields());
+
+    [Theory]
+    [InlineData("capture_pause", "capture_failed", "capture")]
+    [InlineData("capture_resume", "capture_failed", "capture")]
+    [InlineData("save_storage_preflight", "storage_failed", "save")]
+    [InlineData("storage_preflight", "storage_failed", "buffer")]
+    public void LifecycleDiagnosticReachesValidatedIncident(string stage, string reason, string eventStage)
+    {
+        var fields = Fields();
+        fields["stage"] = stage;
+        fields["reason"] = reason;
+        var parsed = Assert.IsType<RecorderFailureDiagnostic>(RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields)));
+        var incident = DebugLogging.SupplementaryIncidentCapture.Recorder(reason, parsed, null, DateTimeOffset.UtcNow);
+        Assert.Equal(stage, incident.FailureStage);
+        Assert.Equal(2147500037u, incident.Code);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(incident));
+        Assert.Equal(eventStage, Supplementary.SupplementaryIncidentSchema.RecorderStage(reason, stage));
+    }
 
     [Fact]
     public void ReportIncludesOnlyKnownTokensAndNumericEvidence()

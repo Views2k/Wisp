@@ -323,7 +323,7 @@ internal sealed class LosslessMpvNative
         if (length == maximum) throw new InvalidDataException("The decoder returned oversized text.");
         var bytes = new byte[length]; Marshal.Copy(pointer, bytes, 0, length); return Encoding.UTF8.GetString(bytes);
     }
-    private static void Check(int code, string action) { if (code < 0) throw new LosslessMpvException(action + "/" + code.ToString(CultureInfo.InvariantCulture)); }
+    private static void Check(int code, string action) { if (code < 0) throw new LosslessMpvException(action + "/" + code.ToString(CultureInfo.InvariantCulture), code); }
     [StructLayout(LayoutKind.Explicit, Size = 16)]
     private struct Node
     { [FieldOffset(0)] internal IntPtr Pointer; [FieldOffset(0)] internal long Integer; [FieldOffset(0)] internal int Flag; [FieldOffset(0)] internal double Number; [FieldOffset(8)] internal int Format; }
@@ -348,9 +348,10 @@ internal sealed class LosslessMpvNative
     private static extern IntPtr LoadLibraryEx(string path, IntPtr file, uint flags);
 }
 
-internal sealed class LosslessMpvException(string code) : Exception("The lossless decoder operation failed.")
+internal sealed class LosslessMpvException(string code, int? nativeErrorCode = null) : Exception("The lossless decoder operation failed.")
 {
     internal string Code { get; } = code;
+    internal int? NativeErrorCode { get; } = nativeErrorCode;
 }
 
 internal sealed record LosslessDecodedFrame(int Width, int Height, byte[] Bgra);

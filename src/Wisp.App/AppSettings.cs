@@ -681,6 +681,8 @@ public sealed class OverlayPlacement
     }
 }
 
+internal sealed record SettingsLoadFailure(string Reason, uint Code);
+
 public sealed class SettingsService
 {
     internal const string SetupRequiredMarkerFileName = "setup-required";
@@ -697,6 +699,7 @@ public sealed class SettingsService
 
     internal string DataDirectory => Path.GetDirectoryName(_settingsPath)!;
     internal string LoadOutcome { get; private set; } = "unknown";
+    internal SettingsLoadFailure? LoadFailure { get; private set; }
 
     public SettingsService(string? settingsPath = null)
     {
@@ -720,49 +723,43 @@ public sealed class SettingsService
     public AppSettings Load()
     {
         LoadOutcome = "unknown";
+        LoadFailure = null;
         try
         {
-            if (!File.Exists(_settingsPath))
-            {
-                // Existing File.Exists fallback is preserved; it cannot distinguish absence from access failure.
-                LoadOutcome = "none";
-                return PrepareForLoad(new AppSettings
-                {
-                    BackgroundTheme = AppBackgroundThemes.FreshInstallName,
-                    LayoutMode = HudLayoutMode.Native,
-                    NativeGaugeMode = NativeGaugeMode.Analogue,
-                    GForceEnabled = true,
-                    BoostGaugeEnabled = true,
-                    TireTemperatureGaugeEnabled = true,
-                    PowerGaugeEnabled = true,
-                    TorqueGaugeEnabled = true,
-                    DriftGaugeEnabled = true
-                });
-            }
-
             var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), JsonOptions);
-            var prepared = PrepareForLoad(settings ?? new AppSettings());
-            LoadOutcome = settings is null ? "failure" : "success";
+            if (settings is null) throw new JsonException();
+            var prepared = PrepareForLoad(settings);
+            LoadOutcome = "success";
             return prepared;
         }
-        catch (JsonException)
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
         {
-            LoadOutcome = "failure";
-            return PrepareForLoad(new AppSettings());
+            LoadOutcome = "none";
+            return PrepareForLoad(new AppSettings
+            {
+                BackgroundTheme = AppBackgroundThemes.FreshInstallName,
+                LayoutMode = HudLayoutMode.Native,
+                NativeGaugeMode = NativeGaugeMode.Analogue,
+                GForceEnabled = true,
+                BoostGaugeEnabled = true,
+                TireTemperatureGaugeEnabled = true,
+                PowerGaugeEnabled = true,
+                TorqueGaugeEnabled = true,
+                DriftGaugeEnabled = true
+            });
         }
-        catch (IOException)
+        catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException or SecurityException)
         {
             LoadOutcome = "failure";
-            return PrepareForLoad(new AppSettings());
-        }
-        catch (UnauthorizedAccessException)
-        {
-            LoadOutcome = "failure";
-            return PrepareForLoad(new AppSettings());
-        }
-        catch (SecurityException)
-        {
-            LoadOutcome = "failure";
+            var reason = error switch
+            {
+                JsonException => "invalid-data",
+                UnauthorizedAccessException or SecurityException => "access-denied",
+                PathTooLongException => "path-too-long",
+                IOException when (error.HResult & 0xffff) is 32 or 33 => "file-in-use",
+                _ => "storage"
+            };
+            LoadFailure = new(reason, unchecked((uint)error.HResult));
             return PrepareForLoad(new AppSettings());
         }
     }

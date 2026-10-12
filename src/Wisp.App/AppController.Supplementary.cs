@@ -5,6 +5,8 @@ namespace Wisp.App;
 
 public sealed partial class AppController
 {
+    internal SupplementaryIncident? SupplementaryListenerFailure => _receiver.ListenerFailure is { } failure
+        ? DebugLogging.SupplementaryOperationFailure.Receiver(failure) : null;
     private readonly object _supplementaryObservationGate = new();
     private bool _supplementaryObservationsAttached, _supplementaryRunRecording, _supplementaryRunPreparing;
     private SupplementaryOperation? _supplementaryRunSave, _supplementaryFirstTelemetry;
@@ -86,7 +88,7 @@ public sealed partial class AppController
                 _supplementaryRunSave = SupplementaryObservations.Begin("saved-data", "runs", "save");
             }
             if (!recording && !preparing && _runRecording.Error is not null)
-            { _supplementaryRunSave?.Complete("failure"); _supplementaryRunSave = null; }
+            { _supplementaryRunSave?.Complete("failure", _runRecording.FailureIncident); _supplementaryRunSave = null; }
             _supplementaryRunRecording = recording; _supplementaryRunPreparing = preparing;
         }
     }

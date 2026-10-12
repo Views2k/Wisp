@@ -256,7 +256,7 @@ public sealed partial class LapReviewTrack3D : Grid
             if (!ReferenceEquals(_preparation, cancellation)) return;
             _scene = _comparisonScene = null; _preparedData = _preparedComparison = null; _path.Content = _comparisonPath.Content = null;
             _arrangement = null; SetValue(IsComparisonPropertyKey, false);
-            HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.LapReviewFailed, exception.HResult);
+            HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.LapReviewFailed, exception.HResult, failureStage: HealthFailureStage.LapMap);
             SetStatus("The 3D map could not be prepared. Switch to 2D or reopen this lap.", false);
         }
         finally

@@ -13,11 +13,11 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.6
+## Wisp 2.6.7
 
-The 2.6.6 source adds News and feedback in Extras, developer notices and improved diagnostic collection. Download links open the latest published release. See [privacy and compatibility](#privacy-and-compatibility).
+Wisp 2.6.7 improves failure reports and preserves recent session evidence to help investigate problems. Download links open the latest published release. See [privacy and compatibility](#privacy-and-compatibility).
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.6 release notes](docs/releases/Wisp-2.6.6-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.7 release notes](docs/releases/Wisp-2.6.7-release-notes.md)
 
 ### Clips
 
@@ -251,7 +251,7 @@ review. Start from the welcome banner or choose **Replay the quick tour**
 in Release Notes.
 
 [Download the latest Wisp release](https://github.com/Views2k/Wisp/releases/latest) ·
-[2.6.6 release notes](docs/releases/Wisp-2.6.6-release-notes.md) ·
+[2.6.7 release notes](docs/releases/Wisp-2.6.7-release-notes.md) ·
 [Changelog](CHANGELOG.md)
 
 Older interface screenshots retain their original version labels. The gameplay
@@ -463,7 +463,7 @@ builds, validation boundary, and update behavior.
 
 - Forza sends telemetry to Wisp over the local loopback connection.
 - Settings and tire profiles remain in the current user's local application data.
-- Wisp 2.6.6 sends automatic diagnostics with app health, performance measurements,
+- Wisp 2.6.7 sends automatic diagnostics with app health, performance measurements,
   Windows, graphics-driver, display and Wisp configuration details. Recent performance
   context helps investigate failures. Activity summaries include session time,
   estimated distance and speed. Random installation and session identifiers link reports.
@@ -506,7 +506,7 @@ To build the self-contained installer:
 
 ## Documentation
 
-- [Wisp 2.6.6 release notes](docs/releases/Wisp-2.6.6-release-notes.md)
+- [Wisp 2.6.7 release notes](docs/releases/Wisp-2.6.7-release-notes.md)
 - [Wisp 2.6.5 release notes](docs/releases/Wisp-2.6.5-release-notes.md)
 - [Wisp 2.6.4 release notes](docs/releases/Wisp-2.6.4-release-notes.md)
 - [Wisp 2.6.3 release notes](docs/releases/Wisp-2.6.3-release-notes.md)

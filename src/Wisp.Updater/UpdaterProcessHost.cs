@@ -74,7 +74,7 @@ internal sealed class WindowsUpdaterProcessHost : IUpdaterProcessHost
             {
                 throw InstallerFailure(
                     "UPDATE_INSTALLER_EXIT_FAILED",
-                    "The Wisp installer reported that the update failed.");
+                    "The Wisp installer reported that the update failed.", installerExitCode: unchecked((uint)installer.ExitCode));
             }
         }
         catch (UpdateFailureException)
@@ -227,13 +227,13 @@ internal sealed class WindowsUpdaterProcessHost : IUpdaterProcessHost
         string errorCode,
         string safeMessage,
         Exception? innerException = null,
-        bool recoveryIsSafe = true) =>
+        bool recoveryIsSafe = true, uint? installerExitCode = null) =>
         new(
             UpdaterExitCode.InstallerExecutionFailure,
             errorCode,
             safeMessage,
             innerException,
-            recoveryIsSafe);
+            recoveryIsSafe, installerExitCode);
 
     private static UpdateFailureException RestartFailure(Exception? innerException = null) =>
         new(

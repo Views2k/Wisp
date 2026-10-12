@@ -45,6 +45,8 @@ namespace recorder::capture
         bool callbacksDrained = false;
         bool borderlessRequested = false, borderRequiredSetFalse = false;
         bool duplicationInvalidated = false;
+        bool adapterKnown = false;
+        UINT adapterVendorId = 0, adapterDeviceId = 0;
         std::uint64_t copiedFrames = 0, emptyCallbacks = 0, timestampClamps = 0;
         SourceDescription source{};
     };

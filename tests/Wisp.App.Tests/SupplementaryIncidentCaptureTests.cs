@@ -12,6 +12,106 @@ namespace Wisp.App.Tests;
 [Collection("Supplementary instrumentation")]
 public sealed class SupplementaryIncidentCaptureTests
 {
+    [Theory]
+    [InlineData((int)CrashOrigin.UiDispatcher, "ui", "managed-exception")]
+    [InlineData((int)CrashOrigin.BackgroundThread, "background", "managed-exception")]
+    [InlineData((int)CrashOrigin.UnobservedTask, "task", "managed-exception")]
+    [InlineData((int)CrashOrigin.UnexpectedExit, "recovered", "unexpected-exit")]
+    [InlineData((int)CrashOrigin.WindowsApplicationFault, "windows", "windows-fault")]
+    public void CrashProjectionPreservesOriginAndSanitizedFaultEvidence(int origin, string expected, string category)
+    {
+        var marker = WindowsFaultEventReaderTests.Marker();
+        var now = marker.StartedAtUtc.AddMinutes(5);
+        var fault = origin == (int)CrashOrigin.WindowsApplicationFault
+            ? new WindowsFaultEvidence(now.AddSeconds(-1), 0xc0000005, 12, "ntdll.dll", false) : null;
+        var report = CrashReport.Capture(new InvalidOperationException("PRIVATE_ERROR_TEXT"), (CrashOrigin)origin, true, now) with
+        {
+            RunId = marker.RunId,
+            RecoveredExit = origin is (int)CrashOrigin.UnexpectedExit or (int)CrashOrigin.WindowsApplicationFault
+                ? new(marker.StartedAtUtc, now, fault is null ? WindowsFaultLookupStatus.NoMatchingEvent : WindowsFaultLookupStatus.Matched, fault) : null
+        };
+        var incident = SupplementaryIncidentCapture.Crash(report);
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+        Assert.Equal(3, incident.SchemaVersion);
+        Assert.Equal(category, incident.Category);
+        Assert.Equal(expected, incident.Crash!.Origin);
+        Assert.Equal("crash-" + expected, incident.FailureStage);
+        Assert.DoesNotContain("PRIVATE_ERROR_TEXT", JsonSerializer.Serialize(incident));
+        if (fault is not null) { Assert.Equal("ntdll.dll", incident.Crash.Module); Assert.Equal(0xc0000005u, incident.Code); }
+    }
+
+    [Theory]
+    [InlineData((int)ClipRecorderState.WaitingForGame, "waiting")]
+    [InlineData((int)ClipRecorderState.Stopping, "stopping")]
+    [InlineData((int)ClipRecorderState.Paused, "paused")]
+    public void ContextRetainsObservedGameFocusRecorderAndRendering(int state, string expected)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var context = SupplementaryIncidentCapture.Context(new(now, [new()
+        {
+            TimestampUtc = now.AddSeconds(-2), Focus = DebugFocus.Game, CpuRendering = false,
+            RecorderState = (ClipRecorderState)state, NativeGameVersion = "1.2.3", GameVerification = NativeGameVerification.Steam,
+            GameActive = true, NativeExpected = true, OverlayExpectedVisible = true
+        }], []), now);
+        var sample = Assert.Single(context!.Value);
+        Assert.Equal("game", sample.Foreground); Assert.Equal("gpu", sample.RenderMode);
+        Assert.Equal(expected, sample.RecorderState); Assert.Equal("1.2.3", sample.GameBuild);
+        Assert.Equal("verified", sample.GameVerification); Assert.True(sample.GameActive);
+        Assert.True(sample.NativeExpected); Assert.True(sample.OverlayExpectedVisible);
+        Assert.True(SupplementaryIncidentSchema.Valid(SupplementaryIncidentSchema.Create("renderer", context: context)));
+    }
+
+    [Fact]
+    public void RendererFailuresRetainDistinctPhasesThroughTheHealthRingAndWireProjection()
+    {
+        var recorder = new HealthContextRecorder();
+        var stages = Enum.GetValues<HealthFailureStage>().Where(stage => stage is >= HealthFailureStage.RendererState and <= HealthFailureStage.RendererHost).ToArray();
+        foreach (var stage in stages) recorder.RecordRendererFailure(unchecked((int)0x887A0005), stage);
+        var snapshot = recorder.CaptureForReport();
+        Assert.True(HealthContextRecorder.IsValidSnapshot(snapshot));
+        Assert.Equal(stages, snapshot.Breadcrumbs.Select(b => b.FailureStage));
+        var incidents = snapshot.Breadcrumbs.Select(b => SupplementaryIncidentCapture.Breadcrumb("renderer", b, snapshot)).ToArray();
+        Assert.All(incidents, incident =>
+        {
+            Assert.True(SupplementaryIncidentSchema.Valid(incident));
+            Assert.Equal("native-failure", incident.Reason);
+            Assert.Equal(0x887A0005u, incident.Code);
+        });
+        Assert.Equal(stages.Length, incidents.Select(i => i.FailureStage).Distinct().Count());
+        Assert.Equal(stages.Length, incidents.Select(i => i.Signature).Distinct().Count());
+        Assert.Equal("present-call", SupplementaryIncidentCapture.RendererEventStage(HealthFailureStage.RendererPresent));
+        Assert.Equal("render-work", SupplementaryIncidentCapture.RendererEventStage(HealthFailureStage.RendererCreate));
+    }
+
+    [Fact]
+    public void LapMapAndExportRemainDistinctAndInvalidPhasesCannotEnterTheRing()
+    {
+        var recorder = new HealthContextRecorder();
+        recorder.RecordBreadcrumb(HealthEventCode.LapReviewFailed, 5, failureStage: HealthFailureStage.LapMap);
+        recorder.RecordBreadcrumb(HealthEventCode.LapReviewFailed, 5, failureStage: HealthFailureStage.LapExport);
+        recorder.RecordBreadcrumb(HealthEventCode.LapReviewFailed, 5, failureStage: (HealthFailureStage)999);
+        var snapshot = recorder.CaptureForReport();
+        var incidents = snapshot.Breadcrumbs.Select(b => SupplementaryIncidentCapture.Breadcrumb("saved-data", b, snapshot)).ToArray();
+        Assert.Equal(new[] { "runs-map", "runs-export" }, incidents.Select(i => i.FailureStage));
+        Assert.All(incidents, incident => Assert.True(SupplementaryIncidentSchema.Valid(incident)));
+    }
+
+    [Theory]
+    [InlineData(unchecked((int)0x80070070), "disk-full")]
+    [InlineData(unchecked((int)0x80070027), "disk-full")]
+    [InlineData(unchecked((int)0x80070005), "access-denied")]
+    [InlineData(unchecked((int)0x80070020), "storage")]
+    public void ExportRetainsStorageCodeAndUsesTheLocalReportClassification(int code, string expected)
+    {
+        var error = new System.IO.IOException("PRIVATE_DO_NOT_COPY", code);
+        var incident = Assert.IsType<SupplementaryIncident>(SupplementaryIncidentCapture.Export(error, DateTimeOffset.UtcNow));
+        Assert.Equal(expected, incident.Reason);
+        Assert.Equal(ClipExportFailureReport.FailureCategory(error), incident.Reason);
+        Assert.Equal(unchecked((uint)code), incident.Code);
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+        Assert.DoesNotContain("PRIVATE_DO_NOT_COPY", JsonSerializer.Serialize(incident));
+    }
+
     [Fact]
     public void EveryPublishedMethodIsAnActualProductMethod()
     { Assert.All(SupplementaryIncidentSchema.Methods, symbol => Assert.True(CrashReportSymbols.IsKnownMethod(symbol), symbol)); }

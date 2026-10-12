@@ -15,22 +15,34 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
-            "2.6.6",
-            "October 10, 2026",
-            "WISP TOOLS",
-            "Send feedback from Extras, receive verified notices and share automatic health measurements to help investigate problems.",
+            "2.6.7",
+            "October 11, 2026",
+            "DIAGNOSTICS",
+            "Improved failure reports and recent session evidence help investigate problems more accurately.",
             true,
             [
-                Group("Wisp Tools",
-                    "Extras now has Diagnostics, Suggestions and Feedback. Review the exact message before sending, cancel before submission and keep the confirmation reference.",
-                    "One message is accepted per installation each UTC day. Wisp shows when another can be sent; retrying an uncertain submission keeps the same message identity."),
-                Group("Automatic reporting",
-                    "Wisp automatically sends bounded feature outcomes, connection states, timing summaries and process resource measurements. Random installation and session identifiers link these observations; there is no in-app opt-out.",
-                    "Failure evidence includes fixed error codes, selected Wisp method names and up to three preceding performance samples from 30 seconds. Raw exception messages, paths, gameplay packets, saved runs, tunes, clips and raw logs are not uploaded automatically.",
-                    "Detailed event and support content is retained for 30 days. Download history is retained separately. Timing summaries describe measured work and callbacks, not displayed frames or end-to-end latency."),
-                Group("Developer notices",
-                    "Verified notices can update A note from Views separately from the dashboard banner, while keeping the note's existing timing and close controls.",
-                    "A custom dashboard banner contains text only. The normal update notice returns when that message expires or is withdrawn; update controls remain available in Extras.")
+                Group("Diagnostics",
+                    "Improved diagnostic details for Clips, Tune, saved data, settings, updates and the HUD.",
+                    "Preserve recent health measurements after an interrupted session and match reports to the originating run.",
+                    "Distinguish requested shutdowns, Windows shutdowns and update restarts when recovering the previous session.")
+            ]),
+        new(
+            "2.6.6",
+            "October 11, 2026",
+            "WISP TOOLS",
+            "Send feedback from Extras, receive verified notices and share automatic health measurements to help investigate problems.",
+            false,
+            [
+                Group("News and feedback",
+                    "Send Diagnostics, Suggestions or Feedback from Extras. Review your message before sending and keep the confirmation reference.",
+                    "One accepted message per day. Wisp shows when another can be sent."),
+                Group("Diagnostics",
+                    "App health, performance measurements, configuration details and recent failure context help investigate issues.",
+                    "Activity summaries include session time, estimated distance, average speed and peak observed speed."),
+                Group("Developer updates",
+                    "A note from Views, news, known issues and troubleshooting refresh automatically.",
+                    "Temporary dashboard announcements share the banner space. The automatic update notice returns when an announcement ends.",
+                    "Improved spacing in the unexpected-shutdown notice.")
             ]),
         new(
             "2.6.5",

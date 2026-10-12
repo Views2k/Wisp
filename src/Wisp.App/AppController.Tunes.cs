@@ -25,7 +25,7 @@ public sealed partial class AppController
             snapshot => _tuneCapture?.IsCurrent(snapshot) == true, _dispatcher);
         if (_tuneCapture is not null) _tuneCapture.Invalidated += TuneCaptureInvalidated;
         Runs.LoadTuneChoices = async token => (await _tuneStore.ListAsync(token)).Select(saved =>
-            new RunTuneChoice($"{saved.Name} · {TunePresentation.Car(saved.Snapshot)} · {saved.SavedAtUtc.ToLocalTime():g}", SavedTuneId: saved.Id)).ToArray();
+            new RunTuneChoice($"{saved.Name} Â· {TunePresentation.Car(saved.Snapshot)} Â· {saved.SavedAtUtc.ToLocalTime():g}", SavedTuneId: saved.Id)).ToArray();
         Runs.PrepareTune = PrepareRunTuneAsync;
         Runs.ValidatePreparedTune = attachment => _tuneCapture?.IsCurrent(attachment.Snapshot) == true;
         Runs.AttachedTuneRequested += OpenAttachedTune;
@@ -40,17 +40,23 @@ public sealed partial class AppController
             var result = _tuneCapture is { } capture ? await capture.RequestSnapshotAsync(token)
                 : new TuneCaptureResult(null, TuneCaptureStatus.Unavailable,
                     "Current-car reading is unavailable in this preview. Saved tunes can still be opened.");
-            observation?.Complete(result.Success && result.Snapshot is { IsComplete: true } ? "success" : result.Success ? "unknown" : result.Status switch
-            {
-                TuneCaptureStatus.Cancelled => "cancelled",
-                TuneCaptureStatus.UnsupportedBuild => "unsupported",
-                TuneCaptureStatus.GameNotRunning => "idle",
-                _ => "failure"
-            });
+            var outcome = _tuneCapture is null || result.Incident?.Reason == "not_ready" ? "idle" :
+                result.Success && result.Snapshot is { IsComplete: true } ? "success" : result.Success ? "unknown" : result.Status switch
+                {
+                    TuneCaptureStatus.Cancelled => "cancelled",
+                    TuneCaptureStatus.UnsupportedBuild => "unsupported",
+                    TuneCaptureStatus.GameNotRunning => "idle",
+                    _ => "failure"
+                };
+            observation?.Complete(outcome, outcome is "failure" or "unsupported" or "unknown" ? result.Incident : null, result.GameVerification);
             return result;
         }
         catch (OperationCanceledException) { observation?.Complete("cancelled"); throw; }
-        catch { observation?.Complete("failure"); throw; }
+        catch (Exception error)
+        {
+            observation?.Complete("failure", TuneCaptureService.TuneIncident(TuneCaptureStage.ReadTune, "tune-read-failed", error));
+            throw;
+        }
     }
 
     private async Task<RunTunePreparation> PrepareRunTuneAsync(RunTuneChoice choice, CancellationToken token)

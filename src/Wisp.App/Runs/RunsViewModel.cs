@@ -352,9 +352,9 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             if (revision != _selectionRevision || _disposed) return;
             if (_metadataClosing) { _pendingSelection = selected; return; }
             if (RecordingActive) { _pendingSelection = selected; return; }
-            var opened = await AnalyzeAsync(run);
+            var opened = await AnalyzeAsync(run, observation: supplementaryLoad);
             if (revision != _selectionRevision) return;
-            supplementaryLoad?.Complete(opened ? "success" : "failure");
+            supplementaryLoad?.Complete(opened ? "success" : "idle");
             if (opened)
             {
                 if (!hadRun) ReportOpened?.Invoke(this, EventArgs.Empty);
@@ -371,7 +371,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             {
                 _selectedRun = Library.FirstOrDefault(item => item.Id == _runA?.Id);
                 OnChanged(nameof(SelectedRun));
-                supplementaryLoad?.Complete("failure");
+                supplementaryLoad?.Fail(error);
                 Fail("This run could not be opened. The file may be incomplete or unavailable.");
             }
         }
@@ -427,7 +427,8 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         else if (_loadingComparison) { _comparisonNeedsAnalysis = true; ++_analysisRevision; }
         else if (_runA is not null) _ = AnalyzeAsync();
     }
-    private async Task<bool> AnalyzeAsync(RecordedRun? openingRun = null, RecordedRun? comparisonRun = null)
+    private async Task<bool> AnalyzeAsync(RecordedRun? openingRun = null, RecordedRun? comparisonRun = null,
+        SupplementaryOperation? observation = null)
     {
         if (openingRun is null && _runA is null || _disposed) return false;
         var revision = ++_analysisRevision;
@@ -571,7 +572,14 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             else await BuildChartsAsync(revision);
             return true;
         }
-        catch (Exception error) when (error is not OutOfMemoryException) { if (revision == _analysisRevision) Fail("The report could not be prepared. Select the run again to retry."); }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            if (revision == _analysisRevision)
+            {
+                if (error is not OperationCanceledException) observation?.Fail(error);
+                Fail("The report could not be prepared. Select the run again to retry.");
+            }
+        }
         finally { if (revision == _analysisRevision && !_loadingComparison) IsBusy = false; }
         return false;
     }
@@ -693,7 +701,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             Status = "Run exported. Nothing was uploaded.";
             supplementaryExport?.Complete("success");
         }
-        catch (Exception error) when (error is not OutOfMemoryException) { supplementaryExport?.Complete("failure"); Fail("Export failed. Choose a new filename and try again."); }
+        catch (Exception error) when (error is not OutOfMemoryException) { supplementaryExport?.Fail(error); Fail("Export failed. Choose a new filename and try again."); }
         finally { IsBusy = false; }
     }
     public async Task ImportAsync(string source)
@@ -710,7 +718,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             { _selectedRun = imported; OnChanged(nameof(SelectedRun)); await LoadSelectionAsync(imported); }
             Status = "Run imported.";
         }
-        catch (Exception error) when (error is not OutOfMemoryException) { supplementaryImport?.Complete("failure"); Fail("This file could not be imported. Choose a complete Wisp run file."); }
+        catch (Exception error) when (error is not OutOfMemoryException) { supplementaryImport?.Fail(error); Fail("This file could not be imported. Choose a complete Wisp run file."); }
         finally { IsBusy = false; }
     }
     internal async Task ShowReviewAsync(RecordedRun a, RecordedRun? b = null, RunPurpose purpose = RunPurpose.General)

@@ -18,13 +18,14 @@ internal sealed class UpdateFailureException : Exception
         string errorCode,
         string safeMessage,
         Exception? innerException = null,
-        bool recoveryIsSafe = true)
+        bool recoveryIsSafe = true, uint? installerExitCode = null)
         : base(safeMessage, innerException)
     {
         ExitCode = exitCode;
         ErrorCode = errorCode;
         SafeMessage = safeMessage;
         RecoveryIsSafe = recoveryIsSafe;
+        InstallerExitCode = installerExitCode;
     }
 
     internal UpdaterExitCode ExitCode { get; }
@@ -34,4 +35,6 @@ internal sealed class UpdateFailureException : Exception
     internal string SafeMessage { get; }
 
     internal bool RecoveryIsSafe { get; }
+
+    internal uint? InstallerExitCode { get; }
 }

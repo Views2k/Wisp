@@ -25,7 +25,7 @@ public sealed class SupplementaryInstrumentationTests
             using var cancellation = new CancellationTokenSource();
             if (cancel) cancellation.Cancel();
             var test = new SetupTelemetryTest(new FailingSource());
-            var result = await test.RunAsync("5300", cancellationToken: cancellation.Token);
+            var result = await test.RunAsync("5500", cancellationToken: cancellation.Token);
             Assert.False(result.Passed);
             Assert.Equal(new[] { "attempt", outcome }, observed.Select(v => v.Outcome));
             Assert.All(observed, v => { Assert.Equal("setup", v.Kind); Assert.Equal("data-out", v.Stage); });

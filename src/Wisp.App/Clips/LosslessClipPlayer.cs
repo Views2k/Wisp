@@ -6,7 +6,8 @@ namespace Wisp.App.Clips;
 
 internal sealed record LosslessPlaybackSnapshot(bool Ready = false, double Duration = 0, double Position = 0,
     bool Buffering = false, bool Ended = false, string? Failure = null,
-    bool PreparingPlaybackCopy = false, double? PreparationProgress = null, bool IsPlaybackCopy = false);
+    bool PreparingPlaybackCopy = false, double? PreparationProgress = null, bool IsPlaybackCopy = false,
+    Supplementary.SupplementaryIncident? Incident = null);
 
 // mpv owns the playback/audio clock. All native calls, including destruction,
 // are serialized away from WPF. Native events are drained on that same worker.
@@ -281,7 +282,11 @@ internal sealed class LosslessClipPlayer
                     var action = LosslessMpvRuntime.CleanupPending
                         ? "Decoder cleanup is still pending. Restart Wisp before opening another lossless clip."
                         : "Reopen the clip; if it repeats, restart Wisp and report this code.";
-                    Publish(Snapshot with { Failure = $"Lossless playback failed ({code}, 0x{error.HResult:X8}). {action}" });
+                    Publish(Snapshot with
+                    {
+                        Failure = $"Lossless playback failed ({code}, 0x{error.HResult:X8}). {action}",
+                        Incident = Supplementary.SupplementaryObservations.Observer is null ? null : DebugLogging.SupplementaryOperationFailure.Capture("clips", Snapshot.Ready ? "playback" : "decode", error, DateTimeOffset.UtcNow)
+                    });
                 }
             }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
         }
@@ -302,7 +307,11 @@ internal sealed class LosslessClipPlayer
     private void HostClosed(object? sender, EventArgs e) => _ = CloseAsync();
     private void HostFailed(object? sender, EventArgs e)
     {
-        Publish(Snapshot with { Failure = "The lossless video surface could not be clipped safely. Reopen the clip to retry." });
+        Publish(Snapshot with
+        {
+            Failure = "The lossless video surface could not be clipped safely. Reopen the clip to retry.",
+            Incident = Supplementary.SupplementaryObservations.Observer is null ? null : Supplementary.SupplementaryIncidentSchema.Create("playback", "native-failure", "host_configuration")
+        });
         _lifetime.Cancel();
     }
 

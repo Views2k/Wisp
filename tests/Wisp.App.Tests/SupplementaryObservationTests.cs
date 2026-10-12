@@ -5,6 +5,22 @@ namespace Wisp.App.Tests;
 
 public sealed class SupplementaryObservationTests
 {
+    [Theory]
+    [InlineData("failure")]
+    [InlineData("timeout")]
+    [InlineData("unsupported")]
+    public void MissingClassificationIsExplicitAndCannotSilentlyBecomeBareFailure(string outcome)
+    {
+        var observations = new List<SupplementaryObservation>();
+        using var operation = new SupplementaryOperation(observations.Add, "feature", "tune", "capture", TimeProvider.System);
+        operation.Complete(outcome);
+        operation.Complete(outcome);
+        var report = Assert.Single(observations, x => x.Outcome == outcome);
+        Assert.Equal("classification-missing", report.Incident?.Reason);
+        Assert.Equal("report-classification", report.Incident?.FailureStage);
+        Assert.True(SupplementaryIncidentSchema.Valid(report.Incident!));
+    }
+
     [Fact]
     public void AnOperationHasExactlyOneTerminalOutcome()
     {
@@ -40,7 +56,8 @@ public sealed class SupplementaryObservationTests
         playback.Failed();
         playback.Reset();
         Assert.Equal(new[] { "attempt", "success" }, events.Where(e => e.Stage == "decode").Select(e => e.Outcome));
-        Assert.Equal(new[] { "attempt", "success" }, events.Where(e => e.Stage == "playback").Select(e => e.Outcome));
+        Assert.Equal(new[] { "attempt", "success", "attempt", "failure" }, events.Where(e => e.Stage == "playback").Select(e => e.Outcome));
+        Assert.NotNull(events.Last().Incident);
     }
 
     [Fact]

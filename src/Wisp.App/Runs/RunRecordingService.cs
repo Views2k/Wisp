@@ -17,6 +17,8 @@ public sealed class RunRecordingService : IAsyncDisposable
     private Session? _session;
     private RunRecordingContext? _latestContext;
     private string? _error;
+    private Supplementary.SupplementaryIncident? _failureIncident;
+    internal Supplementary.SupplementaryIncident? FailureIncident => Volatile.Read(ref _failureIncident);
     private string _status = "Ready to record";
     private string _markerStatus = string.Empty;
     private long _lastElapsedTicks;
@@ -63,6 +65,7 @@ public sealed class RunRecordingService : IAsyncDisposable
         lock (_gate)
         {
             _error = null;
+            Volatile.Write(ref _failureIncident, null);
             if (!options.IsValid)
             {
                 _status = options.TuneAttachment is { IsValid: false } ? "Read the current tune again before recording." :
@@ -110,6 +113,7 @@ public sealed class RunRecordingService : IAsyncDisposable
                 var session = new Session(capture, state.CarOrdinal, state.Drivetrain, context, reservation, options);
                 _session = session;
                 _error = null;
+                Volatile.Write(ref _failureIncident, null);
                 _status = "Recording";
                 _markerStatus = string.Empty;
                 session.Completion = Task.Run(async () =>
@@ -123,6 +127,10 @@ public sealed class RunRecordingService : IAsyncDisposable
                 reservation.Dispose();
                 if (capture is not null) _receiver.EndRunCapture(capture, "Recording could not start");
                 _session = null;
+                var incident = Supplementary.SupplementaryObservations.Observer is null ? null :
+                    DebugLogging.SupplementaryOperationFailure.Capture("runs", "start", error, DateTimeOffset.UtcNow);
+                Volatile.Write(ref _failureIncident, incident);
+                Supplementary.SupplementaryObservations.Record("feature", "runs", "failure", "capture", incident: incident);
                 _error = "Recording could not start. Live telemetry is still running.";
                 _status = _error;
                 return false;
@@ -348,6 +356,8 @@ public sealed class RunRecordingService : IAsyncDisposable
         catch (Exception error) when (error is not StackOverflowException)
         {
             saved = null;
+            Volatile.Write(ref _failureIncident, Supplementary.SupplementaryObservations.Observer is null ? null :
+                DebugLogging.SupplementaryOperationFailure.Capture("runs", "save", error, DateTimeOffset.UtcNow));
             _error = error is RunLibraryFullException ? "The run library is full. Export or remove a run before recording another." :
                 "The run could not be saved. Any recovery data has been kept. Live telemetry is still running.";
             _status = _error;

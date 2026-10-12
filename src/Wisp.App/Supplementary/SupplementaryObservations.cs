@@ -1,7 +1,7 @@
 namespace Wisp.App.Supplementary;
 
 internal sealed record SupplementaryObservation(string Kind, string Feature, string Outcome, string Stage,
-    DateTimeOffset ObservedAt, double? DurationMs = null, SupplementaryIncident? Incident = null);
+    DateTimeOffset ObservedAt, double? DurationMs = null, SupplementaryIncident? Incident = null, NativeGameVerification? GameVerification = null);
 
 // Disabled hosts do not allocate observations or operations. No subscriber can change feature behavior.
 internal static class SupplementaryObservations
@@ -20,7 +20,17 @@ internal static class SupplementaryObservations
     }
 
     internal static void Emit(Action<SupplementaryObservation> observer, SupplementaryObservation value)
-    { try { observer(value); } catch (Exception) { /* Optional reporting cannot fail an application operation. */ } }
+    {
+        try { observer(value with { Incident = EnsureClassification(value.Kind, value.Outcome, value.Incident) }); }
+        catch (Exception) { /* Optional reporting cannot fail an application operation. */ }
+    }
+
+    internal static SupplementaryIncident? EnsureClassification(string kind, string outcome, SupplementaryIncident? incident)
+    {
+        if (incident is not null || kind != "exception" && outcome is not ("failure" or "timeout" or "unsupported")) return incident;
+        System.Diagnostics.Debug.Assert(false, "A failure producer must supply its categorized incident.");
+        return SupplementaryIncidentSchema.Create("collector", "classification-missing", "report-classification");
+    }
 }
 
 internal sealed class SupplementaryOperation : IDisposable
@@ -35,13 +45,15 @@ internal sealed class SupplementaryOperation : IDisposable
         _observer = observer; _kind = kind; _feature = feature; _stage = stage; _clock = clock; _started = clock.GetTimestamp();
         SupplementaryObservations.Emit(observer, new(kind, feature, "attempt", stage, clock.GetUtcNow()));
     }
-    internal void Complete(string outcome, SupplementaryIncident? incident = null)
+    internal void Complete(string outcome, SupplementaryIncident? incident = null, NativeGameVerification? gameVerification = null)
     {
         if (Interlocked.Exchange(ref _completed, 1) != 0) return;
         var elapsed = _clock.GetElapsedTime(_started).TotalMilliseconds;
         SupplementaryObservations.Emit(_observer, new(_kind, _feature, outcome, _stage, _clock.GetUtcNow(),
-            elapsed is >= 0 and <= 604800000 ? elapsed : null, incident));
+            elapsed is >= 0 and <= 604800000 ? elapsed : null, incident, gameVerification));
     }
+    internal void Fail(Exception error, string outcome = "failure") => Complete(outcome,
+        DebugLogging.SupplementaryOperationFailure.Capture(_feature, _stage, error, _clock.GetUtcNow()));
     // An interrupted/uncategorized path is not silently counted as success or a confirmed failure.
     public void Dispose() => Complete("unknown");
 }

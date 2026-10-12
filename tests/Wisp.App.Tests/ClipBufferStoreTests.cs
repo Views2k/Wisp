@@ -28,7 +28,12 @@ public sealed class ClipBufferStoreTests : IDisposable
         Assert.True(File.Exists(Path.Combine(first.Workspace, ClipBufferStore.OwnerName)));
         Assert.False(Directory.Exists(first.SpoolDirectory));
         Assert.StartsWith(BufferRoot, first.SpoolDirectory, StringComparison.OrdinalIgnoreCase);
-        await Assert.ThrowsAsync<RecorderClientException>(() => ClipBufferStore.OpenAsync(session, BufferRoot, Token));
+        var failure = await Assert.ThrowsAsync<RecorderClientException>(() => ClipBufferStore.OpenAsync(session, BufferRoot, Token));
+        Assert.Equal("buffer-open", failure.StorageStage);
+        Assert.NotNull(failure.StorageHResult);
+        var incident = DebugLogging.SupplementaryIncidentCapture.Recorder(failure.Reason, null, ClipStorageDiagnostic.From(failure), DateTimeOffset.UtcNow);
+        Assert.Equal(unchecked((uint)failure.StorageHResult.Value), incident.Code);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(incident));
         Assert.True(Directory.Exists(first.Workspace));
     }
 

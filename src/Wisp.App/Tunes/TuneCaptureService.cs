@@ -2,6 +2,8 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using Wisp.Core;
 using Wisp.Core.Tunes;
+using Wisp.App.Supplementary;
+using Wisp.App.DebugLogging;
 
 namespace Wisp.App.Tunes;
 
@@ -9,6 +11,8 @@ public enum TuneCaptureStatus { Ready, GameNotRunning, UnsupportedBuild, Unavail
 public sealed record TuneCaptureResult(TuneSnapshot? Snapshot, TuneCaptureStatus Status, string Message, string Details = "")
 {
     public bool Success => Snapshot is not null && Status == TuneCaptureStatus.Ready;
+    internal SupplementaryIncident? Incident { get; init; }
+    internal NativeGameVerification? GameVerification { get; init; }
 }
 
 public sealed class TuneCaptureService : IAsyncDisposable
@@ -166,84 +170,113 @@ public sealed class TuneCaptureService : IAsyncDisposable
 
     private async Task<TuneCaptureResult> CaptureAsync(long generation, CancellationToken cancellationToken)
     {
-        var entered = false;
-        var stage = TuneCaptureStage.OpenGame;
-        NativeHudCompatibilityPack? build = null;
-        try
+        var verification = NativeGameVerification.Unavailable;
+        var result = await Capture().ConfigureAwait(false);
+        return result with { GameVerification = verification };
+
+        async Task<TuneCaptureResult> Capture()
         {
-            await _captureGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            entered = true;
-            var compatibility = _factory.CompatibilityGeneration;
-            if (!_factory.TryOpen(cancellationToken, out var opened, out var status) || opened is null)
-                return Fail(status == NativeAssistProviderStatus.GameNotRunning ? TuneCaptureStatus.GameNotRunning :
-                    status == NativeAssistProviderStatus.UnsupportedBuild ? TuneCaptureStatus.UnsupportedBuild : TuneCaptureStatus.Unavailable,
-                    status == NativeAssistProviderStatus.GameNotRunning ? "Open Forza to read the current car." :
-                    status == NativeAssistProviderStatus.UnsupportedBuild ? CompatibilityUnavailableMessage :
-                    "The current car could not be read. Refresh and try again.", generation,
-                    TuneCaptureDetails.Create(TuneCaptureStage.OpenGame, providerStatus: status));
-            using var memory = opened;
-            build = memory.CompatibilityPack;
-            stage = TuneCaptureStage.VerifySession;
-            if (string.IsNullOrEmpty(memory.SessionIdentity))
-                return Fail(TuneCaptureStatus.Unavailable, "The current game session could not be verified.", generation,
-                    TuneCaptureDetails.Create(stage, build));
-            stage = TuneCaptureStage.ReadTune;
-            var input = _capture(memory, cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            stage = TuneCaptureStage.DecodeTune;
-            if (!TuneDecoder.TryDecode(input, out var snapshot, out var decodeFailure) || snapshot is null)
-                return Fail(TuneCaptureStatus.Unavailable, "The current tune could not be verified. Refresh and try again.", generation,
-                    TuneCaptureDetails.Create(stage, build, decodeFailure: decodeFailure));
-            stage = TuneCaptureStage.VerifyCurrent;
-            var changed = false;
-            lock (_gate)
+            var entered = false;
+            var stage = TuneCaptureStage.OpenGame;
+            NativeHudCompatibilityPack? build = null;
+            try
             {
-                if (_disposed || generation != _generation || compatibility != _factory.CompatibilityGeneration)
-                    return new(null, TuneCaptureStatus.Changed, "The car or game changed. Refresh the current tune.",
-                        TuneCaptureDetails.Create(stage, build));
-                if (_session.Length != 0 && (_session != memory.SessionIdentity || _carOrdinal != snapshot.Identity.CarOrdinal ||
-                    _compatibilityGeneration != compatibility))
+                await _captureGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                entered = true;
+                var compatibility = _factory.CompatibilityGeneration;
+                var attached = _factory.TryOpen(cancellationToken, out var opened, out var status);
+                verification = opened?.GameVerification ?? NativeGameVerification.FromStatus(status);
+                if (!attached || opened is null)
+                    return Fail(status == NativeAssistProviderStatus.GameNotRunning ? TuneCaptureStatus.GameNotRunning :
+                        status == NativeAssistProviderStatus.UnsupportedBuild ? TuneCaptureStatus.UnsupportedBuild : TuneCaptureStatus.Unavailable,
+                        status == NativeAssistProviderStatus.GameNotRunning ? "Open Forza to read the current car." :
+                        status == NativeAssistProviderStatus.UnsupportedBuild ? CompatibilityUnavailableMessage :
+                        "The current car could not be read. Refresh and try again.", generation,
+                        TuneCaptureDetails.Create(TuneCaptureStage.OpenGame, providerStatus: status),
+                        status == NativeAssistProviderStatus.GameNotRunning ? null : TuneIncident(stage,
+                            status == NativeAssistProviderStatus.UnsupportedBuild ? "compatibility-unavailable" :
+                            status == NativeAssistProviderStatus.AccessDenied ? "access-denied" : "session-unverified"));
+                using var memory = opened;
+                build = memory.CompatibilityPack;
+                stage = TuneCaptureStage.VerifySession;
+                if (string.IsNullOrEmpty(memory.SessionIdentity))
+                    return Fail(TuneCaptureStatus.Unavailable, "The current game session could not be verified.", generation,
+                        TuneCaptureDetails.Create(stage, build), TuneIncident(stage, "session-unverified"));
+                stage = TuneCaptureStage.ReadTune;
+                var input = _capture(memory, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                stage = TuneCaptureStage.DecodeTune;
+                if (!TuneDecoder.TryDecode(input, out var snapshot, out var decodeFailure) || snapshot is null)
+                    return Fail(TuneCaptureStatus.Unavailable, "The current tune could not be verified. Refresh and try again.", generation,
+                        TuneCaptureDetails.Create(stage, build, decodeFailure: decodeFailure), TuneIncident(stage, "tune-decode-failed"));
+                stage = TuneCaptureStage.VerifyCurrent;
+                var changed = false;
+                lock (_gate)
                 {
-                    _generation++;
-                    changed = true;
+                    if (_disposed || generation != _generation || compatibility != _factory.CompatibilityGeneration)
+                        return new(null, TuneCaptureStatus.Changed, "The car or game changed. Refresh the current tune.",
+                            TuneCaptureDetails.Create(stage, build))
+                        { Incident = TuneIncident(stage, "session-changed") };
+                    if (_session.Length != 0 && (_session != memory.SessionIdentity || _carOrdinal != snapshot.Identity.CarOrdinal ||
+                        _compatibilityGeneration != compatibility))
+                    {
+                        _generation++;
+                        changed = true;
+                    }
+                    _session = memory.SessionIdentity;
+                    _carOrdinal = snapshot.Identity.CarOrdinal;
+                    _compatibilityGeneration = compatibility;
+                    _stamps.Add(snapshot, new SnapshotStamp(_generation, compatibility, _session));
                 }
-                _session = memory.SessionIdentity;
-                _carOrdinal = snapshot.Identity.CarOrdinal;
-                _compatibilityGeneration = compatibility;
-                _stamps.Add(snapshot, new SnapshotStamp(_generation, compatibility, _session));
+                if (changed) Invalidated?.Invoke(this, EventArgs.Empty);
+                return new(snapshot, TuneCaptureStatus.Ready, snapshot.IsComplete ? string.Empty : "Some settings are unavailable for this tune.");
             }
-            if (changed) Invalidated?.Invoke(this, EventArgs.Empty);
-            return new(snapshot, TuneCaptureStatus.Ready, snapshot.IsComplete ? string.Empty : "Some settings are unavailable for this tune.");
+            catch (OperationCanceledException) { return new(null, TuneCaptureStatus.Cancelled, "Tune reading was cancelled."); }
+            catch (TuneLayoutException exception)
+            {
+                return Fail(TuneCaptureStatus.UnsupportedBuild, LayoutUnavailableMessage, generation,
+                    TuneCaptureDetails.Create(stage, build, exception), TuneIncident(stage, "layout-unverified", exception));
+            }
+            catch (TuneChangedException exception)
+            {
+                return Fail(TuneCaptureStatus.Changed, "The car or tune changed while reading. Refresh and try again.", generation,
+                    TuneCaptureDetails.Create(stage, build, exception), TuneIncident(stage, "session-changed", exception));
+            }
+            catch (TuneCarSelectionException exception)
+            {
+                return Fail(TuneCaptureStatus.Unavailable, exception.Failure == TuneCarSelectionFailure.NoCar
+                    ? "No current car is available. Drive in the open world, then refresh."
+                    : "Wisp could not identify one current car. Drive in the open world, then refresh.", generation,
+                    TuneCaptureDetails.Create(stage, build, exception), TuneIncident(stage,
+                        exception.Failure == TuneCarSelectionFailure.NoCar ? "not_ready" : "validation", exception));
+            }
+            catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or
+                System.ComponentModel.Win32Exception or DllNotFoundException or EntryPointNotFoundException or
+                ArgumentException or OverflowException)
+            {
+                return Fail(TuneCaptureStatus.Unavailable, "The current tune could not be read. Refresh and try again.", generation,
+                    TuneCaptureDetails.Create(stage, build, exception), TuneIncident(stage,
+                        exception is UnauthorizedAccessException || exception is System.ComponentModel.Win32Exception { NativeErrorCode: 5 }
+                            ? "access-denied" : exception is InvalidDataException ? "validation" : "tune-read-failed", exception));
+            }
+            finally { if (entered) _captureGate.Release(); }
         }
-        catch (OperationCanceledException) { return new(null, TuneCaptureStatus.Cancelled, "Tune reading was cancelled."); }
-        catch (TuneLayoutException exception)
-        {
-            return Fail(TuneCaptureStatus.UnsupportedBuild, LayoutUnavailableMessage, generation,
-                TuneCaptureDetails.Create(stage, build, exception));
-        }
-        catch (TuneChangedException exception)
-        {
-            return Fail(TuneCaptureStatus.Changed, "The car or tune changed while reading. Refresh and try again.", generation,
-                TuneCaptureDetails.Create(stage, build, exception));
-        }
-        catch (TuneCarSelectionException exception)
-        {
-            return Fail(TuneCaptureStatus.Unavailable, exception.Failure == TuneCarSelectionFailure.NoCar
-                ? "No current car is available. Drive in the open world, then refresh."
-                : "Wisp could not identify one current car. Drive in the open world, then refresh.", generation,
-                TuneCaptureDetails.Create(stage, build, exception));
-        }
-        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or
-            System.ComponentModel.Win32Exception or DllNotFoundException or EntryPointNotFoundException or
-            ArgumentException or OverflowException)
-        {
-            return Fail(TuneCaptureStatus.Unavailable, "The current tune could not be read. Refresh and try again.", generation,
-                TuneCaptureDetails.Create(stage, build, exception));
-        }
-        finally { if (entered) _captureGate.Release(); }
     }
 
-    private TuneCaptureResult Fail(TuneCaptureStatus status, string message, long generation, string details)
+    internal static SupplementaryIncident TuneIncident(TuneCaptureStage stage, string reason, Exception? error = null) =>
+        SupplementaryIncidentSchema.Create("tune", reason, stage switch
+        {
+            TuneCaptureStage.OpenGame => "tune-open",
+            TuneCaptureStage.VerifySession => "tune-session",
+            TuneCaptureStage.ReadTune => "tune-read",
+            TuneCaptureStage.DecodeTune => "tune-decode",
+            _ => "tune-current"
+        }, error is System.ComponentModel.Win32Exception native ? unchecked((uint)native.NativeErrorCode) :
+            error is not null ? unchecked((uint)error.HResult) : null,
+        error is null ? null : [new(CrashDiagnostics.CrashReportSymbols.ExceptionType(error.GetType()), unchecked((uint)error.HResult), [])],
+        SupplementaryIncidentCapture.Context(HealthContextRecorder.Current.Snapshot(), DateTimeOffset.UtcNow));
+
+    private TuneCaptureResult Fail(TuneCaptureStatus status, string message, long generation, string details, SupplementaryIncident? incident = null)
     {
         var changed = false;
         lock (_gate)
@@ -257,7 +290,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
             }
         }
         if (changed) Invalidated?.Invoke(this, EventArgs.Empty);
-        return new(null, status, message, details);
+        return new(null, status, message, details) { Incident = incident };
     }
 
     public ValueTask DisposeAsync()

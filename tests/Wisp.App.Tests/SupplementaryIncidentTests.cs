@@ -8,6 +8,19 @@ namespace Wisp.App.Tests;
 public sealed class SupplementaryIncidentTests
 {
     [Fact]
+    public void CrashSignatureIncludesOriginAndModuleButNotLookupOrChangingContext()
+    {
+        var incident = SupplementaryIncidentSchema.Create("windows-fault", "windows-application-fault", "crash-windows",
+            crash: new("windows", "matched", "ntdll.dll"));
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+        Assert.Equal(incident.Signature, SupplementaryIncidentSchema.Signature(incident with { Crash = incident.Crash! with { Lookup = "timeout" } }));
+        Assert.NotEqual(incident.Signature, SupplementaryIncidentSchema.Signature(incident with { Crash = incident.Crash! with { Module = "dxgi.dll" } }));
+        Assert.False(SupplementaryIncidentSchema.Valid(incident with { SchemaVersion = 1 }));
+        Assert.False(SupplementaryIncidentSchema.Valid(SupplementaryIncidentSchema.Create("windows-fault", crash: new("ui"))));
+        Assert.False(SupplementaryIncidentSchema.Valid(SupplementaryIncidentSchema.Create("windows-fault", crash: new("windows", Module: "C:\\PRIVATE\\ntdll.dll"))));
+    }
+
+    [Fact]
     public void SignatureRetainsFailureIdentityButExcludesChangingContext()
     {
         var first = SupplementaryIncidentSchema.Create("recorder", "encoder_failed", "video_submit", 0x80004005,

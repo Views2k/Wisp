@@ -12,6 +12,7 @@ internal interface IRecorderSession : IAsyncDisposable
 {
     bool BorderlessAllowed { set; }
     RecorderFailureDiagnostic? FailureDiagnostic => null;
+    RecorderClientException? ClientFailure => null;
     event EventHandler<RecorderStateUpdate>? StateChanged;
     Task OpenAsync(ClipRecordingSpec recording, string storage, CancellationToken cancellationToken);
     Task StartAsync(RecorderTarget target, CancellationToken cancellationToken);
@@ -26,6 +27,7 @@ internal sealed class ProcessRecorderSession(string installedHelperPath) : IReco
     private readonly RecorderProcessClient _client = new(installedHelperPath);
     public bool BorderlessAllowed { set => _client.BorderlessAllowed = value; }
     public RecorderFailureDiagnostic? FailureDiagnostic => _client.FailureDiagnostic;
+    public RecorderClientException? ClientFailure => _client.ClientFailure;
     public event EventHandler<RecorderStateUpdate>? StateChanged { add => _client.StateChanged += value; remove => _client.StateChanged -= value; }
     public Task OpenAsync(ClipRecordingSpec recording, string storage, CancellationToken cancellationToken) => _client.OpenAsync(recording, storage, cancellationToken);
     public Task StartAsync(RecorderTarget target, CancellationToken cancellationToken) => _client.StartAsync(target, cancellationToken);
@@ -45,6 +47,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private readonly Func<CancellationToken, Task<ClipBorderlessAccessResult>> _requestBorderless;
     private readonly Func<CancellationToken, Task<ClipBorderlessAccessResult>> _checkBorderless;
     private readonly DebugLogging.ComponentDiagnosticHistory _diagnosticHistory;
+    private readonly TimeProvider _clock;
+    private long? _captureStaleSince;
     private readonly SemaphoreSlim _permissionGate = new(1, 1);
     private ClipBorderlessAccessResult? _borderlessAccess;
     private readonly bool _helperAvailable;
@@ -90,7 +94,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         Func<TimeSpan, CancellationToken, Task>? recoveryDelay = null,
         Func<CancellationToken, Task<ClipBorderlessAccessResult>>? requestBorderless = null,
         Func<CancellationToken, Task<ClipBorderlessAccessResult>>? checkBorderless = null,
-        DebugLogging.ComponentDiagnosticHistory? diagnosticHistory = null)
+        DebugLogging.ComponentDiagnosticHistory? diagnosticHistory = null, TimeProvider? clock = null)
     {
         _storageDirectory = storageDirectory ?? throw new ArgumentNullException(nameof(storageDirectory));
         _createSession = createSession ?? throw new ArgumentNullException(nameof(createSession));
@@ -99,6 +103,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         _requestBorderless = requestBorderless ?? (_ => Task.FromResult(ClipBorderlessAccessResult.Unavailable));
         _checkBorderless = checkBorderless ?? (_ => Task.FromResult(ClipBorderlessAccessResult.Unavailable));
         _diagnosticHistory = diagnosticHistory ?? DebugLogging.ComponentDiagnosticHistory.Current;
+        _clock = clock ?? TimeProvider.System;
         _helperAvailable = helperAvailable;
         _snapshot = OffSnapshot();
         _worker = Task.Run(WorkAsync);
@@ -438,14 +443,16 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         var transition = false;
         var pausedTransition = false;
         var audioDegraded = false;
+        double? staleDuration;
         long revision;
         lock (_sync)
         {
             if (!ReferenceEquals(_session, session) || _sessionLifetime!.IsCancellationRequested || !_enabled || Volatile.Read(ref _disposed) != 0) return;
+            staleDuration = ObserveCaptureStaleLocked(state.State == "buffering" && state.Reason == "capture_stale");
             pausedTransition = state.State == "paused" && !_capturePaused;
             if (state.State == "paused") { _capturePaused = true; _nativePauseSequence++; }
             else if (state.State == "buffering") _capturePaused = false;
-            audioDegraded = state.State == "buffering" && state.Reason is "audio_unavailable" or "audio_capture_failed" &&
+            audioDegraded = state.State == "buffering" && state.Reason == "audio_capture_failed" &&
                 (_nativeState?.State != "buffering" || _nativeState.Reason != state.Reason);
             _nativeState = state;
             if (pausedTransition)
@@ -472,6 +479,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         }
         // Video can continue while selected audio is unavailable. This does not declare the capture failed.
         if (audioDegraded) DebugLogging.SupplementaryIncidentCapture.RecordRecorder(state.Reason);
+        RecordCaptureStale(staleDuration);
         if (transition)
         {
             Publish(new(IsPausedTarget(state.Reason) ? ClipRecorderState.Paused : ClipRecorderState.WaitingForGame,
@@ -484,6 +492,20 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             PublishNativeState();
             if (pausedTransition) Signal();
         }
+    }
+
+    private double? ObserveCaptureStaleLocked(bool stale)
+    {
+        if (stale) { _captureStaleSince ??= _clock.GetTimestamp(); return null; }
+        if (_captureStaleSince is not { } started) return null;
+        _captureStaleSince = null;
+        return Math.Clamp(_clock.GetElapsedTime(started).TotalMilliseconds, 0, 604_800_000);
+    }
+
+    private static void RecordCaptureStale(double? duration)
+    {
+        if (duration is { } value)
+            Supplementary.SupplementaryObservations.Record("clips", "clips", "stale", "capture", value);
     }
 
     private void InvalidateObservedTargetLocked()
@@ -522,16 +544,19 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         IRecorderSession? session;
         CancellationTokenSource? lifetime;
         EventHandler<RecorderStateUpdate>? handler;
+        double? staleDuration;
         lock (_sync)
         {
             // A failed disposal retains ownership of the old helper. Retry only
             // after the backoff; never create another helper until exit is confirmed.
             if (_unconfirmedSession is not null && _recoveryWaiting && Volatile.Read(ref _disposed) == 0) return;
             session = _session ?? _unconfirmedSession; lifetime = _sessionLifetime; handler = _sessionHandler;
+            staleDuration = ObserveCaptureStaleLocked(false);
             _session = null; _sessionLifetime = null; _sessionHandler = null; _activeObservation = null; _nativeState = null; _saving = false;
             _capturePaused = false; _nativePauseSequence = 0;
             _sessionStarted = 0;
         }
+        RecordCaptureStale(staleDuration);
         if (session is null) return;
         if (handler is not null) session.StateChanged -= handler;
         lifetime?.Cancel();
@@ -558,11 +583,16 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                     _fault = "buffer_storage_full";
                 reportUpdated = true;
             }
+            if (_failureReport is { Diagnostic: null } unclassified && ReferenceEquals(unclassified.Owner, session) &&
+                session.ClientFailure is null && !IsManagedStorageFailure(unclassified.Reason))
+                DebugLogging.SupplementaryIncidentCapture.RecordRecorder(unclassified.Reason);
             for (var index = 0; index < _resetHistory.Count; index++)
             {
                 var reset = _resetHistory[index];
                 if (!ReferenceEquals(reset.Detail.Owner, session)) continue;
                 var detail = reset.Detail with { Owner = cleanupFailed ? session : null, Diagnostic = reset.Detail.Diagnostic ?? session.FailureDiagnostic };
+                if (detail.Diagnostic is null && session.ClientFailure is null)
+                    DebugLogging.SupplementaryIncidentCapture.RecordRecorder(detail.Reason);
                 _resetHistory[index] = reset with { Detail = detail };
                 _diagnosticHistory.RecordGenerated(DebugLogging.DiagnosticComponent.Recorder, FormatFailure(detail));
                 reportUpdated = true;
@@ -679,8 +709,9 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         _failureReport ??= report;
         _diagnosticHistory.RecordGenerated(DebugLogging.DiagnosticComponent.Recorder, FormatFailure(report));
         // Native failures arrive once on the bounded diagnostic pipe; report managed-only failures here.
-        if (IsManagedStorageFailure(reason) || reason is "helper_start_failed" or "helper_timeout" or "helper_exited" or "helper_shutdown_failed")
-            DebugLogging.SupplementaryIncidentCapture.RecordRecorder(reason, storage: report.Storage);
+        if (IsManagedStorageFailure(reason) || owner?.ClientFailure is null &&
+            reason is "helper_start_failed" or "helper_timeout" or "helper_exited" or "helper_shutdown_failed")
+            DebugLogging.SupplementaryIncidentCapture.RecordRecorder(reason, storage: report.Storage, clientFailure: error);
     }
 
     // Call only while holding _sync and before cancelling the current session.

@@ -51,7 +51,7 @@ public sealed class CommandAndErrorTests
                 new StableVersion(1, 2, 3),
                 "UPDATE_INSTALLER_HASH_MISMATCH",
                 "The staged installer did not match metadata.",
-                UpdateRecoveryState.Restarted);
+                UpdateRecoveryState.Restarted, nativeErrorCode: 32, installerExitCode: 5);
 
             Assert.Equal(Path.Combine(root, "Wisp", "update-result.json"), resultFile.ResultPath);
             var bytes = File.ReadAllBytes(resultFile.ResultPath);
@@ -60,12 +60,19 @@ public sealed class CommandAndErrorTests
             Assert.Contains("UPDATE_INSTALLER_HASH_MISMATCH", text, StringComparison.Ordinal);
             Assert.Contains("\"recoveryState\":\"restarted\"", text, StringComparison.Ordinal);
             Assert.DoesNotContain(root, text, StringComparison.OrdinalIgnoreCase);
+            using (var document = System.Text.Json.JsonDocument.Parse(text))
+            {
+                Assert.Equal(32u, document.RootElement.GetProperty("nativeErrorCode").GetUInt32());
+                Assert.Equal(5u, document.RootElement.GetProperty("installerExitCode").GetUInt32());
+            }
 
             resultFile.TryWriteSuccess(new StableVersion(1, 0, 0), new StableVersion(1, 2, 3));
 
             var installedText = File.ReadAllText(resultFile.ResultPath);
             Assert.Contains("\"state\":\"installed\"", installedText, StringComparison.Ordinal);
             Assert.DoesNotContain("UPDATE_INSTALLER_HASH_MISMATCH", installedText, StringComparison.Ordinal);
+            Assert.DoesNotContain("installerExitCode", installedText, StringComparison.Ordinal);
+            Assert.DoesNotContain("nativeErrorCode", installedText, StringComparison.Ordinal);
             Assert.Empty(Directory.EnumerateFiles(
                 Path.GetDirectoryName(resultFile.ResultPath)!,
                 "*.tmp"));

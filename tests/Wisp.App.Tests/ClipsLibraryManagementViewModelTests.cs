@@ -2,10 +2,12 @@ using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Windows.Threading;
 using Wisp.App.Clips;
+using Wisp.App.Supplementary;
 using Xunit;
 
 namespace Wisp.App.Tests;
 
+[Collection("Supplementary instrumentation")]
 public sealed class ClipsLibraryManagementViewModelTests
 {
     private static readonly byte[] Bytes = [1, 2, 3, 4];
@@ -44,6 +46,7 @@ public sealed class ClipsLibraryManagementViewModelTests
     [Fact]
     public void RenameUpdatesTheCardAndCanBeCleared() => OnDispatcher(async () =>
     {
+        using var observations = new Observations();
         using var fixture = new Fixture();
         await fixture.SaveAsync();
         using var model = fixture.Model();
@@ -79,11 +82,13 @@ public sealed class ClipsLibraryManagementViewModelTests
         Assert.False(model.HasManagementError);
         model.CancelManagement();
         Assert.False(model.HasManagement);
+        Assert.Equal(new[] { "success", "success", "idle" }, observations.Values.Where(v => v.Stage == "rename" && v.Outcome != "attempt").Select(v => v.Outcome));
     });
 
     [Fact]
     public void RenameExplainsANameAnotherClipUses() => OnDispatcher(async () =>
     {
+        using var observations = new Observations();
         using var fixture = new Fixture();
         var first = await fixture.SaveAsync();
         var second = await fixture.SaveAsync();
@@ -98,6 +103,8 @@ public sealed class ClipsLibraryManagementViewModelTests
         Assert.True(model.IsRenaming);
         Assert.Equal("Another clip is already named “Drift”. Choose a different name.", model.ManagementError);
         Assert.False(card.HasName);
+        Assert.Equal("idle", observations.Values.Last(v => v.Stage == "rename").Outcome);
+        Assert.DoesNotContain(observations.Values, v => v.Outcome == "failure");
 
         model.RenameText = "Drift 2";
         await model.ConfirmRenameAsync();
@@ -134,6 +141,7 @@ public sealed class ClipsLibraryManagementViewModelTests
     [Fact]
     public void DeleteReportsAClipThatStaysInUseAndKeepsIt() => OnDispatcher(async () =>
     {
+        using var observations = new Observations();
         using var fixture = new Fixture();
         var clip = await fixture.SaveAsync();
         using var model = fixture.Model();
@@ -145,6 +153,11 @@ public sealed class ClipsLibraryManagementViewModelTests
         Assert.True(model.IsConfirmingDelete);
         Assert.Contains("still in use", model.ManagementError, StringComparison.Ordinal);
         Assert.Single(model.Clips);
+        var failure = Assert.Single(observations.Values, v => v.Outcome == "failure");
+        Assert.Equal("delete", failure.Stage);
+        Assert.Equal("clips-delete", failure.Incident?.FailureStage);
+        Assert.Equal("file-in-use", failure.Incident?.Reason);
+        Assert.True(SupplementaryIncidentSchema.Valid(failure.Incident!));
     });
 
     [Fact]
@@ -215,6 +228,29 @@ public sealed class ClipsLibraryManagementViewModelTests
         model.ClosePlayback();
         Assert.False(model.IsChoosingExportFormat);
     });
+
+    internal static void AssertPageCleanupOnCurrentDispatcher()
+    {
+        using var observations = new Observations();
+        var page = new ClipsPage();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var playback = (ClipsPlaybackState)typeof(ClipsPage).GetField("_playback", flags)!.GetValue(page)!;
+        playback.Prepare();
+        typeof(ClipsPage).GetMethod("FailPlayback", flags)!.Invoke(page,
+            ["Fixture playback failure", new UnauthorizedAccessException("PRIVATE_SENTINEL"), null]);
+        var failures = observations.Values.Where(v => v.Outcome == "failure").ToArray();
+        Assert.Equal(2, failures.Length);
+        Assert.All(failures, v => Assert.Equal("access-denied", v.Incident?.Reason));
+        Assert.DoesNotContain("PRIVATE_SENTINEL", System.Text.Json.JsonSerializer.Serialize(failures));
+    }
+
+    private sealed class Observations : IDisposable
+    {
+        private readonly Action<SupplementaryObservation>? _previous = SupplementaryObservations.Observer;
+        internal List<SupplementaryObservation> Values { get; } = [];
+        internal Observations() => SupplementaryObservations.Observer = Values.Add;
+        public void Dispose() => SupplementaryObservations.Observer = _previous;
+    }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {

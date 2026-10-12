@@ -11,6 +11,33 @@ namespace Wisp.App.Tests;
 public sealed class NativeTuneCaptureTests
 {
     [Fact]
+    public async Task TuneResultsUseTheirOwnAdmissionEvidenceEvenWhenReadFails()
+    {
+        var factory = new Factory { Verification = NativeGameVerification.Steam };
+        var fail = false;
+        await using var service = new TuneCaptureService(factory, (_, _) => fail ? throw new IOException("fixture") : Input());
+        Assert.Equal(NativeGameVerification.Steam, (await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).GameVerification);
+        fail = true;
+        var failed = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(NativeGameVerification.Steam, failed.GameVerification);
+        Assert.Equal("tune-read-failed", failed.Incident!.Reason);
+        factory.Available = false;
+        var unavailable = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("identity-unverified", unavailable.GameVerification!.Reason);
+    }
+    [Fact]
+    public void TuneFailureCarriesStructuredStageAndCodeWithoutPrivateText()
+    {
+        var incident = TuneCaptureService.TuneIncident(TuneCaptureStage.OpenGame, "access-denied",
+            new System.ComponentModel.Win32Exception(5, "PRIVATE_PATH"));
+        Assert.Equal("tune", incident.Category);
+        Assert.Equal("tune-open", incident.FailureStage);
+        Assert.Equal(5u, incident.Code);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(incident));
+        Assert.DoesNotContain("PRIVATE_PATH", System.Text.Json.JsonSerializer.Serialize(incident), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void KnownTuneBuildsIncludeVerifiedSteamAndStore()
     {
         Assert.True(NativeTuneCapture.Supports(NativeHudBuildContract.BuiltIn));
@@ -294,6 +321,7 @@ public sealed class NativeTuneCaptureTests
 
     private sealed class Factory : INativeHudProcessMemoryFactory
     {
+        internal NativeGameVerification Verification = NativeGameVerification.Unavailable;
         internal int Opens;
         internal string Session = "test-session";
         internal long Generation;
@@ -303,13 +331,14 @@ public sealed class NativeTuneCaptureTests
         {
             Interlocked.Increment(ref Opens);
             if (!Available) { memory = null; status = NativeAssistProviderStatus.UnsupportedBuild; return false; }
-            memory = new Memory { SessionIdentity = Session };
+            memory = new Memory { SessionIdentity = Session, GameVerification = Verification };
             status = NativeAssistProviderStatus.Ready;
             return true;
         }
     }
     private sealed class Memory : INativeHudProcessMemory
     {
+        public NativeGameVerification GameVerification { get; init; } = NativeGameVerification.Unavailable;
         internal int Reads;
         internal byte Fill;
         public ulong ModuleBase => 0x140000000;

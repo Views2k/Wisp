@@ -68,11 +68,14 @@ internal sealed class SupplementaryClient : IDisposable
     internal bool TryEnqueue(SupplementaryEvent value)
     {
         var now = _clock.GetUtcNow();
-        if (!IsReportingEnabled || value.Clock is not null || !SupplementarySchema.Valid(value, now)) return false;
+        if (!IsReportingEnabled) return false;
+        if (value.Clock is not null || !SupplementarySchema.Valid(value, now))
+        { Interlocked.Increment(ref _dropped); return false; }
         lock (_gate)
         {
             if (_stopped) { Interlocked.Increment(ref _dropped); return false; }
-            if (_runIdentity is not null && !SameRun(_runIdentity, value)) return false;
+            if (_runIdentity is not null && !SameRun(_runIdentity, value))
+            { Interlocked.Increment(ref _dropped); return false; }
             var periodic = IsPeriodic(value);
             if (periodic && _queue.Count >= QueueCapacity - PriorityReservation ||
                 _queue.Count >= QueueCapacity && !EvictPeriodic())

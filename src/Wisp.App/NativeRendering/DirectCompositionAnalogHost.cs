@@ -50,6 +50,7 @@ internal sealed class DirectCompositionAnalogHost : IDisposable
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
             _failed = true;
+            DebugLogging.HealthContextRecorder.Current.RecordRendererFailure(error.HResult, DebugLogging.HealthFailureStage.RendererHost);
             ReportStatus(false, error.HResult);
         }
     }

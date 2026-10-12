@@ -74,10 +74,10 @@ internal sealed class UpdaterApplication
                 request?.TargetVersion,
                 exception.ErrorCode,
                 exception.SafeMessage,
-                recoveryState);
+                recoveryState, NativeError(exception.InnerException), exception.InstallerExitCode);
             return (int)exception.ExitCode;
         }
-        catch
+        catch (Exception exception)
         {
             var recoveryState = RecoverIfSafe(
                 request,
@@ -89,10 +89,17 @@ internal sealed class UpdaterApplication
                 request?.TargetVersion,
                 "UPDATE_UNEXPECTED_FAILURE",
                 "The update helper stopped because of an unexpected error.",
-                recoveryState);
+                recoveryState, NativeError(exception));
             return (int)UpdaterExitCode.UnexpectedFailure;
         }
     }
+
+    private static uint? NativeError(Exception? error) => error switch
+    {
+        System.ComponentModel.Win32Exception native => unchecked((uint)native.NativeErrorCode),
+        not null => unchecked((uint)error.HResult),
+        _ => null
+    };
 
     private static UpdateRecoveryState RecoverIfSafe(
         ValidatedUpdateRequest? request,
