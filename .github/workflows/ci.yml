@@ -86,6 +86,12 @@ jobs:
         shell: pwsh
         run: ./.github/scripts/Test-RepositoryPolicy.ps1
 
+      - name: Verify installer canary network isolation
+        if: needs.validation-plan.outputs.mode == 'full'
+        timeout-minutes: 2
+        shell: pwsh
+        run: ./.github/scripts/Test-InstallerNetworkIsolation.ps1
+
       - name: Validate release tag provenance
         if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/V')
         shell: pwsh

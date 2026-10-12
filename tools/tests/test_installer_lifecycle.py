@@ -23,7 +23,7 @@ try {
     if ($errors.Count -ne 0) { throw 'The lifecycle source did not parse.' }
     $names = @('Get-InstallerLogStages', 'Write-InstallerLifecycleMarker',
         'Write-InstallerLogStages', 'Wait-InstallerProcessExit', 'Invoke-CheckedProcess',
-        'New-InstallerProcess', 'Assert-FirstRunSetupLaunch')
+        'New-InstallerProcess', 'Assert-FirstRunSetupLaunch', 'Invoke-IsolatedCanaryApplication')
     $functions = @($ast.FindAll({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -cin $names
@@ -75,6 +75,126 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
     def stages(self):
         return json.loads(self.evaluate(
             "ConvertTo-Json -InputObject @(Get-InstallerLogStages $log) -Compress"))
+
+    def isolation(self, scenario):
+        output = self.evaluate(r"""
+            $scenario = '__SCENARIO__'
+            $application = Join-Path $FixtureDirectory 'Wisp.exe'
+            [IO.File]::WriteAllText($application, 'fixture; never executed')
+            $script:rules = @{}
+            $script:removed = @()
+            $script:launched = $false
+            $script:settings = @{}
+            function Get-Service { param($Name, $ErrorAction)
+                if ($Name -cne 'MpsSvc') { throw 'Wrong service.' }
+                @{ Status = if ($scenario -eq 'stopped') { 'Stopped' } else { 'Running' } }
+            }
+            function Get-NetFirewallProfile { param($PolicyStore, $ErrorAction)
+                if ($PolicyStore -cne 'ActiveStore') { throw 'Wrong profile store.' }
+                foreach ($name in @('Domain', 'Private', 'Public')) {
+                    @{ Name = $name; Enabled = $scenario -ne 'disabled' }
+                }
+            }
+            function New-NetFirewallRule {
+                param($Name, $DisplayName, $Direction, $Action, $Enabled, $Profile,
+                    $Program, $PolicyStore, $ErrorAction)
+                $script:settings = @{} + $PSBoundParameters
+                $script:rules[$Name] = [pscustomobject]@{
+                    Name = $Name; Enabled = $Enabled; Direction = $Direction;
+                    Action = $Action; Profile = $Profile; Program = $Program;
+                    EnforcementStatus = @('Full')
+                }
+                if ($scenario -eq 'creation-failed') { throw 'fixture creation failed' }
+                $script:rules[$Name]
+            }
+            function Get-NetFirewallRule { param($Name, $PolicyStore, $ErrorAction)
+                if ($script:rules.ContainsKey($Name)) {
+                    if ($PolicyStore -eq 'ActiveStore' -and $scenario -eq 'inactive') { return }
+                    $rule = $script:rules[$Name]
+                    if ($PolicyStore -eq 'ActiveStore' -and $scenario -eq 'allow') { $rule.Action = 'Allow' }
+                    if ($scenario -eq 'not-enforced') { $rule.EnforcementStatus = @('LocalFirewallRulesDisallowed') }
+                    $rule
+                }
+            }
+            function Get-NetFirewallApplicationFilter {
+                param([Parameter(ValueFromPipeline)]$Rule)
+                process {
+                    @{ Program = if ($scenario -eq 'wrong-program') { 'elsewhere.exe' } else { $Rule.Program } }
+                }
+            }
+            function Remove-NetFirewallRule {
+                param([Parameter(ValueFromPipeline)]$Rule)
+                process { $script:removed += $Rule.Name; $script:rules.Remove($Rule.Name) }
+            }
+            $failure = ''
+            try {
+                Invoke-IsolatedCanaryApplication $application {
+                    if ($script:rules.Count -ne 1) { throw 'Launch was not isolated.' }
+                    $script:launched = $true
+                    if ($scenario -eq 'launch-failed') { throw 'fixture launch failed' }
+                }
+            } catch { $failure = $_.Exception.Message }
+            @{ launched = $script:launched; remaining = $script:rules.Count;
+               removed = $script:removed.Count; failure = $failure;
+               settings = $script:settings; pathMatches = $script:settings.ContainsKey('Program') -and
+                   $script:settings.Program -ceq $application
+            } | ConvertTo-Json -Depth 4 -Compress
+        """.replace("__SCENARIO__", scenario))
+        return json.loads(output.splitlines()[-1])
+
+    def test_canary_launch_is_scoped_offline_and_rule_is_removed(self):
+        result = self.isolation("success")
+        self.assertTrue(result["launched"])
+        self.assertTrue(result["pathMatches"])
+        self.assertEqual((result["remaining"], result["removed"], result["failure"]), (0, 1, ""))
+        rule = result["settings"]
+        self.assertEqual((rule["Direction"], rule["Action"], rule["Enabled"], rule["Profile"]),
+                         ("Outbound", "Block", "True", "Any"))
+        self.assertEqual(rule["PolicyStore"], "PersistentStore")
+        self.assertRegex(rule["Name"], r"^Wisp-Installer-Canary-[0-9a-f]{32}$")
+        self.assertEqual(rule["Name"], rule["DisplayName"])
+
+    def test_missing_firewall_refuses_to_launch(self):
+        for scenario in ("stopped", "disabled"):
+            with self.subTest(scenario=scenario):
+                result = self.isolation(scenario)
+                self.assertFalse(result["launched"])
+                self.assertEqual(result["removed"], 0)
+                self.assertIn("active firewall", result["failure"])
+
+    def test_missing_or_misdirected_active_block_refuses_launch_and_cleans_up(self):
+        for scenario in ("creation-failed", "inactive", "allow", "not-enforced", "wrong-program"):
+            with self.subTest(scenario=scenario):
+                result = self.isolation(scenario)
+                self.assertFalse(result["launched"])
+                self.assertEqual((result["remaining"], result["removed"]), (0, 1))
+                self.assertTrue(result["failure"])
+
+    def test_failed_setup_still_removes_its_own_network_rule(self):
+        result = self.isolation("launch-failed")
+        self.assertTrue(result["launched"])
+        self.assertEqual((result["remaining"], result["removed"]), (0, 1))
+        self.assertEqual(result["failure"], "fixture launch failed")
+
+    def test_first_run_entrypoint_uses_network_isolation(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("Invoke-IsolatedCanaryApplication $canaryApplication {\n"
+                      "        Assert-FirstRunSetupLaunch $canaryApplication\n    }", source)
+
+    def test_network_probe_refuses_a_non_ci_machine(self):
+        environment = dict(os.environ, GITHUB_ACTIONS="false", CI="false")
+        result = subprocess.run(
+            [self.shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
+             str(SCRIPT.with_name("Test-InstallerNetworkIsolation.ps1"))],
+            env=environment, capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires an ephemeral Windows CI runner", result.stderr)
+
+    def test_network_probe_runs_before_the_expensive_build(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        probe = workflow.index("run: ./.github/scripts/Test-InstallerNetworkIsolation.ps1")
+        build = workflow.index("run: ./installer/Build-Installer.ps1")
+        self.assertLess(probe, build)
 
     def test_pinned_native_stages_and_known_wisp_names(self):
         self.write_log([

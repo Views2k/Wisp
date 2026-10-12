@@ -291,6 +291,51 @@ function Assert-RegisteredInstallation {
     }
 }
 
+function Invoke-IsolatedCanaryApplication {
+    param([string]$ApplicationPath, [scriptblock]$Action)
+
+    # Keep the real release binary offline while exercising first-run setup.
+    # Scope the rule to this disposable installation, never the runner's network.
+    $application = [System.IO.Path]::GetFullPath($ApplicationPath)
+    if (-not [System.IO.Path]::IsPathFullyQualified($ApplicationPath) -or
+        [System.IO.Path]::GetFileName($application) -cne 'Wisp.exe' -or
+        -not (Test-Path -LiteralPath $application -PathType Leaf)) {
+        throw 'The canary requires its installed Wisp executable.'
+    }
+    $profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction Stop)
+    if ((Get-Service -Name MpsSvc -ErrorAction Stop).Status -ne 'Running' -or
+        $profiles.Count -ne 3 -or
+        @($profiles | Where-Object { [string]$_.Enabled -ne 'True' }).Count -ne 0) {
+        throw 'The canary requires an active firewall before launching Wisp.'
+    }
+
+    $ruleName = 'Wisp-Installer-Canary-' + [guid]::NewGuid().ToString('N')
+    try {
+        New-NetFirewallRule -Name $ruleName -DisplayName $ruleName `
+            -Direction Outbound -Action Block -Enabled True -Profile Any `
+            -Program $application -PolicyStore PersistentStore -ErrorAction Stop | Out-Null
+        $rules = @(Get-NetFirewallRule -Name $ruleName -PolicyStore ActiveStore -ErrorAction Stop)
+        if ($rules.Count -ne 1 -or [string]$rules[0].Enabled -ne 'True' -or
+            [string]$rules[0].Direction -ne 'Outbound' -or [string]$rules[0].Action -ne 'Block' -or
+            [string]$rules[0].Profile -ne 'Any' -or
+            @($rules[0].EnforcementStatus).Count -ne 1 -or
+            [string]$rules[0].EnforcementStatus -ne 'Full') {
+            throw 'The canary outbound block is not active.'
+        }
+        $filters = @($rules[0] | Get-NetFirewallApplicationFilter -ErrorAction Stop)
+        if ($filters.Count -ne 1 -or
+            -not [string]::Equals($filters[0].Program, $application, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The canary outbound block targets the wrong executable.'
+        }
+        Write-Output 'Verified outbound isolation for the installed canary.'
+        & $Action
+    }
+    finally {
+        Get-NetFirewallRule -Name $ruleName -PolicyStore PersistentStore -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction Stop
+    }
+}
+
 function Assert-FirstRunSetupLaunch {
     param([string]$ApplicationPath)
 
@@ -409,7 +454,10 @@ try {
     if (-not (Test-Path -LiteralPath $setupMarker -PathType Leaf)) {
         throw 'A fresh installation did not require first-run setup.'
     }
-    Assert-FirstRunSetupLaunch (Join-Path $installDirectory 'Wisp.exe')
+    $canaryApplication = Join-Path $installDirectory 'Wisp.exe'
+    Invoke-IsolatedCanaryApplication $canaryApplication {
+        Assert-FirstRunSetupLaunch $canaryApplication
+    }
 
     [System.IO.File]::WriteAllText(
         $settingsPath,
