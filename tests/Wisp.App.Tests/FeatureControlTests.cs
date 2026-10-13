@@ -70,8 +70,13 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
     [Fact]
     public async Task PresentationControlsKeepPreferencesAndRejectBackgroundReactivationWhilePaused()
     {
-        var settings = new AppSettings { AnimatedBackground = true, BackgroundParticlesEnabled = true,
-            AccelerationShiftCueEnabled = true, TractionCueEnabled = true };
+        var settings = new AppSettings
+        {
+            AnimatedBackground = true,
+            BackgroundParticlesEnabled = true,
+            AccelerationShiftCueEnabled = true,
+            TractionCueEnabled = true
+        };
         await using var controller = new AppController(settings, _ => { }, new NoStartupRegistration());
         var before = JsonSerializer.Serialize(settings);
         controller.ViewModel.IsTractionCueActive = true;

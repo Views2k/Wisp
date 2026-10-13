@@ -90,7 +90,9 @@ public sealed class FeatureUpdateTransportTests
 
     private static AppController Controller() => new(new AppSettings
     {
-        StartWithWindows = false, StartWithForza = false, AutomaticApplicationUpdateChecks = false
+        StartWithWindows = false,
+        StartWithForza = false,
+        AutomaticApplicationUpdateChecks = false
     }, _ => { }, new NoStartup(), checkForApplicationUpdate: (_, _) => Task.FromResult<UpdateRelease?>(null));
     private static Task PauseAsync(AppController controller) => controller.ApplyFeatureControlsAsync(
         new(1, ImmutableDictionary<string, string>.Empty.Add("updates", "Update maintenance.")));
