@@ -17,6 +17,9 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
     private readonly NativeHudFingerprintCache _fingerprints;
     private readonly Func<IReadOnlyProcessMemory, IReadOnlyProcessMemory>? _storeAdmissionWrapper;
     private string _compatibilityStatus = "Built-in compatibility; awaiting FH6";
+    private RejectedGameEntry? _rejectedGame;
+
+    private sealed record RejectedGameEntry(NativeHudProcessIdentity Identity, NativeRejectedGame Game);
 
     public NativeHudProcessMemoryFactory() : this(NativeCompatibilityRuntime.Catalog)
     {
@@ -43,6 +46,8 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
 
     public long CompatibilityGeneration => _catalog.Generation;
     public string CompatibilityStatus => Volatile.Read(ref _compatibilityStatus);
+    internal NativeRejectedGame? RejectedGame => Volatile.Read(ref _rejectedGame)?.Game;
+    NativeRejectedGame? INativeHudProcessMemoryFactory.RejectedGame => RejectedGame;
 
     public bool TryOpen(out INativeHudProcessMemory? memory, out NativeAssistProviderStatus status)
         => TryOpen(CancellationToken.None, out memory, out status);
@@ -96,15 +101,20 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 {
                     status = NativeAssistProviderStatus.UnsupportedBuild;
                 }
-                else if (processes.Length == 0)
+                else
                 {
-                    SetStatus("Built-in compatibility; awaiting FH6");
+                    Volatile.Write(ref _rejectedGame, null);
+                    if (processes.Length == 0)
+                    {
+                        SetStatus("Built-in compatibility; awaiting FH6");
+                    }
                 }
 
                 return false;
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            Volatile.Write(ref _rejectedGame, null);
             memory = candidate;
             candidate = null;
             status = NativeAssistProviderStatus.Ready;
@@ -113,6 +123,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         }
         catch (Exception exception) when (NativeHudFingerprintCache.IsExpectedFailure(exception))
         {
+            Volatile.Write(ref _rejectedGame, null);
             status = NativeAssistProviderStatus.AccessDenied;
             SetStatus("FH6 process identity could not be read");
             return false;
@@ -184,7 +195,9 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             if (!TrySelectCompatibility(identity, out var pack, out var fingerprint, out status))
             {
                 if (TryOpenStoreProcess(process, identity, out memory, ref status)) return true;
-                return TryOpenAdaptiveProcess(process, identity, fingerprint, out memory, ref status, cancellationToken);
+                if (TryOpenAdaptiveProcess(process, identity, fingerprint, out memory, ref status, cancellationToken)) return true;
+                if (status == NativeAssistProviderStatus.UnsupportedBuild) RecordRejectedGame(process, identity, fingerprint);
+                return false;
             }
 
             handle = NativeHudProcessMemory.OpenReadOnly(process.Id);
@@ -225,6 +238,24 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         {
             handle?.Dispose();
         }
+    }
+
+    // Describes a declined build once per process identity; retries reuse the result.
+    private void RecordRejectedGame(Process process, NativeHudProcessIdentity identity, NativeHudExecutableFingerprint fingerprint)
+    {
+        if (Volatile.Read(ref _rejectedGame) is { } known && known.Identity == identity) return;
+        NativeStorePackageIdentity? package = null;
+        try
+        {
+            using var handle = NativeHudProcessMemory.OpenReadOnly(identity.ProcessId);
+            if (!handle.IsInvalid && NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var store)) package = store;
+        }
+        catch (Exception exception) when (NativeHudFingerprintCache.IsExpectedFailure(exception))
+        {
+        }
+
+        Volatile.Write(ref _rejectedGame, new RejectedGameEntry(identity,
+            NativeGameVerification.DescribeRejected(process, identity.ExecutablePath, package, fingerprint.Metadata.Version)));
     }
 
     private bool TryOpenStoreProcess(

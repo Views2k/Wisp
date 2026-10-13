@@ -239,6 +239,7 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                         : null;
 
                 var attachedBuild = _nativeHud.AttachedCompatibilityPack;
+                var rejectedGame = attachedBuild is null ? _nativeHud.RejectedGame : null;
                 var sample = new DebugHealthSample
                 {
                     TimestampUtc = nowUtc,
@@ -273,8 +274,8 @@ internal sealed class DebugHealthMonitor : IAsyncDisposable
                     NativeReadAttempts = _nativeHud.DiagnosticReadAttempts,
                     NativeReadFailures = _nativeHud.DiagnosticReadFailures,
                     NativeStatus = native.Status.ToString(),
-                    NativeGameVersion = HealthContextRecorder.SafeGameVersion(attachedBuild?.GameVersion),
-                    NativeGamePlatform = attachedBuild is null ? null : attachedBuild.StoreIdentity is null
+                    NativeGameVersion = HealthContextRecorder.SafeGameVersion(attachedBuild?.GameVersion ?? rejectedGame?.GameVersion),
+                    NativeGamePlatform = attachedBuild is null ? rejectedGame?.Platform : attachedBuild.StoreIdentity is null
                         ? DiagnosticGamePlatform.Steam : DiagnosticGamePlatform.XboxStore,
                     NativeCompatibilityRevision = attachedBuild?.Revision,
                     GameVerification = _nativeHud.GameVerification,

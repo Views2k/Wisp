@@ -202,7 +202,8 @@ public sealed class TuneCaptureService : IAsyncDisposable
                 entered = true;
                 var compatibility = _factory.CompatibilityGeneration;
                 var attached = _factory.TryOpen(cancellationToken, out var opened, out var status);
-                verification = opened?.GameVerification ?? NativeGameVerification.FromStatus(status);
+                verification = opened?.GameVerification ?? (status == NativeAssistProviderStatus.UnsupportedBuild
+                    ? _factory.RejectedGame?.Verification : null) ?? NativeGameVerification.FromStatus(status);
                 if (!attached || opened is null)
                     return Fail(status == NativeAssistProviderStatus.GameNotRunning ? TuneCaptureStatus.GameNotRunning :
                         status == NativeAssistProviderStatus.UnsupportedBuild ? TuneCaptureStatus.UnsupportedBuild : TuneCaptureStatus.Unavailable,

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Wisp.App.DebugLogging;
 using Wisp.Core;
 using Xunit;
 
@@ -158,6 +159,26 @@ public sealed class NativeHudProcessServiceTests
             snapshot => snapshot.Status == NativeAssistProviderStatus.UnsupportedBuild);
 
         Assert.False(result.Available);
+        Assert.Null(service.RejectedGame);
+        Assert.Equal(NativeGameVerification.IdentityUnverified, service.GameVerification);
+    }
+
+    [Fact]
+    public async Task UnsupportedBuildReportsTheDeclinedGameWithoutAttaching()
+    {
+        var declined = new NativeRejectedGame(DiagnosticGamePlatform.Steam, "6.462.120.0", NativeGameVerification.Steam);
+        await using var service = new NativeHudProcessService(new RejectingFactory(declined));
+        Assert.Null(service.RejectedGame);
+        service.UpdateTelemetry(State(314), nativeLayoutActive: true);
+
+        var result = await WaitForAsync(
+            () => service.SnapshotFor(314),
+            snapshot => snapshot.Status == NativeAssistProviderStatus.UnsupportedBuild);
+
+        Assert.False(result.Available);
+        Assert.Null(service.AttachedCompatibilityPack);
+        Assert.Equal(declined, service.RejectedGame);
+        Assert.Equal(NativeGameVerification.Steam, service.GameVerification);
     }
 
     [Fact]
@@ -513,8 +534,10 @@ public sealed class NativeHudProcessServiceTests
         }
     }
 
-    private sealed class RejectingFactory : INativeHudProcessMemoryFactory
+    private sealed class RejectingFactory(NativeRejectedGame? declined = null) : INativeHudProcessMemoryFactory
     {
+        NativeRejectedGame? INativeHudProcessMemoryFactory.RejectedGame => declined;
+
         public bool TryOpen(
             out INativeHudProcessMemory? memory,
             out NativeAssistProviderStatus status)

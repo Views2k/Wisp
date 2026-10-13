@@ -92,10 +92,25 @@ public sealed class NativeHudProcessService : IAsyncDisposable, INativeNeedleHis
                 var identity = _attachmentIdentity;
                 return identity is not null && !_disposed && identity.Epoch == _sessionEpoch &&
                     identity.CompatibilityGeneration == _memoryFactory.CompatibilityGeneration
-                    ? identity.Verification : NativeGameVerification.FromStatus(_snapshot.Status);
+                    ? identity.Verification : RejectedGameLocked()?.Verification ?? NativeGameVerification.FromStatus(_snapshot.Status);
             }
         }
     }
+
+    // The declined build while the current session reports it as unsupported; never a stale earlier process.
+    internal NativeRejectedGame? RejectedGame
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return RejectedGameLocked();
+            }
+        }
+    }
+
+    private NativeRejectedGame? RejectedGameLocked() =>
+        !_disposed && _snapshot.Status == NativeAssistProviderStatus.UnsupportedBuild ? _memoryFactory.RejectedGame : null;
 
     internal long DiagnosticReadAttempts => Interlocked.Read(ref _diagnosticReadAttempts);
     internal long DiagnosticReadFailures => Interlocked.Read(ref _diagnosticReadFailures);
@@ -577,6 +592,7 @@ public interface INativeHudProcessMemoryFactory
 {
     long CompatibilityGeneration => 0;
     string CompatibilityStatus => "Built-in compatibility; awaiting FH6";
+    internal NativeRejectedGame? RejectedGame => null;
 
     bool TryOpen(
         out INativeHudProcessMemory? memory,

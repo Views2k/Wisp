@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using Wisp.App.DebugLogging;
 using Wisp.Core;
 
 namespace Wisp.App;
@@ -11,6 +12,8 @@ public sealed record NativeGameVerification(string Status, string Reason)
     internal static readonly NativeGameVerification Store = new("verified", "store-package-and-image");
     internal static readonly NativeGameVerification Steam = new("verified", "steam-image-and-api");
     internal static readonly NativeGameVerification SteamApiUnverified = new("unverified", "steam-api-unverified");
+    internal static readonly NativeGameVerification IdentityUnverified = new("unverified", "identity-unverified");
+    internal static readonly NativeGameVerification AccessUnavailable = new("unavailable", "access-unavailable");
 
     internal bool IsValid => (Status, Reason) is
         ("verified", "store-package-and-image" or "steam-image-and-api") or
@@ -21,14 +24,38 @@ public sealed record NativeGameVerification(string Status, string Reason)
     internal static NativeGameVerification FromStatus(NativeAssistProviderStatus status) => status switch
     {
         NativeAssistProviderStatus.GameNotRunning => new("not-running", "game-not-running"),
-        NativeAssistProviderStatus.UnsupportedBuild => new("unverified", "identity-unverified"),
-        NativeAssistProviderStatus.AccessDenied => new("unavailable", "access-unavailable"),
+        NativeAssistProviderStatus.UnsupportedBuild => IdentityUnverified,
+        NativeAssistProviderStatus.AccessDenied => AccessUnavailable,
         _ => Unavailable
     };
 
     // Runs on the attachment worker once per admission. Reuses the same offline
     // signature policy as executable validation; it never changes game behavior.
-    internal static NativeGameVerification InspectSteamApi(Process process, string executablePath)
+    internal static NativeGameVerification InspectSteamApi(Process process, string executablePath) =>
+        SteamApiEvidence(process, executablePath) ?? SteamApiUnverified;
+
+    // Runs once per declined process identity. Applies the same Store-origin and Valve
+    // signature checks used for supported builds, so an official build Wisp does not
+    // support yet stays distinguishable from a modified installation. Reads no game memory.
+    internal static NativeRejectedGame DescribeRejected(Process process, string executablePath,
+        NativeStorePackageIdentity? package, string? executableVersion)
+    {
+        if (package is { } store)
+        {
+            var parts = store.PackageFullName.Split('_');
+            return new(DiagnosticGamePlatform.XboxStore, parts.Length > 1 ? parts[1] : null, Store);
+        }
+
+        return SteamApiEvidence(process, executablePath) switch
+        {
+            null => new(null, executableVersion, IdentityUnverified),
+            { Status: "unavailable" } unavailable => new(null, executableVersion, unavailable),
+            var steam => new(DiagnosticGamePlatform.Steam, executableVersion, steam)
+        };
+    }
+
+    // Null when the process has no steam_api64.dll module loaded.
+    private static NativeGameVerification? SteamApiEvidence(Process process, string executablePath)
     {
         try
         {
@@ -41,7 +68,11 @@ public sealed record NativeGameVerification(string Status, string Reason)
             }
         }
         catch (Exception error) when (NativeHudFingerprintCache.IsExpectedFailure(error) || error is NotSupportedException)
-        { return new("unavailable", "access-unavailable"); }
-        return SteamApiUnverified;
+        { return AccessUnavailable; }
+        return null;
     }
 }
+
+// Identity of a running game build Wisp declined to read. It describes the installation
+// for diagnostics only and never enables native reads.
+internal sealed record NativeRejectedGame(DiagnosticGamePlatform? Platform, string? GameVersion, NativeGameVerification Verification);
