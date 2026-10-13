@@ -471,6 +471,49 @@ public sealed class SupplementaryClientTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SupportPauseRevokesPendingSendWithoutLosingTheReviewedRetryOrAcceptedReceipt(bool alreadyAccepted)
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport
+        {
+            Pause = new(TaskCreationOptions.RunContinuationsAsynchronously),
+            CompleteAcceptedSupport = alreadyAccepted
+        };
+        using var client = Client(f, transport);
+        await using var controller = new AppController(new AppSettings(), _ => { }, new NoSupportStartup());
+        var report = new SupplementarySupportReport(1, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), f.Now,
+            "2.6.8", "test", "stable", "feedback", "Example message", "Keep this reviewed message.");
+        var originalPermission = controller.SupportFeatureToken;
+        using var permission = CancellationTokenSource.CreateLinkedTokenSource(originalPermission, TestContext.Current.CancellationToken);
+        var pending = client.SubmitSupportAsync(report, permission.Token);
+        await transport.Entered.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        await controller.ApplyFeatureControlsAsync(new(1,
+            System.Collections.Immutable.ImmutableDictionary<string, string>.Empty.Add("support", "Messages are paused.")));
+        Assert.True(originalPermission.IsCancellationRequested);
+        Assert.False(controller.FeatureAllowed("support"));
+        transport.Pause.SetResult();
+        var result = await pending.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.Equal(alreadyAccepted ? SupplementaryRequestStatus.Success : SupplementaryRequestStatus.Cancelled, result.Status);
+        Assert.Equal(alreadyAccepted ? "WISP-ABCDEF" : null, result.Reference);
+        await controller.ApplyFeatureControlsAsync(new(2, System.Collections.Immutable.ImmutableDictionary<string, string>.Empty));
+        Assert.True(originalPermission.IsCancellationRequested);
+        Assert.False(controller.SupportFeatureToken.IsCancellationRequested);
+        Assert.Equal(1, transport.Calls);
+        using var retryPermission = CancellationTokenSource.CreateLinkedTokenSource(controller.SupportFeatureToken, TestContext.Current.CancellationToken);
+        var retry = await client.SubmitSupportAsync(report, retryPermission.Token);
+        Assert.Equal(SupplementaryRequestStatus.Success, retry.Status);
+        Assert.Equal("WISP-ABCDEF", retry.Reference);
+        Assert.Equal(transport.Bodies[0], transport.Bodies[1]);
+    }
+
+    private sealed class NoSupportStartup : IStartupRegistrationService
+    {
+        public void Apply(bool startWithWindows, bool startWithForza) { }
+    }
+
+    [Theory]
     [InlineData("contact@example.invalid")]
     [InlineData("10.1.2.3")]
     [InlineData("AB:CD:EF:12:34:56")]
@@ -713,6 +756,7 @@ public sealed class SupplementaryClientTests
         internal SupplementaryResponse? SupportResponse;
         internal SupplementaryRequestStatus? ForcedStatus;
         internal TaskCompletionSource? Pause;
+        internal bool CompleteAcceptedSupport;
         internal readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public async Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximumResponseBytes, CancellationToken cancellation)
         {
@@ -721,7 +765,8 @@ public sealed class SupplementaryClientTests
             Entered.TrySetResult();
             try
             {
-                if (Pause is not null) await Pause.Task.WaitAsync(cancellation);
+                if (Pause is not null) await Pause.Task.WaitAsync(CompleteAcceptedSupport && route.EndsWith("support", StringComparison.Ordinal)
+                    ? TestContext.Current.CancellationToken : cancellation);
                 if (ForcedStatus is { } forced) return new(forced, []);
                 if (route.EndsWith("content", StringComparison.Ordinal)) return new(SupplementaryRequestStatus.Success, Content ?? []);
                 if (route.EndsWith("support", StringComparison.Ordinal)) return SupportResponse ?? new(SupplementaryRequestStatus.Success, Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"reference\":\"WISP-ABCDEF\"}"));

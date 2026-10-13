@@ -48,14 +48,14 @@
                                    ParticlesOnly="True" IsPointerInteractionEnabled="False"
                                    ParticleColor="{DynamicResource AppParticleColor}"
                                    Visibility="{Binding BackgroundParticlesEnabled, Converter={StaticResource ParticleVisibility}}"
-                                   IsAnimationEnabled="{Binding AnimatedBackground}" />
+                                   IsAnimationEnabled="{Binding EffectiveBackgroundAnimation}" />
             <local:DashboardRimEffect x:Name="DashboardRim" Grid.RowSpan="3"
                 TargetElement="{Binding ElementName=OrbitInstrument}"
                 Shape="{Binding Shape, ElementName=OrbitInstrument}"
                 CornerRadius="{Binding CornerRadius, ElementName=OrbitInstrument}"
                 RimThickness="{Binding BorderThickness, ElementName=OrbitInstrument}"
                 Accent="{DynamicResource AccentBrush}" GlowOpacity="{DynamicResource OrbitGlowOpacity}"
-                ParticlesEnabled="{Binding BackgroundParticlesEnabled}" IsAnimationEnabled="{Binding AnimatedBackground}">
+                ParticlesEnabled="{Binding BackgroundParticlesEnabled}" IsAnimationEnabled="{Binding EffectiveBackgroundAnimation}">
                 <local:DashboardRimEffect.Style>
                     <Style TargetType="local:DashboardRimEffect">
                         <Setter Property="Visibility" Value="Collapsed" />
@@ -383,7 +383,7 @@
                                         </local:OrbitSurface>
                                         <local:OrbitSurface Style="{StaticResource CardStyle}" CornerRadius="{DynamicResource OrbitCornerRadius}" Padding="20,18"><UniformGrid Columns="3">
                                             <Button Content="HUD controls" Click="OpenHudControls_Click" Margin="0,0,8,0" Padding="10,12" AutomationProperties.Name="Open HUD appearance controls"/>
-                                            <Button Content="Relearn tires" Click="RelearnTires_Click" IsEnabled="{Binding CanRelearnCurrentTires}" Margin="0,0,8,0" Padding="10,12" AutomationProperties.Name="Relearn tires for the current car"/>
+                                            <Button Content="Relearn tires" ToolTip="{Binding TireCalibrationActionHint}" ToolTipService.ShowOnDisabled="True" Click="RelearnTires_Click" IsEnabled="{Binding CanRelearnCurrentTires}" Margin="0,0,8,0" Padding="10,12" AutomationProperties.Name="Relearn tires for the current car"/>
                                             <Button x:Name="LockButton" Click="ToggleLock_Click" Padding="10,12" AutomationProperties.Name="{Binding Text, ElementName=DashboardLockLabel}"><TextBlock x:Name="DashboardLockLabel" Text="Edit HUD layout" TextWrapping="Wrap" TextAlignment="Center"/></Button>
                                         </UniformGrid></local:OrbitSurface>
                                     </local:DashboardColumns>
@@ -1814,7 +1814,7 @@
                                                                     Margin="0,14,0,0"
                                                                     IsEnabled="{Binding CanRelearnCurrentTires}"
                                                                     Click="RelearnTires_Click"
-                                                                    ToolTip="Use after changing wheel or tire diameter on this car." AutomationProperties.Name="Relearn tires for the current car" />
+                                                                    ToolTip="{Binding TireCalibrationActionHint}" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Relearn tires for the current car" />
                                                             </StackPanel>
                                                             <UniformGrid Columns="3" Margin="0,18,0,0">
                                                                 <StackPanel>

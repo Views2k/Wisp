@@ -342,8 +342,8 @@ public sealed class LapRunCaptureTests
             }
             service.Dispose();
             await service.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            var summary = Assert.Single(await store.ListAsync());
-            var run = await store.LoadAsync(summary.Id);
+            var summary = Assert.Single(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+            var run = await store.LoadAsync(summary.Id, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(LapTimingMode.GameLaps, run.LapTimingMode);
             Assert.Equal(601, run.Samples.Length);
             Assert.All(run.Samples, sample =>

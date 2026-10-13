@@ -79,6 +79,7 @@ public sealed class WpfStyleRuntimeTests
             {
                 application = new ResourceOnlyApplication { ShutdownMode = ShutdownMode.OnExplicitShutdown };
                 application.Resources = LoadApplicationResources();
+                Check(nameof(FeatureControlPanelTests), FeatureControlPanelTests.AssertOnCurrentDispatcher);
                 Check("Clips playback failure cleanup", ClipsLibraryManagementViewModelTests.AssertPageCleanupOnCurrentDispatcher);
                 Check(nameof(OverlayMonitorPlacementTests), OverlayMonitorPlacementTests.AssertOnCurrentDispatcher);
                 Check(nameof(AnalogHudSceneTests), AnalogHudSceneTests.AssertOnCurrentDispatcher);

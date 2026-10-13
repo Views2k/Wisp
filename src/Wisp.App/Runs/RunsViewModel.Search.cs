@@ -18,7 +18,7 @@ public sealed partial class RunsViewModel
     public string LibrarySearch
     {
         get => _librarySearch;
-        set { if (Set(ref _librarySearch, value ?? "")) RefreshLibrarySearch(); }
+        set { if (LibraryFeatureAvailable && Set(ref _librarySearch, value ?? "")) RefreshLibrarySearch(); }
     }
     public bool HasLibrarySearch => !string.IsNullOrWhiteSpace(LibrarySearch);
     public string LibrarySearchSummary => !HasLibrarySearch ? $"All {Library.Count} saved runs" :
@@ -55,6 +55,7 @@ public sealed partial class RunsViewModel
 
     private void RefreshLibrarySearch()
     {
+        if (!LibraryFeatureAvailable) return;
         var matches = Library.Where(MatchesSearch).ToArray();
         _libraryMatchCount = matches.Length;
         // Keep the active A in the selector so filtering never clears its WPF

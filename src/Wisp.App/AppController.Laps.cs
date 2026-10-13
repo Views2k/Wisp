@@ -34,8 +34,8 @@ public sealed partial class AppController
     internal void ApplyLapDeltaSettings()
     {
         Settings.NormalizeLapDeltaSettings();
-        ConfigureLapWindow(LapDeltaOverlay, Settings.LapDeltaEnabled, Settings.LapDeltaScale);
-        ConfigureLapWindow(LapMapOverlay, Settings.LapMapEnabled, Settings.LapMapScale);
+        ConfigureLapWindow(LapDeltaOverlay, HudFeatureAllowed("lap-delta") && Settings.LapDeltaEnabled, Settings.LapDeltaScale);
+        ConfigureLapWindow(LapMapOverlay, HudFeatureAllowed("lap-map") && Settings.LapMapEnabled, Settings.LapMapScale);
         UpdateShiftCueObservation();
     }
     private void ConfigureLapWindow(LapDeltaWindow? window, bool enabled, double scale)

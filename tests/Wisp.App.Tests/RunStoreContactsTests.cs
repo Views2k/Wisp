@@ -18,7 +18,7 @@ public sealed class RunStoreContactsTests : IDisposable
         var store = new RunStore(_directory);
         var original = RunTestData.CreateRun();
         await store.SaveAsync(original);
-        var legacy = await store.LoadAsync(original.Id);
+        var legacy = await store.LoadAsync(original.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.BaseSchemaVersion, legacy.SchemaVersion);
         Assert.All(legacy.Samples, sample =>
         {
@@ -36,14 +36,14 @@ public sealed class RunStoreContactsTests : IDisposable
             }).ToArray()
         };
         await store.SaveAsync(current);
-        var saved = await store.LoadAsync(current.Id);
+        var saved = await store.LoadAsync(current.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.CurrentSchemaVersion, saved.SchemaVersion);
         Assert.Equal(current.Samples, saved.Samples);
         var exported = Path.Combine(_directory, "contact-export.wisprun");
-        await store.ExportAsync(current.Id, exported);
+        await store.ExportAsync(current.Id, exported, cancellationToken: TestContext.Current.CancellationToken);
         var importStore = new RunStore(Path.Combine(_directory, "imported"));
-        var imported = await importStore.ImportAsync(exported);
-        var importedRun = await importStore.LoadAsync(imported.Id);
+        var imported = await importStore.ImportAsync(exported, cancellationToken: TestContext.Current.CancellationToken);
+        var importedRun = await importStore.LoadAsync(imported.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.CurrentSchemaVersion, importedRun.SchemaVersion);
         Assert.Equal(current.Samples, importedRun.Samples);
     }
@@ -70,13 +70,13 @@ public sealed class RunStoreContactsTests : IDisposable
         };
         var store = new RunStore(_directory);
         await store.SaveAsync(run);
-        var loaded = await store.LoadAsync(run.Id);
+        var loaded = await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.CurrentSchemaVersion, loaded.SchemaVersion);
         Assert.Equal(run.Samples, loaded.Samples);
         Assert.Equal(JsonSerializer.Serialize(run.TuneAttachment, RunStore.JsonOptions),
             JsonSerializer.Serialize(loaded.TuneAttachment, RunStore.JsonOptions));
         await store.UpdateMetadataAsync(run.Id, run.Name, run.Tune, "Updated notes");
-        Assert.Equal(RecordedRun.CurrentSchemaVersion, (await store.LoadAsync(run.Id)).SchemaVersion);
+        Assert.Equal(RecordedRun.CurrentSchemaVersion, (await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).SchemaVersion);
     }
 
     [Theory]
@@ -89,7 +89,7 @@ public sealed class RunStoreContactsTests : IDisposable
         var run = ContactRun(withTune, zeroFields);
         var store = new RunStore(_directory);
         await store.SaveAsync(run);
-        var loaded = await store.LoadAsync(run.Id);
+        var loaded = await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         var expected = WithoutContactFields(run);
         Assert.Equal(JsonSerializer.Serialize(expected, RunStore.JsonOptions), JsonSerializer.Serialize(loaded, RunStore.JsonOptions));
         Assert.All(loaded.Samples, sample =>
@@ -113,15 +113,15 @@ public sealed class RunStoreContactsTests : IDisposable
         };
         var store = new RunStore(_directory);
         await store.SaveAsync(run);
-        var loaded = await store.LoadAsync(run.Id);
+        var loaded = await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.CurrentSchemaVersion, loaded.SchemaVersion);
         Assert.Equal(run.Samples, loaded.Samples);
         var archive = Path.Combine(_directory, "contacts.zip");
-        Assert.Equal(1, await store.ExportAllAsync(archive));
+        Assert.Equal(1, await store.ExportAllAsync(archive, cancellationToken: TestContext.Current.CancellationToken));
         var importedDirectory = Path.Combine(_directory, "imported");
         var imported = new RunStore(importedDirectory);
-        await imported.ImportManyAsync([archive]);
-        var importedRun = await imported.LoadAsync(run.Id);
+        await imported.ImportManyAsync([archive], cancellationToken: TestContext.Current.CancellationToken);
+        var importedRun = await imported.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(JsonSerializer.Serialize(loaded, RunStore.JsonOptions), JsonSerializer.Serialize(importedRun, RunStore.JsonOptions));
         Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(_directory, $"{run.Id:N}.wisprun"), TestContext.Current.CancellationToken),
             await File.ReadAllBytesAsync(Path.Combine(importedDirectory, $"{run.Id:N}.wisprun"), TestContext.Current.CancellationToken));
@@ -134,20 +134,20 @@ public sealed class RunStoreContactsTests : IDisposable
         var path = Path.Combine(_directory, $"{run.Id:N}.wisprun");
         await WriteRawRunAsync(path, run);
         var store = new RunStore(_directory);
-        Assert.Single(await store.ListAsync());
+        Assert.Single(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         await store.UpdateMetadataAsync(run.Id, run.Name, run.Tune, "Edited notes");
-        var loaded = await store.LoadAsync(run.Id);
+        var loaded = await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.CurrentSchemaVersion, loaded.SchemaVersion);
         Assert.Equal(run.Samples, loaded.Samples);
         Assert.Equal(run.Markers, loaded.Markers);
         var singleImport = new RunStore(Path.Combine(_directory, "single"));
-        var summary = await singleImport.ImportAsync(path);
-        var single = await singleImport.LoadAsync(summary.Id);
+        var summary = await singleImport.ImportAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+        var single = await singleImport.LoadAsync(summary.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.CurrentSchemaVersion, single.SchemaVersion);
         Assert.Equal(run.Samples, single.Samples);
         var bulkImport = new RunStore(Path.Combine(_directory, "bulk"));
-        await bulkImport.ImportManyAsync([path]);
-        var bulk = await bulkImport.LoadAsync(run.Id);
+        await bulkImport.ImportManyAsync([path], cancellationToken: TestContext.Current.CancellationToken);
+        var bulk = await bulkImport.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.CurrentSchemaVersion, bulk.SchemaVersion);
         Assert.Equal(run.Samples, bulk.Samples);
     }
@@ -169,8 +169,8 @@ public sealed class RunStoreContactsTests : IDisposable
         using (var header = JsonDocument.Parse((await reader.ReadLineAsync(TestContext.Current.CancellationToken))!))
             Assert.Equal(RecordedRun.CurrentSchemaVersion, header.RootElement.GetProperty("schemaVersion").GetInt32());
         var recovered = new RunStore(_directory);
-        Assert.Single(await recovered.ListAsync());
-        var loaded = await recovered.LoadAsync(run.Id);
+        Assert.Single(await recovered.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        var loaded = await recovered.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(WithoutContactFields(run).SchemaVersion, loaded.SchemaVersion);
         Assert.Equal(WithoutContactFields(run).Samples, loaded.Samples);
         Assert.True(loaded.IsIncomplete);
@@ -202,8 +202,8 @@ public sealed class RunStoreContactsTests : IDisposable
         using (var header = JsonDocument.Parse((await reader.ReadLineAsync(TestContext.Current.CancellationToken))!))
             Assert.Equal(RecordedRun.CurrentSchemaVersion, header.RootElement.GetProperty("schemaVersion").GetInt32());
         var recovered = new RunStore(_directory);
-        Assert.Single(await recovered.ListAsync());
-        var loaded = await recovered.LoadAsync(run.Id);
+        Assert.Single(await recovered.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        var loaded = await recovered.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.CurrentSchemaVersion, loaded.SchemaVersion);
         Assert.Equal([run.Samples[0], contact], loaded.Samples);
     }
@@ -219,7 +219,7 @@ public sealed class RunStoreContactsTests : IDisposable
         await File.WriteAllLinesAsync(path, lines, TestContext.Current.CancellationToken);
         var original = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
         var store = new RunStore(_directory);
-        Assert.Empty(await store.ListAsync());
+        Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(original, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
         Assert.False(File.Exists(Path.Combine(_directory, $"{run.Id:N}.wisprun")));
     }

@@ -7,6 +7,38 @@ namespace Wisp.App.Tests;
 public sealed class ShiftCalibrationManagerTests
 {
     [Fact]
+    public async Task RemotePauseCancelsTheNewPullButKeepsSavedGuidanceForTheMatchingCar()
+    {
+        var f = new Fixture();
+        await f.Initialize();
+        Assert.True(f.Manager.Start());
+        f.Sweep(1, 1200, 8500);
+        f.Sweep(2, 4300, 6400);
+        await f.Evaluate();
+        var original = f.Manager.Apply(f.Native().ShiftPerformance)!;
+        Assert.NotNull(original.Profile);
+        Assert.True(f.Manager.Start());
+        f.Sweep(1, 4000, 6000);
+        await f.Manager.SetFeatureAvailable(false);
+        f.Publish();
+        Assert.False(f.Manager.Active);
+        Assert.False(f.Manager.CanStart);
+        Assert.False(f.Manager.Start());
+        var retained = f.Manager.Apply(f.Native().ShiftPerformance)!;
+        Assert.Equal(original.Gears[0].EstimatedTargetRpm, retained.Gears[0].EstimatedTargetRpm);
+        Assert.NotNull(retained.Profile);
+        f.Key = "another-tune";
+        f.Publish();
+        await f.Manager.PendingWork;
+        Assert.Null(f.Manager.Apply(f.Native().ShiftPerformance)!.Profile);
+        Assert.False(f.Manager.Start());
+        await f.Manager.SetFeatureAvailable(true);
+        Assert.False(f.Manager.Active);
+        Assert.True(f.Manager.Start());
+        await f.Manager.Suspend();
+    }
+
+    [Fact]
     public async Task NarrowRecalibrationDoesNotDiscardPreviouslySupportedGear()
     {
         var f = new Fixture { Ratios = [4, 2, 1.8] };

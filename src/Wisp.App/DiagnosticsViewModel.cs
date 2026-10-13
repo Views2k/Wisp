@@ -749,7 +749,11 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     public bool CanSetWindowsStartup => !StartWithForza;
     public bool StartMinimizedWithForza { get => _startMinimizedWithForza; set => Set(ref _startMinimizedWithForza, value); }
     public bool BackgroundParticlesEnabled { get => _backgroundParticlesEnabled; set => Set(ref _backgroundParticlesEnabled, value); }
-    public bool AnimatedBackground { get => _animatedBackground; set => Set(ref _animatedBackground, value); }
+    public bool AnimatedBackground
+    {
+        get => _animatedBackground;
+        set { if (Set(ref _animatedBackground, value)) OnPropertyChanged(nameof(EffectiveBackgroundAnimation)); }
+    }
     public bool AutomaticApplicationUpdateChecks
     {
         get => _automaticApplicationUpdateChecks;
@@ -757,27 +761,27 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     }
     public bool TractionCueEnabled { get => _tractionCueEnabled; set => Set(ref _tractionCueEnabled, value); }
     public bool IsTractionCueActive { get => _isTractionCueActive; set => Set(ref _isTractionCueActive, value); }
-    public bool CanRelearnCurrentTires { get => _canRelearnCurrentTires; private set => Set(ref _canRelearnCurrentTires, value); }
+    public bool CanRelearnCurrentTires { get => _tireCalibrationFeatureAvailable && _canRelearnCurrentTires; private set => Set(ref _canRelearnCurrentTires, value); }
     public string InstalledApplicationVersion => ApplicationVersionInfo.DisplayVersion;
     public string ApplicationUpdateStatus
     {
-        get => _applicationUpdateStatus;
+        get => _applicationUpdatesFeatureAvailable ? _applicationUpdateStatus : _applicationUpdatesFeatureReason;
         private set => Set(ref _applicationUpdateStatus, value);
     }
     public string ApplicationUpdateAction
     {
-        get => _applicationUpdateAction;
+        get => _applicationUpdatesFeatureAvailable ? _applicationUpdateAction : "Updates paused";
         private set => Set(ref _applicationUpdateAction, value);
     }
     public bool CanCheckApplicationUpdate
     {
-        get => _canCheckApplicationUpdate;
+        get => _applicationUpdatesFeatureAvailable && _canCheckApplicationUpdate;
         private set => Set(ref _canCheckApplicationUpdate, value);
     }
 
     public bool IsApplicationUpdateAvailable
     {
-        get => _isApplicationUpdateAvailable;
+        get => _applicationUpdatesFeatureAvailable && _isApplicationUpdateAvailable;
         private set => Set(ref _isApplicationUpdateAvailable, value);
     }
 
@@ -932,12 +936,12 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         var suffix = unit == SpeedUnit.MilesPerHour ? "mph" : "km/h";
         StatusText = speedSource == SpeedSourceMode.Fh6VehicleSpeed
             ? "FH6 Speed Ready"
-            : calibration.IsCalibrated ? "Wheel Speed Ready" : "Learning Tire Size";
+            : calibration.IsCalibrated ? "Wheel Speed Ready" : _tireCalibrationFeatureAvailable ? "Learning Tire Size" : "Tire calibration paused";
         StatusDetail = speedSource == SpeedSourceMode.Fh6VehicleSpeed
             ? "FH6 vehicle speed is active"
             : calibration.IsCalibrated
                 ? "Driven-wheel speed is active"
-                : CalibrationStatusDetail(calibration.RejectionReason);
+                : _tireCalibrationFeatureAvailable ? CalibrationStatusDetail(calibration.RejectionReason) : _tireCalibrationFeatureReason;
         PacketRate = $"{statistics.PacketsPerSecond:F1} Hz";
         RenderRate = $"{renderRate:F1} Hz";
         PacketAge = $"{packetAge.TotalMilliseconds:F0} ms";

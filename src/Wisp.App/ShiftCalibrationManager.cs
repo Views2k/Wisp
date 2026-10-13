@@ -19,10 +19,11 @@ internal sealed class ShiftCalibrationManager(string? directory, Func<long>? tim
     private bool _available;
     private bool _canArm;
     private bool _loadPending;
+    private bool _featureAvailable = true;
     private Task _work = Task.CompletedTask;
 
     internal string Status { get { lock (_gate) return _status; } }
-    internal bool CanStart { get { lock (_gate) return _canArm && _session is null && !_loadPending; } }
+    internal bool CanStart { get { lock (_gate) return _featureAvailable && _canArm && _session is null && !_loadPending; } }
     internal bool Active { get { lock (_gate) return _session is not null; } }
     internal Task PendingWork { get { lock (_gate) return _work; } }
 
@@ -114,7 +115,7 @@ internal sealed class ShiftCalibrationManager(string? directory, Func<long>? tim
     {
         lock (_gate)
         {
-            if (!_canArm || _context is null || _session is not null || _loadPending) return false;
+            if (!_featureAvailable || !_canArm || _context is null || _session is not null || _loadPending) return false;
             _generation++;
             _session = new(_context, Stopwatch.Frequency);
             _nextEvaluation = 0;
@@ -126,6 +127,16 @@ internal sealed class ShiftCalibrationManager(string? directory, Func<long>? tim
     internal void Cancel()
     {
         lock (_gate) CancelLocked(_calibrated is null ? "Calibration cancelled. Saved data was not changed." : SavedStatus(_calibrated));
+    }
+
+    internal Task SetFeatureAvailable(bool available)
+    {
+        lock (_gate)
+        {
+            _featureAvailable = available;
+            if (!available) CancelLocked("Shift calibration is temporarily paused.");
+            return _work;
+        }
     }
 
     internal Task Suspend()

@@ -5,7 +5,7 @@ public sealed record RunGraphChoice(string Label, RunChartGroup Group, RunPlotMo
 public sealed partial class RunsViewModel
 {
     private bool _isGraphWorkspaceOpen;
-    public bool IsGraphWorkspaceOpen => _isGraphWorkspaceOpen && HasRun;
+    public bool IsGraphWorkspaceOpen => LibraryFeatureAvailable && _isGraphWorkspaceOpen && HasRun;
     public bool IsSummaryVisible => !IsGraphWorkspaceOpen;
     public RunGraphChoice[] GraphChoices { get; } =
     [
@@ -23,7 +23,7 @@ public sealed partial class RunsViewModel
         get => GraphChoices.First(choice => choice.Group == ChartGroup && choice.Mode == GraphView.Mode);
         set
         {
-            if (value is null || RecordingActive || !GraphChoices.Contains(value) || value == SelectedGraph) return;
+            if (!LibraryFeatureAvailable || value is null || RecordingActive || !GraphChoices.Contains(value) || value == SelectedGraph) return;
             // Select the channel and presentation together so one click prepares one view.
             _chartGroup = value.Group;
             _graphView = AvailableGraphViews.First(view => view.Mode == value.Mode);
@@ -35,14 +35,14 @@ public sealed partial class RunsViewModel
     }
     public void ShowGraph(RunGraphChoice choice)
     {
-        if (!HasRun || _disposed || RecordingActive || !GraphChoices.Contains(choice)) return;
+        if (!LibraryFeatureAvailable || !HasRun || _disposed || RecordingActive || !GraphChoices.Contains(choice)) return;
         SelectedGraph = choice;
         EnsureWorkspaceGraph(choice.Group, choice.Mode);
         ShowGraphs();
     }
     public void ShowGraphs()
     {
-        if (!HasRun || _disposed) return;
+        if (!LibraryFeatureAvailable || !HasRun || _disposed) return;
         _isGraphWorkspaceOpen = true;
         NotifyNavigation();
         if (UsesModularWorkspace || Charts.Count + AlternativeCharts.Count == 0 && !_preparingCharts) RequestCharts();

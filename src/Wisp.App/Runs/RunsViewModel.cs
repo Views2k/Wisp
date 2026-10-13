@@ -102,7 +102,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         _lastSpeedUnit = settings.SpeedUnit; _lastTorqueUnit = settings.TorqueUnit;
         _lastTemperatureUnit = settings.TireTemperatureUnit; _lastBoostUnit = settings.BoostPressureUnit;
         _hotkeyStatus = settings.RecordingShortcutEnabled ? "Not active" : "Off";
-        ToggleRecordingCommand = Command(ToggleRecordingAsync, () => CanToggleRecording);
+        ToggleRecordingCommand = Command(ToggleRecordingAsync, () => CanToggleRecording, libraryAction: false);
         SaveDetailsCommand = Command(SaveDetailsAsync, () => CanManageRun);
         CompareCommand = Command(CompareChosenAsync, () => CanManageRun && ComparisonChoice is not null && ComparisonChoice.Id != _runA?.Id);
         ComparePreviousCommand = Command(ComparePreviousAsync, () => CanManageRun && PreviousRun() is not null);
@@ -113,7 +113,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         ClearSelectionCommand = Command(() => { _interval = null; SelectionStart = SelectionEnd = double.NaN; RequestAnalysis(); return Task.CompletedTask; }, () => HasSelection && !IsBusy && !RecordingActive);
         ApplySpeedRangeCommand = Command(() => { _sameSpeed = true; _interval = null; SelectionStart = SelectionEnd = double.NaN; OnChanged(nameof(SameSpeed)); return AnalyzeAsync(); }, () => HasComparison && !IsBusy && !RecordingActive);
         RefreshLibraryCommand = Command(LoadLibraryAsync, () => CanManageLibrary);
-        MarkMomentCommand = Command(() => { MarkMoment(); return Task.CompletedTask; }, () => CanMarkMoment);
+        MarkMomentCommand = Command(() => { MarkMoment(); return Task.CompletedTask; }, () => CanMarkMoment, libraryAction: false);
         InitializeWorkspace();
         InitializeMetadata();
         InitializeLibrarySearch();
@@ -128,14 +128,14 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         get => _selectedRun;
         set
         {
-            if (RecordingActive || _metadataClosing || value is null || _disposed) return;
+            if (!LibraryFeatureAvailable || RecordingActive || _metadataClosing || value is null || _disposed) return;
             var sameRun = _selectedRun?.Id == value.Id;
             if (!Set(ref _selectedRun, value)) return;
             if (!sameRun) { _ = FlushMetadataAsync(); _ = LoadSelectionAsync(value); }
             RefreshLibrarySearch();
         }
     }
-    public SavedRunItem? ComparisonChoice { get => _comparisonChoice; set { if (RecordingActive) return; Set(ref _comparisonChoice, value); RaiseCommands(); } }
+    public SavedRunItem? ComparisonChoice { get => _comparisonChoice; set { if (!LibraryFeatureAvailable || RecordingActive) return; Set(ref _comparisonChoice, value); RaiseCommands(); } }
     public string RecordButtonText => IsPreparingTune ? "Cancel tune check" : IsCountingDown ? "Cancel countdown" : _service.IsRecording ? "Stop recording" : _service.IsPreparing ? "Saving run…" : "Record run";
     public bool CanToggleRecording => (!_metadataClosing || _service.IsRecording) && (IsPreparingTune || IsCountingDown || (!_service.IsPreparing && (_service.IsRecording || (_storageOperations == 0 && _service.CanStart))));
     public bool IsRecording => _service.IsRecording;
@@ -150,20 +150,20 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             : _service.Status;
     public bool IsBusy { get => _busy; private set { Set(ref _busy, value); OnChanged(nameof(CanManageRun)); OnChanged(nameof(CanManageLibrary)); OnChanged(nameof(CanSelectRun)); OnChanged(nameof(CanManageAllRuns)); OnChanged(nameof(CanExportImage)); RaiseCommands(); } }
     public bool CanManageRun => HasRun && CanManageLibrary;
-    public bool CanManageLibrary => !_metadataClosing && !IsBusy && _storageOperations == 0 && !RecordingActive;
-    public bool CanSelectRun => !_metadataClosing && !_disposed && !RecordingActive && (_loadingSelection || CanManageLibrary);
+    public bool CanManageLibrary => LibraryFeatureAvailable && !_metadataClosing && !IsBusy && _storageOperations == 0 && !RecordingActive;
+    public bool CanSelectRun => LibraryFeatureAvailable && !_metadataClosing && !_disposed && !RecordingActive && (_loadingSelection || CanManageLibrary);
     public bool CanManageAllRuns => CanManageLibrary && Library.Count > 0;
     public string LibraryHelp => RecordingActive ? "Library changes resume after the recording is saved or canceled." : "Run files stay on this PC.";
     public bool HasRun => _runA is not null;
     public bool HasComparison => _runB is not null;
     public bool HasSelection => double.IsFinite(SelectionStart) && double.IsFinite(SelectionEnd);
     public bool IsLibraryEmpty => Library.Count == 0;
-    public string Status { get => _status; private set => Set(ref _status, value); }
+    public string Status { get => LibraryFeatureAvailable ? _status : LibraryFeatureStatus; private set => Set(ref _status, value); }
     public string Error { get => _error; private set { Set(ref _error, value); OnChanged(nameof(HasError)); } }
     public bool HasError => !string.IsNullOrEmpty(Error);
-    public string Name { get => _name; set { if (!RecordingActive && (!_metadataClosing || _restoringMetadata) && Set(ref _name, value ?? "")) MetadataChanged(); } }
-    public string Tune { get => _tune; set { if (!RecordingActive && (!_metadataClosing || _restoringMetadata) && Set(ref _tune, value ?? "")) MetadataChanged(); } }
-    public string Notes { get => _notes; set { if (!RecordingActive && (!_metadataClosing || _restoringMetadata) && Set(ref _notes, value ?? "")) MetadataChanged(); } }
+    public string Name { get => _name; set { if (LibraryFeatureAvailable && !RecordingActive && (!_metadataClosing || _restoringMetadata) && Set(ref _name, value ?? "")) MetadataChanged(); } }
+    public string Tune { get => _tune; set { if (LibraryFeatureAvailable && !RecordingActive && (!_metadataClosing || _restoringMetadata) && Set(ref _tune, value ?? "")) MetadataChanged(); } }
+    public string Notes { get => _notes; set { if (LibraryFeatureAvailable && !RecordingActive && (!_metadataClosing || _restoringMetadata) && Set(ref _notes, value ?? "")) MetadataChanged(); } }
     public string RunALabel => _runA is null ? "" : "A · " + _runA.Name;
     public string RunBLabel => _runB is null ? "" : "B · " + _runB.Name;
     public string RunDescription => _runA is null ? "" : $"{_runA.StartedAtUtc.ToLocalTime():f} · {RunPresentation.Time(_runA.Samples.LastOrDefault()?.ElapsedSeconds ?? 0)}";
@@ -208,7 +208,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
 
     public async Task InitializeAsync()
     {
-        if (_initialized || _initializing || _disposed) return;
+        if (!LibraryFeatureAvailable || _initialized || _initializing || _disposed) return;
         _initializing = true;
         try { await LoadLibraryAsync(); _initialized = true; }
         finally { _initializing = false; RefreshStatus(); }
@@ -233,7 +233,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             _pendingAnalysis |= IsBusy || _preparingCharts; ++_analysisRevision; ++_chartRevision; _preparingCharts = false; IsBusy = false;
         }
         _wasRecording = _service.IsRecording;
-        if (!RecordingActive && !_metadataClosing)
+        if (LibraryFeatureAvailable && !RecordingActive && !_metadataClosing)
         {
             if (_pendingSavedRun is { } saved)
             {
@@ -276,6 +276,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
                 else StartNow();
             }
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException) { Fail("The run could not be started or saved. Check local storage and try again."); }
         finally { RefreshStatus(); }
     }
@@ -295,25 +296,28 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
     private void ServiceRunSaved(RecordedRun run) => OnUi(() => _ = ShowSavedAsync(run));
     private async Task ShowSavedAsync(RecordedRun run)
     {
-        if (_metadataClosing) { _pendingSavedRun = run; _pendingLibraryRefresh = true; return; }
-        if (RecordingActive) { _pendingSavedRun = run; _pendingLibraryRefresh = true; return; }
+        if (!LibraryFeatureAvailable || _metadataClosing) { _pendingSavedRun = run; _pendingLibraryRefresh = true; return; }
+        if (!LibraryFeatureAvailable || RecordingActive) { _pendingSavedRun = run; _pendingLibraryRefresh = true; return; }
         try
         {
             await LoadLibraryAsync();
-            if (RecordingActive) { _pendingSavedRun = run; _pendingLibraryRefresh = true; return; }
+            if (!LibraryFeatureAvailable || RecordingActive) { _pendingSavedRun = run; _pendingLibraryRefresh = true; return; }
             var item = Library.FirstOrDefault(item => item.Id == run.Id);
             if (item is not null) { _selectedRun = item; OnChanged(nameof(SelectedRun)); await LoadSelectionAsync(item, run); }
             Status = "Run saved. Open Runs to explore it.";
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException) { Fail("The run was saved, but its report could not be opened. Refresh the run list."); }
         finally { RefreshStatus(); }
     }
     private async Task LoadLibraryAsync()
     {
-        if (RecordingActive) { _pendingLibraryRefresh = true; return; }
+        if (!LibraryFeatureAvailable || RecordingActive) { _pendingLibraryRefresh = true; return; }
         try
         {
-            var summaries = await StoreOperationAsync(() => _service.Store.ListAsync());
+            var revision = _libraryFeatureRevision;
+            var summaries = await StoreOperationAsync(token => _service.Store.ListAsync(token));
+            if (revision != _libraryFeatureRevision || !LibraryFeatureAvailable || _disposed) return;
             var selectedId = _selectedRun?.Id; var comparisonId = _comparisonChoice?.Id;
             SynchronizeItems(Library, summaries.OrderByDescending(item => item.StartedAtUtc)
                 .Select(summary => new SavedRunItem(_metadataEdits.TryGetValue(summary.Id, out var edit) && edit.LastSaved is { } saved ? saved : summary)));
@@ -324,11 +328,12 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             RefreshLibrarySearch();
             if (_service.Store.Warning is { } warning) Error = warning;
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException) { Fail("Saved runs could not be read. Check local storage, then refresh."); }
     }
     private async Task LoadSelectionAsync(SavedRunItem selected, RecordedRun? knownRun = null)
     {
-        if (RecordingActive)
+        if (!LibraryFeatureAvailable || RecordingActive)
         {
             if (knownRun is not null) _pendingSavedRun = knownRun;
             else _pendingSelection = selected;
@@ -345,7 +350,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         IsBusy = true; Error = ""; Status = "Opening the selected run…";
         try
         {
-            var run = knownRun is { } saved && saved.Id == selected.Id ? saved : _reviewRuns.TryGetValue(selected.Id, out var review) ? review : await StoreOperationAsync(() => _service.Store.LoadAsync(selected.Id));
+            var run = knownRun is { } saved && saved.Id == selected.Id ? saved : _reviewRuns.TryGetValue(selected.Id, out var review) ? review : await StoreOperationAsync(token => _service.Store.LoadAsync(selected.Id, token));
             if (revision != _selectionRevision || _disposed) return;
             if (_metadataClosing) { _pendingSelection = selected; return; }
             await RestoreMetadataDraftAsync(run);
@@ -365,6 +370,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
                 OnChanged(nameof(SelectedRun));
             }
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             if (revision == _selectionRevision)
@@ -393,7 +399,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             var selected = ComparisonChoice;
-            var run = _reviewRuns.TryGetValue(selected.Id, out var review) ? review : await StoreOperationAsync(() => _service.Store.LoadAsync(selected.Id));
+            var run = _reviewRuns.TryGetValue(selected.Id, out var review) ? review : await StoreOperationAsync(token => _service.Store.LoadAsync(selected.Id, token));
             if (_runA?.Id != id || _selectionRevision != selectionRevision || _disposed) return;
             bool opened;
             do
@@ -405,6 +411,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             if (!opened) return;
             if (!IsGraphWorkspaceOpen) { ShowSummary(); ReportOpened?.Invoke(this, EventArgs.Empty); }
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         { if (_runA?.Id == id && _selectionRevision == selectionRevision) Fail("The comparison run could not be opened. Choose another run or try again."); }
         finally
@@ -422,7 +429,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
     private SavedRunItem? PreviousRun() => Library.FirstOrDefault(item => item.Id != _runA?.Id && item.Summary.StartedAtUtc < _runA?.StartedAtUtc);
     private void RequestAnalysis()
     {
-        if (_disposed) return;
+        if (!LibraryFeatureAvailable || _disposed) return;
         if (_loadingSelection && _selectedRun is { } selected) _ = LoadSelectionAsync(selected);
         else if (_loadingComparison) { _comparisonNeedsAnalysis = true; ++_analysisRevision; }
         else if (_runA is not null) _ = AnalyzeAsync();
@@ -430,7 +437,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
     private async Task<bool> AnalyzeAsync(RecordedRun? openingRun = null, RecordedRun? comparisonRun = null,
         SupplementaryOperation? observation = null)
     {
-        if (openingRun is null && _runA is null || _disposed) return false;
+        if (!LibraryFeatureAvailable || openingRun is null && _runA is null || _disposed) return false;
         var revision = ++_analysisRevision;
         if (RecordingActive)
         { _pendingAnalysis = true; IsBusy = false; Status = "Stop recording to prepare the changed report. Recording is still running."; return false; }
@@ -572,6 +579,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             else await BuildChartsAsync(revision);
             return true;
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             if (revision == _analysisRevision)
@@ -583,10 +591,10 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         finally { if (revision == _analysisRevision && !_loadingComparison) IsBusy = false; }
         return false;
     }
-    private void RequestCharts() { if (_pageVisible && _runA is not null && !_disposed) _ = BuildChartsAsync(_analysisRevision); }
+    private void RequestCharts() { if (LibraryFeatureAvailable && _pageVisible && _runA is not null && !_disposed) _ = BuildChartsAsync(_analysisRevision); }
     private async Task BuildChartsAsync(long revision)
     {
-        if (!_pageVisible || _runA is null) return;
+        if (!LibraryFeatureAvailable || !_pageVisible || _runA is null) return;
         if (UsesModularWorkspace && !IsGraphWorkspaceOpen) return;
         if (RecordingActive) { _pendingAnalysis = true; Status = "The changed charts will be prepared after recording is saved or canceled."; return; }
         var chartRevision = ++_chartRevision;
@@ -619,13 +627,14 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             if (prepared.Workspace is { } workspace) ApplyWorkspacePrepared(workspace);
             RefreshMarkers();
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         { if (chartRevision == _chartRevision && revision == _analysisRevision && !_disposed) Fail("The chart could not be prepared. Choose the chart view again to retry."); }
         finally { if (chartRevision == _chartRevision) { _preparingCharts = false; OnChanged(nameof(IsPreparingCharts)); OnChanged(nameof(CanExportImage)); } }
     }
     public void SelectInterval(double from, double to)
     {
-        if (RecordingActive || _runA is null || !double.IsFinite(from) || !double.IsFinite(to)) return;
+        if (!LibraryFeatureAvailable || RecordingActive || _runA is null || !double.IsFinite(from) || !double.IsFinite(to)) return;
         var end = _matchedA is { } a && _matchedB is { } b ? Math.Min(a.EndSeconds - a.StartSeconds, b.EndSeconds - b.StartSeconds)
             : Math.Max(0, (_runA.Samples.LastOrDefault()?.ElapsedSeconds ?? 0) - _offsetA);
         from = Math.Clamp(from, 0, end); to = Math.Clamp(to, 0, end);
@@ -653,20 +662,22 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_runA is null || !CanManageRun) return;
         var id = _runA.Id;
+        var permission = _libraryFeatureLifetime.Token;
         IsBusy = true;
         try
         {
             if (!await FlushMetadataAsync()) { Fail("Save the pending run details before removing this run. Your draft is kept."); return; }
-            await StoreOperationAsync(() => _service.Store.DeleteAsync(id)); ++_analysisRevision; ++_selectionRevision; _runA = _runB = null; _selectedRun = null;
+            await StoreOperationAsync(token => _service.Store.DeleteAsync(id, token), permission); ++_analysisRevision; ++_selectionRevision; _runA = _runB = null; _selectedRun = null;
             SuspendDeletedMetadata([id]);
             Findings.Clear(); Metrics.Clear(); Charts.Clear(); AlternativeCharts.Clear(); ClearStatistics(); ClearWorkspaceCharts(); NotifyRun(); OnChanged(nameof(SelectedRun));
             await LoadLibraryAsync(); Status = "Run removed. You can undo this removal."; LastDeletedId = id; _lastDeletedBatch = null; OnChanged(nameof(CanUndoDelete));
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException) { Fail("The run could not be removed. Try again."); }
         finally { IsBusy = false; }
     }
     private Guid? LastDeletedId { get; set; }
-    public bool CanUndoDelete => LastDeletedId is not null || _lastDeletedBatch is not null;
+    public bool CanUndoDelete => LibraryFeatureAvailable && (LastDeletedId is not null || _lastDeletedBatch is not null);
     public async Task UndoDeleteAsync()
     {
         if (!CanUndoDelete || !CanManageLibrary) return;
@@ -675,13 +686,14 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         {
             if (_lastDeletedBatch is { } batch)
             {
-                var count = await StoreOperationAsync(() => _service.Store.RestoreDeletedBatchAsync(batch.Id));
+                var count = await StoreOperationAsync(token => _service.Store.RestoreDeletedBatchAsync(batch.Id, token));
                 _lastDeletedBatch = null; Status = $"Restored {count} saved runs.";
             }
             else if (LastDeletedId is Guid id)
-            { await StoreOperationAsync(() => _service.Store.RestoreAsync(id)); LastDeletedId = null; Status = "Run restored."; }
+            { await StoreOperationAsync(token => _service.Store.RestoreAsync(id, token)); LastDeletedId = null; Status = "Run restored."; }
             OnChanged(nameof(CanUndoDelete)); Error = ""; await LoadLibraryAsync(); RestoreDeletedMetadata();
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException) { Fail("The run could not be restored. Its recovery copy has been kept."); }
         finally { IsBusy = false; }
     }
@@ -690,17 +702,19 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         if (_runA is null || !CanManageRun) return;
         using var supplementaryExport = SupplementaryObservations.Begin("saved-data", "runs", "export");
         var id = _runA.Id;
+        var permission = _libraryFeatureLifetime.Token;
         IsBusy = true;
         try
         {
             if (!await FlushMetadataAsync()) { Fail("Save the pending run details before exporting. Your draft is kept."); return; }
             if (_runA?.Id != id) return;
             var run = _runA;
-            await StoreOperationAsync(() => System.IO.Path.GetExtension(destination).Equals(".csv", StringComparison.OrdinalIgnoreCase)
-                ? RunCsvExporter.WriteAsync(run, destination) : _service.Store.ExportAsync(run.Id, destination));
+            await StoreOperationAsync(token => System.IO.Path.GetExtension(destination).Equals(".csv", StringComparison.OrdinalIgnoreCase)
+                ? RunCsvExporter.WriteAsync(run, destination, token) : _service.Store.ExportAsync(run.Id, destination, token), permission);
             Status = "Run exported. Nothing was uploaded.";
             supplementaryExport?.Complete("success");
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException) { supplementaryExport?.Fail(error); Fail("Export failed. Choose a new filename and try again."); }
         finally { IsBusy = false; }
     }
@@ -711,18 +725,20 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         IsBusy = true;
         try
         {
-            var summary = await StoreOperationAsync(() => _service.Store.ImportAsync(source));
+            var summary = await StoreOperationAsync(token => _service.Store.ImportAsync(source, token));
             supplementaryImport?.Complete("success");
             await LoadLibraryAsync();
             if (Library.FirstOrDefault(item => item.Id == summary.Id) is { } imported)
             { _selectedRun = imported; OnChanged(nameof(SelectedRun)); await LoadSelectionAsync(imported); }
             Status = "Run imported.";
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException) { supplementaryImport?.Fail(error); Fail("This file could not be imported. Choose a complete Wisp run file."); }
         finally { IsBusy = false; }
     }
     internal async Task ShowReviewAsync(RecordedRun a, RecordedRun? b = null, RunPurpose purpose = RunPurpose.General)
     {
+        if (!LibraryFeatureAvailable) return;
         _reviewRuns.Clear(); _sameSpeed = false; _matchedA = _matchedB = _interval = null; _offsetA = _offsetB = 0;
         SelectionStart = SelectionEnd = double.NaN; OnChanged(nameof(SameSpeed));
         _reviewRuns[a.Id] = a; if (b is not null) _reviewRuns[b.Id] = b;
@@ -747,21 +763,26 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         RaiseCommands();
     }
     private void Fail(string message) { Error = message; Status = "Needs attention"; }
-    private async Task<T> StoreOperationAsync<T>(Func<Task<T>> operation)
+    private async Task<T> StoreOperationAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken? permission = null)
     {
-        _storageOperations++; NotifyStorage();
-        try { return await operation(); }
-        finally { _storageOperations--; NotifyStorage(); }
+        var token = permission ?? _libraryFeatureLifetime.Token;
+        if (!LibraryFeatureAvailable || token.IsCancellationRequested) throw new LibraryPausedException();
+        if (_storageOperations++ == 0) _libraryIdle = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        NotifyStorage();
+        try { return await operation(token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw new LibraryPausedException(); }
+        finally { if (--_storageOperations == 0) _libraryIdle?.TrySetResult(); NotifyStorage(); }
     }
-    private Task StoreOperationAsync(Func<Task> operation) => StoreOperationAsync(async () => { await operation(); return true; });
+    private Task StoreOperationAsync(Func<CancellationToken, Task> operation, CancellationToken? permission = null) =>
+        StoreOperationAsync(async token => { await operation(token); return true; }, permission);
     private void NotifyStorage()
     {
         OnChanged(nameof(CanToggleRecording)); OnChanged(nameof(RecordingStatus)); OnChanged(nameof(CanManageRun)); OnChanged(nameof(CanManageLibrary)); OnChanged(nameof(CanSelectRun)); OnChanged(nameof(CanManageAllRuns)); OnChanged(nameof(CanExportImage)); RaiseCommands();
     }
     private void OnUi(Action action) { if (_disposed || _dispatcher.HasShutdownStarted) return; if (_dispatcher.CheckAccess()) action(); else _ = _dispatcher.BeginInvoke(action); }
-    private RunUiCommand Command(Func<Task> execute, Func<bool>? canExecute = null)
+    private RunUiCommand Command(Func<Task> execute, Func<bool>? canExecute = null, bool libraryAction = true)
     {
-        var command = new RunUiCommand(execute, canExecute ?? (() => true), () => Fail("The action could not finish. Try again."));
+        var command = new RunUiCommand(execute, () => (!libraryAction || LibraryFeatureAvailable) && (canExecute?.Invoke() ?? true), () => Fail("The action could not finish. Try again."));
         _commands.Add(command); return command;
     }
     private void RaiseCommands()
@@ -790,7 +811,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
         if (property is nameof(IsBusy) or nameof(Status) or nameof(IsPreparingCharts) or nameof(IntervalLabel))
             PropertyChanged?.Invoke(this, new(nameof(WorkspaceReadout)));
     }
-    public void Dispose() { LapReview.Dispose(); DisposeMetadata(); Library.CollectionChanged -= LibraryChanged; CancelCountdown(); ShortcutCaptureActive = false; _pendingSavedRun = null; _disposed = true; _analysisRevision++; _chartRevision++; _selectionRevision++; _service.StateChanged -= ServiceStateChanged; _service.RunSaved -= ServiceRunSaved; }
+    public void Dispose() { if (_disposed) return; _libraryFeatureLifetime.Cancel(); _libraryFeatureLifetime.Dispose(); LapReview.Dispose(); DisposeMetadata(); Library.CollectionChanged -= LibraryChanged; CancelCountdown(); ShortcutCaptureActive = false; _pendingSavedRun = null; _disposed = true; _analysisRevision++; _chartRevision++; _selectionRevision++; _service.StateChanged -= ServiceStateChanged; _service.RunSaved -= ServiceRunSaved; }
 }
 
 internal sealed class RunUiCommand(Func<Task> execute, Func<bool> canExecute, Action failed) : ICommand

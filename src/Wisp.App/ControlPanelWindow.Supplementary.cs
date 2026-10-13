@@ -44,8 +44,22 @@ public abstract partial class ControlPanelWindow
         _supplementaryNoticeExpander.Collapsed += (_, _) => UpdateSupplementaryNoticeActivity();
         surface.IsVisibleChanged += (_, _) => UpdateSupplementaryNoticeActivity();
         StateChanged += (_, _) => UpdateSupplementaryNoticeActivity();
+        void RefreshNoticeControl(object? source, EventArgs args)
+        {
+            if (_controller.FeatureAllowed("news")) UpdateSupplementaryNoticeActivity();
+            else
+            {
+                _supplementaryNoticeTimer.Stop();
+                _supplementaryNotices.Children.Clear();
+                _supplementaryNoticeKey = null;
+                _supplementaryNoticeStatus.Text = _controller.FeatureControls.Reason("news") ?? "News is temporarily paused.";
+            }
+        }
+        _controller.FeatureControlsChanged += RefreshNoticeControl;
+        RefreshNoticeControl(null, EventArgs.Empty);
         Closed += (_, _) =>
         {
+            _controller.FeatureControlsChanged -= RefreshNoticeControl;
             _supplementaryUiClosed = true;
             _supplementaryNoticeTimer.Stop();
             _supplementarySendCancellation?.Cancel();
@@ -59,12 +73,20 @@ public abstract partial class ControlPanelWindow
         if (_supplementaryUiClosed || _supplementarySurface?.IsVisible != true ||
             WindowState == WindowState.Minimized || _supplementaryNoticeExpander?.IsExpanded != true) return;
         RefreshSupplementaryNotices();
-        _supplementaryNoticeTimer?.Start();
+        if (_controller.FeatureAllowed("news")) _supplementaryNoticeTimer?.Start();
     }
 
     private void RefreshSupplementaryNotices()
     {
-        if (_supplementaryNotices is null || _supplementaryNoticeStatus is null || Application.Current is not App app) return;
+        if (_supplementaryNotices is null || _supplementaryNoticeStatus is null) return;
+        if (!_controller.FeatureAllowed("news"))
+        {
+            _supplementaryNotices.Children.Clear();
+            _supplementaryNoticeKey = null;
+            _supplementaryNoticeStatus.Text = _controller.FeatureControls.Reason("news") ?? "News is temporarily paused.";
+            return;
+        }
+        if (Application.Current is not App app) return;
         var (content, audience) = app.GetSupplementaryContent();
         var now = DateTimeOffset.UtcNow;
         var matching = content.ForAudience(audience, now).Where(i => i.Kind is not ("support-note" or "dashboard-banner"));
@@ -197,9 +219,10 @@ public abstract partial class ControlPanelWindow
             quotaTimer.Stop();
             var remaining = QuotaRemaining();
             var limited = remaining > TimeSpan.Zero;
-            send.IsEnabled = !limited && confirmation.IsChecked == true && _supplementarySendCancellation is null;
-            reviewButton.IsEnabled = !limited;
-            quotaStatus.Text = limited
+            var available = _controller.FeatureAllowed("support");
+            send.IsEnabled = available && !limited && confirmation.IsChecked == true && _supplementarySendCancellation is null;
+            reviewButton.IsEnabled = available && !limited;
+            quotaStatus.Text = !available ? _controller.FeatureControls.Reason("support") ?? "Sending messages is temporarily paused." : limited
                 ? $"Next message in {Math.Ceiling(remaining.TotalMinutes):N0} minutes. The daily limit resets at 00:00 UTC."
                 : "One accepted message per day.";
             if (limited && !_supplementaryUiClosed)
@@ -210,10 +233,17 @@ public abstract partial class ControlPanelWindow
         }
         quotaTimer.Tick += (_, _) => UpdateQuota();
         Activated += (_, _) => UpdateQuota();
-        Closed += (_, _) => quotaTimer.Stop();
+        void RefreshSupportControl(object? source, EventArgs args)
+        {
+            if (!_controller.FeatureAllowed("support")) _supplementarySendCancellation?.Cancel();
+            UpdateQuota();
+        }
+        _controller.FeatureControlsChanged += RefreshSupportControl;
+        UpdateQuota();
+        Closed += (_, _) => { quotaTimer.Stop(); _controller.FeatureControlsChanged -= RefreshSupportControl; };
         reviewButton.Click += (_, _) =>
         {
-            if (QuotaRemaining() > TimeSpan.Zero || Application.Current is not App app) return;
+            if (!_controller.FeatureAllowed("support") || QuotaRemaining() > TimeSpan.Zero || Application.Current is not App app) return;
             var category = bug.IsChecked == true ? "bug" : suggestion.IsChecked == true ? "suggestion" : "feedback";
             var reviewed = app.CreateSupplementarySupportPreview(category, title.Text.Trim(), message.Text.Trim(), diagnostics.IsChecked == true);
             if (reviewed is null) { _supplementarySupportStatus.Text = "Feedback is temporarily unavailable. Your draft stays here; try reviewing again later."; return; }
@@ -243,7 +273,7 @@ public abstract partial class ControlPanelWindow
         cancel.Click += (_, _) => _supplementarySendCancellation?.Cancel();
         send.Click += async (_, _) =>
         {
-            if (QuotaRemaining() > TimeSpan.Zero || _supplementarySendCancellation is not null || confirmation.IsChecked != true ||
+            if (!_controller.FeatureAllowed("support") || QuotaRemaining() > TimeSpan.Zero || _supplementarySendCancellation is not null || confirmation.IsChecked != true ||
                 _supplementaryReviewedReport is not { } reviewed || Application.Current is not App app) return;
             using var cancellation = new CancellationTokenSource();
             _supplementarySendCancellation = cancellation;

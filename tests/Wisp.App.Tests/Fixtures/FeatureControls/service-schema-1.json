@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "source": "Wisp feature-control service schema 1",
+  "at": "2026-10-12T12:00:04.000Z",
+  "keyId": "test-key",
+  "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0psyYMqENwsbfi+yDhKcDITvZoGM+q1KB6YRryoAXnOy0CsEmIpNtD4ovuFMX8+o1fUM1IDdlDpd6Rqrg4cwpA==",
+  "catalog": [
+    "hud",
+    "main-hud",
+    "boost-gauge",
+    "g-force-gauge",
+    "tire-temperature-gauge",
+    "drift-hud",
+    "power-gauge",
+    "torque-gauge",
+    "lap-delta",
+    "lap-map",
+    "lap-recording",
+    "run-recording",
+    "run-library",
+    "lap-review",
+    "tune-read",
+    "tune-library",
+    "clip-recording",
+    "clip-playback",
+    "clip-export",
+    "clip-library",
+    "shift-calibration",
+    "tire-calibration",
+    "shift-guidance",
+    "traction-cue",
+    "background-animation",
+    "hud-profiles",
+    "appearance",
+    "diagnostics",
+    "news",
+    "support",
+    "updates"
+  ],
+  "paused": {
+    "keyId": "test-key",
+    "payload": "eyJleHBpcmVzQXQiOiIyMDI2LTEwLTEyVDEzOjAwOjAwLjAwMFoiLCJpc3N1ZWRBdCI6IjIwMjYtMTAtMTJUMTI6MDA6MDEuMDAwWiIsInB1cnBvc2UiOiJ3aXNwLWZlYXR1cmUtY29udHJvbHMiLCJyZXZpc2lvbiI6MSwicnVsZXMiOlt7ImNoYW5uZWxzIjpbInN0YWJsZSJdLCJleHBpcmVzQXQiOiIyMDI2LTEwLTEyVDEzOjAwOjAwLjAwMFoiLCJmZWF0dXJlcyI6WyJjbGlwLXJlY29yZGluZyIsInJ1bi1yZWNvcmRpbmciLCJ0dW5lLXJlYWQiXSwiaWQiOiJyZWNvcmRpbmctcGF1c2UiLCJtYXhWZXJzaW9uIjpudWxsLCJtaW5WZXJzaW9uIjoiMi42LjgiLCJyZWFzb24iOiJSZWNvcmRpbmcgaXMgdGVtcG9yYXJpbHkgcGF1c2VkLiIsInN0YXJ0c0F0IjoiMjAyNi0xMC0xMlQxMjowMDowMS4wMDBaIn1dLCJzY2hlbWFWZXJzaW9uIjoxfQ==",
+    "schemaVersion": 1,
+    "signature": "Ad/zhJ5NLBErfK2bEIW2duQt5hIxFc0oilt7QpOZvsIy2DAGOsg8cha0b0MSxiY89/XKXFe2TWkJsHVgIRnAGA=="
+  },
+  "restored": {
+    "keyId": "test-key",
+    "payload": "eyJleHBpcmVzQXQiOiIyMDI2LTEwLTE5VDEyOjAwOjAzLjAwMFoiLCJpc3N1ZWRBdCI6IjIwMjYtMTAtMTJUMTI6MDA6MDMuMDAwWiIsInB1cnBvc2UiOiJ3aXNwLWZlYXR1cmUtY29udHJvbHMiLCJyZXZpc2lvbiI6MiwicnVsZXMiOltdLCJzY2hlbWFWZXJzaW9uIjoxfQ==",
+    "schemaVersion": 1,
+    "signature": "4Xp4RShcdcmfLUx91eVGqXIEGwNfZJIlWuE6ah61TFZ52fSlxbNX4pw9IQfIyFcw6a3IQuc9bBK3dPKkLdEL0g=="
+  }
+}

@@ -71,6 +71,7 @@ public sealed class RollingRadiusEstimator
     private readonly CalibrationOptions _options;
     private readonly Dictionary<int, Profile> _profiles = new();
     private int? _activeCarOrdinal;
+    private bool _learningEnabled = true;
 
     public RollingRadiusEstimator(CalibrationOptions? options = null)
     {
@@ -104,6 +105,8 @@ public sealed class RollingRadiusEstimator
 
             return Result(profile, false, rejection);
         }
+
+        if (!_learningEnabled) return Result(profile, false, "Calibration paused");
 
         var candidateRadii = CandidateRadii(state, angularSpeeds);
         if (!candidateRadii.IsPlausible)
@@ -196,6 +199,19 @@ public sealed class RollingRadiusEstimator
         profile.SetTrusted(learnedRadii);
 
         return Result(profile, true, string.Empty);
+    }
+
+    public void SetLearningEnabled(bool enabled)
+    {
+        if (_learningEnabled == enabled) return;
+        _learningEnabled = enabled;
+        if (enabled) return;
+        foreach (var profile in _profiles.Values)
+        {
+            profile.CandidateWindow.Clear();
+            profile.ClearReplacementEvidence();
+            if (!profile.TrustedRadii.HasValue) profile.Samples.Clear();
+        }
     }
 
     public CalibrationResult Get(int carOrdinal)

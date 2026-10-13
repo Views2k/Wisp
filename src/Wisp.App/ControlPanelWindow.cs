@@ -160,6 +160,7 @@ public abstract partial class ControlPanelWindow : Window
         InitializeSupportReminder();
         InitializeSupplementaryContentSurfaces();
         UpdateLockButtonLabels(controller.Settings.OverlayLocked);
+        InitializeFeatureControlPanels();
         SourceInitialized += (_, _) =>
         {
             ApplyNativeRoundedCorners();
@@ -605,7 +606,7 @@ public abstract partial class ControlPanelWindow : Window
 
     private void ShowHudProfileDialog(HudProfileDialogMode mode, HudPreset? profile = null)
     {
-        if (IsSupportReminderOpen) return;
+        if (IsSupportReminderOpen || !_controller.FeatureAllowed("hud-profiles")) return;
         _hudProfileDialogMode = mode;
         _hudProfileChangePending = false;
         _pendingHudProfileName = null;
@@ -614,6 +615,8 @@ public abstract partial class ControlPanelWindow : Window
         _focusBeforeHudProfileDialog = Keyboard.FocusedElement;
         HudProfileDialogError.Text = string.Empty;
         HudProfileDialogError.Visibility = Visibility.Collapsed;
+        _profileDialogFeaturePaused = false;
+        ConfirmHudProfileButton.IsEnabled = true;
         HudProfileNameInput.Text = mode == HudProfileDialogMode.Rename ? profile?.Name ?? string.Empty : string.Empty;
         HudProfileNamePanel.Visibility = mode is HudProfileDialogMode.Create or HudProfileDialogMode.Rename
             ? Visibility.Visible
@@ -684,6 +687,11 @@ public abstract partial class ControlPanelWindow : Window
 
     protected void ConfirmHudProfileDialog_Click(object sender, RoutedEventArgs e)
     {
+        if (!_hudProfileChangePending && !_controller.FeatureAllowed("hud-profiles"))
+        {
+            RefreshProfileDialogFeatureControl();
+            return;
+        }
         HudPreset? savedProfile = null;
         string error = string.Empty;
         var succeeded = _hudProfileChangePending || (_hudProfileDialogMode switch

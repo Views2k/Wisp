@@ -10,6 +10,91 @@ namespace Wisp.App.Tests;
 public sealed class ClipsViewModelTests
 {
     [Fact]
+    public void PausingPlaybackClosesSelectionWithoutStoppingRecordingOrDeletingClips() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync(); await model.SaveClipAsync();
+        var card = Assert.Single(model.Clips);
+        var path = await model.SelectForPlaybackAsync(card);
+        Assert.NotNull(path);
+        var original = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
+        var toggles = recorder.ToggleCalls;
+        var cleared = false;
+        model.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(model.HasSelection) && !model.HasSelection) cleared = true; };
+        model.SetLibraryFeatureAvailability(false, true, true, "Playback paused for a repair.");
+        Assert.True(cleared); Assert.False(model.HasSelection);
+        Assert.True(model.ClippingEnabled);
+        Assert.Equal(toggles, recorder.ToggleCalls);
+        Assert.Null(await model.SelectForPlaybackAsync(card));
+        Assert.True(model.CanManageClips);
+        Assert.Equal("Playback paused for a repair.", model.FeatureStatus);
+        model.SetLibraryFeatureAvailability(true, true, true, null);
+        Assert.False(model.HasSelection);
+        Assert.False(model.HasFeatureStatus);
+        Assert.Equal(path, await model.SelectForPlaybackAsync(card));
+        Assert.Equal(original, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
+    });
+
+    [Fact]
+    public void PausingExportCancelsCompatibleCopyAndPreservesPlaybackAndOriginal() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var library = new ClipLibrary(fixture.Directory);
+        var target = await library.ReserveSaveAsync(new(60, 1080, 60, 75, LosslessVideo: true), TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(target.MediaPath, FakeRecorder.Bytes, TestContext.Current.CancellationToken);
+        await library.CommitFinalizedAsync(target.Id, FakeRecorder.Media with { LosslessVideo = true }, TestContext.Current.CancellationToken);
+        var exporter = new ControlledCompatibleExporter();
+        using var model = new ClipsViewModel(new(), new FakeRecorder(), Dispatcher.CurrentDispatcher,
+            libraryDirectory: fixture.Directory, compatibleExporter: exporter);
+        await model.InitializeAsync();
+        var card = Assert.Single(model.Clips);
+        await model.SelectForPlaybackAsync(card);
+        var destination = Path.Combine(fixture.Directory, "paused-export.mp4");
+        var export = model.ExportSelectedAsync(destination, ClipExportFormat.Compatible);
+        await exporter.Entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        model.SetLibraryFeatureAvailability(true, false, true, "Export paused for a repair.");
+        await export;
+        Assert.Same(card, model.SelectedClip);
+        Assert.False(model.IsExporting); Assert.False(model.CanExport);
+        Assert.False(File.Exists(destination));
+        Assert.True(File.Exists(target.MediaPath));
+        Assert.False(model.HasExportFailureDetails);
+        await model.ExportSelectedAsync(destination);
+        Assert.False(File.Exists(destination));
+        model.SetLibraryFeatureAvailability(true, true, true, null);
+        Assert.True(model.CanExport);
+        await model.ExportSelectedAsync(destination);
+        Assert.True(File.Exists(destination));
+    });
+
+    [Fact]
+    public void PausedLibraryBlocksDeletionAndRestoresTheExistingGallery() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var recorder = new FakeRecorder();
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        using var model = fixture.Model(recorder);
+        await model.InitializeAsync(); await model.SaveClipAsync();
+        var card = Assert.Single(model.Clips);
+        model.BeginDelete(card);
+        model.SetLibraryFeatureAvailability(true, true, false, "Library paused for a repair.");
+        Assert.False(model.ConfirmDeleteCommand.CanExecute(null));
+        Assert.False(model.CanManageClips); Assert.False(model.CanBrowse);
+        Assert.False(model.RefreshCommand.CanExecute(null));
+        await model.ConfirmDeleteAsync(); await model.LoadPageAsync(0);
+        Assert.Same(card, Assert.Single(model.Clips));
+        Assert.True(model.ClippingEnabled);
+        model.CancelManagement();
+        model.SetLibraryFeatureAvailability(true, true, true, null);
+        Assert.True(model.CanBrowse);
+        await model.LoadPageAsync(0);
+        Assert.Equal(card.Id, Assert.Single(model.Clips).Id);
+    });
+
+    [Fact]
     public void GalleryActivationReconcilesDeletedClipsOnlyWhenInitializedAndVisible() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();

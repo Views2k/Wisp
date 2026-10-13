@@ -13,6 +13,22 @@ public sealed record RunTunePreparation(RunTuneAttachment? Attachment, string? E
 
 public sealed partial class RunsViewModel
 {
+    private bool _tuneLibraryAvailable = true;
+    internal void SetTuneFeatureAvailability(bool read, bool library, string message)
+    {
+        _tuneLibraryAvailable = library;
+        if (!read || !library && _attachTuneChoice.SavedTuneId is not null)
+        {
+            CancelTunePreparation(message);
+            if (_attachTuneChoice != RunTuneChoice.None) CancelCountdown(message);
+        }
+        RaiseCommands();
+    }
+    internal void PauseRecordingForFeatureControl(string message)
+    {
+        CancelTunePreparation(message);
+        CancelCountdown(message);
+    }
     private RunTuneChoice _attachTuneChoice = RunTuneChoice.None;
     private CancellationTokenSource? _tunePreparation;
     private long _tunePreparationRevision, _tuneChoicesRevision;
@@ -41,7 +57,7 @@ public sealed partial class RunsViewModel
         _recordWithoutTuneOnce = true;
         await ToggleRecordingAsync();
         if (!IsCountingDown) _recordWithoutTuneOnce = false;
-    }, () => CanRecordWithoutTune);
+    }, () => CanRecordWithoutTune, libraryAction: false);
     public string AttachedTuneName => _runA?.TuneAttachment?.Name ?? "";
     public string AttachedTuneDetail => _runA?.TuneAttachment is { } attachment
         ? $"{TunePresentation.Car(attachment.Snapshot)} · " +
@@ -53,12 +69,12 @@ public sealed partial class RunsViewModel
     {
         if (_runA?.TuneAttachment is { } attachment) AttachedTuneRequested?.Invoke(attachment);
         return Task.CompletedTask;
-    }, () => HasAttachedTune && !RecordingActive);
+    }, () => _tuneLibraryAvailable && HasAttachedTune && !RecordingActive);
     public ICommand CompareAttachedTuneCommand => _compareAttachedTuneCommand ??= Command(() =>
     {
         if (_runA?.TuneAttachment is { } attachment) AttachedTuneComparisonRequested?.Invoke(attachment, _runB?.TuneAttachment);
         return Task.CompletedTask;
-    }, () => HasAttachedTune && !RecordingActive);
+    }, () => _tuneLibraryAvailable && HasAttachedTune && !RecordingActive);
 
     private async Task RefreshTuneChoicesAsync()
     {

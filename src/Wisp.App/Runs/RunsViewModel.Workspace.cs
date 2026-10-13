@@ -19,7 +19,7 @@ public sealed partial class RunsViewModel
     public RunWorkspaceComparisonOption[] WorkspaceComparisonModes { get; } = RunWorkspaceCatalog.ComparisonModes.ToArray();
     public ICommand SaveWorkspaceCommand { get; private set; } = null!;
     public ICommand ResetWorkspaceCommand { get; private set; } = null!;
-    public bool WorkspaceCanEdit => !_disposed && !RecordingActive && !IsBusy;
+    public bool WorkspaceCanEdit => LibraryFeatureAvailable && !_disposed && !RecordingActive && !IsBusy;
     public bool WorkspaceHasPanels => WorkspacePanels.Count > 0;
     public bool WorkspaceHasRpmPlots => WorkspacePanels.Any(module => module.Id == "power-rpm");
     public bool WorkspaceIsSideBySide => HasComparison && WorkspaceComparisonMode.Id == RunWorkspaceComparisonMode.SideBySide;

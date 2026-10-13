@@ -228,19 +228,19 @@ public sealed partial class AppController : IAsyncDisposable
     public ControlPanelWindow? ControlPanel { get; set; }
     public event EventHandler? StartupOptionsChanged;
     public bool IsAttachedGForceMeterEnabled =>
-        Settings.GForceEnabled && Settings.GForceAttached &&
+        HudFeatureAllowed("g-force-gauge") && Settings.GForceEnabled && Settings.GForceAttached &&
         Settings.LayoutMode == HudLayoutMode.Native;
     public bool IsStandaloneGForceWindowEnabled =>
-        Settings.GForceEnabled && Settings.LayoutMode != HudLayoutMode.Combined &&
+        HudFeatureAllowed("g-force-gauge") && Settings.GForceEnabled && Settings.LayoutMode != HudLayoutMode.Combined &&
         !IsAttachedGForceMeterEnabled;
     public bool IsDetachedBoostGaugeEnabled =>
-        Settings.BoostGaugeEnabled &&
+        HudFeatureAllowed("boost-gauge") && Settings.BoostGaugeEnabled &&
         (Settings.LayoutMode != HudLayoutMode.Native ||
          !Settings.BoostGaugeAttached && Settings.NativeGaugeMode == NativeGaugeMode.Analogue) &&
         !ViewModel.NativeGaugeFrame.IsElectric &&
         ViewModel.BoostDisplay.IsAvailable;
     public bool IsDetachedTireTemperatureGaugeEnabled =>
-        Settings.TireTemperatureGaugeEnabled &&
+        HudFeatureAllowed("tire-temperature-gauge") && Settings.TireTemperatureGaugeEnabled &&
         (Settings.LayoutMode != HudLayoutMode.Native || !Settings.TireTemperatureGaugeAttached) &&
         ViewModel.TireTemperatureDisplay.IsAvailable;
 
@@ -517,7 +517,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public void BeginStartupApplicationUpdateCheck()
     {
-        if (_disposed || Settings.RequiresSetup || !Settings.AutomaticApplicationUpdateChecks)
+        if (_disposed || !FeatureAllowed("updates") || Settings.RequiresSetup || !Settings.AutomaticApplicationUpdateChecks)
         {
             _applicationUpdateTimer.Stop();
             return;
@@ -536,6 +536,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public async Task<ApplicationUpdateDetails?> GetAvailableApplicationUpdateDetailsAsync()
     {
+        if (_disposed || !FeatureAllowed("updates")) return null;
         if (_pendingInstaller is { } pending && File.Exists(pending.StagedPath))
         {
             return _pendingApplicationUpdateDetails is { } details && details.Version == pending.Version.ToString()
@@ -557,11 +558,12 @@ public sealed partial class AppController : IAsyncDisposable
 
     private async Task<UpdateRelease?> CheckApplicationUpdateAvailabilityAsync(bool automatic)
     {
-        if (_disposed || Interlocked.Exchange(ref _applicationUpdateOperation, 1) != 0)
+        if (_disposed || !FeatureAllowed("updates") || Interlocked.Exchange(ref _applicationUpdateOperation, 1) != 0)
         {
             return null;
         }
 
+        using var operationLifetime = CancellationTokenSource.CreateLinkedTokenSource(_applicationUpdateLifetime.Token, ApplicationUpdateFeatureToken);
         using var supplementaryCheck = SupplementaryObservations.Begin("update", "update", "check");
         try
         {
@@ -586,7 +588,8 @@ public sealed partial class AppController : IAsyncDisposable
             var installedVersion = CurrentApplicationVersion();
             var release = await _checkForApplicationUpdate(
                 installedVersion,
-                _applicationUpdateLifetime.Token);
+                operationLifetime.Token);
+            operationLifetime.Token.ThrowIfCancellationRequested();
             supplementaryCheck?.Complete("success");
             if (release is not null) SupplementaryObservations.Record("update", "update", "detected", "prompt");
             _availableApplicationRelease = release;
@@ -608,7 +611,7 @@ public sealed partial class AppController : IAsyncDisposable
             ShowAvailableApplicationUpdate(release);
             return release;
         }
-        catch (OperationCanceledException) when (_applicationUpdateLifetime.IsCancellationRequested)
+        catch (Exception) when (operationLifetime.IsCancellationRequested)
         {
             supplementaryCheck?.Complete("cancelled");
             return null;
@@ -675,6 +678,11 @@ public sealed partial class AppController : IAsyncDisposable
         finally
         {
             Interlocked.Exchange(ref _applicationUpdateOperation, 0);
+            if (operationLifetime.IsCancellationRequested && !_disposed && FeatureAllowed("updates"))
+            {
+                RestoreAutomaticApplicationUpdateStatus();
+                BeginStartupApplicationUpdateCheck();
+            }
         }
     }
 
@@ -722,11 +730,14 @@ public sealed partial class AppController : IAsyncDisposable
     // check meanwhile is presented for its own confirmation instead of being installed.
     public async Task<VerifiedInstaller?> PrepareApplicationUpdateAsync(string? confirmedVersion = null)
     {
-        if (_disposed || Interlocked.Exchange(ref _applicationUpdateOperation, 1) != 0)
+        if (_disposed || !FeatureAllowed("updates") || Interlocked.Exchange(ref _applicationUpdateOperation, 1) != 0)
         {
             return null;
         }
 
+        using var operationLifetime = CancellationTokenSource.CreateLinkedTokenSource(_applicationUpdateLifetime.Token, ApplicationUpdateFeatureToken);
+        var operationToken = operationLifetime.Token;
+        var downloadFinished = false;
         string? createdAttemptDirectory = null;
         SupplementaryOperation? supplementaryDownload = null;
         try
@@ -764,16 +775,19 @@ public sealed partial class AppController : IAsyncDisposable
             createdAttemptDirectory = ApplicationUpdateStaging.CreateAttemptDirectory(release.Version);
             var progress = new Progress<UpdateDownloadProgress>(value =>
             {
+                if (operationToken.IsCancellationRequested || downloadFinished) return;
                 ViewModel.UpdateApplicationUpdateStatus(
                     $"Downloading Wisp {ApplicationVersionInfo.Format(release.Version)} — {Math.Clamp(value.Percentage, 0, 100):0}%",
                     "Downloading…",
                     canCheck: false);
             });
-            _pendingInstaller = await _applicationUpdates.DownloadInstallerAsync(
+            var downloaded = await _applicationUpdates.DownloadInstallerAsync(
                 release,
                 createdAttemptDirectory,
                 progress,
-                _applicationUpdateLifetime.Token);
+                operationLifetime.Token);
+            operationLifetime.Token.ThrowIfCancellationRequested();
+            _pendingInstaller = downloaded;
             supplementaryDownload?.Complete("success");
             _pendingApplicationUpdateDetails = ApplicationUpdateDetailsFrom(release);
             _availableApplicationRelease = null;
@@ -784,7 +798,7 @@ public sealed partial class AppController : IAsyncDisposable
                 isUpdateAvailable: true);
             return _pendingInstaller;
         }
-        catch (OperationCanceledException) when (_applicationUpdateLifetime.IsCancellationRequested)
+        catch (Exception) when (operationLifetime.IsCancellationRequested)
         {
             supplementaryDownload?.Complete("cancelled");
             return null;
@@ -831,12 +845,18 @@ public sealed partial class AppController : IAsyncDisposable
         }
         finally
         {
+            downloadFinished = true;
             supplementaryDownload?.Dispose();
             if (createdAttemptDirectory is not null && _pendingInstaller is null)
             {
                 ApplicationUpdateStaging.TryDeleteAttemptDirectory(createdAttemptDirectory);
             }
             Interlocked.Exchange(ref _applicationUpdateOperation, 0);
+            if (operationLifetime.IsCancellationRequested && !_disposed && FeatureAllowed("updates"))
+            {
+                RestoreAutomaticApplicationUpdateStatus();
+                BeginStartupApplicationUpdateCheck();
+            }
         }
     }
 
@@ -997,7 +1017,7 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.PowerTorqueSmoothingMilliseconds = ViewModel.PowerTorqueSmoothingMilliseconds;
             Settings.PowerTorqueShowNegative = ViewModel.PowerTorqueShowNegative;
             Settings.AccelerationShiftCueEnabled = ViewModel.AccelerationShiftCueEnabled;
-            _nativeHudProcessService.ShiftCueEnabled = Settings.AccelerationShiftCueEnabled || ShiftCaptureActive;
+            _nativeHudProcessService.ShiftCueEnabled = ShiftCueRuntimeEnabled;
             UpdateShiftCueObservation();
             Settings.PowerTorqueDriftMode = ViewModel.PowerTorqueDriftModeEnabled;
             Settings.PowerTorqueDriftFlashFrequencyHz = ViewModel.PowerTorqueDriftFlashFrequencyHz;
@@ -1408,6 +1428,8 @@ public sealed partial class AppController : IAsyncDisposable
 
     public bool TryCreateHudPreset(string? name, out HudPreset? preset, out string error)
     {
+        preset = null;
+        if (!TryUseHudProfiles(out error)) return false;
         using var supplementaryProfile = SupplementaryObservations.Begin("feature", "profiles", "create");
         preset = null;
         if (!HudPreset.TryNormalizeName(name, out var normalizedName, out error))
@@ -1437,6 +1459,8 @@ public sealed partial class AppController : IAsyncDisposable
 
     public bool TryUpdateHudPreset(Guid id, out HudPreset? preset, out string error)
     {
+        preset = null;
+        if (!TryUseHudProfiles(out error)) return false;
         using var supplementaryProfile = SupplementaryObservations.Begin("feature", "profiles", "save");
         var index = Settings.HudPresets.FindIndex(candidate => candidate.Id == id);
         if (index < 0)
@@ -1458,6 +1482,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public bool TryRenameHudPreset(Guid id, string? name, out string error)
     {
+        if (!TryUseHudProfiles(out error)) return false;
         using var supplementaryProfile = SupplementaryObservations.Begin("feature", "profiles", "rename");
         if (!HudPreset.TryNormalizeName(name, out var normalizedName, out error))
         {
@@ -1484,6 +1509,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public bool DeleteHudPreset(Guid id)
     {
+        if (!TryUseHudProfiles(out _)) return false;
         using var supplementaryDelete = SupplementaryObservations.Begin("feature", "profiles", "delete");
         var removed = Settings.HudPresets.RemoveAll(candidate => candidate.Id == id) > 0;
         if (removed)
@@ -1496,6 +1522,12 @@ public sealed partial class AppController : IAsyncDisposable
 
     public bool TryApplyHudPreset(Guid id, out string error)
     {
+        if (!TryUseHudProfiles(out error)) return false;
+        if (!FeatureAllowed("appearance"))
+        {
+            error = FeatureControls.Reason("appearance") ?? "Appearance changes are temporarily paused.";
+            return false;
+        }
         using var supplementaryProfile = SupplementaryObservations.Begin("feature", "profiles", "apply");
         if (Settings.RequiresSetup)
         {
@@ -1598,7 +1630,7 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.BoostGaugeEnabled = Settings.BoostGaugeEnabled;
         ViewModel.InitializePowerTorqueSettings(Settings);
         ViewModel.InitializeShiftCueSettings(Settings);
-        _nativeHudProcessService.ShiftCueEnabled = Settings.AccelerationShiftCueEnabled || ShiftCaptureActive;
+        _nativeHudProcessService.ShiftCueEnabled = ShiftCueRuntimeEnabled;
         UpdateShiftCueObservation();
         ViewModel.RefreshPowerTorquePalette();
         ViewModel.RefreshPowerTorqueDisplayOptions();
@@ -1960,6 +1992,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public bool RelearnCurrentTires()
     {
+        if (!FeatureAllowed("tire-calibration")) return false;
         var carOrdinal = _lastProcessedState?.CarOrdinal ?? 0;
         if (carOrdinal <= 0)
         {
@@ -2142,6 +2175,9 @@ public sealed partial class AppController : IAsyncDisposable
         await clipsDisposed.ConfigureAwait(false);
         _compatibilityLifetime.Dispose();
         _applicationUpdateLifetime.Dispose();
+        _applicationUpdateFeatureLifetime.Dispose();
+        _supportFeatureLifetime.Cancel();
+        _supportFeatureLifetime.Dispose();
     }
 
     private static Version CurrentApplicationVersion()
@@ -2316,7 +2352,7 @@ public sealed partial class AppController : IAsyncDisposable
             if (TachDiagnostics.IsEnabled) TachDiagnostics.RecordUiInput(latest!);
         }
 
-        var refreshDiagnostics = now >= _nextDiagnosticsAtUtc;
+        var refreshDiagnostics = FeatureAllowed("diagnostics") && now >= _nextDiagnosticsAtUtc;
         if (refreshDiagnostics)
         {
             UpdateCompatibilityDiagnostics();
@@ -2451,7 +2487,7 @@ public sealed partial class AppController : IAsyncDisposable
             force: startedDriving || nativeHudTelemetryChanged);
         if (!hasNewPacket)
         {
-            ViewModel.IsTractionCueActive = Settings.TractionCueEnabled && now < _tractionCueUntilUtc;
+            ViewModel.IsTractionCueActive = FeatureAllowed("traction-cue") && Settings.TractionCueEnabled && now < _tractionCueUntilUtc;
             return;
         }
 
@@ -2532,7 +2568,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         RememberNativeHudPublication(nativeHud);
 
-        if (Settings.TractionCueEnabled &&
+        if (FeatureAllowed("traction-cue") && Settings.TractionCueEnabled &&
             calibration.IsTrusted &&
             calibration.TrustedRadii is { } hookRadii)
         {
@@ -2970,8 +3006,8 @@ public sealed partial class AppController : IAsyncDisposable
         BoostGaugeOverlay?.SetEnabled(detachedBoostEnabled);
         TireTemperatureGaugeOverlay?.SetEnabled(detachedTireTemperatureEnabled);
         var driftEnabled = IsDriftGaugeWindowEnabled;
-        var lapEnabled = Settings.LapDeltaEnabled;
-        var mapEnabled = Settings.LapMapEnabled;
+        var lapEnabled = HudFeatureAllowed("lap-delta") && Settings.LapDeltaEnabled;
+        var mapEnabled = HudFeatureAllowed("lap-map") && Settings.LapMapEnabled;
         var overlayForeground =
             !Settings.OverlayLocked &&
             ((Overlay?.OwnsWindowHandle(focus.ForegroundWindow) ?? false) ||
@@ -3017,16 +3053,17 @@ public sealed partial class AppController : IAsyncDisposable
             nativeVisibility.Fresh);
         // This session-only preference can suppress a policy-approved HUD. It
         // deliberately cannot force the policy past game/menu/native safety.
-        overlayVisible = ApplyManualOverlaySuppression(overlayVisible, _manualOverlayHidden);
+        overlayVisible = FeatureAllowed("hud") && ApplyManualOverlaySuppression(overlayVisible, _manualOverlayHidden);
         // Once guarded native gameplay visibility hides (or the owning game window
         // is gone), remove Wisp in the same update. A fade-out can otherwise
         // leave the replacement gauge visible over the first loading frame.
         var hideImmediately = _overlayVisibleRequested && !overlayVisible;
         var wasOverlayVisible = _overlayVisibleRequested;
         _overlayVisibleRequested = overlayVisible;
-        Overlay?.SetTelemetryVisible(overlayVisible, Settings.OverlayOpacity, hideImmediately);
+        var mainVisible = overlayVisible && FeatureAllowed("main-hud");
+        Overlay?.SetTelemetryVisible(mainVisible, Settings.OverlayOpacity, hideImmediately || !mainVisible);
         DriftGaugeOverlay?.SetTelemetryVisible(overlayVisible && driftEnabled, Settings.OverlayOpacity, hideImmediately || !driftEnabled);
-        ObserveSupplementaryPresentationRequested(overlayVisible && telemetryFresh && Overlay is not null,
+        ObserveSupplementaryPresentationRequested(mainVisible && telemetryFresh && Overlay is not null,
             overlayVisible && telemetryFresh && driftEnabled);
         LapDeltaOverlay?.SetTelemetryVisible(overlayVisible && lapEnabled, Settings.OverlayOpacity, hideImmediately || !lapEnabled);
         LapMapOverlay?.SetTelemetryVisible(overlayVisible && mapEnabled, Settings.OverlayOpacity, hideImmediately || !mapEnabled);

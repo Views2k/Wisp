@@ -7,14 +7,16 @@ public sealed partial class RunsViewModel
     public async Task ExportAllAsync(string destination)
     {
         if (!CanManageAllRuns) return;
+        var permission = _libraryFeatureLifetime.Token;
         IsBusy = true; Error = ""; Status = "Exporting saved runs…";
         try
         {
             if (!await RestoreLibraryMetadataDraftsAsync()) return;
             if (!await FlushMetadataAsync()) { Fail("Save the pending run details before exporting the library. Your drafts are kept."); return; }
-            var count = await StoreOperationAsync(() => _service.Store.ExportAllAsync(destination));
+            var count = await StoreOperationAsync(token => _service.Store.ExportAllAsync(destination, token), permission);
             Status = $"Exported {count} saved runs. Import the ZIP in Wisp to restore or compare them.";
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         { Fail("Export failed. Your saved runs are unchanged. Choose a new filename and check available storage."); }
         finally { IsBusy = false; }
@@ -26,7 +28,7 @@ public sealed partial class RunsViewModel
         IsBusy = true; Error = ""; Status = "Checking and importing runs…";
         try
         {
-            var result = await StoreOperationAsync(() => _service.Store.ImportManyAsync(sources));
+            var result = await StoreOperationAsync(token => _service.Store.ImportManyAsync(sources, token));
             ForgetDeletedMetadata(result.Imported.Select(run => run.Id));
             if (LastDeletedId is { } deleted && result.Imported.Any(run => run.Id == deleted))
             {
@@ -44,6 +46,7 @@ public sealed partial class RunsViewModel
         }
         catch (RunLibraryFullException)
         { Fail("There is not enough room in the run library. Export and remove saved runs, or import fewer runs."); }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         { Fail("Import failed. Choose Wisp run files or a Wisp library ZIP. Unsupported, damaged or conflicting runs are not overwritten."); }
         finally { IsBusy = false; }
@@ -52,12 +55,13 @@ public sealed partial class RunsViewModel
     public async Task DeleteAllAsync()
     {
         if (!CanManageAllRuns) return;
+        var permission = _libraryFeatureLifetime.Token;
         IsBusy = true; Error = ""; Status = "Removing saved runs…";
         try
         {
             if (!await RestoreLibraryMetadataDraftsAsync()) return;
             if (!await FlushMetadataAsync()) { Fail("Save the pending run details before removing the library. Your drafts are kept."); return; }
-            var batch = await StoreOperationAsync(() => _service.Store.DeleteAllAsync());
+            var batch = await StoreOperationAsync(token => _service.Store.DeleteAllAsync(token), permission);
             if (batch.Count > 0)
             {
                 _lastDeletedBatch = batch; LastDeletedId = null;
@@ -71,6 +75,7 @@ public sealed partial class RunsViewModel
             Status = $"Removed {batch.Count} saved runs. You can undo this removal.";
             if (batch.SkippedUnreadable > 0) Status += $" Kept {batch.SkippedUnreadable} unreadable files.";
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         { Fail("The runs could not all be removed. Refresh the library to check its state; recovery copies are kept."); }
         finally { IsBusy = false; }

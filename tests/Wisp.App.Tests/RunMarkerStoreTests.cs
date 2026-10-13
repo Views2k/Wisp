@@ -20,12 +20,12 @@ public sealed class RunMarkerStoreTests : IDisposable
         };
         var store = new RunStore(Path.Combine(_directory, "library"));
         await store.SaveAsync(run);
-        Assert.Equal(run.Markers, (await store.LoadAsync(run.Id)).Markers);
+        Assert.Equal(run.Markers, (await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Markers);
         var export = Path.Combine(_directory, "shared.wisprun");
-        await store.ExportAsync(run.Id, export);
-        var imported = await store.ImportAsync(export);
+        await store.ExportAsync(run.Id, export, cancellationToken: TestContext.Current.CancellationToken);
+        var imported = await store.ImportAsync(export, cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotEqual(run.Id, imported.Id);
-        Assert.Equal(run.Markers, (await store.LoadAsync(imported.Id)).Markers);
+        Assert.Equal(run.Markers, (await store.LoadAsync(imported.Id, cancellationToken: TestContext.Current.CancellationToken)).Markers);
     }
 
     [Fact]
@@ -34,8 +34,8 @@ public sealed class RunMarkerStoreTests : IDisposable
         var run = RunTestData.CreateRun();
         var path = await WriteInput(run, omitMarkers: true);
         var store = new RunStore(Path.Combine(_directory, "library"));
-        var imported = await store.ImportAsync(path);
-        Assert.Empty((await store.LoadAsync(imported.Id)).Markers);
+        var imported = await store.ImportAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty((await store.LoadAsync(imported.Id, cancellationToken: TestContext.Current.CancellationToken)).Markers);
     }
 
     [Theory]
@@ -63,9 +63,9 @@ public sealed class RunMarkerStoreTests : IDisposable
         };
         var path = await WriteInput(run with { Markers = markers });
         var store = new RunStore(Path.Combine(_directory, "library"));
-        var error = await Record.ExceptionAsync(() => store.ImportAsync(path));
+        var error = await Record.ExceptionAsync(() => store.ImportAsync(path, cancellationToken: TestContext.Current.CancellationToken));
         Assert.True(error is InvalidDataException or JsonException);
-        Assert.Empty(await store.ListAsync());
+        Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -83,8 +83,8 @@ public sealed class RunMarkerStoreTests : IDisposable
         }
         await File.AppendAllTextAsync(Path.Combine(_directory, $"{run.Id:N}.partial"), "{\"marker\":{", TestContext.Current.CancellationToken);
         var recovery = new RunStore(_directory);
-        Assert.Single(await recovery.ListAsync());
-        var restored = await recovery.LoadAsync(run.Id);
+        Assert.Single(await recovery.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        var restored = await recovery.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(restored.IsIncomplete);
         Assert.Equal(new[] { new RunMarker(0, "Launch"), new RunMarker(.1, "Shift") }, restored.Markers);
         Assert.Equal(run.Samples, restored.Samples);

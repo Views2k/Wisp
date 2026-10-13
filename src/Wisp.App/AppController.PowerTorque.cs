@@ -6,9 +6,9 @@ public sealed partial class AppController
     public PowerTorqueGaugeWindow? TorqueGaugeOverlay { get; private set; }
     private bool PowerTorqueGaugesCanAttach => Settings.LayoutMode == HudLayoutMode.Native &&
         Settings.NativeGaugeMode == NativeGaugeMode.Analogue;
-    public bool IsDetachedPowerGaugeEnabled => Settings.PowerGaugeEnabled &&
+    public bool IsDetachedPowerGaugeEnabled => HudFeatureAllowed("power-gauge") && Settings.PowerGaugeEnabled &&
         (!PowerTorqueGaugesCanAttach || !Settings.PowerGaugeAttached) && ViewModel.PowerTorqueDisplay.Available;
-    public bool IsDetachedTorqueGaugeEnabled => Settings.TorqueGaugeEnabled &&
+    public bool IsDetachedTorqueGaugeEnabled => HudFeatureAllowed("torque-gauge") && Settings.TorqueGaugeEnabled &&
         (!PowerTorqueGaugesCanAttach || !Settings.TorqueGaugeAttached) && ViewModel.PowerTorqueDisplay.Available;
     private bool _powerGaugeDetached;
     private bool _torqueGaugeDetached;

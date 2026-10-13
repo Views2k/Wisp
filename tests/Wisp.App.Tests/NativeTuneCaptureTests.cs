@@ -11,6 +11,35 @@ namespace Wisp.App.Tests;
 public sealed class NativeTuneCaptureTests
 {
     [Fact]
+    public async Task FeaturePauseCancelsAnActiveReadRejectsNewReadsAndPreservesRestore()
+    {
+        var factory = new Factory();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = true;
+        await using var service = new TuneCaptureService(factory, (_, token) =>
+        {
+            if (first)
+            {
+                first = false;
+                entered.SetResult();
+                token.WaitHandle.WaitOne(TimeSpan.FromSeconds(5));
+                token.ThrowIfCancellationRequested();
+            }
+            return Input();
+        });
+        var pending = service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        service.SetFeatureAvailable(false);
+        Assert.Equal(TuneCaptureStatus.Cancelled, (await pending).Status);
+        Assert.Equal(TuneCaptureStatus.Cancelled, (await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Status);
+        Assert.Equal(1, factory.Opens);
+        service.SetFeatureAvailable(true);
+        Assert.NotNull((await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Snapshot);
+        Assert.Equal(2, factory.Opens);
+    }
+
+
+    [Fact]
     public async Task TuneResultsUseTheirOwnAdmissionEvidenceEvenWhenReadFails()
     {
         var factory = new Factory { Verification = NativeGameVerification.Steam };

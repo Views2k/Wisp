@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
@@ -11,6 +12,91 @@ namespace Wisp.App.Tests;
 
 public sealed class ApplicationUpdateCheckPolicyTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EmergencyPauseBlocksStagedUpdatesAndPreservesTheAutomaticPreference(bool automatic)
+    {
+        var settings = CompletedSettings();
+        settings.AutomaticApplicationUpdateChecks = automatic;
+        using var staged = new StagedInstallerFixture();
+        var checks = 0;
+        await using var controller = Controller(settings, (_, _) => { checks++; return Task.FromResult<UpdateRelease?>(null); });
+        staged.Attach(controller);
+        var permission = controller.ApplicationUpdateFeatureToken;
+        Assert.True(controller.CanBeginApplicationUpdate(permission));
+        await PauseUpdatesAsync(controller);
+        controller.BeginStartupApplicationUpdateCheck();
+        FireDailyTimer(controller);
+        Assert.Equal(0, checks);
+        Assert.False(Timer(controller).IsEnabled);
+        Assert.False(controller.ViewModel.CanCheckApplicationUpdate);
+        Assert.False(controller.ViewModel.IsApplicationUpdateAvailable);
+        Assert.Equal("Update maintenance.", controller.ViewModel.ApplicationUpdateStatus);
+        Assert.Null(await controller.GetAvailableApplicationUpdateDetailsAsync());
+        Assert.Null(await controller.PrepareApplicationUpdateAsync("1.2.2"));
+        Assert.True(permission.IsCancellationRequested);
+        Assert.False(controller.CanBeginApplicationUpdate(permission));
+        Assert.Equal(automatic, settings.AutomaticApplicationUpdateChecks);
+        Assert.Equal(new byte[] { 0 }, File.ReadAllBytes(staged.Installer.StagedPath));
+
+        await RestoreUpdatesAsync(controller);
+        Assert.False(controller.CanBeginApplicationUpdate(permission));
+        Assert.True(controller.CanBeginApplicationUpdate(controller.ApplicationUpdateFeatureToken));
+        Assert.Equal(automatic ? 1 : 0, checks);
+        Assert.Equal(automatic, Timer(controller).IsEnabled);
+        Assert.Equal(automatic, settings.AutomaticApplicationUpdateChecks);
+        Assert.Same(staged.Installer, await controller.PrepareApplicationUpdateAsync("1.2.2"));
+        Assert.False(controller.SetupTelemetry.IsRunning);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PausedCheckCancelsItsRequestAndCannotAcceptALateResponse(bool failure)
+    {
+        var response = new TaskCompletionSource<UpdateRelease?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationToken requestToken = default;
+        var settings = CompletedSettings();
+        settings.AutomaticApplicationUpdateChecks = false;
+        await using var controller = Controller(settings, (_, token) => { requestToken = token; return response.Task; });
+        var check = controller.GetAvailableApplicationUpdateDetailsAsync();
+        await PauseUpdatesAsync(controller);
+        Assert.True(requestToken.IsCancellationRequested);
+        if (failure) response.SetException(new HttpRequestException());
+        else response.SetResult(Release());
+        Assert.Null(await check);
+        Assert.False(CheckActive(controller));
+        Assert.Equal("Update maintenance.", controller.ViewModel.ApplicationUpdateStatus);
+        await RestoreUpdatesAsync(controller);
+        Assert.False(controller.ViewModel.IsApplicationUpdateAvailable);
+        Assert.True(controller.ViewModel.CanCheckApplicationUpdate);
+        Assert.False(Timer(controller).IsEnabled);
+    }
+
+    [Fact]
+    public async Task RestoringDuringAnOldCheckRunsOneFreshCheckAfterTheOldResponseIsDiscarded()
+    {
+        var response = new TaskCompletionSource<UpdateRelease?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var checks = 0;
+        await using var controller = Controller(CompletedSettings(), (_, _) => ++checks == 1
+            ? response.Task : Task.FromResult<UpdateRelease?>(null));
+        controller.BeginStartupApplicationUpdateCheck();
+        await PauseUpdatesAsync(controller);
+        await RestoreUpdatesAsync(controller);
+        Assert.Equal(1, checks);
+        response.SetResult(Release());
+        await WaitForCheckAsync(controller);
+        Assert.Equal(2, checks);
+        Assert.False(controller.ViewModel.IsApplicationUpdateAvailable);
+        Assert.True(Timer(controller).IsEnabled);
+    }
+
+    private static Task PauseUpdatesAsync(AppController controller) => controller.ApplyFeatureControlsAsync(
+        new(1, ImmutableDictionary<string, string>.Empty.Add("updates", "Update maintenance.")));
+    private static Task RestoreUpdatesAsync(AppController controller) => controller.ApplyFeatureControlsAsync(
+        new(2, ImmutableDictionary<string, string>.Empty));
+
     [Theory]
     [InlineData(-1)]
     [InlineData(0)]
@@ -269,7 +355,10 @@ public sealed class ApplicationUpdateCheckPolicyTests
             FireDailyTimer(controller);
             window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
             Assert.Equal(Visibility.Visible, banner.Visibility);
-            var action = Assert.Single(Assert.IsType<Grid>(banner.Child).Children.OfType<Button>());
+            var action = Assert.Single(Assert.IsType<Grid>(banner.Child).Children.OfType<Button>(),
+                button => button.Visibility == Visibility.Visible);
+            Assert.Same(window.FindName("DashboardUpdateAction"), action);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("DashboardBannerClose")).Visibility);
             Assert.Equal("Update", action.Content);
             Assert.True(action.IsEnabled);
             using var staged = new StagedInstallerFixture();

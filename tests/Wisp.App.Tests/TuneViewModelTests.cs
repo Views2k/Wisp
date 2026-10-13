@@ -10,6 +10,93 @@ namespace Wisp.App.Tests;
 public sealed class TuneViewModelTests
 {
     [Fact]
+    public void PausingReadKeepsSavedTuneActionsAndCancelsPendingCapture() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var snapshot = Snapshot();
+        await fixture.Store.SaveAsync(snapshot, "Saved setup", "");
+        var pending = new TaskCompletionSource<TuneCaptureResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationToken captureToken = default;
+        var calls = 0;
+        using var model = new TuneViewModel(fixture.Store, token => { calls++; captureToken = token; return pending.Task; }, _ => true, Dispatcher.CurrentDispatcher);
+        await model.InitializeAsync();
+        var capture = model.RefreshAsync();
+        model.SetFeatureAvailability(false, true, "Tune reading paused for a repair.");
+        Assert.True(captureToken.IsCancellationRequested);
+        Assert.False(model.RefreshCommand.CanExecute(null));
+        Assert.True(model.CanBrowse);
+        Assert.Equal("Tune reading paused for a repair.", model.Status);
+        pending.SetResult(new(snapshot, TuneCaptureStatus.Ready, "Ready"));
+        await capture;
+        Assert.False(model.HasSnapshot);
+        await model.RefreshAsync();
+        Assert.Equal(1, calls);
+        model.SetWorkspace(TuneWorkspace.Saved);
+        model.SelectedTune = Assert.Single(model.Library);
+        Assert.True(model.LoadCommand.CanExecute(null));
+        await model.LoadSelectedAsync();
+        Assert.True(model.HasSnapshot);
+        model.BeginEdit(); model.DialogName = "Retained setup";
+        await model.ConfirmDialogAsync();
+        Assert.Equal("Retained setup", Assert.Single(await fixture.Store.ListAsync()).Name);
+    });
+
+    [Fact]
+    public void PauseDuringSaveValidationKeepsTextAndCannotWriteEvenAfterRestore() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var snapshot = Snapshot();
+        var pending = new TaskCompletionSource<TuneCaptureResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        using var model = new TuneViewModel(fixture.Store,
+            _ => ++calls == 2 ? pending.Task : Task.FromResult(new TuneCaptureResult(snapshot, TuneCaptureStatus.Ready, "Ready")),
+            _ => true, Dispatcher.CurrentDispatcher);
+        await model.InitializeAsync(); await model.RefreshAsync(); model.BeginSave();
+        model.DialogName = "Keep this name"; model.DialogDescription = "Keep this description";
+        var save = model.ConfirmDialogAsync();
+        model.SetFeatureAvailability(true, false, libraryReason: "Library paused for a repair.");
+        Assert.False(model.ConfirmDialogCommand.CanExecute(null));
+        Assert.Equal("Library paused for a repair.", model.DialogError);
+        model.SetFeatureAvailability(true, true);
+        pending.SetResult(new(snapshot, TuneCaptureStatus.Ready, "Ready"));
+        await save;
+        Assert.Empty(await fixture.Store.ListAsync());
+        Assert.True(model.IsDialogOpen);
+        Assert.Equal("Keep this name", model.DialogName);
+        Assert.Equal("Keep this description", model.DialogDescription);
+        Assert.True(model.ConfirmDialogCommand.CanExecute(null));
+        await model.ConfirmDialogAsync();
+        Assert.Equal("Keep this name", Assert.Single(await fixture.Store.ListAsync()).Name);
+    });
+
+    [Fact]
+    public void PausedLibraryBlocksDirectActionsAndRestoresSelectionWithoutDeletingData() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var snapshot = Snapshot();
+        await fixture.Store.SaveAsync(snapshot, "Preserved", "Details");
+        using var model = fixture.Model(() => snapshot);
+        await model.InitializeAsync(); model.SetWorkspace(TuneWorkspace.Saved);
+        model.SelectedTune = Assert.Single(model.Library); model.BeginDelete();
+        model.SetFeatureAvailability(true, false, libraryReason: "Saved tunes paused.");
+        await model.ConfirmDialogAsync();
+        Assert.True(model.IsDialogOpen);
+        Assert.Single(await fixture.Store.ListAsync());
+        Assert.True(model.CancelDialogCommand.CanExecute(null));
+        model.CancelDialog();
+        model.BeginDelete(); model.BeginEdit(); await model.LoadSelectedAsync();
+        model.OpenSnapshot(snapshot, "Blocked", "");
+        Assert.False(model.IsDialogOpen); Assert.False(model.HasSnapshot);
+        Assert.False(model.CanUseLibrary);
+        Assert.Equal("Saved tunes paused.", model.Status);
+        model.SetFeatureAvailability(true, true);
+        Assert.True(model.LoadCommand.CanExecute(null));
+        await model.LoadSelectedAsync();
+        Assert.Equal("Preserved", model.Heading);
+        Assert.True(model.HasSnapshot);
+    });
+
+    [Fact]
     public void VerifiedCarNameAppearsAndLongNamesKeepAValidSaveDefault() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();

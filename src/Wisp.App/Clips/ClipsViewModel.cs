@@ -90,7 +90,32 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private ClipLibrary? _library;
     private ClipRecorderSnapshot _snapshot;
     private ClipCardItem? _selected;
-    private bool _busy, _disposed, _qualityPending, _runtimeActive = true;
+    private bool _busy, _disposed, _qualityPending, _runtimeActive = true, _featureAvailable = true;
+    private bool _playbackAvailable = true, _exportAvailable = true, _libraryAvailable = true;
+    private string _featureStatus = "";
+    public string FeatureStatus => _featureStatus;
+    public bool HasFeatureStatus => _featureStatus.Length > 0;
+    internal bool IsRuntimeActive => _runtimeActive;
+    internal void SetFeatureAvailable(bool available)
+    {
+        _featureAvailable = available;
+        if (!available) CancelQueuedSaves("Queued saves cancelled because clipping is paused.");
+        NotifyState();
+    }
+    internal void SetLibraryFeatureAvailability(bool playback, bool export, bool library, string? reason)
+    {
+        _playbackAvailable = playback; _exportAvailable = export; _libraryAvailable = library;
+        _featureStatus = playback && export && library ? "" : reason ?? "Clip actions are temporarily paused.";
+        if (!library)
+        {
+            _searchTimer?.Stop();
+            CancelThumbnails();
+        }
+        if (!playback || !library) ClearSelection();
+        if (!export || !library) CancelExport();
+        NotifyState();
+        OnChanged(nameof(FeatureStatus)); OnChanged(nameof(HasFeatureStatus));
+    }
     private bool _saveActive, _drainingSaves;
     private readonly Queue<bool> _saveShortcuts = new();
     private int QueuedSaveCount => _saveShortcuts.Count;
@@ -132,11 +157,11 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         _libraryDirectory = libraryDirectory ?? ClipsSettings.DefaultLibraryDirectory;
         if (_libraryDirectory.Length > 0) _library = new ClipLibrary(_libraryDirectory, compatibleExporter);
         SaveClipCommand = Command(SaveClipAsync, () => CanRequestSave);
-        PreviousPageCommand = Command(() => LoadPageAsync(_pageIndex - 1), () => !IsBusy && _pageIndex > 0);
-        NextPageCommand = Command(() => LoadPageAsync(_pageIndex + 1), () => !IsBusy && _pageIndex + 1 < _pageCount);
-        RefreshCommand = Command(() => LoadPageAsync(_pageIndex), () => !IsBusy && _library is not null);
+        PreviousPageCommand = Command(() => LoadPageAsync(_pageIndex - 1), () => CanBrowse && _pageIndex > 0);
+        NextPageCommand = Command(() => LoadPageAsync(_pageIndex + 1), () => CanBrowse && _pageIndex + 1 < _pageCount);
+        RefreshCommand = Command(() => LoadPageAsync(_pageIndex), () => CanBrowse && _library is not null);
         RecoverPendingCommand = Command(RecoverPendingAsync, () => CanRecoverPending);
-        DismissPendingCommand = Command(DismissPendingAsync, () => !IsBusy && _pendingNotices > 0);
+        DismissPendingCommand = Command(DismissPendingAsync, () => _libraryAvailable && !IsBusy && _pendingNotices > 0);
         DismissDashboardNoticeCommand = Command(DismissDashboardNoticeAsync, () => !_disposed && HasDashboardNotice && (!PendingDashboardNotice || !IsBusy));
         DisableDashboardNoticesCommand = Command(() => { RemindersEnabled = false; return Task.CompletedTask; }, () => !_disposed && CanDisableDashboardNotice);
         ClearSearchCommand = Command(() => { SearchText = ""; return ApplySearchAsync(); }, () => !_disposed && _search.Length > 0);
@@ -171,12 +196,12 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public bool IsBusy => _busy;
     public bool CanEditSettings => !_disposed && !IsBusy && !_snapshot.Enabled;
     public bool CanEditCompressionQuality => CanEditSettings && !LosslessVideo;
-    public bool CanToggle => !_disposed && _runtimeActive && !IsBusy && (_snapshot.Enabled || (_snapshot.CanEnable && _library is not null));
+    public bool CanToggle => !_disposed && _runtimeActive && _featureAvailable && !IsBusy && (_snapshot.Enabled || (_snapshot.CanEnable && _library is not null));
     public bool ClippingEnabled => _snapshot.Enabled;
     public bool IsRecording => _snapshot.State == ClipRecorderState.Buffering;
-    public bool CanBrowse => !_disposed && !IsBusy;
-    public bool CanSave => !_disposed && _runtimeActive && !IsBusy && _library is not null && _snapshot.CanSave;
-    public bool CanRequestSave => !_disposed && _runtimeActive && _library is not null && _snapshot.Enabled &&
+    public bool CanBrowse => _libraryAvailable && !_disposed && !IsBusy;
+    public bool CanSave => !_disposed && _runtimeActive && _featureAvailable && !IsBusy && _library is not null && _snapshot.CanSave;
+    public bool CanRequestSave => !_disposed && _runtimeActive && _featureAvailable && _library is not null && _snapshot.Enabled &&
         (!IsBusy || _saveActive) && QueuedSaveCount + (_saveActive ? 1 : 0) < 2 &&
         (_snapshot.State is ClipRecorderState.Preparing or ClipRecorderState.Buffering or ClipRecorderState.Saving ||
          _snapshot.State == ClipRecorderState.Paused && _snapshot.CanSave);
@@ -222,7 +247,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public bool HasSearchText => _search.Length > 0;
     private string ActiveSearch => _search.Trim();
     private bool HasActiveSearch => ActiveSearch.Length > 0;
-    public bool CanManageClips => !_disposed && !IsBusy && !IsExporting && _library is not null;
+    public bool CanManageClips => _libraryAvailable && !_disposed && !IsBusy && !IsExporting && _library is not null;
     public bool HasManagement => _renaming || _confirmingDelete;
     public bool IsRenaming => _renaming;
     public bool IsConfirmingDelete => _confirmingDelete;
@@ -250,7 +275,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         : "The HDR recording (HEVC 10-bit), for HDR screens and HDR editing. Many apps can't play it or show it washed out.";
     public string PendingText => _pending == 0 ? "" : $"{_pending} unfinished save(s) retained in Wisp's private clip storage. Your completed clips are kept.";
     public bool HasPendingSaves => _pending > 0;
-    public bool CanRecoverPending => !_disposed && !IsBusy && !_snapshot.Enabled && _library is not null && HasPendingSaves;
+    public bool CanRecoverPending => _libraryAvailable && !_disposed && !IsBusy && !_snapshot.Enabled && _library is not null && HasPendingSaves;
     public string PendingRecoveryHint => _snapshot.Enabled ? "Turn clipping off before recovering unfinished saves. Dismissing this notice keeps the files."
         : "Recover finished video or clear empty saves. Dismissing this notice keeps the files.";
     public bool CanOpenClipFolder => !_disposed && !IsBusy && StorageDirectory.Length > 0;
@@ -258,7 +283,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     // Hidden once the library has clips; the empty-state text covers the first save.
     public bool ShowsManagementHint => _total > 0 && !HasManagement;
     public bool HasSelection => _selected is not null;
-    public bool CanExport => HasSelection && !IsBusy && !_previewExportSucceeded && !_preparingPlaybackCopy;
+    public bool CanExport => _libraryAvailable && _exportAvailable && HasSelection && !IsBusy && !_previewExportSucceeded && !_preparingPlaybackCopy;
     public bool SelectedIsLossless => _selected?.Entry.Media.LosslessVideo == true;
     public bool HasPlaybackFormatNote => _selected?.Entry.Media.RequiresMpvPlayer == true;
     public string LosslessPlaybackNote => _selected?.Entry.Media.HdrVideo == true
@@ -366,7 +391,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         return Task.CompletedTask;
     }
 
-    public Task InitializeAsync() => _initialization ??= Operation(async () =>
+    public Task InitializeAsync() => !_libraryAvailable ? Task.CompletedTask : _initialization ??= Operation(async () =>
     {
         if (_library is null) return;
         if (_settings.LegacyLibraryDirectory.Length > 0 && !string.Equals(_settings.LegacyLibraryDirectory, _libraryDirectory, StringComparison.OrdinalIgnoreCase))
@@ -383,12 +408,12 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
                     imported += result.Imported;
                     if (result.Remaining > 0 && result.Imported == 0)
                         throw new IOException("The existing clip import made no progress.");
-                } while (result.Remaining > 0);
-                importObservation?.Complete("success");
+                } while (result.Remaining > 0 && _libraryAvailable);
+                importObservation?.Complete(result.Remaining == 0 ? "success" : "cancelled");
                 NoticeText(imported > 0 ? $"{imported} existing clip(s) added to Wisp. Original files are kept." : "");
                 if (result.PendingLegacySaves > 0)
                     LibraryWarningText("The previous clip folder contains unfinished saves. Those files have been kept.");
-                else
+                else if (result.Remaining == 0)
                 {
                     _settings.LegacyLibraryDirectory = "";
                     PreferencesChanged?.Invoke(this, EventArgs.Empty);
@@ -422,9 +447,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         { ErrorText(ClipsSettings.RecordingPathTooLongMessage); return; }
         if (next && await IsNetworkStorageAsync())
         { ErrorText("Clip recording needs a local folder. Network drives are not supported."); return; }
-        if (_disposed || !_runtimeActive) return;
+        if (_disposed || !_runtimeActive || !_featureAvailable) return;
         await _recorder.SetEnabledAsync(next, Recording(), _token);
         RefreshRecorder();
+        if (!_featureAvailable) return;
         if (_snapshot.Enabled != next) { ErrorText("Clipping did not change state. Check the recorder status."); return; }
         SupplementaryObservations.Record("feature", "clips", "success", "chosen");
         if (!next) PersistEnabled(false);
@@ -448,9 +474,9 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     }
     internal async Task RestoreEnabledPreferenceAsync()
     {
-        if (!_settings.Enabled || _snapshot.Enabled) return;
+        if (!_settings.Enabled || _snapshot.Enabled || !_featureAvailable) return;
         await ToggleAsync();
-        if (!_snapshot.Enabled) PersistEnabled(false);
+        if (!_snapshot.Enabled && _featureAvailable) PersistEnabled(false);
     }
 
     private void PersistEnabled(bool enabled)
@@ -589,10 +615,11 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public Task LoadPageAsync(int pageIndex) => Operation(() => ReadPageAsync(Math.Max(0, pageIndex)),
-        "The clip library could not be read. Its files have been kept.", !IsBusy && !_disposed, observationStage: "load");
+        "The clip library could not be read. Its files have been kept.", _libraryAvailable && !IsBusy && !_disposed, observationStage: "load");
 
     private void ScheduleSearch()
     {
+        if (!_libraryAvailable) return;
         if (_searchTimer is null)
         {
             _searchTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher) { Interval = SearchDelay };
@@ -612,7 +639,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     {
         _searchTimer?.Stop();
         return Operation(() => ReadPageAsync(0, keepSelection: true), "The clip library could not be searched. Its files have been kept.",
-            !_disposed && _library is not null && !IsBusy, observationStage: "load");
+            _libraryAvailable && !_disposed && _library is not null && !IsBusy, observationStage: "load");
     }
 
     private bool CanManage(ClipCardItem item) => Clips.Contains(item) || ReferenceEquals(item, _selected);
@@ -736,7 +763,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
 
     internal Task RefreshGalleryOnActivationAsync() => Operation(() => ReadPageAsync(_pageIndex),
         "The clip library could not be read. Its files have been kept.",
-        _initialization is { IsCompletedSuccessfully: true } && _galleryActive && !HasSelection && !IsBusy && _library is not null, observationStage: "load");
+        _libraryAvailable && _initialization is { IsCompletedSuccessfully: true } && _galleryActive && !HasSelection && !IsBusy && _library is not null, observationStage: "load");
 
     public Task RecoverPendingAsync() => Operation(async () =>
     {
@@ -751,7 +778,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         await _library!.DismissPendingNoticesAsync(_token);
         await ReadPageAsync(_pageIndex);
         NoticeText("Unfinished-save notice dismissed. The files are kept and recovery is still available.");
-    }, "The notice could not be dismissed. Existing files are kept.", !_disposed && !IsBusy && _library is not null && _pendingNotices > 0);
+    }, "The notice could not be dismissed. Existing files are kept.", _libraryAvailable && !_disposed && !IsBusy && _library is not null && _pendingNotices > 0);
 
     public Task SetStorageDirectoryAsync(string directory) => Operation(async () =>
     {
@@ -790,13 +817,13 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
 
     public async Task<string?> SelectForPlaybackAsync(ClipCardItem item)
     {
-        if (IsBusy || _disposed || _library is null || !Clips.Contains(item)) return null;
+        if (!_playbackAvailable || !_libraryAvailable || IsBusy || _disposed || _library is null || !Clips.Contains(item)) return null;
         var revision = ++_selectionRevision;
         string? path = null;
         await Operation(async () =>
         {
             var candidate = await _library.GetMediaPathAsync(item.Id, _token);
-            if (revision != _selectionRevision || _disposed) return;
+            if (!_playbackAvailable || !_libraryAvailable || revision != _selectionRevision || _disposed) return;
             _selected?.Select(false); _selected = item; item.Select(true);
             CancelExportChoice();
             SetPreparingPlaybackCopy(false);
@@ -809,7 +836,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
 
     public async Task PlaybackOpenedAsync(Guid id)
     {
-        if (_disposed || _library is null || _selected?.Id != id) return;
+        if (!_playbackAvailable || !_libraryAvailable || _disposed || _library is null || _selected?.Id != id) return;
         var library = _library;
         try
         {
@@ -945,9 +972,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     // Searching and managing clips keep the open clip playing, even if it is no longer listed.
     private async Task ReadPageAsync(int pageIndex, bool keepSelection = false)
     {
+        if (!_libraryAvailable) return;
         if (_library is null) { Clips.Clear(); NotifyState(); return; }
         var page = await _library.GetPageAsync(pageIndex, ActiveSearch, _token);
-        if (_disposed) return;
+        if (_disposed || !_libraryAvailable) return;
         if (!keepSelection) ClearSelection();
         ApplyPage(page);
         StartThumbnails();
@@ -983,7 +1011,7 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void StartThumbnails()
     {
         CancelThumbnails();
-        if (_disposed || !_galleryActive || _thumbnails is null || _library is null || Clips.Count == 0) return;
+        if (_disposed || !_libraryAvailable || !_galleryActive || _thumbnails is null || _library is null || Clips.Count == 0) return;
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_token);
         _thumbnailWork = cancellation;
         ThumbnailCompletion = LoadThumbnailsAsync(_library, Clips.ToArray(), _thumbnailRevision, cancellation);
@@ -1106,9 +1134,9 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void RefreshRecorder()
     {
         _snapshot = _recorder.Snapshot;
-        if (_snapshot.Enabled && _snapshot.State is ClipRecorderState.Buffering or ClipRecorderState.Saving)
+        if (_featureAvailable && _snapshot.Enabled && _snapshot.State is ClipRecorderState.Buffering or ClipRecorderState.Saving)
             PersistEnabled(true);
-        else if (!_snapshot.Enabled && _snapshot.State is ClipRecorderState.Error or ClipRecorderState.Unavailable)
+        else if (_featureAvailable && !_snapshot.Enabled && _snapshot.State is ClipRecorderState.Error or ClipRecorderState.Unavailable)
             PersistEnabled(false);
         if (_snapshot.State is ClipRecorderState.Disabled or ClipRecorderState.Error or ClipRecorderState.Unavailable or
             ClipRecorderState.WaitingForGame or ClipRecorderState.Reconnecting or ClipRecorderState.Stopping ||

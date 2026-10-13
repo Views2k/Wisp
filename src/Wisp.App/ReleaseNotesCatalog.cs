@@ -15,11 +15,25 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.8",
+            "October 12, 2026",
+            "FEATURE CONTROLS",
+            "Dismiss optional announcements and receive temporary feature availability updates.",
+            true,
+            [
+                Group("Dashboard announcements",
+                    "Dismissible dashboard announcements have a close button. Your choice is remembered when Wisp restarts.",
+                    "New or changed announcements appear again."),
+                Group("Feature availability",
+                    "Temporary feature pauses preserve your settings and show a reason beside affected controls.",
+                    "Features become available again when the pause ends.")
+            ]),
+        new(
             "2.6.7",
             "October 11, 2026",
             "DIAGNOSTICS",
             "Improved failure reports and recent session evidence help investigate problems more accurately.",
-            true,
+            false,
             [
                 Group("Diagnostics",
                     "Improved diagnostic details for Clips, Tune, saved data, settings, updates and the HUD.",

@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.8 - 2026-10-12
+
+- Dismissible dashboard announcements have a close button. Your choice is remembered when Wisp restarts.
+- New or changed announcements appear again.
+- Temporary feature pauses preserve your settings and show a reason beside affected controls.
+- Features become available again when the pause ends.
+
 ## 2.6.7 - 2026-10-11
 
 - Improved diagnostic details for Clips, Tune, saved data, settings, updates and the HUD.

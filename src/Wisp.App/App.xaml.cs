@@ -87,6 +87,7 @@ public partial class App : Application
         var settingsService = new SettingsService();
         var settings = settingsService.Load();
         _controller = new AppController(settings, settingsService);
+        await StartFeatureControlsAsync();
         StartSupplementaryReporting();
         RecordSupplementarySignal("settings", "settings", settingsService.LoadOutcome, "load",
             incident: settingsService.LoadFailure is { } loadFailure ? Supplementary.SupplementaryIncidentSchema.Create(
@@ -272,6 +273,7 @@ public partial class App : Application
         _exiting = true;
         if (Volatile.Read(ref _fatalExit) == 0) _runExitMarker?.MarkShutdownStarted(ShutdownIntent.Requested);
         StopSupplementaryReporting();
+        _featureControlClient?.Dispose();
         _previousRunCancellation?.Cancel();
         var shutdownCompleted = false;
         _forzaStartupTimer?.Stop();
@@ -587,6 +589,9 @@ public partial class App : Application
             return (false, "Wisp is already closing or preparing another update.");
         }
 
+        var permission = _controller.ApplicationUpdateFeatureToken;
+        if (!_controller.CanBeginApplicationUpdate(permission))
+            return (false, _controller.ViewModel.ApplicationUpdateStatus);
         _applicationUpdateHandoffActive = true;
         _controller.MarkApplicationUpdatePreparing(installer);
         if (!await PrepareRunMetadataForExitAsync())
@@ -595,6 +600,12 @@ public partial class App : Application
             const string saveError = "Save the pending run details before updating. Wisp has stayed open.";
             _controller.ViewModel.UpdateApplicationUpdateStatus(saveError, "Try again", canCheck: true);
             return (false, saveError);
+        }
+        if (!_controller.CanBeginApplicationUpdate(permission))
+        {
+            _applicationUpdateHandoffActive = false;
+            _controller.Runs.CancelMetadataClosePreparation();
+            return (false, "Application updates were paused. Review the update again when available.");
         }
         ApplicationUpdateHandoff handoff;
         try
@@ -619,7 +630,7 @@ public partial class App : Application
             ApplicationUpdateHandoffState handoffState;
             try
             {
-                handoffState = await handoff.WaitUntilReadyAsync(TimeSpan.FromSeconds(20));
+                handoffState = await handoff.WaitUntilReadyAsync(TimeSpan.FromSeconds(20), permission);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
                                                InvalidOperationException or ObjectDisposedException)
@@ -635,6 +646,13 @@ public partial class App : Application
                 return (false, waitError);
             }
 
+            if (!_controller.CanBeginApplicationUpdate(permission))
+            {
+                handoff.StopIfRunning();
+                _applicationUpdateHandoffActive = false;
+                _controller.Runs.CancelMetadataClosePreparation();
+                return (false, "Application updates were paused. Review the update again when available.");
+            }
             if (handoffState != ApplicationUpdateHandoffState.Ready)
             {
                 RecordSupplementarySignal("update", "update", handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "failure", "install-handoff",

@@ -114,6 +114,7 @@
     </UserControl.Resources>
     <ScrollViewer x:Name="ClipsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,12" ScrollChanged="ClipsScroll_ScrollChanged">
         <StackPanel>
+            <TextBlock Text="{Binding FeatureStatus}" Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,0,0,12" Visibility="{Binding HasFeatureStatus, Converter={StaticResource ClipVisibility}}" AutomationProperties.LiveSetting="Polite" />
             <Border Style="{DynamicResource CardStyle}" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
                     <WrapPanel x:Name="ClippingControls">

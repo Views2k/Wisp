@@ -27,7 +27,7 @@ public sealed partial class DiagnosticsViewModel
 
     private ShiftCueVisualState? CaptureCanary(VehicleState? state, NativeHudSnapshot native, TimeSpan? age)
     {
-        var cue = AccelerationShiftCueEnabled && state is not null && age >= TimeSpan.Zero && age <= TimeSpan.FromMilliseconds(150)
+        var cue = _shiftGuidanceFeatureAvailable && AccelerationShiftCueEnabled && state is not null && age >= TimeSpan.Zero && age <= TimeSpan.FromMilliseconds(150)
             ? ShiftCaptureHub.Current?.Canary(state, native) : null;
         _captureCanaryState = cue.HasValue ? state : null;
         return cue;
@@ -36,6 +36,7 @@ public sealed partial class DiagnosticsViewModel
     // Runs on the existing receiver worker; never reads or changes WPF state.
     internal void ObserveShiftCueTelemetry(VehicleState? state)
     {
+        if (!_shiftGuidanceFeatureAvailable) return;
         _shiftCrossings.Observe(state);
         _shiftCalibration?.Observe(state);
     }
@@ -60,7 +61,7 @@ public sealed partial class DiagnosticsViewModel
     {
         get => _shiftCueStatus;
         // Driving, waiting and native refreshes share this label while calibration owns guidance.
-        private set => Set(ref _shiftCueStatus, AccelerationShiftCueEnabled && _shiftCalibration?.Active == true
+        private set => Set(ref _shiftCueStatus, !_shiftGuidanceFeatureAvailable ? _shiftGuidanceFeatureReason : AccelerationShiftCueEnabled && _shiftCalibration?.Active == true
             ? ActiveShiftCalibrationCueStatus : value);
     }
 
@@ -135,7 +136,7 @@ public sealed partial class DiagnosticsViewModel
         }
         if (_shiftDecision == "ParkedRecorderCanary")
             InvalidateShiftCue("Recorder check ended");
-        if (!AccelerationShiftCueEnabled || _shiftIdentity.Length == 0 && !NativeGaugeFrame.ShiftCue.Enabled)
+        if (!_shiftGuidanceFeatureAvailable || !AccelerationShiftCueEnabled || _shiftIdentity.Length == 0 && !NativeGaugeFrame.ShiftCue.Enabled)
             return;
         var now = timestamp ?? _shiftTimestamp();
         if (state is null || !state.IsRaceOn || state.IsElectric ||
@@ -158,7 +159,7 @@ public sealed partial class DiagnosticsViewModel
             _shiftDecision = "ParkedRecorderCanary";
             return checkCue;
         }
-        if (!AccelerationShiftCueEnabled || _shiftSettings is null)
+        if (!_shiftGuidanceFeatureAvailable || !AccelerationShiftCueEnabled || _shiftSettings is null)
         {
             _shiftDecision = "Disabled";
             return default;

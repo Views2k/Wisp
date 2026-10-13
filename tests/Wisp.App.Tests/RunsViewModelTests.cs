@@ -17,6 +17,112 @@ namespace Wisp.App.Tests;
 public sealed class RunsViewModelTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PauseThenRestoreCannotResumeADeletionWaitingForMetadata(bool all) => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        try
+        {
+            var run = Run("Keep this run", 0, 4);
+            await service.Store.SaveAsync(run);
+            await model.InitializeAsync();
+            model.SelectedRun = Assert.Single(model.Library);
+            await Ready(model);
+            var gate = RunLibraryCancellationTests.StoreGate(service.Store);
+            await gate.WaitAsync(TestContext.Current.CancellationToken);
+            Task remove; Task pause; Task restore;
+            try
+            {
+                model.Notes = "Retain this draft";
+                remove = all ? model.DeleteAllAsync() : model.DeleteSelectedAsync();
+                Assert.False(remove.IsCompleted);
+                pause = model.SetLibraryFeatureAvailableAsync(false, "Paused.");
+                restore = model.SetLibraryFeatureAvailableAsync(true, null);
+            }
+            finally { gate.Release(); }
+            await Task.WhenAll(remove, pause, restore).WaitAsync(TimeSpan.FromSeconds(5));
+            await Ready(model);
+            Assert.Equal(run.Id, Assert.Single(await service.Store.ListAsync()).Id);
+            Assert.Equal("Retain this draft", (await service.Store.LoadAsync(run.Id)).Notes);
+            Assert.False(model.HasError);
+            Assert.False(model.CanUndoDelete);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    [Fact]
+    public void FeaturePausePreservesDraftAndSelectionWhileRejectingLibraryActions() => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = Run("Saved run", 0, 4);
+            await service.Store.SaveAsync(a);
+            await model.InitializeAsync();
+            model.SelectedRun = Assert.Single(model.Library);
+            await Ready(model);
+            model.Notes = "Keep these notes";
+            await model.SetLibraryFeatureAvailableAsync(false, "Saved runs are being updated.");
+            Assert.False(model.CanManageLibrary);
+            Assert.False(model.CanSelectRun);
+            Assert.False(model.WorkspaceCanEdit);
+            Assert.False(model.SaveDetailsCommand.CanExecute(null));
+            Assert.False(model.ResetViewCommand.CanExecute(null));
+            Assert.Equal("Saved runs are being updated.", model.Status);
+            model.Notes = "Discard this edit";
+            await model.DeleteSelectedAsync();
+            await model.DeleteAllAsync();
+            await model.ImportAsync("missing.wisprun");
+            await model.ExportSelectedAsync(System.IO.Path.Combine(directory, "paused-export.csv"));
+            Assert.False(model.HasError);
+            Assert.Equal("Keep these notes", model.Notes);
+            Assert.Equal("Keep these notes", (await service.Store.LoadAsync(a.Id)).Notes);
+            Assert.False(System.IO.File.Exists(System.IO.Path.Combine(directory, "paused-export.csv")));
+            await model.SetLibraryFeatureAvailableAsync(true, null);
+            await Ready(model);
+            Assert.Equal(a.Id, model.SelectedRun!.Id);
+            Assert.True(model.CanManageRun);
+            Assert.Equal("Keep these notes", model.Notes);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    [Fact]
+    public void FeaturePauseInvalidatesPendingSelectionWithoutBreakingRecordingControls() => OnDispatcher(async () =>
+    {
+        var directory = TemporaryDirectory();
+        await using var receiver = new TelemetryUdpReceiver();
+        await using var service = new RunRecordingService(receiver, directory);
+        using var model = new RunsViewModel(service, new AppSettings(), Dispatcher.CurrentDispatcher);
+        try
+        {
+            var a = Run("First", 0, 2); var b = Run("Second", 0, 4);
+            await service.Store.SaveAsync(a); await service.Store.SaveAsync(b);
+            await model.InitializeAsync();
+            model.SelectedRun = model.Library.Single(item => item.Id == a.Id);
+            await Ready(model);
+            model.SelectedRun = model.Library.Single(item => item.Id == b.Id);
+            await model.SetLibraryFeatureAvailableAsync(false, "Paused.");
+            Assert.Equal("A · First", model.RunALabel);
+            Assert.False(model.IsBusy);
+            Assert.Equal(model.CanToggleRecording, model.ToggleRecordingCommand.CanExecute(null));
+            model.RefreshLibraryCommand.Execute(null);
+            Assert.False(model.RefreshLibraryCommand.CanExecute(null));
+            await model.SetLibraryFeatureAvailableAsync(true, null);
+            await Ready(model);
+            Assert.Equal("A · Second", model.RunALabel);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    });
+
+    [Theory]
     [InlineData(8, 8)]
     [InlineData(2, 6)]
     [InlineData(15, 10)]

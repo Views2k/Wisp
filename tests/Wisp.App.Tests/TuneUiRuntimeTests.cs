@@ -75,6 +75,24 @@ internal static class TuneUiRuntimeTests
             }
             model.BeginSave(); model.DialogName = "Baseline"; Await(model.ConfirmDialogAsync());
             var baseline = Assert.Single(model.Library);
+            model.SetWorkspace(TuneWorkspace.Saved); model.SelectedTune = baseline; model.BeginEdit();
+            model.DialogName = "Keep this tune draft";
+            model.SetFeatureAvailability(false, true, "Tune reading is paused.");
+            Arrange(surface, new Size(720, 440));
+            var confirmation = Assert.IsType<Button>(page.FindName("TuneDialogSave"));
+            Assert.True(confirmation.IsEnabled);
+            model.SetFeatureAvailability(false, false, "Tune reading is paused.", "Saved tunes are paused.");
+            Arrange(surface, new Size(720, 440));
+            Assert.False(confirmation.IsEnabled);
+            Assert.Equal("Keep this tune draft", Assert.IsType<TextBox>(page.FindName("TuneNameInput")).Text);
+            Assert.Contains(Descendants(page).OfType<TextBlock>(), value => value.Text == "Saved tunes are paused.");
+            Assert.True(Assert.IsType<Button>(page.FindName("TuneDialogCancel")).IsEnabled);
+            model.SetFeatureAvailability(true, true);
+            Arrange(surface, new Size(720, 440));
+            Assert.True(confirmation.IsEnabled);
+            Assert.Equal("Keep this tune draft", model.DialogName);
+            Assert.Same(baseline, model.SelectedTune);
+            model.CancelDialog();
             model.SetWorkspace(TuneWorkspace.Compare); model.CompareA = baseline; model.CompareB = baseline;
             Arrange(surface, new Size(720, 440));
             foreach (var selector in Descendants(page).OfType<ComboBox>().Where(value => value.IsVisible))

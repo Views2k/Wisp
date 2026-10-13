@@ -49,6 +49,7 @@ public sealed partial class AppController
 
     private string? ConfigureClipShortcut(bool save, bool enabled, OverlayHotkeyChord chord)
     {
+        if (enabled && !FeatureAllowed("clip-recording")) return FeatureControls.Reason("clip-recording");
         if (_disposed || _runtimeSuspended || Settings.RequiresSetup)
             return "shortcuts become available when Wisp is running";
         if (enabled)
@@ -76,7 +77,7 @@ public sealed partial class AppController
             ClipShortcutStatus("Toggle clipping", settings.ToggleShortcutEnabled, settings.ToggleShortcut, toggleError),
             ClipShortcutStatus("Save a clip", settings.SaveShortcutEnabled, settings.SaveShortcut, saveError)));
         await Clips.InitializeAsync();
-        if (!_disposed && !_runtimeSuspended && revision == _clipsRuntimeRevision)
+        if (!_disposed && !_runtimeSuspended && revision == _clipsRuntimeRevision && FeatureAllowed("clip-recording"))
             await Clips.RestoreEnabledPreferenceAsync();
     }
 

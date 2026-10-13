@@ -106,6 +106,8 @@ public partial class OverlayWindow : Window
     public void ApplyTractionCueCustomization(Color color) =>
         TractionCueThemeResources.Apply(Resources, color);
 
+    internal void RefreshFeatureControls() => OnViewModelPropertyChanged(this, new(nameof(DiagnosticsViewModel.GForceEnabled)));
+
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(DiagnosticsViewModel.BoostDisplay) or
@@ -128,24 +130,24 @@ public partial class OverlayWindow : Window
             nameof(DiagnosticsViewModel.GForceGaugeScale))
         {
             var boostAvailable = !_isElectricPowertrain &&
-                                 _controller.ViewModel.BoostGaugeEnabled &&
+                                 (_controller.HudFeatureAllowed("boost-gauge") && _controller.ViewModel.BoostGaugeEnabled) &&
                                  _controller.ViewModel.BoostDisplay.IsAvailable;
             var shouldShow = _layoutMode == HudLayoutMode.Native && boostAvailable &&
                              (_nativeGaugeMode == NativeGaugeMode.Digital ||
                               _controller.ViewModel.BoostGaugeAttached);
             var shouldShowTireTemperature = _layoutMode == HudLayoutMode.Native &&
-                                             _controller.ViewModel.TireTemperatureGaugeEnabled &&
+                                             (_controller.HudFeatureAllowed("tire-temperature-gauge") && _controller.ViewModel.TireTemperatureGaugeEnabled) &&
                                              _controller.ViewModel.TireTemperatureGaugeAttached &&
                                              _controller.ViewModel.TireTemperatureDisplay.IsAvailable;
             var shouldShowGForce = _layoutMode == HudLayoutMode.Native &&
-                                   _controller.ViewModel.GForceEnabled &&
+                                   (_controller.HudFeatureAllowed("g-force-gauge") && _controller.ViewModel.GForceEnabled) &&
                                    _controller.ViewModel.GForceAttached;
             var powerTorqueCanAttach = _layoutMode == HudLayoutMode.Native &&
                                        _nativeGaugeMode == NativeGaugeMode.Analogue;
-            var showPower = powerTorqueCanAttach && _controller.ViewModel.PowerGaugeEnabled &&
+            var showPower = powerTorqueCanAttach && (_controller.HudFeatureAllowed("power-gauge") && _controller.ViewModel.PowerGaugeEnabled) &&
                             _controller.ViewModel.PowerGaugeAttached &&
                             _controller.ViewModel.PowerTorqueDisplay.Available;
-            var showTorque = powerTorqueCanAttach && _controller.ViewModel.TorqueGaugeEnabled &&
+            var showTorque = powerTorqueCanAttach && (_controller.HudFeatureAllowed("torque-gauge") && _controller.ViewModel.TorqueGaugeEnabled) &&
                              _controller.ViewModel.TorqueGaugeAttached &&
                              _controller.ViewModel.PowerTorqueDisplay.Available;
             if (shouldShow == _attachedBoostVisible &&
@@ -157,7 +159,7 @@ public partial class OverlayWindow : Window
                 _boostScale == _controller.ViewModel.BoostGaugeScale &&
                 _tireScale == _controller.ViewModel.TireTemperatureGaugeScale &&
                 _gForceScale == _controller.ViewModel.GForceGaugeScale &&
-                (_layoutMode != HudLayoutMode.Combined || _combinedGForceVisible == _controller.ViewModel.GForceEnabled))
+                (_layoutMode != HudLayoutMode.Combined || _combinedGForceVisible == (_controller.HudFeatureAllowed("g-force-gauge") && _controller.ViewModel.GForceEnabled)))
             {
                 return;
             }
@@ -301,7 +303,7 @@ public partial class OverlayWindow : Window
         CombinedPanel.Height = combinedSize.Height;
         CombinedGForceMeter.LayoutTransform = new ScaleTransform(_gForceScale, _gForceScale);
         MinimalPanel.Visibility = layoutMode == HudLayoutMode.Minimal ? Visibility.Visible : Visibility.Collapsed;
-        _combinedGForceVisible = layoutMode == HudLayoutMode.Combined && _controller.ViewModel.GForceEnabled;
+        _combinedGForceVisible = layoutMode == HudLayoutMode.Combined && (_controller.HudFeatureAllowed("g-force-gauge") && _controller.ViewModel.GForceEnabled);
         CombinedPanel.Visibility = _combinedGForceVisible ? Visibility.Visible : Visibility.Collapsed;
         BoxedSpeedPanel.Visibility = layoutMode == HudLayoutMode.SeparateBoxes || layoutMode == HudLayoutMode.Combined && !_combinedGForceVisible
             ? Visibility.Visible : Visibility.Collapsed;
@@ -327,14 +329,14 @@ public partial class OverlayWindow : Window
             : Visibility.Collapsed;
 
         var boostAvailable = !_isElectricPowertrain &&
-                             _controller.ViewModel.BoostGaugeEnabled &&
+                             (_controller.HudFeatureAllowed("boost-gauge") && _controller.ViewModel.BoostGaugeEnabled) &&
                              _controller.ViewModel.BoostDisplay.IsAvailable;
         var digitalBoostVisible = layoutMode == HudLayoutMode.Native &&
                                   boostAvailable && nativeGaugeMode == NativeGaugeMode.Digital;
         var analogBoostVisible = layoutMode == HudLayoutMode.Native &&
                                  boostAvailable && nativeGaugeMode == NativeGaugeMode.Analogue &&
                                  _controller.ViewModel.BoostGaugeAttached;
-        var tireTemperatureAvailable = _controller.ViewModel.TireTemperatureGaugeEnabled &&
+        var tireTemperatureAvailable = (_controller.HudFeatureAllowed("tire-temperature-gauge") && _controller.ViewModel.TireTemperatureGaugeEnabled) &&
                                        _controller.ViewModel.TireTemperatureGaugeAttached &&
                                        _controller.ViewModel.TireTemperatureDisplay.IsAvailable;
         var digitalTireTemperatureVisible = layoutMode == HudLayoutMode.Native &&
@@ -344,7 +346,7 @@ public partial class OverlayWindow : Window
                                            tireTemperatureAvailable &&
                                            nativeGaugeMode == NativeGaugeMode.Analogue;
         var attachedGForceVisible = layoutMode == HudLayoutMode.Native &&
-                                    _controller.ViewModel.GForceEnabled &&
+                                    (_controller.HudFeatureAllowed("g-force-gauge") && _controller.ViewModel.GForceEnabled) &&
                                     _controller.ViewModel.GForceAttached;
         // Keep the HWND and native surface stationary when this meter is toggled.
         // Moving the window first briefly moves its previously presented pixels too.
@@ -406,10 +408,10 @@ public partial class OverlayWindow : Window
             baseWidth = Math.Max(baseWidth, gForceBounds.Right);
         var powerTorqueCanAttach = layoutMode == HudLayoutMode.Native &&
                                    nativeGaugeMode == NativeGaugeMode.Analogue;
-        _attachedPowerVisible = powerTorqueCanAttach && _controller.ViewModel.PowerGaugeEnabled &&
+        _attachedPowerVisible = powerTorqueCanAttach && (_controller.HudFeatureAllowed("power-gauge") && _controller.ViewModel.PowerGaugeEnabled) &&
                                 _controller.ViewModel.PowerGaugeAttached &&
                                 _controller.ViewModel.PowerTorqueDisplay.Available;
-        _attachedTorqueVisible = powerTorqueCanAttach && _controller.ViewModel.TorqueGaugeEnabled &&
+        _attachedTorqueVisible = powerTorqueCanAttach && (_controller.HudFeatureAllowed("torque-gauge") && _controller.ViewModel.TorqueGaugeEnabled) &&
                                  _controller.ViewModel.TorqueGaugeAttached &&
                                  _controller.ViewModel.PowerTorqueDisplay.Available;
         _powerScale = _controller.ViewModel.PowerGaugeScale;

@@ -12,7 +12,7 @@ public sealed partial class AppController
     public string DriftGaugeStatus { get; private set; } = "Off";
     internal VehicleState? LatestDriftTelemetry => _receiver.Latest;
     internal DriftZoneScoringProfile? CurrentDriftZoneProfile => DriftZoneProfileCatalog.ForBuild(_nativeHudProcessService.AttachedCompatibilityPack);
-    private bool IsDriftGaugeWindowEnabled => Settings.DriftGaugeEnabled && DriftGaugeOverlay is { RendererFailed: false };
+    private bool IsDriftGaugeWindowEnabled => HudFeatureAllowed("drift-hud") && Settings.DriftGaugeEnabled && DriftGaugeOverlay is { RendererFailed: false };
 
     internal void InitializeDriftGaugeWindow()
     {

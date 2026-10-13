@@ -48,7 +48,7 @@ public sealed class RunRecordingOptionsTests
         Assert.NotEmpty(run.Samples);
         var count = run.Samples.Length;
         await fixture.SendAsync(9999);
-        Assert.Equal(count, (await fixture.Service.Store.LoadAsync(run.Id)).Samples.Length);
+        Assert.Equal(count, (await fixture.Service.Store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Samples.Length);
         Assert.True(fixture.Receiver.IsRunning);
     }
 
@@ -88,7 +88,7 @@ public sealed class RunRecordingOptionsTests
         Assert.Equal(new RunMarker(.1, "Limiter"), run.Markers[0]);
         Assert.Equal(.3, run.Markers[1].ElapsedSeconds, 6);
         Assert.Equal("Exit", run.Markers[1].Label);
-        Assert.Equal(run.Markers, (await fixture.Service.Store.LoadAsync(run.Id)).Markers);
+        Assert.Equal(run.Markers, (await fixture.Service.Store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Markers);
         Assert.True(run.IsIncomplete);
         Assert.True(fixture.Receiver.IsRunning);
 
@@ -142,7 +142,7 @@ public sealed class RunRecordingOptionsTests
         Assert.Equal("Reviewed tune", run.TuneAttachment.Name);
         Assert.NotEqual(laterSelection.Snapshot.Id, run.TuneAttachment.Snapshot.Id);
         Assert.Equal(snapshotJson, JsonSerializer.Serialize(run.TuneAttachment.Snapshot, RunStore.JsonOptions));
-        var loaded = await fixture.Service.Store.LoadAsync(run.Id);
+        var loaded = await fixture.Service.Store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RecordedRun.TuneAttachmentSchemaVersion, loaded.SchemaVersion);
         Assert.All(loaded.Samples, sample => Assert.Null(sample.State.SmashableMassKilograms));
         Assert.Equal(snapshotJson, JsonSerializer.Serialize(loaded.TuneAttachment!.Snapshot, RunStore.JsonOptions));
@@ -166,7 +166,7 @@ public sealed class RunRecordingOptionsTests
         Assert.False(fixture.Service.Start(new(TuneAttachment: attachment)));
         Assert.Contains("car or tune check changed", fixture.Service.Status, StringComparison.Ordinal);
         Assert.False(fixture.Service.IsRecording);
-        Assert.Empty(await fixture.Service.Store.ListAsync());
+        Assert.Empty(await fixture.Service.Store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         var probe = fixture.Receiver.BeginRunCapture(2);
         fixture.Receiver.EndRunCapture(probe);
         Assert.True(fixture.Receiver.IsRunning);
@@ -190,7 +190,7 @@ public sealed class RunRecordingOptionsTests
         Assert.True(run.IsIncomplete);
         Assert.True(run.TuneAttachment!.DrivingContinuityInterrupted);
         Assert.All(run.Samples, sample => Assert.True(sample.IsDriving));
-        Assert.True((await fixture.Service.Store.LoadAsync(run.Id)).TuneAttachment!.DrivingContinuityInterrupted);
+        Assert.True((await fixture.Service.Store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).TuneAttachment!.DrivingContinuityInterrupted);
         Assert.True(fixture.Receiver.IsRunning);
     }
 

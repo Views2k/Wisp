@@ -42,7 +42,7 @@
                                    ParticlesOnly="True" IsPointerInteractionEnabled="False"
                                    ParticleColor="{DynamicResource AppParticleColor}"
                                    Visibility="{Binding BackgroundParticlesEnabled, Converter={StaticResource ParticleVisibility}}"
-                                   IsAnimationEnabled="{Binding AnimatedBackground}" />
+                                   IsAnimationEnabled="{Binding EffectiveBackgroundAnimation}" />
 
             <Grid x:Name="TitleBar" Grid.Row="0" Background="{DynamicResource PanelBrush}"
                   MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
@@ -439,7 +439,7 @@
                                                            Foreground="{DynamicResource MutedBrush}" Margin="0,3,0,0"
                                                            TextWrapping="Wrap" />
                                             </StackPanel>
-                                            <Button Grid.Column="2" Content="Relearn tires" Margin="0,0,8,0"
+                                            <Button Grid.Column="2" Content="Relearn tires" ToolTip="{Binding TireCalibrationActionHint}" ToolTipService.ShowOnDisabled="True" Margin="0,0,8,0"
                                                     IsEnabled="{Binding CanRelearnCurrentTires}" Click="RelearnTires_Click" />
                                             <Button Grid.Column="3" x:Name="LockButton" Content="Edit HUD layout"
                                                     VerticalAlignment="Center" Click="ToggleLock_Click" />
@@ -1519,7 +1519,7 @@
                                                 <Button Content="Relearn current tires" HorizontalAlignment="Right" Margin="0,14,0,0"
                                                         IsEnabled="{Binding CanRelearnCurrentTires}"
                                                         Click="RelearnTires_Click"
-                                                        ToolTip="Use after changing wheel or tire diameter on this car." />
+                                                        ToolTip="{Binding TireCalibrationActionHint}" ToolTipService.ShowOnDisabled="True" />
                                             </StackPanel>
                                         </Grid>
                                     </Border>

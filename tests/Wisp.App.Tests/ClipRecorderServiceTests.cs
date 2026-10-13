@@ -11,6 +11,29 @@ namespace Wisp.App.Tests;
 [Collection("Supplementary instrumentation")]
 public sealed class ClipRecorderServiceTests
 {
+    [Fact]
+    public async Task FeaturePauseStopsTheHelperBlocksNewSessionsAndRestoresOnlyAvailability()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        await service.SetFeatureAvailableAsync(false, Recording);
+        Assert.False(service.Snapshot.Enabled);
+        Assert.Equal(1, session.Stops);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        Assert.False(service.Snapshot.Enabled);
+        Assert.Equal(1, factory.Count);
+        await service.SetFeatureAvailableAsync(true, Recording);
+        Assert.False(service.Snapshot.Enabled);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        Assert.True(service.Snapshot.Enabled);
+    }
+
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

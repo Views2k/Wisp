@@ -42,12 +42,13 @@ public sealed partial class RunStore
         _directory = Path.GetFullPath(directory);
     }
 
-    public Task<IReadOnlyList<RunSummary>> ListAsync() => InBackground<IReadOnlyList<RunSummary>>(async () =>
+    public Task<IReadOnlyList<RunSummary>> ListAsync(CancellationToken cancellationToken = default) => InBackground<IReadOnlyList<RunSummary>>(async () =>
     {
         await RecoverAsync().ConfigureAwait(false);
         var summaries = new List<RunSummary>();
         foreach (var path in Directory.EnumerateFiles(_directory, "*.wisprun"))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "N", out var id)) continue;
             try
             {
@@ -59,14 +60,14 @@ public sealed partial class RunStore
                     try
                     {
                         CheckPath(summaryPath);
-                        summary = JsonSerializer.Deserialize<RunSummary>(await File.ReadAllTextAsync(summaryPath).ConfigureAwait(false), JsonOptions);
+                        summary = JsonSerializer.Deserialize<RunSummary>(await File.ReadAllTextAsync(summaryPath, cancellationToken).ConfigureAwait(false), JsonOptions);
                         if (summary is null || summary.Id != id || !ValidSummary(summary)) summary = null;
                     }
                     catch (Exception error) when (IsDataError(error)) { summary = null; }
                 }
                 if (summary is null)
                 {
-                    var run = await ReadAsync(path, id).ConfigureAwait(false);
+                    var run = await ReadAsync(path, id, cancellationToken).ConfigureAwait(false);
                     summary = Summarize(run);
                     try { await WriteSummaryAsync(summary).ConfigureAwait(false); }
                     catch (Exception error) when (IsDataError(error)) { Warning = "A run summary could not be refreshed. The saved run is available."; }
@@ -80,9 +81,9 @@ public sealed partial class RunStore
         }
         Volatile.Write(ref _isFull, summaries.Count >= MaximumLibraryEntries);
         return summaries.OrderByDescending(value => value.StartedAtUtc).ToArray();
-    });
+    }, cancellationToken);
 
-    public Task<RecordedRun> LoadAsync(Guid id) => InBackground(() => ReadAsync(RunPath(id), id));
+    public Task<RecordedRun> LoadAsync(Guid id, CancellationToken cancellationToken = default) => InBackground(() => ReadAsync(RunPath(id), id, cancellationToken), cancellationToken);
 
     public Task<RunSummary> SaveAsync(RecordedRun run) => InBackground(async () =>
     {
@@ -98,7 +99,7 @@ public sealed partial class RunStore
         return Summarize(updated);
     });
 
-    public Task DeleteAsync(Guid id) => InBackground(async () =>
+    public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => InBackground(async () =>
     {
         var trash = Path.Combine(_directory, "Deleted");
         CheckPath(trash);
@@ -118,22 +119,23 @@ public sealed partial class RunStore
         Volatile.Write(ref _isFull, false);
         await Task.CompletedTask;
         return true;
-    });
+    }, cancellationToken);
 
-    public Task RestoreAsync(Guid id) => InBackground(async () =>
+    public Task RestoreAsync(Guid id, CancellationToken cancellationToken = default) => InBackground(async () =>
     {
         var source = Path.Combine(_directory, "Deleted", $"{id:N}.wisprun");
         CheckPath(source);
-        var run = await ReadAsync(source, id).ConfigureAwait(false);
+        var run = await ReadAsync(source, id, cancellationToken).ConfigureAwait(false);
         if (run.Id != id) throw new InvalidDataException("The deleted run identity is invalid.");
         EnsureCapacity(id);
+        cancellationToken.ThrowIfCancellationRequested();
         File.Move(source, RunPath(id), overwrite: false);
         return true;
-    });
+    }, cancellationToken);
 
-    public Task ExportAsync(Guid id, string destination) => InBackground(async () =>
+    public Task ExportAsync(Guid id, string destination, CancellationToken cancellationToken = default) => InBackground(async () =>
     {
-        _ = await ReadAsync(RunPath(id), id).ConfigureAwait(false);
+        _ = await ReadAsync(RunPath(id), id, cancellationToken).ConfigureAwait(false);
         ValidateExternalPath(destination);
         if (File.Exists(destination)) throw new IOException("Choose a different export filename; that file already exists.");
         var temporary = Path.Combine(Path.GetDirectoryName(destination)!, $".wisp-export-{Guid.NewGuid():N}.tmp");
@@ -142,28 +144,29 @@ public sealed partial class RunStore
             await using (var input = File.OpenRead(RunPath(id)))
             await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, true))
             {
-                await input.CopyToAsync(output).ConfigureAwait(false);
+                await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
                 output.Flush(flushToDisk: true);
             }
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporary, destination, overwrite: false);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
         return true;
-    });
+    }, cancellationToken);
 
-    public Task<RunSummary> ImportAsync(string source) => InBackground(async () =>
+    public Task<RunSummary> ImportAsync(string source, CancellationToken cancellationToken = default) => InBackground(async () =>
     {
         ValidateExternalPath(source);
-        var run = await ReadAsync(source).ConfigureAwait(false);
+        var run = await ReadAsync(source, cancellationToken: cancellationToken).ConfigureAwait(false);
         run = run with { Id = Guid.NewGuid() };
-        await WriteAsync(run, overwrite: false).ConfigureAwait(false);
+        await WriteAsync(run, overwrite: false, cancellationToken: cancellationToken).ConfigureAwait(false);
         return Summarize(run);
-    });
+    }, cancellationToken);
 
-    private Task<T> InBackground<T>(Func<Task<T>> operation) => Task.Run(async () =>
+    private Task<T> InBackground<T>(Func<Task<T>> operation, CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        await _gate.WaitAsync().ConfigureAwait(false);
-        try { EnsureDirectory(); return await operation().ConfigureAwait(false); }
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { cancellationToken.ThrowIfCancellationRequested(); EnsureDirectory(); return await operation().ConfigureAwait(false); }
         finally { _gate.Release(); }
     });
 
@@ -249,7 +252,7 @@ public sealed partial class RunStore
         CheckPath(path);
     }
 
-    private static async Task<RecordedRun> ReadAsync(string path, Guid? expectedId = null)
+    private static async Task<RecordedRun> ReadAsync(string path, Guid? expectedId = null, CancellationToken cancellationToken = default)
     {
         CheckPath(path);
         var info = new FileInfo(path);
@@ -260,12 +263,12 @@ public sealed partial class RunStore
         await using var bounded = new BoundedReadStream(gzip, MaximumJsonBytes);
         using var reader = new StreamReader(bounded);
         var lines = new BoundedLineReader(reader);
-        var header = await lines.ReadLineAsync(131_072).ConfigureAwait(false) ?? throw new InvalidDataException("The run is empty.");
+        var header = await lines.ReadLineAsync(131_072, cancellationToken).ConfigureAwait(false) ?? throw new InvalidDataException("The run is empty.");
         var run = JsonSerializer.Deserialize<RecordedRun>(header, JsonOptions) ?? throw new InvalidDataException("The run header is invalid.");
         if (!ValidSchema(run) || run.Samples is null || run.Samples.Length != 0 || run.Markers is null || run.Markers.Length > MaximumMarkers)
             throw new InvalidDataException("The run format is unsupported.");
         var samples = new List<RunSample>();
-        while (await lines.ReadLineAsync(8192).ConfigureAwait(false) is { } line)
+        while (await lines.ReadLineAsync(8192, cancellationToken).ConfigureAwait(false) is { } line)
         {
             if (samples.Count >= MaximumSamples) throw new InvalidDataException("The run has too many samples.");
             var sample = JsonSerializer.Deserialize<RunSample>(line, JsonOptions) ?? throw new InvalidDataException("The run contains a missing sample.");
@@ -279,7 +282,7 @@ public sealed partial class RunStore
         return run;
     }
 
-    private async Task WriteAsync(RecordedRun run, bool overwrite, bool finalizeContactFormat = false)
+    private async Task WriteAsync(RecordedRun run, bool overwrite, bool finalizeContactFormat = false, CancellationToken cancellationToken = default)
     {
         if ((run.SchemaVersion is RecordedRun.BaseSchemaVersion or RecordedRun.TuneAttachmentSchemaVersion) &&
             ValidSchema(run) && run.Samples is { } samples && samples.Any(sample => sample?.State is { } state && HasContactData(state)))
@@ -317,12 +320,13 @@ public sealed partial class RunStore
                     {
                         decodedBytes += System.Text.Encoding.UTF8.GetByteCount(line) + System.Text.Encoding.UTF8.GetByteCount(writer.NewLine);
                         if (decodedBytes > MaximumJsonBytes) throw new InvalidDataException("The decoded run is too large to save.");
-                        await writer.WriteLineAsync(line).ConfigureAwait(false);
+                        await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
                     }
                 }
                 file.Flush(flushToDisk: true);
             }
             if (new FileInfo(temporary).Length > MaximumFileBytes) throw new InvalidDataException("The run is too large to save.");
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporary, destination, overwrite);
             try { await WriteSummaryAsync(Summarize(run)).ConfigureAwait(false); }
             catch (Exception error) when (IsDataError(error)) { Warning = "The run is saved. Its library summary will be rebuilt when needed."; }
@@ -508,14 +512,15 @@ public sealed partial class RunStore
         private char[] _lineBuffer = new char[4096];
         private int _offset;
         private int _length;
-        internal async ValueTask<string?> ReadLineAsync(int maximum)
+        internal async ValueTask<string?> ReadLineAsync(int maximum, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var lineLength = 0;
             while (true)
             {
                 if (_offset == _length)
                 {
-                    _length = await reader.ReadAsync(_buffer.AsMemory()).ConfigureAwait(false);
+                    _length = await reader.ReadAsync(_buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
                     _offset = 0;
                     if (_length == 0) return lineLength == 0 ? null : Finish(lineLength);
                 }

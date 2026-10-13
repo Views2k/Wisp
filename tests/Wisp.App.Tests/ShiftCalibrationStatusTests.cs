@@ -7,6 +7,62 @@ namespace Wisp.App.Tests;
 public sealed class ShiftCalibrationStatusTests
 {
     [Fact]
+    public async Task GuidancePauseKeepsCalibrationAndCueOffAcrossFreshNativeRefreshes()
+    {
+        var f = new Fixture();
+        await f.Initialize();
+        f.Model.StartShiftCalibration();
+        Assert.True(f.Manager.Active);
+        f.Model.SetShiftGuidanceFeatureAvailable(false, "Guidance is paused.");
+        await f.Model.SetShiftCalibrationFeatureAvailable(false, "Guidance is paused.");
+        for (var i = 0; i < 3; i++)
+        {
+            f.Model.ObserveShiftCueTelemetry(f.State());
+            f.Model.UpdateNativeHudSnapshot(f.Native());
+            f.Draw();
+            Assert.False(f.Model.NativeGaugeFrame.ShiftCue.Enabled);
+            Assert.False(f.Manager.Active);
+            Assert.False(f.Model.CanStartShiftCalibration);
+            Assert.Equal("Guidance is paused.", f.Model.ShiftCueStatus);
+        }
+        f.Model.SetShiftGuidanceFeatureAvailable(true, null);
+        await f.Model.SetShiftCalibrationFeatureAvailable(true, null);
+        f.Draw();
+        Assert.True(f.Model.CanStartShiftCalibration);
+        Assert.False(f.Manager.Active);
+        Assert.True(f.Model.AccelerationShiftCueEnabled);
+        await f.Manager.PendingWork;
+    }
+
+    [Fact]
+    public async Task FeaturePauseStopsCalibrationAndKeepsTheReasonUntilManualRestart()
+    {
+        var f = new Fixture();
+        await f.Initialize();
+        f.Model.StartShiftCalibration();
+        Assert.True(f.Manager.Active);
+        await f.Model.SetShiftCalibrationFeatureAvailable(false, "Calibration is being updated.");
+        for (var i = 0; i < 3; i++)
+        {
+            f.Draw();
+            f.Model.StartShiftCalibration();
+            Assert.False(f.Manager.Start());
+            Assert.False(f.Model.CanStartShiftCalibration);
+            Assert.False(f.Model.CanCancelShiftCalibration);
+            Assert.Equal("Calibration is being updated.", f.Model.ShiftCalibrationStatus);
+        }
+        Assert.True(f.Model.AccelerationShiftCueEnabled);
+        Assert.DoesNotContain("Calibrating", f.Model.ShiftCueStatus);
+        await f.Model.SetShiftCalibrationFeatureAvailable(true, null);
+        f.Draw();
+        Assert.False(f.Manager.Active);
+        Assert.True(f.Model.CanStartShiftCalibration);
+        f.Model.StartShiftCalibration();
+        Assert.True(f.Manager.Active);
+        await f.Model.SuspendShiftCalibration();
+    }
+
+    [Fact]
     public async Task UncalibratedIdleLabelDoesNotAlternateOnFreshNativeRefreshes()
     {
         var f = new Fixture();

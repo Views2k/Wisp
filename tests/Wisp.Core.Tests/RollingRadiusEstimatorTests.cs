@@ -5,6 +5,47 @@ namespace Wisp.Core.Tests;
 public sealed class RollingRadiusEstimatorTests
 {
     [Fact]
+    public void PausedLearningClearsPartialEvidenceAndResumesWithFreshSamples()
+    {
+        var estimator = new RollingRadiusEstimator();
+        var state = TestVehicleState.Create(wheelSpeed: new WheelValues(100, 100, 100, 100));
+        for (var i = 0; i < 11; i++) estimator.Observe(state);
+        estimator.SetLearningEnabled(false);
+        for (var i = 0; i < 200; i++)
+        {
+            var paused = estimator.Observe(state);
+            Assert.False(paused.IsTrusted);
+            Assert.False(paused.SampleAccepted);
+            Assert.Equal(0, paused.AcceptedSamples);
+        }
+        Assert.Empty(estimator.ExportSnapshots());
+        estimator.SetLearningEnabled(true);
+        for (var i = 0; i < 11; i++) Assert.False(estimator.Observe(state).IsTrusted);
+        Assert.True(estimator.Observe(state).IsTrusted);
+    }
+
+    [Fact]
+    public void PausePreservesTrustedGeometryButDoesNotReuseItForAnotherDrivetrainOrCar()
+    {
+        var estimator = new RollingRadiusEstimator();
+        var state = TestVehicleState.Create(wheelSpeed: new WheelValues(100, 100, 100, 100));
+        for (var i = 0; i < 12; i++) estimator.Observe(state);
+        var snapshot = Assert.Single(estimator.ExportSnapshots());
+        estimator.SetLearningEnabled(false);
+        estimator.EndTelemetrySession();
+        for (var i = 0; i < 200; i++)
+        {
+            var result = estimator.Observe(state with { WheelRotationRadiansPerSecond = new(80, 80, 80, 80) });
+            Assert.True(result.IsTrusted);
+            Assert.False(result.SampleAccepted);
+        }
+        Assert.Equal(snapshot, Assert.Single(estimator.ExportSnapshots()));
+        Assert.False(estimator.Observe(state with { CarOrdinal = state.CarOrdinal + 1 }).IsTrusted);
+        var otherDrivetrain = state.Drivetrain == DrivetrainType.FrontWheelDrive ? DrivetrainType.RearWheelDrive : DrivetrainType.FrontWheelDrive;
+        Assert.False(estimator.Observe(state with { Drivetrain = otherDrivetrain }).IsTrusted);
+    }
+
+    [Fact]
     public void DefaultCalibrationConvergesInTwelveCleanFrames()
     {
         var estimator = new RollingRadiusEstimator();

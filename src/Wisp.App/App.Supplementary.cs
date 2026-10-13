@@ -43,13 +43,13 @@ public partial class App
 
     internal bool SupplementaryAvailable
     {
-        get { lock (_supplementaryGate) return _supplementaryClient?.IsReportingEnabled == true; }
+        get { lock (_supplementaryGate) return _supplementaryClient?.IsReportingEnabled == true && _controller?.FeatureAllowed("support") != false; }
     }
 
     internal (SupplementaryContentSnapshot Content, SupplementaryAudienceContext Audience) GetSupplementaryContent()
     {
         lock (_supplementaryGate)
-            return (_supplementaryClient?.Content ?? SupplementaryContentSnapshot.Empty,
+            return (_controller?.FeatureAllowed("news") == false ? SupplementaryContentSnapshot.Empty : _supplementaryClient?.Content ?? SupplementaryContentSnapshot.Empty,
                 new(_supplementaryVersion, _supplementaryChannel, _reportingPlatform, _reportingGameBuild));
     }
 
@@ -57,7 +57,7 @@ public partial class App
     {
         lock (_supplementaryGate)
         {
-            if (_supplementaryClient?.IsReportingEnabled != true) return null;
+            if (_supplementaryClient?.IsReportingEnabled != true || _controller?.FeatureAllowed("support") == false) return null;
             var connection = _reportedConnectionState is "idle" or "detected" or "fresh" or "stale" ? _reportedConnectionState : "unknown";
             return SupplementarySchema.RedactForPreview(new(1, Guid.NewGuid(), _reportingSessionId, _reportingInstallationId,
                 DateTimeOffset.UtcNow, _supplementaryVersion, _supplementaryBuild, _supplementaryChannel, category, title, message,
@@ -65,16 +65,22 @@ public partial class App
         }
     }
 
-    internal Task<SupplementarySupportResult> SubmitSupplementarySupportAsync(SupplementarySupportReport reviewed, CancellationToken cancellation = default)
+    internal async Task<SupplementarySupportResult> SubmitSupplementarySupportAsync(SupplementarySupportReport reviewed, CancellationToken cancellation = default)
     {
+        SupplementaryClient client;
+        CancellationToken featurePermission;
         lock (_supplementaryGate)
         {
-            if (_supplementaryClient is not { } client) return Task.FromResult(new SupplementarySupportResult(SupplementaryRequestStatus.Unconfigured));
+            if (_controller?.FeatureAllowed("support") == false) return new(SupplementaryRequestStatus.Disabled);
+            if (_supplementaryClient is not { } current) return new(SupplementaryRequestStatus.Unconfigured);
             if (reviewed.SessionId != _reportingSessionId || reviewed.InstallationId != _reportingInstallationId ||
                 reviewed.AppVersion != _supplementaryVersion || reviewed.BuildId != _supplementaryBuild || reviewed.Channel != _supplementaryChannel)
-                return Task.FromResult(new SupplementarySupportResult(SupplementaryRequestStatus.Invalid));
-            return client.SubmitSupportAsync(reviewed, cancellation);
+                return new(SupplementaryRequestStatus.Invalid);
+            client = current;
+            featurePermission = _controller?.SupportFeatureToken ?? CancellationToken.None;
         }
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellation, featurePermission);
+        return await client.SubmitSupportAsync(reviewed, lifetime.Token);
     }
 
     private void StartSupplementaryReporting()

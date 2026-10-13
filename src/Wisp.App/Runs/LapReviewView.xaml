@@ -53,6 +53,12 @@
         </DataTemplate>
     </UserControl.Resources>
     <StackPanel>
+        <TextBlock Text="{Binding FeatureStatus}" TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8">
+            <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Style.Triggers>
+                <DataTrigger Binding="{Binding FeatureStatus}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+            </Style.Triggers></Style></TextBlock.Style>
+        </TextBlock>
+        <StackPanel Visibility="{Binding FeatureAvailable, Converter={StaticResource MapVisibility}}">
         <StackPanel>
             <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="14" Background="{DynamicResource InputBrush}" Margin="0,4,0,14">
             <StackPanel>
@@ -279,6 +285,7 @@
             <Grid Margin="0,0,0,7"><Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions><TextBlock Text="Selected section" FontWeight="SemiBold" /><TextBlock Grid.Column="1" Text="Your lap" Foreground="{x:Static local:RunComparisonColors.RunA}" /><TextBlock Grid.Column="2" Text="Reference · same positions" Foreground="{x:Static local:RunComparisonColors.RunB}" TextWrapping="Wrap" /></Grid>
             <ItemsControl ItemsSource="{Binding Metrics}"><ItemsControl.ItemTemplate><DataTemplate DataType="{x:Type local:LapReviewMetric}"><Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1" Padding="0,7"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions><TextBlock Text="{Binding Label}" TextWrapping="Wrap" Margin="0,0,12,0" /><TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" Margin="0,0,12,0" /><TextBlock Grid.Column="2" Text="{Binding Reference}" TextWrapping="Wrap" Foreground="{x:Static local:RunComparisonColors.RunB}" /></Grid></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
             <Expander Header="Braking, throttle pickup and shifts" Margin="0,12,0,0"><ItemsControl ItemsSource="{Binding Events}" Margin="0,8,0,0"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Margin="0,3" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Expander>
+        </StackPanel>
         </StackPanel>
     </StackPanel>
 </UserControl>

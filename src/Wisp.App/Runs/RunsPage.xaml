@@ -244,7 +244,8 @@
                 </TextBlock.Style>
             </TextBlock>
         </StackPanel>
-        <Grid Grid.Row="2">
+        <TextBlock Grid.Row="2" Text="{Binding LibraryFeatureStatus}" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="12" VerticalAlignment="Top" />
+        <Grid Grid.Row="2" Visibility="{Binding LibraryFeatureAvailable, Converter={StaticResource RunVisibility}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="228" x:Name="RunLibraryColumn" />
                 <ColumnDefinition Width="14" x:Name="RunLibraryGap" />

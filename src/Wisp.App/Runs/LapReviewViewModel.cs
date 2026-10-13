@@ -32,7 +32,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
     private int _cursor, _sectionStart, _sectionEnd;
     private int _wheel;
     public string[] Wheels { get; } = ["Front left", "Front right", "Rear left", "Rear right"];
-    public int SelectedWheel { get => _wheel; set { if (Set(ref _wheel, Math.Clamp(value, 0, 3))) Changed(nameof(Plot)); } }
+    public int SelectedWheel { get => _wheel; set { if (FeatureAvailable && Set(ref _wheel, Math.Clamp(value, 0, 3))) Changed(nameof(Plot)); } }
     public bool IsWheelChannel => Channel.Channel is LapReviewChannel.TireTemperature or LapReviewChannel.SlipRatio or LapReviewChannel.SlipAngle or LapReviewChannel.Suspension;
     private string _status = "Record a lap with position telemetry to review its driven line.", _captureStatus = "", _referenceStatus = "";
     private bool _disposed, _busy, _applying;
@@ -69,7 +69,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
     private RunUiCommand Command(Action action, Func<bool>? canExecute = null)
     {
         var command = new RunUiCommand(() => { action(); return Task.CompletedTask; },
-            () => !_disposed && !_busy && (canExecute?.Invoke() ?? HasLap), () => { Status = "That lap action could not be completed."; });
+            () => FeatureAvailable && !_busy && (canExecute?.Invoke() ?? HasLap), () => { Status = "That lap action could not be completed."; });
         _commands.Add(command);
         return command;
     }
@@ -79,14 +79,14 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
         _busy = _loadCancellation is not null || _analysisCancellation is not null;
         Changed(nameof(IsBusy)); Changed(nameof(CanPin)); RaiseCommands();
     }
-    public LapTimingChoice Timing { get => _timing; set { if (_disposed || value is null || !Set(ref _timing, value)) return; _ = LoadAsync(); } }
-    public LapChannelChoice Channel { get => _channel; set { if (!_disposed && value is not null && Set(ref _channel, value)) { Changed(nameof(Plot)); Changed(nameof(IsWheelChannel)); } } }
+    public LapTimingChoice Timing { get => _timing; set { if (!FeatureAvailable || value is null || !Set(ref _timing, value)) return; _ = LoadAsync(); } }
+    public LapChannelChoice Channel { get => _channel; set { if (FeatureAvailable && value is not null && Set(ref _channel, value)) { Changed(nameof(Plot)); Changed(nameof(IsWheelChannel)); } } }
     public LapReviewLap? Lap
     {
         get => _lap;
         set
         {
-            if (_disposed || Equals(_lap, value)) return;
+            if (!FeatureAvailable || Equals(_lap, value)) return;
             ChangeScrubContext(() =>
             {
                 Set(ref _lap, value);
@@ -104,7 +104,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
         get => _reference;
         set
         {
-            if (_disposed || Equals(_reference, value)) return;
+            if (!FeatureAvailable || Equals(_reference, value)) return;
             ChangeScrubContext(() =>
             {
                 Set(ref _reference, value);
@@ -118,8 +118,8 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
     public string ReferenceStatus { get => _referenceStatus; private set => Set(ref _referenceStatus, value); }
     public string CaptureStatus { get => _captureStatus; set => Set(ref _captureStatus, value); }
     public bool AutomaticRecording { get => _settings.LapReviewRecordingEnabled; set { if (_disposed || _settings.LapReviewRecordingEnabled == value) return; _settings.LapReviewRecordingEnabled = value; Changed(); _save(); } }
-    public bool HasLap => Lap is { Points.Length: > 1 };
-    public bool CanPin => !_disposed && !_busy && UsableBenchmark(Lap);
+    public bool HasLap => FeatureAvailable && Lap is { Points.Length: > 1 };
+    public bool CanPin => FeatureAvailable && !_busy && UsableBenchmark(Lap);
     public bool IsBusy => _busy;
     public int MaximumCursor => Math.Max(0, (Lap?.Points.Length ?? 1) - 1);
     public int Cursor
@@ -127,7 +127,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
         get => _cursor;
         set
         {
-            if (_disposed) return;
+            if (!FeatureAvailable) return;
             value = Math.Clamp(value, 0, MaximumCursor);
             // Every primary cursor entry point shares Both-mode synchronization:
             // map/graph picking, keyboard navigation and the lap-position slider.
@@ -154,12 +154,14 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
     }
     private async Task LoadAsync()
     {
-        if (_disposed) return;
+        if (!FeatureAvailable) return;
         _loadCancellation?.Cancel();
         _analysisCancellation?.Cancel();
         var cancel = new CancellationTokenSource(); _loadCancellation = cancel;
-        var selected = Lap;
-        var selection = (Cursor: _cursor, Start: _sectionStart, End: _sectionEnd);
+        var selected = Lap ?? _featureSelection?.Lap;
+        var selection = _featureSelection is { } paused && Lap is null
+            ? (paused.Cursor, paused.Start, paused.End)
+            : (Cursor: _cursor, Start: _sectionStart, End: _sectionEnd);
         var run = _run; var comparisonRun = _comparisonRun; var timing = Timing.Mode;
         var pin = _settings.LapReviewBenchmarkRunId; var pinNumber = _settings.LapReviewBenchmarkLapNumber;
         var pinSample = _settings.LapReviewBenchmarkSampleIndex;
@@ -188,7 +190,8 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
                 if (usePin) b = new([pinnedLap!], "");
                 return (a, b, current, usePin, pinMatch);
             }, cancel.Token);
-            if (_disposed || cancel.IsCancellationRequested) return;
+            if (!FeatureAvailable || cancel.IsCancellationRequested) return;
+            _featureSelection = null;
             _referenceRun = result.usePin ? pinned : comparisonRun ?? run;
             _applying = true;
             try
@@ -271,7 +274,7 @@ public sealed partial class LapReviewViewModel : INotifyPropertyChanged, IDispos
 
     private async Task AnalyzeAsync(bool compare)
     {
-        if (_disposed || _applying) return;
+        if (!FeatureAvailable || _applying) return;
         _analysisCancellation?.Cancel();
         var cancel = new CancellationTokenSource(); _analysisCancellation = cancel;
         var lap = Lap; var reference = Reference; var comparison = _comparison; var reverse = _reverseComparison;

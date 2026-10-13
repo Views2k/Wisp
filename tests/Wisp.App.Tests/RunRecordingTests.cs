@@ -14,6 +14,41 @@ namespace Wisp.App.Tests;
 public sealed class RunRecordingTests
 {
     [Fact]
+    public async Task FeaturePauseSavesCapturedSamplesWithoutRestartingOrStoppingTelemetry()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "WispRunTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            await using var receiver = new TelemetryUdpReceiver();
+            var port = AvailablePort();
+            await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+            using var sender = new UdpClient(AddressFamily.InterNetwork);
+            async Task Send(int stamp) => await sender.SendAsync(Packet(stamp), new IPEndPoint(IPAddress.Loopback, port), TestContext.Current.CancellationToken);
+            await Send(0);
+            await WaitUntil(() => receiver.Latest is not null);
+            await using var service = new RunRecordingService(receiver, directory);
+            service.UpdateContext(new(Stopwatch.GetTimestamp(), 2468, DrivetrainType.RearWheelDrive, true, .35, .35));
+            Assert.True(service.Start());
+            await Send(10);
+            await Send(20);
+            await WaitUntil(() => receiver.Latest?.GameTimestampMilliseconds == 20);
+            var captured = await service.SetFeatureAvailableAsync(false);
+            Assert.NotNull(captured);
+            Assert.False(service.IsRecording);
+            Assert.False(service.CanStart);
+            Assert.False(service.Start());
+            Assert.Single(await service.Store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+            await Send(30);
+            await WaitUntil(() => receiver.Latest?.GameTimestampMilliseconds == 30);
+            await service.SetFeatureAvailableAsync(true);
+            Assert.False(service.IsRecording);
+            Assert.True(service.CanStart);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+
+    [Fact]
     public async Task CaptureStartFailureReportsOnceAndLeavesReceiverAndReservationUsable()
     {
         var directory = Path.Combine(Path.GetTempPath(), "WispRunTests", Guid.NewGuid().ToString("N"));
@@ -182,7 +217,7 @@ public sealed class RunRecordingTests
             Assert.True(run.IsIncomplete);
             Assert.Equal(2, run.RejectedDatagrams);
             Assert.Equal(1, savedEvents);
-            Assert.Single(await service.Store.ListAsync());
+            Assert.Single(await service.Store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
             await Send(50);
             await WaitUntil(() => receiver.Latest?.GameTimestampMilliseconds == 50);
             Assert.True(receiver.IsRunning);

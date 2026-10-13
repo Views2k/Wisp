@@ -35,6 +35,7 @@ public sealed partial class AppController
 
     private string? ConfigureRecordingShortcut(bool enabled, OverlayHotkeyChord chord)
     {
+        if (enabled && !FeatureAllowed("run-recording")) return FeatureControls.Reason("run-recording");
         if (_disposed || _runtimeSuspended || Settings.RequiresSetup)
         {
             return "The recording shortcut becomes available when Wisp is running.";

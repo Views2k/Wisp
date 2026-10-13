@@ -16,11 +16,11 @@ public sealed class RunLineReaderTests
         var text = new string('x', length);
         using var input = Input(text + "\nsecond\r\n\nlast\r\r");
         var lines = new RunStore.BoundedLineReader(input);
-        Assert.Equal(text, await lines.ReadLineAsync(8192));
-        Assert.Equal("second", await lines.ReadLineAsync(8192));
-        Assert.Equal("", await lines.ReadLineAsync(8192));
-        Assert.Equal("last", await lines.ReadLineAsync(8192));
-        Assert.Null(await lines.ReadLineAsync(8192));
+        Assert.Equal(text, await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal("second", await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal("", await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal("last", await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Null(await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -30,9 +30,9 @@ public sealed class RunLineReaderTests
         var second = new string('\u4E00', 8191);
         using var input = Input(first + "\r\n" + second + "\n");
         var lines = new RunStore.BoundedLineReader(input);
-        Assert.Equal(first, await lines.ReadLineAsync(8192));
-        Assert.Equal(second, await lines.ReadLineAsync(8192));
-        Assert.Null(await lines.ReadLineAsync(8192));
+        Assert.Equal(first, await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(second, await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Null(await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -43,7 +43,7 @@ public sealed class RunLineReaderTests
     {
         using var input = Input(new string('x', length) + ending);
         var lines = new RunStore.BoundedLineReader(input);
-        await Assert.ThrowsAsync<InvalidDataException>(async () => await lines.ReadLineAsync(8192));
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -52,8 +52,8 @@ public sealed class RunLineReaderTests
         var header = new string('h', 131072);
         using var input = Input(header + "\n" + new string('s', 8193));
         var lines = new RunStore.BoundedLineReader(input);
-        Assert.Equal(header, await lines.ReadLineAsync(131072));
-        await Assert.ThrowsAsync<InvalidDataException>(async () => await lines.ReadLineAsync(8192));
+        Assert.Equal(header, await lines.ReadLineAsync(131072, cancellationToken: TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public sealed class RunLineReaderTests
     {
         using var input = Input(new string('h', 131073));
         var lines = new RunStore.BoundedLineReader(input);
-        await Assert.ThrowsAsync<InvalidDataException>(async () => await lines.ReadLineAsync(131072));
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await lines.ReadLineAsync(131072, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -72,8 +72,8 @@ public sealed class RunLineReaderTests
     {
         using var input = Input(text);
         var lines = new RunStore.BoundedLineReader(input);
-        Assert.Equal(expected, await lines.ReadLineAsync(8192));
-        Assert.Null(await lines.ReadLineAsync(8192));
+        Assert.Equal(expected, await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Null(await lines.ReadLineAsync(8192, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     private static StreamReader Input(string text) => new(new MemoryStream(Encoding.UTF8.GetBytes(text)), Encoding.UTF8);

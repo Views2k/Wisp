@@ -92,6 +92,7 @@ public sealed partial class RunsViewModel
         if (CountdownRemainingSeconds > 0) return;
         _countdownStartedAt = null;
         try { StartNow(); }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         { Fail("The recording could not start after the countdown. Check live telemetry and local storage, then try again."); }
     }
@@ -251,15 +252,17 @@ public sealed partial class RunsViewModel
         Error = "";
         Status = "Saving report image…";
         var id = _runA?.Id;
+        var permission = _libraryFeatureLifetime.Token;
         IsBusy = true;
         try
         {
             if (!await FlushMetadataAsync()) { Fail("Save the pending run details before saving the image. Your draft is kept."); return; }
-            if (_runA?.Id != id || _runA is null) return;
+            if (permission.IsCancellationRequested || !LibraryFeatureAvailable || _runA?.Id != id || _runA is null) return;
             var bitmap = RunImageExporter.Render(CreateImageSnapshot());
-            await StoreOperationAsync(() => RunImageExporter.WriteAsync(bitmap, destination));
+            await StoreOperationAsync(token => RunImageExporter.WriteAsync(bitmap, destination, token));
             Status = ImageExportSavedMessage;
         }
+        catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         { Fail("The report image could not be saved. Choose a new filename and try again."); }
         finally { IsBusy = false; OnChanged(nameof(CanExportImage)); }

@@ -24,16 +24,20 @@ public sealed partial class AppController
         Tunes = new TuneViewModel(_tuneStore, CaptureTuneAsync,
             snapshot => _tuneCapture?.IsCurrent(snapshot) == true, _dispatcher);
         if (_tuneCapture is not null) _tuneCapture.Invalidated += TuneCaptureInvalidated;
-        Runs.LoadTuneChoices = async token => (await _tuneStore.ListAsync(token)).Select(saved =>
-            new RunTuneChoice($"{saved.Name} Â· {TunePresentation.Car(saved.Snapshot)} Â· {saved.SavedAtUtc.ToLocalTime():g}", SavedTuneId: saved.Id)).ToArray();
+        Runs.LoadTuneChoices = async token => FeatureAllowed("tune-library") ? (await _tuneStore.ListAsync(token)).Select(saved =>
+            new RunTuneChoice($"{saved.Name} · {TunePresentation.Car(saved.Snapshot)} · {saved.SavedAtUtc.ToLocalTime():g}", SavedTuneId: saved.Id)).ToArray() : [];
         Runs.PrepareTune = PrepareRunTuneAsync;
-        Runs.ValidatePreparedTune = attachment => _tuneCapture?.IsCurrent(attachment.Snapshot) == true;
+        Runs.ValidatePreparedTune = attachment => FeatureAllowed("tune-read") &&
+            (attachment.Kind != RunTuneAttachmentKind.SavedMatchedAtStart || FeatureAllowed("tune-library")) &&
+            _tuneCapture?.IsCurrent(attachment.Snapshot) == true;
         Runs.AttachedTuneRequested += OpenAttachedTune;
         Runs.AttachedTuneComparisonRequested += CompareAttachedTunes;
     }
 
     private async Task<TuneCaptureResult> CaptureTuneAsync(CancellationToken token)
     {
+        if (!FeatureAllowed("tune-read"))
+            return new(null, TuneCaptureStatus.Cancelled, FeatureControls.Reason("tune-read") ?? "Tune reading is temporarily paused.");
         using var observation = SupplementaryObservations.Begin("feature", "tune", "capture");
         try
         {
@@ -61,6 +65,8 @@ public sealed partial class AppController
 
     private async Task<RunTunePreparation> PrepareRunTuneAsync(RunTuneChoice choice, CancellationToken token)
     {
+        if (choice.SavedTuneId is not null && !FeatureAllowed("tune-library"))
+            return new(null, FeatureControls.Reason("tune-library") ?? "Saved tunes are temporarily paused.");
         SavedTune? saved = choice.SavedTuneId is { } id ? await _tuneStore.LoadAsync(id, token) : null;
         var result = await CaptureTuneAsync(token);
         token.ThrowIfCancellationRequested();
@@ -74,11 +80,15 @@ public sealed partial class AppController
         return new(attachment);
     }
 
-    private void OpenAttachedTune(RunTuneAttachment attachment) =>
-        ControlPanel?.OpenTuneSnapshot(attachment.Snapshot, attachment.Name, attachment.Description);
+    private void OpenAttachedTune(RunTuneAttachment attachment)
+    {
+        if (FeatureAllowed("tune-library")) ControlPanel?.OpenTuneSnapshot(attachment.Snapshot, attachment.Name, attachment.Description);
+    }
 
-    private void CompareAttachedTunes(RunTuneAttachment a, RunTuneAttachment? b) =>
-        ControlPanel?.OpenTuneComparison(a.Snapshot, a.Name, a.Description, b?.Snapshot, b?.Name ?? "", b?.Description ?? "");
+    private void CompareAttachedTunes(RunTuneAttachment a, RunTuneAttachment? b)
+    {
+        if (FeatureAllowed("tune-library")) ControlPanel?.OpenTuneComparison(a.Snapshot, a.Name, a.Description, b?.Snapshot, b?.Name ?? "", b?.Description ?? "");
+    }
 
     private void TuneCaptureInvalidated(object? sender, EventArgs e) => Tunes.InvalidateCurrent(invalidateRefresh: false);
 

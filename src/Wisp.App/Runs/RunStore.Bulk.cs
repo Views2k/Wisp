@@ -12,7 +12,7 @@ public sealed partial class RunStore
     private sealed record BulkTransaction(Guid Id, string Kind, string Phase, RunArchiveEntry[] Runs);
     private sealed record PreparedImport(RunSummary Summary, string ContentHash);
 
-    public Task<int> ExportAllAsync(string destination) => InBackground(async () =>
+    public Task<int> ExportAllAsync(string destination, CancellationToken cancellationToken = default) => InBackground(async () =>
     {
         var (directory, _) = BeginTransaction("Export");
         try
@@ -22,19 +22,19 @@ public sealed partial class RunStore
             {
                 var staged = TransactionRunPath(directory, id);
                 await using (var input = File.OpenRead(path))
-                    await RunArchive.CopyBoundedAsync(input, staged, MaximumFileBytes).ConfigureAwait(false);
-                _ = await ReadAsync(staged, id).ConfigureAwait(false);
-                entries.Add(await RunArchive.DescribeAsync(id, staged).ConfigureAwait(false));
+                    await RunArchive.CopyBoundedAsync(input, staged, MaximumFileBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
+                _ = await ReadAsync(staged, id, cancellationToken).ConfigureAwait(false);
+                entries.Add(await RunArchive.DescribeAsync(id, staged, cancellationToken).ConfigureAwait(false));
             }
-            await RunArchive.WriteAsync(Path.Combine(directory, "runs"), entries.ToArray(), destination).ConfigureAwait(false);
+            await RunArchive.WriteAsync(Path.Combine(directory, "runs"), entries.ToArray(), destination, cancellationToken).ConfigureAwait(false);
             return entries.Count;
         }
         finally { CleanupTransaction(directory); }
-    });
+    }, cancellationToken);
 
-    public Task<RunImportResult> ImportManyAsync(IEnumerable<string> sources) => InBackground(() => ImportManyCoreAsync(sources));
+    public Task<RunImportResult> ImportManyAsync(IEnumerable<string> sources, CancellationToken cancellationToken = default) => InBackground(() => ImportManyCoreAsync(sources, cancellationToken), cancellationToken);
 
-    public Task<RunDeletionBatch> DeleteAllAsync() => InBackground(async () =>
+    public Task<RunDeletionBatch> DeleteAllAsync(CancellationToken cancellationToken = default) => InBackground(async () =>
     {
         if (!_activeJournals.IsEmpty) throw new IOException("Finish recording before removing saved runs.");
         var entries = new List<RunArchiveEntry>();
@@ -43,8 +43,8 @@ public sealed partial class RunStore
         {
             try
             {
-                _ = await ReadAsync(path, id).ConfigureAwait(false);
-                entries.Add(await RunArchive.DescribeAsync(id, path).ConfigureAwait(false));
+                _ = await ReadAsync(path, id, cancellationToken).ConfigureAwait(false);
+                entries.Add(await RunArchive.DescribeAsync(id, path, cancellationToken).ConfigureAwait(false));
             }
             catch (Exception error) when (IsDataError(error)) { skipped++; }
         }
@@ -55,7 +55,10 @@ public sealed partial class RunStore
         {
             WriteTransaction(directory, transaction);
             foreach (var entry in entries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 File.Move(RunPath(entry.Id), TransactionRunPath(directory, entry.Id), overwrite: false);
+            }
             var committed = transaction with { Phase = "Committed" };
             WriteTransaction(directory, committed);
             transaction = committed;
@@ -67,9 +70,9 @@ public sealed partial class RunStore
             RollbackAfterFailure(directory, transaction);
             throw;
         }
-    });
+    }, cancellationToken);
 
-    public Task<int> RestoreDeletedBatchAsync(Guid batchId) => InBackground(async () =>
+    public Task<int> RestoreDeletedBatchAsync(Guid batchId, CancellationToken cancellationToken = default) => InBackground(async () =>
     {
         if (batchId == Guid.Empty) throw new ArgumentException("Choose a removed run batch.", nameof(batchId));
         var directory = Path.Combine(_directory, "Deleted", batchId.ToString("N"));
@@ -80,16 +83,16 @@ public sealed partial class RunStore
         foreach (var entry in transaction.Runs)
         {
             var path = TransactionRunPath(directory, entry.Id);
-            var actual = await RunArchive.DescribeAsync(entry.Id, path).ConfigureAwait(false);
+            var actual = await RunArchive.DescribeAsync(entry.Id, path, cancellationToken).ConfigureAwait(false);
             if (actual.Length != entry.Length || !SameHash(actual.Sha256, entry.Sha256))
                 throw new InvalidDataException("A removed run has changed. The batch has been kept.");
             sources.Add(path);
         }
-        var result = await ImportManyCoreAsync(sources).ConfigureAwait(false);
+        var result = await ImportManyCoreAsync(sources, cancellationToken).ConfigureAwait(false);
         return result.Imported.Count;
-    });
+    }, cancellationToken);
 
-    private async Task<RunImportResult> ImportManyCoreAsync(IEnumerable<string> sources)
+    private async Task<RunImportResult> ImportManyCoreAsync(IEnumerable<string> sources, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sources);
         var supplied = sources.Take(MaximumLibraryEntries + 1).ToArray();
@@ -113,24 +116,24 @@ public sealed partial class RunStore
                 Directory.CreateDirectory(folder);
                 IReadOnlyList<StagedRunFile> files;
                 if (string.Equals(Path.GetExtension(source), ".zip", StringComparison.OrdinalIgnoreCase))
-                    files = await RunArchive.ExtractAsync(source, folder, MaximumLibraryEntries - inputCount).ConfigureAwait(false);
+                    files = await RunArchive.ExtractAsync(source, folder, MaximumLibraryEntries - inputCount, cancellationToken).ConfigureAwait(false);
                 else
                 {
                     ValidateExternalPath(source);
                     var staged = Path.Combine(folder, "input.wisprun");
                     await using (var input = File.OpenRead(source))
-                        await RunArchive.CopyBoundedAsync(input, staged, MaximumFileBytes).ConfigureAwait(false);
+                        await RunArchive.CopyBoundedAsync(input, staged, MaximumFileBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
                     files = [new(staged, null)];
                 }
                 inputCount += files.Count;
                 if (inputCount > MaximumLibraryEntries) throw new InvalidDataException("Import no more than 2,000 runs at a time.");
                 foreach (var item in files)
                 {
-                    var run = await ReadAsync(item.File, item.ExpectedId).ConfigureAwait(false);
+                    var run = await ReadAsync(item.File, item.ExpectedId, cancellationToken).ConfigureAwait(false);
                     if (_activeJournals.ContainsKey(run.Id)) throw new IOException("A run being recorded has the same identity. Finish recording before importing it.");
-                    var contentHash = ContentHash(run);
+                    var contentHash = ContentHash(run, cancellationToken);
                     if (!seen.TryGetValue(run.Id, out var previousHash) && File.Exists(RunPath(run.Id)))
-                        previousHash = ContentHash(await ReadAsync(RunPath(run.Id), run.Id).ConfigureAwait(false));
+                        previousHash = ContentHash(await ReadAsync(RunPath(run.Id), run.Id, cancellationToken).ConfigureAwait(false), cancellationToken);
                     if (previousHash is not null)
                     {
                         if (!SameHash(previousHash, contentHash))
@@ -141,7 +144,7 @@ public sealed partial class RunStore
                     {
                         var target = TransactionRunPath(directory, run.Id);
                         File.Move(item.File, target, overwrite: false);
-                        entries.Add(await RunArchive.DescribeAsync(run.Id, target).ConfigureAwait(false));
+                        entries.Add(await RunArchive.DescribeAsync(run.Id, target, cancellationToken).ConfigureAwait(false));
                         prepared.Add(run.Id, new(Summarize(run), contentHash));
                     }
                     seen[run.Id] = contentHash;
@@ -152,7 +155,10 @@ public sealed partial class RunStore
             transaction = initial with { Phase = "Applying", Runs = entries.OrderBy(value => value.Id).ToArray() };
             WriteTransaction(directory, transaction);
             foreach (var entry in transaction.Runs)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 File.Move(TransactionRunPath(directory, entry.Id), RunPath(entry.Id), overwrite: false);
+            }
             var committed = transaction with { Phase = "Committed" };
             WriteTransaction(directory, committed);
             transaction = committed;
@@ -186,13 +192,13 @@ public sealed partial class RunStore
         return files;
     }
 
-    private static string ContentHash(RecordedRun run)
+    private static string ContentHash(RecordedRun run, CancellationToken cancellationToken)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         Add(JsonSerializer.Serialize(run with { Samples = [] }, JsonOptions));
         foreach (var sample in run.Samples) Add(JsonSerializer.Serialize(sample, JsonOptions));
         return Convert.ToHexString(hash.GetHashAndReset());
-        void Add(string value) { hash.AppendData(Encoding.UTF8.GetBytes(value)); hash.AppendData("\n"u8); }
+        void Add(string value) { cancellationToken.ThrowIfCancellationRequested(); hash.AppendData(Encoding.UTF8.GetBytes(value)); hash.AppendData("\n"u8); }
     }
 
     private (string Directory, BulkTransaction Transaction) BeginTransaction(string kind)

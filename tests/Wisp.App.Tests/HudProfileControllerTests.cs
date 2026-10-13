@@ -8,6 +8,34 @@ namespace Wisp.App.Tests;
 public sealed class HudProfileControllerTests
 {
     [Fact]
+    public async Task FeaturePausePreservesProfilesAndPreferencesAcrossAllProfileActions()
+    {
+        var settings = CompletedSettings();
+        await using var controller = new AppController(settings, _ => { }, new NoStartupRegistration());
+        Assert.True(controller.TryCreateHudPreset("Keep this profile", out var saved, out var error), error);
+        var before = System.Text.Json.JsonSerializer.Serialize(settings);
+        await controller.ApplyFeatureControlsAsync(new(1,
+            System.Collections.Immutable.ImmutableDictionary<string, string>.Empty.Add("hud-profiles", "Profile editing is paused.")));
+        Assert.False(controller.TryCreateHudPreset("New profile", out _, out error));
+        Assert.Equal("Profile editing is paused.", error);
+        Assert.False(controller.TryUpdateHudPreset(saved!.Id, out _, out error));
+        Assert.Equal("Profile editing is paused.", error);
+        Assert.False(controller.TryRenameHudPreset(saved.Id, "Changed", out error));
+        Assert.False(controller.DeleteHudPreset(saved.Id));
+        Assert.False(controller.TryApplyHudPreset(saved.Id, out error));
+        Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(settings));
+        await controller.ApplyFeatureControlsAsync(new(2,
+            System.Collections.Immutable.ImmutableDictionary<string, string>.Empty.Add("appearance", "Appearance editing is paused.")));
+        Assert.False(controller.TryApplyHudPreset(saved.Id, out error));
+        Assert.Equal("Appearance editing is paused.", error);
+        Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(settings));
+        Assert.True(controller.TryRenameHudPreset(saved.Id, "Renamed", out error), error);
+        await controller.ApplyFeatureControlsAsync(new(3, System.Collections.Immutable.ImmutableDictionary<string, string>.Empty));
+        Assert.True(controller.TryApplyHudPreset(saved.Id, out error), error);
+        Assert.Equal("Renamed", Assert.Single(settings.HudPresets).Name);
+    }
+
+    [Fact]
     public async Task CompleteProfileRestoresCurrentCarsRangeInsteadOfTheCaptureCarsEffectiveRange()
     {
         var settings = CompletedSettings();

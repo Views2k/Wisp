@@ -11,6 +11,65 @@ namespace Wisp.App.Tests;
 public sealed class LapReviewViewModelTests
 {
     [Fact]
+    public void FeaturePauseCancelsReviewAndRestoresSelectionWithoutChangingSavedRunOrPreferences() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var run = Run();
+        await fixture.Store.SaveAsync(run);
+        var settings = new AppSettings { LapReviewRecordingEnabled = true };
+        using var model = fixture.Model(settings);
+        model.SetRuns(run, null);
+        await Ready(model);
+        model.Cursor = 25;
+        var originalLap = model.Lap!;
+        var originalTiming = model.Timing;
+        model.SetFeatureAvailable(false, "Lap review is paused for an update.");
+        await Ready(model);
+        Assert.False(model.FeatureAvailable);
+        Assert.False(model.HasLap);
+        Assert.Null(model.Lap);
+        Assert.Empty(model.Metrics);
+        Assert.Empty(model.Events);
+        Assert.Equal("Lap review is paused for an update.", model.FeatureStatus);
+        Assert.False(model.PinCommand.CanExecute(null));
+        model.PinCommand.Execute(null);
+        model.Lap = originalLap;
+        model.Timing = model.TimingChoices.First(item => item != originalTiming);
+        Assert.Null(model.Lap);
+        Assert.Same(originalTiming, model.Timing);
+        Assert.Null(settings.LapReviewBenchmarkRunId);
+        Assert.True(settings.LapReviewRecordingEnabled);
+        Assert.Equal(run.Samples.Length, (await fixture.Store.LoadAsync(run.Id)).Samples.Length);
+        model.SetFeatureAvailable(true, null);
+        await Ready(model);
+        Assert.True(model.HasLap);
+        Assert.Equal(originalLap.RunId, model.Lap!.RunId);
+        Assert.Equal(25, model.Cursor);
+        Assert.Equal("", model.FeatureStatus);
+        Assert.NotEmpty(model.Metrics);
+    });
+
+    [Fact]
+    public void FeaturePauseDuringLoadSuppressesItsResultAndRestoreUsesLatestSelectedRun() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        using var model = fixture.Model();
+        model.SetRuns(Run(), null);
+        Assert.True(model.IsBusy);
+        model.SetFeatureAvailable(false, "Review paused.");
+        var latest = Run() with { Name = "Latest selected while paused" };
+        model.SetRuns(latest, null);
+        await Ready(model);
+        Assert.Empty(model.Laps);
+        Assert.False(model.HasLap);
+        Assert.Equal("Review paused.", model.Status);
+        model.SetFeatureAvailable(true, null);
+        await Ready(model);
+        Assert.Equal(latest.Id, model.Lap!.RunId);
+        Assert.NotEmpty(model.Metrics);
+    });
+
+    [Fact]
     public void LoadingRaisesCommandStateAndCursorMovesKeepPreparedStatistics() => OnDispatcher(async () =>
     {
         using var fixture = new Fixture();

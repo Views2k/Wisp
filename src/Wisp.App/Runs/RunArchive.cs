@@ -39,33 +39,33 @@ internal static class RunArchive
         if (length > MaximumPayloadBytes) throw new InvalidDataException("The run archive is too large.");
     }
 
-    internal static async Task<RunArchiveEntry> DescribeAsync(Guid id, string path)
+    internal static async Task<RunArchiveEntry> DescribeAsync(Guid id, string path, CancellationToken cancellationToken = default)
     {
         RunStore.CheckPath(path);
         await using var input = File.OpenRead(path);
         if (input.Length is <= 0 or > RunStore.MaximumFileBytes)
             throw new InvalidDataException("A run file is empty or too large.");
-        return new(id, EntryPath(id), input.Length, Convert.ToHexString(await SHA256.HashDataAsync(input).ConfigureAwait(false)));
+        return new(id, EntryPath(id), input.Length, Convert.ToHexString(await SHA256.HashDataAsync(input, cancellationToken).ConfigureAwait(false)));
     }
 
-    internal static async Task CopyBoundedAsync(Stream input, string destination, long maximum, long? expected = null)
+    internal static async Task CopyBoundedAsync(Stream input, string destination, long maximum, long? expected = null, CancellationToken cancellationToken = default)
     {
         RunStore.CheckPath(destination);
         await using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, true);
         var buffer = new byte[65536];
         long total = 0;
         int count;
-        while ((count = await input.ReadAsync(buffer).ConfigureAwait(false)) != 0)
+        while ((count = await input.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false)) != 0)
         {
             total += count;
             if (total > maximum) throw new InvalidDataException("A run archive entry is too large.");
-            await output.WriteAsync(buffer.AsMemory(0, count)).ConfigureAwait(false);
+            await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
         }
         if (expected is { } size && total != size) throw new InvalidDataException("A run archive entry has an invalid size.");
         output.Flush(flushToDisk: true);
     }
 
-    internal static async Task WriteAsync(string directory, RunArchiveEntry[] entries, string destination)
+    internal static async Task WriteAsync(string directory, RunArchiveEntry[] entries, string destination, CancellationToken cancellationToken = default)
     {
         ValidateEntries(entries);
         if (!Path.IsPathFullyQualified(destination) || !string.Equals(Path.GetExtension(destination), ".zip", StringComparison.OrdinalIgnoreCase))
@@ -82,24 +82,25 @@ internal static class RunArchive
                     var manifest = archive.CreateEntry("manifest.json", CompressionLevel.NoCompression);
                     manifest.LastWriteTime = ZipTimestamp;
                     await using (var stream = manifest.Open())
-                        await JsonSerializer.SerializeAsync(stream, new RunArchiveManifest(Format, Version, entries), RunStore.JsonOptions).ConfigureAwait(false);
+                        await JsonSerializer.SerializeAsync(stream, new RunArchiveManifest(Format, Version, entries), RunStore.JsonOptions, cancellationToken).ConfigureAwait(false);
                     foreach (var item in entries)
                     {
                         var entry = archive.CreateEntry(item.Path, CompressionLevel.NoCompression);
                         entry.LastWriteTime = ZipTimestamp;
                         await using var input = File.OpenRead(Path.Combine(directory, $"{item.Id:N}.wisprun"));
                         await using var stream = entry.Open();
-                        await input.CopyToAsync(stream).ConfigureAwait(false);
+                        await input.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
                     }
                 }
                 output.Flush(flushToDisk: true);
             }
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporary, destination, overwrite: false);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    internal static async Task<IReadOnlyList<StagedRunFile>> ExtractAsync(string source, string staging, int maximumRuns)
+    internal static async Task<IReadOnlyList<StagedRunFile>> ExtractAsync(string source, string staging, int maximumRuns, CancellationToken cancellationToken = default)
     {
         RunStore.CheckPath(source);
         await using var file = File.OpenRead(source);
@@ -118,8 +119,8 @@ internal static class RunArchive
             throw new InvalidDataException("Choose a Wisp run archive with a valid manifest.");
         var manifestPath = Path.Combine(staging, "manifest.json");
         await using (var stream = manifestEntry.Open())
-            await CopyBoundedAsync(stream, manifestPath, MaximumManifestBytes, manifestEntry.Length).ConfigureAwait(false);
-        var manifest = JsonSerializer.Deserialize<RunArchiveManifest>(await File.ReadAllTextAsync(manifestPath).ConfigureAwait(false), RunStore.JsonOptions);
+            await CopyBoundedAsync(stream, manifestPath, MaximumManifestBytes, manifestEntry.Length, cancellationToken).ConfigureAwait(false);
+        var manifest = JsonSerializer.Deserialize<RunArchiveManifest>(await File.ReadAllTextAsync(manifestPath, cancellationToken).ConfigureAwait(false), RunStore.JsonOptions);
         if (manifest is null || manifest.Format != Format || manifest.Version != Version)
             throw new InvalidDataException("This run archive version is unsupported.");
         ValidateEntries(manifest.Runs);
@@ -133,8 +134,8 @@ internal static class RunArchive
                 throw new InvalidDataException("The run archive has a missing or mismatched run.");
             var path = Path.Combine(staging, $"{item.Id:N}.wisprun");
             await using (var stream = entry.Open())
-                await CopyBoundedAsync(stream, path, RunStore.MaximumFileBytes, item.Length).ConfigureAwait(false);
-            var actual = await DescribeAsync(item.Id, path).ConfigureAwait(false);
+                await CopyBoundedAsync(stream, path, RunStore.MaximumFileBytes, item.Length, cancellationToken).ConfigureAwait(false);
+            var actual = await DescribeAsync(item.Id, path, cancellationToken).ConfigureAwait(false);
             if (!string.Equals(actual.Sha256, item.Sha256, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("A run archive checksum does not match. No runs were imported.");
             result.Add(new(path, item.Id));

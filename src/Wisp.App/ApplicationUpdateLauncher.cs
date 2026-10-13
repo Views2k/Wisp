@@ -10,7 +10,8 @@ internal enum ApplicationUpdateHandoffState
 {
     Ready,
     HelperExited,
-    TimedOut
+    TimedOut,
+    Cancelled
 }
 
 internal readonly record struct ApplicationUpdateResultStatus(string Status, string Action, string Outcome = "unknown", Supplementary.SupplementaryIncident? Incident = null);
@@ -35,13 +36,16 @@ internal sealed class ApplicationUpdateHandoff : IDisposable
         }
     }
 
-    internal async Task<ApplicationUpdateHandoffState> WaitUntilReadyAsync(TimeSpan timeout)
+    internal async Task<ApplicationUpdateHandoffState> WaitUntilReadyAsync(TimeSpan timeout, CancellationToken cancellation = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (cancellation.IsCancellationRequested) return ApplicationUpdateHandoffState.Cancelled;
         var readyTask = Task.Run(() => _readyEvent.WaitOne(timeout));
         var timeoutTask = Task.Delay(timeout);
-        var completed = await Task.WhenAny(readyTask, _helperExited.Task, timeoutTask);
-        if (readyTask.IsCompletedSuccessfully && readyTask.Result)
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = cancellation.Register(() => cancelled.TrySetResult());
+        var completed = await Task.WhenAny(readyTask, _helperExited.Task, timeoutTask, cancelled.Task);
+        if (!cancellation.IsCancellationRequested && readyTask.IsCompletedSuccessfully && readyTask.Result)
         {
             return ApplicationUpdateHandoffState.Ready;
         }
@@ -50,6 +54,7 @@ internal sealed class ApplicationUpdateHandoff : IDisposable
         // point the helper either failed or exceeded the app's readiness window.
         _readyEvent.Set();
         await readyTask;
+        if (cancellation.IsCancellationRequested) return ApplicationUpdateHandoffState.Cancelled;
         return completed == _helperExited.Task
             ? ApplicationUpdateHandoffState.HelperExited
             : ApplicationUpdateHandoffState.TimedOut;

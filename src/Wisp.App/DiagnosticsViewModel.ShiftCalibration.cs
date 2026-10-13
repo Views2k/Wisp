@@ -9,6 +9,8 @@ public sealed partial class DiagnosticsViewModel
     private string _shiftCalibrationStatus = "Enable shift guidance, then return to driving to calibrate.";
     private bool _canStartShiftCalibration;
     private bool _canCancelShiftCalibration;
+    private bool _shiftCalibrationFeatureAvailable = true;
+    private string _shiftCalibrationFeatureReason = "Shift calibration is temporarily paused.";
 
     public string ShiftCalibrationStatus { get => _shiftCalibrationStatus; private set => Set(ref _shiftCalibrationStatus, value); }
     public bool CanStartShiftCalibration { get => _canStartShiftCalibration; private set => Set(ref _canStartShiftCalibration, value); }
@@ -29,12 +31,21 @@ public sealed partial class DiagnosticsViewModel
 
     internal void StartShiftCalibration()
     {
-        if (_shiftCalibration?.Start() == true)
+        if (_shiftCalibrationFeatureAvailable && _shiftCalibration?.Start() == true)
         {
             ResetShiftCue();
             NativeGaugeFrame = NativeGaugeFrame with { ShiftCue = default };
         }
         PublishShiftCalibrationStatus();
+    }
+
+    internal Task SetShiftCalibrationFeatureAvailable(bool available, string? reason)
+    {
+        _shiftCalibrationFeatureAvailable = available;
+        _shiftCalibrationFeatureReason = reason ?? "Shift calibration is temporarily paused.";
+        var pending = _shiftCalibration?.SetFeatureAvailable(available) ?? Task.CompletedTask;
+        PublishShiftCalibrationStatus();
+        return pending;
     }
 
     internal void CancelShiftCalibration()
@@ -57,8 +68,8 @@ public sealed partial class DiagnosticsViewModel
     private void PublishShiftCalibrationStatus()
     {
         if (_shiftCalibration is null) return;
-        ShiftCalibrationStatus = _shiftCalibration.Status;
-        CanStartShiftCalibration = AccelerationShiftCueEnabled && _shiftCalibration.CanStart;
+        ShiftCalibrationStatus = _shiftCalibrationFeatureAvailable ? _shiftCalibration.Status : _shiftCalibrationFeatureReason;
+        CanStartShiftCalibration = _shiftCalibrationFeatureAvailable && AccelerationShiftCueEnabled && _shiftCalibration.CanStart;
         CanCancelShiftCalibration = _shiftCalibration.Active;
         if (AccelerationShiftCueEnabled && CanCancelShiftCalibration)
             ShiftCueStatus = ActiveShiftCalibrationCueStatus;

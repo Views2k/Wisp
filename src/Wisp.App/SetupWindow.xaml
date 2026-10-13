@@ -65,7 +65,7 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <local:AmbientBackdrop x:Name="AmbientScene" Grid.Row="1" Grid.RowSpan="3"
-                                   IsAnimationEnabled="{Binding AnimatedBackground}" />
+                                   IsAnimationEnabled="{Binding EffectiveBackgroundAnimation}" />
             <Grid Background="{StaticResource PanelBrush}" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />

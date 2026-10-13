@@ -2,18 +2,22 @@ namespace Wisp.App;
 
 public sealed partial class AppController
 {
+    internal bool ShiftCueRuntimeEnabled => FeatureAllowed("shift-guidance") && (Settings.AccelerationShiftCueEnabled || ShiftCaptureActive);
     public void StartShiftCalibration() => ViewModel.StartShiftCalibration();
 
     public void CancelShiftCalibration() => ViewModel.CancelShiftCalibration();
 
     private void UpdateShiftCueObservation()
     {
-        var enabled = Settings.AccelerationShiftCueEnabled && !Settings.RequiresSetup &&
+        var enabled = FeatureAllowed("shift-guidance") && Settings.AccelerationShiftCueEnabled && !Settings.RequiresSetup &&
             !_runtimeSuspended && !_disposed;
-        var lapEnabled = (Settings.LapDeltaEnabled || Settings.LapMapEnabled || Settings.LapReviewRecordingEnabled) &&
+        var deltaEnabled = HudFeatureAllowed("lap-delta") && Settings.LapDeltaEnabled;
+        var mapEnabled = HudFeatureAllowed("lap-map") && Settings.LapMapEnabled;
+        var recordingEnabled = FeatureAllowed("lap-recording") && FeatureAllowed("run-library") && Settings.LapReviewRecordingEnabled;
+        var lapEnabled = (deltaEnabled || mapEnabled || recordingEnabled) &&
             !Settings.RequiresSetup && !_runtimeSuspended && !_disposed;
-        _lapDelta.Configure(lapEnabled, Settings.LapDeltaReference, Settings.LapMapEnabled, Settings.LapTimingMode,
-            Settings.LapReviewRecordingEnabled);
+        _lapDelta.Configure(lapEnabled, Settings.LapDeltaReference, mapEnabled, Settings.LapTimingMode,
+            recordingEnabled);
         _receiver.ValidatedStateObserver = enabled && lapEnabled ? ObserveLapAndShiftTelemetry :
             enabled ? ViewModel.ObserveShiftCueTelemetry : lapEnabled ? _lapDelta.Observe : null;
         if (!enabled) ViewModel.ResetShiftCueObservations();

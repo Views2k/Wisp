@@ -47,8 +47,8 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
 
     public async Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximumResponseBytes, CancellationToken cancellation)
     {
-        if (route is not ("/api/v1/content" or "/api/v1/events" or "/api/v1/support") ||
-            (route == "/api/v1/content") != (body is null) || maximumResponseBytes is <= 0 or > 128 * 1024 ||
+        if (route is not ("/api/v1/content" or "/api/v1/feature-controls" or "/api/v1/events" or "/api/v1/support") ||
+            (route is "/api/v1/content" or "/api/v1/feature-controls") != (body is null) || maximumResponseBytes is <= 0 or > 128 * 1024 ||
             body?.Length > (route == "/api/v1/support" ? SupplementarySchema.MaximumSupportBytes : SupplementarySchema.MaximumBatchBytes))
             return new(SupplementaryRequestStatus.Invalid, []);
         using var timeout = new CancellationTokenSource(RequestTimeout, _clock);

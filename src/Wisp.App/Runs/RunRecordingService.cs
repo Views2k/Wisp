@@ -25,6 +25,7 @@ public sealed class RunRecordingService : IAsyncDisposable
     private readonly object _notificationGate = new();
     private StateSnapshot? _lastNotified;
     private bool _disposed;
+    private bool _featureAvailable = true;
 
     public RunRecordingService(TelemetryUdpReceiver receiver, string directory)
     {
@@ -43,9 +44,17 @@ public sealed class RunRecordingService : IAsyncDisposable
     public string Status => Volatile.Read(ref _status);
     public string? Error => Volatile.Read(ref _error);
     public string MarkerStatus => Volatile.Read(ref _markerStatus);
-    public bool CanStart => !_disposed && !Store.IsFull && Volatile.Read(ref _session) is null && _receiver.IsRunning &&
+    public bool CanStart => Volatile.Read(ref _featureAvailable) && !_disposed && !Store.IsFull && Volatile.Read(ref _session) is null && _receiver.IsRunning &&
         _receiver.Latest is { IsRaceOn: true, CarOrdinal: > 0, ReceivedTimestamp: { } stamp } &&
         Stopwatch.GetElapsedTime(stamp) is { TotalMilliseconds: >= 0 and <= 300 };
+
+    internal Task<RecordedRun?> SetFeatureAvailableAsync(bool available)
+    {
+        lock (_gate) _featureAvailable = available;
+        if (!available) return StopAsync("Recording paused by Wisp");
+        NotifyStateChanged();
+        return Task.FromResult<RecordedRun?>(null);
+    }
 
     public void UpdateContext(RunRecordingContext context)
     {

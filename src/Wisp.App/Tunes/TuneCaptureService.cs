@@ -38,6 +38,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
     private string _session = string.Empty;
     private int _carOrdinal;
     private bool _disposed;
+    private bool _featureAvailable = true;
     private Task? _disposeTask;
 
     public TuneCaptureService() : this(new NativeHudProcessMemoryFactory(), null) { }
@@ -83,6 +84,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_featureAvailable) return new(null, TuneCaptureStatus.Cancelled, "Tune reading is temporarily paused.");
             if (_flight is null || _flight.Task.IsCompleted || _flight.Generation != _generation)
             {
                 flight = new Flight(_generation, CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token));
@@ -119,9 +121,24 @@ public sealed class TuneCaptureService : IAsyncDisposable
     public bool IsCurrent(TuneSnapshot snapshot)
     {
         lock (_gate)
-            return !_disposed && _stamps.TryGetValue(snapshot, out var stamp) &&
+            return !_disposed && _featureAvailable && _stamps.TryGetValue(snapshot, out var stamp) &&
                 stamp.Generation == _generation && stamp.CompatibilityGeneration == _factory.CompatibilityGeneration &&
                 stamp.Session == _session && snapshot.Identity.CarOrdinal == _carOrdinal;
+    }
+
+    internal void SetFeatureAvailable(bool available)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _featureAvailable == available) return;
+            _featureAvailable = available;
+            _generation++;
+            _session = string.Empty;
+            _carOrdinal = 0;
+            if (!available)
+                foreach (var flight in _activeFlights.Where(f => !f.Task.IsCompleted)) flight.Cancellation.Cancel();
+        }
+        Invalidated?.Invoke(this, EventArgs.Empty);
     }
 
     public void Invalidate()

@@ -73,6 +73,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private readonly List<ResetReportState> _resetHistory = [];
     private sealed record ResetReportState(long Sequence, string Trigger, long? SessionAgeMilliseconds, FailureReportState Detail);
     private long _resetSequence, _sessionStarted;
+    private bool _featureAvailable = true;
     private bool _enabled, _saving, _cleanupFailed, _showCaptureBorder;
     private CancellationTokenSource? _recoveryCancellation;
     private Task _recoveryTask = Task.CompletedTask;
@@ -190,6 +191,12 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         Signal();
     }
 
+    internal Task SetFeatureAvailableAsync(bool available, ClipRecordingSpec recording)
+    {
+        lock (_sync) _featureAvailable = available;
+        return available ? Task.CompletedTask : SetEnabledAsync(false, recording, CancellationToken.None);
+    }
+
     public async Task SetEnabledAsync(bool enabled, ClipRecordingSpec recording, CancellationToken cancellationToken, bool showCaptureBorder = false)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -199,7 +206,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             if (!_helperAvailable || _cleanupFailed) throw new RecorderClientException(_cleanupFailed ? "helper_shutdown_failed" : "unsupported_os");
             RecorderProtocol.ValidateRecording(recording);
             long requestedRevision;
-            lock (_sync) requestedRevision = _revision;
+            lock (_sync) { if (!_featureAvailable) return; requestedRevision = _revision; }
             var storage = await _validateStorage(cancellationToken).ConfigureAwait(false);
             long revision;
             IRecorderSession? previousSession;
@@ -207,6 +214,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             {
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!_featureAvailable) return;
                 if (_revision != requestedRevision)
                     throw new OperationCanceledException("The recording request was superseded.", cancellationToken);
                 if (!ClipsSettings.CanRecordToDirectory(storage))

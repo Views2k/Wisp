@@ -22,7 +22,7 @@ public sealed class RunStoreTests : IDisposable
         var run = RunTestData.CreateRun() with { LapTimingMode = timing };
         await store.SaveAsync(run);
         await store.UpdateMetadataAsync(run.Id, "Lap", "Tune", "Notes");
-        var loaded = await store.LoadAsync(run.Id);
+        var loaded = await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(timing, loaded.LapTimingMode);
         Assert.Equal(run.Samples, loaded.Samples);
     }
@@ -46,7 +46,7 @@ public sealed class RunStoreTests : IDisposable
         var run = RunTestData.CreateRun();
         run = run with { Samples = run.Samples.Select(sample => sample with { State = sample.State with { LocalVelocityYMetersPerSecond = y } }).ToArray() };
         await store.SaveAsync(run);
-        Assert.Equal(run.Samples, (await store.LoadAsync(run.Id)).Samples);
+        Assert.Equal(run.Samples, (await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Samples);
     }
 
     [Fact]
@@ -72,8 +72,8 @@ public sealed class RunStoreTests : IDisposable
             }
         }
         var store = new RunStore(Path.Combine(_directory, "library"));
-        var imported = await store.ImportAsync(source);
-        var loaded = await store.LoadAsync(imported.Id);
+        var imported = await store.ImportAsync(source, cancellationToken: TestContext.Current.CancellationToken);
+        var loaded = await store.LoadAsync(imported.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Null(loaded.LapTimingMode);
         Assert.Equal(run.Samples, loaded.Samples);
         Assert.All(loaded.Samples, sample => Assert.Null(sample.State.LocalVelocityYMetersPerSecond));
@@ -98,18 +98,18 @@ public sealed class RunStoreTests : IDisposable
         var store = new RunStore(_directory);
         var run = RunTestData.CreateRun();
         await store.SaveAsync(run);
-        var summary = Assert.Single(await store.ListAsync());
+        var summary = Assert.Single(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(run.Id, summary.Id);
         Assert.Equal(2, summary.SampleCount);
-        var loaded = await store.LoadAsync(run.Id);
+        var loaded = await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(run.Samples, loaded.Samples);
         await store.UpdateMetadataAsync(run.Id, "  Wet drift  ", "Road tune", "Two laps\nSame tires");
-        Assert.Equal("Wet drift", (await store.LoadAsync(run.Id)).Name);
-        await store.DeleteAsync(run.Id);
-        Assert.Empty(await store.ListAsync());
+        Assert.Equal("Wet drift", (await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Name);
+        await store.DeleteAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.True(File.Exists(Path.Combine(_directory, "Deleted", $"{run.Id:N}.wisprun")));
-        await store.RestoreAsync(run.Id);
-        Assert.Equal(run.Samples, (await store.LoadAsync(run.Id)).Samples);
+        await store.RestoreAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(run.Samples, (await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Samples);
     }
 
     [Fact]
@@ -121,15 +121,15 @@ public sealed class RunStoreTests : IDisposable
         var export = Path.Combine(Path.GetTempPath(), "WispRunTests", $"{Guid.NewGuid():N}-export.wisprun");
         try
         {
-            await store.ExportAsync(run.Id, export);
-            await store.DeleteAsync(run.Id);
-            await store.ImportManyAsync([export]);
-            Assert.Equal(run.Id, Assert.Single(await store.ListAsync()).Id);
-            await store.DeleteAsync(run.Id);
-            Assert.Empty(await store.ListAsync());
+            await store.ExportAsync(run.Id, export, cancellationToken: TestContext.Current.CancellationToken);
+            await store.DeleteAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
+            await store.ImportManyAsync([export], cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(run.Id, Assert.Single(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken)).Id);
+            await store.DeleteAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Equal(2, Directory.GetFiles(Path.Combine(_directory, "Deleted"), $"{run.Id:N}*.wisprun").Length);
-            await store.RestoreAsync(run.Id);
-            Assert.Equal(run.Samples, (await store.LoadAsync(run.Id)).Samples);
+            await store.RestoreAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(run.Samples, (await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Samples);
         }
         finally { File.Delete(export); }
     }
@@ -141,13 +141,13 @@ public sealed class RunStoreTests : IDisposable
         var run = RunTestData.CreateRun();
         await store.SaveAsync(run);
         var export = Path.Combine(_directory, $"{Guid.NewGuid():N}.wisprun");
-        await store.ExportAsync(run.Id, export);
+        await store.ExportAsync(run.Id, export, cancellationToken: TestContext.Current.CancellationToken);
         var original = await File.ReadAllBytesAsync(export, TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<IOException>(() => store.ExportAsync(run.Id, export));
+        await Assert.ThrowsAsync<IOException>(() => store.ExportAsync(run.Id, export, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(original, await File.ReadAllBytesAsync(export, TestContext.Current.CancellationToken));
-        var imported = await store.ImportAsync(export);
+        var imported = await store.ImportAsync(export, cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotEqual(run.Id, imported.Id);
-        Assert.Equal(run.Samples, (await store.LoadAsync(imported.Id)).Samples);
+        Assert.Equal(run.Samples, (await store.LoadAsync(imported.Id, cancellationToken: TestContext.Current.CancellationToken)).Samples);
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public sealed class RunStoreTests : IDisposable
         var run = RunTestData.CreateRun();
         await store.SaveAsync(run);
         await Assert.ThrowsAsync<InvalidDataException>(() => store.UpdateMetadataAsync(run.Id, "bad\0name", "", ""));
-        Assert.Equal(run.Name, (await store.LoadAsync(run.Id)).Name);
+        Assert.Equal(run.Name, (await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Name);
         Assert.Empty(Directory.EnumerateFiles(_directory, "*.tmp"));
     }
 
@@ -168,9 +168,9 @@ public sealed class RunStoreTests : IDisposable
         var run = RunTestData.CreateRun();
         await store.SaveAsync(run);
         await File.WriteAllTextAsync(Path.Combine(_directory, $"{run.Id:N}.summary.json"), "{broken", TestContext.Current.CancellationToken);
-        var summary = Assert.Single(await store.ListAsync());
+        var summary = Assert.Single(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(run.Id, summary.Id);
-        Assert.Equal(run.Samples, (await store.LoadAsync(run.Id)).Samples);
+        Assert.Equal(run.Samples, (await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Samples);
     }
 
     [Theory]
@@ -203,9 +203,9 @@ public sealed class RunStoreTests : IDisposable
             foreach (var sample in run.Samples) await writer.WriteLineAsync(JsonSerializer.Serialize(sample, options));
         }
         var store = new RunStore(Path.Combine(_directory, "library"));
-        var error = await Record.ExceptionAsync(() => store.ImportAsync(source));
+        var error = await Record.ExceptionAsync(() => store.ImportAsync(source, cancellationToken: TestContext.Current.CancellationToken));
         Assert.True(error is InvalidDataException or JsonException);
-        Assert.Empty(await store.ListAsync());
+        Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -215,8 +215,8 @@ public sealed class RunStoreTests : IDisposable
         var source = Path.Combine(_directory, "oversize.wisprun");
         using (var file = File.Create(source)) file.SetLength(RunStore.MaximumFileBytes + 1);
         var store = new RunStore(Path.Combine(_directory, "library"));
-        await Assert.ThrowsAsync<InvalidDataException>(() => store.ImportAsync(source));
-        Assert.Empty(await store.ListAsync());
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.ImportAsync(source, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -229,14 +229,14 @@ public sealed class RunStoreTests : IDisposable
             await journal.AppendAsync(run.Samples[0]);
             await journal.AppendAsync(run.Samples[1]);
             await journal.FlushAsync();
-            Assert.Empty(await store.ListAsync());
+            Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         await File.AppendAllTextAsync(Path.Combine(_directory, $"{run.Id:N}.partial"), "{\"elapsedSeconds\":", TestContext.Current.CancellationToken);
         var recoveredStore = new RunStore(_directory);
-        var summary = Assert.Single(await recoveredStore.ListAsync());
+        var summary = Assert.Single(await recoveredStore.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.True(summary.IsIncomplete);
         Assert.Contains("Recovered", summary.FinishReason);
-        Assert.Equal(run.Samples, (await recoveredStore.LoadAsync(run.Id)).Samples);
+        Assert.Equal(run.Samples, (await recoveredStore.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).Samples);
         Assert.False(File.Exists(Path.Combine(_directory, $"{run.Id:N}.partial")));
     }
 
@@ -248,10 +248,10 @@ public sealed class RunStoreTests : IDisposable
         await using var journal = store.CreateJournal(run with { Samples = [] });
         await journal.AppendAsync(run.Samples[0]);
         await journal.FlushAsync();
-        Assert.Empty(await store.ListAsync());
+        Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         await store.SaveAsync(run);
-        Assert.Single(await store.ListAsync());
-        Assert.False((await store.LoadAsync(run.Id)).IsIncomplete);
+        Assert.Single(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False((await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).IsIncomplete);
     }
 
     [Fact]

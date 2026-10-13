@@ -38,7 +38,7 @@ public sealed partial class AppController
             _shiftCapture.Record("recorder_self_check", selfCheck);
             _shiftCapture.Record("storage_self_check", storageCheck);
             ShiftCaptureHub.Attach(_shiftCapture);
-            _nativeHudProcessService.ShiftCueEnabled = true;
+            _nativeHudProcessService.ShiftCueEnabled = ShiftCueRuntimeEnabled;
             _shiftCapture.RequestCanary();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -53,6 +53,8 @@ public sealed partial class AppController
     private bool CanStartShiftCapture()
     {
         if (_disposed || _runtimeSuspended) return false;
+        if (!FeatureAllowed("shift-guidance"))
+        { _shiftCaptureStatus = FeatureControls.Reason("shift-guidance") ?? "Shift guidance is temporarily paused."; return false; }
         if (!_receiver.IsRunning || Settings.RequiresSetup)
         { _shiftCaptureStatus = "Complete the telemetry connection first."; return false; }
         if (!ViewModel.AccelerationShiftCueEnabled)
@@ -64,7 +66,10 @@ public sealed partial class AppController
         return true;
     }
 
-    internal void CheckShiftCapture() => _shiftCapture?.RequestCanary();
+    internal void CheckShiftCapture()
+    {
+        if (FeatureAllowed("shift-guidance")) _shiftCapture?.RequestCanary();
+    }
 
     internal Task<string?> StopShiftCaptureAsync()
     {
@@ -92,7 +97,7 @@ public sealed partial class AppController
         {
             _shiftCapture = null;
             _shiftCaptureSaving = null;
-            _nativeHudProcessService.ShiftCueEnabled = Settings.AccelerationShiftCueEnabled;
+            _nativeHudProcessService.ShiftCueEnabled = ShiftCueRuntimeEnabled;
         }
     }
 }

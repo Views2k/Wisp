@@ -23,10 +23,10 @@ public sealed class RunTuneAttachmentTests : IDisposable
         var header = await ReadHeader(Path.Combine(Folder("legacy"), $"{run.Id:N}.wisprun"));
         Assert.DoesNotContain("tuneAttachment", header, StringComparison.Ordinal);
         Assert.Equal(1, JsonDocument.Parse(header).RootElement.GetProperty("schemaVersion").GetInt32());
-        var loaded = await store.LoadAsync(run.Id);
+        var loaded = await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(run.Tune, loaded.Tune);
         Assert.Null(loaded.TuneAttachment);
-        Assert.Null(Assert.Single(await store.ListAsync()).AttachedTuneName);
+        Assert.Null(Assert.Single(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken)).AttachedTuneName);
         Assert.Equal(run.Samples, loaded.Samples);
     }
 
@@ -82,18 +82,18 @@ public sealed class RunTuneAttachmentTests : IDisposable
         var pending = await store.SaveMetadataDraftAsync(new(run.Id, "", run.Tune, "Pending notes"));
         Assert.True(pending.DraftPreserved);
         Assert.True(pending.NeedsName);
-        Assert.Equal(original, JsonSerializer.Serialize((await store.LoadAsync(run.Id)).TuneAttachment, RunStore.JsonOptions));
+        Assert.Equal(original, JsonSerializer.Serialize((await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).TuneAttachment, RunStore.JsonOptions));
         var committed = await store.SaveMetadataDraftAsync(new(run.Id, "Renamed run", "Updated legacy label", "Two\nlines"));
         Assert.NotNull(committed.Summary);
         Assert.Equal(run.TuneAttachment!.Name, committed.Summary.AttachedTuneName);
-        Assert.Equal(run.TuneAttachment.Name, Assert.Single(await store.ListAsync()).AttachedTuneName);
-        var loaded = await store.LoadAsync(run.Id);
+        Assert.Equal(run.TuneAttachment.Name, Assert.Single(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken)).AttachedTuneName);
+        var loaded = await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(2, loaded.SchemaVersion);
         Assert.Equal("Updated legacy label", loaded.Tune);
         Assert.Equal("Two\nlines", loaded.Notes);
         Assert.Equal(original, JsonSerializer.Serialize(loaded.TuneAttachment, RunStore.JsonOptions));
         await store.UpdateMetadataAsync(run.Id, "Again", "New label", "New notes");
-        Assert.Equal(original, JsonSerializer.Serialize((await store.LoadAsync(run.Id)).TuneAttachment, RunStore.JsonOptions));
+        Assert.Equal(original, JsonSerializer.Serialize((await store.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).TuneAttachment, RunStore.JsonOptions));
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public sealed class RunTuneAttachmentTests : IDisposable
         await tunes.UpdateMetadataAsync(original.Id, "Renamed later", "Changed later", TestContext.Current.CancellationToken);
         Assert.True(await tunes.DeleteAsync(original.Id, TestContext.Current.CancellationToken));
         Assert.Empty(await tunes.ListAsync(TestContext.Current.CancellationToken));
-        var loaded = (await runs.LoadAsync(run.Id)).TuneAttachment!;
+        var loaded = (await runs.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken)).TuneAttachment!;
         Assert.Equal(original.Name, loaded.Name);
         Assert.Equal(original.Description, loaded.Description);
         Assert.Equal(original.Snapshot.Id, loaded.Snapshot.Id);
@@ -123,19 +123,19 @@ public sealed class RunTuneAttachmentTests : IDisposable
         var source = new RunStore(Folder("source"));
         await source.SaveAsync(run);
         var single = Path.Combine(_root, "one.wisprun");
-        await source.ExportAsync(run.Id, single);
+        await source.ExportAsync(run.Id, single, cancellationToken: TestContext.Current.CancellationToken);
         var singleStore = new RunStore(Folder("single"));
-        var imported = await singleStore.ImportAsync(single);
+        var imported = await singleStore.ImportAsync(single, cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotEqual(run.Id, imported.Id);
-        var loadedSingle = await singleStore.LoadAsync(imported.Id);
+        var loadedSingle = await singleStore.LoadAsync(imported.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(JsonSerializer.Serialize(run.TuneAttachment, RunStore.JsonOptions),
             JsonSerializer.Serialize(loadedSingle.TuneAttachment, RunStore.JsonOptions));
         Assert.Equal(run.Tune, loadedSingle.Tune);
         var archive = Path.Combine(_root, "library.zip");
-        await source.ExportAllAsync(archive);
+        await source.ExportAllAsync(archive, cancellationToken: TestContext.Current.CancellationToken);
         var bulkStore = new RunStore(Folder("bulk"));
-        Assert.Single((await bulkStore.ImportManyAsync([archive])).Imported);
-        var loadedBulk = await bulkStore.LoadAsync(run.Id);
+        Assert.Single((await bulkStore.ImportManyAsync([archive], cancellationToken: TestContext.Current.CancellationToken)).Imported);
+        var loadedBulk = await bulkStore.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(JsonSerializer.Serialize(run, RunStore.JsonOptions), JsonSerializer.Serialize(loadedBulk, RunStore.JsonOptions));
     }
 
@@ -152,7 +152,7 @@ public sealed class RunTuneAttachmentTests : IDisposable
             await using var journal = store.CreateJournal(run with { Samples = [] });
             foreach (var sample in run.Samples) await journal.AppendAsync(sample);
             await journal.FlushAsync();
-            Assert.Empty(await store.ListAsync());
+            Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         else
         {
@@ -164,8 +164,8 @@ public sealed class RunTuneAttachmentTests : IDisposable
         }
         await File.AppendAllTextAsync(journalPath, "{\"elapsedSeconds\":", TestContext.Current.CancellationToken);
         var recovered = new RunStore(Folder("recovery"));
-        Assert.Single(await recovered.ListAsync());
-        var loaded = await recovered.LoadAsync(run.Id);
+        Assert.Single(await recovered.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        var loaded = await recovered.LoadAsync(run.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(expectedVersion, loaded.SchemaVersion);
         Assert.True(loaded.IsIncomplete);
         Assert.True(loaded.TuneAttachment!.DrivingContinuityInterrupted);
