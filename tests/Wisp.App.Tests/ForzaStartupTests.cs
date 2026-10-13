@@ -41,7 +41,7 @@ public sealed class ForzaStartupTests
     }
 
     [Fact]
-    public void ViewModelLoadsAndNotifiesTheThreeNewBindings()
+    public void ViewModelLoadsAndNotifiesStartupAndEffectiveAnimationBindings()
     {
         var settings = new AppSettings
         {
@@ -56,6 +56,7 @@ public sealed class ForzaStartupTests
         Assert.False(model.CanSetWindowsStartup);
         Assert.True(model.StartMinimizedWithForza);
         Assert.False(model.AnimatedBackground);
+        Assert.False(model.EffectiveBackgroundAnimation);
 
         model.StartWithForza = false;
         model.StartMinimizedWithForza = false;
@@ -63,8 +64,9 @@ public sealed class ForzaStartupTests
         model.AnimatedBackground = true;
 
         Assert.True(model.CanSetWindowsStartup);
+        Assert.True(model.EffectiveBackgroundAnimation);
         Assert.Equal(
-            new[] { "StartWithForza", "CanSetWindowsStartup", "StartMinimizedWithForza", "AnimatedBackground" }, changes);
+            new[] { "StartWithForza", "CanSetWindowsStartup", "StartMinimizedWithForza", "AnimatedBackground", "EffectiveBackgroundAnimation" }, changes);
     }
 
     [Theory]

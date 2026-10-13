@@ -71,14 +71,14 @@ public sealed class SetupPresentationTests
         var backdrop = Assert.Single(wizard.Descendants(), element => element.Name.LocalName == "AmbientBackdrop");
         Assert.Equal("1", backdrop.Attribute("Grid.Row")?.Value);
         Assert.Equal("3", backdrop.Attribute("Grid.RowSpan")?.Value);
-        Assert.Equal("{Binding AnimatedBackground}", backdrop.Attribute("IsAnimationEnabled")?.Value);
+        Assert.Equal("{Binding EffectiveBackgroundAnimation}", backdrop.Attribute("IsAnimationEnabled")?.Value);
         foreach (var file in new[] { "MainWindow.xaml", "LegacyMainWindow.xaml" })
         {
             var appBackdrop = Assert.Single(XDocument.Parse(Source(file)).Descendants(), element => element.Name.LocalName == "AmbientBackdrop");
             Assert.Equal("True", appBackdrop.Attribute("ParticlesOnly")?.Value);
             Assert.Equal("False", appBackdrop.Attribute("IsPointerInteractionEnabled")?.Value);
             Assert.Equal("{DynamicResource AppParticleColor}", appBackdrop.Attribute("ParticleColor")?.Value);
-            Assert.Equal("{Binding AnimatedBackground}", appBackdrop.Attribute("IsAnimationEnabled")?.Value);
+            Assert.Equal("{Binding EffectiveBackgroundAnimation}", appBackdrop.Attribute("IsAnimationEnabled")?.Value);
         }
         Assert.DoesNotContain("A little atmosphere", Source("MainWindow.xaml"), StringComparison.Ordinal);
         Assert.DoesNotContain("AmbientBackdrop", Source("OverlayWindow.xaml"), StringComparison.Ordinal);

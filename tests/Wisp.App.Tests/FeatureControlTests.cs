@@ -1,8 +1,10 @@
 using System.IO;
 using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Windows.Threading;
 using Wisp.App.Supplementary;
 using Xunit;
 
@@ -288,7 +290,7 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task ControllerAppliesAndRestoresRecordingControlsWithoutChangingPreferences()
+    public void ControllerAppliesAndRestoresRecordingControlsWithoutChangingPreferences() => OnDispatcher(async () =>
     {
         var settings = new AppSettings();
         settings.Clips.Enabled = true;
@@ -297,7 +299,17 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
         var before = JsonSerializer.Serialize(settings);
         var state = new FeatureControlState(1, new[] { "run-recording", "clip-recording", "tune-read", "support", "news" }
             .ToImmutableDictionary(key => key, _ => "Temporarily paused."));
-        await controller.ApplyFeatureControlsAsync(state);
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var recorder = (Clips.ClipRecorderService)typeof(AppController).GetField("_clipRecorder", flags)!.GetValue(controller)!;
+        var lifecycle = (SemaphoreSlim)typeof(Clips.ClipRecorderService).GetField("_lifecycle", flags)!.GetValue(recorder)!;
+        await lifecycle.WaitAsync(TestContext.Current.CancellationToken);
+        var paused = controller.ApplyFeatureControlsAsync(state);
+        Assert.False(paused.IsCompleted);
+        await Task.Run(() => lifecycle.Release(), TestContext.Current.CancellationToken);
+        await paused;
+        await Dispatcher.Yield(DispatcherPriority.DataBind);
+        Assert.False(recorder.Snapshot.Enabled);
+        Assert.False(controller.Clips.ClippingEnabled);
         Assert.False(controller.FeatureAllowed("run-recording"));
         Assert.False(controller.Clips.CanToggle);
         Assert.False(controller.Runs.CanToggleRecording);
@@ -313,6 +325,27 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
         await controller.ApplyFeatureControlsAsync(state);
         Assert.Equal(2, controller.FeatureControls.State.Revision);
         Assert.True(controller.FeatureAllowed("run-recording"));
+    });
+
+    private static void OnDispatcher(Func<Task> test)
+    {
+        Exception? failure = null;
+        using var finished = new ManualResetEventSlim();
+        var thread = new Thread(() =>
+        {
+            var dispatcher = Dispatcher.CurrentDispatcher;
+            _ = dispatcher.InvokeAsync(async () =>
+            {
+                try { await test(); }
+                catch (Exception error) { failure = error; }
+                finally { dispatcher.BeginInvokeShutdown(DispatcherPriority.Send); finished.Set(); }
+            });
+            Dispatcher.Run();
+        })
+        { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA); thread.Start();
+        Assert.True(finished.Wait(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken), "Feature control test exceeded its bounded dispatcher deadline.");
+        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     [Fact]
