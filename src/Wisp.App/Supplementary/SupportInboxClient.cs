@@ -11,7 +11,7 @@ internal sealed record SupportInboxMessage(Guid Id, string Reference, string Kin
     DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? ReadAt, bool Replied = false);
 internal sealed record SupportInboxSnapshot(int SchemaVersion, DateTimeOffset CheckedAt, SupportInboxMessage[] Messages);
 
-internal sealed class SupportInboxClient : IDisposable
+internal sealed partial class SupportInboxClient : IDisposable
 {
     private readonly string _secret;
     private readonly HttpClient _http;
@@ -75,8 +75,8 @@ internal sealed class SupportInboxClient : IDisposable
             {
                 if (_enabled())
                     try { _captureDiagnostics?.Invoke(); } catch (Exception) { }
-                await RefreshAsync(cancellation).ConfigureAwait(false);
-                await Task.Delay(TimeSpan.FromSeconds(25 + Random.Shared.NextDouble() * 5), cancellation).ConfigureAwait(false);
+                await RefreshChatAsync(cancellation).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(ChatOpen ? 5 : 25 + Random.Shared.NextDouble() * 5), cancellation).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) { }

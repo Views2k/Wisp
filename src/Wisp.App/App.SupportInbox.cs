@@ -44,6 +44,9 @@ public partial class App
     private void StopSupportInbox() => _supportInbox?.Dispose();
     internal SupportInboxSnapshot SupportInbox => _supportInbox?.Snapshot ?? new(1, DateTimeOffset.MinValue, []);
     internal string SupportInboxStatus => _supportInbox?.Status ?? "Replies are unavailable. Restart Wisp to retry.";
+    internal SupportChatSnapshot SupportChat => _supportInbox?.Chat ?? new(1, DateTimeOffset.MinValue, []);
+    internal Task RefreshSupportChatAsync(bool older = false, Guid[]? readIds = null) => _supportInbox?.RefreshChatAsync(older: older, readIds: readIds) ?? Task.CompletedTask;
+    internal void SetSupportChatOpen(bool open) { if (_supportInbox is { } inbox) inbox.ChatOpen = open; }
     internal Task RefreshSupportInboxAsync(Guid? read = null) => _supportInbox?.RefreshAsync(read: read) ?? Task.CompletedTask;
     private Task<SupplementarySupportResult> SubmitPrivateSupportAsync(SupplementarySupportReport report, CancellationToken cancellation)
     {

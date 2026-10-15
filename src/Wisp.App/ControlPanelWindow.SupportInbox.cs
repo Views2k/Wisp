@@ -6,96 +6,99 @@ namespace Wisp.App;
 
 public abstract partial class ControlPanelWindow
 {
-    private StackPanel? _supportReplyCards;
-    private TextBlock? _supportReplyStatus;
-    private Expander? _supportReplyExpander, _supportComposer;
+    private Expander? _supportComposer;
     private TextBox? _supportTitleInput, _supportMessageInput;
     private CheckBox? _supportDiagnosticsInput;
     private Guid? _supportReplyTo;
     private Action? _refreshSupportQuota;
-    private string? _supportReplyKey;
     private bool? _supportMessagingActive;
-    private readonly HashSet<Guid> _openSupportReplies = [];
+    private Button? _chatLauncher;
+    private Window? _chatWindow;
+    private SupportChatView? _chatView;
+    private bool _closeChat;
 
     private FrameworkElement CreateSupportInbox()
     {
-        _supportReplyCards = new StackPanel();
-        _supportReplyStatus = SupplementaryText("Checking for replies…", muted: true);
-        var refresh = SupplementaryButton("Check replies");
-        refresh.Click += async (_, _) =>
-        {
-            refresh.IsEnabled = false;
-            try { if (Application.Current is App app) await app.RefreshSupportInboxAsync(); }
-            finally { refresh.IsEnabled = true; RefreshSupportReplies(); }
-        };
-        var content = new StackPanel(); content.Children.Add(_supportReplyStatus); content.Children.Add(_supportReplyCards); content.Children.Add(refresh);
-        _supportReplyExpander = new Expander { Header = "Replies from Wisp", Content = content, IsExpanded = true, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 10, 0, 0) };
-        _supportReplyExpander.SetResourceReference(StyleProperty, "MoreOptionsStyle");
-        if (Application.Current is App application)
+        _chatLauncher = SupplementaryButton("Chat with Views");
+        _chatLauncher.Visibility = Visibility.Collapsed;
+        _chatLauncher.Click += (_, _) => OpenSupportChat();
+        if (Application.Current is App app)
         {
             void Changed(object? sender, EventArgs args) => RefreshSupportReplies();
-            application.SupplementaryContentChanged += Changed;
-            Closed += (_, _) => application.SupplementaryContentChanged -= Changed;
+            app.SupplementaryContentChanged += Changed;
+            Closed += (_, _) =>
+            {
+                app.SupplementaryContentChanged -= Changed;
+                app.SetSupportChatOpen(false);
+                _closeChat = true; _chatView?.Stop(); _chatWindow?.Close();
+            };
         }
-        RefreshSupportReplies();
-        return _supportReplyExpander;
+        return _chatLauncher;
     }
 
     private void RefreshSupportReplies()
     {
-        if (_supportReplyCards is null || _supportReplyStatus is null || _supportReplyExpander is null || Application.Current is not App app) return;
+        if (_chatLauncher is null || Application.Current is not App app) return;
         var enabled = app.PlayerMessagingEnabled;
-        _supportReplyExpander.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        _chatLauncher.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        if (_supportComposer is { } composer) composer.Visibility = enabled ? Visibility.Collapsed : Visibility.Visible;
+        var unread = app.SupportChat.Messages.Count(m => m.Sender == "views" && m.ReadAt is null && m.ExpiresAt > DateTimeOffset.UtcNow);
+        _chatLauncher.Content = unread > 0 ? $"Chat with Views · {unread} new" : "Chat with Views";
+        _chatView?.Update(app.SupportChat, app.SupportInboxStatus, enabled && _controller.FeatureAllowed("support"));
+        if (!enabled && _chatWindow?.IsVisible == true) _chatWindow.Hide();
         if (_supportDiagnosticsInput is { } consent && _supportMessagingActive != enabled)
         {
             _supportMessagingActive = enabled;
             consent.Content = enabled ? "Include recent diagnostics (up to 20 minutes)" : "Include game platform, version and connection state";
             consent.IsChecked = !enabled;
         }
-        if (!enabled)
+    }
+
+    private void OpenSupportChat()
+    {
+        if (Application.Current is not App app || !app.PlayerMessagingEnabled) return;
+        if (_chatWindow is null)
         {
-            _supportReplyCards.Children.Clear();
-            _supportReplyKey = null;
-            _supportReplyTo = null;
-            _refreshSupportQuota?.Invoke();
-            return;
-        }
-        var messages = app.SupportInbox.Messages.Where(m => m.ExpiresAt > DateTimeOffset.UtcNow).ToArray();
-        var unread = messages.Count(m => m.ReadAt is null);
-        _supportReplyExpander.Header = unread > 0 ? $"Replies from Wisp · {unread} unread" : "Replies from Wisp";
-        _supportReplyStatus.Text = app.SupportInboxStatus;
-        var key = string.Join(';', messages.Select(m => $"{m.Id}:{m.ReadAt}:{m.Replied}"));
-        if (_supportReplyKey == key) return;
-        _supportReplyKey = key;
-        _supportReplyCards.Children.Clear();
-        foreach (var message in messages)
-        {
-            var content = new StackPanel();
-            content.Children.Add(SupplementaryText(message.Message));
-            content.Children.Add(SupplementaryText($"{message.CreatedAt.ToLocalTime():g} · {message.Reference}", muted: true));
-            if (message.Kind == "diagnostics-request") content.Children.Add(SupplementaryText($"You can attach the last 20 minutes of diagnostics when you reply. Request expires {message.ExpiresAt.ToLocalTime():g}.", muted: true));
-            var reply = SupplementaryButton(message.Replied ? "Reply sent" : message.Kind == "diagnostics-request" ? "Respond to request" : "Reply");
-            reply.IsEnabled = !message.Replied;
-            reply.Click += (_, _) =>
+            _chatView = new SupportChatView(
+                (message, diagnostics) => Task.Run(() => app.CreateSupplementarySupportPreview("feedback", "Chat with Views", message, diagnostics)),
+                (report, cancellation) => app.SubmitSupplementarySupportAsync(report, cancellation, chat: true),
+                (older, ids) => app.RefreshSupportChatAsync(older, ids));
+            var frame = _chatView.CreatePopupSurface(() => _chatWindow?.Hide(), () => _chatWindow?.DragMove());
+            _chatWindow = new Window
             {
-                if (message.ExpiresAt <= DateTimeOffset.UtcNow) { RefreshSupportReplies(); return; }
-                if (_supplementaryReviewedReport is not null || _supplementarySendCancellation is not null)
-                { _supportReplyStatus.Text = "Finish or cancel your current message before replying."; return; }
-                if (_supportMessageInput is { Text.Length: > 0 })
-                { _supportReplyStatus.Text = "Send or clear your current draft before replying."; return; }
-                _supportReplyTo = message.Id;
-                _refreshSupportQuota?.Invoke();
-                if (_supportTitleInput is { } title) title.Text = message.Title;
-                if (_supportDiagnosticsInput is { } diagnostics) diagnostics.IsChecked = false;
-                if (_supportComposer is { } composer) { composer.IsExpanded = true; composer.BringIntoView(); }
-                _supportMessageInput?.Focus();
+                Title = "Views · Wisp",
+                Owner = this,
+                Content = frame,
+                Resources = Resources,
+                Width = 480,
+                Height = 640,
+                MinWidth = 360,
+                MinHeight = 400,
+                MaxHeight = SystemParameters.WorkArea.Height,
+                MaxWidth = SystemParameters.WorkArea.Width,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = System.Windows.Media.Brushes.Transparent,
+                ResizeMode = ResizeMode.CanResizeWithGrip,
+                ShowInTaskbar = false,
+                FontFamily = FontFamily,
+                FontSize = 14
             };
-            content.Children.Add(reply);
-            var item = new Expander { Header = $"{(message.ReadAt is null ? "New · " : "")}{message.Title}", Content = content, Margin = new Thickness(0, 8, 0, 0), IsExpanded = _openSupportReplies.Contains(message.Id) };
-            item.SetResourceReference(StyleProperty, "MoreOptionsStyle");
-            item.Expanded += async (_, _) => { _openSupportReplies.Add(message.Id); if (message.ReadAt is null) await app.RefreshSupportInboxAsync(message.Id); };
-            item.Collapsed += (_, _) => _openSupportReplies.Remove(message.Id);
-            _supportReplyCards.Children.Add(item);
+            _chatWindow.PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { e.Handled = true; _chatWindow.Hide(); } };
+            _chatWindow.Closing += (_, e) => { if (!_closeChat) { e.Cancel = true; _chatWindow.Hide(); } };
+            _chatWindow.IsVisibleChanged += async (_, _) =>
+            {
+                app.SetSupportChatOpen(_chatWindow.IsVisible);
+                _chatView.CanMarkRead = _chatWindow.IsVisible && _chatWindow.IsActive;
+                if (_chatWindow.IsVisible) await app.RefreshSupportChatAsync();
+            };
+            _chatWindow.Activated += async (_, _) => { _chatView.CanMarkRead = true; await _chatView.MarkVisibleAsync(); };
+            _chatWindow.Deactivated += (_, _) => _chatView.CanMarkRead = false;
+            void FeatureChanged(object? sender, EventArgs args) => RefreshSupportReplies();
+            _controller.FeatureControlsChanged += FeatureChanged;
+            Closed += (_, _) => _controller.FeatureControlsChanged -= FeatureChanged;
         }
+        RefreshSupportReplies(); _chatWindow.Show(); _chatWindow.Activate(); _chatView!.Composer.Focus();
     }
 }

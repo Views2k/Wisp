@@ -1,11 +1,28 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Threading;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App;
 
 public abstract partial class ControlPanelWindow
 {
+    private string? _presentedUpdateVersion;
+
+    private void RecordVisibleUpdatePresentation(object? sender, EventArgs e)
+    {
+        var target = ApplicationUpdateTelemetry.Current?.TargetVersion;
+        if (target is null || _presentedUpdateVersion == target || !IsActive || !IsVisible ||
+            WindowState == WindowState.Minimized || !_controller.ViewModel.IsApplicationUpdateAvailable ||
+            _contentBanner is not { IsVisible: true, ActualHeight: > 0 } ||
+            _contentBannerAction is not { IsVisible: true, IsEnabled: true, ActualHeight: > 0 }) return;
+        var bounds = _contentBannerAction.TransformToAncestor(this)
+            .TransformBounds(new Rect(_contentBannerAction.RenderSize));
+        if (!new Rect(RenderSize).Contains(bounds)) return;
+        _presentedUpdateVersion = target;
+        SupplementaryObservations.Record("update", "update", "success", "prompt");
+    }
+
     private void DashboardUpdateAvailabilityChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is not (null or "" or nameof(DiagnosticsViewModel.IsApplicationUpdateAvailable))) return;
@@ -20,7 +37,8 @@ public abstract partial class ControlPanelWindow
         var whatsNew = FindName("WhatsNewBanner") as FrameworkElement;
         var tour = FindName("FeatureTourWelcomeBanner") as FrameworkElement;
         var displayMode = this is MainWindow { IsDashboardDisplayMode: true };
-        var selection = DashboardBannerPresentation.Select(_appliedBanner is not null,
+        var banner = EligibleDashboardBanner(DateTimeOffset.UtcNow);
+        var selection = DashboardBannerPresentation.Select(banner is not null,
             _controller.ViewModel.IsApplicationUpdateAvailable,
             ShouldShowWhatsNew(_controller.Settings.DismissedWhatsNewId, _controller.Settings.RequiresSetup, displayMode),
             ShouldOfferFeatureTour(), FeatureTour.IsOpen);
@@ -29,6 +47,7 @@ public abstract partial class ControlPanelWindow
         if (update is not null) update.Visibility = Visibility.Collapsed;
         if (whatsNew is not null) whatsNew.Visibility = Visibility.Collapsed;
         if (tour is not null) tour.Visibility = Visibility.Collapsed;
+        ApplyDashboardBannerContent(selection == DashboardBannerKind.Custom ? banner : null);
         var visible = selection switch
         {
             DashboardBannerKind.Custom or DashboardBannerKind.Update => update,

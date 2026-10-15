@@ -5,7 +5,8 @@ namespace Wisp.App.Tests;
 public sealed class DashboardBannerPresentationTests
 {
     [Theory]
-    [InlineData(true, true, true, true, (int)DashboardBannerKind.Custom)]
+    [InlineData(true, true, true, true, (int)DashboardBannerKind.Update)]
+    [InlineData(true, false, true, true, (int)DashboardBannerKind.Custom)]
     [InlineData(false, true, true, true, (int)DashboardBannerKind.Update)]
     [InlineData(false, false, true, true, (int)DashboardBannerKind.WhatsNew)]
     [InlineData(false, false, false, true, (int)DashboardBannerKind.FeatureTour)]
@@ -19,7 +20,7 @@ public sealed class DashboardBannerPresentationTests
         for (var flags = 0; flags < 16; flags++)
             Assert.Equal(DashboardBannerKind.None, DashboardBannerPresentation.Select(
                 (flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0, (flags & 8) != 0, tourOpen: true));
-        Assert.Equal(DashboardBannerKind.Custom, DashboardBannerPresentation.Select(true, true, true, true, tourOpen: false));
+        Assert.Equal(DashboardBannerKind.Update, DashboardBannerPresentation.Select(true, true, true, true, tourOpen: false));
     }
 
     [Fact]
@@ -27,7 +28,8 @@ public sealed class DashboardBannerPresentationTests
     {
         Assert.Equal(DashboardBannerKind.WhatsNew, DashboardBannerPresentation.Select(false, false, true, true, false));
         Assert.Equal(DashboardBannerKind.Update, DashboardBannerPresentation.Select(false, true, true, true, false));
-        Assert.Equal(DashboardBannerKind.Custom, DashboardBannerPresentation.Select(true, true, true, true, false));
+        Assert.Equal(DashboardBannerKind.Update, DashboardBannerPresentation.Select(true, true, true, true, false));
+        Assert.Equal(DashboardBannerKind.Custom, DashboardBannerPresentation.Select(true, false, true, true, false));
         Assert.Equal(DashboardBannerKind.Update, DashboardBannerPresentation.Select(false, true, true, true, false));
         Assert.Equal(DashboardBannerKind.WhatsNew, DashboardBannerPresentation.Select(false, false, true, true, false));
         Assert.Equal(DashboardBannerKind.FeatureTour, DashboardBannerPresentation.Select(false, false, false, true, false));

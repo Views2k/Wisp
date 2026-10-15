@@ -74,7 +74,7 @@ public partial class App
         { RecentDiagnostics = includeDiagnostics && PlayerMessagingEnabled ? _recentDiagnostics.Snapshot(preview.ObservedAt) : null });
     }
 
-    internal async Task<SupplementarySupportResult> SubmitSupplementarySupportAsync(SupplementarySupportReport reviewed, CancellationToken cancellation = default)
+    internal async Task<SupplementarySupportResult> SubmitSupplementarySupportAsync(SupplementarySupportReport reviewed, CancellationToken cancellation = default, bool chat = false)
     {
         SupplementaryClient client;
         CancellationToken featurePermission;
@@ -89,6 +89,8 @@ public partial class App
             featurePermission = _controller?.SupportFeatureToken ?? CancellationToken.None;
         }
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellation, featurePermission);
+        if (chat) return PlayerMessagingEnabled && _supportInbox is not null
+            ? await _supportInbox.SubmitChatAsync(reviewed, lifetime.Token) : new(SupplementaryRequestStatus.Disabled);
         return await SubmitPrivateSupportAsync(reviewed, lifetime.Token);
     }
 

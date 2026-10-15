@@ -15,6 +15,7 @@ public abstract partial class ControlPanelWindow
     private BindingBase? _automaticBannerMessage;
     private string? _automaticBannerTitle, _automaticBannerIcon;
     private SupplementaryContentItem? _appliedBanner;
+    private DateTimeOffset _contentExpiresAt;
     private bool _contentSlotsClosed;
 
     private void InitializeSupplementaryContentSurfaces()
@@ -37,6 +38,8 @@ public abstract partial class ControlPanelWindow
         var app = Application.Current as App;
         if (app is not null) app.SupplementaryContentChanged += SupplementaryContentChanged;
         _controller.ViewModel.PropertyChanged += DashboardUpdateAvailabilityChanged;
+        LayoutUpdated += RecordVisibleUpdatePresentation;
+        Activated += RecordVisibleUpdatePresentation;
         RefreshDashboardBannerVisibility();
         Closed += (_, _) =>
         {
@@ -44,6 +47,8 @@ public abstract partial class ControlPanelWindow
             _contentSlotTimer.Stop();
             if (app is not null) app.SupplementaryContentChanged -= SupplementaryContentChanged;
             _controller.ViewModel.PropertyChanged -= DashboardUpdateAvailabilityChanged;
+            LayoutUpdated -= RecordVisibleUpdatePresentation;
+            Activated -= RecordVisibleUpdatePresentation;
         };
     }
 
@@ -59,37 +64,53 @@ public abstract partial class ControlPanelWindow
         if (_contentSlotsClosed || !IsVisible || WindowState == WindowState.Minimized ||
             _contentBanner is null || Application.Current is not App app) return;
         var (content, audience) = app.GetSupplementaryContent();
-        var now = DateTimeOffset.UtcNow;
+        ApplySupplementaryContentSurfaces(content, audience, DateTimeOffset.UtcNow);
+    }
+
+    internal void ApplySupplementaryContentSurfaces(SupplementaryContentSnapshot content,
+        SupplementaryAudienceContext audience, DateTimeOffset now)
+    {
+        _contentSlotTimer?.Stop();
+        if (_contentSlotsClosed || _contentBanner is null) return;
         var slots = SupplementaryContentSlots.Select(content, audience, now);
         _supportReminder?.ApplyNote(slots.Note?.Title, slots.Note?.Message);
-        var selectedBanner = slots.Banner is { } candidate &&
+        _contentExpiresAt = content.ExpiresAt;
+        _appliedBanner = slots.Banner is { } candidate &&
             !DashboardBannerDismissal.IsDismissed(candidate, _controller.Settings.DismissedDashboardBannerKey)
                 ? candidate : null;
-        if (_appliedBanner != selectedBanner)
-        {
-            _appliedBanner = selectedBanner;
-            _contentBannerClose!.Visibility = selectedBanner?.Dismissible == true ? Visibility.Visible : Visibility.Collapsed;
-            if (selectedBanner is { } banner)
-            {
-                _contentBannerTitle!.Text = banner.Title;
-                _contentBannerMessage!.Text = banner.Message;
-                _contentBannerIcon!.Text = "i";
-                _contentBannerAction!.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                _contentBannerTitle!.Text = _automaticBannerTitle;
-                _contentBannerIcon!.Text = _automaticBannerIcon;
-                if (_automaticBannerMessage is not null)
-                    BindingOperations.SetBinding(_contentBannerMessage!, TextBlock.TextProperty, _automaticBannerMessage);
-                _contentBannerAction!.ClearValue(VisibilityProperty);
-            }
-        }
         RefreshDashboardBannerVisibility();
         if (slots.NextChange is { } next && _contentSlotTimer is { } timer)
         {
             timer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, (next - now).TotalMilliseconds));
             timer.Start();
+        }
+    }
+
+    private SupplementaryContentItem? EligibleDashboardBanner(DateTimeOffset now) =>
+        _appliedBanner is { } banner && now < _contentExpiresAt &&
+        banner.StartsAt <= now && now < banner.ExpiresAt &&
+        !DashboardBannerDismissal.IsDismissed(banner, _controller.Settings.DismissedDashboardBannerKey)
+            ? banner : null;
+
+    private void ApplyDashboardBannerContent(SupplementaryContentItem? banner)
+    {
+        if (_contentBannerMessage is null) return;
+        _contentBannerClose!.Visibility = banner?.Dismissible == true ? Visibility.Visible : Visibility.Collapsed;
+        if (banner is not null)
+        {
+            _contentBannerTitle!.Text = banner.Title;
+            _contentBannerMessage.Text = banner.Message;
+            _contentBannerIcon!.Text = "i";
+            _contentBannerAction!.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            _contentBannerTitle!.Text = _automaticBannerTitle;
+            _contentBannerIcon!.Text = _automaticBannerIcon;
+            if (_automaticBannerMessage is not null &&
+                BindingOperations.GetBindingBase(_contentBannerMessage, TextBlock.TextProperty) != _automaticBannerMessage)
+                BindingOperations.SetBinding(_contentBannerMessage, TextBlock.TextProperty, _automaticBannerMessage);
+            _contentBannerAction!.ClearValue(VisibilityProperty);
         }
     }
 
