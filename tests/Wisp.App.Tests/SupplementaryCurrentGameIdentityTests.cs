@@ -67,8 +67,10 @@ public sealed class SupplementaryCurrentGameIdentityTests
         var probe = Steam(Now.AddSeconds(-1));
         var health = new HealthContextSample
         {
-            TimestampUtc = Now.AddSeconds(-2), NativeStatus = NativeAssistProviderStatus.Ready,
-            NativeGameVersion = probe.GameBuild, NativeGamePlatform = DiagnosticGamePlatform.Steam,
+            TimestampUtc = Now.AddSeconds(-2),
+            NativeStatus = NativeAssistProviderStatus.Ready,
+            NativeGameVersion = probe.GameBuild,
+            NativeGamePlatform = DiagnosticGamePlatform.Steam,
             GameVerification = NativeGameVerification.Detailed(NativeGameVerification.Steam).WithCompatibility("supported")
         };
 
@@ -83,8 +85,10 @@ public sealed class SupplementaryCurrentGameIdentityTests
     {
         var health = new HealthContextSample
         {
-            TimestampUtc = Now.AddSeconds(-2), NativeStatus = NativeAssistProviderStatus.Ready,
-            NativeGameVersion = "6.461.691.0", NativeGamePlatform = DiagnosticGamePlatform.Steam,
+            TimestampUtc = Now.AddSeconds(-2),
+            NativeStatus = NativeAssistProviderStatus.Ready,
+            NativeGameVersion = "6.461.691.0",
+            NativeGamePlatform = DiagnosticGamePlatform.Steam,
             GameVerification = NativeGameVerification.Detailed(NativeGameVerification.Steam)
         };
         var stopped = new NativeGameIdentityObservation(Now, null, "unknown",
@@ -100,7 +104,8 @@ public sealed class SupplementaryCurrentGameIdentityTests
     {
         var health = new HealthContextSample
         {
-            TimestampUtc = Now.AddSeconds(-2), NativeStatus = NativeAssistProviderStatus.AccessDenied,
+            TimestampUtc = Now.AddSeconds(-2),
+            NativeStatus = NativeAssistProviderStatus.AccessDenied,
             GameVerification = NativeGameVerification.AccessUnavailable
         };
         var snapshot = Snapshot(health);

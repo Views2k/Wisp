@@ -97,8 +97,12 @@ public sealed class MessagingActivationTests
 
     private static JsonObject Payload(SupplementaryFixture fixture, bool enabled, int revision) => new()
     {
-        ["schemaVersion"] = 1, ["purpose"] = "wisp-player-messaging", ["revision"] = revision,
-        ["enabled"] = enabled, ["issuedAt"] = Stamp(fixture.Now), ["expiresAt"] = Stamp(fixture.Now.AddMinutes(2)),
+        ["schemaVersion"] = 1,
+        ["purpose"] = "wisp-player-messaging",
+        ["revision"] = revision,
+        ["enabled"] = enabled,
+        ["issuedAt"] = Stamp(fixture.Now),
+        ["expiresAt"] = Stamp(fixture.Now.AddMinutes(2)),
     };
     private static string Activation(SupplementaryFixture fixture, bool enabled, int revision) => Convert.ToBase64String(fixture.Envelope(Payload(fixture, enabled, revision)));
     private static string Stamp(DateTimeOffset value) => value.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);

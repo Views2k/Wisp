@@ -102,7 +102,8 @@ internal sealed class SupplementaryContentVerifier
             return new(revision, SupplementaryJson.Bool(p["enabled"]), expires);
         }
         catch (Exception error) when (error is SupplementaryValidationException or JsonException or FormatException or
-            InvalidOperationException or CryptographicException or ArgumentException or OverflowException) { return null; }
+            InvalidOperationException or CryptographicException or ArgumentException or OverflowException)
+        { return null; }
     }
 
     private byte[] VerifyEnvelope(ReadOnlyMemory<byte> envelope, int maximumEnvelope, int maximumPayload)

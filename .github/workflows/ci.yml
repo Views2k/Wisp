@@ -45,6 +45,17 @@ jobs:
           cache-dependency-path: '**/packages.lock.json'
       - name: Restore locked dependencies
         run: dotnet restore Wisp.sln --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
+      - name: Check changed C# formatting
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          $files = @(git diff --name-only --diff-filter=ACMR "$env:BASE_SHA...HEAD" -- '*.cs')
+          if ($LASTEXITCODE -ne 0) { throw 'Could not identify changed C# files.' }
+          if ($files.Count -gt 0) {
+            dotnet format whitespace Wisp.sln --no-restore --verify-no-changes --include $files
+            if ($LASTEXITCODE -ne 0) { throw 'Changed C# formatting failed.' }
+          }
       - name: Build application and tests
         run: dotnet build Wisp.sln -c Release --no-restore -m:1 -p:UseSharedCompilation=false
       - name: Check critical behavior and affected tests

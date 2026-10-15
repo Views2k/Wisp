@@ -377,8 +377,14 @@ public abstract partial class ControlPanelWindow
 
     private Button SupplementaryButton(string text, bool primary = false)
     {
-        var button = new Button { Content = text, HorizontalAlignment = HorizontalAlignment.Left,
-            Padding = new Thickness(12, 6, 12, 6), MinHeight = 32, Margin = new Thickness(0, 10, 8, 0) };
+        var button = new Button
+        {
+            Content = text,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(12, 6, 12, 6),
+            MinHeight = 32,
+            Margin = new Thickness(0, 10, 8, 0)
+        };
         if (primary) button.SetResourceReference(StyleProperty, "PrimaryButtonStyle");
         return button;
     }

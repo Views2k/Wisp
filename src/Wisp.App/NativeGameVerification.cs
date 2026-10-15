@@ -25,10 +25,19 @@ public sealed record NativeGameVerification(string Status, string Reason,
     internal bool IsValid => Compatibility is null or "supported" or "unsupported" or "unknown" &&
         Storefront is null or "steam" or "store" or "nonofficial" or "unknown" &&
         Inspection is null or "complete" or "pending" or "unavailable" or "not-running" &&
-        (Storefront is null || Storefront == (Reason switch { "store-package-and-image" => "store", "steam-image-and-api" => "steam",
-            "nonofficial-steam-api" or "no-official-storefront" => "nonofficial", _ => "unknown" })) &&
-        (Inspection is null || Inspection == (Status switch { "verified" or "unverified" => "complete", "not-running" => "not-running",
-            _ => Reason is "not-observed" or "identity-not-established" ? "pending" : "unavailable" })) &&
+        (Storefront is null || Storefront == (Reason switch
+        {
+            "store-package-and-image" => "store",
+            "steam-image-and-api" => "steam",
+            "nonofficial-steam-api" or "no-official-storefront" => "nonofficial",
+            _ => "unknown"
+        })) &&
+        (Inspection is null || Inspection == (Status switch
+        {
+            "verified" or "unverified" => "complete",
+            "not-running" => "not-running",
+            _ => Reason is "not-observed" or "identity-not-established" ? "pending" : "unavailable"
+        })) &&
         (Status, Reason) is
         ("verified", "store-package-and-image" or "steam-image-and-api") or
         ("unverified", "steam-api-unverified" or "identity-unverified" or "nonofficial-steam-api" or "no-official-storefront") or
@@ -71,10 +80,19 @@ public sealed record NativeGameVerification(string Status, string Reason,
 
     internal static NativeGameVerification Detailed(NativeGameVerification evidence) => evidence with
     {
-        Storefront = evidence.Reason switch { "store-package-and-image" => "store", "steam-image-and-api" => "steam",
-            "nonofficial-steam-api" or "no-official-storefront" => "nonofficial", _ => "unknown" },
-        Inspection = evidence.Status switch { "verified" or "unverified" => "complete", "not-running" => "not-running",
-            _ => evidence.Reason is "not-observed" or "identity-not-established" ? "pending" : "unavailable" }
+        Storefront = evidence.Reason switch
+        {
+            "store-package-and-image" => "store",
+            "steam-image-and-api" => "steam",
+            "nonofficial-steam-api" or "no-official-storefront" => "nonofficial",
+            _ => "unknown"
+        },
+        Inspection = evidence.Status switch
+        {
+            "verified" or "unverified" => "complete",
+            "not-running" => "not-running",
+            _ => evidence.Reason is "not-observed" or "identity-not-established" ? "pending" : "unavailable"
+        }
     };
 
     internal static NativeGameVerification ForAttachment(NativeGameVerification original, string gameBuild,

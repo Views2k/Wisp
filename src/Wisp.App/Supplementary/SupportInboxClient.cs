@@ -40,8 +40,16 @@ internal sealed class SupportInboxClient : IDisposable
         _secret = secret; _endpoint = new(origin, "/api/v1/inbox"); _changed = changed; _enabled = enabled;
         _hasSubmitted = hasSubmitted; _submitted = submitted; _captureDiagnostics = captureDiagnostics;
         _supportEnabled = supportEnabled ?? enabled;
-        _http = new(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false, AutomaticDecompression = DecompressionMethods.None,
-            MaxConnectionsPerServer = 1, ConnectTimeout = TimeSpan.FromSeconds(5), MaxResponseHeadersLength = 16 }) { Timeout = TimeSpan.FromSeconds(15) };
+        _http = new(handler ?? new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            AutomaticDecompression = DecompressionMethods.None,
+            MaxConnectionsPerServer = 1,
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            MaxResponseHeadersLength = 16
+        })
+        { Timeout = TimeSpan.FromSeconds(15) };
     }
     internal void Start() => SetActive(true);
     internal void SetActive(bool active)
