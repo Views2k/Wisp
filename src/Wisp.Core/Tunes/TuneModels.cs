@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace Wisp.Core.Tunes;
 
-public enum TuneCategory { Tires, Gearing, Alignment, AntirollBars, Springs, Damping, Aero, Brake, Differential }
+public enum TuneCategory { Tires, Gearing, Alignment, AntirollBars, Springs, Damping, Aero, Brake, Differential, Performance }
 public enum TuneDrivetrain { FrontWheelDrive, RearWheelDrive, AllWheelDrive }
 public enum TuneQuantity { Number, Percentage, Pressure, Angle, SpringRate, RideHeight, Downforce }
 public enum TuneUnit { None, Percent, Psi, Degrees, PoundsPerInch, Inches, Pounds }
@@ -52,6 +52,8 @@ public sealed record TuneSnapshot(Guid Id, DateTimeOffset CapturedAtUtc, TuneIde
 {
     public const int SchemaVersion = 1;
     public string? CarName { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TunePerformance? Performance { get; init; }
     public bool IsComplete => !Fields.IsDefault && Fields.Length == TuneDecoder.FieldCount && Fields.All(field => field is not null && field.Status is
         TuneFieldStatus.Available or TuneFieldStatus.NotApplicable or TuneFieldStatus.NotAdjustable);
 }
@@ -65,6 +67,7 @@ public sealed record TuneDecodeInput
     public required bool ExecutableVerified { get; init; }
     public TuneVerification? Verification { get; init; }
     public string? CarName { get; init; }
+    public TunePerformance? Performance { get; init; }
     public bool CompatibilityDescriptorVerified { get; init; }
     public bool RuntimeLayoutVerified { get; init; }
     public required bool CaptureComplete { get; init; }

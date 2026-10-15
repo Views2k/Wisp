@@ -15,11 +15,25 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.10",
+            "October 14, 2026",
+            "TUNE PERFORMANCE AND CLIPS",
+            "Performance results alongside your tunes and controlled recovery for Clips.",
+            true,
+            [
+                Group("Tune performance",
+                    "Open Forza's Tune screen, wait for its performance results, then refresh Tune in Wisp.",
+                    "View braking distance, lateral G, acceleration, top speed and balance measurements. Save the results with your tune and compare them side by side."),
+                Group("Clips",
+                    "Recording pauses after three failed attempts and shows a message. Re-enable clipping when you're ready to try again.",
+                    "Copied error details identify the graphics adapter selected for capture and video encoding.")
+            ]),
+        new(
             "2.6.9",
             "October 14, 2026",
             "UPDATES AND GAUGES",
             "Automatic updates, an adjustable boost gauge and faster news refreshes.",
-            true,
+            false,
             [
                 Group("Automatic updates",
                     "Wisp checks for updates at launch and regularly while open, then installs the latest version automatically.",

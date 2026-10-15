@@ -105,6 +105,9 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     public string CompareBTitle => _b is null ? "Choose tune B" : $"B · {_b.Name}";
     public string CompareACar => _a is null ? "" : TunePresentation.Car(_a.Snapshot);
     public string CompareBCar => _b is null ? "" : TunePresentation.Car(_b.Snapshot);
+    public string PerformanceHint => _category.Category == TuneCategory.Performance && IsCurrentMode && Displayed?.Performance is null
+        ? "Open the Tune screen in Forza, wait for the performance results, then select Refresh." : "";
+    public string RowHeading => _category.Category == TuneCategory.Performance ? "Performance" : "Setting";
     private TuneSnapshot? Displayed => IsCurrentMode ? _current : _opened;
 
     public TuneCategoryOption SelectedCategory
@@ -471,11 +474,18 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
 
     private void RebuildRows()
     {
+        Changed(nameof(PerformanceHint));
+        Changed(nameof(RowHeading));
         var left = IsCompareMode ? _a?.Snapshot : Displayed;
         var right = IsCompareMode ? _b?.Snapshot : null;
         Rows.Clear();
         if (!WorkspaceAvailable) return;
         if (left is null && right is null) return;
+        if (_category.Category == TuneCategory.Performance)
+        {
+            foreach (var row in TunePresentation.PerformanceRows(left?.Performance, right?.Performance, IsCompareMode)) Rows.Add(row);
+            return;
+        }
         foreach (var row in TuneComparison.Compare(left, right).Where(row => row.Category == _category.Category))
         {
             if (row.Id is >= TuneFieldId.Gear1 and <= TuneFieldId.Gear10 && row.A?.Status == TuneFieldStatus.NotApplicable && (!IsCompareMode || row.B?.Status == TuneFieldStatus.NotApplicable)) continue;

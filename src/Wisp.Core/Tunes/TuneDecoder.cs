@@ -70,7 +70,7 @@ public static class TuneDecoder
             { Verification = input.Verification }, input.UnitPreference,
             input.Parts.Select(part => input.PartLevelsResolved ? part : part with { Level = null })
                 .OrderBy(part => part.Kind).ToImmutableArray(), rows.MoveToImmutable())
-        { CarName = input.CarName };
+        { CarName = input.CarName, Performance = input.Performance is { IsValid: true } ? input.Performance : null };
         return true;
     }
 

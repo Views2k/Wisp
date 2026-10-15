@@ -83,7 +83,11 @@ internal static class TuneUiReview
             };
             var controller = new AppController(settings, _ => { }, new NoStartupRegistration(), tuneLibraryDirectory: library);
             ControlPanelWindow? window = null;
-            var snapshot = TuneUiFixture.Read();
+            var snapshot = TuneUiFixture.Read() with
+            {
+                Performance = new(16.000036f, 34.689072f, 1.928532f, 2.594379f,
+                    2.1999986f, 3.7833304f, 103.90273f, .504751f, .38999075f, .75537235f)
+            };
             using var model = new TuneViewModel(new TuneStore(library),
                 _ => Task.FromResult(new TuneCaptureResult(snapshot, TuneCaptureStatus.Ready, "")),
                 _ => true, Dispatcher.CurrentDispatcher);
@@ -97,7 +101,7 @@ internal static class TuneUiReview
                 var navigation = (ListBox)window.FindName("SidebarNavigation");
                 var surface = detachSurface(window, controller.ViewModel);
                 Await(model.InitializeAsync()); Await(model.RefreshAsync());
-                Check(model.Categories.Count == 9 && model.CanSave, "current-snapshot-ready");
+                Check(model.Categories.Any(category => category.Category == TuneCategory.Performance) && model.CanSave, "current-snapshot-ready");
                 model.BeginSave(); model.DialogName = "Road baseline";
                 model.DialogDescription = "Stable road setup.\nPreserve both lines when reopening.";
                 Await(model.ConfirmDialogAsync());
@@ -113,7 +117,7 @@ internal static class TuneUiReview
                         model.SelectedCategory = model.Categories.First(value => value.Category == TuneCategory.Tires);
                         Layout(size, dpi);
                         var categories = (ListBox)page.FindName("TuneCategories");
-                        Check(categories.Items.Count == 9 && categories.ActualWidth > 0 && categories.ActualWidth <= page.ActualWidth + 1,
+                        Check(categories.Items.Count == model.Categories.Count && categories.ActualWidth > 0 && categories.ActualWidth <= page.ActualWidth + 1,
                             "wrapped-categories-fit");
                         Capture(size, dpi);
 
@@ -147,6 +151,14 @@ internal static class TuneUiReview
                         Await(model.LoadSelectedAsync()); Layout(size, dpi);
                         Check(model.Description.Contains('\n') && model.Heading == baseline.Name, "saved-description-reopened");
                         CheckSelectors(); Capture(size, dpi);
+                        SetPhase("performance-compare", size, dpi);
+                        model.OpenComparisonSnapshots(snapshot, "Tune A", "", snapshot with
+                        { Performance = snapshot.Performance with { Acceleration100MphSeconds = 3.7f } }, "Tune B", "");
+                        model.SelectedCategory = model.Categories.First(value => value.Category == TuneCategory.Performance);
+                        Layout(size, dpi); Capture(size, dpi);
+                        SetPhase("performance-current", size, dpi);
+                        model.SetWorkspace(TuneWorkspace.Current);
+                        Layout(size, dpi); Capture(size, dpi);
 
                         SetPhase("compare", size, dpi);
                         model.OpenComparisonSnapshots(snapshot, "Attached run A", "Run notes", TuneUiFixture.Read("rwd"), "Attached run B", "Other run");
@@ -176,6 +188,8 @@ internal static class TuneUiReview
                 }
                 void Capture(Size size, int dpi)
                 {
+                    foreach (var visual in Descendants(surface).OfType<UIElement>()) visual.InvalidateVisual();
+                    surface.UpdateLayout(); Pump();
                     var bitmap = new RenderTargetBitmap((int)Math.Ceiling(size.Width * dpi / 96),
                         (int)Math.Ceiling(size.Height * dpi / 96), dpi, dpi, PixelFormats.Pbgra32);
                     bitmap.Render(surface);

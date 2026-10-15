@@ -137,13 +137,17 @@
                 </ListBox>
                 <Border Style="{DynamicResource CardStyle}" Padding="16" Visibility="{Binding HasSnapshot, Converter={StaticResource TuneVisibility}}">
                     <StackPanel>
+                        <TextBlock Text="{Binding PerformanceHint}"><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource TuneHint}"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
                         <ItemsControl x:Name="TuneValues" ItemsSource="{Binding Rows}">
                             <ItemsControl.Style><Style TargetType="ItemsControl"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding IsCompareMode}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></ItemsControl.Style>
                             <ItemsControl.ItemTemplate><DataTemplate>
-                                <Grid MinHeight="62" Margin="0,3,0,3">
+                                <Grid>
+                                    <Grid.Style><Style TargetType="Grid"><Setter Property="MinHeight" Value="62" /><Setter Property="Margin" Value="0,3" /><Style.Triggers><DataTrigger Binding="{Binding IsPerformance}" Value="True"><Setter Property="MinHeight" Value="32" /><Setter Property="Margin" Value="0,1" /></DataTrigger></Style.Triggers></Style></Grid.Style>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="1.2*" /><ColumnDefinition Width="1.5*" /></Grid.ColumnDefinitions>
                                     <TextBlock Text="{Binding Label}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0">
+                                        <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Style.Triggers><DataTrigger Binding="{Binding IsPerformance}" Value="True"><Setter Property="Grid.ColumnSpan" Value="2" /><Setter Property="HorizontalAlignment" Value="Right" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                    </TextBlock>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center" Visibility="{Binding HasRange, Converter={StaticResource TuneVisibility}}">
                                         <ProgressBar Value="{Binding RangePosition}" Minimum="0" Maximum="100" Style="{StaticResource TuneRange}" IsHitTestVisible="False" />
                                         <Grid Margin="0,6,0,0"><TextBlock Text="Low" Style="{StaticResource TuneHint}" /><TextBlock Text="High" Style="{StaticResource TuneHint}" HorizontalAlignment="Right" /></Grid>
@@ -153,7 +157,7 @@
                         </ItemsControl>
                         <StackPanel Visibility="{Binding IsCompareMode, Converter={StaticResource TuneVisibility}}">
                             <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="1.5*" /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition Width="0.7*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="Setting" FontWeight="SemiBold" /><TextBlock Grid.Column="1" Text="{Binding CompareATitle}" Foreground="{x:Static runs:RunComparisonColors.RunA}" TextWrapping="Wrap" Margin="8,0" /><TextBlock Grid.Column="2" Text="{Binding CompareBTitle}" Foreground="{x:Static runs:RunComparisonColors.RunB}" TextWrapping="Wrap" Margin="8,0" /><TextBlock Grid.Column="3" Text="B &#x2212; A" TextWrapping="Wrap" Margin="8,0" />
+                                <TextBlock Text="{Binding RowHeading}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,8,0" /><TextBlock Grid.Column="1" Text="{Binding CompareATitle}" Foreground="{x:Static runs:RunComparisonColors.RunA}" TextWrapping="Wrap" Margin="8,0" /><TextBlock Grid.Column="2" Text="{Binding CompareBTitle}" Foreground="{x:Static runs:RunComparisonColors.RunB}" TextWrapping="Wrap" Margin="8,0" /><TextBlock Grid.Column="3" Text="B &#x2212; A" TextWrapping="Wrap" Margin="8,0" />
                             </Grid>
                             <ItemsControl x:Name="TuneComparison" ItemsSource="{Binding Rows}"><ItemsControl.ItemTemplate><DataTemplate>
                                 <Border Padding="0,12" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource StrokeBrush}">

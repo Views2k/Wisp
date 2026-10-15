@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Wisp.App.Tunes;
+using Wisp.Core.Tunes;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -45,12 +46,12 @@ internal static class TuneUiRuntimeTests
             tabs.SelectedItem = window.FindName("TuneTab");
             var surface = Assert.IsAssignableFrom<FrameworkElement>(window.Content);
             Await(model.InitializeAsync()); Await(model.RefreshAsync());
-            Assert.Equal(9, model.Categories.Count);
+            Assert.Contains(model.Categories, category => category.Category == TuneCategory.Performance);
             foreach (var size in new[] { new Size(720, 440), new Size(1280, 900) })
             {
                 Arrange(surface, size);
                 var categories = Assert.IsType<ListBox>(page.FindName("TuneCategories"));
-                Assert.Equal(9, categories.Items.Count);
+                Assert.Equal(model.Categories.Count, categories.Items.Count);
                 Assert.True(categories.ActualWidth > 400);
                 Assert.True(categories.ActualWidth <= page.ActualWidth + 1);
                 model.BeginSave(); Arrange(surface, size);

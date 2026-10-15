@@ -89,7 +89,7 @@ public sealed class UpdaterWorkflowTests
         var commandProcessor = Environment.GetEnvironmentVariable("ComSpec");
         Assert.False(string.IsNullOrWhiteSpace(commandProcessor));
         var exception = Assert.Throws<UpdateFailureException>(() =>
-            new WindowsUpdaterProcessHost().RunInstaller(
+            new WindowsUpdaterProcessHost(() => false).RunInstaller(
                 commandProcessor!,
                 ["/d", "/s", "/c", "ping 127.0.0.1 -n 30 >nul"],
                 TimeSpan.FromMilliseconds(100)));

@@ -7,6 +7,23 @@ namespace Wisp.App.Tests;
 
 public sealed class RecorderFailureDiagnosticTests
 {
+    [Fact]
+    public void ErrorDetailsPreserveTheActualCaptureAdapterInsteadOfGuessingFromOtherGpus()
+    {
+        var fields = Fields();
+        fields["adapterKnown"] = true;
+        fields["adapterVendorId"] = 0x1002u;
+        fields["adapterDeviceId"] = 0x164Eu;
+        fields["hardwareCandidatesKnown"] = true;
+        fields["hardwareCandidates"] = 1u;
+        var diagnostic = Assert.IsType<RecorderFailureDiagnostic>(RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields)));
+        var report = ClipFailureReport.Build("encoder_failed", null, diagnostic);
+        Assert.Contains("0x1002", report, StringComparison.Ordinal);
+        Assert.Contains("0x164E", report, StringComparison.Ordinal);
+        var withoutAdapter = ClipFailureReport.Build("encoder_failed", null, diagnostic with { AdapterVendorId = null, AdapterDeviceId = null });
+        Assert.DoesNotContain("0x1002", withoutAdapter, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("hdr_encoder_unsupported", "video_initialize", "sdr-fallback")]
     [InlineData("audio_unavailable", "audio_initialize", "video-only")]

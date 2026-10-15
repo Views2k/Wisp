@@ -79,7 +79,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private Task _recoveryTask = Task.CompletedTask;
     private bool _recoveryWaiting;
     private int _recoveryAttempt;
-    private long _bufferingSince;
+    private const int MaximumRecordingFailures = 3;
+    private int _recordingFailures;
     private long _revision;
     private long _targetObservationGeneration;
     private int _disposed, _resourcesDisposed;
@@ -228,6 +229,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                 _targetObservationGeneration = checked(_targetObservationGeneration + 1);
                 CancelRecoveryLocked();
                 _recoveryAttempt = 0;
+                _recordingFailures = 0;
                 _observed = null;
                 _showCaptureBorder = showCaptureBorder;
                 _recording = recording; _storage = storage; _enabled = true; _fault = null; _blockedObservation = null; _revision++;
@@ -424,7 +426,6 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
                     _session = session; _sessionLifetime = lifetime; _activeObservation = observed;
                     _sessionHandler = handler; _nativeState = null; _capturePaused = false; _nativePauseSequence = 0;
                     _sessionStarted = Stopwatch.GetTimestamp();
-                    _bufferingSince = 0;
                     if (revision != _revision) lifetime.Cancel();
                 }
                 session.StateChanged += handler;
@@ -465,7 +466,6 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             _nativeState = state;
             if (pausedTransition)
             {
-                _bufferingSince = 0;
                 // Native may detect focus loss before the UI observation.
                 InvalidateObservedTargetLocked();
             }
@@ -535,7 +535,6 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             if (_saving || _nativeState?.State == "saving") snapshot = new(ClipRecorderState.Saving, true, true, false, "Saving clip…");
             else if (_nativeState?.State == "buffering")
             {
-                if (_bufferingSince == 0) _bufferingSince = Stopwatch.GetTimestamp();
                 snapshot = new(ClipRecorderState.Buffering, true, true, true, BufferingStatus(_nativeState));
             }
             else if (_nativeState?.State == "waiting") snapshot = new(ClipRecorderState.Preparing, true, true, false, "Preparing game capture…");
@@ -642,20 +641,32 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private void RequestRecovery(string reason, IRecorderSession? expectedSession, long expectedRevision)
     {
         long revision;
+        bool pausedAfterFailures;
         lock (_sync)
         {
             if (!_enabled || _revision != expectedRevision || !ReferenceEquals(_session, expectedSession) ||
-                Volatile.Read(ref _disposed) != 0) return;
+                _sessionLifetime?.IsCancellationRequested == true || Volatile.Read(ref _disposed) != 0) return;
             RememberFailure(reason, expectedSession);
             RememberReset(reason, expectedSession);
-            if (_bufferingSince != 0 && Stopwatch.GetElapsedTime(_bufferingSince) >= TimeSpan.FromSeconds(30))
-                _recoveryAttempt = 0;
+            // A resolution change is a normal capture transition. Failures are
+            // counted until the player explicitly enables recording again;
+            // brief buffering or focus changes must not restart this budget.
+            if (reason != "window_resized") _recordingFailures++;
+            pausedAfterFailures = _recordingFailures >= MaximumRecordingFailures;
             _fault = reason; _blockedObservation = null;
             _sessionLifetime?.Cancel();
-            ScheduleRecoveryLocked();
+            if (pausedAfterFailures)
+            {
+                _fault = "recovery_limit_reached";
+                _enabled = false;
+                _revision++;
+                CancelRecoveryLocked();
+            }
+            else ScheduleRecoveryLocked();
             revision = _revision;
         }
-        Publish(new(ClipRecorderState.Reconnecting, true, true, false, RecoveryStatus(reason)), revision, expectedSession);
+        if (pausedAfterFailures) PublishOff();
+        else Publish(new(ClipRecorderState.Reconnecting, true, true, false, RecoveryStatus(reason)), revision, expectedSession);
         Signal();
     }
 
@@ -801,6 +812,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     }
     internal static string ReasonText(string reason) => reason switch
     {
+        "recovery_limit_reached" => "Clip recording paused after three failed attempts. Re-enable clipping when you're ready to try again.",
         "target_exited" or "window_closed" or "waiting_for_game" => "Waiting for Forza to be focused and fullscreen.",
         "window_minimized" => "Recording paused while the game is minimized.",
         "focus_lost" => "Recording paused. Return to Forza in fullscreen to resume.",
