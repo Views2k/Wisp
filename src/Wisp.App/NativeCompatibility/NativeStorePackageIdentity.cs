@@ -21,16 +21,28 @@ internal readonly record struct NativeStorePackageIdentity(string PackageFullNam
     internal static bool TryRead(
         SafeProcessHandle handle, string executablePath, IPackageApi api, out NativeStorePackageIdentity identity)
     {
+        return Inspect(handle, executablePath, api, out identity) == NativePackageInspection.Verified;
+    }
+
+    internal static NativePackageInspection Inspect(SafeProcessHandle handle, string executablePath, out NativeStorePackageIdentity identity) =>
+        Inspect(handle, executablePath, WindowsPackageApi.Instance, out identity);
+
+    internal static NativePackageInspection Inspect(SafeProcessHandle handle, string executablePath, IPackageApi api, out NativeStorePackageIdentity identity)
+    {
         identity = default;
         if (handle is null || handle.IsClosed || handle.IsInvalid)
         {
-            return false;
+            return NativePackageInspection.Unavailable;
         }
 
         try
         {
-            // No-package and unavailable API results are ordinary nonmatches; Steam still uses its file fingerprint.
-            if (!TryReadString((ref uint length, char[]? buffer) => api.GetFullName(handle, ref length, buffer),
+            uint nameLength = 0;
+            var nameResult = api.GetFullName(handle, ref nameLength, null);
+            if (nameResult == 15700) return NativePackageInspection.NoPackage;
+            if (nameResult != InsufficientBuffer) return NativePackageInspection.Unavailable;
+            if (!TryReadString((ref uint length, char[]? buffer) =>
+                buffer is null ? CopyLength(ref length, nameLength, nameResult) : api.GetFullName(handle, ref length, buffer),
                     MaximumPackageNameCharacters, out var name) ||
                 !IsGamePackageFamily(name) ||
                 api.GetOrigin(name, out var origin) != 0 || origin != StoreOrigin ||
@@ -39,16 +51,23 @@ internal readonly record struct NativeStorePackageIdentity(string PackageFullNam
                 !TryReadString((ref uint length, char[]? buffer) => api.GetPath(name, 2, ref length, buffer),
                     MaximumPathCharacters, out var effectivePath))
             {
-                return false;
+                return NativePackageInspection.Unavailable;
             }
 
-            return TryValidate(name, origin, originalPath, effectivePath, executablePath, out identity);
+            return TryValidate(name, origin, originalPath, effectivePath, executablePath, out identity)
+                ? NativePackageInspection.Verified : NativePackageInspection.Unavailable;
         }
         catch (Exception exception) when (exception is DllNotFoundException or EntryPointNotFoundException or
             ObjectDisposedException or UnauthorizedAccessException)
         {
-            return false;
+            return NativePackageInspection.Unavailable;
         }
+    }
+
+    private static int CopyLength(ref uint target, uint source, int result)
+    {
+        target = source;
+        return result;
     }
 
     internal static bool TryValidate(
@@ -255,3 +274,5 @@ internal readonly record struct NativeStorePackageIdentity(string PackageFullNam
         private static extern int GetPackagePathByFullName2(string fullName, int pathType, ref uint length, [Out] char[]? path);
     }
 }
+
+internal enum NativePackageInspection { Unavailable, NoPackage, Verified }

@@ -8,7 +8,6 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main]
     tags: ["v*", "V*"]
   pull_request:
     branches: [main]
@@ -21,7 +20,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pull-request:
+    name: Build and test
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate repository policy
+        shell: pwsh
+        run: ./.github/scripts/Test-RepositoryPolicy.ps1
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Restore locked dependencies
+        run: dotnet restore Wisp.sln --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
+      - name: Build application and tests
+        run: dotnet build Wisp.sln -c Release --no-restore -m:1 -p:UseSharedCompilation=false
+      - name: Check critical behavior and affected tests
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: ./.github/scripts/Test-AppBehavior.ps1 -BaseRevision $env:BASE_SHA
+      - name: Explain a failed gate
+        if: failure()
+        shell: pwsh
+        run: '"The merge gate failed. Inspect the first failing step; the ten-minute limit is deliberate. Diagnose slow checks before retrying." >> $env:GITHUB_STEP_SUMMARY'
+
   validation-plan:
+    if: github.event_name != 'pull_request'
     name: Choose validation scope
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -57,8 +94,8 @@ jobs:
           }
 
   test:
-    name: Build and test
-    if: always()
+    name: Release build and test
+    if: always() && github.event_name != 'pull_request'
     needs: validation-plan
     runs-on: ${{ needs.validation-plan.outputs.mode == 'docs-only' && 'ubuntu-latest' || 'windows-latest' }}
     timeout-minutes: 45
@@ -249,7 +286,7 @@ jobs:
 
   package-review:
     name: Build installer
-    if: always()
+    if: always() && github.event_name != 'pull_request'
     needs: [validation-plan, test]
     runs-on: ${{ needs.validation-plan.outputs.mode == 'docs-only' && 'ubuntu-latest' || 'windows-latest' }}
     timeout-minutes: 10

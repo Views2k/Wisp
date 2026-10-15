@@ -19,11 +19,27 @@ internal sealed record FeatureControlRule(string Id, ImmutableArray<string> Feat
     string? MinVersion, string? MaxVersion, ImmutableArray<string> Channels,
     DateTimeOffset StartsAt, DateTimeOffset ExpiresAt)
 {
-    internal bool Matches(string version, string channel, DateTimeOffset now) =>
+    internal ImmutableArray<string> GameBuilds { get; init; } = [];
+    internal ImmutableArray<string> GpuVendors { get; init; } = [];
+
+    internal bool Matches(string version, string channel, DateTimeOffset now, FeatureControlContext? context = null) =>
         now >= StartsAt && now < ExpiresAt && Channels.Contains(channel) &&
         SupplementarySchema.NumericVersion(version, true) &&
         (MinVersion is null || Version.Parse(version) >= Version.Parse(MinVersion)) &&
-        (MaxVersion is null || Version.Parse(version) <= Version.Parse(MaxVersion));
+        (MaxVersion is null || Version.Parse(version) <= Version.Parse(MaxVersion)) &&
+        (GameBuilds.IsDefaultOrEmpty || context?.GameBuild is { } build && GameBuilds.Contains(build)) &&
+        (GpuVendors.IsDefaultOrEmpty || context is not null && context.GpuVendors.Overlaps(GpuVendors));
+}
+
+internal sealed record FeatureControlContext(string? GameBuild, ImmutableHashSet<string> GpuVendors)
+{
+    internal static FeatureControlContext Empty { get; } = new(null, ImmutableHashSet<string>.Empty);
+    internal static readonly ImmutableHashSet<string> SupportedGpuVendors = ImmutableHashSet.Create(StringComparer.Ordinal,
+        "amd", "nvidia", "intel");
+
+    internal static ImmutableHashSet<string> FromVendorIds(IEnumerable<uint> vendors) => vendors
+        .Select(id => id switch { 0x1002 => "amd", 0x10de => "nvidia", 0x8086 => "intel", _ => null })
+        .Where(vendor => vendor is not null).Select(vendor => vendor!).ToImmutableHashSet(StringComparer.Ordinal);
 }
 
 internal sealed record FeatureControlPolicy(long Revision, DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt,
@@ -32,12 +48,12 @@ internal sealed record FeatureControlPolicy(long Revision, DateTimeOffset Issued
     internal static FeatureControlPolicy Empty { get; } = new(0, DateTimeOffset.MinValue, DateTimeOffset.MinValue, []);
     internal bool IsCurrent(DateTimeOffset now) => Revision > 0 && IssuedAt <= now + TimeSpan.FromMinutes(5) && ExpiresAt > now;
 
-    internal ImmutableDictionary<string, string> Disabled(string version, string channel, DateTimeOffset now)
+    internal ImmutableDictionary<string, string> Disabled(string version, string channel, DateTimeOffset now, FeatureControlContext? context = null)
     {
         var result = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         if (IsCurrent(now))
             foreach (var rule in Rules)
-                if (rule.Matches(version, channel, now))
+                if (rule.Matches(version, channel, now, context))
                     foreach (var feature in rule.Features) result.TryAdd(feature, rule.Reason);
         return result.ToImmutable();
     }
@@ -84,7 +100,8 @@ internal sealed class FeatureControlVerifier
                     DSASignatureFormat.IeeeP1363FixedFieldConcatenation), "signature");
             using var document = SupplementaryJson.Parse(payload, MaximumPayloadBytes);
             var p = SupplementaryJson.Object(document.RootElement, "schemaVersion", "purpose", "revision", "issuedAt", "expiresAt", "rules");
-            SupplementaryJson.Require(SupplementaryJson.Int(p["schemaVersion"]) == 1 &&
+            var schemaVersion = SupplementaryJson.Int(p["schemaVersion"]);
+            SupplementaryJson.Require(schemaVersion is 1 or 2 &&
                 SupplementaryJson.String(p["purpose"], 64) == "wisp-feature-controls", "purpose");
             var revision = SupplementaryJson.Int(p["revision"]);
             var issued = SupplementaryJson.Utc(p["issuedAt"]);
@@ -93,7 +110,7 @@ internal sealed class FeatureControlVerifier
                 expires - issued <= TimeSpan.FromDays(7), "validity");
             SupplementaryJson.Require(cached || issued <= now + TimeSpan.FromMinutes(5) && expires > now, "expired");
             SupplementaryJson.Require(p["rules"].ValueKind == JsonValueKind.Array && p["rules"].GetArrayLength() <= 32, "rules");
-            var rules = p["rules"].EnumerateArray().Select(r => ReadRule(r, issued, expires)).ToImmutableArray();
+            var rules = p["rules"].EnumerateArray().Select(r => ReadRule(r, issued, expires, schemaVersion)).ToImmutableArray();
             SupplementaryJson.Require(rules.Select(r => r.Id).Distinct(StringComparer.Ordinal).Count() == rules.Length, "duplicate-rule");
             return new(new(revision, issued, expires, rules), Convert.ToHexString(SHA256.HashData(payload)), envelope.ToArray());
         }
@@ -103,9 +120,11 @@ internal sealed class FeatureControlVerifier
         { throw new SupplementaryValidationException("invalid-controls"); }
     }
 
-    private static FeatureControlRule ReadRule(JsonElement element, DateTimeOffset issued, DateTimeOffset expires)
+    private static FeatureControlRule ReadRule(JsonElement element, DateTimeOffset issued, DateTimeOffset expires, long schemaVersion)
     {
-        var p = SupplementaryJson.Object(element, "id", "features", "reason", "minVersion", "maxVersion", "channels", "startsAt", "expiresAt");
+        var p = schemaVersion == 1
+            ? SupplementaryJson.Object(element, "id", "features", "reason", "minVersion", "maxVersion", "channels", "startsAt", "expiresAt")
+            : SupplementaryJson.Object(element, "id", "features", "reason", "minVersion", "maxVersion", "channels", "startsAt", "expiresAt", "gameBuilds", "gpuVendors");
         var id = SupplementaryJson.String(p["id"], 64);
         var features = SupplementaryJson.StringArray(p["features"], ControlledFeatures.All.Count, ControlledFeatures.All.Contains, nonempty: true);
         var reason = SupplementaryJson.String(p["reason"], 300);
@@ -119,7 +138,11 @@ internal sealed class FeatureControlVerifier
             (min is null || SupplementarySchema.NumericVersion(min, true)) &&
             (max is null || SupplementarySchema.NumericVersion(max, true)) &&
             (min is null || max is null || Version.Parse(min) <= Version.Parse(max)), "rule");
-        return new(id, features, reason, min, max, channels, starts, ends);
+        var games = schemaVersion == 2
+            ? SupplementaryJson.StringArray(p["gameBuilds"], 16, value => SupplementarySchema.NumericVersion(value, false)) : [];
+        var vendors = schemaVersion == 2
+            ? SupplementaryJson.StringArray(p["gpuVendors"], 3, FeatureControlContext.SupportedGpuVendors.Contains) : [];
+        return new(id, features, reason, min, max, channels, starts, ends) { GameBuilds = games, GpuVendors = vendors };
     }
 
     private static ECDsa ReadKey(byte[] bytes)

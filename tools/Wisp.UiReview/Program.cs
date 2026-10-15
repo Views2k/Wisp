@@ -148,6 +148,10 @@ internal static class Program
             }
             if (args.Length == 4 && args[0] == "--shift-session-audit" && args[2] == "--output")
                 return ShiftSessionReview.Run(args[1], PrepareOutput(args[3]));
+            if (args.Length == 3 && args[0] == "--boost-scale-check" && args[1] == "--output")
+                return BoostScaleReview.Run(PrepareOutput(args[2]), () => LoadApplicationResources(args[2], out _), DetachSurface);
+            if (args.Length == 3 && args[0] == "--support-composer-check" && args[1] == "--output")
+                return SupportComposerReview.Run(PrepareOutput(args[2]), () => LoadApplicationResources(args[2], out _), DetachSurface);
             if (args.Length == 3 && args[0] == "--standalone-preview-check" && args[1] == "--output")
                 return StandalonePreviewReview.Run(PrepareOutput(args[2]), () => LoadApplicationResources(args[2], out _), DetachSurface);
             if (args.Length == 3 && args[0] == "--standalone-gauges-check" && args[1] == "--output")

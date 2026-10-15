@@ -17,6 +17,11 @@ boost is detected. The option is off by default and saves with settings and HUD
 profiles. With it off, negative readings clamp to zero. Choose PSI or bar for
 both layouts and the Appearance preview; FH6 telemetry remains in PSI internally.
 
+Set **Maximum boost** from **20 to 200 PSI** in 10 PSI steps. The selected maximum
+applies to the Digital rail, Analogue dial and Appearance preview, and saves with
+settings and HUD profiles. The default is 70 PSI. In bar, the scale rounds up to
+the next whole bar for clear markings.
+
 ## Digital layout
 
 Digital mode adds one slim rail beneath the tachometer rail. The rail
@@ -32,8 +37,9 @@ positive pressure.
 
 ## Analogue layout
 
-Analogue mode uses a circular 0 to 70 PSI gauge with numbered 10 PSI intervals
-and intermediate 5 PSI ticks, or a 0 to 5 bar scale with numbered 1 bar intervals.
+Analogue mode uses a circular gauge with numbered labels and intermediate tick
+marks that adapt to the selected maximum. The default scale runs from 0 to
+70 PSI or 0 to 5 bar.
 The center readout shows whole PSI or bar to one decimal place. The readout
 matches the Native HUD's typography and shading, and the needle uses the same
 motion style.
@@ -61,6 +67,7 @@ Open **Appearance > Gauges**, then **Boost gauge**, to change:
 - gauge visibility;
 - attached or detached Analogue placement and gauge size;
 - PSI or bar;
+- maximum boost from 20 to 200 PSI, in 10 PSI steps;
 - vacuum pressure after positive boost is detected;
 - Analogue pressure-number color;
 - Digital pressure-number color;

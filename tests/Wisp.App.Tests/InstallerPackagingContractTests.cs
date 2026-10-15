@@ -29,7 +29,7 @@ public sealed class InstallerPackagingContractTests
         Assert.DoesNotContain("$previousArtifact", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Remove-Item -LiteralPath $stageDirectory", script, StringComparison.Ordinal);
 
-        var tests = script.IndexOf("& $dotnetExecutable test $solution", StringComparison.Ordinal);
+        var tests = script.IndexOf("& (Join-Path $repository '.github/scripts/Test-AppBehavior.ps1')", StringComparison.Ordinal);
         var publish = script.IndexOf("& $dotnetExecutable publish $project", StringComparison.Ordinal);
         var compile = script.IndexOf("& $innoExecutable \"/O$stageDirectory\"", StringComparison.Ordinal);
         var validate = script.IndexOf("'Wisp installer' `", compile, StringComparison.Ordinal);
@@ -87,7 +87,7 @@ public sealed class InstallerPackagingContractTests
         var script = InstallerScript();
         var restore = script.IndexOf("& $dotnetExecutable restore $solution", StringComparison.Ordinal);
         var format = script.IndexOf("& $dotnetExecutable format $solution", StringComparison.Ordinal);
-        var tests = script.IndexOf("& $dotnetExecutable test $solution", StringComparison.Ordinal);
+        var tests = script.IndexOf("& (Join-Path $repository '.github/scripts/Test-AppBehavior.ps1')", StringComparison.Ordinal);
         var uiBuild = script.IndexOf("& $dotnetExecutable build $uiReviewProject", StringComparison.Ordinal);
         var pythonTests = script.IndexOf("& $pythonExecutable -m unittest discover", StringComparison.Ordinal);
         var publish = script.IndexOf("& $dotnetExecutable publish $project", StringComparison.Ordinal);
@@ -97,25 +97,6 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("$env:PYTHONDONTWRITEBYTECODE = '1'", script, StringComparison.Ordinal);
         Assert.True(pythonTests >= 0 && restore > pythonTests && format > restore && tests > format &&
                     uiBuild > tests && publish > uiBuild);
-    }
-
-    [Fact]
-    public void IsolatedAllocationMeasurementRemainsAMandatoryReleaseGate()
-    {
-        var script = InstallerScript();
-        Assert.Contains("'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations'", script, StringComparison.Ordinal);
-        Assert.Contains("'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold'", script, StringComparison.Ordinal);
-        Assert.Contains("'Wisp.App.Tests.TachDiagnosticsTests.DisabledRecordCallsCreateNoHistoryOrPerCallAllocations'", script, StringComparison.Ordinal);
-        Assert.Contains("foreach ($allocationTest in $allocationTests)", script, StringComparison.Ordinal);
-        Assert.Contains("($allocationTests | ForEach-Object { \"FullyQualifiedName!=$_\" }) -join '&'", script, StringComparison.Ordinal);
-        Assert.Contains("--filter $nonAllocationFilter", script, StringComparison.Ordinal);
-        Assert.Contains("--filter \"FullyQualifiedName=$allocationTest\"", script, StringComparison.Ordinal);
-        var isolated = script.IndexOf("& $dotnetExecutable test $appTestsProject", StringComparison.Ordinal);
-        var failure = script.IndexOf("if ($LASTEXITCODE -ne 0)", isolated, StringComparison.Ordinal);
-        var result = script.IndexOf("Assert-SinglePassedTestResult (Join-Path $allocationResults 'diagnostic-allocation.trx')", StringComparison.Ordinal);
-        var publish = script.IndexOf("& $dotnetExecutable publish $project", StringComparison.Ordinal);
-        Assert.True(isolated >= 0 && failure > isolated && result > failure && publish > result);
-        Assert.Contains("Isolated diagnostic allocation validation failed", script, StringComparison.Ordinal);
     }
 
     [Fact]

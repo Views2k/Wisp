@@ -65,7 +65,9 @@ public sealed class ApplicationUpdateResultTests
         var consumed = ApplicationUpdateLauncher.TryConsumeResult(layout.Root, out var result);
 
         Assert.True(consumed);
-        Assert.Equal("Wisp 1.2.3 was installed successfully.", result.Status);
+        Assert.DoesNotContain("successfully", result.Status, StringComparison.Ordinal);
+        Assert.Equal("1.2.3", result.TargetVersion);
+        Assert.Equal("1.0.0", result.SourceVersion);
         Assert.Equal("Check again", result.Action);
         Assert.Equal("unknown", result.Outcome); // The recorded target is not this running build.
         Assert.False(File.Exists(layout.ResultPath));

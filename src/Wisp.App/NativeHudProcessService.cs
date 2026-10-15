@@ -38,7 +38,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable, INativeNeedleHis
     private Task? _disposeTask;
     private AttachmentIdentity? _attachmentIdentity;
 
-    private sealed record AttachmentIdentity(NativeHudCompatibilityPack Pack, long Epoch, long CompatibilityGeneration, NativeGameVerification Verification);
+    private sealed record AttachmentIdentity(NativeHudCompatibilityPack Pack, long Epoch, long CompatibilityGeneration, NativeGameVerification Verification, DateTimeOffset AdmittedAt);
 
     // Only the worker touches process memory, resolver caches, or attachment timing.
     private NativeHudMemoryResolver _resolver = new();
@@ -92,7 +92,9 @@ public sealed class NativeHudProcessService : IAsyncDisposable, INativeNeedleHis
                 var identity = _attachmentIdentity;
                 return identity is not null && !_disposed && identity.Epoch == _sessionEpoch &&
                     identity.CompatibilityGeneration == _memoryFactory.CompatibilityGeneration
-                    ? identity.Verification : RejectedGameLocked()?.Verification ?? NativeGameVerification.FromStatus(_snapshot.Status);
+                    ? NativeGameVerification.ForAttachment(identity.Verification, identity.Pack.GameVersion, identity.AdmittedAt,
+                        NativeGameIdentityProbe.Current.Recent)
+                    : RejectedGameLocked()?.Verification ?? NativeGameVerification.FromStatus(_snapshot.Status);
             }
         }
     }
@@ -462,7 +464,7 @@ public sealed class NativeHudProcessService : IAsyncDisposable, INativeNeedleHis
             if (_memory is { } attached && (_attachmentIdentity is not { } identity ||
                 identity.Epoch != epoch || identity.CompatibilityGeneration != compatibilityGeneration ||
                 !ReferenceEquals(identity.Pack, attached.CompatibilityPack)))
-                Volatile.Write(ref _attachmentIdentity, new AttachmentIdentity(attached.CompatibilityPack, epoch, compatibilityGeneration, attached.GameVerification));
+                Volatile.Write(ref _attachmentIdentity, new AttachmentIdentity(attached.CompatibilityPack, epoch, compatibilityGeneration, attached.GameVerification, DateTimeOffset.UtcNow));
             return true;
         }
     }

@@ -47,7 +47,13 @@ def read_pins(root):
     filename = f"Wisp-{version}-library-sources.zip"
     closure = manifest["sourceClosure"]
     companion = manifest["sourceCompanion"]
-    expected_url = f"https://github.com/Views2k/Wisp/releases/download/library-sources-{version}/{filename}"
+    source_version = archive.get("sourceVersion", version)
+    if (not isinstance(source_version, str) or
+            not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", source_version) or
+            tuple(map(int, source_version.split("."))) > tuple(map(int, version.split(".")))):
+        raise ValueError("The source asset version must identify an existing release version.")
+    source_filename = f"Wisp-{source_version}-library-sources.zip"
+    expected_url = f"https://github.com/Views2k/Wisp/releases/download/library-sources-{source_version}/{source_filename}"
     if (distribution["schemaVersion"] != 1 or distribution["version"] != version or
             archive["filename"] != filename or archive["url"] != expected_url or
             type(archive["bytes"]) is not int or not 0 < archive["bytes"] <= 2 * 1024**3 or

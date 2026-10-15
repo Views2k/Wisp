@@ -15,11 +15,28 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.9",
+            "October 14, 2026",
+            "UPDATES AND GAUGES",
+            "Automatic updates, an adjustable boost gauge and faster news refreshes.",
+            true,
+            [
+                Group("Automatic updates",
+                    "Wisp checks for updates at launch and regularly while open, then installs the latest version automatically.",
+                    "Updates wait for Forza and active recording, export or save work to finish before restarting Wisp."),
+                Group("Boost gauge",
+                    "Adjust the maximum boost pressure from 20 to 200 PSI. Gauge labels, tick marks and the needle scale adjust together."),
+                Group("News and compatibility",
+                    "News and announcements refresh about every 30 seconds while Wisp is running.",
+                    "Improved Forza build and storefront identification makes compatibility reports more precise.",
+                    "Temporary feature pauses can target a specific Forza build or graphics-hardware group and end automatically.")
+            ]),
+        new(
             "2.6.8",
             "October 12, 2026",
             "FEATURE CONTROLS",
             "Dismiss optional announcements and receive temporary feature availability updates.",
-            true,
+            false,
             [
                 Group("Dashboard announcements",
                     "Dismissible dashboard announcements have a close button. Your choice is remembered when Wisp restarts.",

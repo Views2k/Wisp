@@ -23,18 +23,34 @@ public static class BoostPressureUnits
             : value;
     }
 
-    public static double AnalogMaximum(BoostPressureUnit unit) =>
-        unit == BoostPressureUnit.Bar ? 5 : 70;
+    public static double NormalizeMaximumPsi(double value) =>
+        double.IsFinite(value) ? Math.Clamp(Math.Round(value / 10) * 10, 20, 200) : 70;
+
+    public static double AnalogMaximum(BoostPressureUnit unit, double maximumPsi = 70) =>
+        unit == BoostPressureUnit.Bar ? Math.Ceiling(NormalizeMaximumPsi(maximumPsi) / PsiPerBar) : NormalizeMaximumPsi(maximumPsi);
+
+    public static IReadOnlyList<double> MajorTicks(BoostPressureUnit unit, bool showVacuum, double maximumPsi = 70)
+    {
+        var maximum = AnalogMaximum(unit, maximumPsi);
+        var minimum = AnalogMinimum(unit, showVacuum);
+        var interval = unit == BoostPressureUnit.Bar ? maximum <= 8 ? 1 : 2
+            : maximum <= 80 ? 10 : maximum <= 160 ? 20 : 40;
+        var ticks = new List<double>();
+        if (minimum < 0) ticks.Add(minimum);
+        for (var value = 0d; value < maximum; value += interval) ticks.Add(value);
+        ticks.Add(maximum);
+        return ticks;
+    }
 
     public static double AnalogMinimum(BoostPressureUnit unit, bool showVacuum) =>
         showVacuum ? (unit == BoostPressureUnit.Bar ? -1 : -20) : 0;
 
-    public static double GaugeFraction(double pressurePsi, BoostPressureUnit unit, bool showVacuum)
+    public static double GaugeFraction(double pressurePsi, BoostPressureUnit unit, bool showVacuum, double maximumPsi = 70)
     {
         var minimum = AnalogMinimum(unit, showVacuum);
-        return Math.Clamp((FromPsi(pressurePsi, unit) - minimum) / (AnalogMaximum(unit) - minimum), 0, 1);
+        return Math.Clamp((FromPsi(pressurePsi, unit) - minimum) / (AnalogMaximum(unit, maximumPsi) - minimum), 0, 1);
     }
 
-    public static double AnalogMaximumPsi(BoostPressureUnit unit) =>
-        unit == BoostPressureUnit.Bar ? AnalogMaximum(unit) * PsiPerBar : AnalogMaximum(unit);
+    public static double AnalogMaximumPsi(BoostPressureUnit unit, double maximumPsi = 70) =>
+        unit == BoostPressureUnit.Bar ? AnalogMaximum(unit, maximumPsi) * PsiPerBar : AnalogMaximum(unit, maximumPsi);
 }

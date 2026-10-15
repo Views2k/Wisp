@@ -14,7 +14,8 @@ internal enum ApplicationUpdateHandoffState
     Cancelled
 }
 
-internal readonly record struct ApplicationUpdateResultStatus(string Status, string Action, string Outcome = "unknown", Supplementary.SupplementaryIncident? Incident = null);
+internal readonly record struct ApplicationUpdateResultStatus(string Status, string Action, string Outcome = "unknown", Supplementary.SupplementaryIncident? Incident = null,
+    string? SourceVersion = null, string? TargetVersion = null);
 
 internal sealed class ApplicationUpdateHandoff : IDisposable
 {
@@ -282,14 +283,18 @@ internal static class ApplicationUpdateLauncher
             }
 
             var state = stateElement.GetString();
+            string? VersionField(string name) => root.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.String &&
+                SemanticVersion.TryParse(field.GetString(), out var parsed) ? parsed.ToString() : null;
             if (string.Equals(state, "installed", StringComparison.Ordinal)
                 && root.TryGetProperty("targetVersion", out var targetElement)
                 && targetElement.ValueKind == JsonValueKind.String
                 && SemanticVersion.TryParse(targetElement.GetString(), out var targetVersion))
             {
+                var startedTarget = targetVersion.ToString() == ApplicationVersionInfo.MachineVersion;
                 result = new ApplicationUpdateResultStatus(
-                    $"Wisp {targetVersion} was installed successfully.",
-                    "Check again", targetVersion.ToString() == ApplicationVersionInfo.MachineVersion ? "success" : "unknown");
+                    startedTarget ? $"Wisp {targetVersion} was installed successfully." : "The update needs another attempt. Check for updates to try again.",
+                    "Check again", startedTarget ? "success" : "unknown",
+                    SourceVersion: VersionField("sourceVersion"), TargetVersion: targetVersion.ToString());
                 return true;
             }
 
@@ -303,7 +308,7 @@ internal static class ApplicationUpdateLauncher
                     : null;
                 result = new ApplicationUpdateResultStatus(
                     FailureStatus(recoveryState),
-                    "Try again", "failure", UpdateResultIncident(root, recoveryState));
+                    "Try again", "failure", UpdateResultIncident(root, recoveryState), VersionField("sourceVersion"), VersionField("targetVersion"));
                 return true;
             }
 

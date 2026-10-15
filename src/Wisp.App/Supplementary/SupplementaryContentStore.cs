@@ -19,6 +19,7 @@ internal sealed class SupplementaryContentStore
     internal string? LastFailureCode { get; private set; }
     internal bool IsConfigured => _verifier.IsConfigured && _directory is not null;
     internal long HighestRevision => Volatile.Read(ref _current)?.Snapshot.Revision ?? 0;
+    internal SupplementaryMessagingActivation? VerifyMessaging(string? envelope, DateTimeOffset now) => _verifier.VerifyMessaging(envelope, now);
 
     internal SupplementaryContentStore(SupplementaryContentVerifier verifier, string? directory, string? ownedRoot = null)
     {

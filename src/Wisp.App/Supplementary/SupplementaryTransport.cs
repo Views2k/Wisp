@@ -11,7 +11,7 @@ internal sealed record SupplementaryConfiguration(Uri? Origin)
     internal static SupplementaryConfiguration Unconfigured { get; } = new((Uri?)null);
 }
 internal sealed record SupplementaryResponse(SupplementaryRequestStatus Status, byte[] Body, int HttpStatus = 0,
-    DateTimeOffset? ServerTime = null, int? UncertaintyMs = null);
+    DateTimeOffset? ServerTime = null, int? UncertaintyMs = null, string? MessagingEnvelope = null);
 internal interface ISupplementaryTransport : IDisposable
 {
     Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximumResponseBytes, CancellationToken cancellation);
@@ -47,8 +47,8 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
 
     public async Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximumResponseBytes, CancellationToken cancellation)
     {
-        if (route is not ("/api/v1/content" or "/api/v1/feature-controls" or "/api/v1/events" or "/api/v1/support") ||
-            (route is "/api/v1/content" or "/api/v1/feature-controls") != (body is null) || maximumResponseBytes is <= 0 or > 128 * 1024 ||
+        if (route is not ("/api/v1/content" or "/api/v1/feature-controls" or "/api/v1/feature-controls?schema=2" or "/api/v1/events" or "/api/v1/support") ||
+            (route is "/api/v1/content" or "/api/v1/feature-controls" or "/api/v1/feature-controls?schema=2") != (body is null) || maximumResponseBytes is <= 0 or > 128 * 1024 ||
             body?.Length > (route == "/api/v1/support" ? SupplementarySchema.MaximumSupportBytes : SupplementarySchema.MaximumBatchBytes))
             return new(SupplementaryRequestStatus.Invalid, []);
         using var timeout = new CancellationTokenSource(RequestTimeout, _clock);
@@ -79,7 +79,14 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
                         System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsed))
                     { serverTime = parsed; uncertainty = (int)Math.Ceiling(elapsed); }
                 }
-                return new(SupplementaryRequestStatus.Success, bytes, code, serverTime, uncertainty);
+                string? messaging = null;
+                if (route == "/api/v1/content" && code is 200 or 204 && response.Headers.CacheControl?.NoStore == true &&
+                    response.Headers.TryGetValues("X-Wisp-Messaging", out var flags))
+                {
+                    var values = flags.Take(2).ToArray();
+                    if (values.Length == 1 && values[0].Length is > 0 and <= 2048) messaging = values[0];
+                }
+                return new(SupplementaryRequestStatus.Success, bytes, code, serverTime, uncertainty, messaging);
             }
             if (code == 204 && body is null) return Success([]);
             var supportLimit = route == "/api/v1/support" && code == 429;

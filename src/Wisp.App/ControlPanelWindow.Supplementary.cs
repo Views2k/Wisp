@@ -64,7 +64,9 @@ public abstract partial class ControlPanelWindow
             _supplementaryNoticeTimer.Stop();
             _supplementarySendCancellation?.Cancel();
         };
+        panel.Children.Add(CreateSupportInbox());
         panel.Children.Add(CreateSupplementarySupportForm());
+        RefreshSupportReplies();
     }
 
     private void UpdateSupplementaryNoticeActivity()
@@ -148,7 +150,7 @@ public abstract partial class ControlPanelWindow
         }
     }
 
-    private FrameworkElement CreateSupplementarySupportForm()
+    private FrameworkElement CreateSupplementarySupportForm(bool messagingPreview = false)
     {
         var content = new StackPanel();
         var editor = new StackPanel();
@@ -163,19 +165,23 @@ public abstract partial class ControlPanelWindow
         editor.Children.Add(SupplementaryText("Message type", bold: true));
         editor.Children.Add(categories);
         var title = new TextBox { MaxLength = 100 };
+        _supportTitleInput = title;
         SupplementaryLabel(editor, "Title (up to 100 characters)", title);
         var message = new TextBox { MaxLength = 4000, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 120, MaxHeight = 280, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        _supportMessageInput = message;
         SupplementaryLabel(editor, "What happened, or what would help? (up to 4,000 characters)", message);
-        var diagnostics = new CheckBox { Content = "Include game platform, version and connection state", IsChecked = true, Margin = new Thickness(0, 12, 0, 8) };
+        var messaging = Application.Current is App current ? current.PlayerMessagingEnabled : messagingPreview;
+        var diagnostics = new CheckBox { Content = messaging ? "Include recent diagnostics (up to 20 minutes)" : "Include game platform, version and connection state", IsChecked = !messaging, Margin = new Thickness(0, 12, 0, 0) };
         diagnostics.SetResourceReference(StyleProperty, "ToggleSwitchStyle");
         diagnostics.SetResourceReference(Control.ForegroundProperty, "TextBrush");
-        editor.Children.Add(diagnostics);
+        _supportDiagnosticsInput = diagnostics;
         editor.Children.Add(SupplementaryText("Review your message for personal or account details before sending.", muted: true));
         content.Children.Add(editor);
         var quotaStatus = SupplementaryText("One accepted message per day.", muted: true);
         AutomationProperties.SetLiveSetting(quotaStatus, AutomationLiveSetting.Polite);
         content.Children.Add(quotaStatus);
-        var reviewButton = SupplementaryButton("Review before sending", primary: true);
+        var reviewButton = SupplementaryButton("Review before sending");
+        content.Children.Add(diagnostics);
         content.Children.Add(reviewButton);
         var reviewPanel = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 12, 0, 0) };
         reviewPanel.Children.Add(SupplementaryText("Review the exact report", bold: true));
@@ -210,6 +216,7 @@ public abstract partial class ControlPanelWindow
             catch (ExternalException) { _supplementarySupportStatus.Text = "The reference could not be copied. You can select it above."; }
         };
         content.Children.Add(copy);
+        var preparingReport = false;
         var quotaStarted = Stopwatch.GetTimestamp();
         var quotaDelay = TimeSpan.Zero;
         TimeSpan QuotaRemaining() => quotaDelay - Stopwatch.GetElapsedTime(quotaStarted);
@@ -218,10 +225,10 @@ public abstract partial class ControlPanelWindow
         {
             quotaTimer.Stop();
             var remaining = QuotaRemaining();
-            var limited = remaining > TimeSpan.Zero;
+            var limited = _supportReplyTo is null && remaining > TimeSpan.Zero;
             var available = _controller.FeatureAllowed("support");
             send.IsEnabled = available && !limited && confirmation.IsChecked == true && _supplementarySendCancellation is null;
-            reviewButton.IsEnabled = available && !limited;
+            reviewButton.IsEnabled = available && !limited && !preparingReport;
             quotaStatus.Text = !available ? _controller.FeatureControls.Reason("support") ?? "Sending messages is temporarily paused." : limited
                 ? $"Next message in {Math.Ceiling(remaining.TotalMinutes):N0} minutes. The daily limit resets at 00:00 UTC."
                 : "One accepted message per day.";
@@ -231,6 +238,7 @@ public abstract partial class ControlPanelWindow
                 quotaTimer.Start();
             }
         }
+        _refreshSupportQuota = UpdateQuota;
         quotaTimer.Tick += (_, _) => UpdateQuota();
         Activated += (_, _) => UpdateQuota();
         void RefreshSupportControl(object? source, EventArgs args)
@@ -241,22 +249,44 @@ public abstract partial class ControlPanelWindow
         _controller.FeatureControlsChanged += RefreshSupportControl;
         UpdateQuota();
         Closed += (_, _) => { quotaTimer.Stop(); _controller.FeatureControlsChanged -= RefreshSupportControl; };
-        reviewButton.Click += (_, _) =>
+        reviewButton.Click += async (_, _) =>
         {
-            if (!_controller.FeatureAllowed("support") || QuotaRemaining() > TimeSpan.Zero || Application.Current is not App app) return;
+            if (preparingReport || !_controller.FeatureAllowed("support") || _supportReplyTo is null && QuotaRemaining() > TimeSpan.Zero || Application.Current is not App app) return;
             var category = bug.IsChecked == true ? "bug" : suggestion.IsChecked == true ? "suggestion" : "feedback";
-            var reviewed = app.CreateSupplementarySupportPreview(category, title.Text.Trim(), message.Text.Trim(), diagnostics.IsChecked == true);
-            if (reviewed is null) { _supplementarySupportStatus.Text = "Feedback is temporarily unavailable. Your draft stays here; try reviewing again later."; return; }
-            if (!SupplementarySchema.Valid(reviewed, DateTimeOffset.UtcNow))
-            { _supplementarySupportStatus.Text = "Add a plain-text title and message within the shown limits. Remove markup or sensitive information, then review again."; return; }
-            _supplementaryReviewedReport = reviewed;
-            preview.Text = JsonSerializer.Serialize(reviewed, new JsonSerializerOptions(SupplementarySchema.Json) { WriteIndented = true });
-            editor.IsEnabled = false;
-            reviewButton.Visibility = Visibility.Collapsed;
-            reviewPanel.Visibility = Visibility.Visible;
-            confirmation.IsChecked = false;
-            _supplementarySupportStatus.Text = "Ready for your confirmation.";
-            preview.Focus();
+            var draftTitle = title.Text.Trim(); var draftMessage = message.Text.Trim();
+            var includeDiagnostics = diagnostics.IsChecked == true; var replyTo = _supportReplyTo;
+            preparingReport = true;
+            editor.IsEnabled = false; diagnostics.IsEnabled = false; reviewButton.IsEnabled = false;
+            _supplementarySupportStatus.Text = "Preparing your report…";
+            try
+            {
+                var prepared = await Task.Run(() =>
+                {
+                    var report = app.CreateSupplementarySupportPreview(category, draftTitle, draftMessage, includeDiagnostics);
+                    if (report is not null) report = report with { ReplyTo = replyTo };
+                    return (Report: report, Valid: report is not null && SupplementarySchema.Valid(report, DateTimeOffset.UtcNow),
+                        Json: report is null ? "" : JsonSerializer.Serialize(report, new JsonSerializerOptions(SupplementarySchema.Json) { WriteIndented = true }));
+                });
+                if (_supplementaryUiClosed) return;
+                if (prepared.Report is null) { _supplementarySupportStatus.Text = "Feedback is temporarily unavailable. Your draft stays here; try reviewing again later."; return; }
+                if (!prepared.Valid)
+                { _supplementarySupportStatus.Text = "Check the title and message, then try reviewing again."; return; }
+                _supplementaryReviewedReport = prepared.Report;
+                preview.Text = prepared.Json;
+                reviewButton.Visibility = Visibility.Collapsed;
+                reviewPanel.Visibility = Visibility.Visible;
+                confirmation.IsChecked = false;
+                _supplementarySupportStatus.Text = "Ready for your confirmation.";
+                preview.Focus();
+            }
+            catch (Exception error) when (error is InvalidOperationException or JsonException or ArgumentException)
+            { _supplementarySupportStatus.Text = "The report could not be prepared. Your draft is kept; try again."; }
+            finally
+            {
+                preparingReport = false;
+                if (_supplementaryReviewedReport is null) { editor.IsEnabled = true; diagnostics.IsEnabled = true; }
+                UpdateQuota();
+            }
         };
         confirmation.Checked += (_, _) => UpdateQuota();
         confirmation.Unchecked += (_, _) => UpdateQuota();
@@ -264,7 +294,7 @@ public abstract partial class ControlPanelWindow
         {
             _supplementaryReviewedReport = null;
             preview.Clear();
-            editor.IsEnabled = true;
+            editor.IsEnabled = true; diagnostics.IsEnabled = true;
             reviewButton.Visibility = Visibility.Visible;
             reviewPanel.Visibility = Visibility.Collapsed;
             _supplementarySupportStatus.Text = "Review cancelled. Your editable draft stays here.";
@@ -273,7 +303,7 @@ public abstract partial class ControlPanelWindow
         cancel.Click += (_, _) => _supplementarySendCancellation?.Cancel();
         send.Click += async (_, _) =>
         {
-            if (!_controller.FeatureAllowed("support") || QuotaRemaining() > TimeSpan.Zero || _supplementarySendCancellation is not null || confirmation.IsChecked != true ||
+            if (!_controller.FeatureAllowed("support") || _supportReplyTo is null && QuotaRemaining() > TimeSpan.Zero || _supplementarySendCancellation is not null || confirmation.IsChecked != true ||
                 _supplementaryReviewedReport is not { } reviewed || Application.Current is not App app) return;
             using var cancellation = new CancellationTokenSource();
             _supplementarySendCancellation = cancellation;
@@ -302,12 +332,12 @@ public abstract partial class ControlPanelWindow
                 _supplementaryReceipt.Text = reference;
                 _supplementaryReceipt.Visibility = Visibility.Visible;
                 copy.Visibility = Visibility.Visible;
-                _supplementarySupportStatus.Text = "Report received. Keep this reference for follow-up; private report detail is retained for 30 days.";
+                _supplementarySupportStatus.Text = app.PlayerMessagingEnabled ? "Message sent. Replies will appear here in Extras." : "Message sent. Save your reference for follow-up.";
                 _supplementaryReviewedReport = null;
                 preview.Clear(); title.Clear(); message.Clear();
                 reviewPanel.Visibility = Visibility.Collapsed;
                 reviewButton.Visibility = Visibility.Visible;
-                editor.IsEnabled = true;
+                editor.IsEnabled = true; diagnostics.IsEnabled = true; _supportReplyTo = null; diagnostics.IsChecked = !app.PlayerMessagingEnabled; UpdateQuota();
                 _supplementaryReceipt.Focus();
             }
             else _supplementarySupportStatus.Text = result.Status switch
@@ -323,6 +353,7 @@ public abstract partial class ControlPanelWindow
         };
         var expander = new Expander { Header = "Send diagnostics, suggestions or feedback", Content = content, Margin = new Thickness(0, 10, 0, 0) };
         expander.SetResourceReference(StyleProperty, "MoreOptionsStyle");
+        _supportComposer = expander;
         return expander;
     }
 
@@ -346,7 +377,8 @@ public abstract partial class ControlPanelWindow
 
     private Button SupplementaryButton(string text, bool primary = false)
     {
-        var button = new Button { Content = text, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 8, 0) };
+        var button = new Button { Content = text, HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(12, 6, 12, 6), MinHeight = 32, Margin = new Thickness(0, 10, 8, 0) };
         if (primary) button.SetResourceReference(StyleProperty, "PrimaryButtonStyle");
         return button;
     }

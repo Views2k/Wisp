@@ -43,8 +43,8 @@ public sealed class ApplicationUpdateCheckPolicyTests
         await RestoreUpdatesAsync(controller);
         Assert.False(controller.CanBeginApplicationUpdate(permission));
         Assert.True(controller.CanBeginApplicationUpdate(controller.ApplicationUpdateFeatureToken));
-        Assert.Equal(automatic ? 1 : 0, checks);
-        Assert.Equal(automatic, Timer(controller).IsEnabled);
+        Assert.Equal(1, checks);
+        Assert.True(Timer(controller).IsEnabled);
         Assert.Equal(automatic, settings.AutomaticApplicationUpdateChecks);
         Assert.Same(staged.Installer, await controller.PrepareApplicationUpdateAsync("1.2.2"));
         Assert.False(controller.SetupTelemetry.IsRunning);
@@ -59,7 +59,8 @@ public sealed class ApplicationUpdateCheckPolicyTests
         CancellationToken requestToken = default;
         var settings = CompletedSettings();
         settings.AutomaticApplicationUpdateChecks = false;
-        await using var controller = Controller(settings, (_, token) => { requestToken = token; return response.Task; });
+        var requests = 0;
+        await using var controller = Controller(settings, (_, token) => { requestToken = token; return ++requests == 1 ? response.Task : Task.FromResult<UpdateRelease?>(null); });
         var check = controller.GetAvailableApplicationUpdateDetailsAsync();
         await PauseUpdatesAsync(controller);
         Assert.True(requestToken.IsCancellationRequested);
@@ -71,7 +72,7 @@ public sealed class ApplicationUpdateCheckPolicyTests
         await RestoreUpdatesAsync(controller);
         Assert.False(controller.ViewModel.IsApplicationUpdateAvailable);
         Assert.True(controller.ViewModel.CanCheckApplicationUpdate);
-        Assert.False(Timer(controller).IsEnabled);
+        Assert.True(Timer(controller).IsEnabled);
     }
 
     [Fact]
@@ -112,7 +113,7 @@ public sealed class ApplicationUpdateCheckPolicyTests
         controller.BeginStartupApplicationUpdateCheck();
         Assert.Equal(2, checks);
         Assert.True(Timer(controller).IsEnabled);
-        Assert.Equal(TimeSpan.FromHours(24), Timer(controller).Interval);
+        Assert.Equal(TimeSpan.FromMinutes(15), Timer(controller).Interval);
     }
 
     [Fact]
@@ -132,7 +133,7 @@ public sealed class ApplicationUpdateCheckPolicyTests
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
-    public async Task DisabledChecksOrIncompleteSetupDoNotScheduleRequests(bool enabled, bool setupComplete)
+    public async Task LegacyOptOutAndIncompleteSetupStillCheckForRequiredUpdates(bool enabled, bool setupComplete)
     {
         var settings = setupComplete ? CompletedSettings() : new AppSettings();
         settings.AutomaticApplicationUpdateChecks = enabled;
@@ -140,12 +141,12 @@ public sealed class ApplicationUpdateCheckPolicyTests
         await using var controller = Controller(settings, (_, _) => { checks++; return Task.FromResult<UpdateRelease?>(null); });
         controller.BeginStartupApplicationUpdateCheck();
         FireDailyTimer(controller);
-        Assert.Equal(0, checks);
-        Assert.False(Timer(controller).IsEnabled);
+        Assert.Equal(2, checks);
+        Assert.True(Timer(controller).IsEnabled);
     }
 
     [Fact]
-    public async Task DisableReenableAndDisposeControlTheTimerAndRequests()
+    public async Task LegacyPreferenceCannotStopChecksButDisposalDoes()
     {
         var checks = 0;
         await using var controller = Controller(CompletedSettings(), (_, _) => { checks++; return Task.FromResult<UpdateRelease?>(null); });
@@ -153,10 +154,6 @@ public sealed class ApplicationUpdateCheckPolicyTests
         controller.ViewModel.AutomaticApplicationUpdateChecks = false;
         controller.ApplyViewOptions();
         FireDailyTimer(controller);
-        Assert.Equal(1, checks);
-        Assert.False(Timer(controller).IsEnabled);
-        controller.ViewModel.AutomaticApplicationUpdateChecks = true;
-        controller.ApplyViewOptions();
         Assert.Equal(2, checks);
         Assert.True(Timer(controller).IsEnabled);
         await controller.DisposeAsync();
@@ -217,21 +214,6 @@ public sealed class ApplicationUpdateCheckPolicyTests
         Assert.False(controller.ViewModel.IsApplicationUpdateAvailable);
     }
 
-    [Fact]
-    public async Task DisablingAutomaticChecksDuringFailureKeepsTheDisabledStatus()
-    {
-        var response = new TaskCompletionSource<UpdateRelease?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var controller = Controller(CompletedSettings(), (_, _) => response.Task);
-        controller.BeginStartupApplicationUpdateCheck();
-        controller.ViewModel.AutomaticApplicationUpdateChecks = false;
-        controller.ApplyViewOptions();
-        response.SetException(new HttpRequestException());
-        await WaitForCheckAsync(controller);
-        Assert.False(Timer(controller).IsEnabled);
-        Assert.Contains("Automatic update checks are off", controller.ViewModel.ApplicationUpdateStatus);
-        Assert.DoesNotContain("enabled", controller.ViewModel.ApplicationUpdateStatus);
-    }
-
     [Theory]
     [InlineData("http")]
     [InlineData("timeout")]
@@ -256,6 +238,12 @@ public sealed class ApplicationUpdateCheckPolicyTests
         await WaitForCheckAsync(controller);
         Assert.Equal(1, checks);
         Assert.True(controller.ViewModel.IsApplicationUpdateAvailable);
+        if (outcome == "newer")
+        {
+            Assert.Equal("1.2.3", (await controller.GetAvailableApplicationUpdateDetailsAsync())!.Version);
+            Assert.Null(await controller.PrepareApplicationUpdateAsync(confirmedVersion: "1.2.2"));
+            return;
+        }
         Assert.Contains("1.2.2", controller.ViewModel.ApplicationUpdateStatus);
         Assert.DoesNotContain("1.2.3", controller.ViewModel.ApplicationUpdateStatus);
         Assert.Equal("Install update", controller.ViewModel.ApplicationUpdateAction);
@@ -295,36 +283,13 @@ public sealed class ApplicationUpdateCheckPolicyTests
     }
 
     [Fact]
-    public async Task ManualChecksRemainAvailableWhenAutomaticChecksAreDisabled()
+    public async Task ManualChecksAlsoScheduleRequiredChecks()
     {
         var settings = CompletedSettings();
         settings.AutomaticApplicationUpdateChecks = false;
         await using var controller = Controller(settings, (_, _) => Task.FromResult<UpdateRelease?>(Release()));
         Assert.Equal("1.2.3", (await controller.GetAvailableApplicationUpdateDetailsAsync())!.Version);
-        Assert.False(Timer(controller).IsEnabled);
-    }
-
-    [Fact]
-    public void AppRoutesIntentionalOpensAndWaitingStartupToOneCheckWithoutUdpDependency()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Wisp.sln"))) directory = directory.Parent;
-        Assert.NotNull(directory);
-        var source = File.ReadAllText(Path.Combine(directory!.FullName, "src", "Wisp.App", "App.xaml.cs"));
-        var waitingStart = source.IndexOf("if (launchMode == StartupLaunchMode.WaitForForza", StringComparison.Ordinal);
-        var waitingEnd = source.IndexOf("// A failed tray creation", waitingStart, StringComparison.Ordinal);
-        Assert.Contains("_controller.BeginStartupApplicationUpdateCheck();", source[waitingStart..waitingEnd]);
-        var runtimeStart = source.IndexOf("private async Task StartRuntimeAsync", StringComparison.Ordinal);
-        var runtimeEnd = source.IndexOf("private void OnControlPanelClosing", runtimeStart, StringComparison.Ordinal);
-        var runtime = source[runtimeStart..runtimeEnd];
-        var check = runtime.IndexOf("_controller.BeginStartupApplicationUpdateCheck();", StringComparison.Ordinal);
-        Assert.True(check >= 0 && check < runtime.IndexOf("if (_runtimeActive)", StringComparison.Ordinal));
-        Assert.True(check < runtime.IndexOf("await _controller.StartAsync();", StringComparison.Ordinal));
-        Assert.Equal(2, source.Split("_controller.BeginStartupApplicationUpdateCheck();", StringSplitOptions.None).Length - 1);
-        var restoreStart = source.IndexOf("private void RestoreControlPanel()", StringComparison.Ordinal);
-        var restoreEnd = source.IndexOf("private void OnStartupOptionsChanged", restoreStart, StringComparison.Ordinal);
-        Assert.Contains("StartRuntimeAsync(showControlPanel: true", source[restoreStart..restoreEnd]);
-        Assert.Contains("StartRuntimeAsync(showControlPanel: false", source[restoreStart..restoreEnd]);
+        Assert.True(Timer(controller).IsEnabled);
     }
 
     internal static void AssertBannerOnCurrentDispatcher()

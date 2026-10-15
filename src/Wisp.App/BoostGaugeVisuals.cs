@@ -209,7 +209,7 @@ public sealed class DigitalBoostRailView : BoostVisualBase
         var outline = new Pen(new SolidColorBrush(Color.FromArgb(168, 238, 241, 246)), 1.0);
 
         var fraction = ShowsVacuum
-            ? BoostPressureUnits.GaugeFraction(Display.PressurePsi, PressureUnit, showVacuum: true)
+            ? BoostPressureUnits.GaugeFraction(Display.PressurePsi, PressureUnit, showVacuum: true, Display.ScaleMaximumPsi)
             : Math.Clamp(Display.Fraction, 0, 1);
         _stockGaugeMaterial.UpdateGaugeParameters(fraction, 1);
         _stockGaugeMaterial.Visibility = UseStockColors ? Visibility.Visible : Visibility.Collapsed;
@@ -256,7 +256,7 @@ public sealed class DigitalBoostRailView : BoostVisualBase
         if (ShowsVacuum)
         {
             var zero = leftTop + (rightTop - leftTop) *
-                BoostPressureUnits.GaugeFraction(0, PressureUnit, showVacuum: true);
+                BoostPressureUnits.GaugeFraction(0, PressureUnit, showVacuum: true, Display.ScaleMaximumPsi);
             var zeroPen = new Pen(Brushes.WhiteSmoke, 1);
             dc.DrawLine(zeroPen, new Point(zero, top - 3), new Point(zero, top - 1));
             dc.DrawLine(zeroPen, new Point(zero - endRake, bottom + 1), new Point(zero - endRake, bottom + 3));
@@ -377,27 +377,26 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
         var trackPen = new Pen(new SolidColorBrush(Color.FromArgb(145, 142, 147, 156)), 2.2);
         DrawArc(dc, center, radius, StartAngle, SweepAngle, trackPen);
 
-        var maximum = BoostPressureUnits.AnalogMaximum(PressureUnit);
+        var maximum = BoostPressureUnits.AnalogMaximum(PressureUnit, Display.ScaleMaximumPsi);
         var minimum = BoostPressureUnits.AnalogMinimum(PressureUnit, ShowsVacuum);
         var range = maximum - minimum;
-        var gaugeFraction = BoostPressureUnits.GaugeFraction(Display.PressurePsi, PressureUnit, ShowsVacuum);
-        var zeroFraction = BoostPressureUnits.GaugeFraction(0, PressureUnit, ShowsVacuum);
+        var gaugeFraction = BoostPressureUnits.GaugeFraction(Display.PressurePsi, PressureUnit, ShowsVacuum, Display.ScaleMaximumPsi);
+        var zeroFraction = BoostPressureUnits.GaugeFraction(0, PressureUnit, ShowsVacuum, Display.ScaleMaximumPsi);
         if (gaugeFraction != zeroFraction)
         {
             DrawActiveArc(dc, center, radius, gaugeFraction, zeroFraction, minimum, maximum);
         }
 
-        var majorInterval = PressureUnit == BoostPressureUnit.Bar ? 1 : 10;
-        var minorInterval = majorInterval / 2d;
-        var majorCount = (int)(range / majorInterval);
-        for (var index = 0; index <= majorCount; index++)
+        var ticks = BoostPressureUnits.MajorTicks(PressureUnit, ShowsVacuum, Display.ScaleMaximumPsi);
+        for (var index = 0; index < ticks.Count; index++)
         {
-            var pressure = minimum + index * majorInterval;
+            var pressure = ticks[index];
             var angle = StartAngle + SweepAngle * ((pressure - minimum) / range);
             DrawTick(dc, center, radius, angle, 7, 1.4, pressure.ToString("0", CultureInfo.InvariantCulture));
-            if (index < majorCount)
+            if (index + 1 < ticks.Count)
             {
-                DrawTick(dc, center, radius, angle + SweepAngle * (minorInterval / range), 3.5, 0.8, null);
+                var midpoint = (pressure + ticks[index + 1]) / 2;
+                DrawTick(dc, center, radius, StartAngle + SweepAngle * (midpoint - minimum) / range, 3.5, 0.8, null);
             }
         }
 
@@ -458,7 +457,7 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
     {
         var pressure = ShowsVacuum
             ? Display.PressurePsi
-            : Math.Clamp(Display.PressurePsi, 0, BoostPressureUnits.AnalogMaximumPsi(PressureUnit));
+            : Math.Clamp(Display.PressurePsi, 0, BoostPressureUnits.AnalogMaximumPsi(PressureUnit, Display.ScaleMaximumPsi));
         var digits = BoostPressureUnits.FormatValue(pressure, PressureUnit, padPsi: true);
         var tint = NumberColor();
         const double height = 28;

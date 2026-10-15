@@ -134,10 +134,11 @@ replacement, local cache rollback by the same user, or system-clock tampering.
 ## Application updates
 
 The application updater is separate from compatibility contracts. Availability
-checks run whenever Wisp opens and every 24 hours while it remains running,
-including while waiting in the tray. They are enabled by default; turn off
-**Automatically check on open and daily** in **Extras** to disable them.
-**Check for updates** also allows a manual check. The client uses GitHub's
+checks run whenever Wisp opens and every 15 minutes while it remains running,
+including while waiting in the tray. Wisp 2.6.9 installs updates and restarts
+automatically once Forza is closed and current recordings, exports and unsaved
+runs are finished. **Extras** shows update status and allows an immediate check.
+The client uses GitHub's
 anonymous latest-release endpoint and requires a non-draft, non-prerelease,
 immutable release. Exactly one uploaded
 `Wisp-Setup-<version>.exe` asset provides the numeric version, byte length, and
@@ -149,15 +150,19 @@ Use canonical tags such as `v1.1.0` and filenames such as `Wisp-Setup-1.1.0.exe`
 when publishing for clients older than Wisp 1.1. Those clients cannot discover
 short-tag releases, even if they skipped the release that added support.
 
-Wisp shows the release summary and asks for confirmation before downloading and
-installing the update. The initial download URL and every redirect must remain
-on the allowlisted GitHub HTTPS release path. After confirmation, Wisp downloads
-the installer and verifies its length and digest. A staged helper repeats the
+The initial download URL and every redirect must remain on the allowlisted
+GitHub HTTPS release path. Wisp downloads the installer and verifies its length
+and digest, then rechecks that Forza is closed and current work is finished.
+A staged helper repeats the
 artifact and process checks, waits for Wisp to exit, runs the current-user Inno
 installer silently, validates
 the installed executable and version, and restarts Wisp. A verified in-place
 update preserves completed setup; a fresh installation still requires the setup
 wizard.
+
+Update status tracks the target version, download progress, waiting state,
+installation outcome and successful start of the new version. An interrupted
+attempt can retry automatically.
 
 No repository credential is embedded. Any response or artifact that cannot be
 verified is rejected without starting the installer. This does not make the

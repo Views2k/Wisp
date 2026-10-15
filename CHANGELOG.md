@@ -2,6 +2,14 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.9 - 2026-10-14
+
+- Check for updates on launch and every 15 minutes. Install and restart automatically after Forza closes and current recordings, exports and unsaved runs are finished.
+- Add a Maximum boost slider from 20 to 200 PSI, with matching scale labels and tick marks in PSI or bar. Save the maximum with settings and HUD profiles.
+- Refresh news and announcements about every 30 seconds.
+- Improve Forza build and storefront identification in compatibility reports.
+- Allow temporary feature pauses for specific Forza builds or graphics-hardware groups, with automatic expiry.
+
 ## 2.6.8 - 2026-10-12
 
 - Dismissible dashboard announcements have a close button. Your choice is remembered when Wisp restarts.

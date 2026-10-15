@@ -5,7 +5,9 @@ param(
     [Parameter(Mandatory)][string]$InnoCompiler,
     [Parameter(Mandatory)][string]$Python,
     [Parameter(Mandatory)][ValidatePattern('^[a-z0-9][a-z0-9-]{5,79}$')][string]$DiagnosticBuildId,
-    [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9 ._-]{1,80}$')][string]$DiagnosticBuildLabel
+    [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9 ._-]{1,80}$')][string]$DiagnosticBuildLabel,
+    [switch]$OfflineCacheOnly,
+    [string]$AppTestFilter
 )
 
 $ErrorActionPreference = 'Stop'
@@ -224,26 +226,43 @@ $env:DOTNET_CLI_HOME = Join-Path $repository 'work/dotnet-home'
 $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 $env:PYTHONDONTWRITEBYTECODE = '1'
+$restoreOptions = @('-p:NuGetAudit=true', '-p:NuGetAuditMode=all')
+$buildOptions = @()
+if ($OfflineCacheOnly) {
+    $emptySource = Join-Path $repository 'work/empty-package-source'
+    [IO.Directory]::CreateDirectory($emptySource) | Out-Null
+    $restoreOptions = @('--source', $emptySource, '-p:NuGetAudit=false')
+    # Native components are unchanged, previously built local inputs; no dependency fetch.
+    foreach ($path in @('src/Wisp.NativeRenderer', 'tools/Wisp.RecorderPrototype', 'tools/mpv-dependency.json')) {
+        & $gitExecutable -C $repository diff --exit-code HEAD -- $path
+        if ($LASTEXITCODE -ne 0) { throw 'Offline reuse requires unchanged native source and dependency pins.' }
+    }
+    $buildOptions = @('-p:OS=Unix')
+}
 Push-Location $repository
 try {
-    & $dotnetExecutable restore $solution --locked-mode --disable-parallel -p:NuGetAudit=true -p:NuGetAuditMode=all -m:1
+    & $dotnetExecutable restore $solution --locked-mode --disable-parallel @restoreOptions -m:1
     if ($LASTEXITCODE -ne 0) { throw 'Private candidate locked restore failed.' }
-    & $dotnetExecutable format $solution --verify-no-changes --no-restore --verbosity minimal
-    if ($LASTEXITCODE -ne 0) { throw 'Private candidate formatting failed.' }
-    & $dotnetExecutable build $solution --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false
+    if (-not $AppTestFilter) {
+        & $dotnetExecutable format $solution --verify-no-changes --no-restore --verbosity minimal
+        if ($LASTEXITCODE -ne 0) { throw 'Private candidate formatting failed.' }
+    }
+    & $dotnetExecutable build $solution --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false @buildOptions
     if ($LASTEXITCODE -ne 0) { throw 'Private candidate test-host build failed.' }
-    & $pythonExecutable -m unittest discover -s (Join-Path $repository 'tools/tests') -p 'test_*.py' -v
-    if ($LASTEXITCODE -ne 0) { throw 'Private candidate Python tests failed.' }
-    & $dotnetExecutable build $uiReviewProject --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false
+    if (-not $AppTestFilter) {
+        & $pythonExecutable -m unittest discover -s (Join-Path $repository 'tools/tests') -p 'test_*.py' -v
+        if ($LASTEXITCODE -ne 0) { throw 'Private candidate Python tests failed.' }
+    }
+    & $dotnetExecutable build $uiReviewProject --configuration Release --no-restore --nologo --disable-build-servers -m:1 -p:UseSharedCompilation=false @buildOptions
     if ($LASTEXITCODE -ne 0) { throw 'Private candidate UI review build failed.' }
     foreach ($runtimeProject in @($project, $updaterProject)) {
         & $dotnetExecutable restore $runtimeProject --runtime win-x64 --locked-mode --disable-parallel `
-            -p:NuGetAudit=true -p:NuGetAuditMode=all -m:1
+            @restoreOptions -m:1
         if ($LASTEXITCODE -ne 0) { throw 'Private candidate runtime restore failed.' }
     }
     & $dotnetExecutable publish $project --configuration Release --runtime win-x64 --self-contained true `
         --no-restore --output $publishDirectory -p:PublishSingleFile=false -p:PublishTrimmed=false `
-        --disable-build-servers -m:1 -p:UseSharedCompilation=false
+        --disable-build-servers -m:1 -p:UseSharedCompilation=false @buildOptions
     if ($LASTEXITCODE -ne 0) { throw 'Private application publish failed.' }
     Assert-InstallerExecutable (Join-Path $publishDirectory 'Wisp.exe') $version 'Wisp' 'Wisp' $version
     Assert-NativeRendererLibrary (Join-Path $publishDirectory 'Wisp.NativeRenderer.dll')
@@ -282,18 +301,29 @@ try {
         $null = Assert-ClipDecoders (Join-Path $repository $directory) $decoderManifest $mpvManifest $mpvDependency
     }
     Invoke-WithPrivateTestIdentity $DiagnosticBuildId $DiagnosticBuildLabel {
+        if ($AppTestFilter) {
+            & $dotnetExecutable test $appTestsProject -c Release --no-build --no-restore --filter $AppTestFilter --logger trx --results-directory $testResults
+            if ($LASTEXITCODE -ne 0) { throw 'Affected application tests failed.' }
+            foreach ($testsProject in @($updateTestsProject, $updaterTestsProject)) {
+                & $dotnetExecutable test $testsProject -c Release --no-build --no-restore --logger trx --results-directory $testResults
+                if ($LASTEXITCODE -ne 0) { throw 'Update safety tests failed.' }
+            }
+        }
+        else {
         & $dotnetExecutable test $solution --configuration Release --no-build --no-restore --nologo --filter $nonAllocationFilter `
-            --logger trx --results-directory $testResults --disable-build-servers -m:1 -p:UseSharedCompilation=false
+            --logger trx --results-directory $testResults --disable-build-servers -m:1 -p:UseSharedCompilation=false @buildOptions
         if ($LASTEXITCODE -ne 0) { throw 'Private candidate full test suite failed.' }
         foreach ($allocationTest in $allocationTests) {
             $allocationResults = Join-Path $testResults $allocationTest.Split('.')[-1]
             & $dotnetExecutable test $appTestsProject --configuration Release --no-build --no-restore --nologo `
                 --filter "FullyQualifiedName=$allocationTest" --logger 'trx;LogFileName=allocation.trx' `
-                --results-directory $allocationResults --disable-build-servers -m:1 -p:UseSharedCompilation=false
+                --results-directory $allocationResults --disable-build-servers -m:1 -p:UseSharedCompilation=false @buildOptions
             if ($LASTEXITCODE -ne 0) { throw 'Private candidate isolated allocation check failed.' }
             Assert-SinglePassedTestResult (Join-Path $allocationResults 'allocation.trx') 'Private allocation check' $allocationTest
         }
+        }
     }
+
     foreach ($name in @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe')) {
         $publishedHash = (Get-FileHash -LiteralPath (Join-Path $publishDirectory $name) -Algorithm SHA256).Hash
         foreach ($testedDirectory in @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows')) {
@@ -312,7 +342,7 @@ try {
     & $dotnetExecutable publish $updaterProject --configuration Release --runtime win-x64 --self-contained true `
         --no-restore --output $updaterPublishDirectory -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
         -p:PublishTrimmed=true -p:TrimMode=full -p:EnableCompressionInSingleFile=true -p:DebugType=None `
-        --disable-build-servers -m:1 -p:UseSharedCompilation=false
+        --disable-build-servers -m:1 -p:UseSharedCompilation=false @buildOptions
     if ($LASTEXITCODE -ne 0) { throw 'Private updater publish failed.' }
     $updaterPath = Join-Path $updaterPublishDirectory 'Wisp.Updater.exe'
     Assert-InstallerExecutable $updaterPath $version 'Wisp' 'Wisp Update Helper' $version
@@ -362,7 +392,8 @@ try {
     $report = [ordered]@{ kind = 'private-diagnostic-installer'; version = $version; diagnosticBuildId = $DiagnosticBuildId;
         diagnosticBuildLabel = $DiagnosticBuildLabel; sourceRevision = $source.Revision; sourceDirty = $source.IsDirty;
         createdUtc = [DateTime]::UtcNow.ToString('o'); installerSha256 = $hash; archiveSha256 = $archiveHash; payload = $payload;
-        validation = 'Full solution, four isolated allocation checks, Python tests, updater guard, installer runtime identity and ZIP checksum validation passed. Live gameplay timing is not certified.' }
+        appTestFilter = $AppTestFilter; offlineCacheOnly = [bool]$OfflineCacheOnly;
+        validation = $(if ($AppTestFilter) { 'Selected application and complete updater tests, payload identity, updater guard, installer runtime identity and ZIP checksum validation passed.' } else { 'Full solution, four isolated allocation checks, Python tests, updater guard, installer runtime identity and ZIP checksum validation passed.' }) }
     [IO.File]::WriteAllText((Join-Path $stageDirectory 'PRIVATE-PACKAGE-CHECKS.json'), ($report | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
     Write-Output "Private test installer: $setupPath"
     Write-Output "Private test archive: $archivePath"

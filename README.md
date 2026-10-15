@@ -13,11 +13,11 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.8
+## Wisp 2.6.9
 
-Wisp 2.6.8 adds dismissible dashboard announcements and temporary feature availability updates. Download links open the latest published release. See [privacy and compatibility](#privacy-and-compatibility).
+Wisp 2.6.9 adds automatic updates that wait until Forza closes and an adjustable boost gauge up to 200 PSI. It also improves Forza build identification and refreshes news and announcements about every 30 seconds. See [privacy and compatibility](#privacy-and-compatibility).
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.8 release notes](docs/releases/Wisp-2.6.8-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.9 release notes](docs/releases/Wisp-2.6.9-release-notes.md)
 
 ### Clips
 
@@ -276,9 +276,9 @@ for FWD, RWD, or AWD. The result appears in the Windows overlay.
 - Wheel-indicated speed with separate front and rear calibration for staggered
   AWD setups.
 - Digital and Analogue Native HUD layouts for combustion and electric cars.
-- A live boost gauge for confirmed turbocharged and supercharged cars. Digital
-  mode adds a rail below the tachometer, while Analogue mode offers a 0 to 70 PSI
-  or 0 to 5 bar dial.
+- A live boost gauge for turbocharged and supercharged cars. Digital mode adds a
+  rail below the tachometer, while Analogue mode uses a circular dial. Choose a
+  maximum from 20 to 200 PSI; the scale and tick marks adjust for PSI or bar.
 - PSI or bar readouts, a learned per-car color scale, optional colored pressure
   numbers, attached or detached Analogue placement, a custom three-point gauge
   gradient, and an independent Digital option that uses the stock tachometer material.
@@ -298,8 +298,8 @@ for FWD, RWD, or AWD. The result appears in the Windows overlay.
   profiles for HUD and driving settings, gauge colors and positions.
 - Local run recording, configurable graphs, overlaid or side-by-side comparisons,
   report images, CSV, shareable run files, and whole-library backup and import.
-- Optional update checks whenever Wisp opens and daily while running, a
-  customizable HUD visibility shortcut, and local debug logging with storage
+- Automatic updates that wait until Forza closes and your current work is saved.
+- A customizable HUD visibility shortcut, and local debug logging with storage
   limits and ZIP export for issue reports.
 
 ## Gallery
@@ -396,30 +396,16 @@ installer is unsigned, so Windows may show an unfamiliar-publisher warning.
 
 ## Application updates
 
-Wisp checks for updates whenever it opens and every 24 hours while it remains
-running, including while waiting in the tray.
-Turn off **Automatically check on open and daily** in **Extras** to disable those checks.
-You can also select **Check for updates** there to check immediately. Automatic
-checks discover releases; they never download or install an update without your
-confirmation.
+Starting with 2.6.9, Wisp checks for updates whenever it opens and every 15 minutes
+while running, including in the tray. It installs the latest stable release and
+restarts automatically after Forza closes and your current recording, export or
+unsaved run is finished. **Extras** shows the update status and lets you check
+immediately.
 
-An accepted release must be public, stable, and immutable. Numeric tags must
-match the installer's normalized version, and GitHub must provide the installer's
-exact byte length and SHA-256 digest. Downloads are limited to the canonical
-GitHub release URL and GitHub's HTTPS release-asset hosts. Wisp shows the release
-summary and asks you to confirm the download, installation, and restart. After
-confirmation, it downloads the installer and verifies its length and digest
-before starting installation. The separate
-update helper repeats those checks, waits for Wisp to exit, runs the current-user
-installer silently, validates the installed version, and then restarts Wisp.
-
-The updater uses GitHub's anonymous release endpoint and contains no repository
-credential. If GitHub's release API or artifact delivery is unavailable, the
-check reports that the update service is unavailable. The installer remains
-unsigned whether it is started manually or through Wisp.
-
-A verified in-place update preserves a completed setup. A fresh installation
-always opens the setup wizard before the dashboard or overlays are available.
+Wisp verifies the installer's size and SHA-256 checksum before installation,
+then checks the installed version before restarting. Updates preserve completed
+setup, saved settings and your local data. If an update needs another attempt,
+Wisp shows its status and retries automatically.
 
 ## Connect FH6
 
@@ -506,6 +492,7 @@ To build the self-contained installer:
 
 ## Documentation
 
+- [Wisp 2.6.9 release notes](docs/releases/Wisp-2.6.9-release-notes.md)
 - [Wisp 2.6.8 release notes](docs/releases/Wisp-2.6.8-release-notes.md)
 - [Wisp 2.6.7 release notes](docs/releases/Wisp-2.6.7-release-notes.md)
 - [Wisp 2.6.5 release notes](docs/releases/Wisp-2.6.5-release-notes.md)

@@ -93,14 +93,20 @@ public sealed class SupplementaryClockTests
     }
 
     [Fact]
-    public async Task InitialContentFailureDefersEventsAndRecoversOnTheNormalCollectionCycle()
+    public async Task InitialContentFailureRecoversOnTheFastContentCycleWithoutAcceleratingCollection()
     {
         using var f = new SupplementaryFixture();
         var time = new ManualClock(f.Now.AddDays(3));
         var gets = 0;
         var posts = 0;
-        var cycles = 0;
-        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var contentCycles = 0;
+        var collectionCycles = 0;
+        var contentWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var collectionWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseContent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCollection = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var contentRecovered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var collectionCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var transport = new SupplementaryHttpTransport(new("https://fixture.invalid/"), time, new Handler(request =>
         {
             if (request.Method == HttpMethod.Get) return ++gets == 1 ? new(HttpStatusCode.ServiceUnavailable) : ContentTime(f.Now.AddMilliseconds(time.GetTimestamp()));
@@ -112,14 +118,44 @@ public sealed class SupplementaryClockTests
         using var client = new SupplementaryClient(new(new Uri("https://fixture.invalid/")), new(f.Verifier, f.Directory), time, transport, () => 0,
             async (delay, token) =>
             {
-                Assert.Equal(TimeSpan.FromSeconds(60), delay);
-                if (++cycles == 1) { Assert.Equal(0, posts); time.Advance(60000); return; }
-                completed.TrySetResult();
+                if (delay == TimeSpan.FromSeconds(25))
+                {
+                    if (Interlocked.Increment(ref contentCycles) == 1)
+                    {
+                        contentWaiting.TrySetResult();
+                        await releaseContent.Task.WaitAsync(token);
+                        return;
+                    }
+                    contentRecovered.TrySetResult();
+                }
+                else
+                {
+                    Assert.Equal(TimeSpan.FromSeconds(60), delay);
+                    if (Interlocked.Increment(ref collectionCycles) == 1)
+                    {
+                        collectionWaiting.TrySetResult();
+                        await releaseCollection.Task.WaitAsync(token);
+                        return;
+                    }
+                    collectionCompleted.TrySetResult();
+                }
                 await Task.Delay(Timeout.InfiniteTimeSpan, token);
             });
         Assert.True(client.TryEnqueue(f.Event() with { ObservedAt = time.Wall }));
         client.Start();
-        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await Task.WhenAll(contentWaiting.Task, collectionWaiting.Task).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(1, gets);
+        Assert.Equal(0, posts);
+        Assert.Equal(1, client.PendingEvents);
+        time.Advance(25000);
+        releaseContent.SetResult();
+        await contentRecovered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(2, gets);
+        Assert.Equal(0, posts);
+        Assert.Equal(1, client.PendingEvents);
+        time.Advance(35000);
+        releaseCollection.SetResult();
+        await collectionCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         client.Stop();
         await client.Completion;
         Assert.Equal(2, gets);

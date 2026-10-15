@@ -23,7 +23,7 @@ internal static class BoostHudLayer
             visual.ColorNumber, control is DigitalBoostRailView digital && digital.UseStockColors,
             control is AnalogBoostGaugeView analogue && analogue.IsElectricMaterial,
             SupplementaryHudArt.Color(visual.LowBrush), SupplementaryHudArt.Color(visual.MidBrush),
-            SupplementaryHudArt.Color(visual.HighBrush));
+            SupplementaryHudArt.Color(visual.HighBrush), display.ScaleMaximumPsi);
         var cache = Caches.GetValue(control, _ => new Cache());
         if (cache.Key != key || cache.Art is null)
         {
@@ -36,7 +36,7 @@ internal static class BoostHudLayer
 
     internal sealed record Configuration(bool Digital, double Width, double Height, double RasterScale,
         BoostPressureUnit Unit, bool Vacuum, bool ColorNumber, bool StockMaterial, bool Electric,
-        AnalogHudColor Low, AnalogHudColor Middle, AnalogHudColor High)
+        AnalogHudColor Low, AnalogHudColor Middle, AnalogHudColor High, double MaximumPsi = 70)
     {
         internal bool StockPalette => Low.R == Middle.R && Low.G == Middle.G && Low.B == Middle.B &&
             Middle.R == High.R && Middle.G == High.G && Middle.B == High.B;
@@ -121,7 +121,7 @@ internal static class BoostHudLayer
         // moving gauge geometry uses the shared interpolation timeline.
         var numberPressure = snapshot.Display.PressurePsi;
         var numberColor = NumberColor(c, numberPressure, snapshot.Display.Fraction, timestamp);
-        var gaugeFraction = BoostPressureUnits.GaugeFraction(pressure, c.Unit, c.Vacuum);
+        var gaugeFraction = BoostPressureUnits.GaugeFraction(pressure, c.Unit, c.Vacuum, c.MaximumPsi);
         if (c.Digital)
         {
             var railFraction = c.Vacuum ? gaugeFraction : fraction;
@@ -161,12 +161,12 @@ internal static class BoostHudLayer
         }
         else
         {
-            var zero = BoostPressureUnits.GaugeFraction(0, c.Unit, c.Vacuum);
+            var zero = BoostPressureUnits.GaugeFraction(0, c.Unit, c.Vacuum, c.MaximumPsi);
             var start = Math.Min(gaugeFraction, zero);
             var length = Math.Abs(gaugeFraction - zero);
             var count = Math.Max(1, (int)Math.Ceiling(260 * length / 3));
             var minimum = BoostPressureUnits.AnalogMinimum(c.Unit, c.Vacuum);
-            var maximum = BoostPressureUnits.AnalogMaximum(c.Unit);
+            var maximum = BoostPressureUnits.AnalogMaximum(c.Unit, c.MaximumPsi);
             if (length > 0)
             {
                 var diameter = Math.Min(c.Width, c.Height);
@@ -185,7 +185,7 @@ internal static class BoostHudLayer
                 }
             }
             commands.Add(AnalogHudScene.Quad(30001, full));
-            var displayed = c.Vacuum ? numberPressure : Math.Clamp(numberPressure, 0, BoostPressureUnits.AnalogMaximumPsi(c.Unit));
+            var displayed = c.Vacuum ? numberPressure : Math.Clamp(numberPressure, 0, BoostPressureUnits.AnalogMaximumPsi(c.Unit, c.MaximumPsi));
             AddDigits(commands, BoostPressureUnits.FormatValue(displayed, c.Unit, padPsi: true),
                 c.Width / 2, c.Height / 2, numberColor);
             // This child is painted after its parent's OnRender in the original visual tree.
@@ -307,7 +307,7 @@ internal static class BoostHudLayer
                 SupplementaryHudArt.Rail(9.05, 292.05, 58.75, 65.25, 1.3));
         if (c.Vacuum)
         {
-            var zero = 9.05 + 283 * BoostPressureUnits.GaugeFraction(0, c.Unit, true);
+            var zero = 9.05 + 283 * BoostPressureUnits.GaugeFraction(0, c.Unit, true, c.MaximumPsi);
             dc.DrawLine(new(Brushes.WhiteSmoke, 1), new(zero, 55.75), new(zero, 57.75));
             dc.DrawLine(new(Brushes.WhiteSmoke, 1), new(zero - 1.3, 66.25), new(zero - 1.3, 68.25));
         }
@@ -321,18 +321,18 @@ internal static class BoostHudLayer
     {
         var center = new Point(c.Width / 2, c.Height / 2);
         var radius = Math.Min(c.Width, c.Height) * .43;
-        var maximum = BoostPressureUnits.AnalogMaximum(c.Unit);
+        var maximum = BoostPressureUnits.AnalogMaximum(c.Unit, c.MaximumPsi);
         var minimum = BoostPressureUnits.AnalogMinimum(c.Unit, c.Vacuum);
-        var interval = c.Unit == BoostPressureUnit.Bar ? 1 : 10;
-        var count = (int)((maximum - minimum) / interval);
-        for (var i = 0; i <= count; i++)
+        var ticks = BoostPressureUnits.MajorTicks(c.Unit, c.Vacuum, c.MaximumPsi);
+        for (var i = 0; i < ticks.Count; i++)
         {
-            var pressure = minimum + i * interval;
+            var pressure = ticks[i];
             var angle = 110 + 260 * (pressure - minimum) / (maximum - minimum);
             SupplementaryHudArt.Tick(dc, center, radius, angle, 7, 1.4, pressure.ToString("0", CultureInfo.InvariantCulture), 7, 15);
-            if (i < count)
-                SupplementaryHudArt.Tick(dc, center, radius, angle + 260 * (interval / 2d) / (maximum - minimum), 3.5, .8, null, 7, 15);
+            if (i + 1 < ticks.Count)
+                SupplementaryHudArt.Tick(dc, center, radius, 110 + 260 * ((pressure + ticks[i + 1]) / 2 - minimum) / (maximum - minimum), 3.5, .8, null, 7, 15);
         }
+
         SupplementaryHudArt.GearRing(dc, center, 84, 29, 22.5);
         var unit = SupplementaryHudArt.Text(BoostPressureUnits.Symbol(c.Unit), 9,
             SupplementaryHudArt.Brush(185, 193, 207, 190), FontWeights.SemiBold);

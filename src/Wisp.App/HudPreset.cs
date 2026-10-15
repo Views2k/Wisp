@@ -32,6 +32,7 @@ public sealed class HudPreset
     public bool DigitalBoostGaugeColorNumber { get; set; }
     public bool DigitalBoostGaugeStockColors { get; set; }
     public bool ShowBoostVacuum { get; set; }
+    public double BoostMaximumPsi { get; set; } = 70;
     public BoostPressureUnit BoostPressureUnit { get; set; } = Wisp.App.BoostPressureUnit.Psi;
     public double BoostGaugeScale { get; set; } = 1;
     public bool TireTemperatureGaugeEnabled { get; set; } = true;
@@ -224,6 +225,7 @@ public sealed class HudPreset
             DigitalBoostGaugeColorNumber = settings.DigitalBoostGaugeColorNumber,
             DigitalBoostGaugeStockColors = settings.DigitalBoostGaugeStockColors,
             ShowBoostVacuum = settings.ShowBoostVacuum,
+            BoostMaximumPsi = settings.BoostMaximumPsi,
             BoostPressureUnit = settings.BoostPressureUnit,
             BoostGaugeScale = settings.BoostGaugeScale,
             TireTemperatureGaugeEnabled = settings.TireTemperatureGaugeEnabled,
@@ -321,6 +323,7 @@ public sealed class HudPreset
         settings.DigitalBoostGaugeColorNumber = DigitalBoostGaugeColorNumber;
         settings.DigitalBoostGaugeStockColors = DigitalBoostGaugeStockColors;
         settings.ShowBoostVacuum = ShowBoostVacuum;
+        settings.BoostMaximumPsi = BoostMaximumPsi;
         settings.BoostPressureUnit = BoostPressureUnit;
         settings.BoostGaugeScale = BoostGaugeScale;
         settings.TireTemperatureGaugeEnabled = TireTemperatureGaugeEnabled;
@@ -491,6 +494,7 @@ public sealed class HudPreset
         GForceWidthScale = NormalizeScale(GForceWidthScale);
         GForceHeightScale = NormalizeScale(GForceHeightScale);
         BoostGaugeScale = NormalizeScale(BoostGaugeScale);
+        BoostMaximumPsi = BoostPressureUnits.NormalizeMaximumPsi(BoostMaximumPsi);
         TireTemperatureGaugeScale = NormalizeScale(TireTemperatureGaugeScale);
         LapMapScale = double.IsFinite(LapMapScale) ? Math.Clamp(LapMapScale, .5, 3) : 1;
         LapDeltaAheadColor = ColorCustomization.NormalizeGauge(LapDeltaAheadColor);

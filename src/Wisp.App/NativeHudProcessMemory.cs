@@ -19,7 +19,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
     private string _compatibilityStatus = "Built-in compatibility; awaiting FH6";
     private RejectedGameEntry? _rejectedGame;
 
-    private sealed record RejectedGameEntry(NativeHudProcessIdentity Identity, NativeRejectedGame Game);
+    private sealed record RejectedGameEntry(NativeHudProcessIdentity Identity, NativeRejectedGame Game, DateTimeOffset ObservedAt);
 
     public NativeHudProcessMemoryFactory() : this(NativeCompatibilityRuntime.Catalog)
     {
@@ -243,7 +243,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
     // Describes a declined build once per process identity; retries reuse the result.
     private void RecordRejectedGame(Process process, NativeHudProcessIdentity identity, NativeHudExecutableFingerprint fingerprint)
     {
-        if (Volatile.Read(ref _rejectedGame) is { } known && known.Identity == identity) return;
+        if (Volatile.Read(ref _rejectedGame) is { } known && known.Identity == identity && (known.Game.Verification.Inspection == "complete" || DateTimeOffset.UtcNow - known.ObservedAt < TimeSpan.FromSeconds(30))) return;
         NativeStorePackageIdentity? package = null;
         try
         {
@@ -255,7 +255,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         }
 
         Volatile.Write(ref _rejectedGame, new RejectedGameEntry(identity,
-            NativeGameVerification.DescribeRejected(process, identity.ExecutablePath, package, fingerprint.Metadata.Version)));
+            NativeGameVerification.DescribeRejected(process, identity.ExecutablePath, package, fingerprint.Metadata.Version), DateTimeOffset.UtcNow));
     }
 
     private bool TryOpenStoreProcess(
@@ -285,7 +285,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
                 return false;
             }
 
-            var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath), NativeGameVerification.Store);
+            var candidate = new NativeHudProcessMemory(handle, identity.ModuleBase, pack, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath), NativeGameVerification.Detailed(NativeGameVerification.Store).WithCompatibility("supported"));
             if (!MatchesStoreImage(storeBuild, candidate, identity.ModuleBase))
             {
                 status = NativeAssistProviderStatus.UnsupportedBuild;
@@ -375,7 +375,7 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             }
             cancellationToken.ThrowIfCancellationRequested();
             memory = new NativeHudProcessMemory(handle, identity.ModuleBase, pack!, SessionToken(identity), Path.GetDirectoryName(identity.ExecutablePath),
-                package is null ? NativeGameVerification.InspectSteamApi(process, identity.ExecutablePath) : NativeGameVerification.Store);
+                package is null ? NativeGameVerification.InspectSteamApi(process, identity.ExecutablePath) : NativeGameVerification.Detailed(NativeGameVerification.Store).WithCompatibility("supported"));
             handle = null;
             status = NativeAssistProviderStatus.Ready;
             var capabilities = pack!.Tune is null ? "HUD verified; Tune layout unavailable" : "HUD and Tune verified automatically";

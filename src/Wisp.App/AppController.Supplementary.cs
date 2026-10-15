@@ -13,7 +13,13 @@ public sealed partial class AppController
     private bool _supplementaryHudRequested, _supplementaryDriftRequested;
     private SupplementarySettings? _supplementarySettings;
     internal SupplementarySettings? SupplementarySettingsSnapshot => Volatile.Read(ref _supplementarySettings);
-    private void PublishSupplementarySettings() => Volatile.Write(ref _supplementarySettings, SupplementarySettings.Capture(Settings));
+    private SupplementaryDiagnosticSettings? _supportDiagnosticSettings;
+    internal SupplementaryDiagnosticSettings? SupportDiagnosticSettingsSnapshot => Volatile.Read(ref _supportDiagnosticSettings);
+    private void PublishSupplementarySettings()
+    {
+        Volatile.Write(ref _supplementarySettings, SupplementarySettings.Capture(Settings));
+        Volatile.Write(ref _supportDiagnosticSettings, SupplementaryDiagnosticSettings.Capture(Settings));
+    }
 
     private void ObserveSupplementaryPresentationRequested(bool hud, bool drift)
     {

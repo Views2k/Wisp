@@ -14,15 +14,15 @@ public readonly record struct BoostDisplay(
 public sealed class BoostDisplayModel
 {
     private const double ActivityThresholdPsi = 0.5;
-    private const double GaugeMaximumPsi = 70;
     private int _carOrdinal;
     private bool _forcedInduction;
     private double _peakPsi;
 
     internal bool HasDetectedBoost => _forcedInduction;
 
-    public BoostDisplay Calculate(int carOrdinal, bool isElectric, double pressurePsi, bool showVacuum = false)
+    public BoostDisplay Calculate(int carOrdinal, bool isElectric, double pressurePsi, bool showVacuum = false, double maximumPsi = 70)
     {
+        var gaugeMaximumPsi = BoostPressureUnits.NormalizeMaximumPsi(maximumPsi);
         if (carOrdinal != _carOrdinal)
         {
             _carOrdinal = carOrdinal;
@@ -51,7 +51,7 @@ public sealed class BoostDisplayModel
 
         if (!_forcedInduction)
         {
-            return new BoostDisplay(true, 0, 0, 0, GaugeMaximumPsi,
+            return new BoostDisplay(true, 0, 0, 0, gaugeMaximumPsi,
                 BoostPressureUnits.AnalogMinimum(BoostPressureUnit.Psi, showVacuum));
         }
 
@@ -63,7 +63,7 @@ public sealed class BoostDisplayModel
             displayedPressure,
             _peakPsi,
             Math.Clamp(displayedPressure / denominator, 0, 1),
-            GaugeMaximumPsi,
+            gaugeMaximumPsi,
             BoostPressureUnits.AnalogMinimum(BoostPressureUnit.Psi, showVacuum));
     }
 

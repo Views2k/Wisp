@@ -17,18 +17,19 @@ internal sealed class FeatureControlClient : IDisposable
     private readonly Action<FeatureControlState> _changed;
     private readonly Func<double> _jitter;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly Func<FeatureControlContext> _context;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _cancellation;
     private FeatureControlState? _published;
     private int _started, _disposed, _refreshing;
     internal Task Completion { get; private set; } = Task.CompletedTask;
     internal FeatureControlState State => new(_store.HighestRevision,
-        _store.Current(_clock.GetUtcNow()).Disabled(_version, _channel, _clock.GetUtcNow()));
+        _store.Current(_clock.GetUtcNow()).Disabled(_version, _channel, _clock.GetUtcNow(), _context()));
 
     internal FeatureControlClient(SupplementaryConfiguration configuration, FeatureControlStore store,
         string version, string channel, Action<FeatureControlState> changed, TimeProvider? clock = null,
         ISupplementaryTransport? transport = null, Func<double>? jitter = null,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null, Func<FeatureControlContext>? context = null)
     {
         _store = store;
         _version = version;
@@ -39,6 +40,7 @@ internal sealed class FeatureControlClient : IDisposable
             ? new SupplementaryHttpTransport(configuration.Origin, _clock) : null);
         _jitter = jitter ?? Random.Shared.NextDouble;
         _delay = delay ?? ((duration, cancellation) => Task.Delay(duration, _clock, cancellation));
+        _context = context ?? (() => FeatureControlContext.Empty);
         _cancellation = _lifetime.Token;
     }
 
@@ -74,7 +76,7 @@ internal sealed class FeatureControlClient : IDisposable
             {
                 using var deadline = new CancellationTokenSource(RequestDeadline, _clock);
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, _cancellation, deadline.Token);
-                var response = await _transport.SendAsync("/api/v1/feature-controls", null,
+                var response = await _transport.SendAsync("/api/v1/feature-controls?schema=2", null,
                     FeatureControlVerifier.MaximumEnvelopeBytes, linked.Token).ConfigureAwait(false);
                 if (!linked.IsCancellationRequested && response.Status == SupplementaryRequestStatus.Success && response.Body.Length > 0)
                     _store.Accept(response.Body, _clock.GetUtcNow());

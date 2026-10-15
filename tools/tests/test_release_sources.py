@@ -61,6 +61,38 @@ class ReleaseSourcesTests(unittest.TestCase):
         sources.prepare(self.root, self.output, self.archive)
         self.assertEqual(6, len(list(self.output.iterdir())))
 
+    def test_older_source_asset_keeps_current_release_bundle_names(self):
+        self.pin["sourceVersion"] = "2.5.2"
+        self.pin["url"] = "https://github.com/Views2k/Wisp/releases/download/library-sources-2.5.2/Wisp-2.5.2-library-sources.zip"
+        self.write_manifests()
+        self.complete_bundle()
+        sources.verify_bundle(self.root, self.output)
+        self.assertEqual(sources.digest(self.archive), sources.digest(self.output / self.pin["filename"]))
+        self.assertEqual(6, len(list(self.output.iterdir())))
+        self.assertFalse((self.output / "Wisp-2.5.2-library-sources.zip").exists())
+
+    def test_invalid_or_future_source_versions_are_rejected(self):
+        for version in (None, True, 268, "", "2.05.2", "2.5", "2.5.2-preview", "../2.5.2", "2.6.1", "3.0.0"):
+            with self.subTest(source_version=version):
+                self.pin["sourceVersion"] = version
+                self.write_manifests()
+                with self.assertRaises(ValueError):
+                    sources.read_pins(self.root)
+
+    def test_reused_source_url_must_match_declared_version_and_repository(self):
+        self.pin["sourceVersion"] = "2.5.2"
+        prefix = "https://github.com/Views2k/Wisp/releases/download/"
+        for url in (
+                prefix + "library-sources-2.6.0/Wisp-2.6.0-library-sources.zip",
+                prefix + "library-sources-2.5.2/Wisp-2.6.0-library-sources.zip",
+                prefix + "library-sources-2.5.2/Wisp-2.5.2-library-sources.zip?download=1",
+                "https://github.com/another/repo/releases/download/library-sources-2.5.2/Wisp-2.5.2-library-sources.zip"):
+            with self.subTest(url=url):
+                self.pin["url"] = url
+                self.write_manifests()
+                with self.assertRaises(ValueError):
+                    sources.read_pins(self.root)
+
     def test_old_four_file_bundle_is_rejected(self):
         self.complete_bundle()
         (self.output / self.pin["filename"]).unlink()

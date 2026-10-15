@@ -30,6 +30,9 @@ internal sealed class SupplementaryClient : IDisposable
     private bool _started, _stopped;
     private int _disposed;
     private int _supportPending;
+    private sealed record MessagingLease(bool Enabled, long ReceivedAt, TimeSpan Remaining);
+    private MessagingLease? _messaging;
+    private long _messagingRevision;
     private sealed record PendingEvent(SupplementaryEvent Event, long QueuedAt, long OriginalAgeMs);
 
     internal SupplementaryClient(SupplementaryConfiguration configuration, SupplementaryContentStore content,
@@ -50,6 +53,8 @@ internal sealed class SupplementaryClient : IDisposable
     internal bool IsConfigured => _transport is not null;
     // Content cache availability has no authority over reporting or support. Invalid content stays unused.
     internal bool IsReportingEnabled => IsConfigured && !Content.ReportingDisabled && !_lifetime.IsCancellationRequested;
+    internal bool MessagingEnabled => Volatile.Read(ref _messaging) is { Enabled: true } lease &&
+        _clock.GetElapsedTime(lease.ReceivedAt, _clock.GetTimestamp()) is var age && age >= TimeSpan.Zero && age < lease.Remaining;
     internal SupplementaryContentSnapshot Content => _content.Current(_clock.GetUtcNow());
     internal Task Completion { get { lock (_gate) return _completion; } }
     internal long DroppedEvents => Interlocked.Read(ref _dropped);
@@ -61,7 +66,7 @@ internal sealed class SupplementaryClient : IDisposable
         {
             if (_started || _stopped || !IsConfigured) return;
             _started = true;
-            _completion = Task.Run(RunAsync);
+            _completion = Task.WhenAll(Task.Run(RunAsync), Task.Run(RunContentAsync));
         }
     }
 
@@ -146,15 +151,9 @@ internal sealed class SupplementaryClient : IDisposable
     {
         try
         {
-            var nextContent = long.MinValue;
+            await RefreshContentAsync(_cancellation).ConfigureAwait(false);
             while (!_lifetime.IsCancellationRequested)
             {
-                var now = _clock.GetTimestamp();
-                if (nextContent == long.MinValue || !_serverClock.IsFresh || _clock.GetElapsedTime(nextContent, now) >= TimeSpan.FromHours(1))
-                {
-                    await RefreshContentAsync(_cancellation).ConfigureAwait(false);
-                    if (_serverClock.IsFresh) nextContent = _clock.GetTimestamp();
-                }
                 _collect?.Invoke(this);
                 if (IsReportingEnabled && _serverClock.IsFresh)
                 {
@@ -174,17 +173,44 @@ internal sealed class SupplementaryClient : IDisposable
         }
     }
 
+    private async Task RunContentAsync()
+    {
+        try
+        {
+            while (!_lifetime.IsCancellationRequested)
+            {
+                await _delay(TimeSpan.FromSeconds(25 + 5 * Math.Clamp(_jitter(), 0, 1)), _cancellation).ConfigureAwait(false);
+                await RefreshContentAsync(_cancellation).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception) { } // The next launch can retry content without stopping telemetry.
+    }
+
     internal async Task RefreshContentAsync(CancellationToken cancellation)
     {
         if (!IsConfigured) return;
         var result = await SendAsync("/api/v1/content", null, SupplementaryContentVerifier.MaximumEnvelopeBytes, cancellation).ConfigureAwait(false);
         _serverClock.Observe(result);
+        var wasEnabled = Volatile.Read(ref _messaging)?.Enabled == true;
+        var now = result.ServerTime ?? _clock.GetUtcNow();
+        var activation = result.Status == SupplementaryRequestStatus.Success
+            ? _content.VerifyMessaging(result.MessagingEnvelope, now) : null;
+        MessagingLease? next = null;
+        if (activation is not null && activation.Revision >= _messagingRevision)
+        {
+            _messagingRevision = activation.Revision;
+            next = new(activation.Enabled, _clock.GetTimestamp(), activation.ExpiresAt - now);
+        }
+        Volatile.Write(ref _messaging, next);
         if (result.Status == SupplementaryRequestStatus.Success && result.Body.Length > 0)
         {
             _content.Accept(result.Body, _clock.GetUtcNow());
             try { _contentChanged?.Invoke(); } catch (Exception) { } // Presentation cannot interrupt the reporting worker.
             if (!IsReportingEnabled) ClearPending();
         }
+        else if (wasEnabled != MessagingEnabled)
+        { try { _contentChanged?.Invoke(); } catch (Exception) { } }
     }
 
     internal async Task<bool> FlushBatchAsync(CancellationToken cancellation)

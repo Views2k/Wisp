@@ -77,6 +77,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _digitalBoostGaugeColorNumber;
     private bool _digitalBoostGaugeStockColors;
     private bool _showBoostVacuum;
+    private double _boostMaximumPsi;
     private double _lastBoostPressurePsi;
     private bool _useBarBoostPressure;
     private double _boostGaugeScale;
@@ -122,7 +123,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     private string _dashboardPeakPower = "—";
     private string _dashboardPeakTorque = "—";
     private string _dashboardTopSpeed = "—";
-    private string _applicationUpdateStatus = "Wisp checks for updates on open and every 24 hours. Downloads always require confirmation.";
+    private string _applicationUpdateStatus = "Wisp checks on launch and every 15 minutes. Updates install automatically after Forza closes.";
     private string _applicationUpdateAction = "Check for updates";
     private bool _canCheckApplicationUpdate = true;
     private bool _isApplicationUpdateAvailable;
@@ -154,6 +155,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         _digitalBoostGaugeColorNumber = settings.DigitalBoostGaugeColorNumber;
         _digitalBoostGaugeStockColors = settings.DigitalBoostGaugeStockColors;
         _showBoostVacuum = settings.ShowBoostVacuum;
+        _boostMaximumPsi = BoostPressureUnits.NormalizeMaximumPsi(settings.BoostMaximumPsi);
         _useBarBoostPressure = settings.BoostPressureUnit == BoostPressureUnit.Bar;
         _boostGaugeScale = settings.BoostGaugeScale;
         _tireTemperatureGaugeEnabled = settings.TireTemperatureGaugeEnabled;
@@ -401,6 +403,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         ? BoostDisplay
         : HudPreviewSample.Boost with
         {
+            ScaleMaximumPsi = BoostMaximumPsi,
             ScaleMinimumPsi = BoostPressureUnits.AnalogMinimum(BoostPressureUnit.Psi, ShowBoostVacuum)
         };
     public TireTemperatureDisplay PreviewTireTemperatureDisplay => TireTemperatureDisplay.IsAvailable
@@ -579,6 +582,16 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     public bool BoostGaugeColorNumber { get => _boostGaugeColorNumber; set => Set(ref _boostGaugeColorNumber, value); }
     public bool DigitalBoostGaugeColorNumber { get => _digitalBoostGaugeColorNumber; set => Set(ref _digitalBoostGaugeColorNumber, value); }
     public bool DigitalBoostGaugeStockColors { get => _digitalBoostGaugeStockColors; set => Set(ref _digitalBoostGaugeStockColors, value); }
+    public double BoostMaximumPsi
+    {
+        get => _boostMaximumPsi;
+        set
+        {
+            if (!Set(ref _boostMaximumPsi, BoostPressureUnits.NormalizeMaximumPsi(value))) return;
+            BoostDisplay = BoostDisplay with { ScaleMaximumPsi = _boostMaximumPsi };
+            OnPropertyChanged(nameof(PreviewBoostDisplay));
+        }
+    }
     public bool ShowBoostVacuum
     {
         get => _showBoostVacuum;
@@ -849,7 +862,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
             state.CarOrdinal,
             state.IsElectric,
             state.BoostPressurePsi,
-            ShowBoostVacuum);
+            ShowBoostVacuum, BoostMaximumPsi);
         TireTemperatureDisplay = _tireTemperatureDisplayModel.Calculate(
             state.CarOrdinal,
             state.TireTemperatureFahrenheit);

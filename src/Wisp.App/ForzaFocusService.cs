@@ -32,6 +32,17 @@ public sealed class ForzaFocusService
 
     public ForzaFocusService() => _discovery = new(() => FindForzaProcesses(_captureRequested));
 
+    internal static bool IsOpenForApplicationUpdate()
+    {
+        try { return FindForzaProcesses(includeCapture: false).ProcessIds.Count > 0; }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or
+            InvalidOperationException or System.Security.SecurityException)
+        {
+            // An unavailable process observation must never permit an automatic restart.
+            return true;
+        }
+    }
+
     internal bool CaptureRequested
     {
         get => _captureRequested;

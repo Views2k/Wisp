@@ -11,9 +11,9 @@
     <Product>Wisp</Product>
     <AssemblyTitle>Wisp</AssemblyTitle>
     <Description>Wheel-indicated speed and G-force display for Forza Horizon 6.</Description>
-    <Version>2.6.8</Version>
-    <FileVersion>2.6.8.0</FileVersion>
-    <AssemblyVersion>2.6.8.0</AssemblyVersion>
+    <Version>2.6.9</Version>
+    <FileVersion>2.6.9.0</FileVersion>
+    <AssemblyVersion>2.6.9.0</AssemblyVersion>
     <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
     <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
     <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>

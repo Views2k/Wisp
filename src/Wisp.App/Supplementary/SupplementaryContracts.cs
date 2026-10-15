@@ -11,7 +11,8 @@ internal sealed record SupplementaryEvent(int SchemaVersion, Guid EventId, Guid 
     string? Stage = null, SupplementaryMeasurements? Measurements = null, string? RenderMode = null,
     SupplementaryRelatedRun? RelatedRun = null, SupplementarySessionSummary? SessionSummary = null,
     long? SessionAgeMs = null, SupplementaryIncident? Incident = null, SupplementaryActivitySummary? ActivitySummary = null,
-    SupplementaryEnvironment? Environment = null, string? ForegroundState = null, SupplementaryObservationClock? Clock = null, NativeGameVerification? GameVerification = null);
+    SupplementaryEnvironment? Environment = null, string? ForegroundState = null, SupplementaryObservationClock? Clock = null, NativeGameVerification? GameVerification = null,
+    SupplementaryUpdateStatus? UpdateStatus = null);
 
 internal sealed record SupplementaryObservationClock(int SchemaVersion, DateTimeOffset ServerAnchorAt, long AnchorAgeMs,
     long ObservationAgeMs, int UncertaintyMs)
@@ -63,7 +64,8 @@ internal sealed record SupplementarySupportDiagnostics(string Platform, string C
 
 internal sealed record SupplementarySupportReport(int SchemaVersion, Guid EventId, Guid SessionId, Guid InstallationId,
     DateTimeOffset ObservedAt, string AppVersion, string BuildId, string Channel, string Category, string Title,
-    string Message, SupplementarySupportDiagnostics? Diagnostics = null, int ReceiptVersion = 2);
+    string Message, SupplementarySupportDiagnostics? Diagnostics = null, int ReceiptVersion = 2,
+    SupplementaryDiagnosticHistory? RecentDiagnostics = null, Guid? ReplyTo = null);
 
 internal enum SupplementaryRequestStatus { Success, Unconfigured, Disabled, Invalid, Cancelled, TimedOut, Unavailable, Rejected, DailyLimit, ClockSkew }
 internal sealed record SupplementarySupportResult(SupplementaryRequestStatus Status, string? Reference = null, DateTimeOffset? NextAllowedAt = null, int? RetryAfterSeconds = null);
@@ -73,7 +75,7 @@ internal static partial class SupplementarySchema
 {
     internal const int MaximumBatchBytes = 64 * 1024;
     internal const int MaximumBatchEvents = 64;
-    internal const int MaximumSupportBytes = 32 * 1024;
+    internal const int MaximumSupportBytes = 128 * 1024;
     internal static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -121,6 +123,9 @@ internal static partial class SupplementarySchema
         (value.Clock is null || value.Clock.IsValid) && Kinds.Contains(value.Kind) && Features.Contains(value.Feature) &&
         Outcomes.Contains(value.Outcome) && Platforms.Contains(value.Platform) &&
         (value.GameVerification is null || value.GameVerification.IsValid) &&
+        (value.UpdateStatus is null || value.Kind is "heartbeat" or "update" && value.UpdateStatus.IsValid &&
+            (value.UpdateStatus.State != "started" || value.UpdateStatus.TargetVersion == value.AppVersion) &&
+            value.UpdateStatus.ObservedAt <= value.ObservedAt + TimeSpan.FromMinutes(5)) &&
         Number(value.DurationMs, 604_800_000) && Number(value.Value, 1_000_000_000_000) &&
         (value.GameBuild is null || NumericVersion(value.GameBuild, app: false)) &&
         (value.Stage is null || Stages.Contains(value.Stage)) && (value.RenderMode is null or "cpu" or "gpu") &&
@@ -145,6 +150,8 @@ internal static partial class SupplementarySchema
             value.AppVersion, value.BuildId, value.Channel, now, checkObservationTime: false) && value.ReceiptVersion == 2 && value.Category is "bug" or "suggestion" or "feedback" &&
         PlainText(value.Title, 100, multiline: false) && PlainText(value.Message, 4000, multiline: true) &&
         IsRedacted(value.Title) && IsRedacted(value.Message) &&
+        (value.ReplyTo is null || Uuid4(value.ReplyTo.Value)) &&
+        (value.RecentDiagnostics is null || value.RecentDiagnostics.IsValid(value.ObservedAt)) &&
         (value.Diagnostics is not { } d || Platforms.Contains(d.Platform) &&
             d.ConnectionState is "unknown" or "idle" or "detected" or "fresh" or "stale" &&
             d.ErrorCategory is "none" or "connection" or "validation" or "unsupported" or "clips" or "settings" or "saved-data" or "unexpected" &&

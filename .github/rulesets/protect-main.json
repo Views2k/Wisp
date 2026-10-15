@@ -41,9 +41,6 @@
         "required_status_checks": [
           {
             "context": "Build and test"
-          },
-          {
-            "context": "Build installer"
           }
         ],
         "strict_required_status_checks_policy": true

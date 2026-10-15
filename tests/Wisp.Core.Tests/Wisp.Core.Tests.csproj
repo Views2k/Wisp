@@ -15,6 +15,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
     <ProjectReference Include="..\..\src\Wisp.Core\Wisp.Core.csproj" />
+    <Compile Include="..\..\src\Wisp.App\BoostPressureUnits.cs" Link="BoostPressureUnits.cs" />
     <Compile Include="..\..\src\Wisp.App\AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="..\..\src\Wisp.App\PrivateSetupPolicy.cs" Link="PrivateSetupPolicy.cs" />
     <Compile Include="..\..\src\Wisp.App\AppStyleSettings.cs" Link="AppStyleSettings.cs" />

@@ -14,7 +14,7 @@ internal interface IUpdaterProcessHost
     void StartApplication(string applicationPath);
 }
 
-internal sealed class WindowsUpdaterProcessHost : IUpdaterProcessHost
+internal sealed class WindowsUpdaterProcessHost(Func<bool>? gameRunning = null) : IUpdaterProcessHost
 {
     public void ValidateParentIdentity(int parentProcessId, string expectedApplicationPath)
     {
@@ -52,6 +52,8 @@ internal sealed class WindowsUpdaterProcessHost : IUpdaterProcessHost
 
     public void RunInstaller(string installerPath, IReadOnlyList<string> arguments, TimeSpan timeout)
     {
+        if ((gameRunning ?? Wisp.Update.UpdateGameActivity.IsRunning)())
+            throw InstallerFailure("UPDATE_GAME_RUNNING", "Forza opened before the update could start. Wisp will try again after it closes.");
         Process? installer = null;
         try
         {

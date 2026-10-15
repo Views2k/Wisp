@@ -21,8 +21,8 @@ this directory.
 - requires pull requests and resolution of review conversations;
 - permits me to merge a green pull request without a second
   reviewer; and
-- requires the `Build and test` and `Build installer` status checks against the
-  latest `main`.
+- requires the ten-minute `Build and test` status check against the latest
+  `main`. Installer validation runs at release, outside the merge gate.
 
 `protect-release-tags.json`:
 

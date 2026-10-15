@@ -21,7 +21,14 @@ internal static class NativeSteamPublisherTrust
     internal static bool TryVerifySteamApi(string path) => TryVerify(path, WindowsTrustApi.Instance, true);
     internal static bool TryVerify(string executablePath, ITrustApi api) => TryVerify(executablePath, api, false);
 
-    internal static bool TryVerify(string executablePath, ITrustApi api, bool steamApi)
+    internal static bool TryVerify(string executablePath, ITrustApi api, bool steamApi) =>
+        Inspect(executablePath, api, steamApi) == NativePublisherVerification.Verified;
+
+    internal static NativePublisherVerification InspectExecutable(string path) => Inspect(path, WindowsTrustApi.Instance, false);
+
+    internal static NativePublisherVerification InspectSteamApi(string path) => Inspect(path, WindowsTrustApi.Instance, true);
+
+    internal static NativePublisherVerification Inspect(string executablePath, ITrustApi api, bool steamApi)
     {
         ArgumentNullException.ThrowIfNull(api);
         var pathPointer = IntPtr.Zero;
@@ -30,11 +37,11 @@ internal static class NativeSteamPublisherTrust
         {
             if (string.IsNullOrWhiteSpace(executablePath) || executablePath.Length < 3 ||
                 !char.IsAsciiLetter(executablePath[0]) || executablePath[1] != ':' ||
-                executablePath[2] is not ('\\' or '/') || !Path.IsPathFullyQualified(executablePath)) return false;
+                executablePath[2] is not ('\\' or '/') || !Path.IsPathFullyQualified(executablePath)) return NativePublisherVerification.Unavailable;
             // Keep this handle open through state cleanup. Denying write/delete
             // sharing binds the signature and signer to the same file contents.
             using var file = new FileStream(executablePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (file.Length is < 4096 or > NativeHudFingerprintCache.MaximumExecutableLength) return false;
+            if (file.Length is < 4096 or > NativeHudFingerprintCache.MaximumExecutableLength) return NativePublisherVerification.Unavailable;
             pathPointer = Marshal.StringToCoTaskMemUni(executablePath);
             var fileInfo = new TrustFileInfo
             {
@@ -58,8 +65,15 @@ internal static class NativeSteamPublisherTrust
             try
             {
                 // WinVerifyTrust returns a LONG status, not a Win32 last-error value.
-                if (api.Verify(ref action, ref data) != 0 || data.StateData == IntPtr.Zero) return false;
-                return IsPublisher(api.ReadPrimarySignerSubject(data.StateData), steamApi);
+                var result = api.Verify(ref action, ref data);
+                // No signature and a mismatched file digest are definite file results.
+                // Offline chain/revocation/provider errors are not evidence of modification.
+                if (result is unchecked((int)0x800B0100) or unchecked((int)0x80096010))
+                    return NativePublisherVerification.Rejected;
+                if (result != 0 || data.StateData == IntPtr.Zero) return NativePublisherVerification.Unavailable;
+                var subject = api.ReadPrimarySignerSubject(data.StateData);
+                return subject is null ? NativePublisherVerification.Unavailable :
+                    IsPublisher(subject, steamApi) ? NativePublisherVerification.Verified : NativePublisherVerification.Rejected;
             }
             finally
             {
@@ -76,7 +90,7 @@ internal static class NativeSteamPublisherTrust
             CryptographicException or ArgumentException or InvalidOperationException or NotSupportedException or
             Win32Exception or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
         {
-            return false;
+            return NativePublisherVerification.Unavailable;
         }
         finally
         {
@@ -221,3 +235,5 @@ internal static class NativeSteamPublisherTrust
         private static extern IntPtr WTHelperGetProvCertFromChain(IntPtr signer, uint certificate);
     }
 }
+
+internal enum NativePublisherVerification { Unavailable, Verified, Rejected }

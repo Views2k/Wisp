@@ -15,7 +15,8 @@ public partial class App
     private Guid _reportingSessionId, _reportingInstallationId;
     private readonly Queue<SupplementarySignal> _supplementarySignals = new(32);
     private sealed record SupplementarySignal(string Kind, string Feature, string Outcome, string? Stage, double? DurationMs,
-        DateTimeOffset ObservedAt, SupplementaryIncident? Incident, NativeGameVerification GameVerification);
+        DateTimeOffset ObservedAt, SupplementaryIncident? Incident, NativeGameVerification GameVerification, SupplementaryUpdateStatus? UpdateStatus);
+    private readonly SupplementaryDiagnosticBuffer _recentDiagnostics = new();
     private long _supplementaryStartedAt;
     private string _supplementaryVersion = "0.0.0", _supplementaryBuild = "unconfigured", _supplementaryChannel = "stable";
     private HashSet<DateTimeOffset> _reportedHealthTimes = [];
@@ -28,6 +29,7 @@ public partial class App
     private NativeAssistProviderStatus? _reportedNativeStatus;
     private string _reportingPlatform = "unknown";
     private string? _reportingGameBuild;
+    private NativeGameIdentityObservation? _observedGameIdentity;
     private bool _supplementaryReadyReported;
     private long _reportedWorkingSetAge = -1, _reportedManagedHeapAge = -1, _reportedCpuAge = -1;
     private readonly SupplementaryEnvironmentCollector _supplementaryEnvironment = new();
@@ -36,6 +38,7 @@ public partial class App
 
     private void NotifySupplementaryContentChanged()
     {
+        RefreshSupportMessagingActivation();
         if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
         try { Dispatcher.BeginInvoke(new Action(() => SupplementaryContentChanged?.Invoke(this, EventArgs.Empty))); }
         catch (InvalidOperationException) { }
@@ -55,14 +58,20 @@ public partial class App
 
     internal SupplementarySupportReport? CreateSupplementarySupportPreview(string category, string title, string message, bool includeDiagnostics)
     {
+        SupplementarySupportReport preview;
         lock (_supplementaryGate)
         {
             if (_supplementaryClient?.IsReportingEnabled != true || _controller?.FeatureAllowed("support") == false) return null;
             var connection = _reportedConnectionState is "idle" or "detected" or "fresh" or "stale" ? _reportedConnectionState : "unknown";
-            return SupplementarySchema.RedactForPreview(new(1, Guid.NewGuid(), _reportingSessionId, _reportingInstallationId,
+            preview = new(1, Guid.NewGuid(), _reportingSessionId, _reportingInstallationId,
                 DateTimeOffset.UtcNow, _supplementaryVersion, _supplementaryBuild, _supplementaryChannel, category, title, message,
-                includeDiagnostics ? new(_reportingPlatform, connection, "none", _reportingGameBuild) : null));
+                includeDiagnostics ? new(_reportingPlatform, connection, "none", _reportingGameBuild) : null);
         }
+        if (includeDiagnostics && PlayerMessagingEnabled)
+            _recentDiagnostics.ObserveContext(HealthContextRecorder.Current.CaptureForReport(), ComponentDiagnosticHistory.Current.Snapshot(),
+                settings: _controller?.SupportDiagnosticSettingsSnapshot);
+        return SupplementarySchema.RedactForPreview(preview with
+        { RecentDiagnostics = includeDiagnostics && PlayerMessagingEnabled ? _recentDiagnostics.Snapshot(preview.ObservedAt) : null });
     }
 
     internal async Task<SupplementarySupportResult> SubmitSupplementarySupportAsync(SupplementarySupportReport reviewed, CancellationToken cancellation = default)
@@ -80,7 +89,7 @@ public partial class App
             featurePermission = _controller?.SupportFeatureToken ?? CancellationToken.None;
         }
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellation, featurePermission);
-        return await client.SubmitSupportAsync(reviewed, lifetime.Token);
+        return await SubmitPrivateSupportAsync(reviewed, lifetime.Token);
     }
 
     private void StartSupplementaryReporting()
@@ -105,6 +114,7 @@ public partial class App
                 var directory = Path.Combine(ownedRoot, "Supplementary");
                 var identity = SupplementaryIdentityStore.LoadOrCreate(directory, ownedRoot);
                 if (identity is null) { SupplementarySessionRecorder.Current.Enabled = false; SupplementaryActivityRecorder.Current.Enabled = false; return; }
+                InitializeSupportInbox(directory, ownedRoot);
                 var content = new SupplementaryContentStore(new(SupplementaryRuntime.PublicKeys), Path.Combine(directory, "Content"), ownedRoot);
                 var client = new SupplementaryClient(SupplementaryRuntime.Configuration, content, collect: CollectSupplementaryObservations,
                     contentChanged: NotifySupplementaryContentChanged);
@@ -114,18 +124,21 @@ public partial class App
                     _reportingInstallationId = identity.Id;
                     _reportingSessionId = runId;
                     _supplementaryClient = client;
+                    NativeGameIdentityProbe.Current.Updated += ObserveGameIdentity;
                     EnqueueSupplementary(client, "session-start", "app", "none", "launch");
                     // Existing installations upgrading to reporting are not falsely called new Wisp installations.
                     foreach (var signal in _supplementarySignals)
                         EnqueueSupplementary(client, signal.Kind, signal.Feature, signal.Outcome, signal.Stage, signal.DurationMs,
-                            observedAt: signal.ObservedAt, incident: signal.Incident, gameVerification: signal.GameVerification);
+                            observedAt: signal.ObservedAt, incident: signal.Incident, gameVerification: signal.GameVerification, updateStatus: signal.UpdateStatus);
                     _supplementarySignals.Clear();
                     ToolsPerformanceRecorder.Current.Enabled = client.IsReportingEnabled;
                     SupplementarySessionRecorder.Current.Enabled = client.IsReportingEnabled;
                     SupplementaryActivityRecorder.Current.Enabled = client.IsReportingEnabled;
                     client.Start();
+                    StartSupportInbox();
                 }
                 NotifySupplementaryContentChanged();
+                _ = NativeGameIdentityProbe.Current.RequestRefresh();
                 _ = client.Completion.ContinueWith(_ =>
                     { ToolsPerformanceRecorder.Current.Enabled = false; SupplementarySessionRecorder.Current.Enabled = false; SupplementaryActivityRecorder.Current.Enabled = false; },
                     CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -143,15 +156,51 @@ public partial class App
         {
             if (_supplementaryStopped) return;
             if (_supplementaryClient is { } client) EnqueueSupplementary(client, kind, feature, outcome, stage, durationMs,
-                observedAt: observedAt, incident: incident, gameVerification: gameVerification);
+                observedAt: observedAt, incident: incident, gameVerification: gameVerification,
+                updateStatus: kind == "update" ? ApplicationUpdateTelemetry.Current : null);
             else if (_supplementarySignals.Count < 32) _supplementarySignals.Enqueue(new(kind, feature, outcome, stage, durationMs,
-                observedAt ?? DateTimeOffset.UtcNow, incident, gameVerification ?? SupplementaryGameVerification.At(HealthContextRecorder.Current.Snapshot(), observedAt ?? DateTimeOffset.UtcNow)));
+                observedAt ?? DateTimeOffset.UtcNow, incident, gameVerification ?? SupplementaryGameVerification.At(HealthContextRecorder.Current.Snapshot(), observedAt ?? DateTimeOffset.UtcNow),
+                kind == "update" ? ApplicationUpdateTelemetry.Current : null));
         }
     }
 
     private void ObserveSupplementaryOperation(SupplementaryObservation observation) =>
         RecordSupplementarySignal(observation.Kind, observation.Feature, observation.Outcome, observation.Stage, observation.DurationMs,
             observation.Incident, observation.ObservedAt, observation.GameVerification);
+
+    private void ObserveGameIdentity(NativeGameIdentityObservation observation)
+    {
+        NativeGameIdentityObservation current;
+        lock (_supplementaryGate)
+        {
+            if (_supplementaryStopped || _supplementaryClient is not { IsReportingEnabled: true } client) return;
+            if (_observedGameIdentity is null || observation.ObservedAt >= _observedGameIdentity.ObservedAt)
+                _observedGameIdentity = observation;
+            current = RefreshCurrentGameAudience(HealthContextRecorder.Current.Snapshot());
+            EnqueueSupplementary(client, "startup", "app", observation.GameBuild is null ? "none" : "detected", "game-detection",
+                observedAt: observation.ObservedAt, platform: observation.Platform, gameBuild: observation.GameBuild,
+                historical: true, gameVerification: observation.Verification);
+        }
+        SetFeatureControlContext(current.Verification.Inspection == "complete" ? current.GameBuild : null, null);
+        NotifySupplementaryContentChanged();
+    }
+
+    private NativeGameIdentityObservation GetCurrentGameIdentity()
+    {
+        lock (_supplementaryGate)
+            return SupplementaryCurrentGameIdentity.Select(HealthContextRecorder.Current.Snapshot(), _observedGameIdentity, DateTimeOffset.UtcNow);
+    }
+
+    private NativeGameIdentityObservation RefreshCurrentGameAudience(HealthContextSnapshot snapshot)
+    {
+        lock (_supplementaryGate)
+        {
+            var identity = SupplementaryCurrentGameIdentity.Select(snapshot, _observedGameIdentity, DateTimeOffset.UtcNow);
+            _reportingPlatform = identity.Platform;
+            _reportingGameBuild = identity.GameBuild;
+            return identity;
+        }
+    }
 
     private void RecordSupplementaryRuntimeReady()
     {
@@ -164,6 +213,9 @@ public partial class App
 
     private void StopSupplementaryReporting()
     {
+        StopSupportInbox();
+        NativeGameIdentityProbe.Current.Updated -= ObserveGameIdentity;
+        NativeGameIdentityProbe.Current.Dispose();
         SupplementaryObservations.Observer = null;
         _controller?.DisposeSupplementaryObservations();
         ToolsPerformanceRecorder.Current.Enabled = false;
@@ -194,22 +246,11 @@ public partial class App
             return;
         }
         var context = HealthContextRecorder.Current.Snapshot();
+        _ = NativeGameIdentityProbe.Current.RequestRefresh();
         var samples = context.Samples.Where(s => !_reportedHealthTimes.Contains(s.TimestampUtc)).ToArray();
         _reportedHealthTimes = context.Samples.Select(s => s.TimestampUtc).ToHashSet();
         var latest = samples.LastOrDefault();
         var now = DateTimeOffset.UtcNow;
-        if (latest is not null)
-        {
-            var audienceChanged = false;
-            lock (_supplementaryGate)
-            {
-                var previous = (_reportingPlatform, _reportingGameBuild);
-                _reportingPlatform = latest.NativeGamePlatform switch { DiagnosticGamePlatform.Steam => "steam", DiagnosticGamePlatform.XboxStore => "store", _ => "unknown" };
-                _reportingGameBuild = SupplementarySchema.NumericVersion(latest.NativeGameVersion, false) ? latest.NativeGameVersion : null;
-                audienceChanged = previous != (_reportingPlatform, _reportingGameBuild);
-            }
-            if (audienceChanged) NotifySupplementaryContentChanged();
-        }
         var freshSnapshot = latest is not null && latest.TimestampUtc <= now + TimeSpan.FromMinutes(5) && now - latest.TimestampUtc <= TimeSpan.FromSeconds(10);
         var connection = !freshSnapshot ? "unknown" : latest!.ListenerError ? "failure"
             : latest.ListenerRunning && latest.PacketAgeMs is >= 0 and <= 300 ? "fresh"
@@ -220,8 +261,23 @@ public partial class App
         var environment = _controller?.SupplementarySettingsSnapshot is { } settings ? _supplementaryEnvironment.Snapshot(settings) : null;
         if (environment is not null && foreground == "unknown") environment = environment with { Coverage = environment.Coverage with { Foreground = "unavailable" } };
         if (environment is not null && !environment.IsValid(now)) environment = null;
+        if (PlayerMessagingEnabled)
+            _recentDiagnostics.ObserveContext(context, ComponentDiagnosticHistory.Current.Snapshot(), environment, _controller?.SupportDiagnosticSettingsSnapshot);
+        NativeGameIdentityObservation currentIdentity;
+        bool audienceChanged;
+        lock (_supplementaryGate)
+        {
+            var previous = (_reportingPlatform, _reportingGameBuild);
+            currentIdentity = RefreshCurrentGameAudience(context);
+            audienceChanged = previous != (_reportingPlatform, _reportingGameBuild);
+        }
+        if (audienceChanged) NotifySupplementaryContentChanged();
+        SetFeatureControlContext(currentIdentity.Verification.Inspection == "complete" ? currentIdentity.GameBuild : null,
+            environment?.Adapters.Where(a => !a.Software).Select(a => a.VendorId));
         EnqueueSupplementary(client, "heartbeat", "app", connection, "ready", sessionSummary: SupplementarySessionRecorder.Current.Snapshot(),
-            activitySummary: SupplementaryActivityRecorder.Current.Snapshot(), environment: environment, foregroundState: foreground, incident: connectionIncident);
+            activitySummary: SupplementaryActivityRecorder.Current.Snapshot(), environment: environment, foregroundState: foreground, incident: connectionIncident,
+            platform: currentIdentity.Platform, gameBuild: currentIdentity.GameBuild, historical: true,
+            gameVerification: currentIdentity.Verification, updateStatus: ApplicationUpdateTelemetry.Current);
         if (!_supplementaryGameDetected && freshSnapshot && latest!.NativeStatus is NativeAssistProviderStatus.Ready or NativeAssistProviderStatus.UnsupportedBuild or NativeAssistProviderStatus.AccessDenied)
             _supplementaryGameDetected = EnqueueSupplementary(client, "startup", "app", "detected", "game-detection");
         if (_reportedConnectionState != connection)
@@ -398,15 +454,18 @@ public partial class App
         Guid? eventId = null, DateTimeOffset? observedAt = null, SupplementaryRelatedRun? relatedRun = null,
         string? platform = null, string? gameBuild = null, bool historical = false,
         SupplementarySessionSummary? sessionSummary = null, long? sessionAgeMs = null, SupplementaryIncident? incident = null,
-        SupplementaryActivitySummary? activitySummary = null, SupplementaryEnvironment? environment = null, string? foregroundState = null, NativeGameVerification? gameVerification = null)
+        SupplementaryActivitySummary? activitySummary = null, SupplementaryEnvironment? environment = null, string? foregroundState = null, NativeGameVerification? gameVerification = null,
+        SupplementaryUpdateStatus? updateStatus = null)
     {
         incident = SupplementaryObservations.EnsureClassification(kind, outcome, incident);
-        return client.TryEnqueue(new(1, eventId ?? Guid.NewGuid(), _reportingSessionId, _reportingInstallationId,
+        var report = new SupplementaryEvent(1, eventId ?? Guid.NewGuid(), _reportingSessionId, _reportingInstallationId,
             observedAt ?? DateTimeOffset.UtcNow, _supplementaryVersion, _supplementaryBuild,
             _supplementaryChannel, kind, feature, outcome, platform ?? _reportingPlatform, durationMs, value,
             historical ? gameBuild : _reportingGameBuild, stage, measurements, mode, relatedRun, sessionSummary, sessionAgeMs, incident, activitySummary, environment, foregroundState,
             GameVerification: gameVerification ?? (relatedRun is not null ? null :
-                SupplementaryGameVerification.At(HealthContextRecorder.Current.Snapshot(), observedAt ?? DateTimeOffset.UtcNow))));
+                SupplementaryGameVerification.At(HealthContextRecorder.Current.Snapshot(), observedAt ?? DateTimeOffset.UtcNow)), UpdateStatus: updateStatus);
+        if (PlayerMessagingEnabled) _recentDiagnostics.Observe(report);
+        return client.TryEnqueue(report);
     }
     private static long Delta(long current, long? previous) => current >= (previous ?? 0) ? current - (previous ?? 0) : current;
 }

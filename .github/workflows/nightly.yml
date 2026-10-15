@@ -1,0 +1,69 @@
+name: Nightly checks
+on:
+  schedule:
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nightly-checks
+  cancel-in-progress: false
+jobs:
+  full-checks:
+    name: Full behavioral and UI checks
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Install Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.7'
+      - name: Restore and build
+        shell: pwsh
+        run: |
+          dotnet restore Wisp.sln --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency restore or audit failed.' }
+          dotnet build Wisp.sln -c Release --no-restore -m:1 -p:UseSharedCompilation=false
+          if ($LASTEXITCODE -ne 0) { throw 'Nightly build failed.' }
+      - name: Check formatting
+        run: dotnet format Wisp.sln --verify-no-changes --no-restore
+      - name: Full application suite and isolated performance checks
+        shell: pwsh
+        run: ./.github/scripts/Test-AppBehavior.ps1 -Full
+      - name: Tooling and packaging fixtures
+        run: python -m unittest discover -s tools/tests -p "test_*.py" -v
+  report:
+    name: Report nightly failure
+    if: failure()
+    needs: full-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Open or update nightly failure report
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $title = 'Nightly Wisp checks need attention'
+          $existing = @(gh issue list --state open --search ('in:title "' + $title + '"') --json number,title | ConvertFrom-Json) | Where-Object title -eq $title | Select-Object -First 1
+          if ($LASTEXITCODE -ne 0) { throw 'Could not find the nightly report.' }
+          $body = Join-Path $env:RUNNER_TEMP 'nightly-failure.md'
+          "The nightly checks failed. Inspect the failing job: $env:RUN_URL`n`nThis report does not block pull requests." | Set-Content -LiteralPath $body -Encoding utf8
+          if ($existing) { gh issue edit $existing.number --body-file $body }
+          else { gh issue create --title $title --body-file $body }
+          if ($LASTEXITCODE -ne 0) { throw 'Could not report the nightly failure.' }

@@ -5,6 +5,16 @@ namespace Wisp.Updater.Tests;
 public sealed class UpdaterWorkflowTests
 {
     [Fact]
+    public void GameOpeningBeforeInstallationPreventsExecutionAndAllowsRecovery()
+    {
+        var error = Assert.Throws<UpdateFailureException>(() =>
+            new WindowsUpdaterProcessHost(() => true).RunInstaller(
+                "must-not-execute.exe", [], TimeSpan.FromSeconds(1)));
+        Assert.Equal("UPDATE_GAME_RUNNING", error.ErrorCode);
+        Assert.True(error.RecoveryIsSafe);
+    }
+
+    [Fact]
     public void PreparesBeforeExitThenRunsFixedInstallerAndRestartsVerifiedApp()
     {
         using var layout = new TestLayout();

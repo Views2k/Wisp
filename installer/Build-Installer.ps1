@@ -1234,43 +1234,10 @@ try {
         throw "Source formatting verification failed with exit code $LASTEXITCODE. The installer was not built."
     }
 
-    # Keep each allocation measurement in a fresh test process, isolated from
-    # other fixtures. All invocations and zero-allocation assertions remain mandatory.
-    $allocationTests = @(
-        'Wisp.App.Tests.TachRendererDiagnosticsTests.EnabledUncontendedProducerHasNoPerEventAllocations',
-        'Wisp.App.Tests.TachDiagnosticsTests.EnabledNeedleRecordingReportsOfflineCostWithoutATimingThreshold',
-        'Wisp.App.Tests.TachDiagnosticsTests.DisabledRecordCallsCreateNoHistoryOrPerCallAllocations'
-    )
-    $nonAllocationFilter = ($allocationTests | ForEach-Object { "FullyQualifiedName!=$_" }) -join '&'
-    & $dotnetExecutable test $solution --configuration Release `
-        --no-restore `
-        --nologo `
-        --filter $nonAllocationFilter `
-        -p:ContinuousIntegrationBuild=true `
-        -m:1 `
-        -nodeReuse:false `
-        -p:UseSharedCompilation=false
-    if ($LASTEXITCODE -ne 0) {
-        throw "Release tests failed with exit code $LASTEXITCODE. The installer was not built."
-    }
-
-    foreach ($allocationTest in $allocationTests) {
-        $allocationResults = Join-Path $stageDirectory ('allocation-validation-' + $allocationTest.Split('.')[-1])
-        & $dotnetExecutable test $appTestsProject --configuration Release `
-            --no-build `
-            --no-restore `
-            --nologo `
-            --filter "FullyQualifiedName=$allocationTest" `
-            --logger 'trx;LogFileName=diagnostic-allocation.trx' `
-            --results-directory $allocationResults `
-            --disable-build-servers `
-            -m:1 `
-            -p:UseSharedCompilation=false
-        if ($LASTEXITCODE -ne 0) {
-            throw "Isolated diagnostic allocation validation failed with exit code $LASTEXITCODE. The installer was not built."
-        }
-        Assert-SinglePassedTestResult (Join-Path $allocationResults 'diagnostic-allocation.trx') 'Diagnostic allocation validation' $allocationTest
-    }
+    & $dotnetExecutable build $solution -c Release --no-restore -m:1 -p:UseSharedCompilation=false
+    if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
+    & (Join-Path $repository '.github/scripts/Test-AppBehavior.ps1') -DotNet $dotnetExecutable
+    if ($LASTEXITCODE -ne 0) { throw 'Release behavioral checks failed.' }
 
     & $dotnetExecutable build $uiReviewProject --configuration Release `
         --no-restore `

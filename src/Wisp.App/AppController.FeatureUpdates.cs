@@ -16,6 +16,7 @@ public sealed partial class AppController
         _updatesFeatureAvailable = available;
         if (!available)
         {
+            Supplementary.ApplicationUpdateTelemetry.Record("paused");
             _applicationUpdateTimer.Stop();
             _applicationUpdateFeatureLifetime.Cancel();
         }

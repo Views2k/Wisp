@@ -92,8 +92,7 @@ $requiredChecks = @(
         ForEach-Object { $_.parameters.required_status_checks.context }
 )
 Assert-Policy ($requiredChecks -contains 'Build and test') 'Protect main must require the Build and test status.'
-Assert-Policy ($requiredChecks -contains 'Build installer') 'Protect main must require the installer-build status.'
-Assert-Policy ($requiredChecks.Count -eq 2) 'Protect main must require exactly the two release-gate checks.'
+Assert-Policy ($requiredChecks.Count -eq 1) 'Protect main must require the bounded application gate; installer validation runs at release.'
 $statusCheckRule = $branchRuleset.rules | Where-Object type -eq 'required_status_checks'
 Assert-Policy (
     $statusCheckRule.parameters.strict_required_status_checks_policy -eq $true

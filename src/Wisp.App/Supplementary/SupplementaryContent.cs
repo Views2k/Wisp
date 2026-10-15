@@ -26,6 +26,7 @@ internal sealed record SupplementaryContentSnapshot(long Revision, DateTimeOffse
         IsCurrent(now) ? Items.Where(i => i.StartsAt <= now && i.ExpiresAt > now && i.Audience.Matches(context)).ToImmutableArray() : [];
 }
 internal sealed record SupplementaryVerifiedContent(SupplementaryContentSnapshot Snapshot, string PayloadHash, byte[] Envelope);
+internal sealed record SupplementaryMessagingActivation(long Revision, bool Enabled, DateTimeOffset ExpiresAt);
 internal sealed class SupplementaryValidationException(string code) : Exception(code)
 {
     internal string Code { get; } = code;
@@ -56,17 +57,7 @@ internal sealed class SupplementaryContentVerifier
     {
         try
         {
-            using var outer = SupplementaryJson.Parse(envelope, MaximumEnvelopeBytes);
-            var root = SupplementaryJson.Object(outer.RootElement, "schemaVersion", "keyId", "payload", "signature");
-            SupplementaryJson.Require(SupplementaryJson.Int(root["schemaVersion"]) == 1, "schema");
-            var keyId = SupplementaryJson.String(root["keyId"], 80);
-            SupplementaryJson.Require(_keys.TryGetValue(keyId, out var keyBytes), "publisher");
-            var payload = SupplementaryJson.Base64(root["payload"], MaximumPayloadBytes);
-            var signature = SupplementaryJson.Base64(root["signature"], 64);
-            SupplementaryJson.Require(signature.Length == 64, "signature");
-            using (var key = ReadKey(keyBytes!))
-                SupplementaryJson.Require(key.VerifyData(payload, signature, HashAlgorithmName.SHA256,
-                    DSASignatureFormat.IeeeP1363FixedFieldConcatenation), "signature");
+            var payload = VerifyEnvelope(envelope, MaximumEnvelopeBytes, MaximumPayloadBytes);
             using var document = SupplementaryJson.Parse(payload, MaximumPayloadBytes);
             var p = SupplementaryJson.Object(document.RootElement, "schemaVersion", "purpose", "revision", "issuedAt", "expiresAt", "items", "reportingDisabled");
             SupplementaryJson.Require(SupplementaryJson.Int(p["schemaVersion"]) == 1 &&
@@ -90,6 +81,44 @@ internal sealed class SupplementaryContentVerifier
         catch (Exception error) when (error is JsonException or FormatException or InvalidOperationException or
             CryptographicException or ArgumentException or OverflowException)
         { throw new SupplementaryValidationException("invalid-content"); }
+    }
+
+    internal SupplementaryMessagingActivation? VerifyMessaging(string? encoded, DateTimeOffset now)
+    {
+        if (encoded is not { Length: > 0 and <= 2048 }) return null;
+        try
+        {
+            var envelope = Convert.FromBase64String(encoded);
+            SupplementaryJson.Require(Convert.ToBase64String(envelope) == encoded, "encoding");
+            using var document = SupplementaryJson.Parse(VerifyEnvelope(envelope, 1536, 768), 768);
+            var p = SupplementaryJson.Object(document.RootElement, "schemaVersion", "purpose", "revision", "enabled", "issuedAt", "expiresAt");
+            var revision = SupplementaryJson.Int(p["revision"]);
+            var issued = SupplementaryJson.Utc(p["issuedAt"]);
+            var expires = SupplementaryJson.Utc(p["expiresAt"]);
+            SupplementaryJson.Require(SupplementaryJson.Int(p["schemaVersion"]) == 1 &&
+                SupplementaryJson.String(p["purpose"], 64) == "wisp-player-messaging" &&
+                revision is > 0 and <= 9_007_199_254_740_991 && issued <= now + TimeSpan.FromSeconds(15) &&
+                expires > now && expires > issued && expires - issued <= TimeSpan.FromMinutes(2), "activation");
+            return new(revision, SupplementaryJson.Bool(p["enabled"]), expires);
+        }
+        catch (Exception error) when (error is SupplementaryValidationException or JsonException or FormatException or
+            InvalidOperationException or CryptographicException or ArgumentException or OverflowException) { return null; }
+    }
+
+    private byte[] VerifyEnvelope(ReadOnlyMemory<byte> envelope, int maximumEnvelope, int maximumPayload)
+    {
+        using var outer = SupplementaryJson.Parse(envelope, maximumEnvelope);
+        var root = SupplementaryJson.Object(outer.RootElement, "schemaVersion", "keyId", "payload", "signature");
+        SupplementaryJson.Require(SupplementaryJson.Int(root["schemaVersion"]) == 1, "schema");
+        var keyId = SupplementaryJson.String(root["keyId"], 80);
+        SupplementaryJson.Require(_keys.TryGetValue(keyId, out var keyBytes), "publisher");
+        var payload = SupplementaryJson.Base64(root["payload"], maximumPayload);
+        var signature = SupplementaryJson.Base64(root["signature"], 64);
+        SupplementaryJson.Require(signature.Length == 64, "signature");
+        using var key = ReadKey(keyBytes!);
+        SupplementaryJson.Require(key.VerifyData(payload, signature, HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation), "signature");
+        return payload;
     }
 
     private static ECDsa ReadKey(byte[] bytes)

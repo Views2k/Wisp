@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Threading;
 using Wisp.App.CrashDiagnostics;
 using Wisp.Update;
+using Wisp.App.Supplementary;
 
 namespace Wisp.App;
 
@@ -137,6 +138,8 @@ public partial class App : Application
         _controller.SetClipHotkeyRegistrations(_clipToggleHotkey.Apply, _clipSaveHotkey.Apply);
         if (ApplicationUpdateLauncher.TryConsumeResult(out var updateResult))
         {
+            ApplicationUpdateTelemetry.Record(updateResult.Outcome == "success" ? "started" : "failed", updateResult.TargetVersion,
+                reason: updateResult.Outcome == "success" ? null : updateResult.Outcome == "unknown" ? "version-mismatch" : "installer", source: updateResult.SourceVersion);
             RecordSupplementarySignal("update", "update", updateResult.Outcome, "installed", incident: updateResult.Incident);
             _controller.ViewModel.UpdateApplicationUpdateStatus(
                 updateResult.Status,
@@ -144,6 +147,10 @@ public partial class App : Application
                 canCheck: true);
         }
         _activationListener = ListenForActivationAsync(_activationCancellation.Token);
+
+        _controller.EnableAutomaticApplicationUpdates(async installer =>
+            (await TryBeginApplicationUpdateAsync(installer)).Started);
+        _controller.BeginStartupApplicationUpdateCheck();
 
         // A first run or legacy auto-completed install always opens the wizard,
         // including --background launches. No dashboard or HUD exists yet.
@@ -157,6 +164,7 @@ public partial class App : Application
             var completed = _setupWindow.ShowDialog() == true;
             RecordSupplementarySignal("setup", "setup", completed && !settings.RequiresSetup ? "success" : "cancelled", "setup-complete");
             _setupWindow = null;
+            if (_exiting) return;
             if (!completed || settings.RequiresSetup)
             {
                 Shutdown();
@@ -188,7 +196,6 @@ public partial class App : Application
         ConfigureStartupCompanion();
         if (launchMode == StartupLaunchMode.WaitForForza && _startupTray is { IsAvailable: true })
         {
-            _controller.BeginStartupApplicationUpdateCheck();
             await SuspendRuntimeAsync();
             return;
         }
@@ -463,7 +470,6 @@ public partial class App : Application
                     window.Activate();
                 }
             }
-            _controller.BeginStartupApplicationUpdateCheck();
             if (_runtimeActive)
             {
                 return;
@@ -589,10 +595,29 @@ public partial class App : Application
             return (false, "Wisp is already closing or preparing another update.");
         }
 
+        _applicationUpdateHandoffActive = true;
+        bool gameOpen;
+        try { gameOpen = await Task.Run(ForzaFocusService.IsOpenForApplicationUpdate); }
+        catch { _applicationUpdateHandoffActive = false; throw; }
+        if (_exiting || _controller is null)
+        {
+            _applicationUpdateHandoffActive = false;
+            return (false, "Wisp is already closing.");
+        }
+        if (gameOpen)
+        {
+            _applicationUpdateHandoffActive = false;
+            const string waiting = "Update ready. Wisp will update and restart after you close Forza.";
+            _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
+            return (false, waiting);
+        }
+
         var permission = _controller.ApplicationUpdateFeatureToken;
         if (!_controller.CanBeginApplicationUpdate(permission))
+        {
+            _applicationUpdateHandoffActive = false;
             return (false, _controller.ViewModel.ApplicationUpdateStatus);
-        _applicationUpdateHandoffActive = true;
+        }
         _controller.MarkApplicationUpdatePreparing(installer);
         if (!await PrepareRunMetadataForExitAsync())
         {
@@ -652,6 +677,31 @@ public partial class App : Application
                 _applicationUpdateHandoffActive = false;
                 _controller.Runs.CancelMetadataClosePreparation();
                 return (false, "Application updates were paused. Review the update again when available.");
+            }
+            if (await Task.Run(ForzaFocusService.IsOpenForApplicationUpdate))
+            {
+                handoff.StopIfRunning();
+                _applicationUpdateHandoffActive = false;
+                _controller.Runs.CancelMetadataClosePreparation();
+                const string waiting = "Update ready. Wisp will restart after Forza closes.";
+                _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
+                return (false, waiting);
+            }
+            if (!_controller.CanBeginApplicationUpdate(permission))
+            {
+                handoff.StopIfRunning();
+                _applicationUpdateHandoffActive = false;
+                _controller.Runs.CancelMetadataClosePreparation();
+                return (false, "Application updates are paused.");
+            }
+            if (_controller.HasApplicationUpdateWorkInProgress)
+            {
+                handoff.StopIfRunning();
+                _applicationUpdateHandoffActive = false;
+                _controller.Runs.CancelMetadataClosePreparation();
+                const string waiting = "Update ready. Wisp will restart after your current work is saved.";
+                _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
+                return (false, waiting);
             }
             if (handoffState != ApplicationUpdateHandoffState.Ready)
             {

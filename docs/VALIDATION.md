@@ -143,26 +143,22 @@ are not proof of physical display cadence.
 
 ## CI and packaging
 
-A validation plan first chooses the scope of each workflow run.
+Pull requests run one `Build and test` job on `windows-latest`, capped at ten
+minutes. It restores locked dependencies, builds the solution, and runs
+`Test-AppBehavior.ps1`: fast data/settings, telemetry, security, HUD/needle and
+update safeguards plus affected behavioral tests. It builds no installer.
+There is no push-to-main rerun after a successful protected PR.
 
-Changes to executable inputs run on `windows-latest`. The packaging script
-performs:
+Full UI/layout checks, full-race simulations and isolated allocation checks run
+nightly. Failures create or update a GitHub issue and do not gate merges.
 
-1. the Python compatibility-audit tests;
-2. an audited, locked NuGet restore;
-3. `dotnet format --verify-no-changes`;
-4. the complete Release .NET solution tests;
-5. a locked Release build of the UI review harness.
+Release tags retain the packaging and installer lifecycle gates. A manual run
+on main can validate a release candidate; UI captures remain explicitly opt-in
+through `capture_ui`. Release checks use the same fast behavioral safeguards;
+nightly owns the broad visual and performance sweeps.
 
-Documentation-only changes run on `ubuntu-latest`. They check the changed
-documentation and reuse the full validation of the unchanged executable inputs.
-
-The bounded setup-wizard and Appearance captures run only when the workflow is
-started manually with `capture_ui` enabled. Ordinary pull request, main and
-release-tag runs do not produce them.
-
-The local packaging script adds a separate installer gate. It runs the Release
-.NET suite, creates a self-contained untrimmed `win-x64` application publish and
+The local packaging script adds a separate installer gate. It runs the release
+behavioral checks, creates a self-contained untrimmed `win-x64` application publish and
 a separate single-file update-helper publish, validates both PE files and their
 versions, and invokes Inno Setup in a unique staging directory. The real Inno
 artifact must then pass both runtime installer validators; TRX counters require

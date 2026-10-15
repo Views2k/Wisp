@@ -13,6 +13,75 @@ namespace Wisp.App.Tests;
 public sealed class FeatureControlTests(ITestOutputHelper output)
 {
     [Fact]
+    public async Task TargetedPoliciesRequireEveryKnownContextDimensionAndRestoreWhenItChangesOrExpires()
+    {
+        using var f = new Fixture();
+        var payload = f.Payload();
+        payload["schemaVersion"] = 2;
+        var rule = payload["rules"]![0]!;
+        rule["gameBuilds"] = new JsonArray("1.700.0.0");
+        rule["gpuVendors"] = new JsonArray("amd");
+        var context = FeatureControlContext.Empty;
+        var applied = new List<FeatureControlState>();
+        var transport = new Transport { Response = new(SupplementaryRequestStatus.Success, f.Sign(payload)) };
+        using var client = f.Client(transport, applied.Add, context: () => context);
+        await client.RefreshAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(client.State.Disabled);
+        context = new("1.700.0.0", FeatureControlContext.FromVendorIds([0x10de]));
+        await client.RefreshAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(client.State.Disabled);
+        context = new("1.700.0.0", FeatureControlContext.FromVendorIds([0x1002, 0x8086]));
+        await client.RefreshAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("clip-recording", client.State.Disabled.Keys);
+
+        // Context and expiry are evaluated even if the next network request fails.
+        transport.Response = new(SupplementaryRequestStatus.Unavailable, []);
+        context = context with { GameBuild = "1.701.0.0" };
+        await client.RefreshAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(applied[^1].Disabled);
+        context = context with { GameBuild = null };
+        await client.RefreshAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(client.State.Disabled);
+        context = context with { GameBuild = "1.700.0.0" };
+        await client.RefreshAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("clip-recording", applied[^1].Disabled.Keys);
+        f.Clock.Now = f.Now.AddHours(1);
+        await client.RefreshAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(applied[^1].Disabled);
+        Assert.Equal(1, applied[^1].Revision);
+    }
+
+    [Fact]
+    public void TargetingFieldsCannotBeSmuggledIntoLegacyPoliciesAndMalformedTargetsAreRejected()
+    {
+        using var f = new Fixture();
+        var payload = f.Payload();
+        var rule = payload["rules"]![0]!;
+        rule["gameBuilds"] = new JsonArray("1.700.0.0");
+        rule["gpuVendors"] = new JsonArray("amd");
+        Assert.Throws<SupplementaryValidationException>(() => f.Verifier.Verify(f.Sign(payload), f.Now));
+        payload["schemaVersion"] = 2;
+        Assert.Single(f.Verifier.Verify(f.Sign(payload), f.Now).Policy.Rules);
+        rule["gpuVendors"] = new JsonArray("unknown");
+        Assert.Throws<SupplementaryValidationException>(() => f.Verifier.Verify(f.Sign(payload), f.Now));
+        rule["gpuVendors"] = new JsonArray("amd", "amd");
+        Assert.Throws<SupplementaryValidationException>(() => f.Verifier.Verify(f.Sign(payload), f.Now));
+        rule["gpuVendors"] = new JsonArray();
+        rule["gameBuilds"] = new JsonArray("latest");
+        Assert.Throws<SupplementaryValidationException>(() => f.Verifier.Verify(f.Sign(payload), f.Now));
+    }
+
+    [Fact]
+    public void GenericPolicyStillAppliesWithUnknownGameAndGraphicsAndHardwareDoesNotInventVendors()
+    {
+        using var f = new Fixture();
+        var policy = f.Verifier.Verify(f.Sign(f.Payload()), f.Now).Policy;
+        Assert.Contains("clip-recording", policy.Disabled("2.6.9", "stable", f.Now, FeatureControlContext.Empty).Keys);
+        Assert.Empty(FeatureControlContext.FromVendorIds([0, 0xffff]));
+        Assert.Equal(new[] { "amd", "intel", "nvidia" }, FeatureControlContext.FromVendorIds([0x1002, 0x8086, 0x10de, 0x1002]).Order());
+    }
+
+    [Fact]
     public async Task RealPollingTimerDeliversServiceSignedPauseAndRestoreWithinOneMinuteEach()
     {
         using var fixture = new Fixture();
@@ -277,7 +346,7 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
         protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Assert.Equal(System.Net.Http.HttpMethod.Get, request.Method);
-            Assert.Equal("/api/v1/feature-controls", request.RequestUri!.PathAndQuery);
+            Assert.Equal("/api/v1/feature-controls?schema=2", request.RequestUri!.PathAndQuery);
             Assert.Null(request.Content);
             Interlocked.Increment(ref Calls);
             var response = new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
@@ -612,7 +681,7 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
         internal int Calls;
         public async Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximum, CancellationToken cancellation)
         {
-            Assert.Equal("/api/v1/feature-controls", route);
+            Assert.Equal("/api/v1/feature-controls?schema=2", route);
             Assert.Null(body);
             Assert.Equal(FeatureControlVerifier.MaximumEnvelopeBytes, maximum);
             Calls++;
@@ -668,8 +737,8 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
         }
         internal FeatureControlStore Store() => new(Verifier, Directory);
         internal FeatureControlClient Client(Transport transport, Action<FeatureControlState> changed,
-            Func<TimeSpan, CancellationToken, Task>? delay = null) =>
-            new(new(new Uri("https://example.invalid/")), Store(), "2.6.8", "stable", changed, Clock, transport, () => 1, delay);
+            Func<TimeSpan, CancellationToken, Task>? delay = null, Func<FeatureControlContext>? context = null) =>
+            new(new(new Uri("https://example.invalid/")), Store(), "2.6.8", "stable", changed, Clock, transport, () => 1, delay, context);
         public void Dispose()
         {
             _key.Dispose();

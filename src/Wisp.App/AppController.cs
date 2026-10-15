@@ -517,7 +517,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     public void BeginStartupApplicationUpdateCheck()
     {
-        if (_disposed || !FeatureAllowed("updates") || Settings.RequiresSetup || !Settings.AutomaticApplicationUpdateChecks)
+        if (_disposed || !FeatureAllowed("updates"))
         {
             _applicationUpdateTimer.Stop();
             return;
@@ -529,7 +529,13 @@ public sealed partial class AppController : IAsyncDisposable
         {
             _applicationUpdateTimer.Start();
         }
-        _ = CheckApplicationUpdateAvailabilityAsync(automatic: true);
+        _ = CheckAndApplyApplicationUpdateAsync();
+    }
+
+    internal async Task CheckAndApplyApplicationUpdateAsync()
+    {
+        await CheckApplicationUpdateAvailabilityAsync(automatic: true);
+        await TryAutomaticApplicationUpdateAsync();
     }
 
     private void OnApplicationUpdateTimer(object? sender, EventArgs e) => BeginStartupApplicationUpdateCheck();
@@ -565,10 +571,11 @@ public sealed partial class AppController : IAsyncDisposable
 
         using var operationLifetime = CancellationTokenSource.CreateLinkedTokenSource(_applicationUpdateLifetime.Token, ApplicationUpdateFeatureToken);
         using var supplementaryCheck = SupplementaryObservations.Begin("update", "update", "check");
+        ApplicationUpdateTelemetry.Record("checking");
         try
         {
             _applicationUpdateTimer.Stop();
-            if (Settings.AutomaticApplicationUpdateChecks && !Settings.RequiresSetup)
+            if (!_disposed && FeatureAllowed("updates"))
             {
                 _applicationUpdateTimer.Start();
             }
@@ -593,6 +600,12 @@ public sealed partial class AppController : IAsyncDisposable
             supplementaryCheck?.Complete("success");
             if (release is not null) SupplementaryObservations.Record("update", "update", "detected", "prompt");
             _availableApplicationRelease = release;
+            ApplicationUpdateTelemetry.Record(release is null ? "current" : "available", release?.Version.ToString());
+            if (release is not null && _pendingInstaller is { } previous && release.Version > previous.Version)
+            {
+                _pendingInstaller = null;
+                _pendingApplicationUpdateDetails = null;
+            }
             if (automatic && TryShowPendingApplicationUpdate())
             {
                 return release;
@@ -600,9 +613,7 @@ public sealed partial class AppController : IAsyncDisposable
             if (release is null)
             {
                 ViewModel.UpdateApplicationUpdateStatus(
-                    Settings.AutomaticApplicationUpdateChecks
-                        ? $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is current. Automatic checks run on open and every 24 hours."
-                        : $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is current.",
+                    $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is up to date. Updates install automatically after Forza closes.",
                     "Check again",
                     canCheck: true);
                 return null;
@@ -614,11 +625,13 @@ public sealed partial class AppController : IAsyncDisposable
         catch (Exception) when (operationLifetime.IsCancellationRequested)
         {
             supplementaryCheck?.Complete("cancelled");
+            ApplicationUpdateTelemetry.Record("paused", reason: "cancelled");
             return null;
         }
         catch (OperationCanceledException error)
         {
             supplementaryCheck?.Fail(error, "timeout");
+            ApplicationUpdateTelemetry.Record("failed", reason: "timeout");
             if (automatic)
             {
                 RestoreAutomaticApplicationUpdateStatus();
@@ -635,6 +648,7 @@ public sealed partial class AppController : IAsyncDisposable
         catch (HttpRequestException error)
         {
             supplementaryCheck?.Fail(error);
+            ApplicationUpdateTelemetry.Record("failed", reason: "connection");
             if (automatic)
             {
                 RestoreAutomaticApplicationUpdateStatus();
@@ -651,6 +665,7 @@ public sealed partial class AppController : IAsyncDisposable
         catch (UpdateSecurityException error)
         {
             supplementaryCheck?.Fail(error);
+            ApplicationUpdateTelemetry.Record("failed", reason: "verification");
             if (automatic && TryShowPendingApplicationUpdate())
             {
                 return null;
@@ -688,7 +703,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void ShowAvailableApplicationUpdate(UpdateRelease release) =>
         ViewModel.UpdateApplicationUpdateStatus(
-            $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. The installer will download only after you confirm.",
+            $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. Wisp will update and restart after Forza closes.",
             "Update",
             canCheck: true,
             isUpdateAvailable: true);
@@ -719,9 +734,7 @@ public sealed partial class AppController : IAsyncDisposable
             return;
         }
         ViewModel.UpdateApplicationUpdateStatus(
-            Settings.AutomaticApplicationUpdateChecks
-                ? "Automatic update checks are enabled. Wisp will try again when opened or after 24 hours."
-                : "Automatic update checks are off. You can still check manually.",
+            "Wisp checks on launch and every 15 minutes. Updates install automatically after Forza closes.",
             "Check now",
             canCheck: true);
     }
@@ -772,10 +785,12 @@ public sealed partial class AppController : IAsyncDisposable
             }
 
             supplementaryDownload = SupplementaryObservations.Begin("update", "update", "download");
+            ApplicationUpdateTelemetry.Record("downloading", release.Version.ToString(), 0);
             createdAttemptDirectory = ApplicationUpdateStaging.CreateAttemptDirectory(release.Version);
             var progress = new Progress<UpdateDownloadProgress>(value =>
             {
                 if (operationToken.IsCancellationRequested || downloadFinished) return;
+                ApplicationUpdateTelemetry.Record("downloading", release.Version.ToString(), (int)Math.Clamp(value.Percentage, 0, 100) / 10 * 10);
                 ViewModel.UpdateApplicationUpdateStatus(
                     $"Downloading Wisp {ApplicationVersionInfo.Format(release.Version)} — {Math.Clamp(value.Percentage, 0, 100):0}%",
                     "Downloading…",
@@ -788,6 +803,7 @@ public sealed partial class AppController : IAsyncDisposable
                 operationLifetime.Token);
             operationLifetime.Token.ThrowIfCancellationRequested();
             _pendingInstaller = downloaded;
+            ApplicationUpdateTelemetry.Record("verified", downloaded.Version.ToString(), 100);
             supplementaryDownload?.Complete("success");
             _pendingApplicationUpdateDetails = ApplicationUpdateDetailsFrom(release);
             _availableApplicationRelease = null;
@@ -801,11 +817,13 @@ public sealed partial class AppController : IAsyncDisposable
         catch (Exception) when (operationLifetime.IsCancellationRequested)
         {
             supplementaryDownload?.Complete("cancelled");
+            ApplicationUpdateTelemetry.Record("paused", _availableApplicationRelease?.Version.ToString(), reason: "cancelled");
             return null;
         }
         catch (OperationCanceledException error)
         {
             supplementaryDownload?.Fail(error, "timeout");
+            ApplicationUpdateTelemetry.Record("failed", _availableApplicationRelease?.Version.ToString(), reason: "timeout");
             ViewModel.UpdateApplicationUpdateStatus(
                 "The update download timed out. No files were installed.",
                 "Try again",
@@ -816,6 +834,7 @@ public sealed partial class AppController : IAsyncDisposable
         catch (HttpRequestException error)
         {
             supplementaryDownload?.Fail(error);
+            ApplicationUpdateTelemetry.Record("failed", _availableApplicationRelease?.Version.ToString(), reason: "connection");
             ViewModel.UpdateApplicationUpdateStatus(
                 "The installer could not be downloaded. Check the connection and try again.",
                 "Try again",
@@ -826,6 +845,7 @@ public sealed partial class AppController : IAsyncDisposable
         catch (UpdateSecurityException error)
         {
             supplementaryDownload?.Fail(error);
+            ApplicationUpdateTelemetry.Record("failed", _availableApplicationRelease?.Version.ToString(), reason: "verification");
             ViewModel.UpdateApplicationUpdateStatus(
                 "The installer could not be verified. No update was installed.",
                 "Try again",
@@ -836,6 +856,7 @@ public sealed partial class AppController : IAsyncDisposable
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             supplementaryDownload?.Fail(exception);
+            ApplicationUpdateTelemetry.Record("failed", _availableApplicationRelease?.Version.ToString(), reason: "storage");
             ViewModel.UpdateApplicationUpdateStatus(
                 "Wisp could not prepare the update on this PC. No update was installed.",
                 "Try again",
@@ -874,6 +895,7 @@ public sealed partial class AppController : IAsyncDisposable
     public void MarkApplicationUpdateStarting(VerifiedInstaller installer)
     {
         ArgumentNullException.ThrowIfNull(installer);
+        ApplicationUpdateTelemetry.Record("installing", installer.Version.ToString(), 100);
         ViewModel.UpdateApplicationUpdateStatus(
             $"Installing Wisp {installer.Version}…",
             "Restarting…",
@@ -990,7 +1012,6 @@ public sealed partial class AppController : IAsyncDisposable
             var previousOverlayHotkeyEnabled = Settings.OverlayHotkeyEnabled;
             var previousOverlayHotkeyModifiers = Settings.OverlayHotkeyModifiers;
             var previousOverlayHotkeyKey = Settings.OverlayHotkeyKey;
-            var previousAutomaticApplicationUpdateChecks = Settings.AutomaticApplicationUpdateChecks;
             var previousSpeedSource = Settings.SpeedSource;
             var powerTorqueAttachmentChanged = Settings.PowerGaugeAttached != ViewModel.PowerGaugeAttached ||
                                                Settings.TorqueGaugeAttached != ViewModel.TorqueGaugeAttached;
@@ -1052,6 +1073,7 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.DigitalBoostGaugeColorNumber = ViewModel.DigitalBoostGaugeColorNumber;
             Settings.DigitalBoostGaugeStockColors = ViewModel.DigitalBoostGaugeStockColors;
             Settings.ShowBoostVacuum = ViewModel.ShowBoostVacuum;
+            Settings.BoostMaximumPsi = ViewModel.BoostMaximumPsi;
             Settings.BoostPressureUnit = ViewModel.SelectedBoostPressureUnit;
             Settings.BoostGaugeScale = Math.Clamp(ViewModel.BoostGaugeScale, 0.5, 2.0);
             Settings.TireTemperatureGaugeEnabled = ViewModel.TireTemperatureGaugeEnabled;
@@ -1085,7 +1107,6 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.StartMinimizedWithForza = ViewModel.StartMinimizedWithForza;
             Settings.BackgroundParticlesEnabled = ViewModel.BackgroundParticlesEnabled;
             Settings.AnimatedBackground = ViewModel.AnimatedBackground;
-            Settings.AutomaticApplicationUpdateChecks = ViewModel.AutomaticApplicationUpdateChecks;
             Settings.TractionCueEnabled = ViewModel.TractionCueEnabled;
 
             var hotkeyChanged =
@@ -1105,22 +1126,6 @@ public sealed partial class AppController : IAsyncDisposable
                 ViewModel.OverlayHotkeyKey = previousOverlayHotkeyKey;
             }
 
-            if (previousAutomaticApplicationUpdateChecks != Settings.AutomaticApplicationUpdateChecks)
-            {
-                if (!Settings.AutomaticApplicationUpdateChecks)
-                {
-                    _applicationUpdateTimer.Stop();
-                }
-                if (_availableApplicationRelease is null && _pendingInstaller is null)
-                {
-                    ViewModel.UpdateApplicationUpdateStatus(
-                        Settings.AutomaticApplicationUpdateChecks
-                            ? "Automatic update checks are enabled. Wisp checks on open and every 24 hours."
-                            : "Automatic update checks are off. You can still check manually.",
-                        "Check now",
-                        canCheck: true);
-                }
-            }
             if ((previousStartWithWindows != Settings.StartWithWindows ||
                  previousStartWithForza != Settings.StartWithForza) &&
                 !TrySetStartupRegistration(Settings.StartWithWindows, Settings.StartWithForza))
@@ -1183,10 +1188,6 @@ public sealed partial class AppController : IAsyncDisposable
             UpdateOverlayVisibility(DateTimeOffset.UtcNow, force: true);
             ScheduleSettingsSave();
             Runs.RefreshStatus();
-            if (!previousAutomaticApplicationUpdateChecks && Settings.AutomaticApplicationUpdateChecks)
-            {
-                BeginStartupApplicationUpdateCheck();
-            }
         }
         finally
         {
@@ -1639,6 +1640,7 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.DigitalBoostGaugeColorNumber = Settings.DigitalBoostGaugeColorNumber;
         ViewModel.DigitalBoostGaugeStockColors = Settings.DigitalBoostGaugeStockColors;
         ViewModel.ShowBoostVacuum = Settings.ShowBoostVacuum;
+        ViewModel.BoostMaximumPsi = Settings.BoostMaximumPsi;
         ViewModel.UseBarBoostPressure = Settings.BoostPressureUnit == BoostPressureUnit.Bar;
         ViewModel.BoostGaugeScale = Settings.BoostGaugeScale;
         ViewModel.TireTemperatureGaugeEnabled = Settings.TireTemperatureGaugeEnabled;
@@ -2125,6 +2127,7 @@ public sealed partial class AppController : IAsyncDisposable
         _compatibilityUpdates.Dispose();
         _applicationUpdates.Dispose();
         _applicationUpdateTimer.Stop();
+        _automaticInstallTimer?.Stop();
         _uiTimer.Stop();
         SetCompositionRenderingEnabled(false);
         _manualOverlayHidden = false;

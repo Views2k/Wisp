@@ -133,6 +133,17 @@ public sealed class NativeStorePackageIdentityTests
     }
 
     [Fact]
+    public void NoPackageAndUnavailableInspectionRemainDifferent()
+    {
+        using var handle = new SafeProcessHandle(new IntPtr(42), ownsHandle: false);
+        Assert.Equal(NativePackageInspection.NoPackage, NativeStorePackageIdentity.Inspect(handle, ExecutablePath,
+            new FakePackageApi { Fault = "no-package" }, out _));
+        Assert.Equal(NativePackageInspection.Unavailable, NativeStorePackageIdentity.Inspect(handle, ExecutablePath,
+            new FakePackageApi { Fault = "name-second-error" }, out _));
+        Assert.Equal(NativePackageInspection.Verified, NativeStorePackageIdentity.Inspect(handle, ExecutablePath, new FakePackageApi(), out _));
+    }
+
+    [Fact]
     public void InvalidOrClosedHandleDoesNotCallWindows()
     {
         var api = new FakePackageApi();

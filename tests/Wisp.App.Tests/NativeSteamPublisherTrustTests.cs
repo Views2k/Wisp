@@ -25,6 +25,19 @@ public sealed class NativeSteamPublisherTrustTests
         var unsigned = new FakeTrustApi(file.Path) { Subject = new X500DistinguishedName(subject), Result = unchecked((int)0x800B0100) };
         Assert.False(NativeSteamPublisherTrust.TryVerify(file.Path, unsigned, steamApi: true));
     }
+    [Theory]
+    [InlineData(unchecked((int)0x800B0100), (int)NativePublisherVerification.Rejected)]
+    [InlineData(unchecked((int)0x80096010), (int)NativePublisherVerification.Rejected)]
+    [InlineData(unchecked((int)0x80092013), (int)NativePublisherVerification.Unavailable)]
+    [InlineData(unchecked((int)0x800B0109), (int)NativePublisherVerification.Unavailable)]
+    public void DiagnosticInspectionDistinguishesDefiniteFileRejectionFromUnavailableTrust(int code, int expected)
+    {
+        using var file = new TestFile();
+        Assert.Equal((NativePublisherVerification)expected, NativeSteamPublisherTrust.Inspect(file.Path, new FakeTrustApi(file.Path) { Result = code }, true));
+        Assert.Equal(NativePublisherVerification.Unavailable,
+            NativeSteamPublisherTrust.Inspect(file.Path, new FakeTrustApi(file.Path) { Result = code, CloseResult = 1 }, true));
+    }
+
     [Fact]
     public void TrustedPrimaryPublisherUsesOfflinePolicyAndHoldsFileUntilStateIsClosed()
     {

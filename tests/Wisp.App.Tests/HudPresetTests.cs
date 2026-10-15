@@ -157,6 +157,7 @@ public sealed class HudPresetTests
             "InvertLateralG", "InvertLongitudinalG",
             "BoostGaugeEnabled", "BoostGaugeAttached", "BoostGaugeColorNumber",
             "DigitalBoostGaugeColorNumber", "DigitalBoostGaugeStockColors", "ShowBoostVacuum", "BoostPressureUnit",
+            "BoostMaximumPsi",
             "BoostGaugeScale", "TireTemperatureGaugeEnabled", "TireTemperatureGaugeAttached",
             "TireTemperatureReactiveColors", "TireTemperatureUnit", "TireTemperatureGaugeScale",
             "PowerGaugeEnabled", "TorqueGaugeEnabled", "PowerTorqueGaugeScale", "PowerGaugeScale", "TorqueGaugeScale", "PowerGaugeMaximum", "TorqueGaugeMaximumNm",
