@@ -36,8 +36,9 @@ public sealed class ApplicationVersionInfoTests
     [Fact]
     public void CurrentVersionLabelsShareTheAssemblyVersion()
     {
-        Assert.Equal("2.6.8", ApplicationVersionInfo.MachineVersion);
-        Assert.Equal("2.6.8", ApplicationVersionInfo.DisplayVersion);
+        var assemblyVersion = typeof(ApplicationVersionInfo).Assembly.GetName().Version!;
+        Assert.Equal(SemanticVersion.FromSystemVersion(assemblyVersion).ToString(), ApplicationVersionInfo.MachineVersion);
+        Assert.Equal(ApplicationVersionInfo.Format(assemblyVersion), ApplicationVersionInfo.DisplayVersion);
         var project = ProjectMetadata();
         Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildId"), ApplicationVersionInfo.DiagnosticBuildId);
         Assert.Equal(project.GetValueOrDefault("WispDiagnosticBuildLabel"), ApplicationVersionInfo.DiagnosticBuildLabel);
@@ -49,13 +50,13 @@ public sealed class ApplicationVersionInfoTests
             Assert.Null(ApplicationVersionInfo.DiagnosticBuildLabel);
             if (ApplicationVersionInfo.IsPrivateCandidate)
             {
-                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.6.8 (private test)", ApplicationVersionInfo.FooterText);
-                Assert.Contains("private 2.6.8 candidate. It has not been published.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+                Assert.Equal($"WHEEL-INDICATED SPEED PANEL {ApplicationVersionInfo.DisplayVersion} (private test)", ApplicationVersionInfo.FooterText);
+                Assert.Contains($"private {ApplicationVersionInfo.DisplayVersion} candidate.", ApplicationVersionInfo.ReleaseHistoryIntroduction);
             }
             else
             {
-                Assert.Equal("WHEEL-INDICATED SPEED PANEL 2.6.8", ApplicationVersionInfo.FooterText);
-                Assert.Contains("current 2.6.8 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction);
+                Assert.Equal($"WHEEL-INDICATED SPEED PANEL {ApplicationVersionInfo.DisplayVersion}", ApplicationVersionInfo.FooterText);
+                Assert.Contains(ApplicationVersionInfo.DisplayVersion, ApplicationVersionInfo.ReleaseHistoryIntroduction);
             }
         }
         else
@@ -69,7 +70,7 @@ public sealed class ApplicationVersionInfoTests
     }
 
     [Fact]
-    public void TuneAndClipsReleaseMatchesExpectedBuildIdentity()
+    public void ReleaseMatchesExpectedBuildIdentity()
     {
         var expectedId = Environment.GetEnvironmentVariable("WISP_TEST_EXPECTED_DIAGNOSTIC_BUILD_ID");
         var expectedLabel = Environment.GetEnvironmentVariable("WISP_TEST_EXPECTED_DIAGNOSTIC_BUILD_LABEL");
@@ -90,7 +91,7 @@ public sealed class ApplicationVersionInfoTests
         Assert.False(ApplicationVersionInfo.IsPrivateCandidate);
         Assert.False(ApplicationVersionInfo.LapDiagnosticsEnabled);
         Assert.DoesNotContain("private", ApplicationVersionInfo.FooterText, StringComparison.Ordinal);
-        Assert.Contains("current 2.6.8 entry covers this release", ApplicationVersionInfo.ReleaseHistoryIntroduction,
+        Assert.Contains(ApplicationVersionInfo.DisplayVersion, ApplicationVersionInfo.ReleaseHistoryIntroduction,
             StringComparison.Ordinal);
     }
 
