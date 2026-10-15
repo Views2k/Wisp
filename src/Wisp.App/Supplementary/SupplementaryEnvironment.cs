@@ -16,6 +16,7 @@ internal sealed record SupplementarySettings(string RenderMode, string Units, st
     public double? OverlayWidthScale { get; init; }
     public double? OverlayHeightScale { get; init; }
     public bool? GameAwareVisibility { get; init; }
+    public bool? HudGpuPriority { get; init; }
     public bool? GForceEnabled { get; init; }
     public bool? BoostGaugeEnabled { get; init; }
     public bool? TireTemperatureGaugeEnabled { get; init; }
@@ -58,6 +59,7 @@ internal sealed record SupplementarySettings(string RenderMode, string Units, st
         OverlayWidthScale = Number(settings.OverlayWidthScale, 0.1, 10),
         OverlayHeightScale = Number(settings.OverlayHeightScale, 0.1, 10),
         GameAwareVisibility = settings.GameAwareVisibility,
+        HudGpuPriority = settings.HudGpuPriority,
         GForceEnabled = settings.GForceEnabled,
         BoostGaugeEnabled = settings.BoostGaugeEnabled,
         TireTemperatureGaugeEnabled = settings.TireTemperatureGaugeEnabled,

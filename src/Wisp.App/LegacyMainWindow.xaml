@@ -1591,6 +1591,15 @@
                                                                Foreground="{DynamicResource FaintBrush}" TextWrapping="Wrap" FontSize="10" Margin="0,6,0,0" />
                                                     <TextBlock Text="{Binding CpuRenderingChangeStatus}" TextWrapping="Wrap" FontSize="11"
                                                                Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
+                                                    <CheckBox x:Name="HudGpuPriorityToggle" Content="Prioritize HUD updates on the GPU"
+                                                              IsChecked="{Binding HudGpuPriorityEnabled, Mode=OneWay}" Click="HudGpuPriorityToggle_Click"
+                                                              Style="{StaticResource ToggleSwitchStyle}" FontSize="11" Margin="0,18,0,0"
+                                                              AutomationProperties.Name="Prioritize HUD updates on the GPU"
+                                                              AutomationProperties.HelpText="Gives the HUD priority over the game on the GPU. Can cost game frame rate when the GPU is fully used." />
+                                                    <TextBlock Text="Gives the HUD priority over the game on the GPU. Can cost game frame rate when the GPU is fully used."
+                                                               Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0" />
+                                                    <TextBlock Text="{Binding HudGpuPriorityChangeStatus}" TextWrapping="Wrap" FontSize="11"
+                                                               Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
                                                 </StackPanel>
                                                 <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0"
                                                         Margin="0,10,0,0" Padding="0,10,0,0">

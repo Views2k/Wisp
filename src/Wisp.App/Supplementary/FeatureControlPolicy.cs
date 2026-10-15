@@ -12,7 +12,7 @@ internal static class ControlledFeatures
         "run-recording", "run-library", "lap-review", "tune-read", "tune-library",
         "clip-recording", "clip-playback", "clip-export", "clip-library", "shift-calibration",
         "tire-calibration", "shift-guidance", "traction-cue", "background-animation",
-        "hud-profiles", "appearance", "diagnostics", "news", "support", "updates");
+        "hud-profiles", "appearance", "diagnostics", "news", "support", "updates", "gpu-priority");
 }
 
 internal sealed record FeatureControlRule(string Id, ImmutableArray<string> Features, string Reason,

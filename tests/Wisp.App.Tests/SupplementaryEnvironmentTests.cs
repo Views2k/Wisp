@@ -53,6 +53,7 @@ public sealed class SupplementaryEnvironmentTests
         var preferences = new AppSettings
         {
             CpuRenderingEnabled = true,
+            HudGpuPriority = true,
             Smoothing = 0.08,
             OverlayWidthScale = 1.5,
             LayoutMode = HudLayoutMode.Native,
@@ -77,6 +78,7 @@ public sealed class SupplementaryEnvironmentTests
         Assert.Equal(2160, projected.ClipsResolutionHeight);
         Assert.True(projected.ClipsLossless);
         Assert.True(projected.LapMapEnabled);
+        Assert.True(projected.HudGpuPriority);
         Assert.DoesNotContain("fixture-private", JsonSerializer.Serialize(projected, SupplementarySchema.Json));
         preferences.Smoothing = double.NaN; preferences.Clips.FrameRate = 900;
         projected = SupplementarySettings.Capture(preferences);

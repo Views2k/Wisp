@@ -102,8 +102,20 @@ internal sealed class DirectCompositionDevice : IDisposable
         GpuPriority = priority.ToDiagnostic();
     }
 
-    // Immutable initialization results also remain available if logging starts later.
-    internal TachGpuPriorityDiagnostic GpuPriority { get; }
+    // Initialization results, refreshed after each priority request, remain available if logging starts later.
+    internal TachGpuPriorityDiagnostic GpuPriority { get; private set; }
+
+    // Render-thread only, like every other call on this device. Returns false when
+    // the renderer ignored the request (WARP).
+    public bool SetGpuPriority(bool raise)
+    {
+        ThrowIfDisposed();
+        var result = Native.SetGpuPriority(_handle, raise ? 1 : 0);
+        Marshal.ThrowExceptionForHR(result);
+        Marshal.ThrowExceptionForHR(Native.GetGpuPriorityStatus(_handle, out var priority));
+        GpuPriority = priority.ToDiagnostic();
+        return result == 0;
+    }
 
     public static DirectCompositionDevice Create(IntPtr hwnd, int width, int height, bool cpuRendering = false,
         bool compositorNeedle = false)
@@ -390,6 +402,8 @@ internal sealed class DirectCompositionDevice : IDisposable
 
         [DllImport(Library, EntryPoint = "WispRendererGetGpuPriorityStatus", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int GetGpuPriorityStatus(RendererHandle renderer, out DirectCompositionGpuPriorityStatus status);
+        [DllImport(Library, EntryPoint = "WispRendererSetGpuPriority", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetGpuPriority(RendererHandle renderer, int raise);
 
         [DllImport(Library, EntryPoint = "WispRendererCreate", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Create(IntPtr hwnd, uint width, uint height, out RendererHandle renderer);

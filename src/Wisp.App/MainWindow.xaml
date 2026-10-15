@@ -1961,6 +1961,18 @@
                                                                 <TextBlock Text="Please enable CPU rendering if you are experiencing lag or hitching in the overlay." Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" FontSize="13" Margin="0,6,0,0"/>
                                                                 <TextBlock Text="Applies to the Analogue tachometer. Exit Wisp from the tray icon and reopen it to apply. CPU usage may increase." Foreground="{DynamicResource FaintBrush}" TextWrapping="Wrap" FontSize="13" Margin="0,6,0,0"/>
                                                                 <TextBlock Text="{Binding CpuRenderingChangeStatus}" TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite"/>
+                                                                <CheckBox
+                                                                    x:Name="HudGpuPriorityToggle"
+                                                                    Content="Prioritize HUD updates on the GPU"
+                                                                    IsChecked="{Binding HudGpuPriorityEnabled, Mode=OneWay}"
+                                                                    Click="HudGpuPriorityToggle_Click"
+                                                                    Style="{StaticResource ToggleSwitchStyle}"
+                                                                    FontSize="11"
+                                                                    Margin="0,18,0,0"
+                                                                    AutomationProperties.Name="Prioritize HUD updates on the GPU"
+                                                                    AutomationProperties.HelpText="Gives the HUD priority over the game on the GPU. Can cost game frame rate when the GPU is fully used." />
+                                                                <TextBlock Text="Gives the HUD priority over the game on the GPU. Can cost game frame rate when the GPU is fully used." Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" FontSize="13" Margin="0,6,0,0"/>
+                                                                <TextBlock Text="{Binding HudGpuPriorityChangeStatus}" TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite"/>
                                                             </StackPanel>
                                                         </StackPanel>
                                                     </local:OrbitSurface>

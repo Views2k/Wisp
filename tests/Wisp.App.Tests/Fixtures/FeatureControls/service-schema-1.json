@@ -35,7 +35,8 @@
     "diagnostics",
     "news",
     "support",
-    "updates"
+    "updates",
+    "gpu-priority"
   ],
   "paused": {
     "keyId": "test-key",

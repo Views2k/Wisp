@@ -72,6 +72,7 @@ public sealed partial class AppController
             _ = ConfigureClipShortcut(false, settings.ToggleShortcutEnabled, settings.ToggleShortcut);
             _ = ConfigureClipShortcut(true, settings.SaveShortcutEnabled, settings.SaveShortcut);
         }
+        ApplyHudGpuPriority();
         FeatureControlsChanged?.Invoke(this, EventArgs.Empty);
         UpdateShiftCueObservation();
         Overlay?.RefreshFeatureControls();

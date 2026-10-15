@@ -56,14 +56,33 @@ public sealed class CpuRenderingSettingsTests
             }
         };
         bool failSave = false;
-        bool? savedCpu = null;
+        bool? savedCpu = null, savedPriority = null;
         var controller = new AppController(settings, value =>
         {
             if (failSave) throw new System.IO.IOException("Test storage unavailable");
             savedCpu = value.CpuRenderingEnabled;
+            savedPriority = value.HudGpuPriority;
         }, new NoStartupRegistration());
         try
         {
+            Assert.False(controller.ViewModel.HudGpuPriorityEnabled);
+            Assert.False(controller.ViewModel.HudGpuPriorityActive);
+            controller.SetHudGpuPriorityEnabled(true);
+            Assert.True(savedPriority);
+            Assert.True(settings.HudGpuPriority);
+            Assert.True(controller.ViewModel.HudGpuPriorityEnabled);
+            Assert.True(controller.ViewModel.HudGpuPriorityActive);
+            Assert.Empty(controller.ViewModel.HudGpuPriorityChangeStatus);
+            failSave = true;
+            controller.SetHudGpuPriorityEnabled(false);
+            Assert.True(settings.HudGpuPriority);
+            Assert.True(controller.ViewModel.HudGpuPriorityEnabled);
+            Assert.Contains("Could not save", controller.ViewModel.HudGpuPriorityChangeStatus);
+            failSave = false;
+            controller.SetHudGpuPriorityEnabled(false);
+            Assert.False(savedPriority);
+            Assert.False(controller.ViewModel.HudGpuPriorityActive);
+            Assert.Empty(controller.ViewModel.HudGpuPriorityChangeStatus);
             controller.SetCpuRenderingEnabled(true);
             Assert.True(savedCpu);
             Assert.True(settings.CpuRenderingEnabled);

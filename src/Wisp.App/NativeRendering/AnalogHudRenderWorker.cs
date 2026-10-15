@@ -29,6 +29,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
     private readonly Action<WaitHandle>? _afterPrepareForTest;
     private long _motionGeneration = 1;
     private AnalogHudPresentation _presentation;
+    private bool _gpuPriority;
     private bool _reset;
     private bool _disposed;
     private bool _surfaceVisible;
@@ -96,6 +97,17 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         }
     }
 
+    // The user's GPU priority choice; the render thread applies it once a device exists.
+    internal void SetGpuPriority(bool raise)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _gpuPriority == raise) return;
+            _gpuPriority = raise;
+            _changed.Set();
+        }
+    }
+
     internal void UpdatePresentation(AnalogHudPresentation presentation)
     {
         lock (_gate)
@@ -151,6 +163,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         var waitHandles = new WaitHandle[] { _stop, _changed };
         // hudShown: the last HUD build was submitted for presentation, so an unchanged scene need not present again.
         bool announced = false, hasFrame = false, frameReady = false, hudShown = false;
+        bool gpuPriority = false, appliedGpuPriority = false;
         int width = 0, height = 0;
         float appliedOpacity = float.NaN;
         float appliedHostX = float.NaN, appliedHostY = float.NaN;
@@ -173,6 +186,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 lock (_gate)
                 {
                     presentation = _presentation;
+                    gpuPriority = _gpuPriority;
                     motionGeneration = _motionGeneration;
                     if (_reset)
                     {
@@ -251,7 +265,17 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     width = presentation.Width;
                     height = presentation.Height;
                     hudShown = false;
+                    appliedGpuPriority = false;
                     RecordStage(operation, "created", operationStarted);
+                }
+                if (appliedGpuPriority != gpuPriority)
+                {
+                    // A fresh device starts at the defaults, so only a raise needs a call
+                    // after creation; a later change always does.
+                    BeginOperation("state", HealthFailureStage.RendererState);
+                    device.SetGpuPriority(gpuPriority);
+                    appliedGpuPriority = gpuPriority;
+                    RecordStage(operation, "ready", operationStarted);
                 }
                 if (width != presentation.Width || height != presentation.Height)
                 {

@@ -127,6 +127,8 @@ public sealed class AppSettings
     public bool AutomaticApplicationUpdateChecks { get; set; } = true;
     public DateTimeOffset? LastApplicationUpdateCheckUtc { get; set; }
     public bool CpuRenderingEnabled { get; set; }
+    // Off by default: the game keeps the GPU unless the user chooses otherwise.
+    public bool HudGpuPriority { get; set; }
     public bool DebugLoggingEnabled { get; set; }
     public DateTimeOffset? DebugLoggingExpiresAtUtc { get; set; }
     public string ColorTheme { get; set; } = AppColorThemes.DefaultName;

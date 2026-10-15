@@ -280,6 +280,28 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.UpdateCpuRendering(Settings.CpuRenderingEnabled, saved);
     }
 
+    public void SetHudGpuPriorityEnabled(bool enabled)
+    {
+        if (_disposed) return;
+        var previous = Settings.HudGpuPriority;
+        Settings.HudGpuPriority = enabled;
+        var saved = SaveSettings();
+        if (!saved) Settings.HudGpuPriority = previous;
+        PublishSupplementarySettings();
+        ApplyHudGpuPriority(saved);
+    }
+
+    // Effective only when the user turned it on and Tools has not paused it for this version.
+    internal void ApplyHudGpuPriority(bool saved = true)
+    {
+        var active = Settings.HudGpuPriority && FeatureAllowed("gpu-priority");
+        ViewModel.UpdateHudGpuPriority(Settings.HudGpuPriority, active,
+            !saved ? "Could not save the renderer option. Try again."
+            : Settings.HudGpuPriority && !active
+                ? FeatureControls.Reason("gpu-priority") ?? "GPU priority is temporarily paused."
+                : "");
+    }
+
     public async Task SetDebugLoggingEnabledAsync(bool enabled)
     {
         if (_disposed)

@@ -40,9 +40,10 @@ struct WispWaitMetricsV2
 // Stored initialization results, not a live query. Process statuses are raw
 // NTSTATUS values; INT32_MIN means not attempted. Device statuses are HRESULTs
 // (S_FALSE when not attempted). Effective values stay -1/INT32_MIN if unread.
-// attempted is zero for WARP. The renderer never sets a priority: requested
-// values stay at the defaults (NORMAL, 0) and only the readbacks run on hardware,
-// so the set statuses always report "not attempted".
+// attempted is zero for WARP. Creation never sets a priority: requested values
+// start at the defaults (NORMAL, 0) and only the readbacks run on hardware. The
+// set statuses stay "not attempted" until WispRendererSetGpuPriority is called,
+// after which every field describes the most recent request.
 struct WispGpuPriorityStatus
 {
     uint32_t attempted;
@@ -132,6 +133,9 @@ WISP_API void __cdecl WispRendererDestroy(void* renderer) noexcept;
 // Owner-thread-only; querying never changes priorities. Failed queries return
 // the not-attempted sentinel when a non-null output was supplied.
 WISP_API HRESULT __cdecl WispRendererGetGpuPriorityStatus(void* renderer, WispGpuPriorityStatus* status) noexcept;
+// Owner thread. raise != 0 requests the HIGH process class and device priority +1;
+// raise == 0 restores NORMAL and 0. WARP renderers return S_FALSE and change nothing.
+WISP_API HRESULT __cdecl WispRendererSetGpuPriority(void* renderer, int raise) noexcept;
 WISP_API HRESULT __cdecl WispRendererGetPresentationStatus(void* renderer, WispPresentationStatus* status) noexcept;
 // S_OK replaces the swapchain; S_FALSE preserves an already fresh chain.
 WISP_API HRESULT __cdecl WispRendererPrepareForResume(void* renderer) noexcept;

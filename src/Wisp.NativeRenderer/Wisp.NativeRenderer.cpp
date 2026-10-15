@@ -687,6 +687,32 @@ namespace
                 gpuPriorityStatus.effectiveDevicePriority = devicePriority;
         }
 
+        // Opt-in from the user's settings. The process class is process-wide, so
+        // every hardware renderer applies the same request; the device priority is
+        // per device. Each call records its results and the independent readbacks.
+        HRESULT SetGpuPriority(bool raise) noexcept
+        {
+            if (gpuPriorityStatus.attempted == 0 || !device) return S_FALSE;
+            ComPtr<IDXGIDevice> dxgiDevice;
+            CHECK_HR(device.As(&dxgiDevice));
+            gpuPriorityStatus.requestedProcessClass = raise
+                ? D3DKMT_SCHEDULINGPRIORITYCLASS_HIGH : D3DKMT_SCHEDULINGPRIORITYCLASS_NORMAL;
+            gpuPriorityStatus.requestedDevicePriority = raise ? 1 : 0;
+            gpuPriorityStatus.processSetStatus = D3DKMTSetProcessSchedulingPriorityClass(GetCurrentProcess(),
+                static_cast<D3DKMT_SCHEDULINGPRIORITYCLASS>(gpuPriorityStatus.requestedProcessClass));
+            auto processClass = D3DKMT_SCHEDULINGPRIORITYCLASS_NORMAL;
+            gpuPriorityStatus.processReadStatus = D3DKMTGetProcessSchedulingPriorityClass(
+                GetCurrentProcess(), &processClass);
+            gpuPriorityStatus.effectiveProcessClass = gpuPriorityStatus.processReadStatus >= 0
+                ? static_cast<int32_t>(processClass) : -1;
+            gpuPriorityStatus.deviceSetHResult = dxgiDevice->SetGPUThreadPriority(gpuPriorityStatus.requestedDevicePriority);
+            INT devicePriority = INT32_MIN;
+            gpuPriorityStatus.deviceReadHResult = dxgiDevice->GetGPUThreadPriority(&devicePriority);
+            gpuPriorityStatus.effectiveDevicePriority = gpuPriorityStatus.deviceReadHResult == S_OK
+                ? devicePriority : INT32_MIN;
+            return S_OK;
+        }
+
         HRESULT CreateTarget()
         {
             ComPtr<ID3D11Texture2D> buffer;
@@ -1362,6 +1388,13 @@ HRESULT __cdecl WispRendererGetGpuPriorityStatus(void* renderer, WispGpuPriority
         CHECK_HR(r.CheckThread());
         *status = r.gpuPriorityStatus;
         return S_OK;
+    });
+}
+HRESULT __cdecl WispRendererSetGpuPriority(void* renderer, int raise) noexcept
+{
+    return Invoke(renderer, [&](Renderer& r) {
+        CHECK_HR(r.CheckThread());
+        return r.SetGpuPriority(raise != 0);
     });
 }
 HRESULT __cdecl WispRendererGetPresentationStatus(void* renderer, WispPresentationStatus* status) noexcept

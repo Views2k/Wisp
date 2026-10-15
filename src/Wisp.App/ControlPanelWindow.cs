@@ -73,6 +73,7 @@ public abstract partial class ControlPanelWindow : Window
     private Button OverlayHotkeyCaptureButton => FindControl<Button>(nameof(OverlayHotkeyCaptureButton));
     private TextBlock PortApplyFeedback => FindControl<TextBlock>(nameof(PortApplyFeedback));
     private CheckBox CpuRenderingToggle => FindControl<CheckBox>(nameof(CpuRenderingToggle));
+    private CheckBox HudGpuPriorityToggle => FindControl<CheckBox>(nameof(HudGpuPriorityToggle));
     private CheckBox DebugLoggingToggle => FindControl<CheckBox>(nameof(DebugLoggingToggle));
     private Button DebugLogExportButton => FindControl<Button>(nameof(DebugLogExportButton));
     private Button DebugLogDeleteButton => FindControl<Button>(nameof(DebugLogDeleteButton));
@@ -980,6 +981,12 @@ public abstract partial class ControlPanelWindow : Window
     {
         _controller.SetCpuRenderingEnabled(CpuRenderingToggle.IsChecked == true);
         CpuRenderingToggle.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty)?.UpdateTarget();
+    }
+
+    protected void HudGpuPriorityToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _controller.SetHudGpuPriorityEnabled(HudGpuPriorityToggle.IsChecked == true);
+        HudGpuPriorityToggle.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty)?.UpdateTarget();
     }
 
     protected async void DebugLoggingToggle_Click(object sender, RoutedEventArgs e)

@@ -31,6 +31,30 @@ internal sealed class DirectCompositionAnalogHost : IDisposable
         _status = status;
         RefreshPresentation();
         _owner.LayoutUpdated += OnLayoutUpdated;
+        _owner.DataContextChanged += OnDataContextChanged;
+        ObserveViewModel(_owner.DataContext as DiagnosticsViewModel);
+    }
+
+    private DiagnosticsViewModel? _viewModel;
+
+    // The GPU priority choice can change while the gauge is idle, so it is not left to
+    // the next layout pass.
+    private void ObserveViewModel(DiagnosticsViewModel? viewModel)
+    {
+        if (ReferenceEquals(_viewModel, viewModel)) return;
+        if (_viewModel is not null) _viewModel.PropertyChanged -= OnViewModelChanged;
+        _viewModel = viewModel;
+        if (_viewModel is not null) _viewModel.PropertyChanged += OnViewModelChanged;
+    }
+
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs args)
+    {
+        if (!_disposed) ObserveViewModel(args.NewValue as DiagnosticsViewModel);
+    }
+
+    private void OnViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (!_disposed && args.PropertyName == nameof(DiagnosticsViewModel.HudGpuPriorityActive)) RefreshPresentation();
     }
 
     internal void UpdateFrame(NativeGaugeFrame frame)
@@ -98,13 +122,15 @@ internal sealed class DirectCompositionAnalogHost : IDisposable
         _presentation = new(width, height, (float)origin.X, (float)origin.Y,
             (float)x.X, (float)x.Y, (float)y.X, (float)y.Y,
             (float)Math.Clamp(opacity, 0, 1), true, traction, new(color.R, color.G, color.B, color.A), _layout);
+        var viewModel = _owner.DataContext as DiagnosticsViewModel;
         if (_worker is null)
         {
             var textures = AnalogHudAssets.LoadOnUiThread();
             _worker = new AnalogHudRenderWorker(source.Handle, _controlId, textures, _presentation, ReportStatus,
-                (_owner.DataContext as DiagnosticsViewModel)?.ActiveCpuRendering == true, _window.NativeNeedleSource);
+                viewModel?.ActiveCpuRendering == true, _window.NativeNeedleSource);
         }
         else _worker.UpdatePresentation(_presentation);
+        _worker.SetGpuPriority(viewModel?.HudGpuPriorityActive == true);
     }
 
     private void OnLayoutUpdated(object? sender, EventArgs args)
@@ -127,6 +153,8 @@ internal sealed class DirectCompositionAnalogHost : IDisposable
         if (_disposed) return;
         _disposed = true;
         _owner.LayoutUpdated -= OnLayoutUpdated;
+        _owner.DataContextChanged -= OnDataContextChanged;
+        ObserveViewModel(null);
         _worker?.Dispose();
     }
 

@@ -241,6 +241,7 @@ internal sealed class HudNativeHost : IDisposable
             _worker.HudPresented += OnPresented;
             _vm?.ReportRendererHost(this, RendererHostState.Starting, "HUD renderer: native starting");
         }
+        _worker.SetGpuPriority(_vm?.HudGpuPriorityActive == true);
         _worker.UpdateHud(_snapshot, Stopwatch.GetTimestamp());
     }
 

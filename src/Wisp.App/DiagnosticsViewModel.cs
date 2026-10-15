@@ -113,6 +113,9 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _automaticApplicationUpdateChecks;
     private bool _cpuRenderingEnabled;
     private string _cpuRenderingChangeStatus = "";
+    private bool _hudGpuPriorityEnabled;
+    private bool _hudGpuPriorityActive;
+    private string _hudGpuPriorityChangeStatus = "";
     private bool _debugLoggingEnabled;
     private string _debugLoggingStatus = "Detailed logging off";
     private bool _tractionCueEnabled;
@@ -189,6 +192,8 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         _automaticApplicationUpdateChecks = settings.AutomaticApplicationUpdateChecks;
         _cpuRenderingEnabled = settings.CpuRenderingEnabled;
         ActiveCpuRendering = settings.CpuRenderingEnabled;
+        _hudGpuPriorityEnabled = settings.HudGpuPriority;
+        _hudGpuPriorityActive = settings.HudGpuPriority;
         _debugLoggingEnabled = settings.DebugLoggingEnabled;
         if (_debugLoggingEnabled && settings.DebugLoggingExpiresAtUtc is { } expiresAtUtc)
         {
@@ -293,6 +298,17 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         CpuRenderingEnabled = enabled;
         CpuRenderingChangeStatus = !saved ? "Could not save the renderer option. Try again."
             : enabled != ActiveCpuRendering ? "Restart Wisp to apply this change." : "";
+    }
+
+    // Enabled is the saved choice; Active is what the renderer applies (Tools can pause it).
+    public bool HudGpuPriorityEnabled { get => _hudGpuPriorityEnabled; private set => Set(ref _hudGpuPriorityEnabled, value); }
+    public bool HudGpuPriorityActive { get => _hudGpuPriorityActive; private set => Set(ref _hudGpuPriorityActive, value); }
+    public string HudGpuPriorityChangeStatus { get => _hudGpuPriorityChangeStatus; private set => Set(ref _hudGpuPriorityChangeStatus, value); }
+    internal void UpdateHudGpuPriority(bool enabled, bool active, string status)
+    {
+        HudGpuPriorityEnabled = enabled;
+        HudGpuPriorityActive = active;
+        HudGpuPriorityChangeStatus = status;
     }
 
     public bool DebugLoggingEnabled { get => _debugLoggingEnabled; private set => Set(ref _debugLoggingEnabled, value); }
