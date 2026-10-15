@@ -121,7 +121,13 @@ internal static class SupportComposerReview
         SetUpdate(true, false);
         Check(!action.IsEnabled, "Updater busy/paused safeguard was overridden.");
         SetUpdate(true); CheckUpdate();
-        action.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var previousObserver = SupplementaryObservations.Observer;
+        var observations = new List<SupplementaryObservation>();
+        SupplementaryObservations.Observer = observations.Add;
+        try { action.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
+        finally { SupplementaryObservations.Observer = previousObserver; }
+        Check(observations.Count(value => value.Kind == "update" && value.Stage == "chosen" && value.Outcome == "attempt") == 1,
+            "The Update click was not recorded separately from detection and presentation.");
         Check(updateChecks() == 1, "The visible Update action did not reach the updater.");
         SetUpdate(false);
         Check(message.Text == item.Message && close.Visibility == Visibility.Visible, "Clearing the update did not restore the custom banner.");

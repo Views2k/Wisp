@@ -8,6 +8,8 @@ internal sealed class SupplementaryClient : IDisposable
     internal const int QueueCapacity = 128;
     internal const int PriorityReservation = 16;
     internal const int MaximumAttempts = 3;
+    internal static readonly TimeSpan UpdateFlushTimeout = TimeSpan.FromSeconds(2);
+    private const int MaximumUpdateFlushBatches = 8;
     internal static readonly TimeSpan MaximumEventAge = TimeSpan.FromHours(1);
     private readonly object _gate = new();
     private readonly Queue<PendingEvent> _queue = new(QueueCapacity);
@@ -26,7 +28,7 @@ internal sealed class SupplementaryClient : IDisposable
     private long _dropped;
     private long _batchSequence;
     private SupplementaryEvent? _runIdentity;
-    private int _flushing;
+    private readonly SemaphoreSlim _flushGate = new(1, 1);
     private bool _started, _stopped;
     private int _disposed;
     private int _supportPending;
@@ -216,12 +218,43 @@ internal sealed class SupplementaryClient : IDisposable
     internal async Task<bool> FlushBatchAsync(CancellationToken cancellation)
     {
         // Sequence assignment and the complete retry window have one owner. Concurrent callers cannot reorder batches.
-        if (Interlocked.CompareExchange(ref _flushing, 1, 0) != 0) return false;
+        if (!await _flushGate.WaitAsync(0, cancellation).ConfigureAwait(false)) return false;
         try { return await FlushNextBatchAsync(cancellation).ConfigureAwait(false); }
-        finally { Volatile.Write(ref _flushing, 0); }
+        finally { _flushGate.Release(); }
     }
 
-    private async Task<bool> FlushNextBatchAsync(CancellationToken cancellation)
+    internal async Task<bool> FlushForUpdateAsync(CancellationToken cancellation = default)
+    {
+        if (!IsReportingEnabled) return false;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation, _cancellation);
+        deadline.CancelAfter(UpdateFlushTimeout);
+        try
+        {
+            // The outer deadline also bounds a transport that fails to honor cancellation.
+            return await DrainForUpdateAsync(deadline.Token).WaitAsync(deadline.Token).ConfigureAwait(false);
+        }
+        catch (Exception) { return false; } // Reporting cannot prevent a verified update.
+    }
+
+    private async Task<bool> DrainForUpdateAsync(CancellationToken cancellation)
+    {
+        await _flushGate.WaitAsync(cancellation).ConfigureAwait(false);
+        try
+        {
+            if (!IsReportingEnabled) return false;
+            if (!_serverClock.IsFresh) await RefreshContentAsync(cancellation).ConfigureAwait(false);
+            if (!_serverClock.IsFresh || !IsReportingEnabled) return false;
+            for (var batch = 0; batch < MaximumUpdateFlushBatches && PendingEvents > 0; batch++)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if (!await FlushNextBatchAsync(cancellation, maximumAttempts: 1).ConfigureAwait(false)) return false;
+            }
+            return PendingEvents == 0;
+        }
+        finally { _flushGate.Release(); }
+    }
+
+    private async Task<bool> FlushNextBatchAsync(CancellationToken cancellation, int maximumAttempts = MaximumAttempts)
     {
         if (!IsReportingEnabled) { ClearPending(); return false; }
         var values = new List<SupplementaryEvent>(SupplementarySchema.MaximumBatchEvents);
@@ -252,7 +285,7 @@ internal sealed class SupplementaryClient : IDisposable
         var sequence = ++_batchSequence;
         var bytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, batchSequence = sequence, events = values }, SupplementarySchema.Json);
         if (bytes.Length > SupplementarySchema.MaximumBatchBytes) { Interlocked.Add(ref _dropped, values.Count); return false; }
-        for (var attempt = 0; attempt < MaximumAttempts && IsReportingEnabled; attempt++)
+        for (var attempt = 0; attempt < maximumAttempts && IsReportingEnabled; attempt++)
         {
             var response = await SendAsync("/api/v1/events", bytes, 2048, cancellation).ConfigureAwait(false);
             if (response.Status == SupplementaryRequestStatus.Success)
@@ -261,7 +294,7 @@ internal sealed class SupplementaryClient : IDisposable
                 break;
             }
             if (response.Status is not (SupplementaryRequestStatus.Unavailable or SupplementaryRequestStatus.TimedOut)) break;
-            if (attempt + 1 < MaximumAttempts)
+            if (attempt + 1 < maximumAttempts)
                 await _delay(TimeSpan.FromSeconds((attempt + 1) * 15 + 15 * Math.Clamp(_jitter(), 0, 1)), cancellation).ConfigureAwait(false);
         }
         Interlocked.Add(ref _dropped, values.Count);

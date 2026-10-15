@@ -671,11 +671,18 @@ public partial class App : Application
                 return (false, waitError);
             }
 
+            if (handoffState == ApplicationUpdateHandoffState.Ready)
+            {
+                _controller.MarkApplicationUpdateStarting(installer);
+                await FlushSupplementaryForUpdateAsync();
+            }
+            // Recheck every exit guard after the bounded reporting wait.
             if (!_controller.CanBeginApplicationUpdate(permission))
             {
                 handoff.StopIfRunning();
                 _applicationUpdateHandoffActive = false;
                 _controller.Runs.CancelMetadataClosePreparation();
+                ApplicationUpdateTelemetry.Record("paused", installer.Version.ToString(), reason: "cancelled");
                 return (false, "Application updates were paused. Review the update again when available.");
             }
             if (await Task.Run(ForzaFocusService.IsOpenForApplicationUpdate))
@@ -684,6 +691,7 @@ public partial class App : Application
                 _applicationUpdateHandoffActive = false;
                 _controller.Runs.CancelMetadataClosePreparation();
                 const string waiting = "Update ready. Wisp will restart after Forza closes.";
+                ApplicationUpdateTelemetry.Record("waiting-for-game", installer.Version.ToString());
                 _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
                 return (false, waiting);
             }
@@ -692,6 +700,7 @@ public partial class App : Application
                 handoff.StopIfRunning();
                 _applicationUpdateHandoffActive = false;
                 _controller.Runs.CancelMetadataClosePreparation();
+                ApplicationUpdateTelemetry.Record("paused", installer.Version.ToString(), reason: "cancelled");
                 return (false, "Application updates are paused.");
             }
             if (_controller.HasApplicationUpdateWorkInProgress)
@@ -700,6 +709,7 @@ public partial class App : Application
                 _applicationUpdateHandoffActive = false;
                 _controller.Runs.CancelMetadataClosePreparation();
                 const string waiting = "Update ready. Wisp will restart after your current work is saved.";
+                ApplicationUpdateTelemetry.Record("waiting-for-work", installer.Version.ToString());
                 _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
                 return (false, waiting);
             }
@@ -719,7 +729,6 @@ public partial class App : Application
             }
         }
 
-        _controller.MarkApplicationUpdateStarting(installer);
         _runExitMarker?.MarkShutdownStarted(ShutdownIntent.Update);
         _applicationUpdateHandoffActive = false;
         _exiting = true;

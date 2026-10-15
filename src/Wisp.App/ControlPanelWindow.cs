@@ -10,6 +10,7 @@ using System.Windows.Media;
 using Wisp.App.Laps;
 using Wisp.App.Runs;
 using Wisp.App.Clips;
+using Wisp.App.Supplementary;
 using Wisp.App.Tunes;
 using Wisp.Core.Tunes;
 using Wisp.Core;
@@ -865,6 +866,8 @@ public abstract partial class ControlPanelWindow : Window
 
     protected async void CheckApplicationUpdate_Click(object sender, RoutedEventArgs e)
     {
+        if (_controller.ViewModel.IsApplicationUpdateAvailable && _controller.ViewModel.CanCheckApplicationUpdate)
+            SupplementaryObservations.Record("update", "update", "attempt", "chosen");
         var details = await _controller.GetAvailableApplicationUpdateDetailsAsync();
         if (details is null)
         {
@@ -927,6 +930,7 @@ public abstract partial class ControlPanelWindow : Window
             return;
         }
 
+        SupplementaryObservations.Record("update", "update", "success", "chosen");
         HideApplicationUpdateConfirmation();
         var installer = await _controller.PrepareApplicationUpdateAsync(confirmedVersion);
         if (installer is null)

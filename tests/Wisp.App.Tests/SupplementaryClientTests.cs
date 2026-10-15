@@ -438,6 +438,109 @@ public sealed class SupplementaryClientTests
     }
 
     [Fact]
+    public async Task UpdateExitFlushSendsQueuedFunnelEventsInOrderWithServerClock()
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport { ServerTime = f.Now };
+        using var client = Client(f, transport);
+        var events = Enumerable.Range(0, SupplementaryClient.QueueCapacity).Select(i => f.Event() with
+        {
+            Kind = "update",
+            Feature = "update",
+            Stage = i % 2 == 0 ? "prompt" : "chosen",
+            Outcome = "success"
+        }).ToArray();
+        foreach (var value in events) Assert.True(client.TryEnqueue(value));
+
+        Assert.True(await client.FlushForUpdateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, client.PendingEvents);
+        Assert.Equal(0, client.DroppedEvents);
+        Assert.Equal(1, transport.MaximumConcurrent);
+        Assert.Equal("/api/v1/content", transport.Routes[0]);
+        var received = new List<Guid>();
+        for (var i = 0; i < transport.Bodies.Count; i++)
+        {
+            using var body = JsonDocument.Parse(transport.Bodies[i]);
+            Assert.Equal(i + 1, body.RootElement.GetProperty("batchSequence").GetInt64());
+            received.AddRange(body.RootElement.GetProperty("events").EnumerateArray().Select(value => value.GetProperty("eventId").GetGuid()));
+        }
+        Assert.Equal(events.Select(value => value.EventId), received);
+    }
+
+    [Fact]
+    public async Task UpdateExitFlushWaitsForExistingBatchWithoutReordering()
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport { ServerTime = f.Now };
+        using var client = Client(f, transport);
+        await client.RefreshContentAsync(TestContext.Current.CancellationToken);
+        transport.Pause = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        for (var i = 0; i < 80; i++) Assert.True(client.TryEnqueue(f.Event()));
+        var regular = client.FlushBatchAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(16, client.PendingEvents);
+        var exit = client.FlushForUpdateAsync(TestContext.Current.CancellationToken);
+        Assert.False(exit.IsCompleted);
+        transport.Pause.SetResult();
+        Assert.True(await regular);
+        Assert.True(await exit);
+        Assert.Equal(0, client.PendingEvents);
+        Assert.Equal(1, transport.MaximumConcurrent);
+        using var last = JsonDocument.Parse(transport.Bodies[^1]);
+        Assert.Equal(2, last.RootElement.GetProperty("batchSequence").GetInt64());
+        Assert.Equal(16, last.RootElement.GetProperty("events").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task UpdateExitFlushDoesNotWaitForRegularRetryBackoff()
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport { ServerTime = f.Now };
+        using var client = new SupplementaryClient(new(new Uri("https://console.example.invalid/")), new(f.Verifier, f.Directory),
+            new FixedClock(f.Now), transport, delay: (_, _) => throw new InvalidOperationException("Update exit must not wait for retry backoff."));
+        await client.RefreshContentAsync(TestContext.Current.CancellationToken);
+        transport.ForcedStatus = SupplementaryRequestStatus.Unavailable;
+        Assert.True(client.TryEnqueue(f.Event()));
+        Assert.False(await client.FlushForUpdateAsync(TestContext.Current.CancellationToken));
+        Assert.Single(transport.Bodies);
+        Assert.Equal(1, client.DroppedEvents);
+    }
+
+    [Fact]
+    public async Task UpdateExitFlushBoundsUncooperativeTransportAndReleasesTheGate()
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport { ServerTime = f.Now };
+        using var client = Client(f, transport);
+        await client.RefreshContentAsync(TestContext.Current.CancellationToken);
+        transport.Pause = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.IgnoreCancellation = true;
+        Assert.True(client.TryEnqueue(f.Event()));
+        try
+        {
+            Assert.False(await client.FlushForUpdateAsync(TestContext.Current.CancellationToken)
+                .WaitAsync(SupplementaryClient.UpdateFlushTimeout + TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken));
+        }
+        finally { transport.Pause.SetResult(); }
+        Assert.True(await client.FlushForUpdateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, transport.MaximumConcurrent);
+    }
+
+    [Fact]
+    public async Task UpdateExitFlushSkipsUncalibratedOrDisabledReporting()
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport();
+        using var client = Client(f, transport);
+        Assert.True(client.TryEnqueue(f.Event()));
+        Assert.False(await client.FlushForUpdateAsync(TestContext.Current.CancellationToken));
+        Assert.Empty(transport.Bodies);
+        Assert.Equal(1, client.PendingEvents);
+        client.Stop();
+        Assert.False(await client.FlushForUpdateAsync(TestContext.Current.CancellationToken));
+        Assert.Single(transport.Routes);
+    }
+
+    [Fact]
     public async Task StopCancelsInFlightRequestWithoutWaitingForIt()
     {
         using var f = new SupplementaryFixture();
@@ -753,10 +856,12 @@ public sealed class SupplementaryClientTests
         internal readonly List<string> Routes = [];
         internal byte[]? Content;
         internal byte[]? EventReceipt;
+        internal DateTimeOffset? ServerTime;
         internal SupplementaryResponse? SupportResponse;
         internal SupplementaryRequestStatus? ForcedStatus;
         internal TaskCompletionSource? Pause;
         internal bool CompleteAcceptedSupport;
+        internal bool IgnoreCancellation;
         internal readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public async Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximumResponseBytes, CancellationToken cancellation)
         {
@@ -765,10 +870,10 @@ public sealed class SupplementaryClientTests
             Entered.TrySetResult();
             try
             {
-                if (Pause is not null) await Pause.Task.WaitAsync(CompleteAcceptedSupport && route.EndsWith("support", StringComparison.Ordinal)
+                if (Pause is not null) await Pause.Task.WaitAsync(IgnoreCancellation || CompleteAcceptedSupport && route.EndsWith("support", StringComparison.Ordinal)
                     ? TestContext.Current.CancellationToken : cancellation);
                 if (ForcedStatus is { } forced) return new(forced, []);
-                if (route.EndsWith("content", StringComparison.Ordinal)) return new(SupplementaryRequestStatus.Success, Content ?? []);
+                if (route.EndsWith("content", StringComparison.Ordinal)) return new(SupplementaryRequestStatus.Success, Content ?? [], ServerTime: ServerTime, UncertaintyMs: 1);
                 if (route.EndsWith("support", StringComparison.Ordinal)) return SupportResponse ?? new(SupplementaryRequestStatus.Success, Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"reference\":\"WISP-ABCDEF\"}"));
                 if (EventReceipt is not null) return new(SupplementaryRequestStatus.Success, EventReceipt);
                 using var doc = JsonDocument.Parse(body!);

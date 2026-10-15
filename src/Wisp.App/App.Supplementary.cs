@@ -213,6 +213,13 @@ public partial class App
             Stopwatch.GetElapsedTime(_supplementaryStartedAt).TotalMilliseconds);
     }
 
+    private async Task FlushSupplementaryForUpdateAsync()
+    {
+        SupplementaryClient? client;
+        lock (_supplementaryGate) client = _supplementaryClient;
+        if (client is not null) await client.FlushForUpdateAsync();
+    }
+
     private void StopSupplementaryReporting()
     {
         StopSupportInbox();
@@ -230,7 +237,7 @@ public partial class App
             _supplementaryClient?.Dispose();
             _supplementaryClient = null;
         }
-        // No exit flush: a missing final heartbeat is not classified as a crash or an exact session ending.
+        // Update handoff has its own bounded flush. Other shutdown paths never wait for reporting.
     }
 
     private void CollectSupplementaryObservations(SupplementaryClient client)
