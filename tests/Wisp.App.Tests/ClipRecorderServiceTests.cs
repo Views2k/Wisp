@@ -212,10 +212,15 @@ public sealed class ClipRecorderServiceTests
             session.DiagnosticAfterDisposal = RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields));
             session.Emit("reconnecting", "scheduler_late");
             session.Emit("error", "cancelled"); // A stale callback cannot create a second reset.
-            var retry = await delays.NextAsync();
             await ReconcileAsync(service);
             Assert.True(session.Disposed.Task.IsCompleted);
-            retry.Resume.TrySetResult();
+            if (number % 3 == 0)
+            {
+                Assert.False(service.Snapshot.Enabled);
+                await service.SetEnabledAsync(true, Recording, TestToken);
+                service.ObserveTarget(new(Target, number), service.TargetObservationGeneration);
+            }
+            else (await delays.NextAsync()).Resume.TrySetResult();
             session = await factory.NextAsync();
         }
         await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
@@ -814,8 +819,11 @@ public sealed class ClipRecorderServiceTests
         Assert.Contains($"Reset 1: {reason}", service.FailureReport, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task RepeatedBriefRecoveriesBackOffAndDisableCancelsPendingRetry()
+    [Theory]
+    [InlineData("scheduler_late")]
+    [InlineData("helper_exited")]
+    [InlineData("encoder_reconnecting")]
+    public async Task ThreeFailuresStopRecoveryAcrossFocusChangesUntilExplicitlyEnabled(string reason)
     {
         using var fixture = new Fixture();
         var factory = new SessionFactory();
@@ -824,26 +832,74 @@ public sealed class ClipRecorderServiceTests
         await service.SetEnabledAsync(true, Recording, TestToken);
         service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
         var session = await factory.NextAsync();
-        foreach (var seconds in new[] { 1, 2, 4, 8, 16, 30, 30 })
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
             await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
             session.Emit("buffering", "none");
-            session.Emit("reconnecting", "capture_stale");
-            var retry = await delays.NextAsync();
-            Assert.Equal(TimeSpan.FromSeconds(seconds), retry.Delay);
+            if (attempt == 2)
+            {
+                service.ObserveTarget(null, service.TargetObservationGeneration);
+                await ReconcileAsync(service);
+                service.ObserveTarget(new(Target, 2), service.TargetObservationGeneration);
+                await ReconcileAsync(service);
+            }
+            session.Emit("reconnecting", reason);
+            // The terminal helper exit for the same failed capture is not a second attempt.
+            session.Emit("error", "helper_exited");
             await session.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            if (attempt == 3) break;
+            var retry = await delays.NextAsync();
             retry.Resume.TrySetResult();
             session = await factory.NextAsync();
         }
+        await ReconcileAsync(service);
+        Assert.Equal(3, factory.Count);
+        Assert.Equal(2, delays.Count);
+        Assert.Equal(ClipRecorderState.Error, service.Snapshot.State);
+        Assert.False(service.Snapshot.Enabled);
+        Assert.False(service.Snapshot.CanSave);
+        Assert.True(service.Snapshot.CanEnable);
+        Assert.Equal(0, service.TargetObservationGeneration);
+        Assert.Contains($"Reset 3: {reason}", service.FailureReport, StringComparison.Ordinal);
+        service.ObserveTarget(new(Target, 3), 1);
+        await ReconcileAsync(service);
+        Assert.Equal(3, factory.Count);
+
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 4), service.TargetObservationGeneration);
+        session = await factory.NextAsync();
         await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
-        session.Emit("reconnecting", "capture_stale");
+        session.Emit("reconnecting", reason);
         var last = await delays.NextAsync();
+        Assert.Equal(TimeSpan.FromSeconds(1), last.Delay);
         var count = factory.Count;
         await service.SetEnabledAsync(false, Recording, TestToken);
         last.Resume.TrySetResult();
         await ReconcileAsync(service);
         Assert.Equal(count, factory.Count);
         Assert.False(service.Snapshot.Enabled);
+    }
+
+    [Fact]
+    public async Task ResolutionChangesDoNotSpendTheFailureBudget()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var delays = new RecoveryClock();
+        await using var service = fixture.Service(factory, delays.DelayAsync);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        for (var i = 0; i < 4; i++)
+        {
+            var session = await factory.NextAsync();
+            await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            session.Emit("reconnecting", i == 3 ? "helper_exited" : "window_resized");
+            var retry = await delays.NextAsync();
+            Assert.True(service.Snapshot.Enabled);
+            await session.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            if (i < 3) retry.Resume.TrySetResult();
+        }
+        await service.SetEnabledAsync(false, Recording, TestToken);
     }
 
     [Theory]

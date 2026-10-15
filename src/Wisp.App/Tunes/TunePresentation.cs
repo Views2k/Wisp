@@ -9,10 +9,40 @@ public enum TuneSort { Newest, Oldest, NameAscending, NameDescending }
 public enum TuneWorkspace { Current, Saved, Compare }
 
 public sealed record TuneDisplayRow(string Label, string Value, string Range, string OtherValue,
-    string Difference, bool Changed, bool HasRange, double RangePosition);
+    string Difference, bool Changed, bool HasRange, double RangePosition)
+{
+    public bool IsPerformance { get; init; }
+}
 
 internal static class TunePresentation
 {
+    internal static IEnumerable<TuneDisplayRow> PerformanceRows(TunePerformance? a, TunePerformance? b, bool comparison)
+    {
+        yield return PerformanceRow("Braking · 60–0 mph", a?.Braking60MphMetres, b?.Braking60MphMetres, 1 / 0.3048, 1, " ft", comparison);
+        yield return PerformanceRow("Braking · 100–0 mph", a?.Braking100MphMetres, b?.Braking100MphMetres, 1 / 0.3048, 1, " ft", comparison);
+        yield return PerformanceRow("Lateral G · 60 mph", a?.LateralG60Mph, b?.LateralG60Mph, 1, 2, " g", comparison);
+        yield return PerformanceRow("Lateral G · 120 mph", a?.LateralG120Mph, b?.LateralG120Mph, 1, 2, " g", comparison);
+        yield return PerformanceRow("Acceleration · 0–60 mph", a?.Acceleration60MphSeconds, b?.Acceleration60MphSeconds, 1, 3, " s", comparison);
+        yield return PerformanceRow("Acceleration · 0–100 mph", a?.Acceleration100MphSeconds, b?.Acceleration100MphSeconds, 1, 3, " s", comparison);
+        yield return PerformanceRow("Top speed", a?.TopSpeedMetresPerSecond, b?.TopSpeedMetresPerSecond, 1 / 0.44704, 1, " mph", comparison);
+        yield return PerformanceRow("Mechanical balance", a?.MechanicalBalance, b?.MechanicalBalance, 1, 2, "", comparison);
+        yield return PerformanceRow("Aero balance", a?.AeroBalance, b?.AeroBalance, 1, 2, "", comparison);
+        yield return PerformanceRow("Aero efficiency", a?.AeroEfficiency, b?.AeroEfficiency, 1, 3, "", comparison);
+    }
+
+    private static TuneDisplayRow PerformanceRow(string label, float? a, float? b, double factor, int decimals, string unit, bool comparison)
+    {
+        string Format(float? value) => value is { } number
+            ? Math.Round(number * factor, decimals, MidpointRounding.AwayFromZero).ToString($"F{decimals}", CultureInfo.CurrentCulture) + unit : "—";
+        var delta = a is { } first && b is { } second ? Math.Round((second - (double)first) * factor, decimals) : (double?)null;
+        var format = "0." + new string('0', decimals);
+        var difference = comparison && delta is { } change
+            ? change.ToString($"+{format};-{format};{format}", CultureInfo.CurrentCulture) + unit : "";
+        return new(label, Format(a), "", comparison ? Format(b) : "", difference,
+            comparison && a is not null && b is not null && delta != 0, false, 0)
+        { IsPerformance = true };
+    }
+
     internal static string Car(TuneSnapshot snapshot) => snapshot.CarName ?? $"Car {snapshot.Identity.CarOrdinal}";
 
     internal static string DefaultName(TuneSnapshot snapshot)

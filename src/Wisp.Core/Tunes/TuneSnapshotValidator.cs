@@ -16,7 +16,7 @@ public static class TuneSnapshotValidator
             reason = "This tune uses an unsupported game build or reader.";
             return false;
         }
-        if (!ValidCarName(snapshot.CarName) || identity.CarOrdinal <= 0 || !Enum.IsDefined(identity.Drivetrain) || identity.ForwardGearCount is < 1 or > 10
+        if (snapshot.Performance is { IsValid: false } || !ValidCarName(snapshot.CarName) || identity.CarOrdinal <= 0 || !Enum.IsDefined(identity.Drivetrain) || identity.ForwardGearCount is < 1 or > 10
             || snapshot.UnitPreference is < 0 or > 6 || !TuneDecoder.ValidParts(snapshot.Parts, false)
             || snapshot.Fields.IsDefault || snapshot.Fields.Length != TuneDecoder.FieldCount)
             return false;

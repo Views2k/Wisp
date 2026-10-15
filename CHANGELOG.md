@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.10 - 2026-10-14
+
+- View Forza's braking distances, lateral G, acceleration, top speed and balance measurements in Tune. Save performance results with a tune and compare them side by side.
+- Pause Clips after three failed recording attempts and show how to re-enable recording. Keep normal resolution changes separate from recording failures.
+- Include the graphics adapter selected for capture and encoding in copied Clips error details.
+
 ## 2.6.9 - 2026-10-14
 
 - Check for updates on launch and every 15 minutes. Install and restart automatically after Forza closes and current recordings, exports and unsaved runs are finished.

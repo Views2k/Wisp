@@ -13,11 +13,11 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.9
+## Wisp 2.6.10
 
-Wisp 2.6.9 adds automatic updates that wait until Forza closes and an adjustable boost gauge up to 200 PSI. It also improves Forza build identification and refreshes news and announcements about every 30 seconds. See [privacy and compatibility](#privacy-and-compatibility).
+Wisp 2.6.10 adds Forza's performance results to Tune, including braking distance, lateral G, acceleration and top speed. Save the results with your setups and compare them side by side. Clips now pauses after three failed recording attempts and shows how to resume.
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.9 release notes](docs/releases/Wisp-2.6.9-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.10 release notes](docs/releases/Wisp-2.6.10-release-notes.md)
 
 ### Clips
 
@@ -52,6 +52,8 @@ Search clips by name, date, resolution, frame rate, HDR or lossless. To rename o
 View the tuning settings fitted to your current car, **including locked tunes**. Save a named setup with a description, open it later in Wisp, or compare saved setups or the current car side by side. Comparisons highlight changed values. Delete saved tunes you no longer need; snapshots attached to runs are kept.
 
 Browse tires, gearing, alignment, antiroll bars, springs, damping, aero, brakes and differential settings. Attach a checked tune snapshot when recording a run to keep its setup with the results.
+
+Open Forza's Tune screen, wait for its performance results, then select **Refresh** in Wisp. The **Performance** category shows braking distance, lateral G, acceleration, top speed, mechanical balance, aero balance and aero efficiency. These results stay with saved tunes and appear in comparisons.
 
 Current-car reading requires **imperial game units**. Saved setups are local snapshots for viewing and comparison, and can be opened with the game closed. Wisp checks for updated Forza support automatically.
 
@@ -492,6 +494,7 @@ To build the self-contained installer:
 
 ## Documentation
 
+- [Wisp 2.6.10 release notes](docs/releases/Wisp-2.6.10-release-notes.md)
 - [Wisp 2.6.9 release notes](docs/releases/Wisp-2.6.9-release-notes.md)
 - [Wisp 2.6.8 release notes](docs/releases/Wisp-2.6.8-release-notes.md)
 - [Wisp 2.6.7 release notes](docs/releases/Wisp-2.6.7-release-notes.md)

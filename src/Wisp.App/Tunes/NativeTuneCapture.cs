@@ -88,6 +88,7 @@ internal static class NativeTuneCapture
         }
         var resolved = metadata.Resolve(ordinal, installed.ToImmutable());
         Require(resolved.All(part => part.Level.HasValue));
+        var performance = NativeTunePerformance.TryRead(memory, source, cancellationToken);
         read.VerifyStable();
         if (verifyLayout) layout.Verify(memory, cancellationToken);
         return new TuneDecodeInput
@@ -114,7 +115,8 @@ internal static class NativeTuneCapture
             CarRanges = carRanges.ToImmutable(),
             SpringScale = scale,
             PartLevelsResolved = resolved.All(part => part.Level.HasValue),
-            Parts = resolved
+            Parts = resolved,
+            Performance = performance
         };
     }
 

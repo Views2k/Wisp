@@ -1088,7 +1088,10 @@ public sealed class ClipsViewModelTests
         await model.InitializeAsync(); model.RemindersEnabled = false;
         var changed = new List<string?>();
         model.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
-        recorder.Set(new(ClipRecorderState.Error, false, true, false, "The recorder stopped. Turn clipping on to retry."));
+        recorder.Set(new(ClipRecorderState.Buffering, true, true, true, "Recording"));
+        Assert.True(model.Preferences.Enabled);
+        recorder.Set(new(ClipRecorderState.Error, false, true, false, ClipRecorderService.ReasonText("recovery_limit_reached")));
+        Assert.False(model.Preferences.Enabled);
         Assert.True(model.HasDashboardNotice);
         Assert.False(model.CanDisableDashboardNotice);
         Assert.Equal(recorder.Snapshot.Status, model.DashboardNoticeText);

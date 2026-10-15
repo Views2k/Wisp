@@ -130,6 +130,10 @@ internal static class ClipFailureReport
         {
             report.AppendLine($"Stage: {diagnostic.Stage}");
             report.AppendLine($"HRESULT: 0x{diagnostic.HResult.ToString("X8", CultureInfo.InvariantCulture)}");
+            if (diagnostic.AdapterVendorId is { } vendor && diagnostic.AdapterDeviceId is { } device)
+                report.AppendLine(FormattableString.Invariant($"Capture / encoder GPU: vendor 0x{vendor:X4}, device 0x{device:X4} (game display adapter)"));
+            if (diagnostic.HardwareCandidates is { } candidates)
+                report.AppendLine(FormattableString.Invariant($"Hardware encoders on this GPU: {candidates}"));
             report.AppendLine(FormattableString.Invariant($"Frames submitted: {diagnostic.SubmittedFrames}; video packets: {diagnostic.VideoPackets}; audio packets: {diagnostic.AudioPackets}"));
             if (diagnostic.SchedulerLag100ns is { } lag) report.AppendLine(FormattableString.Invariant($"Scheduler lag (100ns): {lag}"));
             if (diagnostic.SourceAge100ns is { } age) report.AppendLine(FormattableString.Invariant($"Source frame age (100ns): {age}"));
