@@ -24,6 +24,7 @@ $appProjectPath = Join-Path $repositoryRoot 'src\Wisp.App\Wisp.App.csproj'
 $appManifestPath = Join-Path $repositoryRoot 'src\Wisp.App\app.manifest'
 $mainWindowPath = Join-Path $repositoryRoot 'src\Wisp.App\MainWindow.xaml'
 $innoScriptPath = Join-Path $repositoryRoot 'installer\Wisp.iss'
+$sourceDistributionPath = Join-Path $repositoryRoot 'LICENSES\library-sources-distribution.json'
 
 $branchRuleset = Get-Content -LiteralPath $branchRulesetPath -Raw | ConvertFrom-Json
 $tagRuleset = Get-Content -LiteralPath $tagRulesetPath -Raw | ConvertFrom-Json
@@ -33,6 +34,7 @@ $appProject = [xml](Get-Content -LiteralPath $appProjectPath -Raw)
 $appManifest = Get-Content -LiteralPath $appManifestPath -Raw
 $mainWindow = Get-Content -LiteralPath $mainWindowPath -Raw
 $innoScript = Get-Content -LiteralPath $innoScriptPath -Raw
+$sourceDistribution = Get-Content -LiteralPath $sourceDistributionPath -Raw | ConvertFrom-Json
 $workflowPaths = @(
     Get-ChildItem -LiteralPath $workflowDirectory -File |
         Where-Object { $_.Extension -in '.yml', '.yaml' } |
@@ -56,6 +58,10 @@ Assert-Policy (
 Assert-Policy (
     $innoScript -match ('(?m)^\s*#define\s+MyAppVersion\s+"' + [regex]::Escape($applicationVersion) + '"\s*$')
 ) 'The Inno Setup version must match Wisp.App.csproj.'
+Assert-Policy (
+    $sourceDistribution.version -ceq $applicationVersion -and
+    $sourceDistribution.archive.filename -ceq "Wisp-$applicationVersion-library-sources.zip"
+) 'The library source distribution version and filename must match Wisp.App.csproj.'
 Assert-Policy (
     $mainWindow -match 'Text="\{x:Static local:ApplicationVersionInfo\.FooterText\}"'
 ) 'The control-center footer must use the assembly-derived application version.'
