@@ -584,8 +584,12 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             {
                 // Only this background render thread waits for channel teardown.
                 // The UI remains free to service HWND/COM messages during release.
+                // The wait is bounded: a motion thread stuck in a driver call must
+                // not keep this thread, and with it application exit, alive forever.
                 _motion?.Dispose();
-                _motion?.Completion.GetAwaiter().GetResult();
+                if (_motion is { } motion && !motion.Completion.Wait(TimeSpan.FromSeconds(3)))
+                    HealthContextRecorder.Current.RecordRendererFailure(
+                        unchecked((int)0x800705B4), HealthFailureStage.RendererState); // ERROR_TIMEOUT
                 device?.Dispose();
                 Volatile.Write(ref _surfaceVisible, false);
                 lock (_gate)

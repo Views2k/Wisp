@@ -292,11 +292,14 @@ public partial class App : Application
             {
                 _activationCancellation.Cancel();
                 _activationEvent?.Set();
-                _activationListener?.GetAwaiter().GetResult();
+                _activationListener?.Wait(TimeSpan.FromSeconds(2));
             }
 
-            _controller?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-            shutdownCompleted = true;
+            // Bounded: a worker stuck in a driver or file call must not keep the process
+            // alive after the user closed Wisp. An expired wait leaves the exit marker
+            // incomplete, which is what happened.
+            var disposal = _controller?.DisposeAsync().AsTask();
+            shutdownCompleted = disposal is null || disposal.Wait(TimeSpan.FromSeconds(10));
         }
         finally
         {

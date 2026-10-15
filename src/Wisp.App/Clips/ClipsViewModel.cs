@@ -1167,7 +1167,14 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     private void OnChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
     private ICommand Command(Func<Task> execute, Func<bool> canExecute)
     {
-        var command = new ClipCommand(execute, canExecute); _commands.Add(command); return command;
+        var command = new ClipCommand(execute, canExecute, CommandFailed); _commands.Add(command); return command;
+    }
+    private void CommandFailed(Exception error)
+    {
+        if (_disposed) return;
+        ErrorText(error is IOException or UnauthorizedAccessException
+            ? "That clip action could not reach the clip folder. Check the storage status, then try again."
+            : "That clip action did not complete. Try again.");
     }
     public void Dispose()
     {
@@ -1178,11 +1185,21 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         if (_thumbnails is IDisposable ownedThumbnails) ownedThumbnails.Dispose();
         // Operations retain the captured token, never access a disposed token source.
     }
-    private sealed class ClipCommand(Func<Task> action, Func<bool> canExecute) : ICommand
+    // A failing action reports on the page instead of ending the process, and a running
+    // action cannot be started twice (the Runs and Tunes commands behave the same way).
+    private sealed class ClipCommand(Func<Task> action, Func<bool> canExecute, Action<Exception> failed) : ICommand
     {
+        private bool _running;
         public event EventHandler? CanExecuteChanged;
-        public bool CanExecute(object? parameter) => canExecute();
-        public async void Execute(object? parameter) { if (CanExecute(parameter)) await action(); }
+        public bool CanExecute(object? parameter) => !_running && canExecute();
+        public async void Execute(object? parameter)
+        {
+            if (!CanExecute(parameter)) return;
+            _running = true; Raise();
+            try { await action(); }
+            catch (Exception error) when (error is not OutOfMemoryException) { failed(error); }
+            finally { _running = false; Raise(); }
+        }
         public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
     }
 }
