@@ -13,11 +13,11 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.11
+## Wisp 2.6.12
 
-Wisp 2.6.11 brings conversations with Views into a compact chat popup, with message history, replies and optional diagnostic attachments. Available updates stay visible on the dashboard with a working Update action.
+Wisp 2.6.12 adds a HUD setting that decides whether HUD updates take priority over the game on the GPU, off by default, and keeps tune performance results with your current tune after you leave Forza's Tune screen. Closing Wisp completes promptly and clip actions report problems on the Clips page.
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.11 release notes](docs/releases/Wisp-2.6.11-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.12 release notes](docs/releases/Wisp-2.6.12-release-notes.md)
 
 ### Clips
 
