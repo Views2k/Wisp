@@ -15,11 +15,25 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.11",
+            "October 15, 2026",
+            "CHAT AND UPDATES",
+            "A compact conversation with Views and clearer dashboard updates.",
+            true,
+            [
+                Group("Chat with Views",
+                    "Open your conversation from Extras to read and reply in a compact chat popup.",
+                    "Follow message history, review optional diagnostic attachments and retry an interrupted message with your draft kept."),
+                Group("Clearer updates",
+                    "Available updates take priority on the dashboard, keeping the update message and Update action together.",
+                    "Announcements retain their dismissal and expiry. Update progress reporting continues through the restart into the new version.")
+            ]),
+        new(
             "2.6.10",
             "October 14, 2026",
             "TUNE PERFORMANCE AND CLIPS",
             "Performance results alongside your tunes and controlled recovery for Clips.",
-            true,
+            false,
             [
                 Group("Tune performance",
                     "Open Forza's Tune screen, wait for its performance results, then refresh Tune in Wisp.",

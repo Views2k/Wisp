@@ -2,6 +2,14 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.6.11 - 2026-10-15
+
+- Chat with Views in a compact popup with a chronological message history, replies and earlier messages.
+- Keep your draft when reopening chat and retry a message safely if its delivery is interrupted.
+- Review optional recent diagnostics before attaching them to a message.
+- Keep available updates visible and actionable on the dashboard while preserving announcement dismissal and expiry.
+- Improve update progress reporting through the restart into the new version.
+
 ## 2.6.10 - 2026-10-14
 
 - View Forza's braking distances, lateral G, acceleration, top speed and balance measurements in Tune. Save performance results with a tune and compare them side by side.

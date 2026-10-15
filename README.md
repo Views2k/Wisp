@@ -13,11 +13,11 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.10
+## Wisp 2.6.11
 
-Wisp 2.6.10 adds Forza's performance results to Tune, including braking distance, lateral G, acceleration and top speed. Save the results with your setups and compare them side by side. Clips now pauses after three failed recording attempts and shows how to resume.
+Wisp 2.6.11 brings conversations with Views into a compact chat popup, with message history, replies and optional diagnostic attachments. Available updates stay visible on the dashboard with a working Update action.
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.10 release notes](docs/releases/Wisp-2.6.10-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.11 release notes](docs/releases/Wisp-2.6.11-release-notes.md)
 
 ### Clips
 
@@ -494,6 +494,7 @@ To build the self-contained installer:
 
 ## Documentation
 
+- [Wisp 2.6.11 release notes](docs/releases/Wisp-2.6.11-release-notes.md)
 - [Wisp 2.6.10 release notes](docs/releases/Wisp-2.6.10-release-notes.md)
 - [Wisp 2.6.9 release notes](docs/releases/Wisp-2.6.9-release-notes.md)
 - [Wisp 2.6.8 release notes](docs/releases/Wisp-2.6.8-release-notes.md)
