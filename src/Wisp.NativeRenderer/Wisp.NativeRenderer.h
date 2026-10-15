@@ -40,7 +40,9 @@ struct WispWaitMetricsV2
 // Stored initialization results, not a live query. Process statuses are raw
 // NTSTATUS values; INT32_MIN means not attempted. Device statuses are HRESULTs
 // (S_FALSE when not attempted). Effective values stay -1/INT32_MIN if unread.
-// attempted is zero for WARP; requested values describe the hardware test only.
+// attempted is zero for WARP. The renderer never sets a priority: requested
+// values stay at the defaults (NORMAL, 0) and only the readbacks run on hardware,
+// so the set statuses always report "not attempted".
 struct WispGpuPriorityStatus
 {
     uint32_t attempted;

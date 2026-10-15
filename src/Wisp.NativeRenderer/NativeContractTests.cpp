@@ -266,9 +266,9 @@ static_assert(sizeof(WispWaitMetrics) == 48 && sizeof(WispWaitMetricsV2) == 72 &
 
 static bool IsUnattempted(const WispGpuPriorityStatus& status)
 {
-    return status.attempted == 0 && status.requestedProcessClass == D3DKMT_SCHEDULINGPRIORITYCLASS_HIGH &&
+    return status.attempted == 0 && status.requestedProcessClass == D3DKMT_SCHEDULINGPRIORITYCLASS_NORMAL &&
         status.processSetStatus == INT32_MIN && status.processReadStatus == INT32_MIN &&
-        status.effectiveProcessClass == -1 && status.requestedDevicePriority == 1 &&
+        status.effectiveProcessClass == -1 && status.requestedDevicePriority == 0 &&
         status.deviceSetHResult == S_FALSE && status.deviceReadHResult == S_FALSE &&
         status.effectiveDevicePriority == INT32_MIN;
 }
@@ -279,21 +279,22 @@ static void CheckGpuPriority(void* renderer, bool cpuRendering,
     WispGpuPriorityStatus status{};
     Require(WispRendererGetGpuPriorityStatus(renderer, &status) == S_OK,
         "GPU priority initialization snapshot is available on owner thread");
-    Require(status.requestedProcessClass == D3DKMT_SCHEDULINGPRIORITYCLASS_HIGH &&
-        status.requestedDevicePriority == 1, "GPU priority requests HIGH and relative plus one only");
+    Require(status.requestedProcessClass == D3DKMT_SCHEDULINGPRIORITYCLASS_NORMAL &&
+        status.requestedDevicePriority == 0, "GPU priority never requests more than the defaults");
+    Require(status.processSetStatus == INT32_MIN && status.deviceSetHResult == S_FALSE,
+        "GPU priority setters are never called");
     auto currentClass = D3DKMT_SCHEDULINGPRIORITYCLASS_NORMAL;
     const NTSTATUS currentRead = D3DKMTGetProcessSchedulingPriorityClass(GetCurrentProcess(), &currentClass);
+    if (beforeProcessRead >= 0 && currentRead >= 0)
+        Require(currentClass == beforeProcessClass, "renderer creation leaves the process GPU priority unchanged");
     if (cpuRendering)
     {
-        Require(IsUnattempted(status), "WARP skips priority setters and readbacks without reporting success");
-        if (beforeProcessRead >= 0 && currentRead >= 0)
-            Require(currentClass == beforeProcessClass, "WARP leaves existing process GPU priority unchanged");
+        Require(IsUnattempted(status), "WARP skips priority readbacks without reporting success");
     }
     else
     {
-        Require(status.attempted == 1 && status.processSetStatus != INT32_MIN &&
-            status.processReadStatus != INT32_MIN && status.deviceSetHResult != S_FALSE &&
-            status.deviceReadHResult != S_FALSE, "hardware initialization records all four priority call results");
+        Require(status.attempted == 1 && status.processReadStatus != INT32_MIN &&
+            status.deviceReadHResult != S_FALSE, "hardware initialization records both priority readbacks");
         if (status.processReadStatus >= 0)
         {
             Require(status.effectiveProcessClass >= D3DKMT_SCHEDULINGPRIORITYCLASS_IDLE &&
@@ -302,19 +303,11 @@ static void CheckGpuPriority(void* renderer, bool cpuRendering,
             if (currentRead >= 0)
                 Require(status.effectiveProcessClass == static_cast<int32_t>(currentClass),
                     "stored process priority agrees with independent OS readback");
-            if (status.processSetStatus == 0)
-                Require(status.effectiveProcessClass == status.requestedProcessClass,
-                    "successful process priority set and readback agree");
         }
         else Require(status.effectiveProcessClass == -1, "failed process readback retains unknown class");
         if (status.deviceReadHResult == S_OK)
-        {
             Require(status.effectiveDevicePriority >= -7 && status.effectiveDevicePriority <= 7,
                 "successful device priority readback is a relative priority");
-            if (status.deviceSetHResult == S_OK)
-                Require(status.effectiveDevicePriority == status.requestedDevicePriority,
-                    "successful device priority set and readback agree");
-        }
         else Require(status.effectiveDevicePriority == INT32_MIN, "failed device readback retains unknown priority");
     }
     std::printf("gpuPriorityAttempted=%u;processSet=0x%08lX;processRead=0x%08lX;processEffective=%d;deviceSet=0x%08lX;deviceRead=0x%08lX;deviceEffective=%d\n",
