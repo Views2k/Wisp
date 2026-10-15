@@ -226,7 +226,15 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         {
             var result = await _capture(cancellation.Token);
             if (_disposed || cancellation.IsCancellationRequested || revision != _refreshRevision || !(IsCurrentMode || IsCompareMode)) return;
-            _current = result.Snapshot; _currentValid = result.Snapshot is { } snapshot && _isCurrent(snapshot);
+            var snapshot = result.Snapshot;
+            // Forza exposes its benchmark results only while the Tune screen is open. Once read,
+            // they stay with the current tune until the car, parts or settings change.
+            if (snapshot is { Performance: null } fresh && _current is { Performance: { } retained } previous &&
+                previous.Identity == fresh.Identity &&
+                !previous.Parts.IsDefault && !fresh.Parts.IsDefault && previous.Parts.SequenceEqual(fresh.Parts) &&
+                !previous.Fields.IsDefault && !fresh.Fields.IsDefault && previous.Fields.SequenceEqual(fresh.Fields))
+                snapshot = fresh with { Performance = retained };
+            _current = snapshot; _currentValid = snapshot is { } current && _isCurrent(current);
             var selectionUnchanged = selectionRevision == _comparisonSelectionRevision;
             RefreshCurrentComparison(selectA && selectionUnchanged, selectB && selectionUnchanged);
             _status = result.Snapshot is null ? result.Message : TunePresentation.CaptureStatus(result.Snapshot);

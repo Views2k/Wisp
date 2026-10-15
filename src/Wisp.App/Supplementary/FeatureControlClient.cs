@@ -79,7 +79,7 @@ internal sealed class FeatureControlClient : IDisposable
                 var response = await _transport.SendAsync("/api/v1/feature-controls?schema=2", null,
                     FeatureControlVerifier.MaximumEnvelopeBytes, linked.Token).ConfigureAwait(false);
                 if (!linked.IsCancellationRequested && response.Status == SupplementaryRequestStatus.Success && response.Body.Length > 0)
-                    _store.Accept(response.Body, _clock.GetUtcNow());
+                    ReportAcceptance(_store.Accept(response.Body, _clock.GetUtcNow()));
             }
         }
         catch (OperationCanceledException) { }
@@ -90,6 +90,19 @@ internal sealed class FeatureControlClient : IDisposable
             if (!_cancellation.IsCancellationRequested) PublishState();
             Volatile.Write(ref _refreshing, 0);
         }
+    }
+
+    private SupplementaryContentAcceptance? _reportedAcceptance;
+
+    // Reported once per change, so Tools can show why a published revision did not take effect here.
+    private void ReportAcceptance(SupplementaryContentAcceptance acceptance)
+    {
+        if (_reportedAcceptance == acceptance) return;
+        _reportedAcceptance = acceptance;
+        if (acceptance == SupplementaryContentAcceptance.Rejected)
+            SupplementaryObservations.Record("feature", "app", "failure", "validation");
+        else if (acceptance == SupplementaryContentAcceptance.CacheUnavailable)
+            SupplementaryObservations.Record("feature", "app", "failure", "recovery");
     }
 
     private void PublishState()

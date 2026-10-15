@@ -390,6 +390,26 @@ public sealed class TuneViewModelTests
         Assert.True(model.IsDialogOpen); Assert.NotEmpty(model.DialogError); Assert.Equal("Road", model.DialogName); Assert.Empty(model.Library);
     });
 
+    [Fact]
+    public void PerformanceResultsStayWithTheCurrentTuneAfterTheTuneScreenCloses() => OnDispatcher(async () =>
+    {
+        using var fixture = new Fixture();
+        var performance = new TunePerformance(32f, 90f, 1.1f, 1.2f, 4.5f, 10.5f, 85f, 0.5f, 0.5f, 12f);
+        var captured = Snapshot() with { Performance = performance };
+        var later = captured with { Performance = null, CapturedAtUtc = captured.CapturedAtUtc.AddMinutes(5) };
+        var calls = 0;
+        using var model = new TuneViewModel(fixture.Store,
+            _ => Task.FromResult(new TuneCaptureResult(++calls == 1 ? captured : later, TuneCaptureStatus.Ready, "Ready")),
+            _ => true, Dispatcher.CurrentDispatcher);
+        await model.InitializeAsync(); await model.RefreshAsync();
+        model.SelectedCategory = model.Categories.Single(option => option.Category == TuneCategory.Performance);
+        Assert.Empty(model.PerformanceHint);
+        await model.RefreshAsync();
+        Assert.Equal(2, calls);
+        Assert.Empty(model.PerformanceHint);
+        Assert.True(model.HasSnapshot);
+    });
+
     private static TuneSnapshot Snapshot(string name = "miata") => TuneUiTestData.ValidSnapshot(name);
 
     [Fact]

@@ -15,11 +15,29 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.12",
+            "October 16, 2026",
+            "GPU PRIORITY AND TUNE RESULTS",
+            "Choose how the HUD shares the GPU with the game, and keep tune performance results in view.",
+            true,
+            [
+                Group("HUD GPU priority",
+                    "Prioritize HUD updates on the GPU is a new HUD setting, off by default, so the game keeps the GPU to itself.",
+                    "Turn it on next to CPU rendering when you want the fastest needle under heavy GPU load; it applies immediately."),
+                Group("Tune performance results",
+                    "Performance results read from Forza's Tune screen stay with your current tune after you leave the screen.",
+                    "Refresh the current tune at any time and keep comparing braking, grip, acceleration and top speed."),
+                Group("Reliability",
+                    "Closing Wisp completes promptly even when a renderer thread is busy.",
+                    "Clip actions report problems on the Clips page and can be retried.",
+                    "Feature pauses from Wisp Tools apply as soon as they are received.")
+            ]),
+        new(
             "2.6.11",
             "October 15, 2026",
             "CHAT AND UPDATES",
             "A compact conversation with Views and clearer dashboard updates.",
-            true,
+            false,
             [
                 Group("Chat with Views",
                     "Open your conversation from Extras to read and reply in a compact chat popup.",
