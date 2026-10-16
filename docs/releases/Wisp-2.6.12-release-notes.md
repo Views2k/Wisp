@@ -5,7 +5,7 @@
 ## HUD GPU priority
 
 - Prioritize HUD updates on the GPU is a new HUD setting, off by default, so the game keeps the GPU to itself.
-- Turn it on next to CPU rendering when you want the fastest needle under heavy GPU load. It applies immediately.
+- Turn it on next to CPU rendering to give HUD updates priority when the GPU is under heavy load. It applies immediately.
 
 ## Tune performance results
 
@@ -16,4 +16,3 @@
 
 - Closing Wisp completes promptly even when a renderer thread is busy.
 - Clip actions report problems on the Clips page and can be retried.
-- Feature pauses from Wisp Tools apply as soon as they are received.

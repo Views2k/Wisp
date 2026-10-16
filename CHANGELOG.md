@@ -4,7 +4,7 @@ Notable changes to Wisp are recorded here.
 
 ## 2.6.12 - 2026-10-16
 
-- Add Prioritize HUD updates on the GPU, a HUD setting that is off by default so the game keeps the GPU; turn it on for the fastest needle under heavy GPU load.
+- Add Prioritize HUD updates on the GPU, a HUD setting that is off by default so the game keeps the GPU; turn it on to give HUD updates priority when the GPU is under heavy load.
 - Keep tune performance results with the current tune after leaving Forza's Tune screen, as long as the car, parts and settings are unchanged.
 - Report feature pauses from Wisp Tools when they apply and when a policy is rejected or cannot be cached.
 - Complete application exit promptly even when a renderer thread is busy.
