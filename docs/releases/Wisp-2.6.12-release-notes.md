@@ -12,6 +12,10 @@
 - Performance results read from Forza's Tune screen stay with your current tune after you leave the screen.
 - Refresh the current tune at any time and keep comparing braking, grip, acceleration and top speed.
 
+## Chat with Views
+
+- Add a subject to your messages so they are easy to find later.
+
 ## Reliability
 
 - Closing Wisp completes promptly even when a renderer thread is busy.

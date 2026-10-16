@@ -60,7 +60,7 @@ public abstract partial class ControlPanelWindow
         if (_chatWindow is null)
         {
             _chatView = new SupportChatView(
-                (message, diagnostics) => Task.Run(() => app.CreateSupplementarySupportPreview("feedback", "Chat with Views", message, diagnostics)),
+                (title, message, diagnostics) => Task.Run(() => app.CreateSupplementarySupportPreview("feedback", title, message, diagnostics)),
                 (report, cancellation) => app.SubmitSupplementarySupportAsync(report, cancellation, chat: true),
                 (older, ids) => app.RefreshSupportChatAsync(older, ids));
             var frame = _chatView.CreatePopupSurface(() => _chatWindow?.Hide(), () => _chatWindow?.DragMove());

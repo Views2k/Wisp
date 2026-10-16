@@ -11,12 +11,17 @@ namespace Wisp.App;
 
 internal sealed class SupportChatView : Grid
 {
-    private readonly Func<string, bool, Task<SupplementarySupportReport?>> _prepare;
+    private readonly Func<string, string, bool, Task<SupplementarySupportReport?>> _prepare;
     private readonly Func<SupplementarySupportReport, CancellationToken, Task<SupplementarySupportResult>> _submit;
     private readonly Func<bool, Guid[]?, Task> _refresh;
     private readonly StackPanel _messages = new() { Margin = new Thickness(18, 8, 18, 8) };
     private readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     internal TextBox Composer { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxLength = 4000, MinHeight = 64, MaxHeight = 120, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(10) };
+    // An optional subject that Views sees as the title in the inbox; it stays put so follow-ups share it.
+    internal TextBox Subject { get; } = new() { MaxLength = 100, Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 0, 6) };
+    private readonly TextBlock _subjectLabel = Text("Subject (optional)", true);
+    internal const string DefaultTitle = "Chat with Views";
+    private string SubjectOrDefault => string.IsNullOrWhiteSpace(Subject.Text) ? DefaultTitle : Subject.Text.Trim();
     internal CheckBox Diagnostics { get; } = new() { Content = "Attach diagnostics", Margin = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
     internal Button Send { get; } = Button("Send", true);
     private readonly Button _edit = Button("Back"), _older = Button("Earlier messages");
@@ -44,7 +49,7 @@ internal sealed class SupportChatView : Grid
         return frame;
     }
 
-    internal SupportChatView(Func<string, bool, Task<SupplementarySupportReport?>> prepare,
+    internal SupportChatView(Func<string, string, bool, Task<SupplementarySupportReport?>> prepare,
         Func<SupplementarySupportReport, CancellationToken, Task<SupplementarySupportResult>> submit,
         Func<bool, Guid[]?, Task> refresh)
     {
@@ -58,8 +63,11 @@ internal sealed class SupportChatView : Grid
         SetRow(bottom, 1); Children.Add(bottom);
         _status.Margin = new Thickness(0, 0, 0, 8); _status.Visibility = Visibility.Collapsed;
         AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
-        bottom.Children.Add(_status); bottom.Children.Add(Composer);
+        _subjectLabel.Margin = new Thickness(0, 0, 0, 4);
+        bottom.Children.Add(_status); bottom.Children.Add(_subjectLabel); bottom.Children.Add(Subject); bottom.Children.Add(Composer);
+        AutomationProperties.SetName(Subject, "Subject for Views");
         AutomationProperties.SetName(Composer, "Message to Views");
+        Subject.PreviewKeyDown += (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; Composer.Focus(); } };
         Diagnostics.ToolTip = "Review and attach up to 20 minutes of diagnostics.";
         Diagnostics.SetResourceReference(StyleProperty, "ToggleSwitchStyle");
         Diagnostics.SetResourceReference(Control.ForegroundProperty, "TextBrush");
@@ -167,7 +175,7 @@ internal sealed class SupportChatView : Grid
         {
             if (_pending is null)
             {
-                _pending = await _prepare(Composer.Text.Trim(), Diagnostics.IsChecked == true);
+                _pending = await _prepare(SubjectOrDefault, Composer.Text.Trim(), Diagnostics.IsChecked == true);
                 if (_pending is null) { SetStatus("Message unavailable. Your draft is kept; try again."); return; }
                 if (Diagnostics.IsChecked == true || _pending.Message != Composer.Text.Trim())
                 {
@@ -208,7 +216,7 @@ internal sealed class SupportChatView : Grid
     }
     private void UpdateActions()
     {
-        Composer.IsReadOnly = _busy || _pending is not null;
+        Composer.IsReadOnly = Subject.IsReadOnly = _busy || _pending is not null;
         Diagnostics.IsEnabled = !_busy && _pending is null && _enabled;
         Send.IsEnabled = !_busy && _enabled && !string.IsNullOrWhiteSpace(Composer.Text);
         Send.Content = _busy ? "Sending…" : _receiptPending ? "Retry" : _pending is not null ? "Send" : Diagnostics.IsChecked == true ? "Review & send" : "Send";

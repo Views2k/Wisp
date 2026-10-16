@@ -27,6 +27,8 @@ public static class ReleaseNotesCatalog
                 Group("Tune performance results",
                     "Performance results read from Forza's Tune screen stay with your current tune after you leave the screen.",
                     "Refresh the current tune at any time and keep comparing braking, grip, acceleration and top speed."),
+                Group("Chat with Views",
+                    "Add a subject to your messages so they are easy to find later."),
                 Group("Reliability",
                     "Closing Wisp completes promptly even when a renderer thread is busy.",
                     "Clip actions report problems on the Clips page and can be retried.")
