@@ -34,7 +34,7 @@ internal static class SupportComposerReview
                     foreach (var width in new[] { 360, 480, 640 })
                     {
                         var submitted = new List<Guid>(); var fail = true;
-                        var view = new SupportChatView((text, diagnostics) => Task.FromResult<SupplementarySupportReport?>(new(1, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), now, "2.6.11", "fixture", "stable", "feedback", "Chat", text)),
+                        var view = new SupportChatView((title, text, diagnostics) => Task.FromResult<SupplementarySupportReport?>(new(1, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), now, "2.6.11", "fixture", "stable", "feedback", title, text)),
                             (report, _) => { submitted.Add(report.EventId); return Task.FromResult(new SupplementarySupportResult(fail ? SupplementaryRequestStatus.Unavailable : SupplementaryRequestStatus.Success)); },
                             (_, _) => Task.CompletedTask);
                         var surface = view.CreatePopupSurface(() => { }, () => { });
