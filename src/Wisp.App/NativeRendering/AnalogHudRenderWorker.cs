@@ -587,10 +587,15 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 // The wait is bounded: a motion thread stuck in a driver call must
                 // not keep this thread, and with it application exit, alive forever.
                 _motion?.Dispose();
-                if (_motion is { } motion && !motion.Completion.Wait(TimeSpan.FromSeconds(3)))
+                var motionStopped = _motion is not { } motion || motion.Completion.Wait(TimeSpan.FromSeconds(3));
+                if (!motionStopped)
                     HealthContextRecorder.Current.RecordRendererFailure(
                         unchecked((int)0x800705B4), HealthFailureStage.RendererState); // ERROR_TIMEOUT
-                device?.Dispose();
+                // A motion thread that ignored its stop signal is still inside a driver call
+                // on this device. Destroying the device under it faulted, so the device is
+                // abandoned instead; the process is on its way out or will create a new one.
+                if (motionStopped) device?.Dispose();
+                else device?.Abandon();
                 Volatile.Write(ref _surfaceVisible, false);
                 lock (_gate)
                 {

@@ -283,6 +283,7 @@ public partial class App : Application
         _featureControlClient?.Dispose();
         _previousRunCancellation?.Cancel();
         var shutdownCompleted = false;
+        var nativeCleanupCompleted = true;
         _forzaStartupTimer?.Stop();
         _startupTray?.Dispose();
         _startupTray = null;
@@ -305,7 +306,7 @@ public partial class App : Application
         {
             try
             {
-                var nativeCleanupCompleted = Clips.LosslessVlcRuntime.ShutdownAsync().GetAwaiter().GetResult();
+                nativeCleanupCompleted = Clips.LosslessVlcRuntime.ShutdownAsync().GetAwaiter().GetResult();
                 nativeCleanupCompleted &= Clips.LosslessMpvRuntime.ShutdownAsync().GetAwaiter().GetResult();
                 _overlayHotkey?.Dispose();
                 _overlayHotkey = null;
@@ -330,6 +331,11 @@ public partial class App : Application
                 _runExitMarker?.Dispose();
                 _previousRunCancellation?.Dispose();
                 _instanceMutex?.Dispose();
+                // A worker that ignored its bounded wait is still inside native code. Finishing
+                // the managed shutdown around it faulted (Windows recorded access violations on
+                // 2.6.12), so the process ends here instead; the exit marker already says the
+                // shutdown was incomplete and the next run reports it as such, not as a crash.
+                if (!shutdownCompleted || !nativeCleanupCompleted) System.Diagnostics.Process.GetCurrentProcess().Kill();
             }
         }
     }

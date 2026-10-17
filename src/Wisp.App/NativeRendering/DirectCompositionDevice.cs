@@ -332,6 +332,17 @@ internal sealed class DirectCompositionDevice : IDisposable
         return Native.DeviceRemovedReason(_handle);
     }
 
+    // Gives the native renderer up without destroying it. A motion thread that ignored
+    // its stop signal may still be inside a driver call on this device, and destroying
+    // the device under that thread faulted (Windows recorded access violations on
+    // 2.6.12). The handle is marked invalid so no release ever runs for it.
+    public void Abandon()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _handle.SetHandleAsInvalid();
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
