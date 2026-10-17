@@ -23,7 +23,7 @@ internal sealed class CrashReportStore(string directory, Action<string, byte[]>?
     private long _recoveryGeneration;
     internal long RecoveryGeneration { get { lock (_gate) return _recoveryGeneration; } }
     private readonly string _path = Path.Combine(directory, "reports.json");
-    internal string Directory => directory;
+    internal string StoreDirectory => directory;
     private sealed record Entry(CrashReport Report, bool Acknowledged);
     private sealed record Document(int Version, Entry[] Reports);
 
