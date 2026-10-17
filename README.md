@@ -15,7 +15,7 @@
 
 ## Wisp 2.6.12
 
-Wisp 2.6.12 adds a HUD setting that decides whether HUD updates take priority over the game on the GPU, off by default, and keeps tune performance results with your current tune after you leave Forza's Tune screen. Closing Wisp completes promptly and clip actions report problems on the Clips page.
+Wisp 2.6.12 adds a HUD setting that decides whether HUD updates take priority over the game on the GPU, off by default, keeps tune performance results with your current tune after you leave Forza's Tune screen, and lets you give a message to the developer a subject. Closing Wisp completes promptly and clip actions report problems on the Clips page.
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.12 release notes](docs/releases/Wisp-2.6.12-release-notes.md)
 
