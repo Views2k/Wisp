@@ -27,8 +27,10 @@ internal sealed class HudNativeHost : IDisposable
     private NativeCompositionWindow? _compositionWindow;
     private bool _interactive;
     private HudWindowSnapshot? _snapshot;
-    private bool _scheduled, _capturing, _failed, _disposed;
-    private int _nextId;
+    private readonly NativeRendererRecovery _recovery = new();
+    private static readonly TimeSpan RendererReleaseTimeout = TimeSpan.FromSeconds(5);
+    private bool _scheduled, _capturing, _failed, _retryPending, _disposed;
+    private int _nextId, _workerRevision;
 
     private sealed class Source(int id, FrameworkElement control)
     {
@@ -153,7 +155,7 @@ internal sealed class HudNativeHost : IDisposable
 
     private void RequestCapture()
     {
-        if (_disposed || _failed || _scheduled || _capturing || _window.Dispatcher.HasShutdownStarted) return;
+        if (_disposed || _failed || _retryPending || _scheduled || _capturing || _window.Dispatcher.HasShutdownStarted) return;
         _scheduled = true;
         _window.Dispatcher.BeginInvoke(DispatcherPriority.DataBind, new Action(() =>
         {
@@ -236,8 +238,10 @@ internal sealed class HudNativeHost : IDisposable
             if (!_snapshot.Active) return;
             var presentation = new AnalogHudPresentation(width, height, 0, 0, 1, 0, 0, 1, 1,
                 true, false, default, null, _snapshot);
+            var revision = ++_workerRevision;
             _worker = new AnalogHudRenderWorker(_compositionWindow!.Handle, DebugLogging.TachDiagnostics.NextControlId(),
-                [], presentation, OnStatus, _vm?.ActiveCpuRendering == true, _nativeSource);
+                [], presentation, (ready, hresult) => OnWorkerStatus(revision, ready, hresult),
+                _vm?.ActiveCpuRendering == true, _nativeSource);
             _worker.HudPresented += OnPresented;
             _vm?.ReportRendererHost(this, RendererHostState.Starting, "HUD renderer: native starting");
         }
@@ -288,6 +292,7 @@ internal sealed class HudNativeHost : IDisposable
         _window.Dispatcher.BeginInvoke(new Action(() =>
         {
             if (_disposed || _failed || _snapshot is null || !presented.CompatibleWith(_snapshot)) return;
+            _recovery.Reset();
             try { _compositionWindow?.SetLayoutCloaked(!_interactive); }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
             { OnHostFailure(error.HResult); return; }
@@ -307,21 +312,56 @@ internal sealed class HudNativeHost : IDisposable
         OnStatus(false, hresult);
     }
 
-    private void OnStatus(bool ready, int hresult)
+    // A retired worker's late status must not fail or restart its replacement.
+    private void OnWorkerStatus(int revision, bool ready, int hresult)
     {
         if (_window.Dispatcher.HasShutdownStarted) return;
         _window.Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (_disposed) return;
-            // An occluded device may initialize without submitting. Only the
-            // presentation callback may publish ready status, independently of
-            // the WPF content suppression required from startup onward.
-            if (ready) return;
-            _failed = true;
-            _worker?.Dispose();
-            RetireCompositionWindow();
-            foreach (var source in _sources) source.Control.SetValue(PresentedProperty, false);
-            _vm?.ReportRendererHost(this, RendererHostState.Failed, $"HUD renderer: unavailable (0x{hresult:X8})");
+            if (revision == _workerRevision) ApplyStatus(ready, hresult);
+        }));
+    }
+    private void OnStatus(bool ready, int hresult)
+    {
+        if (_window.Dispatcher.HasShutdownStarted) return;
+        _window.Dispatcher.BeginInvoke(new Action(() => ApplyStatus(ready, hresult)));
+    }
+    private void ApplyStatus(bool ready, int hresult)
+    {
+        if (_disposed) return;
+        // An occluded device may initialize without submitting. Only the
+        // presentation callback may publish ready status, independently of
+        // the WPF content suppression required from startup onward.
+        if (ready) return;
+        var worker = _worker;
+        _worker = null;
+        if (worker is not null) { worker.HudPresented -= OnPresented; worker.Dispose(); }
+        var release = worker?.Completion ?? Task.CompletedTask;
+        RetireCompositionWindow(release);
+        foreach (var source in _sources) source.Control.SetValue(PresentedProperty, false);
+        if (_recovery.TryBeginRetry(hresult, out var delay))
+        {
+            // Transient allocation pressure while the game starts: build the target
+            // and renderer again once this one has released, instead of leaving the
+            // HUD blank until Wisp restarts.
+            _retryPending = true;
+            _vm?.ReportRendererHost(this, RendererHostState.Starting, $"HUD renderer: restarting after 0x{hresult:X8}");
+            _ = RestartRendererAfterRelease(release, delay);
+            return;
+        }
+        _failed = true;
+        _vm?.ReportRendererHost(this, RendererHostState.Failed, $"HUD renderer: unavailable (0x{hresult:X8})");
+    }
+    private async Task RestartRendererAfterRelease(Task release, TimeSpan delay)
+    {
+        // A render thread stuck in a driver call must not postpone the retry forever.
+        await Task.WhenAny(release, Task.Delay(RendererReleaseTimeout)).ConfigureAwait(false);
+        await Task.Delay(delay).ConfigureAwait(false);
+        if (_window.Dispatcher.HasShutdownStarted) return;
+        _ = _window.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            _retryPending = false;
+            if (!_disposed && !_failed) RequestCapture();
         }));
     }
     private static void SuppressWpfContent(Source source)
@@ -355,7 +395,7 @@ internal sealed class HudNativeHost : IDisposable
         }
     }
     private void OnClosed(object? sender, EventArgs args) => Dispose();
-    private void RetireCompositionWindow()
+    private void RetireCompositionWindow(Task release)
     {
         var target = _compositionWindow;
         if (target is null) return;
@@ -363,8 +403,7 @@ internal sealed class HudNativeHost : IDisposable
         // Release the DComp target on its worker before destroying its HWND.
         // Await asynchronously so that COM can continue to message the UI thread.
         target.Detach();
-        var completion = _worker?.Completion ?? Task.CompletedTask;
-        _ = completion.ContinueWith(_ =>
+        _ = release.ContinueWith(_ =>
         {
             if (!_window.Dispatcher.HasShutdownStarted)
                 _window.Dispatcher.BeginInvoke(new Action(target.Dispose));
@@ -382,8 +421,9 @@ internal sealed class HudNativeHost : IDisposable
         _window.Closed -= OnClosed;
         _window.DataContextChanged -= OnDataContextChanged;
         if (_vm is not null) { _vm.PropertyChanged -= OnPropertyChanged; _vm.RemoveRendererHost(this); }
+        var release = _worker?.Completion ?? Task.CompletedTask;
         if (_worker is not null) { _worker.HudPresented -= OnPresented; _worker.Dispose(); }
-        RetireCompositionWindow();
+        RetireCompositionWindow(release);
         RestoreWpfContent();
         foreach (var source in _sources)
             if (source.InputHandler is not null) source.InputDescriptor?.RemoveValueChanged(source.Control, source.InputHandler);
