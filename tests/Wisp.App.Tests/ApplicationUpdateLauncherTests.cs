@@ -55,6 +55,22 @@ public sealed class ApplicationUpdateLauncherTests : IDisposable
         Assert.DoesNotContain("missing a usable update helper", error);
     }
 
+    [Fact]
+    public void MissingHelperFailureStopsAutomaticHandoffWhileOtherFailuresRetry()
+    {
+        var missingHelper = new ApplicationUpdateHelperUnavailableException();
+        Assert.True(ApplicationUpdateLauncher.IsHelperUnavailable(missingHelper));
+        Assert.False(ApplicationUpdateLauncher.IsHelperUnavailable(new IOException("other")));
+        Assert.Contains("missing a usable update helper", ApplicationUpdateLauncher.DescribeStartFailure(missingHelper));
+
+        Assert.Equal(AutomaticUpdateApplyOutcome.Unavailable,
+            new ApplicationUpdateStartResult(false, "error", HelperUnavailable: true).Outcome);
+        Assert.Equal(AutomaticUpdateApplyOutcome.Retry, new ApplicationUpdateStartResult(false, "error").Outcome);
+        Assert.Equal(AutomaticUpdateApplyOutcome.Started, new ApplicationUpdateStartResult(true, string.Empty).Outcome);
+        ApplicationUpdateStartResult deferred = (false, "Update ready. Wisp will update and restart after you close Forza.");
+        Assert.Equal(AutomaticUpdateApplyOutcome.Retry, deferred.Outcome);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

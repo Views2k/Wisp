@@ -149,7 +149,7 @@ public partial class App : Application
         _activationListener = ListenForActivationAsync(_activationCancellation.Token);
 
         _controller.EnableAutomaticApplicationUpdates(async installer =>
-            (await TryBeginApplicationUpdateAsync(installer)).Started);
+            (await TryBeginApplicationUpdateAsync(installer)).Outcome);
         _controller.BeginStartupApplicationUpdateCheck();
 
         // A first run or legacy auto-completed install always opens the wizard,
@@ -590,7 +590,7 @@ public partial class App : Application
         return false;
     }
 
-    internal async Task<(bool Started, string Error)> TryBeginApplicationUpdateAsync(
+    internal async Task<ApplicationUpdateStartResult> TryBeginApplicationUpdateAsync(
         VerifiedInstaller installer)
     {
         if (_exiting || _controller is null || _applicationUpdateHandoffActive || _closePreparationActive)
@@ -650,7 +650,10 @@ public partial class App : Application
             _applicationUpdateHandoffActive = false;
             _controller.Runs.CancelMetadataClosePreparation();
             _controller.ViewModel.UpdateApplicationUpdateStatus(error, "Try again", canCheck: true);
-            return (false, error);
+            // A missing helper cannot come back during this session, so the automatic coordinator
+            // stops after this report instead of retrying every RetryInterval.
+            return new ApplicationUpdateStartResult(false, error,
+                HelperUnavailable: ApplicationUpdateLauncher.IsHelperUnavailable(exception));
         }
 
         using (handoff)

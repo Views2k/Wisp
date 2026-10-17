@@ -2,6 +2,10 @@
 
 Notable changes to Wisp are recorded here.
 
+## Unreleased
+
+- Show the update repair instructions once and stop automatic update attempts for the session when the update helper is missing. Install update remains available from the dashboard.
+
 ## 2.6.12 - 2026-10-16
 
 - Add Prioritize HUD updates on the GPU, a HUD setting that is off by default so the game keeps the GPU; turn it on to give HUD updates priority when the GPU is under heavy load.

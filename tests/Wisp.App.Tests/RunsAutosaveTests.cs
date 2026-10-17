@@ -334,7 +334,7 @@ public sealed class RunsAutosaveTests
         var closing = Between("private void OnControlPanelClosing", "private async Task SuspendRuntimeAsync");
         Assert.Contains("e.Cancel = true;\n        if (sender is Window closingWindow)", closing.Replace("\r\n", "\n", StringComparison.Ordinal));
         Assert.Contains("_closePreparationActive", closing);
-        var update = Between("internal async Task<(bool Started, string Error)> TryBeginApplicationUpdateAsync", "private static void SignalExistingInstance");
+        var update = Between("internal async Task<ApplicationUpdateStartResult> TryBeginApplicationUpdateAsync", "private static void SignalExistingInstance");
         Assert.True(update.IndexOf("await PrepareRunMetadataForExitAsync()", StringComparison.Ordinal) < update.IndexOf("ApplicationUpdateLauncher.Launch(installer)", StringComparison.Ordinal));
         Assert.Contains("_controller.Runs.CancelMetadataClosePreparation();", update);
         var exit = Between("protected override void OnExit", "private async Task ListenForActivationAsync");
