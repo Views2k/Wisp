@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using Wisp.App.NativeRendering;
 
 namespace Wisp.App.Drift;
 
@@ -21,9 +22,12 @@ public sealed class DriftGaugeWindow : Window, IDisposable
     private bool _editMode;
     private bool _disposed;
     private bool _failed;
+    private bool _retryPending;
     private double _opacity = 1;
     private double _scale = 1;
     private int _rendererRevision;
+    private readonly NativeRendererRecovery _recovery = new();
+    private static readonly TimeSpan RendererReleaseTimeout = TimeSpan.FromSeconds(5);
     internal bool RendererFailed => _failed;
 
     public DriftGaugeWindow(AppController controller)
@@ -68,6 +72,7 @@ public sealed class DriftGaugeWindow : Window, IDisposable
             if (IsVisible) Hide();
             DisposeRenderer();
             _failed = false;
+            _recovery.Reset();
         }
         _drag.SetInteractive(_enabled && _editMode && _telemetryVisible);
         ApplyVisibility();
@@ -114,7 +119,7 @@ public sealed class DriftGaugeWindow : Window, IDisposable
 
     private void RefreshPresentation()
     {
-        if (_disposed || _failed) return;
+        if (_disposed || _failed || _retryPending) return;
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero || !GetClientRect(handle, out var client)) return;
         var dpi = VisualTreeHelper.GetDpi(this);
@@ -153,8 +158,31 @@ public sealed class DriftGaugeWindow : Window, IDisposable
         PostToDispatcher(() =>
         {
             if (_disposed || !_enabled || revision != _rendererRevision) return;
-            if (!ready) { _failed = true; if (IsVisible) Hide(); }
+            if (ready) _recovery.Reset();
+            else if (_recovery.TryBeginRetry(code, out var delay))
+            {
+                // Transient allocation pressure while the game starts: release this
+                // renderer and create a new one shortly, instead of waiting for the
+                // gauge to be turned off and on.
+                DisposeRenderer();
+                _ = RestartRendererAfterRelease(delay);
+                return;
+            }
+            else { _failed = true; if (IsVisible) Hide(); }
             _controller.UpdateDriftGaugeStatus(ready, code);
+        });
+    }
+
+    private async Task RestartRendererAfterRelease(TimeSpan delay)
+    {
+        _retryPending = true;
+        // A render thread stuck in a driver call must not postpone the retry forever.
+        await Task.WhenAny(_rendererRelease, Task.Delay(RendererReleaseTimeout)).ConfigureAwait(false);
+        await Task.Delay(delay).ConfigureAwait(false);
+        PostToDispatcher(() =>
+        {
+            _retryPending = false;
+            if (!_disposed) RefreshPresentation();
         });
     }
 

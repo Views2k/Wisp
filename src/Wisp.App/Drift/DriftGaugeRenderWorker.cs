@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Wisp.App.DebugLogging;
 using Wisp.App.NativeRendering;
 using Wisp.Core;
 
@@ -14,6 +15,7 @@ internal sealed class DriftGaugeRenderWorker : IDisposable
     private readonly Action<bool, int> _status;
     private readonly bool _cpuRendering;
     private readonly IReadOnlyList<AnalogHudTexture> _textures;
+    private readonly Func<string, int>? _nativeFailureForTest;
     private readonly Thread _thread;
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private DriftGaugePresentation _presentation;
@@ -21,12 +23,14 @@ internal sealed class DriftGaugeRenderWorker : IDisposable
     internal Task Completion => _completion.Task;
 
     internal DriftGaugeRenderWorker(IntPtr window, Func<VehicleState?> latest, DriftGaugePresentation presentation,
-        Action<bool, int> status, bool cpuRendering = false, Func<DriftZoneScoringProfile?>? zoneProfile = null)
+        Action<bool, int> status, bool cpuRendering = false, Func<DriftZoneScoringProfile?>? zoneProfile = null,
+        Func<string, int>? nativeFailureForTest = null)
     {
         ArgumentNullException.ThrowIfNull(latest);
         ArgumentNullException.ThrowIfNull(status);
         _window = window; _latest = latest; _presentation = presentation; _status = status; _cpuRendering = cpuRendering;
         _zoneProfile = zoneProfile;
+        _nativeFailureForTest = nativeFailureForTest;
         _textures = DriftGaugeVisuals.LoadOnUiThread();
         _thread = new Thread(Run) { IsBackground = true, Name = "Wisp drift gauge rendering" };
         _thread.Start();
@@ -105,7 +109,8 @@ internal sealed class DriftGaugeRenderWorker : IDisposable
                 }
                 if (device is null)
                 {
-                    device = DirectCompositionDevice.Create(_window, presentation.Width, presentation.Height, _cpuRendering);
+                    device = DirectCompositionDevice.Create(_window, presentation.Width, presentation.Height, _cpuRendering,
+                        nativeFailureForTest: _nativeFailureForTest);
                     foreach (var texture in _textures)
                         device.UploadTexture(texture.Id, texture.Width, texture.Height, texture.Stride, texture.Pixels.ToArray());
                     width = presentation.Width; height = presentation.Height;
@@ -189,8 +194,11 @@ internal sealed class DriftGaugeRenderWorker : IDisposable
                 }
             }
         }
+        // Native failures, including the library's E_OUTOFMEMORY, arrive as NativeRendererException
+        // with HResult intact; only the runtime's own fatal exceptions pass this filter.
         catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException)
         {
+            HealthContextRecorder.Current.RecordRendererFailure(exception.HResult);
             _status(false, exception.HResult);
         }
         finally

@@ -12,7 +12,7 @@ public sealed partial class AppController
     internal bool HasApplicationUpdateWorkInProgress =>
         Runs.HasPendingMetadata || Runs.IsBusy || Runs.IsRecording || Clips.IsBusy || Clips.IsExporting;
 
-    internal void EnableAutomaticApplicationUpdates(Func<VerifiedInstaller, Task<bool>> apply)
+    internal void EnableAutomaticApplicationUpdates(Func<VerifiedInstaller, Task<AutomaticUpdateApplyOutcome>> apply)
     {
         // Private candidates stay available for their intended test session.
         if (ApplicationVersionInfo.DiagnosticBuildId is not null || _automaticInstaller is not null) return;

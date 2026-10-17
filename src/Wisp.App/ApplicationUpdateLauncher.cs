@@ -14,6 +14,17 @@ internal enum ApplicationUpdateHandoffState
     Cancelled
 }
 
+// Outcome of App.TryBeginApplicationUpdateAsync. HelperUnavailable marks a failure that no later
+// attempt in this session can fix: Wisp.Updater.exe is missing from the application directory.
+internal readonly record struct ApplicationUpdateStartResult(bool Started, string Error, bool HelperUnavailable = false)
+{
+    internal AutomaticUpdateApplyOutcome Outcome => Started ? AutomaticUpdateApplyOutcome.Started
+        : HelperUnavailable ? AutomaticUpdateApplyOutcome.Unavailable : AutomaticUpdateApplyOutcome.Retry;
+
+    public static implicit operator ApplicationUpdateStartResult((bool Started, string Error) result) =>
+        new(result.Started, result.Error);
+}
+
 internal readonly record struct ApplicationUpdateResultStatus(string Status, string Action, string Outcome = "unknown", Supplementary.SupplementaryIncident? Incident = null,
     string? SourceVersion = null, string? TargetVersion = null);
 
@@ -151,8 +162,11 @@ internal static class ApplicationUpdateLauncher
         return StartHelper(helperPath, request);
     }
 
+    internal static bool IsHelperUnavailable(Exception exception) =>
+        exception is ApplicationUpdateHelperUnavailableException;
+
     internal static string DescribeStartFailure(Exception exception) =>
-        exception is ApplicationUpdateHelperUnavailableException
+        IsHelperUnavailable(exception)
             ? "This copy of Wisp is missing a usable update helper. Download and run the full installer from wispoverlay.com to repair it. Wisp stayed open and no files were installed."
             : "Wisp could not start the verified update. Try again, or download and run the full installer from wispoverlay.com. Wisp stayed open and no files were installed.";
 
