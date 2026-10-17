@@ -115,7 +115,8 @@ public sealed class DirectCompositionDeviceFailureTests
                 window?.Close();
                 Dispatcher.CurrentDispatcher.InvokeShutdown();
             }
-        }) { IsBackground = true };
+        });
+        thread.IsBackground = true;
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         Assert.True(thread.Join(TimeSpan.FromSeconds(90)), "The STA test thread did not finish.");
