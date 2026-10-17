@@ -12,4 +12,3 @@
 
 - Wisp reports whether the drift gauge is switched on, so Wisp Tools shows feature use accurately.
 - Crash reports name the faulting module, its version and offset, and include the call stack Wisp captured at the fault.
-- Crash reports name the faulting module, its version and offset, and include the call stack Wisp captured at the fault.

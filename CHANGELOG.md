@@ -9,7 +9,6 @@ Notable changes to Wisp are recorded here.
 - Show the update repair instructions once and stop automatic update attempts for the session when the update helper is missing. Install update remains available from the dashboard.
 - Report the drift gauge setting in environment snapshots.
 - Crash reports name the faulting module, its version and offset, and include the call stack Wisp captured at the fault.
-- Crash reports name the faulting module, its version and offset, and include the call stack Wisp captured at the fault.
 
 ## 2.6.12 - 2026-10-16
 
