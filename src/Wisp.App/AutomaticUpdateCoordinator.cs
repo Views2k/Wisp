@@ -2,24 +2,41 @@ using Wisp.Update;
 
 namespace Wisp.App;
 
+// What an install handoff attempt tells the coordinator to do next.
+internal enum AutomaticUpdateApplyOutcome
+{
+    // The helper accepted the handoff and Wisp is shutting down to install.
+    Started,
+    // The handoff did not start this time. Try again after ApplicationUpdateCheckPolicy.RetryInterval.
+    Retry,
+    // This installation has no usable update helper, so no attempt can succeed until the user
+    // runs the full installer. Automatic attempts stop for the rest of the session.
+    Unavailable
+}
+
 internal sealed class AutomaticUpdateCoordinator(
     Func<bool> enabled,
     Func<bool> hasUpdate,
     Func<Task<bool>> gameOpen,
     Func<bool> workInProgress,
     Func<Task<VerifiedInstaller?>> prepare,
-    Func<VerifiedInstaller, Task<bool>> apply,
+    Func<VerifiedInstaller, Task<AutomaticUpdateApplyOutcome>> apply,
     Action<string> status,
     Func<DateTimeOffset>? clock = null,
     Action<string>? waiting = null)
 {
     private bool _active;
+    private bool _handoffUnavailable;
     private DateTimeOffset _retryAfter;
     private readonly Func<DateTimeOffset> _clock = clock ?? (() => DateTimeOffset.UtcNow);
 
+    // Set once a handoff reports that the update helper is missing. The coordinator then stays
+    // idle for the rest of the session; a manual install from the dashboard can still try again.
+    internal bool HandoffUnavailable => _handoffUnavailable;
+
     internal async Task RunAsync()
     {
-        if (_active || !enabled() || !hasUpdate() || _clock() < _retryAfter) return;
+        if (_active || _handoffUnavailable || !enabled() || !hasUpdate() || _clock() < _retryAfter) return;
         _active = true;
         try
         {
@@ -47,7 +64,17 @@ internal sealed class AutomaticUpdateCoordinator(
                 return;
             }
             if (!enabled()) return;
-            if (!await apply(installer)) _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
+            switch (await apply(installer))
+            {
+                case AutomaticUpdateApplyOutcome.Started:
+                    break;
+                case AutomaticUpdateApplyOutcome.Unavailable:
+                    _handoffUnavailable = true;
+                    break;
+                default:
+                    _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
+                    break;
+            }
         }
         catch
         {
