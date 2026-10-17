@@ -9,11 +9,18 @@ namespace Wisp.App.CrashDiagnostics;
 
 internal enum WindowsFaultLookupStatus { NoMatchingEvent, Matched, AccessDenied, TimedOut, ReadFailed, ScanLimitReached }
 internal sealed record WindowsFaultEvidence(DateTimeOffset TimeUtc, uint ExceptionCode, ulong? FaultOffset,
-    string? Module, bool CorrelatedWerReport);
+    string? Module, bool CorrelatedWerReport)
+{
+    // The faulting module's file version, as Windows recorded it.
+    public string? ModuleVersion { get; init; }
+}
 internal sealed record WindowsFaultLookup(WindowsFaultLookupStatus Status, WindowsFaultEvidence? Fault = null);
 internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTimeOffset DetectedAtUtc,
     WindowsFaultLookupStatus LookupStatus, WindowsFaultEvidence? Fault)
 {
+    // The in-process capture of the fault, when the native handler wrote one for that run.
+    public NativeFaultRecord? Native { get; init; }
+
     internal RecoveredExitInfo? Sanitize()
     {
         if (RunStartedAtUtc.Offset != TimeSpan.Zero || RunStartedAtUtc.Ticks <= 0 ||
@@ -22,9 +29,13 @@ internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTim
         {
             if (Fault is not { } fault || fault.TimeUtc.Offset != TimeSpan.Zero ||
                 fault.TimeUtc < RunStartedAtUtc || fault.TimeUtc > DetectedAtUtc) return null;
-            return this with { Fault = fault with { Module = WindowsFaultEventReader.SafeModule(fault.Module) } };
+            return this with
+            {
+                Fault = fault with { Module = WindowsFaultEventReader.SafeModule(fault.Module), ModuleVersion = WindowsFaultEventReader.SafeVersion(fault.ModuleVersion) },
+                Native = Native?.Sanitize()
+            };
         }
-        return this with { Fault = null };
+        return this with { Fault = null, Native = Native?.Sanitize() };
     }
 }
 internal interface IWindowsFaultEventSource
@@ -36,12 +47,6 @@ internal sealed class WindowsFaultEventReader : IWindowsFaultEventSource
 {
     internal const int MaximumEvents = 64, MaximumXmlCharacters = 65536;
     private static readonly XNamespace Namespace = "http://schemas.microsoft.com/win/2004/08/events/event";
-    private static readonly HashSet<string> Modules = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "wisp.exe", "wisp.dll", "wisp.nativerenderer.dll", "libmpv-2.dll", "libvlc.dll", "libvlccore.dll",
-        "ntdll.dll", "kernel32.dll", "kernelbase.dll", "ucrtbase.dll", "vcruntime140.dll", "vcruntime140_1.dll",
-        "msvcp140.dll", "coreclr.dll", "clrjit.dll", "d3d11.dll", "dxgi.dll", "dcomp.dll"
-    };
 
     public WindowsFaultLookup Read(RunExitMarker previous, DateTimeOffset nextRunStartedAtUtc, CancellationToken cancellationToken)
     {
@@ -125,7 +130,7 @@ internal sealed class WindowsFaultEventReader : IWindowsFaultEventSource
                     !Hex(Value("ExceptionCode"), out var code) || code > uint.MaxValue) continue;
                 if (fault is not null && fault.TimeUtc >= time) continue;
                 fault = new(time, (uint)code, Hex(Value("FaultingOffset"), out var offset) ? offset : null,
-                    SafeModule(Value("ModuleName")), false);
+                    SafeModule(Value("ModuleName")), false) { ModuleVersion = SafeVersion(Value("ModuleVersion")) };
                 faultReport = Guid.TryParse(Value("IntegratorReportId"), out var reportId) && reportId != Guid.Empty ? reportId : null;
             }
             catch (Exception error) when (error is XmlException or ArgumentException or InvalidOperationException) { }
@@ -134,7 +139,22 @@ internal sealed class WindowsFaultEventReader : IWindowsFaultEventSource
             fault with { CorrelatedWerReport = faultReport is { } report && werReports.Contains(report) });
     }
 
-    internal static string? SafeModule(string? module) => module is not null && Modules.Contains(module) ? module.ToLowerInvariant() : null;
+    // Any module can fault, including hooks other software injects, so every bare file name is
+    // kept: lower case, at most 64 characters of letters, digits, '.', '_' and '-', with a
+    // library, executable or driver extension. Paths and anything else are dropped.
+    internal static string? SafeModule(string? module)
+    {
+        if (module is null) return null;
+        var name = module.Trim().ToLowerInvariant();
+        if (name == "unknown") return name;
+        if (name.Length is 0 or > 64 || !char.IsAsciiLetterOrDigit(name[0]) ||
+            !name.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-')) return null;
+        return name.EndsWith(".dll", StringComparison.Ordinal) || name.EndsWith(".exe", StringComparison.Ordinal) ||
+            name.EndsWith(".sys", StringComparison.Ordinal) || name.EndsWith(".drv", StringComparison.Ordinal) ? name : null;
+    }
+    internal static string? SafeVersion(string? version) => version is { Length: > 0 and <= 23 } && VersionPattern.IsMatch(version) ? version : null;
+    private static readonly System.Text.RegularExpressions.Regex VersionPattern =
+        new(@"^[0-9]{1,5}(\.[0-9]{1,5}){3}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     private static bool Unsigned(string? value, out ulong number) => value?.StartsWith("0x", StringComparison.OrdinalIgnoreCase) == true
         ? Hex(value, out number) : ulong.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out number);
     private static bool Hex(string? value, out ulong number)

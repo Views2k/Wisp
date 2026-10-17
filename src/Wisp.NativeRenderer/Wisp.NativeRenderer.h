@@ -164,3 +164,8 @@ WISP_API HRESULT __cdecl WispRendererWaitForFrameMeasuredV2(void* renderer, uint
     HANDLE cancellation, int measure, uint32_t* result, WispWaitMetricsV2* metrics) noexcept;
 WISP_API HRESULT __cdecl WispRendererCapture(void* renderer, uint8_t* pixels, uint32_t byteCount, uint32_t stride) noexcept;
 WISP_API HRESULT __cdecl WispRendererDeviceRemovedReason(void* renderer) noexcept;
+// Records hardware faults (faulting address and call stack as module+offset) to the file
+// at path for the life of the process. S_FALSE when already installed.
+WISP_API HRESULT __cdecl WispCrashCaptureInstall(const wchar_t* path) noexcept;
+WISP_API uint32_t __cdecl WispCrashCaptureFormatForTest(uint32_t code, uint64_t address, uint32_t accessKind, uint64_t accessAddress,
+    char* buffer, uint32_t bytes) noexcept;

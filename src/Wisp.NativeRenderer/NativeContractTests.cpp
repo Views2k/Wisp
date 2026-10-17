@@ -4,6 +4,7 @@
 #include "TearingPolicy.h"
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 #include <thread>
 #include <cmath>
@@ -21,6 +22,31 @@ static void Require(bool passed, const char* name)
 {
     if (!passed) { ++failures; std::printf("FAIL: %s\n", name); }
 }
+static void CheckCrashCapture()
+{
+    char buffer[8192];
+    const auto address = reinterpret_cast<uint64_t>(reinterpret_cast<const void*>(&GetTickCount64));
+    const uint32_t length = WispCrashCaptureFormatForTest(0xC0000005u, address, 0, 0x10, buffer, sizeof(buffer));
+    Require(length > 0 && length < sizeof(buffer), "crash record is written within its buffer");
+    const std::string record(buffer, length);
+    Require(record.rfind("wisp-native-fault 1\n", 0) == 0, "crash record header");
+    Require(record.find("\ncode=0xc0000005\n") != std::string::npos, "crash record exception code");
+    Require(record.find("\naddress=kernel32.dll+0x") != std::string::npos, "crash record faulting address names the module");
+    Require(record.find("\naccess=read 0x10\n") != std::string::npos, "crash record access violation details");
+    Require(record.find("\nframe=") != std::string::npos, "crash record carries a call stack");
+    Require(record.size() >= 5 && record.compare(record.size() - 5, 5, "\nend\n") == 0, "crash record terminator");
+    Require(WispCrashCaptureFormatForTest(0xC0000005u, address, 0, 0x10, buffer, 16) == 0, "crash record refuses a tiny buffer");
+    wchar_t path[MAX_PATH];
+    const DWORD temp = GetTempPathW(MAX_PATH, path);
+    if (temp > 0 && temp < MAX_PATH - 40)
+    {
+        std::wstring file(path);
+        file += L"wisp-crash-capture-contract.txt";
+        Require(WispCrashCaptureInstall(file.c_str()) == S_OK, "crash capture installs once");
+        Require(WispCrashCaptureInstall(file.c_str()) == S_FALSE, "crash capture reports a second install");
+    }
+}
+
 static void CheckTearingPolicy()
 {
     constexpr UINT baseline = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
@@ -1342,6 +1368,7 @@ int main(int argc, char** argv)
     }
     CheckFramePacer();
     CheckTearingPolicy();
+    CheckCrashCapture();
     bool cpuRendering = false, hiddenOnly = false;
     for (int index = 1; index < argc; ++index)
     {

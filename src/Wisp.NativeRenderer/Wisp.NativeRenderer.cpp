@@ -1498,3 +1498,164 @@ HRESULT __cdecl WispRendererCapture(void* renderer, uint8_t* pixels, uint32_t by
 { return Invoke(renderer, [&](Renderer& r) { return r.Capture(pixels,bytes,stride); }); }
 HRESULT __cdecl WispRendererDeviceRemovedReason(void* renderer) noexcept
 { return Invoke(renderer, [&](Renderer& r) { CHECK_HR(r.CheckThread()); return r.device->GetDeviceRemovedReason(); }); }
+
+// ---- Native crash capture ---------------------------------------------------------------
+// A vectored exception handler that records where a hardware fault happened, as
+// module+offset for the faulting address and a module+offset call stack, into a file the
+// app opens at startup. Windows' own event log only keeps the faulting module and offset,
+// and nothing of the stack. The handler never allocates, never throws and never handles the
+// exception: it writes one bounded record and lets the fault continue to whoever owns it.
+namespace
+{
+    HANDLE crashCaptureFile = INVALID_HANDLE_VALUE;
+    void* crashCaptureHandler = nullptr;
+    LONG crashCaptureRecords = 0;
+    constexpr LONG kCrashCaptureMaximumRecords = 3;
+    constexpr ULONG kCrashCaptureMaximumFrames = 48;
+
+    struct CrashText { char* cursor; char* end; };
+    void CrashPut(CrashText& text, const char* value) noexcept
+    {
+        while (*value && text.cursor < text.end) *text.cursor++ = *value++;
+    }
+    void CrashPutHex(CrashText& text, unsigned long long value) noexcept
+    {
+        char digits[16];
+        int count = 0;
+        do { digits[count++] = "0123456789abcdef"[value & 0xf]; value >>= 4; } while (value && count < 16);
+        while (count && text.cursor < text.end) *text.cursor++ = digits[--count];
+    }
+    void CrashPutDecimal(CrashText& text, unsigned long long value) noexcept
+    {
+        char digits[20];
+        int count = 0;
+        do { digits[count++] = static_cast<char>('0' + value % 10); value /= 10; } while (value && count < 20);
+        while (count && text.cursor < text.end) *text.cursor++ = digits[--count];
+    }
+    // "module.dll+0x1a2b": the module's file name in lower case, other characters replaced.
+    void CrashPutAddress(CrashText& text, const void* address) noexcept
+    {
+        void* base = nullptr;
+        if (RtlPcToFileHeader(const_cast<void*>(address), &base) && base)
+        {
+            wchar_t path[MAX_PATH];
+            const DWORD length = GetModuleFileNameW(static_cast<HMODULE>(base), path, MAX_PATH);
+            if (length > 0 && length < MAX_PATH)
+            {
+                const wchar_t* name = path;
+                for (const wchar_t* p = path; *p; ++p) if (*p == L'\\' || *p == L'/') name = p + 1;
+                for (const wchar_t* p = name; *p && text.cursor < text.end; ++p)
+                {
+                    wchar_t c = *p;
+                    if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c - L'A' + L'a');
+                    const bool plain = (c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') || c == L'.' || c == L'_' || c == L'-';
+                    *text.cursor++ = plain ? static_cast<char>(c) : '_';
+                }
+            }
+            else CrashPut(text, "unknown");
+            CrashPut(text, "+0x");
+            CrashPutHex(text, reinterpret_cast<uintptr_t>(address) - reinterpret_cast<uintptr_t>(base));
+        }
+        else
+        {
+            CrashPut(text, "unknown+0x");
+            CrashPutHex(text, reinterpret_cast<uintptr_t>(address));
+        }
+    }
+    bool CrashCapturable(const EXCEPTION_RECORD& record) noexcept
+    {
+        switch (record.ExceptionCode)
+        {
+        case EXCEPTION_ACCESS_VIOLATION:
+            // Faults on the null page are the runtime's own null checks, which become managed exceptions.
+            return record.NumberParameters >= 2 && record.ExceptionInformation[1] >= 0x10000;
+        case EXCEPTION_IN_PAGE_ERROR:
+        case EXCEPTION_ILLEGAL_INSTRUCTION:
+        case EXCEPTION_PRIV_INSTRUCTION:
+        case EXCEPTION_DATATYPE_MISALIGNMENT:
+        case 0xC0000409: // STATUS_STACK_BUFFER_OVERRUN
+        case 0xC0000374: // STATUS_HEAP_CORRUPTION
+            return true;
+        default:
+            return false;
+        }
+    }
+    size_t CrashFormat(const EXCEPTION_RECORD& record, bool includeFrames, char* buffer, size_t bytes) noexcept
+    {
+        if (!buffer || bytes < 64) return 0;
+        CrashText text{ buffer, buffer + bytes - 1 };
+        FILETIME now;
+        GetSystemTimeAsFileTime(&now);
+        CrashPut(text, "wisp-native-fault 1\ntime=0x");
+        CrashPutHex(text, (static_cast<unsigned long long>(now.dwHighDateTime) << 32) | now.dwLowDateTime);
+        CrashPut(text, "\ncode=0x");
+        CrashPutHex(text, record.ExceptionCode);
+        CrashPut(text, "\nthread=");
+        CrashPutDecimal(text, GetCurrentThreadId());
+        CrashPut(text, "\naddress=");
+        CrashPutAddress(text, record.ExceptionAddress);
+        if (record.ExceptionCode == EXCEPTION_ACCESS_VIOLATION && record.NumberParameters >= 2)
+        {
+            CrashPut(text, "\naccess=");
+            CrashPut(text, record.ExceptionInformation[0] == 0 ? "read" : record.ExceptionInformation[0] == 1 ? "write" : "execute");
+            CrashPut(text, " 0x");
+            CrashPutHex(text, record.ExceptionInformation[1]);
+        }
+        if (includeFrames)
+        {
+            void* frames[kCrashCaptureMaximumFrames];
+            const USHORT count = RtlCaptureStackBackTrace(0, kCrashCaptureMaximumFrames, frames, nullptr);
+            for (USHORT index = 0; index < count; ++index)
+            {
+                CrashPut(text, "\nframe=");
+                CrashPutAddress(text, frames[index]);
+            }
+        }
+        CrashPut(text, "\nend\n");
+        *text.cursor = '\0';
+        return static_cast<size_t>(text.cursor - buffer);
+    }
+    LONG CALLBACK CrashCaptureHandler(EXCEPTION_POINTERS* pointers) noexcept
+    {
+        if (!pointers || !pointers->ExceptionRecord || crashCaptureFile == INVALID_HANDLE_VALUE) return EXCEPTION_CONTINUE_SEARCH;
+        const EXCEPTION_RECORD& record = *pointers->ExceptionRecord;
+        if (!CrashCapturable(record)) return EXCEPTION_CONTINUE_SEARCH;
+        if (InterlockedIncrement(&crashCaptureRecords) > kCrashCaptureMaximumRecords) return EXCEPTION_CONTINUE_SEARCH;
+        char buffer[6144];
+        const size_t length = CrashFormat(record, true, buffer, sizeof(buffer));
+        DWORD written = 0;
+        if (length) WriteFile(crashCaptureFile, buffer, static_cast<DWORD>(length), &written, nullptr);
+        FlushFileBuffers(crashCaptureFile);
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+}
+HRESULT __cdecl WispCrashCaptureInstall(const wchar_t* path) noexcept
+{
+    if (!path) return E_POINTER;
+    if (crashCaptureHandler) return S_FALSE;
+    const HANDLE file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return HRESULT_FROM_WIN32(GetLastError());
+    crashCaptureFile = file;
+    crashCaptureHandler = AddVectoredExceptionHandler(1, CrashCaptureHandler);
+    if (!crashCaptureHandler)
+    {
+        crashCaptureFile = INVALID_HANDLE_VALUE;
+        CloseHandle(file);
+        return E_FAIL;
+    }
+    return S_OK;
+}
+// Formats a record for a synthetic fault so the contract tests can check the format without
+// raising an exception. Returns the number of bytes written, zero when the buffer is too small.
+uint32_t __cdecl WispCrashCaptureFormatForTest(uint32_t code, uint64_t address, uint32_t accessKind, uint64_t accessAddress,
+    char* buffer, uint32_t bytes) noexcept
+{
+    EXCEPTION_RECORD record{};
+    record.ExceptionCode = code;
+    record.ExceptionAddress = reinterpret_cast<void*>(static_cast<uintptr_t>(address));
+    record.NumberParameters = 2;
+    record.ExceptionInformation[0] = accessKind;
+    record.ExceptionInformation[1] = static_cast<ULONG_PTR>(accessAddress);
+    return static_cast<uint32_t>(CrashFormat(record, true, buffer, bytes));
+}

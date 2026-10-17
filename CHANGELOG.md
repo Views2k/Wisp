@@ -8,6 +8,7 @@ Notable changes to Wisp are recorded here.
 - End the process at once when a shutdown wait expires instead of finishing the shutdown under a worker that is still inside a driver call; the next run reports an incomplete shutdown rather than a crash.
 - Show the update repair instructions once and stop automatic update attempts for the session when the update helper is missing. Install update remains available from the dashboard.
 - Report the drift gauge setting in environment snapshots.
+- Crash reports name the faulting module, its version and offset, and include the call stack Wisp captured at the fault.
 
 ## 2.6.12 - 2026-10-16
 

@@ -13,7 +13,9 @@ internal sealed record SupplementaryIncidentContext(int AgeMs, string Connection
     string? GameBuild = null, string? GameVerification = null, string? RecorderState = null,
     string? RenderMode = null, bool? GameActive = null, bool? NativeExpected = null, bool? OverlayExpectedVisible = null);
 internal sealed record SupplementaryUpdateEvidence(string Recovery, uint? InstallerExitCode = null);
-internal sealed record SupplementaryCrashEvidence(string Origin, string? Lookup = null, string? Module = null);
+internal sealed record SupplementaryCrashEvidence(string Origin, string? Lookup = null, string? Module = null,
+    ulong? Offset = null, string? ModuleVersion = null, string? FaultModule = null, ulong? FaultOffset = null,
+    ImmutableArray<string>? Frames = null);
 internal sealed record SupplementaryRecorderComponent(string Component, string Reason, uint Code);
 internal sealed record SupplementaryRecorderEvidence(long? VideoPackets = null, long? AudioPackets = null,
     long? SubmittedFrames = null, double? SchedulerLagMs = null, double? SourceAgeMs = null, double? LocalFrameAgeMs = null,
@@ -109,7 +111,7 @@ internal static class SupplementaryIncidentSchema
     internal static bool Valid(SupplementaryIncident value) => value.SchemaVersion is 1 or 2 or 3 && (value.SchemaVersion >= 2 || value.Recorder?.Components is null) && Categories.Contains(value.Category) &&
         (value.Crash is null || value.SchemaVersion == 3 && ValidCrashOrigin(value.Category, value.Crash.Origin) &&
             value.Crash.Lookup is null or "no-match" or "matched" or "access-denied" or "timeout" or "read-failed" or "scan-limit" &&
-            (value.Crash.Module is null || CrashDiagnostics.WindowsFaultEventReader.SafeModule(value.Crash.Module) == value.Crash.Module)) &&
+            ValidCrashDetails(value.Crash)) &&
         (value.Update is null || value.SchemaVersion == 3 && value.Category == "update" && UpdateRecoveries.Contains(value.Update.Recovery)) &&
         (Reasons.Contains(value.Reason) || value.Category == "update" && UpdateFailureReasons.Contains(value.Reason)) && (value.FailureStage is null || FailureStages.Contains(value.FailureStage)) &&
         (value.Exceptions is null || value.Exceptions is { IsDefault: false, Length: > 0 and <= 3 } exceptions && exceptions.All(e =>
@@ -134,6 +136,12 @@ internal static class SupplementaryIncidentSchema
         c.GameVerification is null or "verified" or "unverified" or "unavailable" or "not-running" &&
         c.RecorderState is null or "disabled" or "waiting" or "preparing" or "buffering" or "saving" or "stopping" or "reconnecting" or "unavailable" or "error" or "paused" &&
         c.RenderMode is null or "cpu" or "gpu";
+    private static bool ValidCrashDetails(SupplementaryCrashEvidence crash) =>
+        (crash.Module is null || CrashDiagnostics.WindowsFaultEventReader.SafeModule(crash.Module) == crash.Module) &&
+        (crash.ModuleVersion is null || CrashDiagnostics.WindowsFaultEventReader.SafeVersion(crash.ModuleVersion) == crash.ModuleVersion) &&
+        (crash.FaultModule is null || CrashDiagnostics.WindowsFaultEventReader.SafeModule(crash.FaultModule) == crash.FaultModule) &&
+        (crash.Frames is null || crash.Frames is { IsDefault: false, Length: <= CrashDiagnostics.NativeFaultRecord.MaximumFrames } frames &&
+            frames.All(CrashDiagnostics.NativeFaultRecord.ValidFrame));
     private static bool ValidCrashOrigin(string category, string origin) => category switch
     {
         "managed-exception" => origin is "ui" or "background" or "task",

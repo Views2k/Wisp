@@ -42,15 +42,26 @@ public sealed class WindowsFaultEventReaderTests
     }
 
     [Theory]
-    [InlineData("PRIVATE_PERSON.dll")]
-    [InlineData("C:\\PRIVATE_PATH\\libmpv-2.dll")]
-    [InlineData("libmpv-2.dll/PRIVATE_PATH")]
-    public void OnlyKnownModuleBasenamesCanBeCopied(string module)
+    [InlineData("RTSSHooks64.dll", "rtsshooks64.dll")]
+    [InlineData("nvwgf2umx.dll", "nvwgf2umx.dll")]
+    [InlineData("unknown", "unknown")]
+    [InlineData("C:\\PRIVATE_PATH\\libmpv-2.dll", null)]
+    [InlineData("libmpv-2.dll/PRIVATE_PATH", null)]
+    [InlineData("not a module", null)]
+    public void AnyModuleFileNameIsCopiedButPathsAreNot(string module, string? expected)
     {
         var marker = Marker();
         var result = WindowsFaultEventReader.Correlate([Fault(marker, "ModuleName", module)], marker, Started.AddMinutes(5));
-        Assert.NotNull(result.Fault); Assert.Null(result.Fault.Module);
+        Assert.NotNull(result.Fault); Assert.Equal(expected, result.Fault.Module);
         Assert.Equal(0xc0000005u, result.Fault.ExceptionCode);
+    }
+
+    [Fact]
+    public void TheFaultingModuleVersionIsKeptWhenWellFormed()
+    {
+        var marker = Marker();
+        Assert.Equal("7.3.6.28204", WindowsFaultEventReader.Correlate([Fault(marker, "ModuleVersion", "7.3.6.28204")], marker, Started.AddMinutes(5)).Fault?.ModuleVersion);
+        Assert.Null(WindowsFaultEventReader.Correlate([Fault(marker, "ModuleVersion", "PRIVATE 1.2")], marker, Started.AddMinutes(5)).Fault?.ModuleVersion);
     }
 
     [Fact]

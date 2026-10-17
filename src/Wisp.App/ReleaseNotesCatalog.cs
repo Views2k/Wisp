@@ -26,7 +26,8 @@ public static class ReleaseNotesCatalog
                     "Closing Wisp while a renderer thread is stuck in a driver call ends the app cleanly instead of crashing.",
                     "When the update helper is missing, Wisp shows the repair instructions once and stops automatic update attempts for the session; Install update stays available on the dashboard."),
                 Group("Diagnostics",
-                    "Wisp reports whether the drift gauge is switched on, so Wisp Tools shows feature use accurately.")
+                    "Wisp reports whether the drift gauge is switched on, so Wisp Tools shows feature use accurately.",
+                    "Crash reports name the faulting module, its version and offset, and include the call stack Wisp captured at the fault.")
             ]),
         new(
             "2.6.12",

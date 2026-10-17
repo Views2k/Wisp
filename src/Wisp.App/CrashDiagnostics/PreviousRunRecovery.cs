@@ -26,6 +26,7 @@ internal sealed class PreviousRunRecovery(CrashReportStore reports, IWindowsFaul
             cancellationToken.ThrowIfCancellationRequested();
             var exit = new RecoveredExitInfo(safe.StartedAtUtc, nextRunStartedAtUtc, lookup.Status, lookup.Fault).Sanitize();
             if (exit is null) exit = new(safe.StartedAtUtc, nextRunStartedAtUtc, WindowsFaultLookupStatus.ReadFailed, null);
+            exit = exit with { Native = NativeCrashCapture.TryRead(reports.Directory, safe.RunId) };
             // A recorded close request is not a crash. A correlated Windows fault still wins.
             if (safe.ShutdownIntent != ShutdownIntent.None && exit.Fault is null) return null;
             var report = safe.ToReport(exit.Fault?.TimeUtc ?? nextRunStartedAtUtc) with

@@ -38,7 +38,10 @@ internal static class SupplementaryIncidentCapture
             failureStage: "crash-" + origin,
             code: safe?.RecoveredExit?.Fault?.ExceptionCode ?? (safe?.Exceptions.FirstOrDefault() is { } first ? unchecked((uint)first.HResult) : null),
             exceptions: Exceptions(safe?.Exceptions), context: Context(safe?.Context, report.TimeUtc,
-                recovered: safe?.RecoveredExit is not null), crash: new(origin, lookup, safe?.RecoveredExit?.Fault?.Module));
+                recovered: safe?.RecoveredExit is not null), crash: new(origin, lookup, safe?.RecoveredExit?.Fault?.Module,
+                safe?.RecoveredExit?.Fault?.FaultOffset, safe?.RecoveredExit?.Fault?.ModuleVersion,
+                safe?.RecoveredExit?.Native?.Module, safe?.RecoveredExit?.Native?.Offset,
+                safe?.RecoveredExit?.Native is { } native ? native.Frames.ToImmutableArray() : null));
     }
 
     internal static SupplementaryIncident? Export(Exception error, DateTimeOffset now)
