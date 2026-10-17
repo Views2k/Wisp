@@ -130,7 +130,8 @@ internal sealed class WindowsFaultEventReader : IWindowsFaultEventSource
                     !Hex(Value("ExceptionCode"), out var code) || code > uint.MaxValue) continue;
                 if (fault is not null && fault.TimeUtc >= time) continue;
                 fault = new(time, (uint)code, Hex(Value("FaultingOffset"), out var offset) ? offset : null,
-                    SafeModule(Value("ModuleName")), false) { ModuleVersion = SafeVersion(Value("ModuleVersion")) };
+                    SafeModule(Value("ModuleName")), false)
+                { ModuleVersion = SafeVersion(Value("ModuleVersion")) };
                 faultReport = Guid.TryParse(Value("IntegratorReportId"), out var reportId) && reportId != Guid.Empty ? reportId : null;
             }
             catch (Exception error) when (error is XmlException or ArgumentException or InvalidOperationException) { }
