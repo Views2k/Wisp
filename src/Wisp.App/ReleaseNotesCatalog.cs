@@ -15,11 +15,25 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.6.13",
+            "October 17, 2026",
+            "STABILITY FIXES",
+            "The HUD renderer recovers from graphics-memory refusals, closing stays clean, and the updater stops retrying a missing helper.",
+            true,
+            [
+                Group("Reliability",
+                    "The HUD keeps running when the graphics card or Windows compositor refuses memory as the game starts; the renderer reports it and restarts instead of closing Wisp.",
+                    "Closing Wisp while a renderer thread is stuck in a driver call ends the app cleanly instead of crashing.",
+                    "When the update helper is missing, Wisp shows the repair instructions once and stops automatic update attempts for the session; Install update stays available on the dashboard."),
+                Group("Diagnostics",
+                    "Wisp reports whether the drift gauge is switched on, so Wisp Tools shows feature use accurately.")
+            ]),
+        new(
             "2.6.12",
             "October 16, 2026",
             "GPU PRIORITY AND TUNE RESULTS",
             "Choose how the HUD shares the GPU with the game, and keep tune performance results in view.",
-            true,
+            false,
             [
                 Group("HUD GPU priority",
                     "Prioritize HUD updates on the GPU is a new HUD setting, off by default, so the game keeps the GPU to itself.",
