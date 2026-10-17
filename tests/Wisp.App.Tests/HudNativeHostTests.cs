@@ -141,6 +141,21 @@ internal static class HudNativeHostTests
             AssertForeignOwnerRestart(window, host, presentationHandle, Rows,
                 () => Seed(analog, electric, digital, electricDigital, 6));
 
+            // Native E_OUTOFMEMORY (allocation pressure while the game starts) restarts
+            // the native HUD instead of retiring it: a new target and worker present again.
+            var retiredHandle = presentationHandle;
+            Callback(host, "OnStatus", false, unchecked((int)0x8007000E));
+            PumpUntil(() => !IsWindow(retiredHandle), 2000);
+            Assert.DoesNotContain("unavailable", controller.ViewModel.NativeRendererStatus, StringComparison.Ordinal);
+            Seed(analog, electric, digital, electricDigital, 7);
+            PumpUntil(() => HudNativeHost.PresentationHandle(window) is var restarted && restarted != IntPtr.Zero &&
+                restarted != retiredHandle && HudNativeHost.IsPresented(analog), 8000,
+                () => $"status={controller.ViewModel.NativeRendererStatus}; handle={HudNativeHost.PresentationHandle(window)}");
+            presentationHandle = HudNativeHost.PresentationHandle(window);
+            worker = Worker(host);
+            Assert.True(worker.SurfaceVisible);
+            Assert.Equal(Visibility.Hidden, ((UIElement)analog.Content).Visibility);
+
             // A device failure retires the native HUD while keeping WPF artwork
             // suppressed; the edit/layout window remains available.
             Callback(host, "OnStatus", false, unchecked((int)0x80004005));

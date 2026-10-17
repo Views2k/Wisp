@@ -86,19 +86,25 @@ internal struct CompositorMotionStatus
 }
 
 // The render worker owns this device. The HWND remains owned by WPF's UI thread.
+// Every failed native HRESULT is raised as NativeRendererException carrying that
+// HRESULT, never as a runtime exception type: E_OUTOFMEMORY from the library must
+// not become OutOfMemoryException, which the render workers and crash handler
+// treat as fatal.
 internal sealed class DirectCompositionDevice : IDisposable
 {
     private readonly RendererHandle _handle;
+    private readonly Func<string, int>? _nativeFailureForTest;
     private int _width;
     private int _height;
     private bool _disposed;
 
-    private DirectCompositionDevice(RendererHandle handle, int width, int height)
+    private DirectCompositionDevice(RendererHandle handle, int width, int height, Func<string, int>? nativeFailureForTest)
     {
         _handle = handle;
         _width = width;
         _height = height;
-        Marshal.ThrowExceptionForHR(Native.GetGpuPriorityStatus(handle, out var priority));
+        _nativeFailureForTest = nativeFailureForTest;
+        ThrowIfFailed(Native.GetGpuPriorityStatus(handle, out var priority), "gpu_priority");
         GpuPriority = priority.ToDiagnostic();
     }
 
@@ -111,26 +117,31 @@ internal sealed class DirectCompositionDevice : IDisposable
     {
         ThrowIfDisposed();
         var result = Native.SetGpuPriority(_handle, raise ? 1 : 0);
-        Marshal.ThrowExceptionForHR(result);
-        Marshal.ThrowExceptionForHR(Native.GetGpuPriorityStatus(_handle, out var priority));
+        ThrowIfFailed(result, "gpu_priority");
+        ThrowIfFailed(Native.GetGpuPriorityStatus(_handle, out var priority), "gpu_priority");
         GpuPriority = priority.ToDiagnostic();
         return result == 0;
     }
 
+    // nativeFailureForTest stands in for the library on the operation it names ("create",
+    // "motion_channel" or "upload_texture"): a failing HRESULT it returns is raised exactly
+    // as a native failure would be, and the library is not called for that operation.
     public static DirectCompositionDevice Create(IntPtr hwnd, int width, int height, bool cpuRendering = false,
-        bool compositorNeedle = false)
+        bool compositorNeedle = false, Func<string, int>? nativeFailureForTest = null)
     {
         ValidateSize(width, height);
         if (hwnd == IntPtr.Zero) throw new ArgumentException("A live overlay window is required.", nameof(hwnd));
-        RendererHandle handle;
-        var result = compositorNeedle
-            ? Native.CreateWithCompositorNeedle(hwnd, (uint)width, (uint)height, cpuRendering ? 1u : 0u, out handle)
-            : Native.CreateWithMode(hwnd, (uint)width, (uint)height, cpuRendering ? 1u : 0u, out handle);
-        Marshal.ThrowExceptionForHR(result);
-        try { return new DirectCompositionDevice(handle, width, height); }
+        RendererHandle? handle = null;
+        var result = InjectedFailure(nativeFailureForTest, "create");
+        if (result >= 0)
+            result = compositorNeedle
+                ? Native.CreateWithCompositorNeedle(hwnd, (uint)width, (uint)height, cpuRendering ? 1u : 0u, out handle)
+                : Native.CreateWithMode(hwnd, (uint)width, (uint)height, cpuRendering ? 1u : 0u, out handle);
+        ThrowIfFailed(result, "create");
+        try { return new DirectCompositionDevice(handle!, width, height, nativeFailureForTest); }
         catch
         {
-            handle.Dispose();
+            handle!.Dispose();
             throw;
         }
     }
@@ -140,11 +151,13 @@ internal sealed class DirectCompositionDevice : IDisposable
     internal MotionChannel CreateMotionChannel()
     {
         ThrowIfDisposed();
-        var result = Native.CreateMotionChannel(_handle, out var handle);
-        Marshal.ThrowExceptionForHR(result);
-        if (result != 0 || handle.IsInvalid)
+        MotionHandle? handle = null;
+        var result = InjectedFailure("motion_channel");
+        if (result >= 0) result = Native.CreateMotionChannel(_handle, out handle);
+        ThrowIfFailed(result, "motion_channel");
+        if (result != 0 || handle is null || handle.IsInvalid)
         {
-            handle.Dispose();
+            handle?.Dispose();
             throw new NotSupportedException("The native renderer does not support independent needle motion.");
         }
         return new(handle);
@@ -158,7 +171,7 @@ internal sealed class DirectCompositionDevice : IDisposable
         if (curve.Count < 1 || curve.Count > points.Length) throw new ArgumentOutOfRangeException(nameof(curve));
         var result = Native.PrepareCompositorNeedleMotion(_handle, in geometry, curve.StartTimestamp,
             curve.FreshUntilTimestamp, points, (uint)curve.Count, checked((ulong)generation));
-        Marshal.ThrowExceptionForHR(result);
+        ThrowIfFailed(result, "compositor_update");
         return result == 0;
     }
 
@@ -173,10 +186,10 @@ internal sealed class DirectCompositionDevice : IDisposable
             if (curve.Count < 1 || curve.Count > points.Length) throw new ArgumentOutOfRangeException(nameof(curve));
             var result = Native.UpdateMotion(_handle, in geometry, curve.StartTimestamp,
                 curve.FreshUntilTimestamp, points, (uint)curve.Count, checked((ulong)generation), out status);
-            Marshal.ThrowExceptionForHR(result);
+            ThrowIfFailed(result, "motion_update");
             return result == 0;
         }
-        internal void Clear() => Marshal.ThrowExceptionForHR(Native.ClearMotion(_handle));
+        internal void Clear() => ThrowIfFailed(Native.ClearMotion(_handle), "motion_clear");
         public void Dispose() => _handle.Dispose();
     }
 
@@ -187,14 +200,14 @@ internal sealed class DirectCompositionDevice : IDisposable
         if (curve.Count < 1 || curve.Count > points.Length) throw new ArgumentOutOfRangeException(nameof(curve));
         var result = Native.UpdateCompositorNeedle(_handle, in geometry, curve.StartTimestamp,
             curve.FreshUntilTimestamp, points, (uint)curve.Count);
-        Marshal.ThrowExceptionForHR(result);
+        ThrowIfFailed(result, "compositor_update");
         return result == 0;
     }
 
     internal void ClearCompositorNeedle()
     {
         ThrowIfDisposed();
-        Marshal.ThrowExceptionForHR(Native.ClearCompositorNeedle(_handle, IntPtr.Zero, 0, 0, IntPtr.Zero, 0));
+        ThrowIfFailed(Native.ClearCompositorNeedle(_handle, IntPtr.Zero, 0, 0, IntPtr.Zero, 0), "compositor_update");
     }
 
     // Only a replaced swapchain requires a new frame-readiness wait.
@@ -202,7 +215,7 @@ internal sealed class DirectCompositionDevice : IDisposable
     {
         ThrowIfDisposed();
         var result = Native.PrepareForResume(_handle);
-        Marshal.ThrowExceptionForHR(result);
+        ThrowIfFailed(result, "resume");
         return result == 0;
     }
 
@@ -210,20 +223,20 @@ internal sealed class DirectCompositionDevice : IDisposable
     {
         ThrowIfDisposed();
         if (!float.IsFinite(opacity) || opacity < 0 || opacity > 1) throw new ArgumentOutOfRangeException(nameof(opacity));
-        Marshal.ThrowExceptionForHR(Native.SetOpacity(_handle, opacity));
+        ThrowIfFailed(Native.SetOpacity(_handle, opacity), "opacity");
     }
 
     public void SetVisible(bool visible)
     {
         ThrowIfDisposed();
-        Marshal.ThrowExceptionForHR(Native.SetVisible(_handle, visible ? 1 : 0));
+        ThrowIfFailed(Native.SetVisible(_handle, visible ? 1 : 0), "visibility");
     }
 
     public void SetOffset(float offsetX, float offsetY)
     {
         ThrowIfDisposed();
         if (!float.IsFinite(offsetX) || !float.IsFinite(offsetY)) throw new ArgumentOutOfRangeException(nameof(offsetX));
-        Marshal.ThrowExceptionForHR(Native.SetOffset(_handle, offsetX, offsetY));
+        ThrowIfFailed(Native.SetOffset(_handle, offsetX, offsetY), "offset");
     }
 
     public void Resize(int width, int height, float offsetX = 0, float offsetY = 0)
@@ -231,7 +244,7 @@ internal sealed class DirectCompositionDevice : IDisposable
         ThrowIfDisposed();
         ValidateSize(width, height);
         if (!float.IsFinite(offsetX) || !float.IsFinite(offsetY)) throw new ArgumentOutOfRangeException(nameof(offsetX));
-        Marshal.ThrowExceptionForHR(Native.Resize(_handle, (uint)width, (uint)height, offsetX, offsetY));
+        ThrowIfFailed(Native.Resize(_handle, (uint)width, (uint)height, offsetX, offsetY), "resize");
         _width = width;
         _height = height;
     }
@@ -243,15 +256,18 @@ internal sealed class DirectCompositionDevice : IDisposable
         ValidateSize(width, height);
         if (id == 0 || stride < checked(width * 4) || premultipliedBgra.LongLength < (long)stride * height)
             throw new ArgumentException("Texture dimensions and premultiplied BGRA storage disagree.");
-        Marshal.ThrowExceptionForHR(Native.UploadTexture(_handle, id, (uint)width, (uint)height,
-            (uint)stride, premultipliedBgra, (uint)premultipliedBgra.Length));
+        var result = InjectedFailure("upload_texture");
+        if (result >= 0)
+            result = Native.UploadTexture(_handle, id, (uint)width, (uint)height,
+                (uint)stride, premultipliedBgra, (uint)premultipliedBgra.Length);
+        ThrowIfFailed(result, "upload_texture");
     }
 
     public void RemoveTexture(uint id)
     {
         ThrowIfDisposed();
         if (id == 0) throw new ArgumentOutOfRangeException(nameof(id));
-        Marshal.ThrowExceptionForHR(Native.RemoveTexture(_handle, id));
+        ThrowIfFailed(Native.RemoveTexture(_handle, id), "remove_texture");
     }
 
     // Legacy combined draw/present entry point for renderer contract checks.
@@ -261,7 +277,7 @@ internal sealed class DirectCompositionDevice : IDisposable
         LastRenderWasOccluded = false;
         var result = Native.Render(_handle, commands, (uint)count, 1);
         LastRenderWasOccluded = result == 2;
-        Marshal.ThrowExceptionForHR(result);
+        ThrowIfFailed(result, "render");
         return result == 0;
     }
 
@@ -269,7 +285,7 @@ internal sealed class DirectCompositionDevice : IDisposable
         out DirectCompositionDrawMetrics metrics)
     {
         ValidateCommands(commands, count);
-        Marshal.ThrowExceptionForHR(Native.DrawForPresentation(_handle, commands, (uint)count, measure ? 1 : 0, out metrics));
+        ThrowIfFailed(Native.DrawForPresentation(_handle, commands, (uint)count, measure ? 1 : 0, out metrics), "draw");
     }
 
     // Retry a busy presentation without issuing another clear, map, or draw.
@@ -279,7 +295,7 @@ internal sealed class DirectCompositionDevice : IDisposable
         LastRenderWasOccluded = false;
         var result = Native.TryPresent(_handle, measure ? 1 : 0, out metrics);
         LastRenderWasOccluded = result == 2;
-        Marshal.ThrowExceptionForHR(result);
+        ThrowIfFailed(result, "present");
         return result == 0;
     }
 
@@ -301,7 +317,7 @@ internal sealed class DirectCompositionDevice : IDisposable
             var hresult = measure
                 ? Native.WaitForFrameMeasured(_handle, (uint)timeoutMilliseconds, cancel, 1, out result, out metrics)
                 : Native.WaitForFrame(_handle, (uint)timeoutMilliseconds, cancel, out result);
-            Marshal.ThrowExceptionForHR(hresult);
+            ThrowIfFailed(hresult, "frame_wait");
             return result;
         }
         finally
@@ -314,7 +330,7 @@ internal sealed class DirectCompositionDevice : IDisposable
     public void RenderForCapture(DirectCompositionDrawCommand[] commands, int count)
     {
         ValidateCommands(commands, count);
-        Marshal.ThrowExceptionForHR(Native.Render(_handle, commands, (uint)count, 0));
+        ThrowIfFailed(Native.Render(_handle, commands, (uint)count, 0), "render");
     }
 
     public byte[] CaptureBgra()
@@ -322,7 +338,7 @@ internal sealed class DirectCompositionDevice : IDisposable
         ThrowIfDisposed();
         int stride = checked(_width * 4);
         var pixels = new byte[checked(stride * _height)];
-        Marshal.ThrowExceptionForHR(Native.Capture(_handle, pixels, (uint)pixels.Length, (uint)stride));
+        ThrowIfFailed(Native.Capture(_handle, pixels, (uint)pixels.Length, (uint)stride), "capture");
         return pixels;
     }
 
@@ -347,6 +363,16 @@ internal sealed class DirectCompositionDevice : IDisposable
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+    private int InjectedFailure(string operation) => InjectedFailure(_nativeFailureForTest, operation);
+
+    private static int InjectedFailure(Func<string, int>? nativeFailureForTest, string operation) =>
+        nativeFailureForTest?.Invoke(operation) ?? 0;
+
+    private static void ThrowIfFailed(int hresult, string operation)
+    {
+        if (hresult < 0) throw new NativeRendererException(operation, hresult);
+    }
 
     private static void ValidateSize(int width, int height)
     {

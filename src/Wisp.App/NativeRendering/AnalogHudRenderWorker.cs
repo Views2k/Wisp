@@ -27,6 +27,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
     private readonly CompositorNeedleMotionWorker? _motion;
     private readonly Action<WaitHandle>? _beforeDrawForTest;
     private readonly Action<WaitHandle>? _afterPrepareForTest;
+    private readonly Func<string, int>? _nativeFailureForTest;
     private long _motionGeneration = 1;
     private AnalogHudPresentation _presentation;
     private bool _gpuPriority;
@@ -42,7 +43,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
     internal AnalogHudRenderWorker(IntPtr window, int controlId, IReadOnlyList<AnalogHudTexture> textures,
         AnalogHudPresentation presentation, Action<bool, int> status, bool cpuRendering = false,
         INativeNeedleHistorySource? nativeSource = null, Action<WaitHandle>? beforeDrawForTest = null,
-        Action<WaitHandle>? afterPrepareForTest = null)
+        Action<WaitHandle>? afterPrepareForTest = null, Func<string, int>? nativeFailureForTest = null)
     {
         _window = window;
         _controlId = controlId;
@@ -53,6 +54,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         _status = status;
         _beforeDrawForTest = beforeDrawForTest;
         _afterPrepareForTest = afterPrepareForTest;
+        _nativeFailureForTest = nativeFailureForTest;
         if (!cpuRendering)
             _motion = new(window, controlId, presentation, nativeSource, OnMotionFailure);
         _thread = new Thread(Run) { IsBackground = true, Name = "Wisp analogue rendering" };
@@ -258,7 +260,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 {
                     BeginOperation("state", HealthFailureStage.RendererCreate);
                     device = DirectCompositionDevice.Create(_window, presentation.Width, presentation.Height, _cpuRendering,
-                        compositorNeedle: !_cpuRendering);
+                        compositorNeedle: !_cpuRendering, nativeFailureForTest: _nativeFailureForTest);
                     if (_motion is not null) _motion.Attach(device.CreateMotionChannel());
                     foreach (var texture in _textures)
                         device.UploadTexture(texture.Id, texture.Width, texture.Height, texture.Stride, texture.Pixels.ToArray());
@@ -573,6 +575,8 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                 }
             }
         }
+        // Native failures, including the library's E_OUTOFMEMORY, arrive as NativeRendererException
+        // with HResult intact; only the runtime's own fatal exceptions pass this filter.
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
             RecordStage(operation, "error", operationStarted, hResult: error.HResult);
