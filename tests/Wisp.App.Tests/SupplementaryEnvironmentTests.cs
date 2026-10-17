@@ -59,6 +59,7 @@ public sealed class SupplementaryEnvironmentTests
             LayoutMode = HudLayoutMode.Native,
             NativeGaugeMode = NativeGaugeMode.Analogue,
             LapMapEnabled = true,
+            DriftGaugeEnabled = true,
             DebugLoggingEnabled = true,
             Clips = new()
             {
@@ -78,6 +79,7 @@ public sealed class SupplementaryEnvironmentTests
         Assert.Equal(2160, projected.ClipsResolutionHeight);
         Assert.True(projected.ClipsLossless);
         Assert.True(projected.LapMapEnabled);
+        Assert.True(projected.DriftGaugeEnabled);
         Assert.True(projected.HudGpuPriority);
         Assert.DoesNotContain("fixture-private", JsonSerializer.Serialize(projected, SupplementarySchema.Json));
         preferences.Smoothing = double.NaN; preferences.Clips.FrameRate = 900;

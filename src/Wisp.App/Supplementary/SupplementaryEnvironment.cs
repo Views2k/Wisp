@@ -25,6 +25,7 @@ internal sealed record SupplementarySettings(string RenderMode, string Units, st
     public bool? LapMapEnabled { get; init; }
     public bool? LapDeltaEnabled { get; init; }
     public bool? LapReviewRecordingEnabled { get; init; }
+    public bool? DriftGaugeEnabled { get; init; }
     public bool? DebugLoggingEnabled { get; init; }
     public bool? ClipsLossless { get; init; }
     public bool? ClipsPreserveHdr { get; init; }
@@ -68,6 +69,7 @@ internal sealed record SupplementarySettings(string RenderMode, string Units, st
         LapMapEnabled = settings.LapMapEnabled,
         LapDeltaEnabled = settings.LapDeltaEnabled,
         LapReviewRecordingEnabled = settings.LapReviewRecordingEnabled,
+        DriftGaugeEnabled = settings.DriftGaugeEnabled,
         DebugLoggingEnabled = settings.DebugLoggingEnabled,
         ClipsLossless = settings.Clips?.LosslessVideo,
         ClipsPreserveHdr = settings.Clips?.PreserveHdrRecording,
