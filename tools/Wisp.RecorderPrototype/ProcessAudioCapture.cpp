@@ -86,6 +86,95 @@ namespace recorder::audio
             (!(flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) || stats.timestampErrorPackets < maximum);
     }
 
+    std::uint32_t detail::EffectiveEndpointBufferFrames(HRESULT bufferSizeHr, std::uint32_t reportedFrames) noexcept
+    {
+        // For an ordinary shared-mode endpoint a zero requested duration yields
+        // the engine's minimum buffer, a few periods, and GetBufferSize reports
+        // it. The process-loopback virtual device this source activates is
+        // different: third-party wrappers document that it returns values such
+        // as 3131961357 (0xBAADF00D) with S_OK, and Microsoft's own
+        // ApplicationLoopback sample never acts on the value. Treating the
+        // report as a hard limit refused whole captures on affected PCs with
+        // audio_endpoint_buffer_limit, so the report only ever widens budgets:
+        // a failed query, zero or anything below one second keeps the
+        // one-second assumption every bound in this file was reviewed
+        // against; anything above the cap is capped. Ten seconds is twice the
+        // five-second shared-mode buffer OBS Studio requests for its WASAPI
+        // streams (win-wasapi.cpp, BUFFER_TIME_100NS), so a real endpoint that
+        // a mainstream recorder tolerates fits, while the derived queue bound
+        // stays under 4 MB. Nothing is allocated from this value.
+        if (FAILED(bufferSizeHr) || reportedFrames < DefaultEndpointBufferFrames) return DefaultEndpointBufferFrames;
+        return (std::min)(reportedFrames, MaximumEndpointBufferFrames);
+    }
+
+    std::uint64_t detail::DrainBudgetFrames(std::uint32_t effectiveBufferFrames) noexcept
+    {
+        // The engine holds at most one endpoint buffer of unread audio, so one
+        // notification legitimately drains that backlog plus what arrives
+        // meanwhile. Two buffers' worth without the device running dry means
+        // the source outruns this consumer.
+        return 2ull * (std::max)(effectiveBufferFrames, DefaultEndpointBufferFrames);
+    }
+
+    QueueLimits detail::DeriveQueueLimits(const QueueLimits& current, std::uint32_t effectiveBufferFrames) noexcept
+    {
+        // Retention must absorb one drained backlog while the consumer is
+        // mid-iteration, so hold two buffers of PCM. Bytes bound retention;
+        // the packet count only has to keep up with the smallest engine period
+        // a driver may declare (1 ms, 48 frames), within the reviewed ceilings.
+        constexpr std::uint64_t MinimumPeriodFrames = 48;
+        constexpr std::uint64_t MaximumQueuedPackets = 4096, MaximumQueuedBytes = 16ull * 1024 * 1024;
+        const auto burstFrames = DrainBudgetFrames(effectiveBufferFrames);
+        QueueLimits derived = current;
+        derived.maximumQueuedBytes = static_cast<std::size_t>((std::min)(MaximumQueuedBytes,
+            (std::max)(static_cast<std::uint64_t>(current.maximumQueuedBytes), burstFrames * FrameBytes)));
+        derived.maximumQueuedPackets = static_cast<std::size_t>((std::min)(MaximumQueuedPackets,
+            (std::max)(static_cast<std::uint64_t>(current.maximumQueuedPackets),
+                (burstFrames + MinimumPeriodFrames - 1) / MinimumPeriodFrames)));
+        return derived;
+    }
+
+    QueueResult detail::PushCaptured(PacketQueue& queue, const BYTE* data, std::uint32_t frames, DWORD flags,
+        std::uint64_t devicePositionFrames, std::uint64_t qpc100ns)
+    {
+        // Shared-mode packets are normally one engine period, far below the
+        // queue's packet bound, which is the AAC/timeline chunk size rather
+        // than an endpoint property. A larger packet is sliced into equal
+        // parts so every slice keeps at least half the bound: the next device
+        // timestamp then cannot fall behind a slice's derived time through
+        // ordinary jitter. Slice times advance by the nominal duration of the
+        // frames before them, positions by those frames, and the discontinuity
+        // flag stays on the first slice because the gap precedes the packet.
+        const std::uint32_t limit = queue.MaximumPacketFrames();
+        if (frames <= limit || limit == 0) return queue.Push(data, frames, flags, devicePositionFrames, qpc100ns);
+        const bool timestampError = (flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) != 0;
+        if (!timestampError)
+        {
+            // Whole-packet validity first, so no slice of a packet whose tail
+            // would be refused is accepted.
+            const auto durationCeiling100ns = (static_cast<std::uint64_t>(frames) * 10000000 + SampleRate - 1) / SampleRate;
+            if (qpc100ns == 0 ||
+                qpc100ns > static_cast<std::uint64_t>((std::numeric_limits<std::int64_t>::max)()) - durationCeiling100ns ||
+                devicePositionFrames > (std::numeric_limits<std::uint64_t>::max)() - frames)
+                return QueueResult::InvalidTimestamp;
+        }
+        const std::uint32_t slices = (frames + limit - 1) / limit;
+        const std::uint32_t base = frames / slices, extra = frames % slices;
+        std::uint32_t offset = 0;
+        for (std::uint32_t index = 0; index < slices; ++index)
+        {
+            const std::uint32_t count = base + (index < extra ? 1 : 0);
+            const DWORD sliceFlags = index == 0 ? flags : (flags & ~static_cast<DWORD>(AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY));
+            const std::uint64_t advance100ns = (static_cast<std::uint64_t>(offset) / SampleRate) * 10000000 +
+                (static_cast<std::uint64_t>(offset) % SampleRate) * 10000000 / SampleRate;
+            const QueueResult result = queue.Push(data ? data + static_cast<std::size_t>(offset) * FrameBytes : nullptr,
+                count, sliceFlags, devicePositionFrames + offset, timestampError ? qpc100ns : qpc100ns + advance100ns);
+            if (result != QueueResult::Accepted) return result;
+            offset += count;
+        }
+        return QueueResult::Accepted;
+    }
+
     PacketQueue::PacketQueue(QueueLimits limits) : limits_(limits) {}
 
     bool PacketQueue::ValidLimits() const noexcept
@@ -190,6 +279,22 @@ namespace recorder::audio
     {
         std::lock_guard<std::mutex> lock(mutex_);
         return stats_;
+    }
+
+    QueueLimits PacketQueue::Limits() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return limits_;
+    }
+
+    bool PacketQueue::AdoptSourceBuffer(std::uint32_t effectiveBufferFrames)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!ValidLimits() || !sourceClaimed_ || stats_.closed || stats_.acceptedPackets != 0 || !queue_.empty()) return false;
+        const QueueLimits derived = detail::DeriveQueueLimits(limits_, effectiveBufferFrames);
+        limits_.maximumQueuedPackets = derived.maximumQueuedPackets;
+        limits_.maximumQueuedBytes = derived.maximumQueuedBytes;
+        return ValidLimits();
     }
 
     bool detail::ActivationMailbox::Publish(HRESULT hr, ComPtr<IUnknown> result)
@@ -458,11 +563,14 @@ namespace recorder::audio
                 GetForegroundWindow() == window && IsIconic(window) == FALSE, "audio_focus_lost");
         }
         void Drain(AudioResources& audio, HANDLE process, const Target& target, HANDLE stop,
-            PacketQueue& queue, const std::optional<Clock::time_point>& deadline, HWND foreground)
+            PacketQueue& queue, const std::optional<Clock::time_point>& deadline, HWND foreground,
+            std::uint64_t drainBudgetFrames)
         {
-            // Finite work per notification; cancellation is checked per packet.
-            // A pathological continuously replenished backlog fails explicitly.
-            for (unsigned packets = 0; packets < 256; ++packets)
+            // Finite work per notification, bounded in frames so the budget
+            // means the same amount of audio whatever the engine period is;
+            // cancellation is checked per packet. A pathological continuously
+            // replenished backlog fails explicitly.
+            for (std::uint64_t drained = 0; drained < drainBudgetFrames;)
             {
                 CheckStop(stop);
                 ValidateTarget(process, target);
@@ -471,7 +579,6 @@ namespace recorder::audio
                 UINT32 pending = 0;
                 Check(audio.capture->GetNextPacketSize(&pending), "audio_next_packet_failed");
                 if (pending == 0) return;
-                Require(pending <= queue.MaximumPacketFrames(), "audio_packet_limit");
                 BYTE* data = nullptr;
                 UINT32 frames = 0;
                 DWORD flags = 0;
@@ -482,10 +589,11 @@ namespace recorder::audio
                 Require(frames != 0, "audio_empty_success_packet");
                 BufferLease lease{ audio.capture.Get(), frames, audio.evidence.releaseBufferHr };
                 CheckForeground(foreground, target.processId);
-                const QueueResult queued = queue.Push(data, frames, flags, devicePosition, qpc100ns);
+                const QueueResult queued = detail::PushCaptured(queue, data, frames, flags, devicePosition, qpc100ns);
                 lease.Release();
                 Check(audio.evidence.releaseBufferHr, "audio_release_buffer_failed");
                 if (queued != QueueResult::Accepted) throw Failure{ QueueReason(queued), E_FAIL };
+                drained += frames;
             }
             UINT32 pending = 0;
             Check(audio.capture->GetNextPacketSize(&pending), "audio_next_packet_failed");
@@ -532,9 +640,16 @@ namespace recorder::audio
                     0, 0, &format, nullptr), "audio_pcm16_48000_initialize_failed");
                 evidence.initializedPreferredFormat = true;
                 Check(audio.client->SetEventHandle(audio.ready.value), "audio_event_registration_failed");
+                // The reported buffer only sizes the drain and retention
+                // budgets; see detail::EffectiveEndpointBufferFrames for why it
+                // cannot be trusted as a limit on this virtual device.
                 UINT32 bufferFrames = 0;
-                Check(audio.client->GetBufferSize(&bufferFrames), "audio_buffer_size_failed");
-                Require(bufferFrames > 0 && bufferFrames <= SampleRate, "audio_endpoint_buffer_limit");
+                evidence.bufferSizeHr = audio.client->GetBufferSize(&bufferFrames);
+                evidence.endpointBufferReported = SUCCEEDED(evidence.bufferSizeHr);
+                evidence.endpointBufferFrames = evidence.endpointBufferReported ? bufferFrames : 0;
+                evidence.effectiveBufferFrames = detail::EffectiveEndpointBufferFrames(evidence.bufferSizeHr, bufferFrames);
+                Require(queue.AdoptSourceBuffer(evidence.effectiveBufferFrames), "audio_queue_not_fresh");
+                const std::uint64_t drainBudgetFrames = detail::DrainBudgetFrames(evidence.effectiveBufferFrames);
                 Check(audio.client->GetService(IID_PPV_ARGS(&audio.capture)), "audio_capture_service_failed");
                 ValidateTarget(process.value, target);
                 CheckForeground(options.requiredForegroundWindow, target.processId);
@@ -568,7 +683,8 @@ namespace recorder::audio
                     if (wait == WAIT_OBJECT_0 + 1) throw Failure{ "target_exited", HRESULT_FROM_WIN32(ERROR_PROCESS_ABORTED) };
                     if (wait == WAIT_FAILED) throw Failure{ "audio_wait_failed", HRESULT_FROM_WIN32(GetLastError()) };
                     if (wait == WAIT_OBJECT_0 + 2)
-                        Drain(audio, process.value, target, stop.value, queue, deadline, options.requiredForegroundWindow);
+                        Drain(audio, process.value, target, stop.value, queue, deadline, options.requiredForegroundWindow,
+                            drainBudgetFrames);
                 }
             }
         }

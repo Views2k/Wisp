@@ -275,6 +275,113 @@ namespace
         Check(!detail::ConfigureLoopbackSource(LoopbackSource::GameProcess, 0, parameters), "game_source_requires_game_identity");
         Check(!detail::ConfigureLoopbackSource(LoopbackSource::SystemPlayback, 0, parameters), "system_source_still_requires_game_identity");
     }
+
+    void EndpointBufferBudgets()
+    {
+        using detail::EffectiveEndpointBufferFrames;
+        using detail::DrainBudgetFrames;
+        using detail::DeriveQueueLimits;
+        constexpr auto Default = detail::DefaultEndpointBufferFrames;
+        constexpr auto Cap = detail::MaximumEndpointBufferFrames;
+        Check(Default == SampleRate && Cap == 10 * SampleRate, "endpoint_buffer_assumptions_documented");
+        Check(EffectiveEndpointBufferFrames(S_OK, 1056) == Default, "minimum_engine_buffer_keeps_one_second_floor");
+        Check(EffectiveEndpointBufferFrames(S_OK, 0) == Default, "zero_buffer_report_falls_back");
+        Check(EffectiveEndpointBufferFrames(E_NOTIMPL, 0) == Default &&
+            EffectiveEndpointBufferFrames(AUDCLNT_E_NOT_INITIALIZED, 2 * SampleRate) == Default, "failed_buffer_query_falls_back");
+        Check(EffectiveEndpointBufferFrames(S_OK, SampleRate + 1) == SampleRate + 1, "buffer_above_one_second_not_refused");
+        Check(EffectiveEndpointBufferFrames(S_OK, 2 * SampleRate) == 2 * SampleRate, "two_second_buffer_widens_budgets");
+        Check(EffectiveEndpointBufferFrames(S_OK, Cap) == Cap && EffectiveEndpointBufferFrames(S_OK, Cap + 1) == Cap, "buffer_cap_boundary");
+        Check(EffectiveEndpointBufferFrames(S_OK, 3131961357u) == Cap, "garbage_buffer_report_capped_not_refused");
+        Check(DrainBudgetFrames(Default) == 2ull * SampleRate && DrainBudgetFrames(0) == 2ull * SampleRate &&
+            DrainBudgetFrames(Cap) == 2ull * Cap, "drain_budget_is_two_endpoint_buffers");
+
+        const QueueLimits defaults;
+        const auto oneSecond = DeriveQueueLimits(defaults, Default);
+        Check(oneSecond.maximumPacketFrames == defaults.maximumPacketFrames && oneSecond.maximumQueuedBytes == defaults.maximumQueuedBytes &&
+            oneSecond.maximumQueuedPackets == 2000, "default_budget_keeps_bytes_and_counts_millisecond_packets");
+        const auto capped = DeriveQueueLimits(defaults, Cap);
+        Check(capped.maximumPacketFrames == 4800 && capped.maximumQueuedBytes == 3840000 && capped.maximumQueuedPackets == 4096 &&
+            PacketQueue(capped).ValidLimits(), "capped_budget_within_reviewed_ceilings");
+        const QueueLimits wide{ 4, 4096, 16 * 1024 * 1024 };
+        const auto unchanged = DeriveQueueLimits(wide, Cap);
+        Check(unchanged.maximumPacketFrames == 4 && unchanged.maximumQueuedPackets == 4096 && unchanged.maximumQueuedBytes == 16 * 1024 * 1024,
+            "derivation_never_lowers_caller_limits");
+
+        std::array<BYTE, 480 * FrameBytes> period{};
+        PacketQueue queue;
+        Check(!queue.AdoptSourceBuffer(2 * SampleRate), "unclaimed_queue_refuses_adoption");
+        Check(queue.BeginSource() && queue.AdoptSourceBuffer(2 * SampleRate) && queue.ValidLimits(), "claimed_fresh_queue_adopts_endpoint_buffer");
+        const auto adopted = queue.Limits();
+        Check(adopted.maximumPacketFrames == 4800 && adopted.maximumQueuedBytes == 768000 && adopted.maximumQueuedPackets == 4000,
+            "adopted_limits_match_derivation");
+        bool accepted = true;
+        for (std::uint64_t index = 0; index < 400; ++index)
+            accepted &= queue.Push(period.data(), 480, 0, index * 480, 1000 + index * 100000) == QueueResult::Accepted;
+        Check(accepted && queue.Push(period.data(), 480, 0, 400 * 480, 1000 + 400 * 100000) == QueueResult::QueueLimit &&
+            queue.Snapshot().queuedBytes == 768000, "four_seconds_of_ten_millisecond_packets_bounded_by_bytes");
+        Check(!queue.AdoptSourceBuffer(SampleRate), "adoption_refused_after_first_packet");
+        PacketQueue plain;
+        Check(plain.BeginSource(), "unadopted_queue_claimed");
+        accepted = true;
+        for (std::uint64_t index = 0; index < 128; ++index)
+            accepted &= plain.Push(period.data(), 480, 0, index * 480, 1000 + index * 100000) == QueueResult::Accepted;
+        Check(accepted && plain.Push(period.data(), 480, 0, 128 * 480, 1000 + 128 * 100000) == QueueResult::QueueLimit,
+            "unadopted_queue_keeps_reviewed_defaults");
+        PacketQueue closed;
+        closed.Close();
+        Check(!closed.AdoptSourceBuffer(SampleRate), "closed_queue_refuses_adoption");
+    }
+
+    void OversizedPacketSlicing()
+    {
+        PacketQueue queue({ 4800, 16, 16 * 1024 * 1024 });
+        Check(queue.BeginSource(), "slicing_queue_claimed");
+        std::vector<BYTE> ramp(12000 * FrameBytes);
+        for (std::size_t index = 0; index < ramp.size(); ++index) ramp[index] = static_cast<BYTE>(index);
+        Check(detail::PushCaptured(queue, ramp.data(), 12000, AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY, 1000, 10000000) == QueueResult::Accepted,
+            "oversized_packet_accepted_in_slices");
+        auto stats = queue.Snapshot();
+        Check(stats.acceptedPackets == 3 && stats.acceptedFrames == 12000 && stats.nativeDiscontinuityPackets == 1 &&
+            stats.discontinuityPackets == 1, "three_equal_slices_one_discontinuity");
+        std::unique_ptr<const Packet> slice;
+        Check(queue.TryPop(slice) && slice->frames == 4000 && slice->qpc100ns == 10000000 && slice->devicePositionFrames == 1000 &&
+            slice->discontinuity, "first_slice_keeps_device_timestamp_and_gap");
+        Check(queue.TryPop(slice) && slice->frames == 4000 && slice->qpc100ns == 10833333 && slice->devicePositionFrames == 5000 &&
+            !slice->discontinuity && reinterpret_cast<const BYTE*>(slice->samples.data())[1] == static_cast<BYTE>(4000 * FrameBytes + 1),
+            "second_slice_advanced_nominally");
+        Check(queue.TryPop(slice) && slice->frames == 4000 && slice->qpc100ns == 11666666 && slice->devicePositionFrames == 9000 &&
+            !slice->discontinuity && reinterpret_cast<const BYTE*>(slice->samples.data())[1] == static_cast<BYTE>(8000 * FrameBytes + 1),
+            "third_slice_advanced_nominally");
+        // The next device packet arriving 1 ms before the nominal end of the
+        // sliced packet still follows the last slice, which began 83 ms earlier.
+        Check(detail::PushCaptured(queue, ramp.data(), 480, 0, 13000, 12490000) == QueueResult::Accepted && queue.TryPop(slice) &&
+            slice->frames == 480 && !slice->discontinuity, "early_next_packet_still_accepted_after_slicing");
+        Check(detail::PushCaptured(queue, ramp.data(), 4801, 0, 13480, 12600000) == QueueResult::Accepted && queue.TryPop(slice) &&
+            slice->frames == 2401 && queue.TryPop(slice) && slice->frames == 2400 && slice->qpc100ns == 12600000 + 500208,
+            "one_frame_over_bound_splits_in_half");
+        Check(detail::PushCaptured(queue, nullptr, 9600, AUDCLNT_BUFFERFLAGS_SILENT, 18281, 13200000) == QueueResult::Accepted &&
+            queue.TryPop(slice) && slice->silent && slice->frames == 4800 && queue.TryPop(slice) && slice->silent &&
+            slice->frames == 4800 && slice->qpc100ns == 14200000 &&
+            std::all_of(slice->samples.begin(), slice->samples.end(), [](auto value) { return value == 0; }),
+            "silent_oversized_packet_slices_zero_filled");
+        Check(detail::PushCaptured(queue, ramp.data(), 9600, AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR, 0, 0) == QueueResult::Accepted &&
+            queue.TryPop(slice) && slice->timestampError && slice->discontinuity && slice->qpc100ns == 0 &&
+            queue.TryPop(slice) && slice->timestampError && slice->discontinuity && !slice->timestampValid,
+            "timestamp_error_slices_stay_unsynchronized");
+        stats = queue.Snapshot();
+        Check(detail::PushCaptured(queue, ramp.data(), 9600, 0, (std::numeric_limits<std::uint64_t>::max)() - 100, 20000000) ==
+            QueueResult::InvalidTimestamp && queue.Snapshot().acceptedPackets == stats.acceptedPackets,
+            "invalid_oversized_packet_queues_no_slice");
+        Check(detail::PushCaptured(queue, ramp.data(), 9600, 0, 30000,
+            static_cast<std::uint64_t>((std::numeric_limits<std::int64_t>::max)()) - 100) == QueueResult::InvalidTimestamp &&
+            queue.Snapshot().acceptedPackets == stats.acceptedPackets, "overflowing_oversized_packet_queues_no_slice");
+        Check(detail::PushCaptured(queue, ramp.data(), 480, 0, 30000, 20000000) == QueueResult::Accepted &&
+            queue.Snapshot().acceptedPackets == stats.acceptedPackets + 1 && queue.TryPop(slice) && slice->frames == 480 &&
+            slice->discontinuity, "packet_within_bound_passes_through_unsliced");
+        PacketQueue tight({ 4800, 16, 2 * 4800 * FrameBytes });
+        Check(tight.BeginSource() && detail::PushCaptured(tight, ramp.data(), 14400, 0, 0, 1000) == QueueResult::QueueLimit &&
+            tight.Snapshot().acceptedPackets == 2, "rejected_slice_reports_queue_limit_after_earlier_slices");
+    }
 }
 
 int main()
@@ -287,6 +394,8 @@ int main()
         ActivationHandoff();
         ContinuousOptionsAndCounters();
         LoopbackSourceContracts();
+        EndpointBufferBudgets();
+        OversizedPacketSlicing();
         std::cout << "{\"mode\":\"process_audio_cpu_contracts\",\"passed\":" << checks
             << ",\"audioActivated\":false,\"captureUsed\":false,\"playbackUsed\":false}\n";
         return 0;

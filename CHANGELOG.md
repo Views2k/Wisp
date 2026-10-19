@@ -2,6 +2,10 @@
 
 Notable changes to Wisp are recorded here.
 
+## Unreleased
+
+- Record game audio on PCs where Windows reports a meaningless buffer size for the game audio stream. Clip recording previously failed to start there with an audio capture error.
+
 ## 2.6.13 - 2026-10-17
 
 - Keep the HUD renderer running when a native graphics allocation fails; report the failure and restart the renderer instead of closing Wisp.
