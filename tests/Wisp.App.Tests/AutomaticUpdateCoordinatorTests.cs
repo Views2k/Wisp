@@ -10,6 +10,7 @@ public sealed class AutomaticUpdateCoordinatorTests
         internal bool Enabled = true, HasUpdate = true, GameOpen, Busy;
         internal int Downloads, Installs;
         internal AutomaticUpdateApplyOutcome InstallOutcome = AutomaticUpdateApplyOutcome.Started;
+        internal Func<int, AutomaticUpdateApplyOutcome>? OutcomeForAttempt;
         internal DateTimeOffset Now = DateTimeOffset.UtcNow;
         internal TaskCompletionSource<VerifiedInstaller?>? Download;
         internal readonly VerifiedInstaller Installer = (VerifiedInstaller)Activator.CreateInstance(typeof(VerifiedInstaller),
@@ -18,7 +19,7 @@ public sealed class AutomaticUpdateCoordinatorTests
         internal AutomaticUpdateCoordinator Create() => new(
             () => Enabled, () => HasUpdate, () => Task.FromResult(GameOpen), () => Busy,
             () => { Downloads++; return Download?.Task ?? Task.FromResult<VerifiedInstaller?>(Installer); },
-            installer => { Assert.Same(Installer, installer); Installs++; return Task.FromResult(InstallOutcome); },
+            installer => { Assert.Same(Installer, installer); Installs++; return Task.FromResult(OutcomeForAttempt?.Invoke(Installs) ?? InstallOutcome); },
             _ => { }, () => Now);
 
         // The dashboard install timer ticks every five seconds for as long as Wisp runs.
@@ -127,6 +128,30 @@ public sealed class AutomaticUpdateCoordinatorTests
         Assert.Equal(1, s.Downloads);
         Assert.Equal(1, s.Installs);
         Assert.True(coordinator.HandoffUnavailable);
+    }
+
+    [Fact]
+    public async Task RejectedHandoffAfterTransientRetriesStopsForTheSession()
+    {
+        // Wisp 2.6.12 retried a handoff every RetryInterval for a day while the helper kept rejecting
+        // the installed location. Two transient failures, then the helper's rejection: no further
+        // attempts for the session, and a later 15-minute check does not restart them.
+        var s = new Scenario
+        {
+            OutcomeForAttempt = attempt => attempt < 3 ? AutomaticUpdateApplyOutcome.Retry : AutomaticUpdateApplyOutcome.Unavailable
+        };
+        var coordinator = s.Create();
+        await s.TickAsync(coordinator, TimeSpan.FromHours(8));
+        Assert.Equal(3, s.Downloads);
+        Assert.Equal(3, s.Installs);
+        Assert.True(coordinator.HandoffUnavailable);
+
+        s.HasUpdate = false;
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.MinimumInterval);
+        s.HasUpdate = true;
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.MinimumInterval);
+        Assert.Equal(3, s.Downloads);
+        Assert.Equal(3, s.Installs);
     }
 
     [Theory]

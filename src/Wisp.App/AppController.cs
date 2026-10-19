@@ -723,9 +723,19 @@ public sealed partial class AppController : IAsyncDisposable
         }
     }
 
+    // Once automatic installation has stopped for the session (the update helper is missing or
+    // rejected this installation), the periodic check points at the full installer instead of
+    // promising an installation that cannot happen. The buttons still try once per click.
+    private bool AutomaticInstallationStopped => _automaticInstaller is { HandoffUnavailable: true };
+
+    private static string ManualInstallStatus(SemanticVersion version) =>
+        $"Wisp {ApplicationVersionInfo.Format(version)} could not be installed automatically. Download and run the full installer from wispoverlay.com.";
+
     private void ShowAvailableApplicationUpdate(UpdateRelease release) =>
         ViewModel.UpdateApplicationUpdateStatus(
-            $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. Wisp will update and restart after Forza closes.",
+            AutomaticInstallationStopped
+                ? ManualInstallStatus(release.Version)
+                : $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. Wisp will update and restart after Forza closes.",
             "Update",
             canCheck: true,
             isUpdateAvailable: true);
@@ -737,7 +747,9 @@ public sealed partial class AppController : IAsyncDisposable
             return false;
         }
         ViewModel.UpdateApplicationUpdateStatus(
-            $"Wisp {ApplicationVersionInfo.Format(pending.Version)} is verified and ready to install.",
+            AutomaticInstallationStopped
+                ? ManualInstallStatus(pending.Version)
+                : $"Wisp {ApplicationVersionInfo.Format(pending.Version)} is verified and ready to install.",
             "Install update",
             canCheck,
             isUpdateAvailable: true);

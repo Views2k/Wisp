@@ -71,6 +71,11 @@ public static class UpdateApplyContract
     public const string ReadyEventPrefix = @"Local\Wisp.Update.Ready.";
     public const int ReadyTokenHexLength = 64;
 
+    // Exit code of the update helper when it rejects the request itself: invalid arguments or
+    // metadata, an unsafe path, or an installed location that does not match the running Wisp.
+    // The same request fails the same way again, so the app stops automatic attempts for the session.
+    public const int InvalidRequestExitCode = 2;
+
     public static string CreateReadyEventName(string token)
     {
         if (!IsValidReadyToken(token))

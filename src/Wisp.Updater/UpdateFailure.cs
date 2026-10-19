@@ -4,7 +4,7 @@ internal enum UpdaterExitCode
 {
     Success = 0,
     UnexpectedFailure = 1,
-    InvalidRequest = 2,
+    InvalidRequest = Wisp.Update.UpdateApplyContract.InvalidRequestExitCode,
     ParentProcessFailure = 3,
     InstallerValidationFailure = 4,
     InstallerExecutionFailure = 5,

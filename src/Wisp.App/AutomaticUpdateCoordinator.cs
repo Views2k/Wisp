@@ -9,8 +9,9 @@ internal enum AutomaticUpdateApplyOutcome
     Started,
     // The handoff did not start this time. Try again after ApplicationUpdateCheckPolicy.RetryInterval.
     Retry,
-    // This installation has no usable update helper, so no attempt can succeed until the user
-    // runs the full installer. Automatic attempts stop for the rest of the session.
+    // No attempt can succeed until the user runs the full installer: this installation has no
+    // usable update helper, or the helper rejected the request or this installation before it was
+    // ready. Automatic attempts stop for the rest of the session.
     Unavailable
 }
 
@@ -30,8 +31,9 @@ internal sealed class AutomaticUpdateCoordinator(
     private DateTimeOffset _retryAfter;
     private readonly Func<DateTimeOffset> _clock = clock ?? (() => DateTimeOffset.UtcNow);
 
-    // Set once a handoff reports that the update helper is missing. The coordinator then stays
-    // idle for the rest of the session; a manual install from the dashboard can still try again.
+    // Set once a handoff reports that the update helper is missing or rejected this installation.
+    // The coordinator then stays idle for the rest of the session; a manual install from the
+    // dashboard can still try again.
     internal bool HandoffUnavailable => _handoffUnavailable;
 
     internal async Task RunAsync()

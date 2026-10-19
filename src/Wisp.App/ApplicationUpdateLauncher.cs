@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -16,10 +17,14 @@ internal enum ApplicationUpdateHandoffState
 
 // Outcome of App.TryBeginApplicationUpdateAsync. HelperUnavailable marks a failure that no later
 // attempt in this session can fix: Wisp.Updater.exe is missing from the application directory.
-internal readonly record struct ApplicationUpdateStartResult(bool Started, string Error, bool HelperUnavailable = false)
+// HelperRejected marks a helper that started and rejected the request or this installation before
+// it was ready; the same checks fail the same way for the rest of the session, so automatic
+// attempts stop as well. A manual install from the dashboard still tries once per click.
+internal readonly record struct ApplicationUpdateStartResult(bool Started, string Error, bool HelperUnavailable = false,
+    bool HelperRejected = false)
 {
     internal AutomaticUpdateApplyOutcome Outcome => Started ? AutomaticUpdateApplyOutcome.Started
-        : HelperUnavailable ? AutomaticUpdateApplyOutcome.Unavailable : AutomaticUpdateApplyOutcome.Retry;
+        : HelperUnavailable || HelperRejected ? AutomaticUpdateApplyOutcome.Unavailable : AutomaticUpdateApplyOutcome.Retry;
 
     public static implicit operator ApplicationUpdateStartResult((bool Started, string Error) result) =>
         new(result.Started, result.Error);
@@ -27,6 +32,11 @@ internal readonly record struct ApplicationUpdateStartResult(bool Started, strin
 
 internal readonly record struct ApplicationUpdateResultStatus(string Status, string Action, string Outcome = "unknown", Supplementary.SupplementaryIncident? Incident = null,
     string? SourceVersion = null, string? TargetVersion = null);
+
+// What the update helper reported when it exited before signalling readiness. Status is fixed local
+// copy chosen from the helper's error code; text from the helper's record is never rendered.
+// Permanent means the same handoff fails the same way for the rest of this session.
+internal readonly record struct ApplicationUpdateHelperExit(Supplementary.SupplementaryIncident Incident, string Status, bool Permanent);
 
 internal sealed class ApplicationUpdateHandoff : IDisposable
 {
@@ -45,6 +55,24 @@ internal sealed class ApplicationUpdateHandoff : IDisposable
         if (_helper.HasExited)
         {
             _helperExited.TrySetResult();
+        }
+    }
+
+    // The helper's exit code once it has exited; null while it runs or when the process is gone.
+    internal int? ExitCode
+    {
+        get
+        {
+            try
+            {
+                return _helper.HasExited ? _helper.ExitCode : null;
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or
+                                               System.ComponentModel.Win32Exception or
+                                               NotSupportedException)
+            {
+                return null;
+            }
         }
     }
 
@@ -111,6 +139,15 @@ internal static class ApplicationUpdateLauncher
 {
     private const int MaximumResultBytes = 16 * 1024;
     private const string ResultFileName = "update-result.json";
+
+    // A record written this long before the helper was launched, or after the report, belongs to
+    // another attempt and is left for the next launch to consume.
+    private static readonly TimeSpan HelperResultSkew = TimeSpan.FromMinutes(1);
+
+    // Helper checks about this installation's own identity. Their result cannot change while this
+    // Wisp process runs, whichever exit code class the helper reported them under.
+    private static readonly HashSet<string> SessionPermanentHelperReasons = new(StringComparer.Ordinal)
+    { "update-install-registration", "update-application-path", "update-installed-app-invalid" };
 
     private static readonly JsonSerializerOptions RequestJson = new()
     {
@@ -253,7 +290,7 @@ internal static class ApplicationUpdateLauncher
         out ApplicationUpdateResultStatus result)
     {
         result = default;
-        var resultPath = Path.Combine(localApplicationDataPath, "Wisp", ResultFileName);
+        var resultPath = ResultPath(localApplicationDataPath);
         if (!File.Exists(resultPath))
         {
             return false;
@@ -264,65 +301,34 @@ internal static class ApplicationUpdateLauncher
             $".update-result.{Guid.NewGuid():N}.consumed");
         try
         {
-            var attributes = File.GetAttributes(resultPath);
-            if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+            if (!IsRegularFile(resultPath))
             {
                 return false;
             }
 
             File.Move(resultPath, consumedPath, overwrite: false);
-            var info = new FileInfo(consumedPath);
-            if (info.Length <= 0 || info.Length > MaximumResultBytes)
+            if (!TryReadRecord(consumedPath, out var record))
             {
                 return false;
             }
 
-            using var stream = new FileStream(
-                consumedPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: 4 * 1024,
-                FileOptions.SequentialScan);
-            using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { MaxDepth = 4 });
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("schemaVersion", out var schema)
-                || !schema.TryGetInt32(out var schemaVersion)
-                || schemaVersion != 1
-                || !root.TryGetProperty("state", out var stateElement)
-                || stateElement.ValueKind != JsonValueKind.String)
+            if (record.State == "installed" && record.TargetVersion is { } targetVersion)
             {
-                return false;
-            }
-
-            var state = stateElement.GetString();
-            string? VersionField(string name) => root.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.String &&
-                SemanticVersion.TryParse(field.GetString(), out var parsed) ? parsed.ToString() : null;
-            if (string.Equals(state, "installed", StringComparison.Ordinal)
-                && root.TryGetProperty("targetVersion", out var targetElement)
-                && targetElement.ValueKind == JsonValueKind.String
-                && SemanticVersion.TryParse(targetElement.GetString(), out var targetVersion))
-            {
-                var startedTarget = targetVersion.ToString() == ApplicationVersionInfo.MachineVersion;
+                var startedTarget = targetVersion == ApplicationVersionInfo.MachineVersion;
                 result = new ApplicationUpdateResultStatus(
                     startedTarget ? $"Wisp {targetVersion} was installed successfully." : "The update needs another attempt. Check for updates to try again.",
                     "Check again", startedTarget ? "success" : "unknown",
-                    SourceVersion: VersionField("sourceVersion"), TargetVersion: targetVersion.ToString());
+                    SourceVersion: record.SourceVersion, TargetVersion: targetVersion);
                 return true;
             }
 
-            if (string.Equals(state, "failed", StringComparison.Ordinal))
+            if (record.State == "failed")
             {
                 // Do not render text from the helper record. A fixed local message
                 // keeps the UI safe even if a same-user process edits the file.
-                var recoveryState = root.TryGetProperty("recoveryState", out var recoveryElement)
-                    && recoveryElement.ValueKind == JsonValueKind.String
-                    ? recoveryElement.GetString()
-                    : null;
                 result = new ApplicationUpdateResultStatus(
-                    FailureStatus(recoveryState),
-                    "Try again", "failure", UpdateResultIncident(root, recoveryState), VersionField("sourceVersion"), VersionField("targetVersion"));
+                    FailureStatus(record.RecoveryState),
+                    "Try again", "failure", UpdateResultIncident(record, "update-installed"), record.SourceVersion, record.TargetVersion);
                 return true;
             }
 
@@ -339,16 +345,126 @@ internal static class ApplicationUpdateLauncher
         }
     }
 
-    private static Supplementary.SupplementaryIncident UpdateResultIncident(JsonElement root, string? recovery)
+    internal static ApplicationUpdateHelperExit DescribeHelperExit(int? exitCode, DateTimeOffset launchedAt) =>
+        DescribeHelperExit(exitCode, launchedAt,
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), DateTimeOffset.UtcNow);
+
+    // The helper writes update-result.json before it exits, so a record from this handoff names the
+    // check that failed. It is consumed here so the next launch does not report the same failure a
+    // second time under the "installed" stage. An older or unreadable record is left for that launch
+    // and only the exit code is reported. Automatic attempts stop for the session when the helper
+    // rejected the request itself (UpdateApplyContract.InvalidRequestExitCode: the same request
+    // fails the same way again) or a check about this installation's identity failed.
+    internal static ApplicationUpdateHelperExit DescribeHelperExit(int? exitCode, DateTimeOffset launchedAt,
+        string localApplicationDataPath, DateTimeOffset now)
     {
-        var reason = root.TryGetProperty("errorCode", out var error) && error.ValueKind == JsonValueKind.String
-            ? error.GetString()?.ToLowerInvariant().Replace('_', '-') : null;
-        if (reason is null || !Supplementary.SupplementaryIncidentSchema.UpdateFailureReasons.Contains(reason))
-            reason = "update-unexpected-failure";
-        if (recovery is null || !Supplementary.SupplementaryIncidentSchema.UpdateRecoveries.Contains(recovery)) recovery = "unknown";
+        var resultPath = ResultPath(localApplicationDataPath);
+        UpdateResultRecord? record = null;
+        try
+        {
+            if (File.Exists(resultPath) && IsRegularFile(resultPath)
+                && TryReadRecord(resultPath, out var fresh)
+                && fresh.State == "failed"
+                && (fresh.RecordedAt is not { } recordedAt
+                    || recordedAt >= launchedAt - HelperResultSkew && recordedAt <= now + HelperResultSkew))
+            {
+                TryDelete(resultPath);
+                record = fresh;
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
+                                           JsonException or ArgumentException)
+        {
+            // Without a readable record the exit code is the only evidence.
+        }
+
+        var reason = record is null ? "update-unexpected-failure" : HelperFailureReason(record.ErrorCode);
+        var permanent = exitCode == UpdateApplyContract.InvalidRequestExitCode || SessionPermanentHelperReasons.Contains(reason);
+        var incident = record is null
+            ? Supplementary.SupplementaryIncidentSchema.Create("update", reason, "update-install-handoff",
+                exitCode is { } code ? unchecked((uint)code) : null)
+            : UpdateResultIncident(record, "update-install-handoff");
+        return new(incident, HelperExitStatus(reason, permanent), permanent);
+    }
+
+    private static string ResultPath(string localApplicationDataPath) =>
+        Path.Combine(localApplicationDataPath, "Wisp", ResultFileName);
+
+    private static bool IsRegularFile(string path) =>
+        (File.GetAttributes(path) & (FileAttributes.Directory | FileAttributes.ReparsePoint)) == 0;
+
+    // The bounded fields Wisp reads from the helper's record. Its free text stays in the file.
+    private sealed record UpdateResultRecord(string State, string? ErrorCode, string? RecoveryState, uint? NativeErrorCode,
+        uint? InstallerExitCode, string? SourceVersion, string? TargetVersion, DateTimeOffset? RecordedAt);
+
+    private static bool TryReadRecord(string path, [NotNullWhen(true)] out UpdateResultRecord? record)
+    {
+        record = null;
+        var info = new FileInfo(path);
+        if (info.Length <= 0 || info.Length > MaximumResultBytes)
+        {
+            return false;
+        }
+
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4 * 1024,
+            FileOptions.SequentialScan);
+        using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { MaxDepth = 4 });
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("schemaVersion", out var schema)
+            || schema.ValueKind != JsonValueKind.Number
+            || !schema.TryGetInt32(out var schemaVersion)
+            || schemaVersion != 1
+            || !root.TryGetProperty("state", out var stateElement)
+            || stateElement.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        string? Text(string name) => root.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.String ? field.GetString() : null;
+        string? VersionField(string name) => Text(name) is { } text && SemanticVersion.TryParse(text, out var parsed) ? parsed.ToString() : null;
         uint? Number(string name) => root.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.Number && field.TryGetUInt32(out var number) ? number : null;
-        return Supplementary.SupplementaryIncidentSchema.Create("update", reason, "update-installed", Number("nativeErrorCode"),
-            update: new(recovery, Number("installerExitCode")));
+        DateTimeOffset? recordedAt = root.TryGetProperty("recordedAtUtc", out var recorded) && recorded.ValueKind == JsonValueKind.String &&
+            recorded.TryGetDateTimeOffset(out var at) ? at : null;
+        record = new(stateElement.GetString()!, Text("errorCode"), Text("recoveryState"), Number("nativeErrorCode"), Number("installerExitCode"),
+            VersionField("sourceVersion"), VersionField("targetVersion"), recordedAt);
+        return true;
+    }
+
+    private static Supplementary.SupplementaryIncident UpdateResultIncident(UpdateResultRecord record, string failureStage)
+    {
+        var recovery = record.RecoveryState is { } state && Supplementary.SupplementaryIncidentSchema.UpdateRecoveries.Contains(state) ? state : "unknown";
+        return Supplementary.SupplementaryIncidentSchema.Create("update", HelperFailureReason(record.ErrorCode), failureStage, record.NativeErrorCode,
+            update: new(recovery, record.InstallerExitCode));
+    }
+
+    // The helper's UPDATE_* error code in the catalog's kebab-case form; codes outside the catalog stay unexpected.
+    private static string HelperFailureReason(string? errorCode)
+    {
+        var reason = errorCode?.ToLowerInvariant().Replace('_', '-');
+        return reason is not null && Supplementary.SupplementaryIncidentSchema.UpdateFailureReasons.Contains(reason)
+            ? reason : "update-unexpected-failure";
+    }
+
+    private static string HelperExitStatus(string reason, bool permanent)
+    {
+        const string suffix = " Wisp stayed open and no files were installed.";
+        return reason switch
+        {
+            "update-install-registration" =>
+                "This copy of Wisp does not match the Wisp installation registered in Windows. Download and run the full installer from wispoverlay.com to reinstall it." + suffix,
+            "update-application-path" or "update-installed-app-invalid" =>
+                "The update helper could not verify this Wisp installation. Download and run the full installer from wispoverlay.com to reinstall it." + suffix,
+            _ when permanent =>
+                "The update helper rejected the prepared update. Download and run the full installer from wispoverlay.com to update." + suffix,
+            _ =>
+                "The update helper stopped before the update could start. Try again, or download and run the full installer from wispoverlay.com." + suffix
+        };
     }
 
     private static string FailureStatus(string? recoveryState) => recoveryState switch

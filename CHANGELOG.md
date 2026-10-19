@@ -2,6 +2,10 @@
 
 Notable changes to Wisp are recorded here.
 
+## Unreleased
+
+- Report which check the update helper failed when an update cannot start, and show how to reinstall when this copy of Wisp does not match the registered installation. Automatic update attempts stop for the session after such a rejection; Install update remains available from the dashboard.
+
 ## 2.6.13 - 2026-10-17
 
 - Keep the HUD renderer running when a native graphics allocation fails; report the failure and restart the renderer instead of closing Wisp.

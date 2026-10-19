@@ -36,6 +36,16 @@ public sealed class CommandAndErrorTests
 
         Assert.Equal("UPDATE_ARGUMENTS", missingSwitch.ErrorCode);
         Assert.Equal("UPDATE_ARGUMENTS", extraArgument.ErrorCode);
+        Assert.Equal(UpdaterExitCode.InvalidRequest, missingSwitch.ExitCode);
+    }
+
+    [Fact]
+    public void InvalidRequestExitCodeIsTheSharedContractValue()
+    {
+        // Wisp reads this exit code when the helper exits before it is ready and stops automatic
+        // update attempts for the session, because the same request is rejected the same way again.
+        Assert.Equal(Wisp.Update.UpdateApplyContract.InvalidRequestExitCode, (int)UpdaterExitCode.InvalidRequest);
+        Assert.Equal(2, (int)UpdaterExitCode.InvalidRequest);
     }
 
     [Fact]
@@ -64,6 +74,9 @@ public sealed class CommandAndErrorTests
             {
                 Assert.Equal(32u, document.RootElement.GetProperty("nativeErrorCode").GetUInt32());
                 Assert.Equal(5u, document.RootElement.GetProperty("installerExitCode").GetUInt32());
+                // Wisp matches the record to the handoff that produced it by this timestamp.
+                var recordedAt = document.RootElement.GetProperty("recordedAtUtc").GetDateTimeOffset();
+                Assert.InRange(DateTimeOffset.UtcNow - recordedAt, TimeSpan.Zero, TimeSpan.FromMinutes(1));
             }
 
             resultFile.TryWriteSuccess(new StableVersion(1, 0, 0), new StableVersion(1, 2, 3));
