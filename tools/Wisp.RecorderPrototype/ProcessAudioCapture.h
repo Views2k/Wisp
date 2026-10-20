@@ -76,6 +76,12 @@ namespace recorder::audio
         void Close();
         QueueSnapshot Snapshot() const;
         std::uint32_t MaximumPacketFrames() const noexcept { return limits_.maximumPacketFrames; }
+        QueueLimits Limits() const;
+        // The claimed source widens the queued-packet and byte bounds for the
+        // endpoint buffer it observed (detail::DeriveQueueLimits), from its
+        // own thread before its first Push. The per-packet bound belongs to
+        // the consumer and never changes.
+        bool AdoptSourceBuffer(std::uint32_t effectiveBufferFrames);
     private:
         QueueLimits limits_;
         mutable std::mutex mutex_;
@@ -131,6 +137,13 @@ namespace recorder::audio
         bool playbackUsed = false;
         bool continuous = false;
         std::uint64_t elapsedMs = 0;
+        // IAudioClient::GetBufferSize is advisory for this stream (see
+        // detail::EffectiveEndpointBufferFrames). A failed or implausible
+        // report is recorded here; it never refuses the capture.
+        bool endpointBufferReported = false;
+        HRESULT bufferSizeHr = S_OK;
+        std::uint32_t endpointBufferFrames = 0;  // As reported, unvalidated.
+        std::uint32_t effectiveBufferFrames = 0; // Assumption the drain/queue budgets used.
         QueueSnapshot queue;
     };
 
@@ -156,6 +169,23 @@ namespace recorder::audio
 
         bool CountersCanAdvance(const QueueSnapshot& stats, std::uint32_t frames,
             DWORD flags, bool discontinuity) noexcept;
+
+        // Shared-mode endpoint buffer assumptions. Budgets derived from the
+        // reported buffer never fall below the one-second assumption every
+        // reviewed bound here already tolerated, and never exceed the cap.
+        constexpr std::uint32_t DefaultEndpointBufferFrames = SampleRate;
+        constexpr std::uint32_t MaximumEndpointBufferFrames = 10 * SampleRate;
+        std::uint32_t EffectiveEndpointBufferFrames(HRESULT bufferSizeHr, std::uint32_t reportedFrames) noexcept;
+        // Frames one notification may drain before a still-pending device is
+        // treated as a source that outruns this consumer.
+        std::uint64_t DrainBudgetFrames(std::uint32_t effectiveBufferFrames) noexcept;
+        QueueLimits DeriveQueueLimits(const QueueLimits& current, std::uint32_t effectiveBufferFrames) noexcept;
+        // Queues one captured packet, slicing it to the queue's packet bound
+        // with timestamps and device positions advanced by the frames before
+        // each slice. A rejected slice leaves earlier slices queued; the
+        // source treats any rejection as terminal.
+        QueueResult PushCaptured(PacketQueue& queue, const BYTE* data, std::uint32_t frames, DWORD flags,
+            std::uint64_t devicePositionFrames, std::uint64_t qpc100ns);
 
         // The same handoff is exercised by CPU contracts using a fake IUnknown.
         // No COM activation or audio device is needed to test abandonment.
