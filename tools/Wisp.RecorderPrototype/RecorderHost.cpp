@@ -18,9 +18,12 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <cstdio>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -120,6 +123,22 @@ namespace recorder::host
     }
     bool SchedulingAllowed(std::uint64_t now, std::uint64_t due) noexcept
     { return now <= due || now - due <= MaximumLateness100ns; }
+    SchedulingVerdict ScheduleVerdict(std::uint64_t now, std::uint64_t due) noexcept
+    {
+        if (SchedulingAllowed(now, due)) return SchedulingVerdict::OnTime;
+        return now - due <= TerminalLateness100ns ? SchedulingVerdict::Late : SchedulingVerdict::Terminal;
+    }
+    bool SpoolQueueAdmits(std::uint64_t queuedBytes, std::uint64_t packetBytes) noexcept
+    {
+        return packetBytes > 0 && packetBytes <= SpoolQueueLimitBytes && queuedBytes <= SpoolQueueLimitBytes - packetBytes;
+    }
+    std::uint32_t FrameSpan(std::uint64_t now, std::uint64_t due, std::uint32_t rate) noexcept
+    {
+        if ((rate != 30 && rate != 60) || now <= due) return 1;
+        const auto behind = (now - due) / (10000000ull / rate);
+        return static_cast<std::uint32_t>((std::min<std::uint64_t>)((std::max<std::uint64_t>)(behind, 1), MaximumFrameSpan));
+    }
+    static_assert(MaximumFrameSpan == lossless::MaximumFrameSpan, "the host and the lossless session agree on the frame span");
     bool RebasePausedClock(std::uint64_t source, std::int64_t media, std::uint32_t frame,
         std::uint32_t rate, std::uint64_t& epoch) noexcept
     {
@@ -175,6 +194,10 @@ namespace recorder::host
             std::int64_t schedulerLag100ns = 0, sourceAge100ns = 0, localFrameAge100ns = 0;
             std::uint64_t videoPackets = 0, audioPackets = 0;
             UINT submittedFrames = 0;
+            // Where the time went before the failure: late episodes, the frames dropped to stay on
+            // the clock, the worst lateness, and how long the media thread waited for the writer.
+            std::uint32_t lateEpisodes = 0;
+            std::uint64_t droppedFrames = 0, maximumLateness100ns = 0, spoolQueuePeakBytes = 0, spoolQueueWait100ns = 0;
             void Record(Reason value, HRESULT error, const char* location) noexcept
             {
                 if (recorded) return;
@@ -223,6 +246,7 @@ namespace recorder::host
                 "\"videoPackets\":%llu,\"audioPackets\":%llu,\"submittedFrames\":%u,"
                 "\"schedulerLagKnown\":%s,\"schedulerLag100ns\":%lld,\"sourceAgeKnown\":%s,\"sourceAge100ns\":%lld,"
                 "\"localFrameAgeKnown\":%s,\"localFrameAge100ns\":%lld,"
+                "\"lateEpisodes\":%u,\"droppedFrames\":%llu,\"maximumLateness100ns\":%llu,\"spoolQueuePeakBytes\":%llu,\"spoolQueueWait100ns\":%llu,"
                 "\"capture\":{\"reason\":\"%s\",\"hr\":%lu},\"video\":{\"reason\":\"%s\",\"hr\":%lu},"
                 "\"conversion\":{\"reason\":\"%s\",\"hr\":%lu},\"aac\":{\"reason\":\"%s\",\"hr\":%lu},"
                 "\"spool\":{\"reason\":\"%s\",\"hr\":%lu},\"audioSourceCompleted\":%s,"
@@ -235,6 +259,8 @@ namespace recorder::host
                 first.schedulerLagKnown ? "true" : "false", static_cast<long long>(first.schedulerLag100ns),
                 first.sourceAgeKnown ? "true" : "false", static_cast<long long>(first.sourceAge100ns),
                 first.localFrameAgeKnown ? "true" : "false", static_cast<long long>(first.localFrameAge100ns),
+                first.lateEpisodes, static_cast<unsigned long long>(first.droppedFrames), static_cast<unsigned long long>(first.maximumLateness100ns),
+                static_cast<unsigned long long>(first.spoolQueuePeakBytes), static_cast<unsigned long long>(first.spoolQueueWait100ns),
                 DiagnosticToken(value.capture.reason), hr(value.capture.hr), DiagnosticToken(value.video.reason), hr(value.video.hr),
                 DiagnosticToken(value.conversion.reason), hr(value.conversion.hr), DiagnosticToken(value.aac.reason), hr(value.aac.hr),
                 DiagnosticToken(value.spool.reason), hr(value.spool.hr), value.audioSourceCompleted ? "true" : "false",
@@ -575,6 +601,7 @@ namespace recorder::host
             bool Saving() const noexcept { return save_ != nullptr; }
             bool HasAudio() const noexcept { return audioEnabled_; }
             bool SourceStale() const noexcept { return sourceStale_; }
+            bool SchedulerLate() const noexcept { return lastDropTick_ && GetTickCount64() - lastDropTick_ < LateHoldMs; }
             bool Paused() const noexcept { return paused_ || resumeAnchoring_; }
             Reason PauseReason() const noexcept { return pauseReason_; }
             bool Failed() const noexcept { return failed_; }
@@ -611,6 +638,15 @@ namespace recorder::host
             void CheckReadiness();
             void UpdateLosslessBuffer();
             void SetLosslessBuffer(const spool::AvailablePlan*);
+            void StartSpoolThread();
+            void SpoolThreadMain() noexcept;
+            bool PostSpoolAppend(spool::Track, LONGLONG time, LONGLONG duration, bool clean, const BYTE*, std::size_t) noexcept;
+            void RunOnSpoolThread(std::function<void()> work, DWORD timeoutMs);
+            bool PostSpoolDetached(std::function<void()> work) noexcept;
+            void DropQueuedSpoolWork() noexcept;
+            void NoteDroppedFrames(std::uint32_t count) noexcept;
+            spool::Evidence SpoolEvidence() noexcept;
+            void PublishSpoolEvidence() noexcept;
             bool StopAudio() noexcept;
             HRESULT VideoError() const noexcept
             {
@@ -652,6 +688,34 @@ namespace recorder::host
             audio::FeedSlice pendingSlice_{};
             std::array<std::int16_t, aac::MaximumChunkFrames * audio::Channels> silencePcm_{};
             spool::EncodedSpool spool_;
+            // The spool writer thread owns spool_ from its initialization on. Encoded packets wait
+            // here for it, so the media thread never performs filesystem work: a slow write costs
+            // queue memory, not frames.
+            struct SpoolWork
+            {
+                enum class Kind { Append, Request, Detached, Stop } kind = Kind::Append;
+                spool::Track track = spool::Track::Video;
+                LONGLONG time = 0, duration = 0;
+                bool clean = false;
+                std::vector<BYTE> bytes;
+                std::function<void()>* request = nullptr;
+                std::function<void()> owned;
+                Event* done = nullptr;
+            };
+            std::thread spoolThread_;
+            std::mutex spoolMutex_;
+            std::condition_variable spoolSignal_, spoolDrained_;
+            std::deque<SpoolWork> spoolQueue_;
+            std::uint64_t spoolQueuedBytes_ = 0, spoolQueuePeakBytes_ = 0, spoolQueueWait100ns_ = 0;
+            std::atomic<bool> spoolFailed_{ false };
+            spool::Evidence spoolEvidence_{};
+            std::uint32_t lateEpisodes_ = 0;
+            std::uint64_t droppedFrames_ = 0, maximumLateness100ns_ = 0;
+            ULONGLONG lastDropTick_ = 0;
+            bool spoolEvidenceLatched_ = false;
+            // The periodic lossless buffer status is answered by the writer in its own time.
+            bool losslessPlanPending_ = false, losslessPlanReady_ = false, losslessPlanAvailable_ = false;
+            spool::AvailablePlan losslessPlan_{};
             std::optional<MediaPacket> bootstrap_;
             std::vector<BYTE> videoHeader_;
             aac::CodecConfiguration audioConfiguration_{};
@@ -689,6 +753,9 @@ namespace recorder::host
             firstFailure_.schedulerLagKnown = schedulerLagKnown_; firstFailure_.schedulerLag100ns = schedulerLag100ns_;
             firstFailure_.sourceAgeKnown = sourceAgeKnown_; firstFailure_.sourceAge100ns = sourceAge100ns_;
             firstFailure_.localFrameAgeKnown = localFrameAgeKnown_; firstFailure_.localFrameAge100ns = localFrameAge100ns_;
+            firstFailure_.lateEpisodes = lateEpisodes_; firstFailure_.droppedFrames = droppedFrames_;
+            firstFailure_.maximumLateness100ns = maximumLateness100ns_;
+            firstFailure_.spoolQueuePeakBytes = spoolQueuePeakBytes_; firstFailure_.spoolQueueWait100ns = spoolQueueWait100ns_;
         }
         void MediaSession::EmitFailureDiagnostic(Reason reason, HRESULT hr, const char* stage) noexcept
         {
@@ -722,7 +789,8 @@ namespace recorder::host
             snapshot.video = { VideoReasonText(), VideoError() };
             snapshot.conversion = { conversionEvidence_.reason, conversionEvidence_.hr };
             snapshot.aac = { audioEncoder_.Result().reason, audioEncoder_.Result().hr };
-            snapshot.spool = { spool_.Result().reason, spool_.Result().hr };
+            const auto spoolEvidence = SpoolEvidence();
+            snapshot.spool = { spoolEvidence.reason, spoolEvidence.hr };
             // The producer writes its final Evidence before publishing done.
             // Never read that non-atomic structure while capture still owns it.
             snapshot.audioSourceCompleted = audioDone_.load();
@@ -1043,7 +1111,8 @@ namespace recorder::host
                     else
                     {
                         diagnosticStage_ = "video_spool_append";
-                        Require(spool_.AppendVideo(packet.time, packet.duration, packet.clean, data, length), Reason::StorageFailed);
+                        Require(PostSpoolAppend(spool::Track::Video, packet.time, packet.duration, packet.clean, data, length),
+                            Reason::StorageFailed, SpoolEvidence().hr);
                     }
                 }
                 catch (const Failure& value) { RememberFailure(value.reason, value.hr); operation = E_FAIL; }
@@ -1073,8 +1142,8 @@ namespace recorder::host
                 audioPackets_ == (std::numeric_limits<std::uint64_t>::max)())
             { (void)Fail(Reason::AudioFailed); return E_FAIL; }
             diagnosticStage_ = "audio_spool_append";
-            if (!spool_.AppendAudio(packet.time100ns, packet.duration100ns, packet.data, packet.bytes))
-            { (void)Fail(Reason::StorageFailed, spool_.Result().hr); return E_FAIL; }
+            if (!PostSpoolAppend(spool::Track::Audio, packet.time100ns, packet.duration100ns, false, packet.data, packet.bytes))
+            { (void)Fail(Reason::StorageFailed, SpoolEvidence().hr); return E_FAIL; }
             ++audioPackets_; audioEnd_ = packet.time100ns + packet.duration100ns; readinessDirty_ = true;
             return S_OK;
         }
@@ -1213,13 +1282,19 @@ namespace recorder::host
             limits.maximumDuration100ns = static_cast<LONGLONG>(config_.durationSeconds) * 10000000;
             limits.maximumFileBytes = policy_.spoolBytes;
             limits.maximumPacketBytes = config_.losslessVideo ? lossless::MaximumPacketBytes : spool::StandardMaximumPacketBytes;
-            if (!spool_.Initialize(config_.spoolDirectory, limits, configuration))
-                throw Failure{ Reason::StorageFailed, spool_.Result().hr };
+            StartSpoolThread();
+            bool initialized = false; HRESULT initializeHr = S_OK;
+            RunOnSpoolThread([&]
+            {
+                initialized = spool_.Initialize(config_.spoolDirectory, limits, configuration);
+                if (!initialized) initializeHr = spool_.Result().hr;
+            }, 10000);
+            if (!initialized) throw Failure{ Reason::StorageFailed, initializeHr };
             spoolInitialized_ = true;
             const auto& first = *bootstrap_;
             diagnosticStage_ = "spool_bootstrap";
-            if (!spool_.AppendVideo(first.time, first.duration, first.clean, first.bytes.data(), first.bytes.size()))
-                throw Failure{ Reason::StorageFailed, spool_.Result().hr };
+            if (!PostSpoolAppend(spool::Track::Video, first.time, first.duration, first.clean, first.bytes.data(), first.bytes.size()))
+                throw Failure{ Reason::StorageFailed, SpoolEvidence().hr };
             bootstrap_.reset(); readinessDirty_ = true;
         }
         void MediaSession::CheckReadiness()
@@ -1229,9 +1304,13 @@ namespace recorder::host
             readinessDirty_ = false;
             if (config_.losslessVideo)
             {
-                spool::AvailablePlan plan;
-                if (spool_.PlanAvailable(static_cast<LONGLONG>(config_.durationSeconds) * 10000000,
-                    { losslessStorage_.videoBytes, spool::MaximumRetainedAudioBytes }, plan))
+                spool::AvailablePlan plan; bool available = false;
+                RunOnSpoolThread([&]
+                {
+                    available = spool_.PlanAvailable(static_cast<LONGLONG>(config_.durationSeconds) * 10000000,
+                        { losslessStorage_.videoBytes, spool::MaximumRetainedAudioBytes }, plan);
+                }, 5000);
+                if (available)
                 {
                     ready_ = true; SetLosslessBuffer(&plan);
                     nextLosslessBufferCheck_ = GetTickCount64() + 1000;
@@ -1239,8 +1318,9 @@ namespace recorder::host
                 }
                 return;
             }
-            std::shared_ptr<const spool::Snapshot> probe;
-            if (spool_.Retain(static_cast<LONGLONG>(config_.durationSeconds) * 10000000, probe))
+            std::shared_ptr<const spool::Snapshot> probe; bool retained = false;
+            RunOnSpoolThread([&] { retained = spool_.Retain(static_cast<LONGLONG>(config_.durationSeconds) * 10000000, probe); }, 5000);
+            if (retained)
             {
                 ready_ = probe && probe->Range().videoPackets > 0 &&
                     (!audioEnabled_ || probe->Range().audioPackets > 0);
@@ -1262,13 +1342,165 @@ namespace recorder::host
         void MediaSession::UpdateLosslessBuffer()
         {
             if (!config_.losslessVideo || !ready_ || !spoolInitialized_) return;
+            // The writer answers in its own time: the media thread never waits behind queued packets
+            // for a status line. The answer is applied on the tick that finds it.
+            std::optional<spool::AvailablePlan> answered; bool consumed = false;
+            {
+                std::lock_guard<std::mutex> lock(spoolMutex_);
+                if (losslessPlanReady_)
+                {
+                    consumed = true; losslessPlanReady_ = false;
+                    if (losslessPlanAvailable_) answered = losslessPlan_;
+                }
+            }
+            if (consumed) { losslessPlanPending_ = false; SetLosslessBuffer(answered ? &*answered : nullptr); }
             const auto now = GetTickCount64();
-            if (now < nextLosslessBufferCheck_) return;
+            if (losslessPlanPending_ || now < nextLosslessBufferCheck_) return;
             nextLosslessBufferCheck_ = now + 1000;
-            spool::AvailablePlan plan;
-            const bool available = spool_.PlanAvailable(static_cast<LONGLONG>(config_.durationSeconds) * 10000000,
-                { losslessStorage_.videoBytes, spool::MaximumRetainedAudioBytes }, plan);
-            SetLosslessBuffer(available ? &plan : nullptr);
+            const LONGLONG span = static_cast<LONGLONG>(config_.durationSeconds) * 10000000;
+            const spool::RetentionBudget budget{ losslessStorage_.videoBytes, spool::MaximumRetainedAudioBytes };
+            losslessPlanPending_ = PostSpoolDetached([this, span, budget]
+            {
+                spool::AvailablePlan plan;
+                const bool available = spool_.PlanAvailable(span, budget, plan);
+                std::lock_guard<std::mutex> lock(spoolMutex_);
+                losslessPlan_ = plan; losslessPlanAvailable_ = available; losslessPlanReady_ = true;
+            });
+        }
+        void MediaSession::StartSpoolThread()
+        {
+            if (spoolThread_.joinable()) return;
+            spoolThread_ = std::thread([this] { SpoolThreadMain(); });
+        }
+        void MediaSession::SpoolThreadMain() noexcept
+        {
+            for (;;)
+            {
+                SpoolWork work;
+                {
+                    std::unique_lock<std::mutex> lock(spoolMutex_);
+                    spoolSignal_.wait(lock, [this] { return !spoolQueue_.empty(); });
+                    work = std::move(spoolQueue_.front()); spoolQueue_.pop_front();
+                    if (work.kind == SpoolWork::Kind::Append) spoolQueuedBytes_ -= work.bytes.size();
+                }
+                // Capacity is free as soon as the packet leaves the queue, not once it is on disk.
+                if (work.kind == SpoolWork::Kind::Append) spoolDrained_.notify_all();
+                if (work.kind == SpoolWork::Kind::Stop) { spoolDrained_.notify_all(); return; }
+                if (work.kind == SpoolWork::Kind::Detached)
+                {
+                    try { work.owned(); } catch (...) { spoolFailed_.store(true); }
+                    PublishSpoolEvidence();
+                    continue;
+                }
+                if (work.kind == SpoolWork::Kind::Request)
+                {
+                    try { (*work.request)(); } catch (...) { spoolFailed_.store(true); }
+                    PublishSpoolEvidence();
+                    work.done->Signal();
+                    continue;
+                }
+                if (!spoolFailed_.load())
+                {
+                    const bool okay = work.track == spool::Track::Video
+                        ? spool_.AppendVideo(work.time, work.duration, work.clean, work.bytes.data(), work.bytes.size())
+                        : spool_.AppendAudio(work.time, work.duration, work.bytes.data(), work.bytes.size());
+                    if (!okay) spoolFailed_.store(true);
+                    PublishSpoolEvidence();
+                }
+                spoolDrained_.notify_all();
+            }
+        }
+        bool MediaSession::PostSpoolAppend(spool::Track track, LONGLONG time, LONGLONG duration, bool clean,
+            const BYTE* data, std::size_t size) noexcept
+        {
+            try
+            {
+                SpoolWork work;
+                work.track = track; work.time = time; work.duration = duration; work.clean = clean;
+                work.bytes.assign(data, data + size);
+                std::unique_lock<std::mutex> lock(spoolMutex_);
+                if (spoolFailed_.load()) return false;
+                if (!SpoolQueueAdmits(spoolQueuedBytes_, size))
+                {
+                    // Storage is behind the recording. Wait a bounded moment for the writer; after
+                    // that the recording cannot be kept and the failure says so (spool_queue_full).
+                    const auto began = std::chrono::steady_clock::now();
+                    spoolDrained_.wait_for(lock, std::chrono::milliseconds(SpoolQueueWaitMs),
+                        [this, size] { return spoolFailed_.load() || SpoolQueueAdmits(spoolQueuedBytes_, size); });
+                    spoolQueueWait100ns_ += static_cast<std::uint64_t>(
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - began).count() / 100);
+                    if (spoolFailed_.load() || !SpoolQueueAdmits(spoolQueuedBytes_, size))
+                    {
+                        diagnosticStage_ = "spool_queue_full";
+                        return false;
+                    }
+                }
+                spoolQueuedBytes_ += size; spoolQueuePeakBytes_ = (std::max)(spoolQueuePeakBytes_, spoolQueuedBytes_);
+                spoolQueue_.push_back(std::move(work));
+                lock.unlock();
+                spoolSignal_.notify_one();
+                return true;
+            }
+            catch (...) { return false; }
+        }
+        void MediaSession::RunOnSpoolThread(std::function<void()> work, DWORD timeoutMs)
+        {
+            Event done;
+            {
+                std::lock_guard<std::mutex> lock(spoolMutex_);
+                SpoolWork item; item.kind = SpoolWork::Kind::Request; item.request = &work; item.done = &done;
+                spoolQueue_.push_back(std::move(item));
+            }
+            spoolSignal_.notify_one();
+            // The request borrows this frame's locals. A writer stuck in a filesystem call past the
+            // deadline is a hung helper, which ends like every other blocked driver or storage call.
+            if (WaitForSingleObject(done.value, timeoutMs) != WAIT_OBJECT_0) TerminateSelf(ProgressTimeoutExit);
+        }
+        bool MediaSession::PostSpoolDetached(std::function<void()> work) noexcept
+        {
+            try
+            {
+                SpoolWork item; item.kind = SpoolWork::Kind::Detached; item.owned = std::move(work);
+                {
+                    std::lock_guard<std::mutex> lock(spoolMutex_);
+                    spoolQueue_.push_back(std::move(item));
+                }
+                spoolSignal_.notify_one();
+                return true;
+            }
+            catch (...) { return false; }
+        }
+        void MediaSession::DropQueuedSpoolWork() noexcept
+        {
+            std::lock_guard<std::mutex> lock(spoolMutex_);
+            for (auto it = spoolQueue_.begin(); it != spoolQueue_.end();)
+            {
+                if (it->kind != SpoolWork::Kind::Append) { ++it; continue; }
+                spoolQueuedBytes_ -= it->bytes.size();
+                it = spoolQueue_.erase(it);
+            }
+        }
+        spool::Evidence MediaSession::SpoolEvidence() noexcept
+        {
+            std::lock_guard<std::mutex> lock(spoolMutex_);
+            return spoolEvidence_;
+        }
+        void MediaSession::PublishSpoolEvidence() noexcept
+        {
+            const auto evidence = spool_.Result();
+            std::lock_guard<std::mutex> lock(spoolMutex_);
+            // The first failure is what the diagnostic must show; status work that succeeds on the
+            // already committed data afterwards must not replace it.
+            if (spoolEvidenceLatched_) return;
+            spoolEvidence_ = evidence;
+            if (spoolFailed_.load() || FAILED(evidence.hr) || evidence.poisoned) spoolEvidenceLatched_ = true;
+        }
+        void MediaSession::NoteDroppedFrames(std::uint32_t count) noexcept
+        {
+            // One episode lasts until the hold after its last dropped frame expires.
+            if (!SchedulerLate()) ++lateEpisodes_;
+            droppedFrames_ += count;
+            lastDropTick_ = (std::max)(GetTickCount64(), 1ull);
         }
         bool MediaSession::Tick() noexcept
         {
@@ -1332,14 +1564,14 @@ namespace recorder::host
                     resumeAnchoring_ = false;
                     ProcessAudio(8);
                 }
-                for (UINT submitted = 0; submitted < 2; ++submitted)
+                for (UINT submitted = 0; submitted < SubmitsPerTick; ++submitted)
                 {
                     // Do not depend on first H264 output to submit input2: a
                     // low-latency MFT may still need more than one input. The
                     // existing three tracked textures bound in-flight inputs.
                     if (nextFrame_ && audioEnabled_ && !audioInitialized_) break;
                     if (!capture_.HasFrame()) break;
-                    std::uint64_t due = 0; std::int64_t pts = 0;
+                    std::uint64_t due = 0; std::int64_t pts = 0; UINT span = 1;
                     diagnosticStage_ = "video_schedule";
                     const auto now = Now();
                     if (nextFrame_)
@@ -1348,11 +1580,17 @@ namespace recorder::host
                         schedulerLagKnown_ = true;
                         schedulerLag100ns_ = static_cast<std::int64_t>(now) - static_cast<std::int64_t>(due);
                         if (now < due) break;
-                        Require(SchedulingAllowed(now, due), Reason::SchedulerLate);
+                        // Behind schedule: a lossless frame covers the whole intervals that were
+                        // missed, so the timeline stays on the wall clock and in step with audio at
+                        // whatever rate the pipeline sustains, and the buffer survives. Only lateness
+                        // past the terminal bound means the pipeline is not moving at all.
+                        Require(ScheduleVerdict(now, due) != SchedulingVerdict::Terminal, Reason::SchedulerLate);
+                        maximumLateness100ns_ = (std::max)(maximumLateness100ns_, now - due);
+                        if (UsesNvenc()) span = FrameSpan(now, due, policy_.frameRate);
                     }
                     if (!(UsesNvenc() ? losslessVideo_.CanAcceptInput() : video_.CanAcceptInput())) break;
                     diagnosticStage_ = "video_submit";
-                    const auto status = UsesNvenc() ? losslessVideo_.TrySubmit(nextFrame_, pts, *this) :
+                    const auto status = UsesNvenc() ? losslessVideo_.TrySubmit(nextFrame_, span, pts, *this) :
                         video_.TrySubmit(nextFrame_, pts, *this);
                     diagnosticStage_ = "video_submit";
                     Require(status != encoder::SubmitResult::Failed, failed_ ? reason_ : VideoReason(VideoError()), VideoError());
@@ -1362,8 +1600,9 @@ namespace recorder::host
                             return Pause(CaptureReason(capture_.Result().reason, capture_.Result().hr));
                         break;
                     }
-                    Require(nextFrame_ != (std::numeric_limits<UINT>::max)(), Reason::EncoderFailed);
-                    ++nextFrame_;
+                    Require(nextFrame_ <= (std::numeric_limits<UINT>::max)() - span, Reason::EncoderFailed);
+                    if (span > 1) NoteDroppedFrames(span - 1);
+                    nextFrame_ += span;
                     ProcessAudio(8); InitializeSpool();
                 }
                 diagnosticStage_ = "video_pump";
@@ -1372,7 +1611,7 @@ namespace recorder::host
                 diagnosticStage_ = "startup_readiness";
                 Require(ready_ || GetTickCount64() - began_ < 12000, Reason::CaptureReconnecting);
                 diagnosticStage_ = "spool_health";
-                Require(!spool_.Result().poisoned, Reason::StorageFailed);
+                Require(!spoolFailed_.load() && !SpoolEvidence().poisoned, Reason::StorageFailed);
                 UpdateLosslessBuffer();
                 shared_.progress.store(GetTickCount64());
                 return true;
@@ -1387,7 +1626,8 @@ namespace recorder::host
             try
             {
                 if (paused_)
-                    return (UsesNvenc() ? losslessVideo_.Result().outputSamples : video_.Result().outputSamples) < nextFrame_ ? 5 : 100;
+                    return (UsesNvenc() ? losslessVideo_.Result().outputSamples < losslessVideo_.Result().submitted
+                        : video_.Result().outputSamples < nextFrame_) ? 5 : 100;
                 if (resumeAnchoring_) return 5;
                 if (!epoch_ || !spoolInitialized_) return 5;
                 std::uint64_t due = 0; std::int64_t pts = 0;
@@ -1412,23 +1652,36 @@ namespace recorder::host
                 diagnosticStage_ = "save_retain";
                 if (config_.losslessVideo)
                 {
-                    spool::AvailablePlan plan;
-                    const bool retained = spool_.RetainAvailable(static_cast<LONGLONG>(config_.durationSeconds) * 10000000,
-                        { losslessStorage_.videoBytes, spool::MaximumRetainedAudioBytes }, work->snapshot, plan);
-                    Require(retained, Reason::NoKeyframe, spool_.Result().hr);
+                    spool::AvailablePlan plan; bool retained = false; HRESULT retainHr = S_OK; std::uint64_t accounted = 0;
+                    RunOnSpoolThread([&]
+                    {
+                        retained = spool_.RetainAvailable(static_cast<LONGLONG>(config_.durationSeconds) * 10000000,
+                            { losslessStorage_.videoBytes, spool::MaximumRetainedAudioBytes }, work->snapshot, plan);
+                        const auto evidence = spool_.Result();
+                        retainHr = evidence.hr; accounted = evidence.accountedFileBytes;
+                    }, 5000);
+                    Require(retained, Reason::NoKeyframe, retainHr);
                     retainedAttempt = true; work->sizeLimited = plan.sizeLimited;
                     diagnosticStage_ = "save_storage_preflight";
                     std::uint64_t required = 0;
-                    Require(BuildLosslessSaveRequirement(losslessStorage_, spool_.Result().accountedFileBytes,
+                    Require(BuildLosslessSaveRequirement(losslessStorage_, accounted,
                         plan.videoPayloadBytes, plan.audioPayloadBytes, required), Reason::LosslessStorageLow);
                     Require(AvailableSpoolSpace(config_.spoolDirectory) >= required,
                         Reason::LosslessStorageLow, HRESULT_FROM_WIN32(ERROR_DISK_FULL));
                 }
-                else Require(spool_.Retain(static_cast<LONGLONG>(config_.durationSeconds) * 10000000, work->snapshot), Reason::NoKeyframe);
+                else
+                {
+                    bool retained = false;
+                    RunOnSpoolThread([&]
+                    { retained = spool_.Retain(static_cast<LONGLONG>(config_.durationSeconds) * 10000000, work->snapshot); }, 5000);
+                    Require(retained, Reason::NoKeyframe);
+                }
                 retainedAttempt = true;
                 const std::wstring filename = std::wstring(command.clipId.begin(), command.clipId.end()) + L".mp4";
                 diagnosticStage_ = "save_create";
-                Check(spool_.CreateNewExport(filename, file), Reason::StorageFailed);
+                HRESULT created = E_FAIL;
+                RunOnSpoolThread([&] { created = spool_.CreateNewExport(filename, file); }, 5000);
+                Check(created, Reason::StorageFailed);
                 work->bounds = work->snapshot->Range(); work->request = command.request;
                 work->clipId = command.clipId; work->hasAudio = audioEnabled_;
                 const auto format = VideoFormat();
@@ -1569,9 +1822,32 @@ namespace recorder::host
             cleanupOkay = process_.Close() && cleanupOkay;
             if (mfStarted_) { cleanupOkay = SUCCEEDED(MFShutdown()) && cleanupOkay; mfStarted_ = false; }
             okay = cleanupOkay && okay;
-            if (clean && okay && !preserveBuffer_ && spoolInitialized_)
-                okay = SUCCEEDED(spool_.DiscardOwnedBuffer()) && okay;
-            cleanupOkay = SUCCEEDED(spool_.Close()) && cleanupOkay;
+            if (spoolThread_.joinable())
+            {
+                // A clean stop writes what is still queued; an abandoned recording does not.
+                if (!clean || !okay) DropQueuedSpoolWork();
+                const bool discardBuffer = clean && okay && !preserveBuffer_ && spoolInitialized_;
+                HRESULT discard = S_OK, close = S_OK;
+                try
+                {
+                    RunOnSpoolThread([&]
+                    {
+                        if (discardBuffer) discard = spool_.DiscardOwnedBuffer();
+                        close = spool_.Close();
+                    }, 10000);
+                    {
+                        std::lock_guard<std::mutex> lock(spoolMutex_);
+                        SpoolWork stop; stop.kind = SpoolWork::Kind::Stop;
+                        spoolQueue_.push_back(std::move(stop));
+                    }
+                    spoolSignal_.notify_one();
+                }
+                catch (...) { cleanupOkay = false; }
+                if (!Join(spoolThread_, 5000)) TerminateSelf();
+                if (discardBuffer) okay = SUCCEEDED(discard) && okay;
+                cleanupOkay = SUCCEEDED(close) && cleanupOkay;
+            }
+            else cleanupOkay = SUCCEEDED(spool_.Close()) && cleanupOkay;
             cleanupOkay = audioStop_.Close() && cleanupOkay;
             if (runtimeStarted_) { RoUninitialize(); runtimeStarted_ = false; }
             closed_ = true;
@@ -1597,7 +1873,8 @@ namespace recorder::host
         void EmitMediaState(Shared& shared, const std::string& session, MediaSession& media)
         {
             EmitState(shared, session, media.Paused() ? protocol::State::Paused : protocol::State::Buffering,
-                media.Paused() ? media.PauseReason() : media.SourceStale() ? Reason::CaptureStale :
+                media.Paused() ? media.PauseReason() : media.SchedulerLate() ? Reason::SchedulerLate :
+                    media.SourceStale() ? Reason::CaptureStale :
                     (media.HasAudio() ? Reason::None : Reason::AudioUnavailable),
                 media.LosslessBufferStatus(), media.Paused() && media.Ready());
             media.BufferStatusAnnounced();
@@ -1626,6 +1903,8 @@ namespace recorder::host
         value.first.schedulerLagKnown = true; value.first.schedulerLag100ns = 2500001;
         value.first.sourceAgeKnown = true; value.first.sourceAge100ns = -1;
         value.first.localFrameAgeKnown = true; value.first.localFrameAge100ns = 120;
+        value.first.lateEpisodes = 2; value.first.droppedFrames = 5; value.first.maximumLateness100ns = 7000000;
+        value.first.spoolQueuePeakBytes = 96468992; value.first.spoolQueueWait100ns = 123456;
         value.audioResidual100ns = -213; value.audioAllowance100ns = 212;
         value.first.videoPackets = (std::numeric_limits<std::uint64_t>::max)();
         auto size = SerializeDiagnostic(value, output);
@@ -1638,6 +1917,8 @@ namespace recorder::host
             std::strstr(output.data(), "\"localFrameAge100ns\":120") != nullptr);
         test(std::strstr(output.data(), "\"audioResidual100ns\":-213") != nullptr &&
             std::strstr(output.data(), "18446744073709551615") != nullptr);
+        test(std::strstr(output.data(), "\"lateEpisodes\":2,\"droppedFrames\":5,\"maximumLateness100ns\":7000000,") != nullptr &&
+            std::strstr(output.data(), "\"spoolQueuePeakBytes\":96468992,\"spoolQueueWait100ns\":123456,") != nullptr);
         value.capture.reason = "C:\\private\\file"; value.video.reason = "\"injected\":true";
         value.timelineReason = nullptr;
         size = SerializeDiagnostic(value, output);
@@ -1703,7 +1984,7 @@ namespace recorder::host
         Policy policy;
         Reason recoverableShutdown = Reason::None;
         std::int64_t lastRequest = 0, activeRequest = 0;
-        bool configured = false, started = false, announcedReady = false, announcedStale = false, stopping = false;
+        bool configured = false, started = false, announcedReady = false, announcedStale = false, announcedLate = false, stopping = false;
         bool initialPaused = false, announcedPaused = false, announcedBufferReady = false;
         Reason initialPauseReason = Reason::FocusLost;
         int exitCode = 0;
@@ -1810,11 +2091,12 @@ namespace recorder::host
                     if (!media->Tick()) throw Failure{ media->Error(), E_FAIL };
                     if ((media->Ready() || media->Paused()) && !media->Saving() &&
                         (!announcedReady || announcedPaused != media->Paused() || announcedBufferReady != media->Ready() ||
-                            announcedStale != media->SourceStale() || media->BufferStatusChanged()))
+                            announcedStale != media->SourceStale() || announcedLate != media->SchedulerLate() ||
+                            media->BufferStatusChanged()))
                     {
                         announcedReady = true;
                         announcedPaused = media->Paused(); announcedBufferReady = media->Ready();
-                        announcedStale = media->SourceStale();
+                        announcedStale = media->SourceStale(); announcedLate = media->SchedulerLate();
                         EmitMediaState(*shared, config.session, *media);
                     }
                     protocol::Result result;
@@ -1822,7 +2104,7 @@ namespace recorder::host
                     {
                         EmitResult(*shared, result);
                         announcedPaused = media->Paused(); announcedBufferReady = media->Ready();
-                        announcedStale = media->SourceStale();
+                        announcedStale = media->SourceStale(); announcedLate = media->SchedulerLate();
                         EmitMediaState(*shared, config.session, *media);
                     }
                 }

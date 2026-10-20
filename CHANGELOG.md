@@ -4,6 +4,8 @@ Notable changes to Wisp are recorded here.
 
 ## Unreleased
 
+- Keep recording clips when the GPU cannot keep up. When frames cannot be encoded at the configured rate, the recorder now drops frames and keeps the clip in step with the game and its audio instead of discarding the rolling buffer and restarting every few seconds; recording stops only if the pipeline falls more than two seconds behind.
+- Write the clip buffer from its own thread so a slow disk no longer delays frames; the recording keeps its history while storage catches up.
 - Report which check the update helper failed when an update cannot start, and show how to reinstall when this copy of Wisp does not match the registered installation. Automatic update attempts stop for the session after such a rejection; Install update remains available from the dashboard.
 - Record game audio on PCs where Windows reports a meaningless buffer size for the game audio stream. Clip recording previously failed to start there with an audio capture error.
 
