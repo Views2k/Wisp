@@ -81,6 +81,34 @@ public sealed class InstalledApplicationValidatorTests
         var otherPath = Path.Combine(Path.GetDirectoryName(layout.InstallDirectory)!, "Other", "Wisp.exe");
         var exception = Assert.Throws<UpdateFailureException>(() => validator.Validate(otherPath));
         Assert.Equal("UPDATE_INSTALL_REGISTRATION", exception.ErrorCode);
+        Assert.Equal(UpdaterExitCode.InvalidRequest, exception.ExitCode);
+    }
+
+    [Fact]
+    public void RegistrationComparesTheFullPathIgnoringCaseAndTrailingSeparator()
+    {
+        // The installer records InstallLocation with a trailing separator; the running path comes
+        // from the process and may differ in case. Both still name the same installed Wisp.exe.
+        using var layout = new TestLayout();
+        var registered = layout.InstallDirectory.ToUpperInvariant() + Path.DirectorySeparatorChar;
+
+        new InstalledApplicationRegistrationValidator(new FixedRegistrationReader(registered))
+            .Validate(layout.ApplicationPath);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Programs\\Wisp")]
+    public void MissingOrRelativeRegistrationIsRejectedAsAnInvalidRequest(string? installLocation)
+    {
+        using var layout = new TestLayout();
+        var validator = new InstalledApplicationRegistrationValidator(new FixedRegistrationReader(installLocation));
+
+        var exception = Assert.Throws<UpdateFailureException>(() => validator.Validate(layout.ApplicationPath));
+
+        Assert.Equal("UPDATE_INSTALL_REGISTRATION", exception.ErrorCode);
+        Assert.Equal(UpdaterExitCode.InvalidRequest, exception.ExitCode);
     }
 
     private sealed class FixedInspector(PortableExecutableIdentity identity) : IPortableExecutableInspector

@@ -645,6 +645,7 @@ public partial class App : Application
             return (false, "Application updates were paused. Review the update again when available.");
         }
         ApplicationUpdateHandoff handoff;
+        var launchedAt = DateTimeOffset.UtcNow;
         try
         {
             handoff = ApplicationUpdateLauncher.Launch(installer);
@@ -730,17 +731,31 @@ public partial class App : Application
             }
             if (handoffState != ApplicationUpdateHandoffState.Ready)
             {
-                RecordSupplementarySignal("update", "update", handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "failure", "install-handoff",
-                    incident: Supplementary.SupplementaryIncidentSchema.Create("update",
-                        handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "update-verification-failed", "update-install-handoff"));
+                string error;
+                var helperRejected = false;
+                if (handoffState == ApplicationUpdateHandoffState.HelperExited)
+                {
+                    // The helper records which check failed before it exits. Report that code now,
+                    // and stop automatic attempts when the same check fails again in this session.
+                    var exit = ApplicationUpdateLauncher.DescribeHelperExit(handoff.ExitCode, launchedAt);
+                    RecordSupplementarySignal("update", "update", "failure", "install-handoff", incident: exit.Incident);
+                    error = exit.Status;
+                    helperRejected = exit.Permanent;
+                }
+                else
+                {
+                    RecordSupplementarySignal("update", "update", handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "failure", "install-handoff",
+                        incident: Supplementary.SupplementaryIncidentSchema.Create("update",
+                            handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "update-verification-failed", "update-install-handoff"));
+                    error = handoffState == ApplicationUpdateHandoffState.TimedOut
+                        ? "The update helper did not become ready in time. Wisp stayed open and no files were installed."
+                        : "The update helper could not verify this installation. Wisp stayed open and no files were installed.";
+                }
                 handoff.StopIfRunning();
                 _applicationUpdateHandoffActive = false;
                 _controller.Runs.CancelMetadataClosePreparation();
-                var error = handoffState == ApplicationUpdateHandoffState.TimedOut
-                    ? "The update helper did not become ready in time. Wisp stayed open and no files were installed."
-                    : "The update helper could not verify this installation. Wisp stayed open and no files were installed.";
                 _controller.ViewModel.UpdateApplicationUpdateStatus(error, "Try again", canCheck: true);
-                return (false, error);
+                return new ApplicationUpdateStartResult(false, error, HelperRejected: helperRejected);
             }
         }
 
