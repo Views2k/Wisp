@@ -29,7 +29,7 @@ cl.exe $compilerFlags /c /Fo"$buildDirectory\ProcessAudioCapture.obj" "$PSScript
 if errorlevel 1 exit /b 1
 cl.exe $compilerFlags /c /Fo"$buildDirectory\AudioSilenceFixture.obj" "$PSScriptRoot\AudioSilenceFixture.cpp"
 if errorlevel 1 exit /b 1
-link.exe /nologo /OUT:"$executable" "$buildDirectory\ProcessAudioCapture.obj" "$buildDirectory\AudioSilenceFixture.obj" /DEBUG:FULL /PDB:"$buildDirectory\Wisp.AudioSilenceFixture.pdb" /PDBALTPATH:Wisp.AudioSilenceFixture.pdb /DYNAMICBASE /NXCOMPAT /GUARD:CF /OPT:REF /OPT:ICF /INCREMENTAL:NO mmdevapi.lib ole32.lib
+link.exe /nologo /OUT:"$executable" "$buildDirectory\ProcessAudioCapture.obj" "$buildDirectory\AudioSilenceFixture.obj" /DEBUG:FULL /PDB:"$buildDirectory\Wisp.AudioSilenceFixture.pdb" /PDBALTPATH:Wisp.AudioSilenceFixture.pdb /DYNAMICBASE /NXCOMPAT /GUARD:CF /OPT:REF /OPT:ICF /INCREMENTAL:NO mmdevapi.lib ole32.lib user32.lib
 exit /b %errorlevel%
 "@
 [IO.File]::WriteAllText($compilerBatch, $batch.Replace("`r`n", "`n").Replace("`n", "`r`n"), [Text.Encoding]::ASCII)

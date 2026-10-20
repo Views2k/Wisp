@@ -5,6 +5,7 @@ Notable changes to Wisp are recorded here.
 ## Unreleased
 
 - Report which check the update helper failed when an update cannot start, and show how to reinstall when this copy of Wisp does not match the registered installation. Automatic update attempts stop for the session after such a rejection; Install update remains available from the dashboard.
+- Record game audio on PCs where Windows reports a meaningless buffer size for the game audio stream. Clip recording previously failed to start there with an audio capture error.
 
 ## 2.6.13 - 2026-10-17
 
