@@ -27,8 +27,7 @@ public sealed class TelemetryPacketDiagnosticsTests
             };
         }
         receiver.PacketAvailable += (_, _) => accepted.Release();
-        var port = GetAvailablePort();
-        await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+        var port = await StartOnAvailablePortAsync(receiver);
         using var sender = new UdpClient(AddressFamily.InterNetwork);
         var endpoint = new IPEndPoint(IPAddress.Loopback, port);
         var started = Stopwatch.GetTimestamp();
@@ -101,8 +100,7 @@ public sealed class TelemetryPacketDiagnosticsTests
                 throw new InvalidOperationException("Drained observer failure");
         };
         receiver.PacketAvailable += (_, _) => accepted.Release();
-        var port = GetAvailablePort();
-        await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+        var port = await StartOnAvailablePortAsync(receiver);
         using var sender = new UdpClient(AddressFamily.InterNetwork);
         var endpoint = new IPEndPoint(IPAddress.Loopback, port);
         try
@@ -174,6 +172,24 @@ public sealed class TelemetryPacketDiagnosticsTests
         var packet = Fh6PacketFixture.Create();
         Fh6PacketFixture.WriteInt32(packet, 212, car);
         return packet;
+    }
+
+    private static async Task<int> StartOnAvailablePortAsync(TelemetryUdpReceiver receiver)
+    {
+        // Probing releases the port before the receiver binds it. Another test's
+        // probe or listener can bind it in between; retry only that setup race.
+        for (var attempt = 0; ; attempt++)
+        {
+            var port = GetAvailablePort();
+            try
+            {
+                await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+                return port;
+            }
+            catch (SocketException error) when (error.SocketErrorCode == SocketError.AddressAlreadyInUse && attempt < 7)
+            {
+            }
+        }
     }
 
     private static int GetAvailablePort()
