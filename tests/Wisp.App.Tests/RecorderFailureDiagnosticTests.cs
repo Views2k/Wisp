@@ -182,6 +182,35 @@ public sealed class RecorderFailureDiagnosticTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void ScheduleAndWriterEvidenceReachesTheReportWhenTheHelperReportsIt(bool reported)
+    {
+        var fields = Fields();
+        if (reported)
+        {
+            fields["lateEpisodes"] = 3u;
+            fields["droppedFrames"] = 41UL;
+            fields["maximumLateness100ns"] = 4_200_000UL;
+            fields["spoolQueuePeakBytes"] = 96_468_992UL;
+            fields["spoolQueueWait100ns"] = 123_456UL;
+        }
+        var diagnostic = Assert.IsType<RecorderFailureDiagnostic>(RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields)));
+        Assert.Equal(reported ? 3u : (uint?)null, diagnostic.LateEpisodes);
+        Assert.Equal(reported ? 41UL : (ulong?)null, diagnostic.DroppedFrames);
+        Assert.Equal(reported ? 4_200_000UL : (ulong?)null, diagnostic.MaximumLateness100ns);
+        Assert.Equal(reported ? 96_468_992UL : (ulong?)null, diagnostic.SpoolQueuePeakBytes);
+        Assert.Equal(reported ? 123_456UL : (ulong?)null, diagnostic.SpoolQueueWait100ns);
+        var report = ClipFailureReport.Build("helper_exited", new(60, 1080, 60, 100), diagnostic);
+        Assert.Equal(reported, report.Contains("Late episodes: 3; frames dropped: 41; worst lateness (100ns): 4200000", StringComparison.Ordinal));
+        Assert.Equal(reported, report.Contains("Writer queue peak (bytes): 96468992; media thread waited for the writer (100ns): 123456", StringComparison.Ordinal));
+        fields["droppedFrames"] = -1;
+        Assert.Null(RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields)));
+        fields["droppedFrames"] = "41";
+        Assert.Null(RecorderFailureDiagnostic.Parse(JsonSerializer.SerializeToUtf8Bytes(fields)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void HostConfigurationDiagnosticAcceptsOptionalLocalFrameTiming(bool includeLocalTiming)
     {
         var fields = Fields();

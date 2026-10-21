@@ -49,6 +49,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private readonly DebugLogging.ComponentDiagnosticHistory _diagnosticHistory;
     private readonly TimeProvider _clock;
     private long? _captureStaleSince;
+    private long? _schedulerLateSince;
     private readonly SemaphoreSlim _permissionGate = new(1, 1);
     private ClipBorderlessAccessResult? _borderlessAccess;
     private readonly bool _helperAvailable;
@@ -452,12 +453,13 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         var transition = false;
         var pausedTransition = false;
         var audioDegraded = false;
-        double? staleDuration;
+        double? staleDuration, lateDuration;
         long revision;
         lock (_sync)
         {
             if (!ReferenceEquals(_session, session) || _sessionLifetime!.IsCancellationRequested || !_enabled || Volatile.Read(ref _disposed) != 0) return;
             staleDuration = ObserveCaptureStaleLocked(state.State == "buffering" && state.Reason == "capture_stale");
+            lateDuration = ObserveSchedulerLateLocked(state.State == "buffering" && state.Reason == "scheduler_late");
             pausedTransition = state.State == "paused" && !_capturePaused;
             if (state.State == "paused") { _capturePaused = true; _nativePauseSequence++; }
             else if (state.State == "buffering") _capturePaused = false;
@@ -488,6 +490,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         // Video can continue while selected audio is unavailable. This does not declare the capture failed.
         if (audioDegraded) DebugLogging.SupplementaryIncidentCapture.RecordRecorder(state.Reason);
         RecordCaptureStale(staleDuration);
+        RecordSchedulerLate(lateDuration);
         if (transition)
         {
             Publish(new(IsPausedTarget(state.Reason) ? ClipRecorderState.Paused : ClipRecorderState.WaitingForGame,
@@ -514,6 +517,22 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     {
         if (duration is { } value)
             Supplementary.SupplementaryObservations.Record("clips", "clips", "stale", "capture", value);
+    }
+
+    // The recorder could not keep the configured frame rate and dropped frames to stay on the clock.
+    // One measured interval per episode, so Tools can see the stalls that no longer cost the buffer.
+    private double? ObserveSchedulerLateLocked(bool late)
+    {
+        if (late) { _schedulerLateSince ??= _clock.GetTimestamp(); return null; }
+        if (_schedulerLateSince is not { } started) return null;
+        _schedulerLateSince = null;
+        return Math.Clamp(_clock.GetElapsedTime(started).TotalMilliseconds, 0, 604_800_000);
+    }
+
+    private static void RecordSchedulerLate(double? duration)
+    {
+        if (duration is { } value)
+            Supplementary.SupplementaryObservations.Record("clips", "clips", "stale", "encode", value);
     }
 
     private void InvalidateObservedTargetLocked()
@@ -551,7 +570,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         IRecorderSession? session;
         CancellationTokenSource? lifetime;
         EventHandler<RecorderStateUpdate>? handler;
-        double? staleDuration;
+        double? staleDuration, lateDuration;
         lock (_sync)
         {
             // A failed disposal retains ownership of the old helper. Retry only
@@ -559,11 +578,13 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             if (_unconfirmedSession is not null && _recoveryWaiting && Volatile.Read(ref _disposed) == 0) return;
             session = _session ?? _unconfirmedSession; lifetime = _sessionLifetime; handler = _sessionHandler;
             staleDuration = ObserveCaptureStaleLocked(false);
+            lateDuration = ObserveSchedulerLateLocked(false);
             _session = null; _sessionLifetime = null; _sessionHandler = null; _activeObservation = null; _nativeState = null; _saving = false;
             _capturePaused = false; _nativePauseSequence = 0;
             _sessionStarted = 0;
         }
         RecordCaptureStale(staleDuration);
+        RecordSchedulerLate(lateDuration);
         if (session is null) return;
         if (handler is not null) session.StateChanged -= handler;
         lifetime?.Cancel();
@@ -716,7 +737,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         "audio_reconnecting" or "audio_failed" or "audio_capture_failed" => "Audio changed. Reconnecting capture…",
         "encoder_reconnecting" => "The video device changed. Reconnecting capture…",
         "capture_stale" => "Waiting for fresh game frames. Reconnecting capture…",
-        "scheduler_late" => "Recording fell behind. Reconnecting capture…",
+        "scheduler_late" => "Recording fell behind by more than two seconds. Reconnecting capture…",
         "window_resized" => "The game resolution changed. Reconnecting capture…",
         _ => "Game capture was interrupted. Reconnecting automatically…"
     }) + " The rolling buffer restarts after reconnecting.";
@@ -805,6 +826,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     internal static string BufferingStatus(RecorderStateUpdate state)
     {
         var status = state.Reason == "capture_stale" ? "No new game frames. Recording the last frame while waiting for the game." :
+            state.Reason == "scheduler_late" ? "Recording fell behind. Frames are being dropped to keep up with the game." :
             state.Reason is "audio_unavailable" or "audio_capture_failed" ? "Recording video. The selected audio is unavailable." : "Recording game clips.";
         if (state.LosslessBuffer is not { } buffer) return status;
         return status + $" Lossless history: {buffer.Duration100ns / 10_000_000d:0.0} s · {buffer.PayloadBytes / 1048576d:0} of {buffer.BudgetBytes / 1048576d:0} MiB." +

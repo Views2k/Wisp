@@ -62,7 +62,7 @@ namespace recorder::lossless
             bool eventRegistered = false;
             bool outputAcquired = false;
             Stage stage = Stage::Free;
-            UINT index = 0;
+            UINT index = 0, sequence = 0, span = 1;
             LONGLONG time = 0, duration = 0;
             ULONGLONG began = 0;
         };
@@ -87,15 +87,18 @@ namespace recorder::lossless
             return "lossless_options_invalid";
         return nullptr;
     }
-    bool ValidateFrameTime(UINT rate, LONGLONG epoch, UINT index, LONGLONG time, LONGLONG& duration) noexcept
+    bool ValidateFrameSpan(UINT rate, LONGLONG epoch, UINT index, UINT span, LONGLONG time, LONGLONG& duration) noexcept
     {
         duration = 0;
-        if ((rate != 30 && rate != 60) || epoch < 0 || index == (std::numeric_limits<UINT>::max)()) return false;
+        if ((rate != 30 && rate != 60) || epoch < 0 || span == 0 || span > MaximumFrameSpan ||
+            index > (std::numeric_limits<UINT>::max)() - span) return false;
         const auto relative = static_cast<LONGLONG>(index) * 10000000 / rate;
-        const auto end = (static_cast<LONGLONG>(index) + 1) * 10000000 / rate;
+        const auto end = (static_cast<LONGLONG>(index) + span) * 10000000 / rate;
         if (epoch > (std::numeric_limits<LONGLONG>::max)() - end || time != epoch + relative) return false;
         duration = end - relative; return duration > 0;
     }
+    bool ValidateFrameTime(UINT rate, LONGLONG epoch, UINT index, LONGLONG time, LONGLONG& duration) noexcept
+    { return ValidateFrameSpan(rate, epoch, index, 1, time, duration); }
 
     struct NvencLosslessVideoSession::Impl
     {
@@ -117,7 +120,9 @@ namespace recorder::lossless
         Options options{};
         const std::atomic<bool>* cancelled = nullptr;
         encoder::PacketObserver* observer = nullptr;
-        UINT nextSubmit = 0, nextEncode = 0, nextOutput = 0, lastKeyframe = 0;
+        // Submission sequence numbers select slots and order the queues; media indices may jump.
+        UINT nextSubmit = 0, nextEncode = 0, nextOutput = 0, nextIndex = 0, lastKeyframe = 0, lastIdrRequest = 0;
+        UINT Ordinal(const Slot& slot) const noexcept { return static_cast<UINT>(&slot - slots.data()); }
         ULONGLONG drainBegan = 0;
         const char* cleanupReason = "not_started";
 
@@ -141,7 +146,7 @@ namespace recorder::lossless
                         {
                             bool complete = false;
                             Check(cudaContext.Leave(), "cuda_context_leave_failed");
-                            Require(planar && planar->IsCopyReady(slot.index % SurfaceCount, complete), "cuda_copy_cleanup_failed");
+                            Require(planar && planar->IsCopyReady(Ordinal(slot), complete), "cuda_copy_cleanup_failed");
                             cudaContext.Enter(planar.get());
                             gpuComplete = gpuComplete && complete;
                             continue;
@@ -164,7 +169,7 @@ namespace recorder::lossless
                     for (UINT work = 0; work < SurfaceCount && nextOutput < nextEncode; ++work)
                     {
                         auto& slot = slots[nextOutput % SurfaceCount];
-                        Require(slot.stage == Stage::Encoding && slot.index == nextOutput,
+                        Require(slot.stage == Stage::Encoding && slot.sequence == nextOutput,
                             "lossless_cleanup_queue_invalid", E_UNEXPECTED);
                         if (!slot.outputAcquired)
                         {
@@ -469,20 +474,23 @@ namespace recorder::lossless
     {
         return impl_ && evidence_.initialized && !failed_ && !closed_ && !impl_->draining &&
             impl_->owner == GetCurrentThreadId() && !impl_->cancelled->load() &&
-            impl_->nextSubmit != (std::numeric_limits<UINT>::max)() &&
+            impl_->nextSubmit != (std::numeric_limits<UINT>::max)() && impl_->nextIndex != (std::numeric_limits<UINT>::max)() &&
             impl_->slots[impl_->nextSubmit % SurfaceCount].stage == Stage::Free;
     }
     encoder::SubmitResult NvencLosslessVideoSession::TrySubmit(UINT index, LONGLONG time, encoder::FrameWriter& writer) noexcept
+    { return TrySubmit(index, 1, time, writer); }
+    encoder::SubmitResult NvencLosslessVideoSession::TrySubmit(UINT index, UINT span, LONGLONG time, encoder::FrameWriter& writer) noexcept
     {
         try
         {
             Guard(); auto& value = *impl_;
-            Require(!value.draining && index == value.nextSubmit, "lossless_input_order_invalid");
+            Require(!value.draining && index == value.nextIndex, "lossless_input_order_invalid");
             LONGLONG duration = 0;
-            Require(ValidateFrameTime(value.config.frameRate, value.options.epochTime100ns, index, time, duration), "lossless_input_time_invalid");
+            Require(ValidateFrameSpan(value.config.frameRate, value.options.epochTime100ns, index, span, time, duration), "lossless_input_time_invalid");
             if (!CanAcceptInput()) return encoder::SubmitResult::WouldBlock;
-            auto& slot = value.slots[index % SurfaceCount];
-            slot.index = index; slot.time = time; slot.duration = duration; slot.began = GetTickCount64(); slot.stage = Stage::GpuPending;
+            auto& slot = value.slots[value.nextSubmit % SurfaceCount];
+            slot.index = index; slot.span = span; slot.sequence = value.nextSubmit; slot.time = time; slot.duration = duration;
+            slot.began = GetTickCount64(); slot.stage = Stage::GpuPending;
             HRESULT written;
             {
                 DeviceLock lock(value.multithread.Get());
@@ -499,7 +507,7 @@ namespace recorder::lossless
             }
             Check(written, "lossless_frame_writer_failed");
             Require(written == S_OK, "lossless_frame_not_written", E_UNEXPECTED);
-            ++value.nextSubmit; ++evidence_.submitted;
+            ++value.nextSubmit; value.nextIndex = index + span; ++evidence_.submitted;
             evidence_.peakInFlight = (std::max)(evidence_.peakInFlight, value.nextSubmit - value.nextOutput);
             return encoder::SubmitResult::Submitted;
         }
@@ -528,7 +536,7 @@ namespace recorder::lossless
             for (UINT work = 0; work < SurfaceCount && value.nextEncode < value.nextSubmit; ++work)
             {
                 auto& slot = value.slots[value.nextEncode % SurfaceCount];
-                Require((slot.stage == Stage::GpuPending || slot.stage == Stage::CudaPending) && slot.index == value.nextEncode,
+                Require((slot.stage == Stage::GpuPending || slot.stage == Stage::CudaPending) && slot.sequence == value.nextEncode,
                     "lossless_gpu_queue_invalid");
                 if (!slot.mapped)
                 {
@@ -541,7 +549,7 @@ namespace recorder::lossless
                         if (value.planar)
                         {
                             Check(cudaContext.Leave(), "cuda_context_leave_failed");
-                            if (!value.planar->BeginCopy(slot.index % SurfaceCount))
+                            if (!value.planar->BeginCopy(value.Ordinal(slot)))
                                 throw Failure{ value.planar->Reason(), value.planar->Error() };
                             cudaContext.Enter(value.planar.get());
                             slot.stage = Stage::CudaPending;
@@ -551,7 +559,7 @@ namespace recorder::lossless
                     {
                         bool ready = false;
                         Check(cudaContext.Leave(), "cuda_context_leave_failed");
-                        if (!value.planar->IsCopyReady(slot.index % SurfaceCount, ready))
+                        if (!value.planar->IsCopyReady(value.Ordinal(slot), ready))
                             throw Failure{ value.planar->Reason(), value.planar->Error() };
                         cudaContext.Enter(value.planar.get());
                         if (!ready) break;
@@ -564,11 +572,15 @@ namespace recorder::lossless
                 Require(ResetEvent(slot.event) != FALSE, "lossless_event_reset_failed", HRESULT_FROM_WIN32(GetLastError()));
                 NV_ENC_PIC_PARAMS picture{}; picture.version = NV_ENC_PIC_PARAMS_VER;
                 picture.inputWidth = value.config.width; picture.inputHeight = value.config.height;
-                picture.inputPitch = value.planar ? value.planar->Pitch(slot.index % SurfaceCount) : value.config.width;
+                picture.inputPitch = value.planar ? value.planar->Pitch(value.Ordinal(slot)) : value.config.width;
                 picture.frameIdx = slot.index; picture.inputTimeStamp = static_cast<std::uint64_t>(slot.time); picture.inputDuration = static_cast<std::uint64_t>(slot.duration);
                 picture.inputBuffer = slot.mapped; picture.bufferFmt = value.inputFormat;
                 picture.outputBitstream = slot.bitstream; picture.completionEvent = slot.event; picture.pictureStruct = NV_ENC_PIC_STRUCT_FRAME;
-                if (slot.index % (value.config.frameRate * 2) == 0) picture.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR | NV_ENC_PIC_FLAG_OUTPUT_SPSPPS;
+                // A keyframe opens every two-second window by media index, so a dropped frame on a
+                // window boundary still leaves a keyframe inside the GOP bound checked on output.
+                const UINT window = value.config.frameRate * 2;
+                if (slot.index == 0 || slot.index / window != value.lastIdrRequest / window)
+                { picture.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR | NV_ENC_PIC_FLAG_OUTPUT_SPSPPS; value.lastIdrRequest = slot.index; }
                 const auto status = api.nvEncEncodePicture(value.encodeSession, &picture);
                 if (status == NV_ENC_ERR_ENCODER_BUSY) break;
                 if (status != NV_ENC_ERR_NEED_MORE_INPUT) Nv(status, "lossless_encode_failed");
@@ -583,7 +595,7 @@ namespace recorder::lossless
             for (UINT work = 0; work < SurfaceCount && value.nextOutput < value.nextEncode; ++work)
             {
                 auto& slot = value.slots[value.nextOutput % SurfaceCount];
-                Require(slot.stage == Stage::Encoding && slot.index == value.nextOutput, "lossless_output_queue_invalid");
+                Require(slot.stage == Stage::Encoding && slot.sequence == value.nextOutput, "lossless_output_queue_invalid");
                 const DWORD ready = WaitForSingleObject(slot.event, 0);
                 if (ready == WAIT_TIMEOUT) break;
                 Require(ready == WAIT_OBJECT_0, "lossless_completion_event_failed", HRESULT_FROM_WIN32(GetLastError()));

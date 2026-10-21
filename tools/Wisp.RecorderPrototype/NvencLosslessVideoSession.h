@@ -8,6 +8,9 @@ namespace recorder::lossless
     enum class VideoMode { SdrLosslessGbr444, HdrMain10, HdrLosslessGbr444 };
     constexpr UINT SurfaceCount = 4;
     constexpr UINT MaximumPacketBytes = 64u * 1024 * 1024;
+    // One submission may cover several schedule intervals when the host drops frames to stay on
+    // the wall clock. Media indices stay monotonic; slots are assigned in submission order.
+    constexpr UINT MaximumFrameSpan = 8;
     struct Options
     {
         UINT operationTimeoutMs = 3000;
@@ -27,6 +30,7 @@ namespace recorder::lossless
     };
     const char* ValidateConfiguration(const encoder::EncodeConfig&, const Options&) noexcept;
     bool ValidateFrameTime(UINT rate, LONGLONG epoch, UINT index, LONGLONG time, LONGLONG& duration) noexcept;
+    bool ValidateFrameSpan(UINT rate, LONGLONG epoch, UINT index, UINT span, LONGLONG time, LONGLONG& duration) noexcept;
 
     // SDR full-color mode: config bitrate/chromaSiting must be zero:
     // there is no lossy rate target or chroma subsampling. AYUV surfaces carry
@@ -57,6 +61,7 @@ namespace recorder::lossless
             const std::atomic<bool>& cancelled, encoder::PacketObserver&) noexcept;
         bool CanAcceptInput() const noexcept;
         encoder::SubmitResult TrySubmit(UINT index, LONGLONG time100ns, encoder::FrameWriter&) noexcept;
+        encoder::SubmitResult TrySubmit(UINT index, UINT span, LONGLONG time100ns, encoder::FrameWriter&) noexcept;
         bool Pump() noexcept;
         bool BeginDrain() noexcept;
         bool Drain() noexcept;

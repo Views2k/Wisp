@@ -71,6 +71,18 @@ namespace recorder::host
         test(SchedulingAllowed(100, 100) && SchedulingAllowed(99, 100));
         test(SchedulingAllowed(100 + MaximumLateness100ns, 100));
         test(!SchedulingAllowed(101 + MaximumLateness100ns, 100));
+        test(ScheduleVerdict(100, 100) == SchedulingVerdict::OnTime && ScheduleVerdict(99, 100) == SchedulingVerdict::OnTime);
+        test(ScheduleVerdict(100 + MaximumLateness100ns, 100) == SchedulingVerdict::OnTime);
+        test(ScheduleVerdict(101 + MaximumLateness100ns, 100) == SchedulingVerdict::Late);
+        test(ScheduleVerdict(100 + TerminalLateness100ns, 100) == SchedulingVerdict::Late);
+        test(ScheduleVerdict(101 + TerminalLateness100ns, 100) == SchedulingVerdict::Terminal);
+        test(TerminalLateness100ns > MaximumLateness100ns && MaximumFrameSpan >= 2 && LateHoldMs >= 1000);
+        test(FrameSpan(100, 100, 60) == 1 && FrameSpan(99, 100, 60) == 1 && FrameSpan(100 + 166665, 100, 60) == 1);
+        test(FrameSpan(100 + 166666, 100, 60) == 1 && FrameSpan(100 + 333332, 100, 60) == 2 && FrameSpan(100 + 499998, 100, 60) == 3);
+        test(FrameSpan(100 + 333333 * 3, 100, 30) == 3 && FrameSpan(100 + 333333 * 3 - 1, 100, 30) == 2);
+        test(FrameSpan(100 + 166666 * 50, 100, 60) == MaximumFrameSpan && FrameSpan(100 + 166666 * 50, 100, 24) == 1);
+        test(SpoolQueueAdmits(0, 1) && SpoolQueueAdmits(SpoolQueueLimitBytes - 1, 1) && SpoolQueueAdmits(0, SpoolQueueLimitBytes));
+        test(!SpoolQueueAdmits(SpoolQueueLimitBytes, 1) && !SpoolQueueAdmits(0, 0) && !SpoolQueueAdmits(0, SpoolQueueLimitBytes + 1));
         std::uint64_t resumedEpoch = 0;
         constexpr std::uint64_t resumedSource = 5000000000ull;
         test(RebasePausedClock(resumedSource, 10000000, 60, 60, resumedEpoch) &&

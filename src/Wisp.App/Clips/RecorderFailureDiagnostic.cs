@@ -17,6 +17,12 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
     internal uint? AdapterVendorId { get; init; }
     internal uint? AdapterDeviceId { get; init; }
     internal uint? HardwareCandidates { get; init; }
+    // Where the time went before the failure, when the helper reports it (older helpers do not).
+    internal uint? LateEpisodes { get; init; }
+    internal ulong? DroppedFrames { get; init; }
+    internal ulong? MaximumLateness100ns { get; init; }
+    internal ulong? SpoolQueuePeakBytes { get; init; }
+    internal ulong? SpoolQueueWait100ns { get; init; }
     internal const int MaximumBytes = 4096;
     private static readonly HashSet<string> Stages = new(StringComparer.Ordinal)
     {
@@ -25,7 +31,8 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
         "capture_freshness", "video_output", "video_spool_append", "audio_output", "audio_spool_append",
         "audio_source", "audio_encode", "audio_timeline", "aac_initialize", "spool_initialize", "spool_bootstrap",
         "capture_target", "capture_pause", "capture_resume", "save_storage_preflight", "video_pump", "video_schedule", "video_submit", "startup_readiness", "spool_health",
-        "save_destination", "save_retain", "save_create", "save_worker", "save_begin", "save_finalize", "host_configuration", "host_loop", "host_exception", "video_cleanup"
+        "save_destination", "save_retain", "save_create", "save_worker", "save_begin", "save_finalize", "host_configuration", "host_loop", "host_exception", "video_cleanup",
+        "spool_queue_full"
     };
 
     internal static RecorderFailureDiagnostic? Parse(ReadOnlyMemory<byte> line)
@@ -68,7 +75,12 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
                 Resolution = resolution,
                 AdapterVendorId = KnownNumber(root, "adapterKnown", "adapterVendorId"),
                 AdapterDeviceId = KnownNumber(root, "adapterKnown", "adapterDeviceId"),
-                HardwareCandidates = KnownNumber(root, "hardwareCandidatesKnown", "hardwareCandidates")
+                HardwareCandidates = KnownNumber(root, "hardwareCandidatesKnown", "hardwareCandidates"),
+                LateEpisodes = root.TryGetProperty("lateEpisodes", out var episodes) ? episodes.GetUInt32() : null,
+                DroppedFrames = OptionalCount(root, "droppedFrames"),
+                MaximumLateness100ns = OptionalCount(root, "maximumLateness100ns"),
+                SpoolQueuePeakBytes = OptionalCount(root, "spoolQueuePeakBytes"),
+                SpoolQueueWait100ns = OptionalCount(root, "spoolQueueWait100ns")
             };
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or OverflowException)
@@ -76,6 +88,8 @@ internal sealed record RecorderFailureDiagnostic(string Reason, string Stage, ui
     }
     private static uint? KnownNumber(JsonElement root, string known, string name) =>
         root.TryGetProperty(known, out var value) && value.GetBoolean() ? root.GetProperty(name).GetUInt32() : null;
+    private static ulong? OptionalCount(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value) ? value.GetUInt64() : null;
     private static ImmutableArray<SupplementaryRecorderComponent>? ReadComponents(JsonElement root)
     {
         var result = ImmutableArray.CreateBuilder<SupplementaryRecorderComponent>();
@@ -136,6 +150,10 @@ internal static class ClipFailureReport
                 report.AppendLine(FormattableString.Invariant($"Hardware encoders on this GPU: {candidates}"));
             report.AppendLine(FormattableString.Invariant($"Frames submitted: {diagnostic.SubmittedFrames}; video packets: {diagnostic.VideoPackets}; audio packets: {diagnostic.AudioPackets}"));
             if (diagnostic.SchedulerLag100ns is { } lag) report.AppendLine(FormattableString.Invariant($"Scheduler lag (100ns): {lag}"));
+            if (diagnostic.LateEpisodes is { } episodes)
+                report.AppendLine(FormattableString.Invariant($"Late episodes: {episodes}; frames dropped: {diagnostic.DroppedFrames ?? 0}; worst lateness (100ns): {diagnostic.MaximumLateness100ns ?? 0}"));
+            if (diagnostic.SpoolQueuePeakBytes is { } queued)
+                report.AppendLine(FormattableString.Invariant($"Writer queue peak (bytes): {queued}; media thread waited for the writer (100ns): {diagnostic.SpoolQueueWait100ns ?? 0}"));
             if (diagnostic.SourceAge100ns is { } age) report.AppendLine(FormattableString.Invariant($"Source frame age (100ns): {age}"));
             if (diagnostic.LocalFrameAge100ns is { } localAge) report.AppendLine(FormattableString.Invariant($"Local frame age (100ns): {localAge}"));
         }
