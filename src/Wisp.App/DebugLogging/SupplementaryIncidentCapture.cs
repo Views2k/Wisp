@@ -34,7 +34,8 @@ internal static class SupplementaryIncidentCapture
             _ => null
         };
         return SupplementaryIncidentSchema.Create(category,
-            reason: category == "windows-fault" ? "windows-application-fault" : category == "unexpected-exit" ? "shutdown-incomplete" : "exception-raised",
+            reason: category == "windows-fault" ? "windows-application-fault" : category != "unexpected-exit" ? "exception-raised" :
+                safe?.RecoveredExit?.WindowsStopped == true ? "system-stopped" : "shutdown-incomplete",
             failureStage: "crash-" + origin,
             code: safe?.RecoveredExit?.Fault?.ExceptionCode ?? (safe?.Exceptions.FirstOrDefault() is { } first ? unchecked((uint)first.HResult) : null),
             exceptions: Exceptions(safe?.Exceptions), context: Context(safe?.Context, report.TimeUtc,

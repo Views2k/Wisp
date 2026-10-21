@@ -44,6 +44,7 @@ public sealed partial class AppController : IAsyncDisposable
     private readonly WispUpdateClient _applicationUpdates = WispUpdateClient.CreateDefault();
     private readonly Func<Version, CancellationToken, Task<UpdateRelease?>> _checkForApplicationUpdate;
     private readonly CancellationTokenSource _applicationUpdateLifetime = new();
+    private readonly ApplicationUpdateCheckOutage _applicationUpdateCheckOutage = new();
     private readonly Dictionary<int, CalibrationPersistenceIdentity> _capturedCalibrationProfiles;
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _uiTimer;
@@ -620,6 +621,7 @@ public sealed partial class AppController : IAsyncDisposable
                 operationLifetime.Token);
             operationLifetime.Token.ThrowIfCancellationRequested();
             supplementaryCheck?.Complete("success");
+            _applicationUpdateCheckOutage.Recovered();
             if (release is not null) SupplementaryObservations.Record("update", "update", "detected", "prompt");
             _availableApplicationRelease = release;
             ApplicationUpdateTelemetry.Record(release is null ? "current" : "available", release?.Version.ToString());
@@ -652,7 +654,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (OperationCanceledException error)
         {
-            supplementaryCheck?.Fail(error, "timeout");
+            FailApplicationUpdateCheck(supplementaryCheck, error, "timeout");
             ApplicationUpdateTelemetry.Record("failed", reason: "timeout");
             if (automatic)
             {
@@ -669,7 +671,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (HttpRequestException error)
         {
-            supplementaryCheck?.Fail(error);
+            FailApplicationUpdateCheck(supplementaryCheck, error);
             ApplicationUpdateTelemetry.Record("failed", reason: "connection");
             if (automatic)
             {
@@ -678,7 +680,9 @@ public sealed partial class AppController : IAsyncDisposable
             else
             {
                 ViewModel.UpdateApplicationUpdateStatus(
-                    "The release service could not be reached. Check the connection and try again.",
+                    error is UpdateRateLimitedException
+                        ? "The release service asked Wisp to wait. Wisp will check again automatically."
+                        : "The release service could not be reached. Check the connection and try again.",
                     "Try again",
                     canCheck: true);
             }
@@ -720,6 +724,18 @@ public sealed partial class AppController : IAsyncDisposable
                 RestoreAutomaticApplicationUpdateStatus();
                 BeginStartupApplicationUpdateCheck();
             }
+        }
+    }
+
+    private void FailApplicationUpdateCheck(SupplementaryOperation? check, Exception error, string outcome = "failure")
+    {
+        if (_applicationUpdateCheckOutage.ShouldReport(SupplementaryOperationFailure.Reason(error)))
+        {
+            check?.Fail(error, outcome);
+        }
+        else
+        {
+            check?.Discard();
         }
     }
 

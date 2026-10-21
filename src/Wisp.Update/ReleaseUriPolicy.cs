@@ -5,6 +5,9 @@ internal static class ReleaseUriPolicy
     internal static readonly Uri LatestReleaseUri =
         new("https://api.github.com/repos/Views2k/Wisp/releases/latest");
 
+    internal static readonly Uri LatestReleasePageUri = new("https://github.com/Views2k/Wisp/releases/latest");
+
+    private const string ReleaseTagPagePrefix = "https://github.com/Views2k/Wisp/releases/tag/";
     private const string GitHubHost = "github.com";
     private const string ReleaseAssetsHost = "release-assets.githubusercontent.com";
     private const string ObjectsHost = "objects.githubusercontent.com";
@@ -12,6 +15,18 @@ internal static class ReleaseUriPolicy
     private const string LegacyReleaseAssetDirectoryPrefix = "/github-production-release-asset-";
 
     internal static string InstallerFileName(SemanticVersion version) => $"Wisp-Setup-{version}.exe";
+
+    // The release page answers with a redirect to the latest tag's page. Only that exact canonical URL with a
+    // vX.Y.Z tag is accepted, compared as received so no host, scheme, port, path or encoding variation passes.
+    // It only says which version is newest; everything installed still comes from the verified API release.
+    internal static bool TryParseLatestTagRedirect(Uri? location, out SemanticVersion version)
+    {
+        version = default;
+        var received = location?.OriginalString;
+        return received is not null &&
+            received.StartsWith(ReleaseTagPagePrefix, StringComparison.Ordinal) &&
+            SemanticVersion.TryParseTag(received[ReleaseTagPagePrefix.Length..], out version);
+    }
 
     internal static Uri InitialDownloadUri(SemanticVersion version) =>
         InitialDownloadUri(version.ToTagString(), InstallerFileName(version));

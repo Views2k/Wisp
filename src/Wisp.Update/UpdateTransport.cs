@@ -33,6 +33,13 @@ internal static class UpdateTransport
         return request;
     }
 
+    internal static HttpRequestMessage CreatePageRequest(Uri uri)
+    {
+        var request = CreateRequest(uri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
+        return request;
+    }
+
     internal static HttpRequestMessage CreateDownloadRequest(Uri uri)
     {
         var request = CreateRequest(uri);
