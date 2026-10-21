@@ -133,6 +133,7 @@ public sealed class WispUpdateClient : IDisposable
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var latest = await GetLatestReleaseAsync(cancellationToken).ConfigureAwait(false);
         Volatile.Write(ref _lastSeenRelease, latest);
         return latest.Version > current ? latest : null;

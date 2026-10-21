@@ -105,15 +105,21 @@ public sealed class LatestTagRedirectTests
         Assert.Equal(1, site.ApiRequests);
     }
 
-    [Fact]
-    public async Task ACancelledCheckDoesNotFallBackToTheApi()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ACancelledCheckDoesNotFallBackToTheApi(bool cancelAfterThePageAnswered)
     {
-        using var cancelled = new CancellationTokenSource();
-        await cancelled.CancelAsync();
-        using var site = new Site(_ => Redirect(TagPage + "v9.8.7"));
+        using var cancellation = new CancellationTokenSource();
+        if (!cancelAfterThePageAnswered) await cancellation.CancelAsync();
+        using var site = new Site(_ =>
+        {
+            if (cancelAfterThePageAnswered) cancellation.Cancel();
+            return Redirect(TagPage + "v9.8.7");
+        });
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => site.Client.CheckForUpdateAsync(Version.Parse("9.8.6.0"), cancelled.Token));
+            () => site.Client.CheckForUpdateAsync(Version.Parse("9.8.6.0"), cancellation.Token));
 
         Assert.Equal(0, site.ApiRequests);
     }
@@ -164,17 +170,20 @@ public sealed class LatestTagRedirectTests
 
         internal Site(Func<HttpRequestMessage, HttpResponseMessage> page, Func<HttpResponseMessage>? api = null)
         {
-            _handler = new ScriptedHttpHandler((request, _, _) =>
+            // Each request is counted when it is attempted; like the real transport, a cancelled one then fails.
+            _handler = new ScriptedHttpHandler((request, _, cancellationToken) =>
             {
                 lock (Requests) Requests.Add(request);
                 if (request.RequestUri == ReleaseUriPolicy.LatestReleasePageUri)
                 {
                     Interlocked.Increment(ref _pageRequests);
+                    cancellationToken.ThrowIfCancellationRequested();
                     return Task.FromResult(page(request));
                 }
 
                 Assert.Equal(ReleaseUriPolicy.LatestReleaseUri, request.RequestUri);
                 Interlocked.Increment(ref _apiRequests);
+                cancellationToken.ThrowIfCancellationRequested();
                 return Task.FromResult(api?.Invoke() ?? ScriptedHttpHandler.JsonResponse(ReleaseTestData.CreateJson()));
             });
             _http = new HttpClient(_handler) { Timeout = Timeout.InfiniteTimeSpan };
