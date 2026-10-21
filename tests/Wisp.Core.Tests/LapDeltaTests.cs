@@ -111,6 +111,55 @@ public sealed class LapDeltaTests
         Assert.Equal(LapDeltaStatus.Comparing, Drive(tracker, 120, 60, 2, 5).Status);
     }
 
+    // Issue #141 lap logs: the car left its grid slot about 92 m behind the line and crossed it at
+    // about 29 m/s. The packet lap stayed 0 and the last-lap time 0; the lap clock restarted at
+    // about 0.017 s while the race clock ran on. The lap from that line took 37.036 s.
+    [Theory]
+    [InlineData(5.884, 5.900)]
+    [InlineData(5.650, 5.667)]
+    public void FirstCrossingFromTheGridStartsTheFirstTimedLap(double beforeLine, double atLine)
+    {
+        const double behindLine = 92, lineClock = .017, lapSeconds = 37.036, step = .05;
+        const float speed = 29;
+        const double circuit = 150 * Math.Tau;
+        var tracker = new LapDeltaTracker();
+        VehicleState At(double race, double lapClock, int number, double meters, double last = 0) =>
+            State(race, lapClock, number, Circle(meters / circuit), last) with { GroundSpeedMetersPerSecond = speed };
+        LapDeltaReading Update(VehicleState state) => tracker.Update(state, LapDeltaReference.SessionBest, capture: true);
+        double Along(double lapClock) => lapClock / lapSeconds * circuit;
+
+        // Both clocks run from the race start while the car drives from the grid to the line.
+        for (var t = 0d; t < beforeLine; t += step) Update(At(t, t, 0, -behindLine * (1 - t / beforeLine)));
+        Update(At(beforeLine, beforeLine, 0, -.3));
+        var gridTraversal = tracker.CaptureFrame!.Traversal;
+        Assert.Contains(tracker.ReadMap(0)!.Outline.Points, point => Vector3.Distance(point.ToVector(), Circle(-behindLine / circuit)) < 5);
+
+        var reading = Update(At(atLine, lineClock, 0, Along(lineClock)));
+        Assert.Equal(LapDeltaStatus.RecordingLap, reading.Status);
+        Assert.NotEqual(gridTraversal, tracker.CaptureFrame!.Traversal);
+        Assert.True(tracker.CaptureFrame.Eligible);
+        var lapTraversal = tracker.CaptureFrame.Traversal;
+
+        for (var t = lineClock + step; t < 3; t += step) reading = Update(At(atLine + t - lineClock, t, 0, Along(t)));
+        Assert.Equal(LapDeltaStatus.RecordingLap, reading.Status);
+        // The learning map is redrawn from the line; the run from the grid is not part of it.
+        var map = tracker.ReadMap(0)!;
+        Assert.True(map.IsRecording);
+        Assert.DoesNotContain(map.Outline.Points, point => Vector3.Distance(point.ToVector(), Circle(-behindLine / circuit)) < 40);
+
+        for (var t = 3d; t < lapSeconds; t += step) Update(At(atLine + t - lineClock, t, 0, Along(t)));
+        var finish = atLine + lapSeconds - lineClock;
+        Update(At(finish + .02, .02, 1, circuit + Along(.02), lapSeconds));
+        // The lap completes as a game lap, so automatic lap recording saves it.
+        Assert.Equal(lapTraversal, tracker.CompletedCapture!.Traversal);
+        Assert.Equal(lapSeconds, tracker.CompletedCapture.DurationSeconds, 3);
+
+        for (var t = .02 + step; t < 5; t += step) reading = Update(At(finish + t, t, 1, circuit + Along(t), lapSeconds));
+        Assert.Equal(LapDeltaStatus.Comparing, reading.Status);
+        Assert.Equal(lapSeconds, reading.ReferenceSeconds!.Value, 3);
+        Assert.InRange(reading.Seconds!.Value, -.05, .05);
+    }
+
     [Fact]
     public void BestAndPreviousReferencesCanBeSwitchedMidLap()
     {

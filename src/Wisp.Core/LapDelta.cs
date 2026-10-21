@@ -283,12 +283,18 @@ public sealed class LapDeltaTracker
                 lap.RaceSeconds + .01f < last.RaceSeconds || lap.LapNumber < last.LapNumber ||
                 lap.LapNumber > last.LapNumber + 1 || !resumed && !Drove(direction, elapsed, state.GroundSpeedMetersPerSecond) ||
                 (!boundary && lap.CurrentLapSeconds + .01f < last.CurrentLapSeconds));
+            // From the grid, the first timed lap begins at the line without a new packet lap: the lap
+            // clock restarts while the race clock runs on and the car keeps driving.
+            var gridLine = !continuous && timing == LapTimingMode.GameLaps && GridStartLine.IsFirstCrossing(last, lap) &&
+                Drove(direction, elapsed, state.GroundSpeedMetersPerSecond);
             // In a race the game rewinds its race clock and lap clock together. Straight after a rewind
             // it can briefly report a lap clock that disagrees with its race clock; wait for one that
             // agrees. (Wisp's Time Attack clocks restart an attempt while the race clock runs on.)
-            if (!continuous && timing == LapTimingMode.GameLaps && lap.LapNumber == last.LapNumber && last.RaceSeconds > 0 &&
+            // Neither the grid line nor a race (re)start is that disagreement: a restart reports both
+            // clocks at zero, even though the race clock led the lap clock after a grid start.
+            if (!continuous && !gridLine && timing == LapTimingMode.GameLaps && lap.LapNumber == last.LapNumber && last.RaceSeconds > 0 &&
                 Math.Abs(lap.CurrentLapSeconds - last.CurrentLapSeconds - (lap.RaceSeconds - last.RaceSeconds)) > .005f &&
-                ++_held <= HeldSamples) return _lastReading;
+                !RaceStart(lap) && ++_held <= HeldSamples) return _lastReading;
             if (!continuous)
             {
                 // A rewind returns the car to a moment of this recording, with the lap clock at that
@@ -298,7 +304,8 @@ public sealed class LapDeltaTracker
                 // In a race the game's lap counter tells a rewind from a new lap: a restart returns to lap
                 // zero with its clocks, and a new lap arrives by crossing the line. In Time Attack a lap
                 // clock back at zero is a new attempt.
-                if ((lap.CurrentLapSeconds > .25f || timing == LapTimingMode.GameLaps && !RaceStart(lap)) && RewindsTo(last, lap)) Rewind(lap);
+                if (gridLine) StartLap(lap);
+                else if ((lap.CurrentLapSeconds > .25f || timing == LapTimingMode.GameLaps && !RaceStart(lap)) && RewindsTo(last, lap)) Rewind(lap);
                 else if (lap.CurrentLapSeconds <= .25f && (RaceStart(lap) || AtLapStart(lap))) StartLap(lap);
                 // Straight after a rewind the game can briefly report a lap clock that fits neither.
                 // Wait a moment for a consistent sample before giving up on this lap's recording.
