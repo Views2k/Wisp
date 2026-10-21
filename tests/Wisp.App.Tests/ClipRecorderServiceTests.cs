@@ -34,6 +34,43 @@ public sealed class ClipRecorderServiceTests
     }
 
 
+    [Fact]
+    public async Task CatchingUpAfterAStallIsOneMeasuredEncodeIntervalAndNoRestart()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var clock = new CaptureClock();
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<Supplementary.SupplementaryObservation>();
+        var previous = Supplementary.SupplementaryObservations.Observer;
+        Supplementary.SupplementaryObservations.Observer = reports.Enqueue;
+        try
+        {
+            await using var service = new ClipRecorderService(() => fixture.Directory, factory.Create, true, clock: clock);
+            await service.SetEnabledAsync(true, Recording, TestToken);
+            service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+            var session = await factory.NextAsync();
+            await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            session.Emit("buffering", "scheduler_late");
+            clock.Milliseconds = 400;
+            session.Emit("buffering", "scheduler_late");
+            Assert.DoesNotContain(reports, r => r.Outcome == "stale");
+            Assert.Contains("fell behind", service.Snapshot.Status);
+            clock.Milliseconds = 900;
+            session.Emit("buffering", "none");
+            await ReconcileAsync(service);
+            var report = Assert.Single(reports, r => r.Outcome == "stale");
+            Assert.Equal("clips", report.Kind);
+            Assert.Equal("encode", report.Stage);
+            Assert.Equal(900d, report.DurationMs);
+            Assert.Null(report.Incident);
+            Assert.DoesNotContain(reports, r => r.Outcome == "failure");
+            Assert.Equal(1, factory.Count);
+            Assert.Equal(0, session.Stops);
+            Assert.True(service.Snapshot.CanSave);
+        }
+        finally { Supplementary.SupplementaryObservations.Observer = previous; }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

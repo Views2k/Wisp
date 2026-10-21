@@ -9,11 +9,14 @@ public sealed partial class DiagnosticsViewModel
     private string _crashReportCopyStatus = "";
     internal long CrashReportNoticeGeneration { get; private set; }
     public bool HasCrashReport => _crashReport is not null;
-    public string CrashReportTitle => _crashReport?.Origin == CrashOrigin.UnexpectedExit
+    public string CrashReportTitle => _crashReport?.RecoveredExit?.WindowsStopped == true
+        ? "Windows stopped while Wisp was running" : _crashReport?.Origin == CrashOrigin.UnexpectedExit
         ? "Wisp did not finish normal shutdown" : _crashReport?.Origin == CrashOrigin.WindowsApplicationFault
         ? "Windows recorded a Wisp crash" : _crashReport?.IsTerminating == true
         ? "Wisp stopped after an error" : "Wisp recorded a background error";
-    public string CrashReportNotice => _crashReport?.Origin == CrashOrigin.UnexpectedExit
+    public string CrashReportNotice => _crashReport?.RecoveredExit?.WindowsStopped == true
+        ? "Windows recorded that it stopped without shutting down, for example after a power loss or a system crash, shortly after Wisp was last running."
+        : _crashReport?.Origin == CrashOrigin.UnexpectedExit
         ? "The previous session ended unexpectedly. No matching Windows crash event was confirmed, so the cause is not established."
         : _crashReport?.IsTerminating == true
         ? "A local report from the previous session is available. Copy its details when reporting the problem."

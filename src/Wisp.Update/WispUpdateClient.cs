@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 
@@ -11,6 +12,9 @@ public sealed class WispUpdateClient : IDisposable
     public static readonly TimeSpan DefaultApiBodyTimeout = TimeSpan.FromSeconds(15);
     public static readonly TimeSpan DefaultDownloadTimeout = TimeSpan.FromMinutes(30);
 
+    // GitHub's unauthenticated allowance is counted per hour, so no service-requested wait is longer.
+    internal static readonly TimeSpan MaximumRateLimitWait = TimeSpan.FromHours(1);
+
     private const int MaximumApiResponseBytes = 1024 * 1024;
     private const int MaximumRedirects = 3;
     private readonly HttpClient _httpClient;
@@ -18,6 +22,12 @@ public sealed class WispUpdateClient : IDisposable
     private readonly TimeSpan _headerTimeout;
     private readonly TimeSpan _apiBodyTimeout;
     private readonly TimeSpan _downloadTimeout;
+    private readonly TimeProvider _clock;
+    private readonly object _rateLimitGate = new();
+    private long _rateLimitStarted;
+    private TimeSpan? _rateLimitWait;
+    private HttpStatusCode _rateLimitStatus;
+    private UpdateRelease? _lastSeenRelease;
     private bool _disposed;
 
     private WispUpdateClient(
@@ -25,9 +35,11 @@ public sealed class WispUpdateClient : IDisposable
         bool ownsHttpClient,
         TimeSpan headerTimeout,
         TimeSpan apiBodyTimeout,
-        TimeSpan downloadTimeout)
+        TimeSpan downloadTimeout,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(clock);
         ValidateTimeout(headerTimeout, nameof(headerTimeout), TimeSpan.FromMinutes(1));
         ValidateTimeout(apiBodyTimeout, nameof(apiBodyTimeout), TimeSpan.FromMinutes(1));
         ValidateTimeout(downloadTimeout, nameof(downloadTimeout), TimeSpan.FromHours(2));
@@ -36,6 +48,7 @@ public sealed class WispUpdateClient : IDisposable
         _headerTimeout = headerTimeout;
         _apiBodyTimeout = apiBodyTimeout;
         _downloadTimeout = downloadTimeout;
+        _clock = clock;
     }
 
     internal WispUpdateClient(
@@ -46,23 +59,42 @@ public sealed class WispUpdateClient : IDisposable
         : this(httpClient, false,
             headerTimeout ?? DefaultHeaderTimeout,
             apiBodyTimeout ?? DefaultApiBodyTimeout,
-            downloadTimeout ?? DefaultDownloadTimeout)
+            downloadTimeout ?? DefaultDownloadTimeout,
+            TimeProvider.System)
+    {
+    }
+
+    internal WispUpdateClient(HttpClient httpClient, TimeProvider clock)
+        : this(httpClient, false, DefaultHeaderTimeout, DefaultApiBodyTimeout, DefaultDownloadTimeout, clock)
     {
     }
 
     public static WispUpdateClient CreateDefault() =>
         new(UpdateTransport.CreateClient(), true,
-            DefaultHeaderTimeout, DefaultApiBodyTimeout, DefaultDownloadTimeout);
+            DefaultHeaderTimeout, DefaultApiBodyTimeout, DefaultDownloadTimeout, TimeProvider.System);
 
     public async Task<UpdateRelease> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ThrowWhileRateLimited();
         using var request = UpdateTransport.CreateApiRequest(ReleaseUriPolicy.LatestReleaseUri);
         using var response = await SendHeadersAsync(request, cancellationToken).ConfigureAwait(false);
 
         RequireUnredirectedResponse(response, ReleaseUriPolicy.LatestReleaseUri);
         if (response.StatusCode != HttpStatusCode.OK)
         {
+            if (TryReadRateLimit(response, _clock.GetUtcNow(), out var wait))
+            {
+                lock (_rateLimitGate)
+                {
+                    _rateLimitStarted = _clock.GetTimestamp();
+                    _rateLimitWait = wait;
+                    _rateLimitStatus = response.StatusCode;
+                }
+
+                throw new UpdateRateLimitedException(response.StatusCode);
+            }
+
             throw new HttpRequestException("The GitHub latest-release endpoint did not return HTTP 200.",
                 inner: null, response.StatusCode);
         }
@@ -80,12 +112,30 @@ public sealed class WispUpdateClient : IDisposable
         return GitHubReleaseParser.Parse(json);
     }
 
+    // The API is asked only when the release page names a tag newer than both the installed version and the
+    // release the API last returned, so an unchanged release costs none of the shared API allowance.
     public async Task<UpdateRelease?> CheckForUpdateAsync(
         Version currentVersion,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var current = SemanticVersion.FromSystemVersion(currentVersion);
+        if (await TryReadLatestTagAsync(cancellationToken).ConfigureAwait(false) is { } tagged)
+        {
+            if (tagged <= current)
+            {
+                return null;
+            }
+
+            if (Volatile.Read(ref _lastSeenRelease) is { } seen && seen.Version == tagged)
+            {
+                return seen;
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
         var latest = await GetLatestReleaseAsync(cancellationToken).ConfigureAwait(false);
+        Volatile.Write(ref _lastSeenRelease, latest);
         return latest.Version > current ? latest : null;
     }
 
@@ -253,6 +303,82 @@ public sealed class WispUpdateClient : IDisposable
             throw;
         }
     }
+
+    // The release page is not part of the API allowance. Any answer other than the exact tag redirect,
+    // including a failed request, leaves the check to the API; a cancelled check stays cancelled.
+    private async Task<SemanticVersion?> TryReadLatestTagAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = UpdateTransport.CreatePageRequest(ReleaseUriPolicy.LatestReleasePageUri);
+            using var response = await SendHeadersAsync(request, cancellationToken).ConfigureAwait(false);
+            RequireUnredirectedResponse(response, ReleaseUriPolicy.LatestReleasePageUri);
+            return response.StatusCode == HttpStatusCode.Found &&
+                ReleaseUriPolicy.TryParseLatestTagRedirect(response.Headers.Location, out var version)
+                    ? version
+                    : null;
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    // Until the wait the service asked for has passed, another request would only be refused again.
+    private void ThrowWhileRateLimited()
+    {
+        lock (_rateLimitGate)
+        {
+            if (_rateLimitWait is { } wait && _clock.GetElapsedTime(_rateLimitStarted) < wait)
+            {
+                throw new UpdateRateLimitedException(_rateLimitStatus);
+            }
+
+            _rateLimitWait = null;
+        }
+    }
+
+    // GitHub answers 403 or 429 once this network has used its allowance (unauthenticated: 60 requests an hour
+    // per public address, shared with every other GitHub client behind it). Retry-After, or X-RateLimit-Reset
+    // when nothing remains, says when a request can succeed again. A 403 with allowance left is a refusal for
+    // another reason and stays an HTTP error. The wait is measured from the service's Date, not the PC clock.
+    internal static bool TryReadRateLimit(HttpResponseMessage response, DateTimeOffset now, out TimeSpan? wait)
+    {
+        wait = null;
+        if (response.StatusCode is not (HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests))
+        {
+            return false;
+        }
+
+        var serviceNow = response.Headers.Date ?? now;
+        var exhausted = SingleHeader(response, "X-RateLimit-Remaining") == "0";
+        if (response.Headers.RetryAfter is { } retryAfter)
+        {
+            wait = retryAfter.Delta ?? retryAfter.Date - serviceNow;
+        }
+        else if (exhausted && long.TryParse(SingleHeader(response, "X-RateLimit-Reset"), NumberStyles.None,
+                     CultureInfo.InvariantCulture, out var reset))
+        {
+            wait = TimeSpan.FromSeconds(Math.Clamp(reset - serviceNow.ToUnixTimeSeconds(), 0,
+                (long)MaximumRateLimitWait.TotalSeconds));
+        }
+
+        if (wait is null && !exhausted && response.StatusCode != HttpStatusCode.TooManyRequests)
+        {
+            return false;
+        }
+
+        if (wait is { } requested)
+        {
+            wait = requested < TimeSpan.Zero ? TimeSpan.Zero
+                : requested > MaximumRateLimitWait ? MaximumRateLimitWait : requested;
+        }
+
+        return true;
+    }
+
+    private static string? SingleHeader(HttpResponseMessage response, string name) =>
+        response.Headers.TryGetValues(name, out var values) && values.ToArray() is [var value] ? value.Trim() : null;
 
     private async Task<byte[]> ReadApiBodyAsync(HttpContent content, CancellationToken cancellationToken)
     {

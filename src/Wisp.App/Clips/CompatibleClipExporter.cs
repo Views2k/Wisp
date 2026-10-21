@@ -103,7 +103,7 @@ internal sealed class CompatibleClipExporter : ICompatibleClipExporter
             stage = "output-inspection";
             var output = Inspect(stagingPath, cancellationToken);
             stage = "output-validation";
-            Validate(clip, output, compatible: true, _target);
+            Validate(clip, output, compatible: true, _target, source.FrameRate);
             var expectedGamma = clip.Media.HdrVideo && _target == CompatibleClipTarget.Sdr ? "srgb" : source.Gamma;
             if (output.Gamma != expectedGamma) throw Failure("output-color-transfer", output);
             using var finished = new FileStream(stagingPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -218,14 +218,19 @@ internal sealed class CompatibleClipExporter : ICompatibleClipExporter
         finally { native?.Close(); }
     }
 
-    internal static void Validate(ClipEntry clip, Probe probe, bool compatible, CompatibleClipTarget target = CompatibleClipTarget.Sdr)
+    // A lossless recording drops frames to stay on the clock when the encoder cannot keep the
+    // configured rate; one frame then covers up to this many intervals (RecorderHost.h MaximumFrameSpan).
+    internal const int LosslessMaximumFrameSpan = 8;
+
+    internal static void Validate(ClipEntry clip, Probe probe, bool compatible, CompatibleClipTarget target = CompatibleClipTarget.Sdr,
+        double? sourceFrameRate = null)
     {
         if (compatible && target == CompatibleClipTarget.PreserveHdr && !clip.Media.HdrVideo) throw Failure("color-primaries", probe);
         if (probe.Width != clip.Media.Width || probe.Height != clip.Media.Height) throw Failure("dimensions", probe);
         if (probe.HasAudio != clip.Media.HasAudio) throw Failure("audio-track", probe);
         if (!double.IsFinite(probe.Duration) || probe.Duration <= 0 || Math.Abs(probe.Duration - clip.DurationSeconds) > .1)
             throw Failure("duration", probe);
-        if (!double.IsFinite(probe.FrameRate) || Math.Abs(probe.FrameRate - clip.Media.FrameRate) > .01)
+        if (!FrameRateMatches(clip, probe.FrameRate, compatible ? sourceFrameRate : null))
             throw Failure("frame-rate", probe);
         var hdr = compatible ? target == CompatibleClipTarget.PreserveHdr : clip.Media.HdrVideo;
         var lossless = !compatible && clip.Media.LosslessVideo;
@@ -239,6 +244,19 @@ internal sealed class CompatibleClipExporter : ICompatibleClipExporter
             : (hdr ? !LosslessClipPlayer.IsHdr420PixelFormat(probe.PixelFormat) : probe.PixelFormat != "yuv420p") ||
                 probe.Matrix != (hdr ? "bt.2020-ncl" : "bt.709") || probe.Range != "limited")
             throw Failure(compatible ? "output-pixel-format" : "source-pixel-format", probe);
+    }
+
+    // The container reports the average rate. A lossless clip's average is at most its recorded rate
+    // and at least one frame per span; other clips are constant-rate. A copy keeps its source's timeline.
+    internal static bool FrameRateMatches(ClipEntry clip, double frameRate, double? sourceFrameRate)
+    {
+        if (!double.IsFinite(frameRate) || frameRate <= 0) return false;
+        if (sourceFrameRate is { } source)
+            return double.IsFinite(source) && Math.Abs(frameRate - source) <= Math.Max(.01, source * .005);
+        var recorded = clip.Media.FrameRate;
+        return clip.Media.LosslessVideo
+            ? frameRate <= recorded + .01 && frameRate >= (double)recorded / LosslessMaximumFrameSpan - .01
+            : Math.Abs(frameRate - recorded) <= .01;
     }
 
     private static InvalidDataException Failure(string reason, Probe? probe = null)

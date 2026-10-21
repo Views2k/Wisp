@@ -13,11 +13,11 @@
   <a href="https://buymeacoffee.com/Views2k">Buy Me a Coffee</a>
 </p>
 
-## Wisp 2.6.12
+## Wisp 2.7
 
-Wisp 2.6.13 keeps the HUD running when the graphics card refuses memory as the game starts, closes cleanly even when a renderer thread is stuck, stops the updater retrying when its helper is missing, and reports the drift gauge setting to Wisp Tools.
+Wisp 2.7 is a reliability update. Clips keep recording when the graphics card is busy, game audio records on more PCs, Wisp stays open when Windows restarts its desktop display, and updates are checked and installed more dependably.
 
-[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.6.13 release notes](docs/releases/Wisp-2.6.13-release-notes.md)
+[Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.7 release notes](docs/releases/Wisp-2.7.0-release-notes.md)
 
 ### Clips
 

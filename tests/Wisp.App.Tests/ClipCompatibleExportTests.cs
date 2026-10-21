@@ -71,12 +71,51 @@ public sealed class ClipCompatibleExportTests : IDisposable
             correct with { PixelFormat = compatible ? "yuv420p" : "gbrp" }, correct with { Matrix = "bt.709" },
             correct with { PixelFormat = compatible ? "yuv420p10be" : "gbrp10be" },
             correct with { PixelFormat = compatible ? "yuv420p12le" : "gbrp12le" },
-            correct with { Range = compatible ? "full" : "limited" }, correct with { FrameRate = 30 },
+            correct with { Range = compatible ? "full" : "limited" }, correct with { FrameRate = 61 }, correct with { FrameRate = 7 },
             correct with { Width = 1280 }, correct with { HasAudio = false }, correct with { Duration = 1 }
         ];
         foreach (var probe in invalid)
             Assert.Throws<InvalidDataException>(() => CompatibleClipExporter.Validate(clip, probe, compatible, CompatibleClipTarget.PreserveHdr));
         Assert.Throws<InvalidDataException>(() => CompatibleClipExporter.Validate(clip with { Media = clip.Media with { HdrVideo = false } }, correct, compatible, CompatibleClipTarget.PreserveHdr));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void LosslessClipThatDroppedFramesExportsWithItsOwnTimeline(bool preserveHdr)
+    {
+        var target = preserveHdr ? CompatibleClipTarget.PreserveHdr : CompatibleClipTarget.Sdr;
+        // 1 676 frames over 29.2 s from a 60 fps recording that dropped frames under load.
+        const double average = 57.397;
+        var clip = new ClipEntry(Guid.NewGuid(), DateTimeOffset.UtcNow, new(30, 2160, 60, 100, LosslessVideo: true),
+            new(4, 3840, 2160, 60, 680_000_000, 972_000_000, true, LosslessVideo: true, HdrVideo: true));
+        var source = new CompatibleClipExporter.Probe(3840, 2160, 29.205, average, true, "gbrp10le", "pq", "rgb", "full", "bt.2020", "hevc");
+        CompatibleClipExporter.Validate(clip, source, compatible: false);
+        CompatibleClipExporter.Validate(clip, source with { FrameRate = 60 }, compatible: false);
+        CompatibleClipExporter.Validate(clip, source with { FrameRate = 7.5 }, compatible: false);
+        Assert.Throws<InvalidDataException>(() => CompatibleClipExporter.Validate(clip, source with { FrameRate = 60.02 }, compatible: false));
+        Assert.Throws<InvalidDataException>(() => CompatibleClipExporter.Validate(clip, source with { FrameRate = 7.4 }, compatible: false));
+        var output = target == CompatibleClipTarget.PreserveHdr
+            ? source with { PixelFormat = "yuv420p10le", Matrix = "bt.2020-ncl", Range = "limited" }
+            : source with { Codec = "h264", PixelFormat = "yuv420p", Gamma = "srgb", Matrix = "bt.709", Range = "limited", Primaries = "bt.709" };
+        CompatibleClipExporter.Validate(clip, output, compatible: true, target, average);
+        CompatibleClipExporter.Validate(clip, output with { FrameRate = average + .2 }, compatible: true, target, average);
+        // A copy whose timing differs from its source is not that clip, even at the recorded rate.
+        Assert.Throws<InvalidDataException>(() => CompatibleClipExporter.Validate(clip, output with { FrameRate = 60 }, compatible: true, target, average));
+        Assert.Throws<InvalidDataException>(() => CompatibleClipExporter.Validate(clip, output with { FrameRate = average - 1 }, compatible: true, target, average));
+        Assert.Throws<InvalidDataException>(() => CompatibleClipExporter.Validate(clip, output, compatible: true, target, double.NaN));
+    }
+
+    [Fact]
+    public void ConstantRateClipStillRequiresItsRecordedRate()
+    {
+        var clip = new ClipEntry(Guid.NewGuid(), DateTimeOffset.UtcNow, new(30, 1080, 60, 100),
+            new(4, 1920, 1080, 60, 0, 20_000_000, true, HdrVideo: true));
+        var source = new CompatibleClipExporter.Probe(1920, 1080, 2, 60, true, "yuv420p10le", "pq", "bt.2020-ncl", "limited", "bt.2020", "hevc");
+        CompatibleClipExporter.Validate(clip, source, compatible: false);
+        Assert.Throws<InvalidDataException>(() => CompatibleClipExporter.Validate(clip, source with { FrameRate = 57.397 }, compatible: false));
+        Assert.False(CompatibleClipExporter.FrameRateMatches(clip, 0, null));
+        Assert.False(CompatibleClipExporter.FrameRateMatches(clip, double.PositiveInfinity, null));
     }
 
     [Theory]

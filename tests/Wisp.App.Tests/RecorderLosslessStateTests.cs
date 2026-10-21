@@ -18,6 +18,8 @@ public sealed class RecorderLosslessStateTests
         Assert.Contains("Size limit reached", status);
         Assert.Contains("No new game frames", ClipRecorderService.BufferingStatus(state with { Reason = "capture_stale" }));
         Assert.Contains("audio is unavailable", ClipRecorderService.BufferingStatus(state with { Reason = "audio_unavailable" }));
+        Assert.Contains("fell behind", ClipRecorderService.BufferingStatus(state with { Reason = "scheduler_late" }));
+        Assert.Contains("Lossless history:", ClipRecorderService.BufferingStatus(state with { Reason = "scheduler_late" }));
     }
 
     [Theory]

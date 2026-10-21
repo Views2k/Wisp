@@ -115,6 +115,7 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
                 report.AppendLine($"Matching WER report: {(fault.CorrelatedWerReport ? "Yes" : "Not available")}");
                 report.AppendLine("The faulting module alone does not establish the root cause.");
             }
+            else if (exit.WindowsStopped) report.AppendLine("Windows stopped without shutting down (Kernel-Power 41 or EventLog 6008) and restarted within 10 minutes of the previous run's last checkpoint.");
             else report.AppendLine("The previous run did not finish normal shutdown. The cause is not established; termination or power loss can also leave this marker.");
             if (exit.Native is { } native)
             {

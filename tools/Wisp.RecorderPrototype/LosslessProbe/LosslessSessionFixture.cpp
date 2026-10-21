@@ -401,6 +401,12 @@ float4 PS(float4 position : SV_Position) : SV_Target {
         test(!lossless::ValidateFrameTime(60, 0, (std::numeric_limits<UINT>::max)(), 0, duration));
         test(!lossless::ValidateFrameTime(60, (std::numeric_limits<LONGLONG>::max)() - 1, 0,
             (std::numeric_limits<LONGLONG>::max)() - 1, duration));
+        test(lossless::ValidateFrameSpan(60, 0, 2, 3, 333333, duration) && duration == 500000);
+        test(lossless::ValidateFrameSpan(60, 0, 0, lossless::MaximumFrameSpan, 0, duration) && duration == 1333333);
+        test(lossless::ValidateFrameSpan(30, 7, 3, 2, 7 + 1000000, duration) && duration == 666667);
+        test(!lossless::ValidateFrameSpan(60, 0, 0, 0, 0, duration) && duration == 0);
+        test(!lossless::ValidateFrameSpan(60, 0, 0, lossless::MaximumFrameSpan + 1, 0, duration));
+        test(!lossless::ValidateFrameSpan(60, 0, (std::numeric_limits<UINT>::max)() - 1, 2, 0, duration));
         lossless::NvencLosslessVideoSession inactive;
         test(!inactive.CanAcceptInput()); test(!inactive.Pump());
         test(SUCCEEDED(inactive.Close())); test(SUCCEEDED(inactive.Close()));

@@ -58,6 +58,7 @@ internal static class SupplementaryOperationFailure
         LosslessMpvException { Code: "decode-failed" } => "invalid-data",
         LosslessMpvException => "native-failure",
         UpdateSecurityException => "update-verification-failed",
+        UpdateRateLimitedException => "rate-limited",
         SocketException { SocketErrorCode: SocketError.AddressAlreadyInUse } => "port-in-use",
         SocketException { SocketErrorCode: SocketError.AccessDenied } => "access-denied",
         SocketException => "socket-failed",

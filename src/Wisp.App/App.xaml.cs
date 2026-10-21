@@ -263,7 +263,7 @@ public partial class App : Application
         var generation = model.CrashReportNoticeGeneration;
         try
         {
-            var report = await new PreviousRunRecovery(_crashReports, new WindowsFaultEventReader())
+            var report = await new PreviousRunRecovery(_crashReports, new WindowsFaultEventReader(), new WindowsStopEventReader())
                 .RecoverAsync(previous, startedAtUtc, cancellationToken).ConfigureAwait(true);
             if (report is not null && !cancellationToken.IsCancellationRequested && !_exiting && !Dispatcher.HasShutdownStarted)
                 model.TryInitializeRecoveredCrashReport(report, generation, _crashReports.AcknowledgeThrough);

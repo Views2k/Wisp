@@ -54,14 +54,14 @@ foreach ($file in @('RecorderHost.cpp', 'EncodedSpool.cpp')) {
         $after = $after.Replace('config_.losslessVideo', $videoSelector)
         Replace-Exactly ([ref]$text) $before $after 'video-pump'
         $before = @'
-                    const auto status = config_.losslessVideo ? losslessVideo_.TrySubmit(nextFrame_, pts, *this) :
+                    const auto status = config_.losslessVideo ? losslessVideo_.TrySubmit(nextFrame_, span, pts, *this) :
                         video_.TrySubmit(nextFrame_, pts, *this);
 '@
         $after = @'
                     encoder::SubmitResult status;
                     {
                         WISP_FIXTURE_TIME(fixtureVideoSubmitTiming, VideoSubmit, 0, pts);
-                        status = config_.losslessVideo ? losslessVideo_.TrySubmit(nextFrame_, pts, *this) :
+                        status = config_.losslessVideo ? losslessVideo_.TrySubmit(nextFrame_, span, pts, *this) :
                             video_.TrySubmit(nextFrame_, pts, *this);
                     }
 '@

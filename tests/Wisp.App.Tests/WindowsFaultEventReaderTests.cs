@@ -1,4 +1,6 @@
+using System.Diagnostics.Eventing.Reader;
 using System.Globalization;
+using System.IO;
 using Wisp.App.CrashDiagnostics;
 using Wisp.App.DebugLogging;
 using Xunit;
@@ -88,6 +90,31 @@ public sealed class WindowsFaultEventReaderTests
         Assert.Null(WindowsFaultEventReader.Correlate(Enumerable.Repeat(Wer(), WindowsFaultEventReader.MaximumEvents)
             .Append(Fault(marker)), marker, Started.AddMinutes(5)).Fault);
     }
+
+    [Fact]
+    public void ASlowLogIsReportedAsATimeoutNotAReadFailure()
+    {
+        // The deadline cancels a pending read, which surfaces as OperationCanceledException; a read that outlasts
+        // its own wait fails with ERROR_TIMEOUT.
+        Assert.Equal(WindowsFaultLookupStatus.TimedOut, WindowsFaultEventReader.FailureStatus(new OperationCanceledException(), deadlineExpired: true));
+        Assert.Equal(WindowsFaultLookupStatus.TimedOut, WindowsFaultEventReader.FailureStatus(new LogFailure(1460), deadlineExpired: false));
+        Assert.Equal(WindowsFaultLookupStatus.TimedOut, WindowsFaultEventReader.FailureStatus(new LogFailure(13), deadlineExpired: true));
+        Assert.Equal(WindowsFaultLookupStatus.AccessDenied, WindowsFaultEventReader.FailureStatus(new LogFailure(5), deadlineExpired: false));
+        Assert.Equal(WindowsFaultLookupStatus.ReadFailed, WindowsFaultEventReader.FailureStatus(new LogFailure(13), deadlineExpired: false));
+        Assert.Equal(WindowsFaultLookupStatus.ReadFailed, WindowsFaultEventReader.FailureStatus(new IOException(), deadlineExpired: false));
+    }
+
+    [Fact]
+    public void AFaultReadBeforeTheTimeoutStillMatches()
+    {
+        var marker = Marker();
+        Assert.Equal(WindowsFaultLookupStatus.Matched, WindowsFaultEventReader.Correlate([Wer(), Fault(marker)], marker,
+            Started.AddMinutes(5), WindowsFaultLookupStatus.TimedOut).Status);
+        Assert.Equal(WindowsFaultLookupStatus.TimedOut, WindowsFaultEventReader.Correlate([Wer()], marker,
+            Started.AddMinutes(5), WindowsFaultLookupStatus.TimedOut).Status);
+    }
+
+    private sealed class LogFailure(int errorCode) : EventLogException(errorCode);
 
     internal static string Fault(RunExitMarker marker, string? replaceField = null, string? replacement = null)
     {

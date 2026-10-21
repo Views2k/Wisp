@@ -123,11 +123,13 @@ public sealed class LapDeltaScenarioTests
                 $"Recent events: {string.Join(", ", _events.TakeLast(6))}. Packets: {string.Join(" ", _packets)}");
     }
 
-    // A lapped race: the game reports lap number, lap time, last lap and race time.
+    // A lapped race: the game reports lap number, lap time, last lap and race time. Even seeds start
+    // from a grid slot behind the line, as most circuit races do; restarts begin on the line.
     private sealed class RaceSession(int seed, LapDeltaReference mode) : Session(seed, mode)
     {
         private readonly record struct Moment(double Game, double Race, double Lap, double Fraction);
         private readonly List<Moment> _history = [];
+        private readonly bool _gridStart = seed % 2 == 0;
         private Moment _now;
         private double _lastLap;
         private int _number;
@@ -138,7 +140,8 @@ public sealed class LapDeltaScenarioTests
         internal void Run()
         {
             NextPace();
-            Send();
+            if (_gridStart) LeaveGrid();
+            else Send();
             for (var step = 0; step < 70; step++)
             {
                 var roll = Random.NextDouble();
@@ -160,12 +163,28 @@ public sealed class LapDeltaScenarioTests
             for (var i = 0; i < Frames(seconds); i++) Step();
         }
 
+        // Both clocks start in a grid slot 60–120 m behind the line. Nothing else happens before the
+        // car reaches the line.
+        private void LeaveGrid()
+        {
+            _now = new(0, 0, 0, -(60 + Random.NextDouble() * 60) / (Math.Tau * 150));
+            Send();
+            while (_now.Fraction < 0) Step();
+        }
+
         private void Step(bool send = true)
         {
             var frame = Frame();
             Wall += frame;
             var next = _now with { Game = _now.Game + frame, Race = _now.Race + frame, Lap = _now.Lap + frame, Fraction = _now.Fraction + frame / Pace };
-            if (next.Fraction >= 1)
+            if (_now.Fraction < 0 && next.Fraction >= 0)
+            {
+                // The first line from the grid restarts the lap clock without a new lap number or
+                // lap time. Rewinds stay within the timed laps.
+                next = next with { Lap = next.Fraction * Pace };
+                _history.Clear();
+            }
+            else if (next.Fraction >= 1)
             {
                 var past = (next.Fraction - 1) * Pace;
                 var duration = next.Lap - past;

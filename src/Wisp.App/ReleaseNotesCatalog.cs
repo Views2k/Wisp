@@ -15,11 +15,34 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.7",
+            "October 21, 2026",
+            "RELIABILITY UPDATE",
+            "Clips keep recording and capture game audio on more PCs, Wisp stays open through display restarts, and updates are checked and installed more dependably.",
+            true,
+            [
+                Group("Clips",
+                    "Clip recording keeps going when the graphics card is busy instead of restarting every few seconds, and clips stay in step with the game and its audio.",
+                    "A slow drive no longer holds up clip recording.",
+                    "Clips record game audio on PCs where recording previously stopped with an audio capture error."),
+                Group("Reliability",
+                    "Wisp keeps running when Windows restarts its desktop display, for example after a graphics driver reset, and the HUD restores its transparent overlay on its own."),
+                Group("Laps",
+                    "In circuit races started from the grid, the first lap is learned from the start line: the track map follows the car on that lap, the lap delta appears on the next lap, and saved laps include it."),
+                Group("Updates",
+                    "When this copy of Wisp cannot update itself automatically, Wisp stops retrying in the background and shows how to install the update with the full installer from wispoverlay.com. Install update stays available on the dashboard.",
+                    "Update checks are more dependable on shared internet connections and during network outages."),
+                Group("Diagnostics",
+                    "Diagnostics tell a Windows power loss or system crash apart from a problem in Wisp.",
+                    "Crash reports include Windows crash details even when Windows is slow to respond right after sign-in.",
+                    "Game access and compatibility problems are reported once per game session.")
+            ]),
+        new(
             "2.6.13",
             "October 17, 2026",
             "STABILITY FIXES",
             "The HUD renderer recovers from graphics-memory refusals, closing stays clean, and the updater stops retrying a missing helper.",
-            true,
+            false,
             [
                 Group("Reliability",
                     "The HUD keeps running when the graphics card or Windows compositor refuses memory as the game starts; the renderer reports it and restarts instead of closing Wisp.",

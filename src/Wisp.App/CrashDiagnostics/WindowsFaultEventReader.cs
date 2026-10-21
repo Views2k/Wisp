@@ -20,6 +20,8 @@ internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTim
 {
     // The in-process capture of the fault, when the native handler wrote one for that run.
     public NativeFaultRecord? Native { get; init; }
+    // Windows stopped without shutting down (power loss, reset or system crash) right after the run was last seen.
+    public bool WindowsStopped { get; init; }
 
     internal RecoveredExitInfo? Sanitize()
     {
@@ -32,7 +34,8 @@ internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTim
             return this with
             {
                 Fault = fault with { Module = WindowsFaultEventReader.SafeModule(fault.Module), ModuleVersion = WindowsFaultEventReader.SafeVersion(fault.ModuleVersion) },
-                Native = Native?.Sanitize()
+                Native = Native?.Sanitize(),
+                WindowsStopped = false
             };
         }
         return this with { Fault = null, Native = Native?.Sanitize() };
@@ -46,6 +49,11 @@ internal interface IWindowsFaultEventSource
 internal sealed class WindowsFaultEventReader : IWindowsFaultEventSource
 {
     internal const int MaximumEvents = 64, MaximumXmlCharacters = 65536;
+    // A filtered query scans the whole Application log before it can report that nothing matched, and Wisp
+    // usually starts at sign-in, when the log is cold. The deadline alone bounds the lookup, so a slow log
+    // ends as a timeout instead of an early per-read failure.
+    internal static readonly TimeSpan LookupBudget = TimeSpan.FromSeconds(10);
+    private const int ErrorTimeout = 1460, ErrorAccessDenied = 5;
     private static readonly XNamespace Namespace = "http://schemas.microsoft.com/win/2004/08/events/event";
 
     public WindowsFaultLookup Read(RunExitMarker previous, DateTimeOffset nextRunStartedAtUtc, CancellationToken cancellationToken)
@@ -60,7 +68,7 @@ internal sealed class WindowsFaultEventReader : IWindowsFaultEventSource
             "(EventID=1001 and Provider[@Name='Windows Error Reporting']))] and " +
             "EventData[Data[@Name='AppName']='Wisp.exe' or Data[@Name='P1']='Wisp.exe']]";
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(2));
+        deadline.CancelAfter(LookupBudget);
         var events = new List<string>();
         try
         {
@@ -72,7 +80,7 @@ internal sealed class WindowsFaultEventReader : IWindowsFaultEventSource
             });
             while (events.Count < MaximumEvents && !deadline.IsCancellationRequested)
             {
-                using var record = reader.ReadEvent(TimeSpan.FromMilliseconds(150));
+                using var record = reader.ReadEvent(LookupBudget);
                 if (record is null) break;
                 var xml = record.ToXml();
                 if (xml.Length <= MaximumXmlCharacters) events.Add(xml);
@@ -85,14 +93,20 @@ internal sealed class WindowsFaultEventReader : IWindowsFaultEventSource
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (UnauthorizedAccessException) { return new(WindowsFaultLookupStatus.AccessDenied); }
-        catch (Exception error) when (error is EventLogException or IOException or InvalidOperationException or System.Security.SecurityException)
+        catch (Exception error) when (error is OperationCanceledException or EventLogException or IOException or
+            InvalidOperationException or System.Security.SecurityException)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Correlate(events, previous, nextRunStartedAtUtc, deadline.IsCancellationRequested
-                ? WindowsFaultLookupStatus.TimedOut : (error.HResult & 0xffff) == 5
-                    ? WindowsFaultLookupStatus.AccessDenied : WindowsFaultLookupStatus.ReadFailed);
+            return Correlate(events, previous, nextRunStartedAtUtc, FailureStatus(error, deadline.IsCancellationRequested));
         }
     }
+
+    // CancelReading at the deadline surfaces as OperationCanceledException, and a read that outlasts its wait
+    // as ERROR_TIMEOUT. Both mean the log was slow, not unreadable.
+    internal static WindowsFaultLookupStatus FailureStatus(Exception error, bool deadlineExpired) =>
+        deadlineExpired || error is OperationCanceledException || (error.HResult & 0xffff) == ErrorTimeout
+            ? WindowsFaultLookupStatus.TimedOut
+            : (error.HResult & 0xffff) == ErrorAccessDenied ? WindowsFaultLookupStatus.AccessDenied : WindowsFaultLookupStatus.ReadFailed;
 
     internal static WindowsFaultLookup Correlate(IEnumerable<string> events, RunExitMarker previous,
         DateTimeOffset nextRunStartedAtUtc, WindowsFaultLookupStatus absent = WindowsFaultLookupStatus.NoMatchingEvent)

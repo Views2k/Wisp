@@ -36,6 +36,24 @@ namespace recorder::host
     bool FrameTime(std::uint64_t epoch, std::uint32_t index, std::uint32_t rate,
         std::uint64_t& due100ns, std::int64_t& pts100ns) noexcept;
     bool SchedulingAllowed(std::uint64_t now, std::uint64_t due) noexcept;
+    // Lateness past MaximumLateness100ns is caught up: the due frames are submitted back to
+    // back with the latest captured image while audio stays on the same clock, so a stall in
+    // storage, the driver or the GPU costs repeated frames, not the rolling buffer. Lateness
+    // past TerminalLateness100ns means the pipeline cannot keep up with the configured rate.
+    constexpr std::uint64_t TerminalLateness100ns = 20000000;
+    constexpr std::uint32_t SubmitsPerTick = 2;
+    // A frame due more than one interval ago covers the whole intervals the recorder missed, up to
+    // this many, so the timeline stays on the wall clock at the rate the pipeline sustains. The
+    // late state is held this long after the last dropped frame so every episode is reported.
+    constexpr std::uint32_t MaximumFrameSpan = 8, LateHoldMs = 2000;
+    std::uint32_t FrameSpan(std::uint64_t now, std::uint64_t due, std::uint32_t rate) noexcept;
+    enum class SchedulingVerdict { OnTime, Late, Terminal };
+    SchedulingVerdict ScheduleVerdict(std::uint64_t now, std::uint64_t due) noexcept;
+    // Encoded packets wait in memory for the spool writer thread, bounded by bytes. A queue
+    // that cannot drain within SpoolQueueWaitMs means storage is slower than the recording.
+    constexpr std::uint64_t SpoolQueueLimitBytes = 512ull * 1024 * 1024;
+    constexpr std::uint32_t SpoolQueueWaitMs = 1500;
+    bool SpoolQueueAdmits(std::uint64_t queuedBytes, std::uint64_t packetBytes) noexcept;
     // A resumed audio sample preserves its existing media index. Only the wall
     // scheduler origin changes, within the normal bounded A/V scheduling gap.
     bool RebasePausedClock(std::uint64_t source100ns, std::int64_t media100ns,
