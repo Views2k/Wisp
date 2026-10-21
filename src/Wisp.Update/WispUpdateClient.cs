@@ -27,6 +27,7 @@ public sealed class WispUpdateClient : IDisposable
     private long _rateLimitStarted;
     private TimeSpan? _rateLimitWait;
     private HttpStatusCode _rateLimitStatus;
+    private UpdateRelease? _lastSeenRelease;
     private bool _disposed;
 
     private WispUpdateClient(
@@ -111,12 +112,29 @@ public sealed class WispUpdateClient : IDisposable
         return GitHubReleaseParser.Parse(json);
     }
 
+    // The API is asked only when the release page names a tag newer than both the installed version and the
+    // release the API last returned, so an unchanged release costs none of the shared API allowance.
     public async Task<UpdateRelease?> CheckForUpdateAsync(
         Version currentVersion,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var current = SemanticVersion.FromSystemVersion(currentVersion);
+        if (await TryReadLatestTagAsync(cancellationToken).ConfigureAwait(false) is { } tagged)
+        {
+            if (tagged <= current)
+            {
+                return null;
+            }
+
+            if (Volatile.Read(ref _lastSeenRelease) is { } seen && seen.Version == tagged)
+            {
+                return seen;
+            }
+        }
+
         var latest = await GetLatestReleaseAsync(cancellationToken).ConfigureAwait(false);
+        Volatile.Write(ref _lastSeenRelease, latest);
         return latest.Version > current ? latest : null;
     }
 
@@ -282,6 +300,26 @@ public sealed class WispUpdateClient : IDisposable
         {
             _ = DisposeLateResponseAsync(pending);
             throw;
+        }
+    }
+
+    // The release page is not part of the API allowance. Any answer other than the exact tag redirect,
+    // including a failed request, leaves the check to the API; a cancelled check stays cancelled.
+    private async Task<SemanticVersion?> TryReadLatestTagAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = UpdateTransport.CreatePageRequest(ReleaseUriPolicy.LatestReleasePageUri);
+            using var response = await SendHeadersAsync(request, cancellationToken).ConfigureAwait(false);
+            RequireUnredirectedResponse(response, ReleaseUriPolicy.LatestReleasePageUri);
+            return response.StatusCode == HttpStatusCode.Found &&
+                ReleaseUriPolicy.TryParseLatestTagRedirect(response.Headers.Location, out var version)
+                    ? version
+                    : null;
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
         }
     }
 
