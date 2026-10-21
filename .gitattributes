@@ -20,7 +20,7 @@
 
 # Preserve authoritative runtime notice bytes exactly as published.
 /LICENSES/dotnet-runtime-10.0.13-LICENSE.txt -text whitespace=cr-at-eol
-/LICENSES/dotnet-runtime-10.0.13-THIRD-PARTY-NOTICES.txt -text whitespace=cr-at-eol
+/LICENSES/dotnet-runtime-10.0.13-THIRD-PARTY-NOTICES.txt -text -whitespace
 /LICENSES/windowsdesktop-runtime-10.0.13-LICENSE.txt -text whitespace=cr-at-eol
 
 # These upstream files are hash-verified and must retain original bytes/spacing.
