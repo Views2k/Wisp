@@ -17,8 +17,8 @@ public static class ReleaseNotesCatalog
         new(
             "2.7",
             "October 21, 2026",
-            "CLIPS AND RELIABILITY",
-            "Clips keep recording and capture game audio on more PCs, Wisp stays open through display restarts, and updates that cannot install themselves point you to the installer.",
+            "RELIABILITY UPDATE",
+            "Clips keep recording and capture game audio on more PCs, Wisp stays open through display restarts, and updates are checked and installed more dependably.",
             true,
             [
                 Group("Clips",
@@ -28,7 +28,12 @@ public static class ReleaseNotesCatalog
                 Group("Reliability",
                     "Wisp keeps running when Windows restarts its desktop display, for example after a graphics driver reset, and the HUD restores its transparent overlay on its own."),
                 Group("Updates",
-                    "When this copy of Wisp cannot update itself automatically, Wisp stops retrying in the background and shows how to install the update with the full installer from wispoverlay.com. Install update stays available on the dashboard.")
+                    "When this copy of Wisp cannot update itself automatically, Wisp stops retrying in the background and shows how to install the update with the full installer from wispoverlay.com. Install update stays available on the dashboard.",
+                    "Update checks are more dependable on shared internet connections and during network outages."),
+                Group("Diagnostics",
+                    "Diagnostics tell a Windows power loss or system crash apart from a problem in Wisp.",
+                    "Crash reports include Windows crash details even when Windows is slow to respond right after sign-in.",
+                    "Game access and compatibility problems are reported once per game session.")
             ]),
         new(
             "2.6.13",

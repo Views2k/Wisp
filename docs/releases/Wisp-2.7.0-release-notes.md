@@ -1,6 +1,6 @@
 # Wisp 2.7
 
-Wisp 2.7 keeps clips recording when the graphics card is busy, records game audio on more PCs, stays open when Windows restarts its desktop display, and shows how to finish an update that cannot install itself.
+Wisp 2.7 is a reliability update. Clips keep recording when the graphics card is busy, game audio records on more PCs, Wisp stays open when Windows restarts its desktop display, and updates are checked and installed more dependably.
 
 [Download the latest Wisp release for Windows](https://github.com/Views2k/Wisp/releases/latest)
 
@@ -17,3 +17,10 @@ Wisp 2.7 keeps clips recording when the graphics card is busy, records game audi
 ## Updates
 
 - When this copy of Wisp cannot update itself automatically, Wisp stops retrying in the background and shows how to install the update with the full installer from wispoverlay.com. Install update stays available on the dashboard.
+- Update checks are more dependable on shared internet connections and during network outages.
+
+## Diagnostics
+
+- Diagnostics tell a Windows power loss or system crash apart from a problem in Wisp.
+- Crash reports include Windows crash details even when Windows is slow to respond right after sign-in.
+- Game access and compatibility problems are reported once per game session.

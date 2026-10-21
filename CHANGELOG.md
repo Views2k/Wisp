@@ -9,6 +9,10 @@ Notable changes to Wisp are recorded here.
 - Record game audio in clips on PCs where recording previously stopped with an audio capture error.
 - Keep Wisp running when Windows restarts its desktop display, for example after a graphics driver reset; the HUD restores its transparent overlay on its own.
 - Stop automatic update attempts when this copy of Wisp cannot update itself automatically, and show how to install the update with the full installer from wispoverlay.com. Install update remains available from the dashboard.
+- Make update checks more dependable on shared internet connections and during network outages.
+- Make diagnostics tell a Windows power loss or system crash apart from a problem in Wisp.
+- Give crash reports time to include Windows crash details when Windows is slow to respond right after sign-in.
+- Report game access and compatibility problems once per game session.
 
 ## 2.6.13 - 2026-10-17
 
