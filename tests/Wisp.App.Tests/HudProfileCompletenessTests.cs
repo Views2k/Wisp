@@ -14,7 +14,7 @@ public sealed class HudProfileCompletenessTests
     [
         "SettingsRevision", "UdpPort", "AggregationMode", "StartWithWindows", "StartWithForza", "StartMinimizedWithForza",
         "BackgroundParticlesEnabled", "AnimatedBackground", "AutomaticApplicationUpdateChecks",
-        "LastApplicationUpdateCheckUtc", "CpuRenderingEnabled", "DebugLoggingEnabled", "DebugLoggingExpiresAtUtc",
+        "LastApplicationUpdateCheckUtc", "CpuRenderingEnabled", "HudGpuPriority", "DebugLoggingEnabled", "DebugLoggingExpiresAtUtc",
         "ApplicationStyle", "HudPresets", "SidebarCollapsed", "UseLegacyInterface", "CompletedFeatureTourId", "LastSupportReminderShownUtc",
         "DismissedWhatsNewId", "DismissedDashboardBannerKey", "ResizableDashboardDisplay", "RunWorkspace", "RunStatisticsView", "Clips",
         "AutoMinimizeOnTelemetry", "HasCompletedSetup", "SetupCompletion", "Calibrations",

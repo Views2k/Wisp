@@ -58,29 +58,37 @@ public sealed class DirectCompositionDeviceFailureTests
         });
     }
 
-    [Theory]
-    [InlineData("create")]
-    [InlineData("upload_texture")]
-    public void DriftWorkerRecordsAndReportsNativeOutOfMemory(string operation)
+    // The drift gauge loads its artwork through DriftGaugeVisuals.LoadOnUiThread, which requires the
+    // thread that owns Application.Current. WpfStyleRuntimeTests owns the test Application, so this
+    // check runs in its sequence; on a separate STA thread it failed whenever that test ran first.
+    internal static void AssertDriftWorkerOnCurrentDispatcher()
     {
-        RunWithHiddenWindow(handle =>
+        foreach (var operation in new[] { "create", "upload_texture" })
         {
-            var before = DateTimeOffset.UtcNow.AddMilliseconds(-1);
-            var status = new TaskCompletionSource<(bool Ready, int HResult)>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var presentation = new DriftGaugePresentation(620, 108, 1, 1, 1, true, 40, 10);
-            var worker = new DriftGaugeRenderWorker(handle, () => null, presentation,
-                (ready, hresult) => status.TrySetResult((ready, hresult)), cpuRendering: true,
-                nativeFailureForTest: name => name == operation ? OutOfMemory : 0);
-            try
-            {
-                PumpUntil(() => status.Task.IsCompleted, 10000, "The drift gauge worker did not report its status.");
-                Assert.Equal((false, OutOfMemory), status.Task.Result);
-                PumpUntil(() => worker.Completion.IsCompleted, 10000, "The drift gauge worker did not finish.");
-                Assert.Contains(HealthContextRecorder.Current.CaptureForReport().Breadcrumbs, crumb =>
-                    crumb.Code == HealthEventCode.RendererFailed && crumb.ErrorCode == OutOfMemory && crumb.TimestampUtc >= before);
-            }
-            finally { worker.Dispose(); }
-        });
+            var window = new Window { Width = 64, Height = 64, WindowStyle = WindowStyle.None, ShowInTaskbar = false, ShowActivated = false };
+            try { DriftWorkerRecordsAndReportsNativeOutOfMemory(new WindowInteropHelper(window).EnsureHandle(), operation); }
+            catch (Exception exception) { throw new InvalidOperationException($"Drift worker native failure '{operation}'", exception); }
+            finally { window.Close(); }
+        }
+    }
+
+    private static void DriftWorkerRecordsAndReportsNativeOutOfMemory(IntPtr handle, string operation)
+    {
+        var before = DateTimeOffset.UtcNow.AddMilliseconds(-1);
+        var status = new TaskCompletionSource<(bool Ready, int HResult)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var presentation = new DriftGaugePresentation(620, 108, 1, 1, 1, true, 40, 10);
+        var worker = new DriftGaugeRenderWorker(handle, () => null, presentation,
+            (ready, hresult) => status.TrySetResult((ready, hresult)), cpuRendering: true,
+            nativeFailureForTest: name => name == operation ? OutOfMemory : 0);
+        try
+        {
+            PumpUntil(() => status.Task.IsCompleted, 10000, "The drift gauge worker did not report its status.");
+            Assert.Equal((false, OutOfMemory), status.Task.Result);
+            PumpUntil(() => worker.Completion.IsCompleted, 10000, "The drift gauge worker did not finish.");
+            Assert.Contains(HealthContextRecorder.Current.CaptureForReport().Breadcrumbs, crumb =>
+                crumb.Code == HealthEventCode.RendererFailed && crumb.ErrorCode == OutOfMemory && crumb.TimestampUtc >= before);
+        }
+        finally { worker.Dispose(); }
     }
 
     private static AnalogHudTexture Texture() => new(1, 2, 2, 8, new byte[16]);
