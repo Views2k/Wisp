@@ -221,7 +221,9 @@ namespace
             "\"maximumPositiveDeviceStep\":%llu,"
             "\"validTimestampPackets\":%llu,\"timestampSpan100ns\":%llu,"
             "\"peakQueuedPcmBytes\":%llu,\"queueDrained\":%s,\"elapsedMs\":%llu,"
-            "\"hr\":%ld,\"stopHr\":%ld,\"releaseBufferHr\":%ld}\n",
+            "\"hr\":%ld,\"stopHr\":%ld,\"releaseBufferHr\":%ld,"
+            "\"bufferSizeHr\":%ld,\"endpointBufferReported\":%s,\"endpointBufferFrames\":%u,"
+            "\"effectiveBufferFrames\":%u}\n",
             Json(complete), reason, Json(gameAbsent), Json(source.activationResultReceived),
             Json(source.activationAbandoned), Json(source.lateActivationCallbackPossible),
             Json(source.initializedPreferredFormat), Json(source.started), Json(source.stopped),
@@ -235,7 +237,9 @@ namespace
             samples.minimumPositiveDeviceStep == UINT64_MAX ? 0ULL : samples.minimumPositiveDeviceStep,
             samples.maximumPositiveDeviceStep,
             samples.validTimestampPackets, timestampSpan, static_cast<unsigned long long>(source.queue.peakQueuedBytes),
-            Json(accountingValid), source.elapsedMs, source.hr, source.stopHr, source.releaseBufferHr);
+            Json(accountingValid), source.elapsedMs, source.hr, source.stopHr, source.releaseBufferHr,
+            source.bufferSizeHr, Json(source.endpointBufferReported), source.endpointBufferFrames,
+            source.effectiveBufferFrames);
         return complete ? 0 : 1;
     }
 }

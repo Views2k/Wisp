@@ -93,6 +93,10 @@ public static partial class LapReviewAnalysis
             var jumped = previous is not null && moved > Math.Max(25, dt * 180);
             var changedLap = current is not null && lap.LapNumber + 1 != current.Number;
             var changedCircuit = clock?.CircuitChanged == true;
+            // From the grid, the first timed lap begins at the line without a new packet lap, as in
+            // LapDeltaTracker. Its lap clock restarting there is that lap's start, not a rewind.
+            var gridLine = timing == LapTimingMode.GameLaps && previous is not null && previousLap is not null && !breakPending &&
+                ContinuousSamples(previous, sample) && !changedCar && !jumped && GridStartLine.IsFirstCrossing(previousLap, lap);
             if (boundary)
             {
                 double? line = null;
@@ -105,6 +109,13 @@ public static partial class LapReviewAnalysis
                     lap.LastLapSeconds);
                 current = new(sample.State.CarOrdinal, lap.LapNumber + 1, line ?? sample.ElapsedSeconds,
                     crossing && !changedCar && !jumped, initialQuality);
+            }
+            else if (gridLine)
+            {
+                // The run from the grid ends at the line, where the first timed lap starts.
+                var line = Math.Max(previous!.ElapsedSeconds, sample.ElapsedSeconds - lap.CurrentLapSeconds);
+                Finish(line, false, LapReviewQuality.None);
+                current = new(sample.State.CarOrdinal, lap.LapNumber + 1, line, true, initialQuality);
             }
             else if (changedCar || rewind || jumped || changedLap || changedCircuit)
             {

@@ -83,6 +83,15 @@ audio sample explicitly re-anchors the wall scheduler to the existing media
 endpoint. Wall time spent paused is excluded. Within each source segment the
 strict timestamp/discontinuity checks remain unchanged; no synthetic silence or
 resampling fills the pause. New screen frames must postdate the resume boundary.
+A `buffering` state with `scheduler_late` reports that the recorder could not keep the
+configured frame rate within the last two seconds and dropped frames to stay on the wall clock:
+a lossless frame then covers the schedule intervals that were missed (at most eight per frame),
+so the video stays in step with audio at the rate the encode pipeline sustains and the rolling
+buffer is kept. A terminal `scheduler_late` (below) means the schedule fell more than two
+seconds behind, so the pipeline was not moving at all. Encoded packets are written by a dedicated writer thread;
+`spool_queue_full` in a failure diagnostic means storage could not absorb the recording's output
+within the bounded queue.
+
 `reconnecting` is valid only with `target_exited`,
 `target_changed`, `window_closed`, `window_resized`, `capture_reconnecting`,
 `encoder_reconnecting`, `audio_reconnecting` or `scheduler_late`. These terminal

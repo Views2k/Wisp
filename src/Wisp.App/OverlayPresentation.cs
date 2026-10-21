@@ -12,6 +12,7 @@ internal static class OverlayPresentation
     private const int CompositionChangedMessage = 0x031E;
     private const int LayeredExtendedStyle = 0x00080000;
     private const uint LayeredAlpha = 0x00000002;
+    private static readonly OverlayCompositionRecovery CompositionRecovery = new(TryApplyComposition);
 
     public static void Initialize(HwndSource source)
     {
@@ -25,11 +26,16 @@ internal static class OverlayPresentation
         source.Disposed += (_, _) => OverlayPassiveUpdate.Forget(handle);
     }
 
-    public static bool TryHandleWindowMessage(IntPtr handle, int message, IntPtr wordParameter, IntPtr longParameter)
+    public static bool TryHandleWindowMessage(IntPtr handle, int message, IntPtr wordParameter, IntPtr longParameter) =>
+        TryHandleWindowMessage(handle, message, wordParameter, longParameter, CompositionRecovery);
+
+    internal static bool TryHandleWindowMessage(IntPtr handle, int message, IntPtr wordParameter, IntPtr longParameter,
+        OverlayCompositionRecovery compositionRecovery)
     {
         if (message == 0x0082) // WM_NCDESTROY
         {
             OverlayPassiveUpdate.Forget(handle);
+            compositionRecovery.Forget(handle);
         }
 
         if (message == StyleChangingMessage && wordParameter.ToInt64() == ExtendedStyleIndex)
@@ -44,7 +50,8 @@ internal static class OverlayPresentation
 
         if (message == CompositionChangedMessage)
         {
-            ApplyComposition(handle);
+            // DWM may still be restarting; a failure is reported and retried instead of thrown here.
+            compositionRecovery.Reapply(handle);
         }
 
         return false;
@@ -52,13 +59,34 @@ internal static class OverlayPresentation
 
     private static void ApplyComposition(IntPtr handle)
     {
-        var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
-        Marshal.ThrowExceptionForHR(DwmExtendFrameIntoClientArea(handle, ref margins));
+        Marshal.ThrowExceptionForHR(ExtendFrameIntoClientArea(handle));
         if (!SetLayeredWindowAttributes(handle, 0, byte.MaxValue, LayeredAlpha))
         {
             throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         _ = OverlayPassiveUpdate.Apply(handle, native: false);
+    }
+
+    // Window-message path: returns the failure as an HRESULT instead of throwing.
+    private static int TryApplyComposition(IntPtr handle)
+    {
+        var result = ExtendFrameIntoClientArea(handle);
+        if (result < 0)
+        {
+            return result;
+        }
+        if (!SetLayeredWindowAttributes(handle, 0, byte.MaxValue, LayeredAlpha))
+        {
+            return Marshal.GetHRForLastWin32Error();
+        }
+        _ = OverlayPassiveUpdate.Apply(handle, native: false);
+        return 0;
+    }
+
+    private static int ExtendFrameIntoClientArea(IntPtr handle)
+    {
+        var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+        return DwmExtendFrameIntoClientArea(handle, ref margins);
     }
 
     [StructLayout(LayoutKind.Sequential)]

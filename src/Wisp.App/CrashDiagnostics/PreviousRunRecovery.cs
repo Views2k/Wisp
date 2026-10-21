@@ -1,6 +1,7 @@
 namespace Wisp.App.CrashDiagnostics;
 
-internal sealed class PreviousRunRecovery(CrashReportStore reports, IWindowsFaultEventSource source)
+internal sealed class PreviousRunRecovery(CrashReportStore reports, IWindowsFaultEventSource source,
+    IWindowsStopEventSource? stops = null)
 {
     internal Task<CrashReport?> RecoverAsync(RunExitMarker previous, DateTimeOffset nextRunStartedAtUtc,
         CancellationToken cancellationToken)
@@ -29,6 +30,16 @@ internal sealed class PreviousRunRecovery(CrashReportStore reports, IWindowsFaul
             exit = exit with { Native = NativeCrashCapture.TryRead(reports.StoreDirectory, safe.RunId) };
             // A recorded close request is not a crash. A correlated Windows fault still wins.
             if (safe.ShutdownIntent != ShutdownIntent.None && exit.Fault is null) return null;
+            // Windows stopping right after the last checkpoint ended the run, unless Wisp itself recorded a fault.
+            if (exit.Fault is null && exit.Native is null && stops is not null)
+            {
+                bool stopped;
+                try { stopped = stops.StoppedUnexpectedly(safe.Context?.CapturedAtUtc ?? safe.StartedAtUtc, nextRunStartedAtUtc, cancellationToken); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception) { stopped = false; }
+                cancellationToken.ThrowIfCancellationRequested();
+                exit = exit with { WindowsStopped = stopped };
+            }
             var report = safe.ToReport(exit.Fault?.TimeUtc ?? nextRunStartedAtUtc) with
             {
                 Origin = exit.Fault is null ? CrashOrigin.UnexpectedExit : CrashOrigin.WindowsApplicationFault,

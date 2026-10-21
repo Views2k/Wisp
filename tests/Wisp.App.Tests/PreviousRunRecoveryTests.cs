@@ -156,6 +156,57 @@ public sealed class PreviousRunRecoveryTests
         Assert.DoesNotContain("PRIVATE_", report.Format(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AWindowsStopAfterTheLastCheckpointIsReportedAsWindowsEndingTheRun(bool stopped)
+    {
+        using var fixture = new Fixture();
+        var marker = WindowsFaultEventReaderTests.Marker();
+        var stops = new Stops(stopped);
+        var report = await fixture.Recover(marker, new Source(_ => new(WindowsFaultLookupStatus.NoMatchingEvent)), stops: stops);
+        Assert.NotNull(report);
+        Assert.Equal(CrashOrigin.UnexpectedExit, report.Origin);
+        Assert.Equal(stopped, report.RecoveredExit!.WindowsStopped);
+        Assert.Equal(stopped, fixture.Store.LatestPending()!.RecoveredExit!.WindowsStopped);
+        Assert.Equal(marker.StartedAtUtc, stops.LastSeen);
+        Assert.Equal(stopped ? "system-stopped" : "shutdown-incomplete", Wisp.App.DebugLogging.SupplementaryIncidentCapture.Crash(report).Reason);
+        Assert.Contains(stopped ? "Kernel-Power 41" : "cause is not established", report.Format(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AWindowsFaultOrARecordedShutdownWinsOverAWindowsStop()
+    {
+        using var fixture = new Fixture();
+        var marker = WindowsFaultEventReaderTests.Marker();
+        var stops = new Stops(true);
+        var fault = await fixture.Recover(marker, new Source(_ => WindowsFaultEventReader.Correlate([WindowsFaultEventReaderTests.Fault(marker)],
+            marker, WindowsFaultEventReaderTests.Started.AddMinutes(5))), stops: stops);
+        Assert.Equal(CrashOrigin.WindowsApplicationFault, fault!.Origin);
+        Assert.False(fault.RecoveredExit!.WindowsStopped);
+        Assert.Null(await fixture.Recover(marker with { ShutdownIntent = ShutdownIntent.OperatingSystem },
+            new Source(_ => new(WindowsFaultLookupStatus.NoMatchingEvent)), stops: stops));
+        Assert.Equal(0, stops.Calls);
+    }
+
+    [Fact]
+    public async Task AFailedWindowsStopLookupLeavesTheExitUnexplained()
+    {
+        using var fixture = new Fixture();
+        var report = await fixture.Recover(WindowsFaultEventReaderTests.Marker(), new Source(_ => new(WindowsFaultLookupStatus.NoMatchingEvent)),
+            stops: new Stops(() => throw new System.Diagnostics.Eventing.Reader.EventLogException("PRIVATE_LOG")));
+        Assert.False(report!.RecoveredExit!.WindowsStopped);
+    }
+
+    private sealed class Stops(Func<bool> stopped) : IWindowsStopEventSource
+    {
+        internal Stops(bool stopped) : this(() => stopped) { }
+        internal int Calls { get; private set; }
+        internal DateTimeOffset? LastSeen { get; private set; }
+        public bool StoppedUnexpectedly(DateTimeOffset lastSeenUtc, DateTimeOffset nextRunStartedAtUtc, CancellationToken cancellationToken)
+        { Calls++; LastSeen = lastSeenUtc; return stopped(); }
+    }
+
     private sealed class Source(Func<CancellationToken, WindowsFaultLookup> read) : IWindowsFaultEventSource
     {
         internal int Calls { get; private set; }
@@ -167,8 +218,8 @@ public sealed class PreviousRunRecoveryTests
         private readonly string _directory = Path.Combine(Path.GetTempPath(), "WispPreviousRunTests", Guid.NewGuid().ToString("N"));
         internal CrashReportStore Store { get; }
         internal Fixture() { Store = new(_directory); }
-        internal Task<CrashReport?> Recover(RunExitMarker marker, Source source, CancellationToken? token = null) =>
-            new PreviousRunRecovery(Store, source).RecoverAsync(marker, WindowsFaultEventReaderTests.Started.AddMinutes(5),
+        internal Task<CrashReport?> Recover(RunExitMarker marker, Source source, CancellationToken? token = null, Stops? stops = null) =>
+            new PreviousRunRecovery(Store, source, stops).RecoverAsync(marker, WindowsFaultEventReaderTests.Started.AddMinutes(5),
                 token ?? TestContext.Current.CancellationToken);
         public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
     }

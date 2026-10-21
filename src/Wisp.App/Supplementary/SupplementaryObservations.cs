@@ -54,6 +54,8 @@ internal sealed class SupplementaryOperation : IDisposable
     }
     internal void Fail(Exception error, string outcome = "failure") => Complete(outcome,
         DebugLogging.SupplementaryOperationFailure.Capture(_feature, _stage, error, _clock.GetUtcNow()));
+    // A failure its owner already reported for the same ongoing condition leaves only its attempt.
+    internal void Discard() => Interlocked.Exchange(ref _completed, 1);
     // An interrupted/uncategorized path is not silently counted as success or a confirmed failure.
     public void Dispose() => Complete("unknown");
 }
