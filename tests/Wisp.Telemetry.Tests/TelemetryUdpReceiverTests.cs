@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Xunit;
 
@@ -109,7 +108,11 @@ public sealed class TelemetryUdpReceiverTests
         var statistics = receiver.GetStatistics(DateTimeOffset.UtcNow);
         Assert.Equal(0, statistics.AcceptedPackets);
         Assert.Equal(0, statistics.RejectedPackets);
-        AssertLoopbackPortReleased(originalPort);
+        using var oldPortProbe = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)
+        {
+            ExclusiveAddressUse = true
+        };
+        oldPortProbe.Bind(new IPEndPoint(IPAddress.Loopback, originalPort));
 
         var replacementPacket = Fh6PacketFixture.Create();
         Fh6PacketFixture.WriteInt32(replacementPacket, 212, 9753);
@@ -267,7 +270,11 @@ public sealed class TelemetryUdpReceiverTests
 
         Assert.False(receiver.IsRunning);
         Assert.Null(receiver.ListeningPort);
-        AssertLoopbackPortReleased(port);
+        using var portProbe = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)
+        {
+            ExclusiveAddressUse = true
+        };
+        portProbe.Bind(new IPEndPoint(IPAddress.Loopback, port));
         await Assert.ThrowsAsync<ObjectDisposedException>(() => receiver.RestartAsync(GetAvailablePortExcept(port), TestContext.Current.CancellationToken));
     }
 
@@ -280,7 +287,7 @@ public sealed class TelemetryUdpReceiverTests
     private static async Task<int> BindAvailablePortAsync(Func<int, Task> bind, int excludedPort = 0)
     {
         // Probing releases the port before the receiver binds it. Another test's
-        // ephemeral sender can claim it in between; retry only that setup race.
+        // probe or listener can bind it in between; retry only that setup race.
         for (var attempt = 0; ; attempt++)
         {
             var port = GetAvailablePortExcept(excludedPort);
@@ -292,22 +299,6 @@ public sealed class TelemetryUdpReceiverTests
             catch (SocketException error) when (error.SocketErrorCode == SocketError.AddressAlreadyInUse && attempt < 7)
             {
             }
-        }
-    }
-
-    private static void AssertLoopbackPortReleased(int port)
-    {
-        try
-        {
-            using var probe = CreateExclusiveSocket();
-            probe.Bind(new IPEndPoint(IPAddress.Loopback, port));
-        }
-        catch (SocketException error) when (error.SocketErrorCode == SocketError.AddressAlreadyInUse)
-        {
-            // Once released, another test's ephemeral sender can take the port on the
-            // wildcard address. Only a loopback binding means the receiver still holds it.
-            var loopback = new IPEndPoint(IPAddress.Loopback, port);
-            Assert.DoesNotContain(loopback, IPGlobalProperties.GetIPGlobalProperties().GetActiveUdpListeners());
         }
     }
 
@@ -331,16 +322,13 @@ public sealed class TelemetryUdpReceiverTests
 
     private static Socket CreateExclusiveReservation()
     {
-        var socket = CreateExclusiveSocket();
-        socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-        return socket;
-    }
-
-    private static Socket CreateExclusiveSocket() =>
-        new(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)
         {
             ExclusiveAddressUse = true
         };
+        socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        return socket;
+    }
 
     private static async Task WaitForCarAsync(TelemetryUdpReceiver receiver, int carOrdinal)
     {

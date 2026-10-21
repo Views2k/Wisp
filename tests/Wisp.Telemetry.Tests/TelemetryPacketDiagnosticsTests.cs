@@ -177,7 +177,7 @@ public sealed class TelemetryPacketDiagnosticsTests
     private static async Task<int> StartOnAvailablePortAsync(TelemetryUdpReceiver receiver)
     {
         // Probing releases the port before the receiver binds it. Another test's
-        // ephemeral sender can claim it in between; retry only that setup race.
+        // probe or listener can bind it in between; retry only that setup race.
         for (var attempt = 0; ; attempt++)
         {
             var port = GetAvailablePort();
