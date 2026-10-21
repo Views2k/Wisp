@@ -121,7 +121,8 @@ namespace recorder::lossless
         const std::atomic<bool>* cancelled = nullptr;
         encoder::PacketObserver* observer = nullptr;
         // Submission sequence numbers select slots and order the queues; media indices may jump.
-        UINT nextSubmit = 0, nextEncode = 0, nextOutput = 0, nextIndex = 0, lastKeyframe = 0, lastIdrRequest = 0;
+        UINT nextSubmit = 0, nextEncode = 0, nextOutput = 0, nextIndex = 0, lastKeyframe = 0;
+        KeyframeSchedule keyframes;
         UINT Ordinal(const Slot& slot) const noexcept { return static_cast<UINT>(&slot - slots.data()); }
         ULONGLONG drainBegan = 0;
         const char* cleanupReason = "not_started";
@@ -576,14 +577,13 @@ namespace recorder::lossless
                 picture.frameIdx = slot.index; picture.inputTimeStamp = static_cast<std::uint64_t>(slot.time); picture.inputDuration = static_cast<std::uint64_t>(slot.duration);
                 picture.inputBuffer = slot.mapped; picture.bufferFmt = value.inputFormat;
                 picture.outputBitstream = slot.bitstream; picture.completionEvent = slot.event; picture.pictureStruct = NV_ENC_PIC_STRUCT_FRAME;
-                // A keyframe opens every two-second window by media index, so a dropped frame on a
-                // window boundary still leaves a keyframe inside the GOP bound checked on output.
-                const UINT window = value.config.frameRate * 2;
-                if (slot.index == 0 || slot.index / window != value.lastIdrRequest / window)
-                { picture.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR | NV_ENC_PIC_FLAG_OUTPUT_SPSPPS; value.lastIdrRequest = slot.index; }
+                const bool requestKeyframe = value.keyframes.Due(slot.index, value.config.frameRate);
+                if (requestKeyframe) picture.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR | NV_ENC_PIC_FLAG_OUTPUT_SPSPPS;
                 const auto status = api.nvEncEncodePicture(value.encodeSession, &picture);
+                // Busy: this frame is offered again on a later pump and still asks for its keyframe.
                 if (status == NV_ENC_ERR_ENCODER_BUSY) break;
                 if (status != NV_ENC_ERR_NEED_MORE_INPUT) Nv(status, "lossless_encode_failed");
+                if (requestKeyframe) value.keyframes.Accepted(slot.index);
                 slot.stage = Stage::Encoding; ++value.nextEncode; ++evidence_.encoded;
             }
             if (value.draining && !value.eosSent && value.nextEncode == value.nextSubmit)

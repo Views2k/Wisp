@@ -11,6 +11,17 @@ namespace recorder::lossless
     // One submission may cover several schedule intervals when the host drops frames to stay on
     // the wall clock. Media indices stay monotonic; slots are assigned in submission order.
     constexpr UINT MaximumFrameSpan = 8;
+    // A keyframe opens every two-second window by media index, so a dropped frame on a window
+    // boundary still leaves one inside the GOP bound checked on output. A window is served only
+    // once NVENC accepts the frame that asked for it: a busy encoder is offered that frame again.
+    struct KeyframeSchedule
+    {
+        UINT last = 0;
+        bool served = false;
+        bool Due(UINT index, UINT rate) const noexcept
+        { const UINT window = rate * 2; return !served || window == 0 || index / window != last / window; }
+        void Accepted(UINT index) noexcept { last = index; served = true; }
+    };
     struct Options
     {
         UINT operationTimeoutMs = 3000;
