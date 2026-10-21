@@ -277,7 +277,7 @@ public sealed class TelemetryUdpReceiverTests
     private static Task<int> RestartOnAvailablePortAsync(TelemetryUdpReceiver receiver, int excludedPort = 0) =>
         BindAvailablePortAsync(port => receiver.RestartAsync(port, TestContext.Current.CancellationToken), excludedPort);
 
-    private static async Task<int> BindAvailablePortAsync(Func<int, Task> bind, int excludedPort)
+    private static async Task<int> BindAvailablePortAsync(Func<int, Task> bind, int excludedPort = 0)
     {
         // Probing releases the port before the receiver binds it. Another test's
         // ephemeral sender can claim it in between; retry only that setup race.
