@@ -26,6 +26,21 @@ public sealed class CrashNoticeTests
         if (!matched) Assert.Contains("cause is not established", model.CrashReportNotice, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AWindowsStopIsNotPresentedAsAWispShutdownFailure()
+    {
+        var marker = WindowsFaultEventReaderTests.Marker();
+        var detected = marker.StartedAtUtc.AddMinutes(5);
+        var report = marker.ToReport(detected) with
+        {
+            RecoveredExit = new(marker.StartedAtUtc, detected, WindowsFaultLookupStatus.NoMatchingEvent, null) { WindowsStopped = true }
+        };
+        var model = new DiagnosticsViewModel(new AppSettings());
+        model.InitializeCrashReport(report, _ => true);
+        Assert.Equal("Windows stopped while Wisp was running", model.CrashReportTitle);
+        Assert.Contains("power loss", model.CrashReportNotice, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

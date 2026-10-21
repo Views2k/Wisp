@@ -26,7 +26,7 @@ public partial class App
     private HealthContextSample? _previousReportedHealth;
     private long _previousDroppedEvents;
     private string? _reportedConnectionState;
-    private NativeAssistProviderStatus? _reportedNativeStatus;
+    private readonly SupplementaryNativeStatusReports _nativeStatusReports = new();
     private string _reportingPlatform = "unknown";
     private string? _reportingGameBuild;
     private NativeGameIdentityObservation? _observedGameIdentity;
@@ -297,14 +297,20 @@ public partial class App
         }
         if (samples.Length > 0) CollectSupplementaryHealth(client, samples);
         _reportedNativeHealthTimes.IntersectWith(context.Samples.Select(sample => sample.TimestampUtc));
-        foreach (var sample in context.Samples.Where(sample => !_reportedNativeHealthTimes.Contains(sample.TimestampUtc)))
+        var nativeSamples = context.Samples.Where(sample => !_reportedNativeHealthTimes.Contains(sample.TimestampUtc)).ToArray();
+        // Process metadata is looked up only while a sample may need a report.
+        if (nativeSamples.Any(sample => SupplementaryNativeStatusReports.Reportable(sample.NativeStatus)))
+            _nativeStatusReports.Observe(NativeGameProcess.Find());
+        foreach (var sample in nativeSamples)
         {
-            if (_reportedNativeStatus != sample.NativeStatus && sample.NativeStatus is NativeAssistProviderStatus.AccessDenied or NativeAssistProviderStatus.UnsupportedBuild)
+            if (_nativeStatusReports.ShouldReport(sample))
+            {
                 if (!EnqueueSupplementary(client, "connection", "native", sample.NativeStatus == NativeAssistProviderStatus.AccessDenied ? "failure" : "unsupported",
                     "validation", observedAt: sample.TimestampUtc, incident: SupplementaryIncidentCapture.Native(sample, context),
                     platform: sample.NativeGamePlatform switch { DiagnosticGamePlatform.Steam => "steam", DiagnosticGamePlatform.XboxStore => "store", _ => "unknown" },
                     gameBuild: sample.NativeGameVersion, historical: true)) break;
-            _reportedNativeStatus = sample.NativeStatus;
+                _nativeStatusReports.MarkReported(sample);
+            }
             _reportedNativeHealthTimes.Add(sample.TimestampUtc);
         }
         CollectSupplementarySessionResources(client);
