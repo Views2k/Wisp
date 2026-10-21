@@ -8,6 +8,7 @@ Notable changes to Wisp are recorded here.
 - Keep a slow drive from holding up clip recording.
 - Record game audio in clips on PCs where recording previously stopped with an audio capture error.
 - Keep Wisp running when Windows restarts its desktop display, for example after a graphics driver reset; the HUD restores its transparent overlay on its own.
+- In circuit races started from the grid, learn the first lap from the start line: the track map follows the car on that lap, the lap delta appears on the next lap, and saved laps include it.
 - Stop automatic update attempts when this copy of Wisp cannot update itself automatically, and show how to install the update with the full installer from wispoverlay.com. Install update remains available from the dashboard.
 - Make update checks more dependable on shared internet connections and during network outages.
 - Make diagnostics tell a Windows power loss or system crash apart from a problem in Wisp.

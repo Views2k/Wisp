@@ -14,6 +14,10 @@ Wisp 2.7 is a reliability update. Clips keep recording when the graphics card is
 
 - Wisp keeps running when Windows restarts its desktop display, for example after a graphics driver reset, and the HUD restores its transparent overlay on its own.
 
+## Laps
+
+- In circuit races started from the grid, the first lap is learned from the start line: the track map follows the car on that lap, the lap delta appears on the next lap, and saved laps include it.
+
 ## Updates
 
 - When this copy of Wisp cannot update itself automatically, Wisp stops retrying in the background and shows how to install the update with the full installer from wispoverlay.com. Install update stays available on the dashboard.

@@ -141,6 +141,72 @@ public sealed class LapReviewTests
         Assert.All(laps, lap => Assert.True(lap.Quality.HasFlag(LapReviewQuality.Rewind)));
     }
 
+    // A circuit race from the grid, as in the issue #141 lap logs: both clocks run from the race
+    // start; at the line the lap clock restarts while the packet lap stays 0 and no lap time is
+    // recorded; each later line is a new packet lap with its lap time.
+    private const double GridToLine = 5.884, GridLap = 37, GridMeters = 92;
+
+    private static RunSample GridSample(double elapsed, double race)
+    {
+        var sinceLine = race - GridToLine;
+        var number = sinceLine < 0 ? (ushort)0 : (ushort)Math.Floor(sinceLine / GridLap);
+        var lapClock = sinceLine < 0 ? race : sinceLine - number * GridLap;
+        var meters = sinceLine < 0 ? -GridMeters * (1 - race / GridToLine) : sinceLine / GridLap * Math.Tau * 100;
+        var sample = Sample(elapsed, Circle(meters / 100), (float)lapClock, number, number == 0 ? 0 : (float)GridLap, speed: 17);
+        return sample with { State = sample.State with { Lap = sample.State.Lap! with { RaceSeconds = (float)race } } };
+    }
+
+    private static RunSample[] GridRace(double until) =>
+        Enumerable.Range(0, (int)Math.Round(until * 10) + 1).Select(index => GridSample(index / 10d, index / 10d)).ToArray();
+
+    [Fact]
+    public void RaceFromTheGridKeepsItsFirstTimedLap()
+    {
+        var run = new RecordedRun { Name = "Grid race", Samples = GridRace(GridToLine + 2 * GridLap + 2) };
+        var laps = LapReviewAnalysis.Build(run, cancellationToken: TestContext.Current.CancellationToken).Laps;
+        // The run from the grid stays a partial path; the laps from the line are complete.
+        Assert.False(laps[0].IsComplete);
+        Assert.True(laps[0].Quality.HasFlag(LapReviewQuality.PartialEnd));
+        Assert.DoesNotContain(laps, lap => lap.Quality.HasFlag(LapReviewQuality.Rewind));
+        var timed = laps.Where(lap => lap.IsComplete).ToArray();
+        Assert.Equal(new[] { 1, 2 }, timed.Select(lap => lap.Number).ToArray());
+        Assert.All(timed, lap => Assert.Equal(GridLap, lap.DurationSeconds!.Value, 3));
+        Assert.Equal(GridToLine, timed[0].StartSeconds, 3);
+    }
+
+    [Fact]
+    public void AutomaticallySavedFirstLapFromTheGridIsComplete()
+    {
+        // Automatic lap recording saves the packet before the line, the lap, and the next line.
+        var race = GridRace(GridToLine + GridLap + .5);
+        var first = Array.FindLastIndex(race, sample => sample.State.Lap!.RaceSeconds < GridToLine);
+        var last = Array.FindIndex(race, sample => sample.State.Lap!.LapNumber == 1);
+        var start = race[first].ElapsedSeconds;
+        var run = new RecordedRun
+        {
+            Name = "Game lap",
+            LapTimingMode = LapTimingMode.GameLaps,
+            Samples = race[first..(last + 1)].Select(sample => sample with { ElapsedSeconds = sample.ElapsedSeconds - start }).ToArray()
+        };
+        var lap = Assert.Single(LapReviewAnalysis.Build(run, cancellationToken: TestContext.Current.CancellationToken).Laps);
+        Assert.True(lap.IsComplete);
+        Assert.Equal(1, lap.Number);
+        Assert.Equal(GridLap, lap.DurationSeconds!.Value, 3);
+        Assert.False(lap.Quality.HasFlag(LapReviewQuality.Rewind));
+        Assert.False(lap.Quality.HasFlag(LapReviewQuality.PartialStart));
+    }
+
+    [Fact]
+    public void RewindJustAfterTheGridLineStaysARewind()
+    {
+        // The lap clock goes back below the line threshold, but the race clock goes back with it.
+        var rewound = Enumerable.Range(0, 400).Select(index => GridSample(6.3 + index / 10d, 5.95 + index / 10d));
+        var run = new RecordedRun { Name = "Grid race with a rewind", Samples = [.. GridRace(6.2), .. rewound] };
+        var laps = LapReviewAnalysis.Build(run, cancellationToken: TestContext.Current.CancellationToken).Laps;
+        Assert.DoesNotContain(laps, lap => lap.IsComplete);
+        Assert.Equal(2, laps.Count(lap => lap.Quality.HasFlag(LapReviewQuality.Rewind)));
+    }
+
     [Fact]
     public void TeleportIsNotDrawnAsAConnectingTrackSegment()
     {
