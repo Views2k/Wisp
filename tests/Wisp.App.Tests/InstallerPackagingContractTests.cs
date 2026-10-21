@@ -233,7 +233,7 @@ public sealed class InstallerPackagingContractTests
     [Fact]
     public void SelfContainedDistributionCarriesPinnedRuntimeNotices()
     {
-        const string runtimeVersion = "8.0.31";
+        const string runtimeVersion = "10.0.13";
         var root = RepositoryRoot();
         var project = File.ReadAllText(Path.Combine(root, "src", "Wisp.App", "Wisp.App.csproj"));
         Assert.Contains($"<RuntimeFrameworkVersion>{runtimeVersion}</RuntimeFrameworkVersion>", project,
@@ -246,7 +246,7 @@ public sealed class InstallerPackagingContractTests
             [$"dotnet-runtime-{runtimeVersion}-LICENSE.txt"] =
                 "D7A68596AB69B06F51CA278A6545148E4269A9381C26D597C13DF5D88E08CF5B",
             [$"dotnet-runtime-{runtimeVersion}-THIRD-PARTY-NOTICES.txt"] =
-                "B60B2912DA28EAA6518593C9E2EFB5334EE062D3C42E80D8FDFA806B3DC52977",
+                "6D15E10A101C6BFFF2AB4429ED061BF76C456FC4B23AD6B03E0D0F8377148A21",
             [$"windowsdesktop-runtime-{runtimeVersion}-LICENSE.txt"] =
                 "A89886665765362EB77E0F8E26602C924520041D1711B2EEDC136434FE4D01AB"
         };

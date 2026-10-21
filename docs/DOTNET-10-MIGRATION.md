@@ -1,7 +1,8 @@
 # .NET 10 migration plan
 
-Status: planned; Wisp currently targets .NET 8 and ships its serviced runtime.
-This plan does not change the application's target framework or release version.
+Status: the source targets .NET 10 with SDK 10.0.402 and bundles the 10.0.13
+runtime. The first .NET 10 release requires the acceptance gates below; this
+plan does not assign the application release version.
 
 .NET 8 support ends on **November 10, 2026**. .NET 10 is the next LTS target and
 is supported through November 14, 2028. Complete the migration and release

@@ -164,7 +164,7 @@ public sealed class PrivateLosslessPackagingTests
                 Assert-RecorderExecutable $recorder
                 $hashes = Assert-ClipDecoders $publish $manifestPath $mpvManifestPath $mpvDependencyPath
                 if ($env:WISP_PRIVATE_CASE -in @('sync', 'wrong-output')) {
-                    $target = Join-Path $fixture 'tools/Wisp.UiReview/bin/Release/net8.0-windows'
+                    $target = Join-Path $fixture 'tools/Wisp.UiReview/bin/Release/net10.0-windows'
                     if ($env:WISP_PRIVATE_CASE -eq 'wrong-output') { $target = Join-Path $fixture 'unrelated' }
                     Write-FixtureFile (Join-Path $target 'unrelated.keep') 'preserve'
                     Write-FixtureFile (Join-Path $target 'libvlc/win-x64/plugins/unselected.dll')

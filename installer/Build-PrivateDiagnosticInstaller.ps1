@@ -111,9 +111,9 @@ function Assert-PrivateTestOutputDirectory {
     param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$RepositoryRoot)
     $repositoryRootPath = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
     $target = [IO.Path]::GetFullPath($Directory).TrimEnd('\', '/')
-    $allowed = @('tests/Wisp.Core.Tests/bin/Release/net8.0-windows', 'tests/Wisp.Telemetry.Tests/bin/Release/net8.0',
-        'tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tests/Wisp.Update.Tests/bin/Release/net8.0-windows',
-        'tests/Wisp.Updater.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows') |
+    $allowed = @('tests/Wisp.Core.Tests/bin/Release/net10.0-windows', 'tests/Wisp.Telemetry.Tests/bin/Release/net10.0',
+        'tests/Wisp.App.Tests/bin/Release/net10.0-windows', 'tests/Wisp.Update.Tests/bin/Release/net10.0-windows',
+        'tests/Wisp.Updater.Tests/bin/Release/net10.0-windows', 'tools/Wisp.UiReview/bin/Release/net10.0-windows') |
         ForEach-Object { [IO.Path]::GetFullPath((Join-Path $repositoryRootPath $_)).TrimEnd('\', '/') }
     if ($target -notin $allowed) { throw 'Private component copies are limited to the six known generated test outputs.' }
     for ($ancestor = $target; ; $ancestor = [IO.Path]::GetDirectoryName($ancestor)) {
@@ -136,7 +136,7 @@ function Sync-PrivateLosslessTestPayload {
         [Parameter(Mandatory)][string]$RepositoryRoot, [Parameter(Mandatory)][hashtable]$ExpectedHashes)
     $repositoryRootPath = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
     $target = [IO.Path]::GetFullPath($TestDirectory).TrimEnd('\', '/')
-    $allowed = @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows') |
+    $allowed = @('tests/Wisp.App.Tests/bin/Release/net10.0-windows', 'tools/Wisp.UiReview/bin/Release/net10.0-windows') |
         ForEach-Object { [IO.Path]::GetFullPath((Join-Path $repositoryRootPath $_)).TrimEnd('\', '/') }
     if ($target -notin $allowed) { throw 'Decoder synchronization is limited to the two known generated test outputs.' }
     # Do not let any existing generated-output ancestor redirect writes or removal.
@@ -275,12 +275,12 @@ try {
     # Wisp product components are replaced before --no-build test execution.
     $componentNames = @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe')
     $testHostDirectories = @(
-        'tests/Wisp.Core.Tests/bin/Release/net8.0-windows',
-        'tests/Wisp.Telemetry.Tests/bin/Release/net8.0',
-        'tests/Wisp.App.Tests/bin/Release/net8.0-windows',
-        'tests/Wisp.Update.Tests/bin/Release/net8.0-windows',
-        'tests/Wisp.Updater.Tests/bin/Release/net8.0-windows',
-        'tools/Wisp.UiReview/bin/Release/net8.0-windows')
+        'tests/Wisp.Core.Tests/bin/Release/net10.0-windows',
+        'tests/Wisp.Telemetry.Tests/bin/Release/net10.0',
+        'tests/Wisp.App.Tests/bin/Release/net10.0-windows',
+        'tests/Wisp.Update.Tests/bin/Release/net10.0-windows',
+        'tests/Wisp.Updater.Tests/bin/Release/net10.0-windows',
+        'tools/Wisp.UiReview/bin/Release/net10.0-windows')
     foreach ($directory in $testHostDirectories) {
         Assert-PrivateTestOutputDirectory (Join-Path $repository $directory) $repository
     }
@@ -296,7 +296,7 @@ try {
             }
         }
     }
-    foreach ($directory in @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows')) {
+    foreach ($directory in @('tests/Wisp.App.Tests/bin/Release/net10.0-windows', 'tools/Wisp.UiReview/bin/Release/net10.0-windows')) {
         Sync-PrivateLosslessTestPayload $publishDirectory (Join-Path $repository $directory) $repository $decoderHashes
         $null = Assert-ClipDecoders (Join-Path $repository $directory) $decoderManifest $mpvManifest $mpvDependency
     }
@@ -326,14 +326,14 @@ try {
 
     foreach ($name in @('Wisp.dll', 'Wisp.Core.dll', 'Wisp.Telemetry.dll', 'Wisp.Update.dll', 'Wisp.NativeRenderer.dll', 'Wisp.Recorder.exe')) {
         $publishedHash = (Get-FileHash -LiteralPath (Join-Path $publishDirectory $name) -Algorithm SHA256).Hash
-        foreach ($testedDirectory in @('tests/Wisp.App.Tests/bin/Release/net8.0-windows', 'tools/Wisp.UiReview/bin/Release/net8.0-windows')) {
+        foreach ($testedDirectory in @('tests/Wisp.App.Tests/bin/Release/net10.0-windows', 'tools/Wisp.UiReview/bin/Release/net10.0-windows')) {
             if ($publishedHash -cne (Get-FileHash -LiteralPath (Join-Path $repository "$testedDirectory/$name") -Algorithm SHA256).Hash) {
                 throw "Published $name differs from the tested and reviewed assembly."
             }
         }
     }
-    foreach ($directory in @($publishDirectory, (Join-Path $repository 'tests/Wisp.App.Tests/bin/Release/net8.0-windows'),
-        (Join-Path $repository 'tools/Wisp.UiReview/bin/Release/net8.0-windows'))) {
+    foreach ($directory in @($publishDirectory, (Join-Path $repository 'tests/Wisp.App.Tests/bin/Release/net10.0-windows'),
+        (Join-Path $repository 'tools/Wisp.UiReview/bin/Release/net10.0-windows'))) {
         $verified = Assert-ClipDecoders $directory $decoderManifest $mpvManifest $mpvDependency
         foreach ($relative in $decoderHashes.Keys) {
             if ($verified[$relative] -cne $decoderHashes[$relative]) { throw 'The decoder payload changed during private validation.' }
