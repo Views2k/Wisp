@@ -121,6 +121,62 @@ public sealed class OverlayCompositionRecoveryTests
     }
 
     [Fact]
+    public void RetryFromAnEarlierEpisodeDoesNotDriveALaterOne()
+    {
+        var retries = new List<(TimeSpan Delay, Action Run)>();
+        var calls = 0;
+        var result = MessageLost;
+        var recovery = new OverlayCompositionRecovery(_ =>
+        {
+            calls++;
+            return result;
+        }, new HealthContextRecorder(), (delay, run) => retries.Add((delay, run)));
+
+        Send(recovery, CompositionChangedMessage);
+        result = 0;
+        Send(recovery, CompositionChangedMessage);
+        result = MessageLost;
+        Send(recovery, CompositionChangedMessage);
+        Assert.Equal(3, calls);
+        Assert.Equal(2, retries.Count);
+
+        retries[0].Run();
+        Assert.Equal(3, calls);
+        Assert.Equal(2, retries.Count);
+
+        retries[1].Run();
+        Assert.Equal(4, calls);
+        Assert.Equal(OverlayCompositionRecovery.DefaultFirstRetryDelay * 2, retries[^1].Delay);
+    }
+
+    [Fact]
+    public void RetryForADestroyedWindowDoesNotDriveAWindowReusingItsHandle()
+    {
+        var retries = new List<Action>();
+        var calls = 0;
+        var recovery = new OverlayCompositionRecovery(_ =>
+        {
+            calls++;
+            return MessageLost;
+        }, new HealthContextRecorder(), (_, run) => retries.Add(run));
+
+        Send(recovery, CompositionChangedMessage);
+        Send(recovery, DestroyMessage);
+        Assert.Equal(0, recovery.PendingCount);
+        Send(recovery, CompositionChangedMessage);
+        Assert.Equal(2, calls);
+        Assert.Equal(2, retries.Count);
+
+        retries[0]();
+        Assert.Equal(2, calls);
+        Assert.Equal(2, retries.Count);
+
+        retries[1]();
+        Assert.Equal(3, calls);
+        Assert.Equal(3, retries.Count);
+    }
+
+    [Fact]
     public void DispatcherTimerRetryRestoresCompositionWithoutAnotherMessage()
     {
         var health = new HealthContextRecorder();

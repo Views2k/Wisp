@@ -17,6 +17,7 @@ internal sealed class OverlayCompositionRecovery
     private readonly TimeSpan _firstRetryDelay;
     private readonly Dictionary<IntPtr, PendingWindow> _pending = new();
     private readonly object _gate = new();
+    private long _generation;
     private bool _reported;
 
     internal OverlayCompositionRecovery(Func<IntPtr, int> apply, HealthContextRecorder? health = null,
@@ -44,7 +45,7 @@ internal sealed class OverlayCompositionRecovery
         }
     }
 
-    private void Retry(IntPtr handle, int generation)
+    private void Retry(IntPtr handle, long generation)
     {
         lock (_gate)
         {
@@ -53,12 +54,12 @@ internal sealed class OverlayCompositionRecovery
         Attempt(handle, generation);
     }
 
-    private void Attempt(IntPtr handle, int? generation)
+    private void Attempt(IntPtr handle, long? generation)
     {
         var result = TryApply(handle);
         bool report;
         TimeSpan? delay = null;
-        int scheduledGeneration;
+        long scheduledGeneration;
         lock (_gate)
         {
             if (generation is { } expected && !IsCurrent(handle, expected)) return;
@@ -72,7 +73,8 @@ internal sealed class OverlayCompositionRecovery
             if (pending is null) _pending[handle] = pending = new PendingWindow();
             if (generation is null)
             {
-                pending.Generation++;
+                // Never reused, even by a later entry for the same or a recycled handle.
+                pending.Generation = ++_generation;
                 pending.Retries = 0;
             }
             report = !_reported;
@@ -90,7 +92,7 @@ internal sealed class OverlayCompositionRecovery
     }
 
     // A retry whose window recovered, closed or received a newer message is stale.
-    private bool IsCurrent(IntPtr handle, int generation) =>
+    private bool IsCurrent(IntPtr handle, long generation) =>
         _pending.TryGetValue(handle, out var pending) && pending.Generation == generation;
 
     private int TryApply(IntPtr handle)
@@ -114,7 +116,7 @@ internal sealed class OverlayCompositionRecovery
 
     private sealed class PendingWindow
     {
-        public int Generation;
+        public long Generation;
         public int Retries;
     }
 }
