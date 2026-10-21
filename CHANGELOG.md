@@ -2,13 +2,17 @@
 
 Notable changes to Wisp are recorded here.
 
-## Unreleased
+## 2.7.0 - 2026-10-21
 
-- Keep recording clips when the GPU cannot keep up. When frames cannot be encoded at the configured rate, the recorder now drops frames and keeps the clip in step with the game and its audio instead of discarding the rolling buffer and restarting every few seconds; recording stops only if the pipeline falls more than two seconds behind.
-- Write the clip buffer from its own thread so a slow disk no longer delays frames; the recording keeps its history while storage catches up.
-- Report which check the update helper failed when an update cannot start, and show how to reinstall when this copy of Wisp does not match the registered installation. Automatic update attempts stop for the session after such a rejection; Install update remains available from the dashboard.
-- Record game audio on PCs where Windows reports a meaningless buffer size for the game audio stream. Clip recording previously failed to start there with an audio capture error.
+- Keep clip recording going when the graphics card is busy instead of restarting every few seconds; clips stay in step with the game and its audio.
+- Keep a slow drive from holding up clip recording.
+- Record game audio in clips on PCs where recording previously stopped with an audio capture error.
 - Keep Wisp running when Windows restarts its desktop display, for example after a graphics driver reset; the HUD restores its transparent overlay on its own.
+- Stop automatic update attempts when this copy of Wisp cannot update itself automatically, and show how to install the update with the full installer from wispoverlay.com. Install update remains available from the dashboard.
+- Make update checks more dependable on shared internet connections and during network outages.
+- Make diagnostics tell a Windows power loss or system crash apart from a problem in Wisp.
+- Give crash reports time to include Windows crash details when Windows is slow to respond right after sign-in.
+- Report game access and compatibility problems once per game session.
 
 ## 2.6.13 - 2026-10-17
 
