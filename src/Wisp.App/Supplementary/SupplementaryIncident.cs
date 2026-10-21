@@ -54,7 +54,7 @@ internal static class SupplementaryIncidentSchema
         "export-timeout", "preparation-timeout", "encoder-unavailable", "media-queue-full", "timeout", "disk-full", "size-limit",
         "file-unavailable", "validation", "unsupported-format", "storage", "native-failure",
         "compatibility-unavailable", "layout-unverified", "session-changed", "session-unverified", "tune-decode-failed", "tune-read-failed",
-        "update-verification-failed", "port-in-use", "socket-failed", "http-status", "network-name-resolution", "network-connection", "network-tls", "network-response", "network-request", "library-full", "path-too-long", "invalid-data", "file-in-use", "managed-operation-failed", "listener-stopped", "packets-rejected", "sequence-incomplete", "no-datagrams"
+        "update-verification-failed", "rate-limited", "port-in-use", "socket-failed", "http-status", "network-name-resolution", "network-connection", "network-tls", "network-response", "network-request", "library-full", "path-too-long", "invalid-data", "file-in-use", "managed-operation-failed", "listener-stopped", "packets-rejected", "sequence-incomplete", "no-datagrams"
     };
     internal static readonly HashSet<string> FailureStages = new(StringComparer.Ordinal)
     {

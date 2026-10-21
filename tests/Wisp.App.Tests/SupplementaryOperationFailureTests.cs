@@ -86,6 +86,7 @@ public sealed class SupplementaryOperationFailureTests
 
     [Theory]
     [InlineData("http", "http-status", 503u)]
+    [InlineData("rate-limited", "rate-limited", 403u)]
     [InlineData("dns", "network-name-resolution", 0x80131500u)]
     [InlineData("verification", "update-verification-failed", 0x80131500u)]
     [InlineData("timeout", "timeout", 0x8013153bu)]
@@ -95,6 +96,7 @@ public sealed class SupplementaryOperationFailureTests
         Exception failure = kind switch
         {
             "http" => new HttpRequestException("PRIVATE_SENTINEL", null, HttpStatusCode.ServiceUnavailable),
+            "rate-limited" => new UpdateRateLimitedException(HttpStatusCode.Forbidden),
             "dns" => new HttpRequestException(HttpRequestError.NameResolutionError, "PRIVATE_SENTINEL"),
             "verification" => new UpdateSecurityException("PRIVATE_SENTINEL"),
             _ => new OperationCanceledException("PRIVATE_SENTINEL")
@@ -108,6 +110,57 @@ public sealed class SupplementaryOperationFailureTests
         Assert.Equal(expectedCode, terminal.Incident?.Code);
         Assert.True(SupplementaryIncidentSchema.Valid(terminal.Incident!));
         Assert.DoesNotContain("PRIVATE_SENTINEL", JsonSerializer.Serialize(observations.Values));
+    }
+
+    [Fact]
+    public async Task UpdateCheckOutagesAreReportedOncePerReasonUntilACheckSucceeds()
+    {
+        using var observations = new ObservationScope();
+        Exception Dns() => new HttpRequestException(HttpRequestError.NameResolutionError);
+        Exception Verification() => new UpdateSecurityException("verification");
+        var checks = new Queue<Exception?>(
+        [
+            Dns(), Dns(), new HttpRequestException(HttpRequestError.SecureConnectionError), Dns(),
+            new OperationCanceledException(), new OperationCanceledException(),
+            new UpdateRateLimitedException(HttpStatusCode.Forbidden), new UpdateRateLimitedException(HttpStatusCode.Forbidden),
+            new HttpRequestException("bad gateway", null, HttpStatusCode.BadGateway),
+            new HttpRequestException("bad gateway", null, HttpStatusCode.BadGateway),
+            null,
+            Dns(), Dns(), Verification(), Verification()
+        ]);
+        await using var controller = new AppController(new AppSettings(), _ => { }, new NoStartup(),
+            checkForApplicationUpdate: (_, _) => checks.Dequeue() is { } failure
+                ? Task.FromException<UpdateRelease?>(failure)
+                : Task.FromResult<UpdateRelease?>(null));
+
+        while (checks.Count > 0) Assert.Null(await controller.GetAvailableApplicationUpdateDetailsAsync());
+
+        // A repeat inside an outage leaves only its attempt: no failure and no "unknown" completion.
+        (string, string?)[] expected =
+        [
+            ("failure", "network-name-resolution"), ("failure", "network-tls"), ("timeout", "timeout"),
+            ("failure", "rate-limited"), ("failure", "http-status"), ("success", null),
+            ("failure", "network-name-resolution"), ("failure", "update-verification-failed"), ("failure", "update-verification-failed")
+        ];
+        Assert.Equal(expected, observations.Values.Where(v => v.Feature == "update" && v.Outcome != "attempt")
+            .Select(v => (v.Outcome, v.Incident?.Reason)));
+    }
+
+    [Theory]
+    [InlineData(true, "The release service asked Wisp to wait. Wisp will check again automatically.")]
+    [InlineData(false, "The release service could not be reached. Check the connection and try again.")]
+    public async Task ManualCheckSaysWhetherTheServiceAskedWispToWait(bool rateLimited, string status)
+    {
+        Exception failure = rateLimited
+            ? new UpdateRateLimitedException(HttpStatusCode.TooManyRequests)
+            : new HttpRequestException(HttpRequestError.ConnectionError);
+        await using var controller = new AppController(new AppSettings(), _ => { }, new NoStartup(),
+            checkForApplicationUpdate: (_, _) => Task.FromException<UpdateRelease?>(failure));
+
+        Assert.Null(await controller.GetAvailableApplicationUpdateDetailsAsync());
+
+        Assert.Equal(status, controller.ViewModel.ApplicationUpdateStatus);
+        Assert.True(controller.ViewModel.CanCheckApplicationUpdate);
     }
 
     [Fact]

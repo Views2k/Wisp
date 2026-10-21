@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json.Serialization;
 
 namespace Wisp.Update;
@@ -105,6 +106,16 @@ public sealed class UpdateSecurityException : Exception
 
     public UpdateSecurityException(string message, Exception innerException)
         : base(message, innerException)
+    {
+    }
+}
+
+// The release service refused the check because requests from this network used up its allowance.
+// It is also raised without a request while the service's requested wait has not passed.
+public sealed class UpdateRateLimitedException : HttpRequestException
+{
+    public UpdateRateLimitedException(HttpStatusCode statusCode)
+        : base("The release service is limiting requests from this network.", inner: null, statusCode)
     {
     }
 }
