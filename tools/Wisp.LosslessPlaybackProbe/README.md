@@ -39,7 +39,7 @@ Once both apps are closed, keep the current app focused during this synthetic-on
 
 ```[WINDOWS POWERSHELL]
 $probeProject = Join-Path $PWD 'tools\Wisp.LosslessPlaybackProbe'
-$probeExe = Join-Path $probeProject 'bin\x64\Release\net8.0-windows\win-x64\Wisp.LosslessPlaybackProbe.exe'
+$probeExe = Join-Path $probeProject 'bin\x64\Release\net10.0-windows\win-x64\Wisp.LosslessPlaybackProbe.exe'
 $probeSource = Join-Path $PWD 'work\lossless-rgb-03\fixture.mp4'
 $probeOutput = Join-Path $PWD 'work\libvlc-lossless-01'
 & $probeExe --source $probeSource --output $probeOutput

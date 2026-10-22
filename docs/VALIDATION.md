@@ -1,8 +1,8 @@
 # Validation
 
-The current source uses the serviced .NET 8 runtime. The
-[.NET 10 migration plan](DOTNET-10-MIGRATION.md) tracks the move to the next LTS
-before .NET 8 support ends; it does not change the release gates below.
+The current source targets .NET 10 and bundles the serviced 10.0.13 runtime. The
+[.NET 10 migration plan](DOTNET-10-MIGRATION.md) lists the additional acceptance
+gates for the first .NET 10 release; it does not change the release gates below.
 
 ## Release gate
 
@@ -33,7 +33,7 @@ alone does not satisfy this part of the release gate.
 
 Packaging must additionally verify the staged executable version, PE identity,
 update-helper identity, the staged `Wisp.NativeRenderer.dll`, Native asset
-manifest, bundled .NET 8.0.31 notices, and the installer/checksum pair before
+manifest, bundled .NET 10.0.13 notices, and the installer/checksum pair before
 promotion.
 
 ### Steam and Xbox verification

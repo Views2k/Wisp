@@ -127,11 +127,11 @@ internal sealed class RecorderThumbnailProvider : IClipThumbnailProvider, IDispo
                 image.Freeze();
             }
             if (image is not null) lock (_sync)
-                {
-                    ObjectDisposedException.ThrowIf(_disposed, this);
-                    _cache.AddFirst((metadata.Key, image));
-                    if (_cache.Count > CacheCapacity) _cache.RemoveLast();
-                }
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _cache.AddFirst((metadata.Key, image));
+                if (_cache.Count > CacheCapacity) _cache.RemoveLast();
+            }
             return image;
         }
         finally { DecoderGate.Release(); }

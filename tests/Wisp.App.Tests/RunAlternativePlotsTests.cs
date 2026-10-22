@@ -191,7 +191,7 @@ public sealed class RunAlternativePlotsTests
         var bitmap = new RenderTargetBitmap(700, 360, 96, 96, PixelFormats.Pbgra32); bitmap.Render(view);
         var pixels = new byte[700 * 360 * 4]; bitmap.CopyPixels(pixels, 700 * 4, 0);
         for (var y = 90; y < 290; y++) for (var x = 65; x < 680; x++)
-            { var i = (y * 700 + x) * 4; if (pixels[i + 2] > 100 && pixels[i + 1] < 50 && pixels[i] < 50) return true; }
+        { var i = (y * 700 + x) * 4; if (pixels[i + 2] > 100 && pixels[i + 1] < 50 && pixels[i] < 50) return true; }
         return false;
     }
 
