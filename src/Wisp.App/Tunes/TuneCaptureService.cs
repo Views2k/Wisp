@@ -275,7 +275,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
                 return Fail(TuneCaptureStatus.Unavailable, "The current tune could not be read. Refresh and try again.", generation,
                     TuneCaptureDetails.Create(stage, build, exception), TuneIncident(stage,
                         exception is UnauthorizedAccessException || exception is System.ComponentModel.Win32Exception { NativeErrorCode: 5 }
-                            ? "access-denied" : exception is InvalidDataException ? "validation" : "tune-read-failed", exception));
+                            ? "access-denied" : "tune-read-failed", exception));
             }
             finally { if (entered) _captureGate.Release(); }
         }

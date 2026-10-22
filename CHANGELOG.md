@@ -2,6 +2,11 @@
 
 Notable changes to Wisp are recorded here.
 
+## Unreleased
+
+- Report a feature-control policy Wisp rejected or could not keep as its own diagnostic, instead of an unclassified failure report.
+- Report a current tune Wisp could not read as a tune read failure in diagnostics, instead of an export validation failure.
+
 ## 2.7.0 - 2026-10-21
 
 - Keep clip recording going when the graphics card is busy instead of restarting every few seconds; clips stay in step with the game and its audio.

@@ -10,6 +10,8 @@ using Xunit;
 
 namespace Wisp.App.Tests;
 
+// RejectedDownloadIsReportedOnceWithItsOwnIncident swaps the process-wide observation sink.
+[Collection("Supplementary instrumentation")]
 public sealed class FeatureControlTests(ITestOutputHelper output)
 {
     [Fact]
@@ -552,6 +554,34 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
             Assert.Equal(SupplementaryContentAcceptance.CacheUnavailable, store.Accept(f.Sign(f.Payload(2)), f.Now));
         Assert.Equal(1, store.HighestRevision);
         Assert.Equal(SupplementaryContentAcceptance.Accepted, store.Accept(f.Sign(f.Payload(2)), f.Now));
+    }
+
+    [Fact]
+    public async Task RejectedDownloadIsReportedOnceWithItsOwnIncident()
+    {
+        // 2026-10-22: five PCs rejected an envelope the service let expire and reported it without a
+        // category, so Tools filed "classification missing" and an app-wide bug.
+        using var f = new Fixture();
+        var observed = new List<SupplementaryObservation>();
+        var previous = SupplementaryObservations.Observer;
+        SupplementaryObservations.Observer = observed.Add;
+        try
+        {
+            var expired = f.Payload();
+            expired["expiresAt"] = Stamp(f.Now);
+            var transport = new Transport { Response = new(SupplementaryRequestStatus.Success, f.Sign(expired)) };
+            using var client = f.Client(transport, _ => { });
+            await client.RefreshAsync(TestContext.Current.CancellationToken);
+            await client.RefreshAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(2, transport.Calls);
+            var rejected = Assert.Single(observed, o => o.Outcome == "failure");
+            Assert.Equal(("feature", "app", "validation"), (rejected.Kind, rejected.Feature, rejected.Stage));
+            Assert.Equal("feature-control", rejected.Incident!.Category);
+            Assert.Equal("policy-rejected", rejected.Incident.Reason);
+            Assert.Equal("feature-control-refresh", rejected.Incident.FailureStage);
+            Assert.True(SupplementaryIncidentSchema.Valid(rejected.Incident));
+        }
+        finally { SupplementaryObservations.Observer = previous; }
     }
 
     [Fact]
