@@ -33,7 +33,7 @@ internal static class SupplementaryIncidentSchema
     internal const int MaximumBytes = 8192;
     internal static readonly HashSet<string> Categories = new(StringComparer.Ordinal)
     { "managed-exception", "windows-fault", "unexpected-exit", "recorder", "export", "native-access", "native-unsupported", "renderer", "collector", "saved-data", "tune",
-        "settings", "update", "telemetry", "playback"
+        "settings", "update", "telemetry", "playback", "feature-control"
     };
     internal static readonly HashSet<string> UpdateFailureReasons = new(StringComparer.Ordinal)
     { "update-application-path", "update-arguments", "update-helper-path", "update-installed-app-invalid", "update-installer-exit-failed", "update-installer-hash", "update-installer-hash-mismatch", "update-installer-not-pe", "update-installer-path", "update-installer-product-mismatch", "update-installer-read-failed", "update-installer-size", "update-installer-size-mismatch", "update-installer-start-failed", "update-installer-stop-failed", "update-installer-timeout", "update-installer-version-mismatch", "update-install-registration", "update-parent-exited", "update-parent-identity", "update-parent-inspection", "update-parent-process", "update-parent-timeout", "update-ready-event", "update-ready-signal", "update-request-json", "update-request-path", "update-request-root", "update-request-size", "update-restart-failed", "update-source-version", "update-target-version", "update-unexpected-failure" };
@@ -42,7 +42,7 @@ internal static class SupplementaryIncidentSchema
     internal static readonly HashSet<string> Reasons = new(StringComparer.Ordinal)
     {
         "exception-raised", "windows-application-fault", "shutdown-incomplete", "system-stopped",
-        "classification-missing", "unknown", "access-denied", "unsupported-build", "unsupported_os", "unsupported_gpu", "unsupported_format",
+        "classification-missing", "policy-rejected", "policy-cache-unavailable", "unknown", "access-denied", "unsupported-build", "unsupported_os", "unsupported_gpu", "unsupported_format",
         "capture_failed", "encoder_failed", "audio_failed", "audio_capture_failed", "audio_unavailable", "buffer_full",
         "no_keyframe", "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error",
         "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late",
@@ -58,7 +58,7 @@ internal static class SupplementaryIncidentSchema
     };
     internal static readonly HashSet<string> FailureStages = new(StringComparer.Ordinal)
     {
-        "report-classification", "buffer-open",
+        "report-classification", "feature-control-refresh", "buffer-open",
         "crash-ui", "crash-background", "crash-task", "crash-recovered", "crash-windows",
         "helper-launch", "helper-config", "helper-start", "helper-pause", "helper-resume", "helper-save", "helper-stop", "helper-protocol", "helper-exit", "helper-state",
         "not_started", "unknown", "storage_preflight", "runtime_initialize", "capture_initialize", "conversion_initialize",

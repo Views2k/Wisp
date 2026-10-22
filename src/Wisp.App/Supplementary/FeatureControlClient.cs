@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Wisp.App.DebugLogging;
 
 namespace Wisp.App.Supplementary;
 
@@ -95,15 +96,21 @@ internal sealed class FeatureControlClient : IDisposable
     private SupplementaryContentAcceptance? _reportedAcceptance;
 
     // Reported once per change, so Tools can show why a published revision did not take effect here.
+    // A download this PC rejected or could not keep is the policy service's or this PC's cache's
+    // failure, never a player's feature: it carries its own category, so Tools never has to fall
+    // back to the collector's placeholder for it.
     private void ReportAcceptance(SupplementaryContentAcceptance acceptance)
     {
         if (_reportedAcceptance == acceptance) return;
         _reportedAcceptance = acceptance;
         if (acceptance == SupplementaryContentAcceptance.Rejected)
-            SupplementaryObservations.Record("feature", "app", "failure", "validation");
+            SupplementaryObservations.Record("feature", "app", "failure", "validation", incident: Incident("policy-rejected"));
         else if (acceptance == SupplementaryContentAcceptance.CacheUnavailable)
-            SupplementaryObservations.Record("feature", "app", "failure", "recovery");
+            SupplementaryObservations.Record("feature", "app", "failure", "recovery", incident: Incident("policy-cache-unavailable"));
     }
+
+    private SupplementaryIncident Incident(string reason) => SupplementaryIncidentSchema.Create("feature-control", reason, "feature-control-refresh",
+        context: SupplementaryIncidentCapture.Context(HealthContextRecorder.Current.Snapshot(), _clock.GetUtcNow()));
 
     private void PublishState()
     {

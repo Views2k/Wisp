@@ -55,6 +55,21 @@ public sealed class NativeTuneCaptureTests
         Assert.Equal("identity-unverified", unavailable.GameVerification!.Reason);
     }
     [Fact]
+    public async Task TuneDataThatCannotBeReadIsAReadFailureNotAnExportCheck()
+    {
+        // Tools groups "validation" with clip export checks; a current car whose data cannot be
+        // read is a tune read failure.
+        var factory = new Factory { Verification = NativeGameVerification.Steam };
+        await using var service = new TuneCaptureService(factory,
+            (_, _) => throw new InvalidDataException("The current car's tune is not available yet."));
+        var failed = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(TuneCaptureStatus.Unavailable, failed.Status);
+        Assert.Equal("tune-read-failed", failed.Incident!.Reason);
+        Assert.Equal("tune-read", failed.Incident.FailureStage);
+        Assert.Equal("InvalidDataException", failed.Incident.Exceptions!.Value[0].Type);
+    }
+
+    [Fact]
     public void TuneFailureCarriesStructuredStageAndCodeWithoutPrivateText()
     {
         var incident = TuneCaptureService.TuneIncident(TuneCaptureStage.OpenGame, "access-denied",
