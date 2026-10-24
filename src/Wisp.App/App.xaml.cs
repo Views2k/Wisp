@@ -113,6 +113,7 @@ public partial class App : Application
         // The native handler records the faulting address and call stack of a hardware fault
         // for this run; the next run reports it with the crash.
         NativeCrashCapture.TryInstall(_crashReports.StoreDirectory, _runId);
+        _crashReports.ActiveNativeRecord = Path.GetFileName(NativeCrashCapture.PathFor(_crashReports.StoreDirectory, _runId));
         _activationEvent = new EventWaitHandle(
             initialState: false,
             EventResetMode.AutoReset,
@@ -729,7 +730,9 @@ public partial class App : Application
             if (gameOpen)
             {
                 _applicationUpdateHandoffActive = false;
-                const string waiting = "Update ready. Wisp will update and restart after you close Forza.";
+                var waiting = ApplicationVersionInfo.AutomaticInstallation
+                    ? "Update ready. Wisp will update and restart after you close Forza."
+                    : "Update ready. Close Forza, then use Update to install it.";
                 _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
                 return (false, waiting);
             }
@@ -818,7 +821,9 @@ public partial class App : Application
                     handoff.StopIfRunning();
                     _applicationUpdateHandoffActive = false;
                     _controller.Runs.CancelMetadataClosePreparation();
-                    const string waiting = "Update ready. Wisp will restart after Forza closes.";
+                    var waiting = ApplicationVersionInfo.AutomaticInstallation
+                        ? "Update ready. Wisp will restart after Forza closes."
+                        : "Update ready. Close Forza, then use Update to install it.";
                     ApplicationUpdateTelemetry.Record("waiting-for-game", installer.Version.ToString());
                     _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
                     return (false, waiting);
@@ -836,7 +841,9 @@ public partial class App : Application
                     handoff.StopIfRunning();
                     _applicationUpdateHandoffActive = false;
                     _controller.Runs.CancelMetadataClosePreparation();
-                    const string waiting = "Update ready. Wisp will restart after your current work is saved.";
+                    var waiting = ApplicationVersionInfo.AutomaticInstallation
+                        ? "Update ready. Wisp will restart after your current work is saved."
+                        : "Update ready. Finish your current work, then use Update to install it.";
                     ApplicationUpdateTelemetry.Record("waiting-for-work", installer.Version.ToString());
                     _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
                     return (false, waiting);

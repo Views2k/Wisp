@@ -7,7 +7,7 @@ public sealed class AutomaticUpdateCoordinatorTests
 {
     private sealed class Scenario
     {
-        internal bool Enabled = true, HasUpdate = true, GameOpen, Busy;
+        internal bool Enabled = true, HasUpdate = true, GameOpen, Busy, Network = true;
         internal int Downloads, Installs;
         internal AutomaticUpdateApplyOutcome InstallOutcome = AutomaticUpdateApplyOutcome.Started;
         internal Func<int, AutomaticUpdateApplyOutcome>? OutcomeForAttempt;
@@ -21,7 +21,7 @@ public sealed class AutomaticUpdateCoordinatorTests
             () => Enabled, () => HasUpdate, () => Task.FromResult(GameOpen), () => Busy,
             () => { Downloads++; return Download?.Task ?? Task.FromResult<VerifiedInstaller?>(Installer); },
             installer => { Assert.Same(Installer, installer); Installs++; return Task.FromResult(OutcomeForAttempt?.Invoke(Installs) ?? InstallOutcome); },
-            _ => { }, () => Now, pendingVersion: () => Installer.Version.ToString());
+            _ => { }, () => Now, pendingVersion: () => Installer.Version.ToString(), networkAvailable: () => Network);
 
         // The dashboard install timer ticks every five seconds for as long as Wisp runs.
         internal async Task TickAsync(AutomaticUpdateCoordinator coordinator, TimeSpan duration)
@@ -133,6 +133,23 @@ public sealed class AutomaticUpdateCoordinatorTests
         Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries + 1, s.Downloads);
         Assert.Equal(1, s.Installs);
         Assert.False(coordinator.IsExhausted("2.6.10"));
+    }
+
+    [Fact]
+    public async Task DownloadsThatCannotHappenWithoutAConnectionDoNotSpendTheBudget()
+    {
+        var s = new Scenario { Network = false, Download = new TaskCompletionSource<VerifiedInstaller?>() };
+        s.Download.SetResult(null);
+        var coordinator = s.Create();
+        await s.TickAsync(coordinator, TimeSpan.FromHours(1));
+        Assert.True(s.Downloads > AutomaticUpdateCoordinator.MaximumRetries);
+        Assert.False(coordinator.IsExhausted("2.6.9"));
+
+        // The connection returns: the download succeeds and the release is handed off at once.
+        s.Network = true;
+        s.Download = null;
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.RetryInterval);
+        Assert.Equal(1, s.Installs);
     }
 
     [Fact]

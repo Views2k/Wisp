@@ -125,7 +125,7 @@ public sealed partial class RunsViewModel
             if (_disposed || cancellation.IsCancellationRequested || revision != _tunePreparationRevision || _metadataClosing) return;
 
             BeforeStart?.Invoke();
-            var started = await _service.StartAsync(new RunRecordingOptions(_activeStopAfter, attachment));
+            var started = _service.Start(new RunRecordingOptions(_activeStopAfter, attachment));
             // Start rechecks the current car and attachment age under its lock.
             // A rejected attachment must not block an otherwise available run.
             // A failed start has no active session; the ordinary start retains
@@ -134,7 +134,7 @@ public sealed partial class RunsViewModel
             {
                 attachment = null;
                 reason = "The car or tune changed before recording started.";
-                started = await _service.StartAsync(new RunRecordingOptions(_activeStopAfter));
+                started = _service.Start(new RunRecordingOptions(_activeStopAfter));
             }
             _tunePreparationFailed = !started && attachment is null;
             if (!started) Error = _service.Error ?? _service.Status;

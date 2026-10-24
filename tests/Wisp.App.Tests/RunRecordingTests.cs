@@ -64,18 +64,19 @@ public sealed class RunRecordingTests
             await using var service = new RunRecordingService(receiver, directory);
             service.UpdateContext(new(Stopwatch.GetTimestamp(), 2468, DrivetrainType.RearWheelDrive, true));
             // An automatic lap save holds the run store while it writes. A plain start is refused; the
-            // awaited start waits for the store and then starts with fresh telemetry.
+            // library wait completes when the store is released, and the start that follows succeeds.
             var held = service.Store.TryReserveJournalStart();
             Assert.NotNull(held);
             Assert.False(service.Start());
-            var start = service.StartAsync(cancellationToken: TestContext.Current.CancellationToken);
+            var wait = service.WaitForLibraryAsync(TestContext.Current.CancellationToken);
             await Task.Delay(200, TestContext.Current.CancellationToken);
-            Assert.False(start.IsCompleted);
+            Assert.False(wait.IsCompleted);
+            held.Dispose();
+            await wait;
             await Send(10);
             await WaitUntil(() => receiver.Latest?.GameTimestampMilliseconds == 10);
             service.UpdateContext(new(Stopwatch.GetTimestamp(), 2468, DrivetrainType.RearWheelDrive, true));
-            held.Dispose();
-            Assert.True(await start);
+            Assert.True(service.Start());
             Assert.True(service.IsRecording);
             await service.StopAsync();
         }

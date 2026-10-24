@@ -34,6 +34,15 @@ public sealed partial class RunStore
     private bool _recovered;
     private bool _isFull;
     public string? Warning { get; private set; }
+
+    // The warning of the last operation, handed over once: the page shows it with that operation's
+    // result, and the next refresh starts clean instead of repeating it.
+    internal string? TakeWarning()
+    {
+        var warning = Warning;
+        Warning = null;
+        return warning;
+    }
     public bool IsFull => Volatile.Read(ref _isFull);
 
     public RunStore(string directory)
@@ -44,7 +53,6 @@ public sealed partial class RunStore
 
     public Task<IReadOnlyList<RunSummary>> ListAsync(CancellationToken cancellationToken = default) => InBackground<IReadOnlyList<RunSummary>>(async () =>
     {
-        Warning = null; // A warning describes one listing; the next listing starts clean.
         await RecoverAsync().ConfigureAwait(false);
         var summaries = new List<RunSummary>();
         foreach (var path in Directory.EnumerateFiles(_directory, "*.wisprun"))

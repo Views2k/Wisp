@@ -126,7 +126,10 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     private string _dashboardPeakPower = "—";
     private string _dashboardPeakTorque = "—";
     private string _dashboardTopSpeed = "—";
-    private string _applicationUpdateStatus = "Wisp checks on launch and every 15 minutes. Updates install automatically after Forza closes.";
+    private string _applicationUpdateStatus = "Wisp checks on launch and every 15 minutes." + ApplicationVersionInfo.AutomaticInstallationNote;
+    public string ApplicationUpdateDescription { get; } = ApplicationVersionInfo.AutomaticInstallation
+        ? "Updates install automatically when Forza is closed. Wisp restarts with your settings preserved."
+        : "Use Update to install a new version. Wisp restarts with your settings preserved.";
     private string _applicationUpdateAction = "Check for updates";
     private bool _canCheckApplicationUpdate = true;
     private bool _isApplicationUpdateAvailable;

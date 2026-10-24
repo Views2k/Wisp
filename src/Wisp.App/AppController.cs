@@ -656,7 +656,7 @@ public sealed partial class AppController : IAsyncDisposable
             if (release is null)
             {
                 ViewModel.UpdateApplicationUpdateStatus(
-                    $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is up to date.{AutomaticInstallationNote}",
+                    $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is up to date.{ApplicationVersionInfo.AutomaticInstallationNote}",
                     "Check again",
                     canCheck: true);
                 return null;
@@ -780,22 +780,17 @@ public sealed partial class AppController : IAsyncDisposable
     // installation, or this release failed its handoff three times), the periodic check points at
     // the full installer instead of promising an installation that cannot happen. The buttons still
     // try once per click, and a newer release gets automatic attempts again.
-    // Private test builds never install automatically (EnableAutomaticApplicationUpdates); their copy
-    // points at the Update button instead of promising an installation.
-    private static bool AutomaticInstallation => ApplicationVersionInfo.DiagnosticBuildId is null;
-    private static string AutomaticInstallationNote => AutomaticInstallation ? " Updates install automatically after Forza closes." : "";
-
     private bool AutomaticInstallationStopped(SemanticVersion version) =>
         _automaticInstaller is { } installer && (installer.HandoffUnavailable || installer.IsExhausted(version.ToString()));
 
     private static string ManualInstallStatus(SemanticVersion version) =>
-        $"Wisp {ApplicationVersionInfo.Format(version)} could not be installed automatically. Download and run the full installer from wispoverlay.com.";
+        $"Wisp {ApplicationVersionInfo.Format(version)} could not be installed automatically. Use Update to try again, or download and run the full installer from wispoverlay.com.";
 
     private void ShowAvailableApplicationUpdate(UpdateRelease release) =>
         ViewModel.UpdateApplicationUpdateStatus(
             AutomaticInstallationStopped(release.Version)
                 ? ManualInstallStatus(release.Version)
-                : AutomaticInstallation
+                : ApplicationVersionInfo.AutomaticInstallation
                     ? $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. Wisp will update and restart after Forza closes."
                     : $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. Use Update to install it.",
             "Update",
@@ -830,7 +825,7 @@ public sealed partial class AppController : IAsyncDisposable
             return;
         }
         ViewModel.UpdateApplicationUpdateStatus(
-            $"Wisp checks on launch and every 15 minutes.{AutomaticInstallationNote}",
+            $"Wisp checks on launch and every 15 minutes.{ApplicationVersionInfo.AutomaticInstallationNote}",
             "Check now",
             canCheck: true);
     }
@@ -880,6 +875,13 @@ public sealed partial class AppController : IAsyncDisposable
                 return null;
             }
 
+            if (!ApplicationUpdateCheckPolicy.NetworkAvailable())
+            {
+                // As for the check: no connection is a wait, not a failure to report.
+                ApplicationUpdateTelemetry.Record("paused", release.Version.ToString(), reason: "connection");
+                ViewModel.UpdateApplicationUpdateStatus("Connect to the internet to download the update.", "Try again", canCheck: true, isUpdateAvailable: true);
+                return null;
+            }
             supplementaryDownload = SupplementaryObservations.Begin("update", "update", "download");
             ApplicationUpdateTelemetry.Record("downloading", release.Version.ToString(), 0);
             createdAttemptDirectory = ApplicationUpdateStaging.CreateAttemptDirectory(release.Version);

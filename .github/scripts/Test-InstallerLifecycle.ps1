@@ -139,7 +139,7 @@ function Write-InstallerLifecycleMarker {
         [System.Diagnostics.Stopwatch]$Timer
     )
 
-    if ($Label -cnotin @('Fresh installer canary', 'In-place update canary',
+    if ($Label -cnotin @('Fresh installer canary', 'In-place update canary', 'Manual reinstall canary',
             'Uninstaller canary', 'First-run Wisp Setup') -or
         $Stage -cnotmatch '\A(?:started|launch returned|before process wait|completed|window detected|close requested|native stage observed: (?:restart-manager-(?:registering-files|resources-ready|query-started|query-completed|query-failed|no-applications|application-wisp|application-wisp-updater|application-found)|installation-started|installation-succeeded|setup-deinitializing))\z') {
         return

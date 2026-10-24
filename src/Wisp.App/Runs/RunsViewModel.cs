@@ -255,7 +255,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
     }
     public async Task ToggleRecordingAsync()
     {
-        if (_disposed || _service.IsPreparing || (_metadataClosing && !_service.IsRecording)) return;
+        if (_disposed || _startPending || _service.IsPreparing || (_metadataClosing && !_service.IsRecording)) return;
         Error = "";
         try
         {
@@ -295,11 +295,14 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             if (revision == _analysisRevision) RequestCharts();
         }
     }
+    private bool _recordingObserved, _startPending;
     private void ServiceStateChanged(object? sender, EventArgs e) => OnUi(() =>
     {
+        var wasRecording = _recordingObserved;
+        _recordingObserved = _service.IsRecording;
         RefreshStatus();
-        // A recording whose save failed left its journal for recovery; list it now, not at the next launch.
-        if (_service.Error is not null && !_service.IsRecording && LibraryFeatureAvailable && !_metadataClosing && !RecordingActive)
+        // A recording whose save failed left its journal for recovery; list it once, when that recording ends.
+        if (wasRecording && !_recordingObserved && _service.Error is not null && LibraryFeatureAvailable && !_metadataClosing && !RecordingActive)
             _ = LoadLibraryAsync();
     });
     private void ServiceRunSaved(RecordedRun run) => OnUi(() => _ = ShowSavedAsync(run));
@@ -335,7 +338,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             OnChanged(nameof(SelectedRun)); OnChanged(nameof(ComparisonChoice));
             OnChanged(nameof(IsLibraryEmpty)); OnChanged(nameof(CanManageAllRuns)); RaiseCommands();
             RefreshLibrarySearch();
-            if (_service.Store.Warning is { } warning) Error = warning;
+            if (_service.Store.TakeWarning() is { } warning) Error = warning;
         }
         catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException) { Fail("Saved runs could not be read. Check local storage, then refresh."); }

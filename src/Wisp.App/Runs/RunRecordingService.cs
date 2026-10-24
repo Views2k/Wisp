@@ -68,14 +68,10 @@ public sealed class RunRecordingService : IAsyncDisposable
         while (session.Contexts.Count > 2048) session.Contexts.TryDequeue(out _);
     }
 
-    // An automatic lap save or a details save holds the run store for a moment; the start waits for it
-    // (up to StartWait) instead of refusing while it runs.
+    // An automatic lap save or a details save holds the run store for a moment; a start that waits for
+    // it (up to StartWait) is not refused while it runs.
     internal static readonly TimeSpan StartWait = TimeSpan.FromSeconds(3);
-    public async Task<bool> StartAsync(RunRecordingOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        await Store.WaitForIdleAsync(StartWait, cancellationToken).ConfigureAwait(false);
-        return Start(options);
-    }
+    public Task WaitForLibraryAsync(CancellationToken cancellationToken = default) => Store.WaitForIdleAsync(StartWait, cancellationToken);
 
     public bool Start(RunRecordingOptions? options = null)
     {
