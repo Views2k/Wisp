@@ -410,13 +410,16 @@ public sealed class AnalogTireTemperatureGaugeView : TireTemperatureVisualBase
         const double width = 10.3;
         const double gap = -0.5;
         var left = center.X - ((width * digits.Length) + (gap * (digits.Length - 1))) / 2;
+        var tint = Color.FromArgb(242, 248, 250, 253);
         foreach (var digit in digits)
         {
-            var image = NativeAssetCache.GetTinted(
-                NativeGaugeMode.Analogue,
-                $"HUD_Dial_Speed_Analogue_{digit}.png",
-                Color.FromArgb(242, 248, 250, 253));
-            dc.DrawImage(image, new Rect(left, center.Y - height / 2, width, height));
+            // Below freezing the readout carries a sign; the digit artwork covers 0 to 9 only, and a
+            // name outside it is not a resource of Wisp.
+            if (digit == '-')
+                dc.DrawLine(new Pen(new SolidColorBrush(tint), 2), new Point(left + 1, center.Y), new Point(left + width - 1, center.Y));
+            else if (digit is >= '0' and <= '9')
+                dc.DrawImage(NativeAssetCache.GetTinted(NativeGaugeMode.Analogue, $"HUD_Dial_Speed_Analogue_{digit}.png", tint),
+                    new Rect(left, center.Y - height / 2, width, height));
             left += width + gap;
         }
     }

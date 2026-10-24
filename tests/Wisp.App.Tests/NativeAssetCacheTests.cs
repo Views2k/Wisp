@@ -5,6 +5,17 @@ namespace Wisp.App.Tests;
 public sealed class NativeAssetCacheTests
 {
     [Fact]
+    public void MissingResourceGivesThePlaceholderOnEveryRequestWithoutThrowing()
+    {
+        // A tire readout below freezing asked for "HUD_Dial_Speed_Analogue_-.png", which is not a
+        // resource; the cache answers with its placeholder and never throws on the dashboard thread.
+        const string name = "HUD_Dial_Speed_Analogue_-.png";
+        Assert.True(NativeAssetCache.IsPlaceholder(NativeAssetCache.Get(NativeGaugeMode.Analogue, name)));
+        Assert.True(NativeAssetCache.IsPlaceholder(NativeAssetCache.Get(NativeGaugeMode.Analogue, name)));
+        Assert.True(NativeAssetCache.IsPlaceholder(NativeAssetCache.GetTinted(NativeGaugeMode.Analogue, name, System.Windows.Media.Colors.White)));
+    }
+
+    [Fact]
     public void NativePremultipliedSamplesAreRestoredWithoutChangingAlpha()
     {
         byte[] pixel = [90, 90, 90, 128];

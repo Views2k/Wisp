@@ -114,6 +114,21 @@ public sealed class NativeTuneCaptureTests
     }
 
     [Fact]
+    public void FailedRequirementIsATransitionWhileBytesChangeAndAReadFailureOnceStable()
+    {
+        // Tools showed tune reads failing on structures that were mid-change (car or session change,
+        // loading); the reader reports those as the transition they are and keeps "could not be
+        // read" for a stable mismatch.
+        var memory = new Memory();
+        var read = new NativeTuneRead(memory, CancellationToken.None);
+        _ = read.Bytes(0x10000, 4);
+        read.Require(true);
+        Assert.Throws<InvalidDataException>(() => read.Require(false));
+        memory.Fill = 1;
+        Assert.Throws<TuneChangedException>(() => read.Require(false));
+    }
+
+    [Fact]
     public void AssetDecoderRejectsUnexpectedBytesBeforeOpeningSQLite()
     {
         Assert.Equal(TuneAssetFailureCode.DecodeLength, Assert.Throws<TuneAssetValidationException>(() =>

@@ -25,18 +25,18 @@ internal static class NativeTuneCapture
         var fields = pack.Fields;
         var (source, selected) = ReadLocalCar(memory, read);
         var ordinal = read.Int32(source + fields.SourceCarOrdinal);
-        Require(ordinal > 0);
+        read.Require(ordinal > 0);
         var drive = read.Int32(selected + 0xB9C);
-        Require(drive is >= 0 and <= 2);
+        read.Require(drive is >= 0 and <= 2);
         var gearCount = read.Int32(selected + 0x24);
-        Require(gearCount is >= 2 and <= 11);
+        read.Require(gearCount is >= 2 and <= 11);
         var ratios = read.Bytes(selected + 0x28, gearCount * 20);
         for (var i = 0; i < gearCount; i++)
         {
             var ratio = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(ratios.AsSpan(i * 20)));
-            Require(float.IsFinite(ratio) && Math.Abs(ratio) < 30 && (i == 0 ? ratio < 0 : ratio > 0));
+            read.Require(float.IsFinite(ratio) && Math.Abs(ratio) < 30 && (i == 0 ? ratio < 0 : ratio > 0));
         }
-        Require(read.Single(selected + 0xB68) is > 0 and < 30);
+        read.Require(read.Single(selected + 0xB68) is > 0 and < 30);
         var wheels = new HashSet<ulong>();
         var wheelIds = new HashSet<uint>();
         foreach (var offset in new[] { fields.FirstWheelPointer, fields.SecondWheelPointer,
@@ -44,11 +44,11 @@ internal static class NativeTuneCapture
         {
             var wheel = read.Pointer(selected + offset);
             var id = read.UInt32(wheel + fields.WheelId);
-            Require(id < 4 && wheels.Add(wheel) && wheelIds.Add(id));
+            read.Require(id < 4 && wheels.Add(wheel) && wheelIds.Add(id));
         }
 
         var descriptor = read.Pointer(source + 0x2E0);
-        Require(read.Int32(descriptor) == ordinal);
+        read.Require(read.Int32(descriptor) == ordinal);
         // The current-car Tune model uses actor attributes + 0x6EE4. Descriptor
         // payloads may retain sentinels; VerifyStable rechecks this active block.
         var activeWords = Words(read.Bytes(source + 0x71F4, 0xB8));
@@ -62,19 +62,19 @@ internal static class NativeTuneCapture
         var carRanges = ImmutableDictionary.CreateBuilder<TuneFieldId, TuneRange>();
         foreach (var (id, low, high) in CarRanges)
             carRanges.Add(id, Range(attributes, low, high));
-        Require(selected >= 0x570);
+        read.Require(selected >= 0x570);
         var scale = read.Single(selected - 0x570 + 8);
-        Require(scale is > 0 and < 10000000);
+        read.Require(scale is > 0 and < 10000000);
 
         var locale = read.Pointer(module + layout.Rva(0xA862060));
         var preference = read.Int32(locale + 0x34);
         if (preference == -1)
         {
             var profileIndex = read.Int32(locale + 0x28);
-            Require(profileIndex is >= 0 and < 8);
+            read.Require(profileIndex is >= 0 and < 8);
             preference = read.Int32(locale + (ulong)profileIndex * 0x94 + 0x9C);
         }
-        Require(preference is >= 0 and < 7);
+        read.Require(preference is >= 0 and < 7);
         var conversions = ReadUnitConversions(memory, read, layout, preference);
         var format = new TuneFormatConstants(read.Single(module + layout.Rva(0x64BA6E8)), read.Double(module + layout.Rva(0x6446D18)),
             read.Double(module + layout.Rva(0x65AC730)), read.Double(module + layout.Rva(0x64FBE80)), read.Double(module + layout.Rva(0x640EE78)));
@@ -83,11 +83,11 @@ internal static class NativeTuneCapture
         foreach (var (kind, category) in PartCategories)
         {
             var index = read.Int32(indices + category * 4);
-            Require(index is >= 0 and < 100);
+            read.Require(index is >= 0 and < 100);
             installed.Add(new TunePart(kind, read.Int32(descriptor + 0x10 + (ulong)index * 4), null));
         }
         var resolved = metadata.Resolve(ordinal, installed.ToImmutable());
-        Require(resolved.All(part => part.Level.HasValue));
+        read.Require(resolved.All(part => part.Level.HasValue));
         var performance = NativeTunePerformance.TryRead(memory, source, cancellationToken);
         read.VerifyStable();
         if (verifyLayout) layout.Verify(memory, cancellationToken);
@@ -134,7 +134,7 @@ internal static class NativeTuneCapture
             read.VerifyStable();
             throw new TuneCarSelectionException(0);
         }
-        Require(begin <= end && end <= capacity && end - begin <= 1024 &&
+        read.Require(begin <= end && end <= capacity && end - begin <= 1024 &&
             begin % 8 == 0 && end % 8 == 0 && capacity % 8 == 0 &&
             NativeHudProcessMemory.IsValidReadSpan(begin, 8) && NativeHudProcessMemory.IsValidReadSpan(capacity, 8));
         var candidates = new List<(ulong Actor, ulong Provider)>();
@@ -145,7 +145,7 @@ internal static class NativeTuneCapture
             for (var index = 0; index < sources.Length; index += 8)
             {
                 var actor = BinaryPrimitives.ReadUInt64LittleEndian(sources.AsSpan(index));
-                Require(NativeHudProcessMemory.IsValidReadSpan(actor, 0x8000));
+                read.Require(NativeHudProcessMemory.IsValidReadSpan(actor, 0x8000));
                 var provider = read.UInt64(actor + fields.SourceProvider);
                 if (!NativeHudProcessMemory.IsValidReadSpan(provider, 0xC000)) { unverifiedProvider = true; continue; }
                 var table = read.UInt64(provider);
@@ -162,7 +162,7 @@ internal static class NativeTuneCapture
         if (candidates.Count != 1)
         {
             // A bad provider is not evidence that the player is in a menu.
-            Require(candidates.Count != 0 || !unverifiedProvider);
+            read.Require(candidates.Count != 0 || !unverifiedProvider);
             read.VerifyStable();
             throw new TuneCarSelectionException(candidates.Count);
         }
@@ -174,7 +174,7 @@ internal static class NativeTuneCapture
     {
         var module = memory.ModuleBase;
         var units = read.Pointer(module + layout.Rva(0xA862058));
-        Require(read.Bytes(module + layout.Rva(0xA861342), 1)[0] == 1);
+        read.Require(read.Bytes(module + layout.Rva(0xA861342), 1)[0] == 1);
         var conversions = ImmutableDictionary.CreateBuilder<TuneQuantity, TuneConversion>();
         foreach (var (quantity, category) in Quantities)
         {
@@ -182,17 +182,17 @@ internal static class NativeTuneCapture
             ulong entry;
             if (unitOverride != -1)
             {
-                Require(unitOverride is >= 0 and < 256);
+                read.Require(unitOverride is >= 0 and < 256);
                 entry = read.Pointer(units + 0x1568) + (ulong)unitOverride * 20;
             }
             else entry = units + ((ulong)preference * 0x26 + category) * 20 + 8;
             var unitId = read.Int32(entry + 4);
-            Require(unitId is >= 0 and < 128);
+            read.Require(unitId is >= 0 and < 128);
             var conversion = module + layout.Rva(0xA861470) + (ulong)unitId * 40;
-            Require(read.Int32(conversion) == unitId);
+            read.Require(read.Int32(conversion) == unitId);
             var factor = read.Double(conversion + 0x10);
             var callback = read.UInt64(conversion + 0x18);
-            Require(callback == 0 || callback >= module && callback < module + memory.CompatibilityPack.ImageSize);
+            read.Require(callback == 0 || callback >= module && callback < module + memory.CompatibilityPack.ImageSize);
             conversions.Add(quantity, new TuneConversion(unitId, factor, callback != 0));
         }
         return conversions.ToImmutable();
@@ -204,10 +204,6 @@ internal static class NativeTuneCapture
         for (var i = 0; i < bytes.Length; i += 4)
             words.Add(BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(i)));
         return words.MoveToImmutable();
-    }
-    private static void Require(bool condition)
-    {
-        if (!condition) throw new InvalidDataException("The current car's tune is not available yet.");
     }
     private static readonly (TuneFieldId Id, ulong Low, ulong High)[] CarRanges =
     [
