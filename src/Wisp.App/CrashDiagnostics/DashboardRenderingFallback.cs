@@ -21,11 +21,24 @@ internal static class DashboardRenderingFallback
         return false;
     }
 
+    // Software drawing works around one failure; it is not a permanent setting. The request lapses
+    // after two weeks, and the next render thread failure renews it.
+    internal static readonly TimeSpan Lifetime = TimeSpan.FromDays(14);
+
     internal static string MarkerPath(string directory) => Path.Combine(directory, MarkerName);
 
-    internal static bool IsRequested(string directory)
+    internal static bool IsRequested(string directory, DateTimeOffset now)
     {
-        try { return File.Exists(MarkerPath(directory)); }
+        try
+        {
+            var path = MarkerPath(directory);
+            if (!File.Exists(path)) return false;
+            if (DateTimeOffset.TryParseExact(File.ReadAllText(path).Trim(), "O", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out var requested) && now - requested < Lifetime)
+                return true;
+            File.Delete(path);
+            return false;
+        }
         catch (Exception) { return false; }
     }
 

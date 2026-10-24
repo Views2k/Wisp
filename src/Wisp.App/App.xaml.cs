@@ -42,6 +42,7 @@ public partial class App : Application
     private int _fatalExit;
     private SessionEndSentinel? _sessionEndSentinel;
     private DebugLogging.UiStallWatchdog? _uiStallWatchdog;
+    private DisplayChangeWatcher? _displayChanges;
 
     // Receives an exception an operation on the dashboard thread caught and recovered from.
     internal static Action<Exception, string?>? RecoveredExceptionSink { get; private set; }
@@ -57,7 +58,7 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
         _previousCrashReport = _crashReports.LatestPending();
         RecoveredExceptionSink = _crashMonitor.RecoveredUiException;
-        SoftwareRenderingActive = DashboardRenderingFallback.IsRequested(_crashReports.StoreDirectory);
+        SoftwareRenderingActive = DashboardRenderingFallback.IsRequested(_crashReports.StoreDirectory, DateTimeOffset.UtcNow);
         if (SoftwareRenderingActive)
             System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
     }
@@ -115,7 +116,18 @@ public partial class App : Application
         _controller = new AppController(settings, settingsService);
         if (SoftwareRenderingActive) _controller.LocalNotices.Raise(LocalDashboardNotices.SoftwareRendering);
         _uiStallWatchdog = DebugLogging.UiStallWatchdog.Start(Dispatcher);
-        await StartFeatureControlsAsync();
+        _displayChanges = DisplayChangeWatcher.Start(Dispatcher, _controller.KeepOverlaysOnScreen);
+        try
+        {
+            await StartFeatureControlsAsync();
+        }
+        catch (Exception exception)
+        {
+            // Feature controls are optional: every feature stays on without them, and the failure reaches diagnostics.
+            _crashMonitor.RecoveredUiException(exception, "feature-controls");
+            RecordSupplementarySignal("startup", "app", "failure", "launch", incident:
+                DebugLogging.SupplementaryOperationFailure.Capture("app", "launch", exception, DateTimeOffset.UtcNow));
+        }
         StartSupplementaryReporting();
         RecordSupplementarySignal("settings", "settings", settingsService.LoadOutcome, "load",
             incident: settingsService.LoadFailure is { } loadFailure ? Supplementary.SupplementaryIncidentSchema.Create(
@@ -130,7 +142,7 @@ public partial class App : Application
         if (_runExitMarker?.Previous is { } previous)
         {
             _previousRunCancellation = new CancellationTokenSource();
-            _ = RecoverPreviousRunAsync(previous, _runExitMarker.StartedAtUtc, _previousRunCancellation.Token);
+            Observe(RecoverPreviousRunAsync(previous, _runExitMarker.StartedAtUtc, _previousRunCancellation.Token), "previous-run-recovery");
         }
         _overlayHotkey = new OverlayHotkeyService();
         _overlayHotkey.Pressed += (_, _) =>
@@ -247,38 +259,18 @@ public partial class App : Application
         }
 
         var settings = _controller.Settings;
-        var overlay = new OverlayWindow(_controller);
-        _controller.Overlay = overlay;
-        _controller.RestoreOverlayPlacement();
-        overlay.SetEditMode(!settings.OverlayLocked);
-
-        var gForceOverlay = new GForceWindow(_controller);
-        _controller.GForceOverlay = gForceOverlay;
-        _controller.RestoreGForcePlacement();
-        gForceOverlay.SetEnabled(_controller.IsStandaloneGForceWindowEnabled);
-        gForceOverlay.SetEditMode(!settings.OverlayLocked);
-
-        var boostGaugeOverlay = new BoostGaugeWindow(_controller);
-        _controller.BoostGaugeOverlay = boostGaugeOverlay;
-        boostGaugeOverlay.ApplyAppearance(settings.BoostGaugeScale, settings.OverlayOpacity);
-        boostGaugeOverlay.SetEnabled(_controller.IsDetachedBoostGaugeEnabled);
-        _controller.RestoreBoostGaugePlacement();
-        boostGaugeOverlay.SetEditMode(!settings.OverlayLocked);
-
-        var tireTemperatureGaugeOverlay = new TireTemperatureGaugeWindow(_controller);
-        _controller.TireTemperatureGaugeOverlay = tireTemperatureGaugeOverlay;
-        tireTemperatureGaugeOverlay.ApplyGaugeMode(settings.NativeGaugeMode);
-        tireTemperatureGaugeOverlay.ApplyAppearance(
-            settings.TireTemperatureGaugeScale,
-            settings.OverlayOpacity);
-        tireTemperatureGaugeOverlay.SetEnabled(_controller.IsDetachedTireTemperatureGaugeEnabled);
-        _controller.RestoreTireTemperatureGaugePlacement();
-        _ = OverlayHookNotice.WatchAsync(_controller.LocalNotices, _activationCancellation?.Token ?? CancellationToken.None);
-        tireTemperatureGaugeOverlay.SetEditMode(!settings.OverlayLocked);
-
-        _controller.InitializeDriftGaugeWindow();
-        _controller.InitializeLapDeltaWindow();
-        _controller.InitializePowerTorqueGaugeWindows();
+        try
+        {
+            CreateHudWindows(_controller);
+        }
+        catch (Exception exception)
+        {
+            // A HUD window that cannot be created leaves the dashboard available and the failure in diagnostics.
+            _crashMonitor.RecoveredUiException(exception, "hud-windows");
+            RecordSupplementarySignal("startup", "hud", "failure", "hud-ready", incident:
+                DebugLogging.SupplementaryOperationFailure.Capture("hud", "hud-ready", exception, DateTimeOffset.UtcNow));
+            _controller.ViewModel.ReportControlError("Wisp could not create its HUD windows; restart Wisp to try again");
+        }
 
         ControlPanelWindow mainWindow = settings.UseLegacyInterface
             ? new LegacyMainWindow(_controller)
@@ -287,6 +279,48 @@ public partial class App : Application
         MainWindow = mainWindow;
         mainWindow.Closing += OnControlPanelClosing;
     }
+
+    private void CreateHudWindows(AppController controller)
+    {
+        var settings = controller.Settings;
+        var overlay = new OverlayWindow(controller);
+        controller.Overlay = overlay;
+        controller.RestoreOverlayPlacement();
+        overlay.SetEditMode(!settings.OverlayLocked);
+
+        var gForceOverlay = new GForceWindow(controller);
+        controller.GForceOverlay = gForceOverlay;
+        controller.RestoreGForcePlacement();
+        gForceOverlay.SetEnabled(controller.IsStandaloneGForceWindowEnabled);
+        gForceOverlay.SetEditMode(!settings.OverlayLocked);
+
+        var boostGaugeOverlay = new BoostGaugeWindow(controller);
+        controller.BoostGaugeOverlay = boostGaugeOverlay;
+        boostGaugeOverlay.ApplyAppearance(settings.BoostGaugeScale, settings.OverlayOpacity);
+        boostGaugeOverlay.SetEnabled(controller.IsDetachedBoostGaugeEnabled);
+        controller.RestoreBoostGaugePlacement();
+        boostGaugeOverlay.SetEditMode(!settings.OverlayLocked);
+
+        var tireTemperatureGaugeOverlay = new TireTemperatureGaugeWindow(controller);
+        controller.TireTemperatureGaugeOverlay = tireTemperatureGaugeOverlay;
+        tireTemperatureGaugeOverlay.ApplyGaugeMode(settings.NativeGaugeMode);
+        tireTemperatureGaugeOverlay.ApplyAppearance(
+            settings.TireTemperatureGaugeScale,
+            settings.OverlayOpacity);
+        tireTemperatureGaugeOverlay.SetEnabled(controller.IsDetachedTireTemperatureGaugeEnabled);
+        controller.RestoreTireTemperatureGaugePlacement();
+        Observe(OverlayHookNotice.WatchAsync(controller.LocalNotices, _activationCancellation?.Token ?? CancellationToken.None), "overlay-hook-notice");
+        tireTemperatureGaugeOverlay.SetEditMode(!settings.OverlayLocked);
+
+        controller.InitializeDriftGaugeWindow();
+        controller.InitializeLapDeltaWindow();
+        controller.InitializePowerTorqueGaugeWindows();
+    }
+
+    // A task nobody awaits reports its failure when it faults, not when the finalizer finds it.
+    private void Observe(Task task, string note) => task.ContinueWith(
+        faulted => _crashMonitor.UnobservedTaskException(faulted.Exception!, note),
+        CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
     private async Task RecoverPreviousRunAsync(RunExitMarker previous, DateTimeOffset startedAtUtc, CancellationToken cancellationToken)
     {
@@ -362,6 +396,8 @@ public partial class App : Application
             }
             finally
             {
+                _displayChanges?.Dispose();
+                _displayChanges = null;
                 _uiStallWatchdog?.Dispose();
                 _uiStallWatchdog = null;
                 _sessionEndSentinel?.Dispose();
@@ -413,7 +449,7 @@ public partial class App : Application
         {
             if (_controller?.Settings.RequiresSetup == false)
             {
-                _ = StartRuntimeAsync(showControlPanel: true, minimize: false);
+                Observe(StartRuntimeAsync(showControlPanel: true, minimize: false), "runtime-start");
             }
             return;
         }
@@ -429,7 +465,7 @@ public partial class App : Application
         window.Activate();
         if (_setupWindow is null && _controller?.Settings.RequiresSetup == false)
         {
-            _ = StartRuntimeAsync(showControlPanel: false, minimize: false);
+            Observe(StartRuntimeAsync(showControlPanel: false, minimize: false), "runtime-start");
         }
     }
 
@@ -489,8 +525,8 @@ public partial class App : Application
         {
             // This preference affects only a game-triggered start. The separate
             // AutoMinimizeOnTelemetry option still applies when driving begins.
-            _ = StartRuntimeAsync(
-                showControlPanel: true, minimize: settings.StartMinimizedWithForza, fromForza: true);
+            Observe(StartRuntimeAsync(
+                showControlPanel: true, minimize: settings.StartMinimizedWithForza, fromForza: true), "runtime-start");
         }
     }
 
@@ -547,6 +583,16 @@ public partial class App : Application
                         MessageBoxImage.Warning);
                 }
             }
+            catch (Exception exception)
+            {
+                // Any other start failure is reported and leaves the dashboard open; the next start request retries.
+                _crashMonitor.RecoveredUiException(exception, "runtime-start");
+                RecordSupplementarySignal("startup", "app", "failure", "runtime-ready", incident:
+                    DebugLogging.SupplementaryOperationFailure.Capture("app", "runtime-ready", exception, DateTimeOffset.UtcNow));
+                _runtimeActive = false;
+                _startupTray?.SetWaiting(true);
+                _controller.ViewModel.ReportControlError("Wisp could not finish starting; restart Wisp to try again");
+            }
         }
         finally
         {
@@ -569,7 +615,7 @@ public partial class App : Application
             e.Cancel = true;
             window.Hide();
             _forzaStartupLatch.SuppressCurrentGame(_forzaWindowObserver.IsGameWindowPresent());
-            _ = SuspendRuntimeAsync();
+            Observe(SuspendRuntimeAsync(), "runtime-suspend");
             return;
         }
 
@@ -604,7 +650,7 @@ public partial class App : Application
             return;
         }
 
-        _ = CloseApplicationAsync(null);
+        Observe(CloseApplicationAsync(null), "close");
     }
 
     private async Task CloseApplicationAsync(Window? closingWindow)

@@ -54,10 +54,24 @@ internal static class NativeAssetCache
                 if (attempt < DecodeAttempts) Thread.Sleep(25 * attempt);
             }
         }
-        if (failure is not null)
-            App.RecoveredExceptionSink?.Invoke(failure,
-                FileLockHolders.IsLockFailure(failure) ? FileLockHolders.Note(FileLockHolders.DescribeProgramFiles()) : null);
+        if (failure is not null) Report(failure);
         return null;
+    }
+
+    // Naming the process that holds the file asks the Restart Manager, which can take seconds, so
+    // that lookup and its report run off the dashboard thread.
+    private static void Report(Exception failure)
+    {
+        if (!FileLockHolders.IsLockFailure(failure))
+        {
+            App.RecoveredExceptionSink?.Invoke(failure, null);
+            return;
+        }
+        _ = Task.Run(() =>
+        {
+            try { App.RecoveredExceptionSink?.Invoke(failure, FileLockHolders.Note(FileLockHolders.DescribeProgramFiles())); }
+            catch (Exception) { }
+        });
     }
 
     private static BitmapSource CreatePlaceholder()

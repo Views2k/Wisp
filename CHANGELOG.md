@@ -25,6 +25,13 @@ Notable changes to Wisp are recorded here.
 - Name the process holding a locked program file in the local report.
 - Report a feature-control policy Wisp rejected or could not keep as its own diagnostic, instead of an unclassified failure report.
 - Report a current tune Wisp could not read as a tune read failure in diagnostics, instead of an export validation failure.
+- Report an update that could not be staged on this PC on the update card instead of closing Wisp when it is confirmed.
+- Keep the dashboard open and report the failure when a HUD window or the feature-control client cannot start.
+- Report a background startup task that fails as soon as it fails.
+- Look up the process holding a locked program file off the dashboard thread.
+- Save one report per minute for a recovered failure that repeats, so other failures keep their place in the crash store.
+- Return the dashboard to the graphics card two weeks after a render thread failure switched it to software drawing.
+- Move HUD windows back onto a display after a monitor is unplugged, turned off or changes resolution.
 
 ## 2.7.0 - 2026-10-21
 
