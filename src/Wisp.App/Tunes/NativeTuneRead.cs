@@ -51,6 +51,15 @@ internal sealed class NativeTuneRead(IReadOnlyProcessMemory memory, Cancellation
         return value;
     }
 
+    // A check that fails while bytes read so far are changing describes a transition (car or session
+    // change, loading), reported as such; only a stable mismatch is a failure of the reader.
+    internal void Require(bool condition)
+    {
+        if (condition) return;
+        VerifyStable();
+        throw new InvalidDataException("The current car's tune is not available yet.");
+    }
+
     internal void VerifyStable()
     {
         foreach (var (address, bytes) in _observations)

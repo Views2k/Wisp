@@ -30,7 +30,7 @@ internal static class NativeAssetCache
                 return existing;
             }
 
-            if (RecentlyFailed(key)) return Placeholder;
+            if (Missing.Contains(key) || RecentlyFailed(key)) return Placeholder;
             var image = TryDecode(key);
             if (image is null) return Placeholder; // Not cached: the next request decodes again.
             Images.Add(key, image);
@@ -45,6 +45,9 @@ internal static class NativeAssetCache
     internal static readonly TimeSpan FailureHold = TimeSpan.FromSeconds(2);
     internal static readonly TimeSpan ReportInterval = TimeSpan.FromMinutes(1);
     private static readonly Dictionary<string, long> FailedAt = new(StringComparer.Ordinal);
+    // Keys whose resource is absent or unreadable in this process's program files: a retry cannot
+    // succeed, and three attempts with waits every FailureHold would stall the dashboard thread.
+    private static readonly HashSet<string> Missing = new(StringComparer.Ordinal);
     private static long _lockedAt, _lastReportAt;
 
     private static bool RecentlyFailed(string key) =>
@@ -72,7 +75,9 @@ internal static class NativeAssetCache
         if (failure is not null)
         {
             var now = Stopwatch.GetTimestamp();
-            FailedAt[key] = now;
+            // A held or protected file is tried again after FailureHold; anything else is final.
+            if (FileLockHolders.IsLockFailure(failure) || failure is UnauthorizedAccessException) FailedAt[key] = now;
+            else Missing.Add(key);
             if (FileLockHolders.IsLockFailure(failure)) _lockedAt = now;
             if (_lastReportAt == 0 || Stopwatch.GetElapsedTime(_lastReportAt) >= ReportInterval)
             {
