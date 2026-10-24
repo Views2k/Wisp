@@ -83,15 +83,24 @@ public sealed class AutomaticUpdateCoordinatorTests
     }
 
     [Fact]
-    public async Task TransientHandoffFailureRetriesOncePerRetryInterval()
+    public async Task TransientHandoffFailureRetriesOncePerRetryIntervalThenStopsForTheSession()
     {
+        // One PC on Wisp 2.6.12 failed its handoff verification 1,273 times in a week, once every
+        // RetryInterval. A third failure for the same release now ends automatic attempts.
         var s = new Scenario { InstallOutcome = AutomaticUpdateApplyOutcome.Retry };
         var coordinator = s.Create();
-        await s.TickAsync(coordinator, TimeSpan.FromHours(1));
-        // One attempt at the first five-second tick, then one every RetryInterval:
-        // 1 + floor((3600 s - 5 s) / 120 s) = 30 handoff attempts in an hour.
-        Assert.Equal(30, s.Installs);
+        // The first attempt is at the first five-second tick; the retry follows one RetryInterval later.
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.RetryInterval);
+        Assert.Equal(1, s.Installs);
         Assert.False(coordinator.HandoffUnavailable);
+        await s.TickAsync(coordinator, TimeSpan.FromHours(1));
+        Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries, s.Installs);
+        Assert.True(coordinator.HandoffUnavailable);
+        s.HasUpdate = false;
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.MinimumInterval);
+        s.HasUpdate = true;
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.MinimumInterval);
+        Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries, s.Installs);
     }
 
     [Fact]

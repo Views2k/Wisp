@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -27,42 +28,77 @@ internal static class NativeAssetCache
                 return existing;
             }
 
-            var encoded = new BitmapImage();
-            encoded.BeginInit();
-            encoded.CacheOption = BitmapCacheOption.OnLoad;
-            encoded.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-            encoded.UriSource = new Uri(
-                $"pack://application:,,,/Wisp;component/Assets/Native/{key}",
-                UriKind.Absolute);
-            encoded.EndInit();
-            encoded.Freeze();
-
-            // The original HiRes swatchbin metadata marks every Digital and
-            // Analogue texture as premultiplied-alpha. The exported PNG bytes
-            // preserve those RGB values, while WPF expects straight BGRA input
-            // before it performs its own premultiplication for composition.
-            // Decode every texture through the same one-time unpremultiply;
-            // bypassing this for the analogue assists multiplies their RGB by
-            // alpha a second time and destroys the native sectors and glow.
-            var bgra = new FormatConvertedBitmap(encoded, PixelFormats.Bgra32, null, 0);
-            var stride = checked(bgra.PixelWidth * 4);
-            var pixels = new byte[checked(stride * bgra.PixelHeight)];
-            bgra.CopyPixels(pixels, stride, 0);
-            UnpremultiplyBgra(pixels);
-            BitmapSource image = BitmapSource.Create(
-                bgra.PixelWidth,
-                bgra.PixelHeight,
-                bgra.DpiX,
-                bgra.DpiY,
-                PixelFormats.Bgra32,
-                null,
-                pixels,
-                stride);
-            image.Freeze();
-
+            var image = TryDecode(key);
+            if (image is null) return Placeholder; // Not cached: the next request decodes again.
             Images.Add(key, image);
             return image;
         }
+    }
+
+    // A gauge asset is an embedded resource of Wisp's own program files, and a read can still fail
+    // while another process holds that file. A failed decode is reported and the gauge draws a
+    // transparent image instead of ending Wisp on the dashboard thread.
+    internal const int DecodeAttempts = 3;
+    private static readonly BitmapSource Placeholder = CreatePlaceholder();
+
+    private static BitmapSource? TryDecode(string key)
+    {
+        Exception? failure = null;
+        for (var attempt = 1; attempt <= DecodeAttempts; attempt++)
+        {
+            try { return Decode(key); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or NotSupportedException or FileFormatException)
+            {
+                failure = error;
+                if (attempt < DecodeAttempts) Thread.Sleep(25 * attempt);
+            }
+        }
+        if (failure is not null) App.RecoveredExceptionSink?.Invoke(failure);
+        return null;
+    }
+
+    private static BitmapSource CreatePlaceholder()
+    {
+        var image = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[4], 4);
+        image.Freeze();
+        return image;
+    }
+
+    private static BitmapSource Decode(string key)
+    {
+        var encoded = new BitmapImage();
+        encoded.BeginInit();
+        encoded.CacheOption = BitmapCacheOption.OnLoad;
+        encoded.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+        encoded.UriSource = new Uri(
+            $"pack://application:,,,/Wisp;component/Assets/Native/{key}",
+            UriKind.Absolute);
+        encoded.EndInit();
+        encoded.Freeze();
+
+        // The original HiRes swatchbin metadata marks every Digital and
+        // Analogue texture as premultiplied-alpha. The exported PNG bytes
+        // preserve those RGB values, while WPF expects straight BGRA input
+        // before it performs its own premultiplication for composition.
+        // Decode every texture through the same one-time unpremultiply;
+        // bypassing this for the analogue assists multiplies their RGB by
+        // alpha a second time and destroys the native sectors and glow.
+        var bgra = new FormatConvertedBitmap(encoded, PixelFormats.Bgra32, null, 0);
+        var stride = checked(bgra.PixelWidth * 4);
+        var pixels = new byte[checked(stride * bgra.PixelHeight)];
+        bgra.CopyPixels(pixels, stride, 0);
+        UnpremultiplyBgra(pixels);
+        BitmapSource image = BitmapSource.Create(
+            bgra.PixelWidth,
+            bgra.PixelHeight,
+            bgra.DpiX,
+            bgra.DpiY,
+            PixelFormats.Bgra32,
+            null,
+            pixels,
+            stride);
+        image.Freeze();
+        return image;
     }
 
     public static BitmapSource GetTinted(NativeGaugeMode mode, string fileName, Color tint)
@@ -76,6 +112,7 @@ internal static class NativeAssetCache
     public static BitmapSource GetTinted(NativeAssetFamily family, string fileName, Color tint)
     {
         var source = Get(family, fileName);
+        if (ReferenceEquals(source, Placeholder)) return Placeholder;
         var folder = family.ToString();
         var key = $"{folder}/{fileName}|{tint.A:X2}{tint.R:X2}{tint.G:X2}{tint.B:X2}";
         lock (Sync)

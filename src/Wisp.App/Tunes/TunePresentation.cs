@@ -53,8 +53,11 @@ internal static class TunePresentation
 
     internal static string CaptureStatus(TuneSnapshot snapshot)
     {
-        if (snapshot.Fields.Any(field => field.Status == TuneFieldStatus.UnsupportedUnit))
-            return "Tune reading currently supports imperial game units only. Change Forza's units to imperial, then refresh.";
+        var units = snapshot.Fields.Where(field => field.Status == TuneFieldStatus.UnsupportedUnit)
+            .Select(field => field.UnitId?.ToString(CultureInfo.InvariantCulture) ?? "?").Distinct().ToArray();
+        if (units.Length > 0)
+            return $"Tune reading needs imperial game units; Forza is set to another unit system (game unit {string.Join(", ", units)}). " +
+                "Set Forza's units to imperial, then refresh.";
         if (snapshot.Fields.Any(field => field.Status == TuneFieldStatus.UnsupportedConversion))
             return "This tune includes a value conversion Wisp does not support yet. It cannot be saved until all values can be read.";
         return snapshot.IsComplete ? "Tune read. Save a copy to keep it in Wisp."

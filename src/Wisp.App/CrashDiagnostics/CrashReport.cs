@@ -116,6 +116,7 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
                 report.AppendLine("The faulting module alone does not establish the root cause.");
             }
             else if (exit.WindowsStopped) report.AppendLine("Windows stopped without shutting down (Kernel-Power 41 or EventLog 6008) and restarted within 10 minutes of the previous run's last checkpoint.");
+            else if (exit.WindowsShutDown) report.AppendLine("Windows shut down or signed out (EventLog 6006 or User32 1074) within minutes of the run's last checkpoint while Wisp was still running.");
             else report.AppendLine("The previous run did not finish normal shutdown. The cause is not established; termination or power loss can also leave this marker.");
             if (exit.Native is { } native)
             {

@@ -40,6 +40,12 @@ public partial class App : Application
     private RunExitMarkerStore? _runExitMarker;
     private CancellationTokenSource? _previousRunCancellation;
     private int _fatalExit;
+    private SessionEndSentinel? _sessionEndSentinel;
+
+    // Receives an exception an operation on the dashboard thread caught and recovered from.
+    internal static Action<Exception>? RecoveredExceptionSink { get; private set; }
+    // The dashboard draws in software after a render thread failure ended a previous run.
+    internal static bool SoftwareRenderingActive { get; private set; }
 
     public App()
     {
@@ -49,10 +55,19 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledBackgroundException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
         _previousCrashReport = _crashReports.LatestPending();
+        RecoveredExceptionSink = _crashMonitor.RecoveredUiException;
+        SoftwareRenderingActive = DashboardRenderingFallback.IsRequested(_crashReports.StoreDirectory);
+        if (SoftwareRenderingActive)
+            System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
     }
 
     private void OnUnhandledUiException(object sender, DispatcherUnhandledExceptionEventArgs e)
-    { Interlocked.Exchange(ref _fatalExit, 1); _crashMonitor.UiException(e.Exception); }
+    {
+        Interlocked.Exchange(ref _fatalExit, 1);
+        if (DashboardRenderingFallback.IsRenderThreadFailure(e.Exception))
+            DashboardRenderingFallback.TryRequest(_crashReports.StoreDirectory, DateTimeOffset.UtcNow);
+        _crashMonitor.UiException(e.Exception);
+    }
     private void OnUnhandledBackgroundException(object sender, UnhandledExceptionEventArgs e)
     {
         if (e.IsTerminating) Interlocked.Exchange(ref _fatalExit, 1);
@@ -79,6 +94,12 @@ public partial class App : Application
         }
 
         _runExitMarker = RunExitMarkerStore.BeginCurrent(_runId);
+        // Windows delivers its shutdown notice to this window on its own thread, so the close request
+        // is recorded even while the dashboard thread is busy.
+        _sessionEndSentinel = SessionEndSentinel.TryStart(() =>
+        {
+            if (Volatile.Read(ref _fatalExit) == 0) _runExitMarker?.MarkShutdownStarted(ShutdownIntent.OperatingSystem);
+        });
         // The native handler records the faulting address and call stack of a hardware fault
         // for this run; the next run reports it with the crash.
         NativeCrashCapture.TryInstall(_crashReports.StoreDirectory, _runId);
@@ -91,6 +112,7 @@ public partial class App : Application
         var settingsService = new SettingsService();
         var settings = settingsService.Load();
         _controller = new AppController(settings, settingsService);
+        if (SoftwareRenderingActive) _controller.LocalNotices.Raise(LocalDashboardNotices.SoftwareRendering);
         await StartFeatureControlsAsync();
         StartSupplementaryReporting();
         RecordSupplementarySignal("settings", "settings", settingsService.LoadOutcome, "load",
@@ -243,6 +265,7 @@ public partial class App : Application
             settings.OverlayOpacity);
         tireTemperatureGaugeOverlay.SetEnabled(_controller.IsDetachedTireTemperatureGaugeEnabled);
         _controller.RestoreTireTemperatureGaugePlacement();
+        _ = OverlayHookNotice.WatchAsync(_controller.LocalNotices, _activationCancellation?.Token ?? CancellationToken.None);
         tireTemperatureGaugeOverlay.SetEditMode(!settings.OverlayLocked);
 
         _controller.InitializeDriftGaugeWindow();
@@ -331,6 +354,8 @@ public partial class App : Application
             }
             finally
             {
+                _sessionEndSentinel?.Dispose();
+                _sessionEndSentinel = null;
                 _runExitMarker?.Dispose();
                 _previousRunCancellation?.Dispose();
                 _instanceMutex?.Dispose();

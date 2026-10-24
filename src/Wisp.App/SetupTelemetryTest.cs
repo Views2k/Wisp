@@ -178,9 +178,32 @@ public sealed class SetupTelemetryTest
             _source.PacketAvailable += packetHandler;
             progress?.Report(
                 $"Port {port} is open. Switch to FH6, leave the menus, and drive gently. " +
-                $"This test waits up to {SetupCompletionRecord.TestTimeoutSeconds} seconds.");
+                "Wisp listens until data arrives or you cancel.");
 
-            var evidence = await completion.Task.WaitAsync(_timeout, cancellationToken).ConfigureAwait(false);
+            // Players switch to Forza and work through its settings while this runs. Instead of giving
+            // up, the test keeps listening and repeats guidance for what it has seen so far.
+            SetupTelemetryEvidence evidence;
+            var guidanceGiven = false;
+            while (true)
+            {
+                try
+                {
+                    evidence = await completion.Task.WaitAsync(_timeout, cancellationToken).ConfigureAwait(false);
+                    break;
+                }
+                catch (TimeoutException)
+                {
+                    var statistics = _source.GetStatistics(_clock.GetUtcNow());
+                    if (!_source.IsRunning || statistics.ListenerError is not null) throw;
+                    if (!guidanceGiven)
+                    {
+                        guidanceGiven = true;
+                        SupplementaryObservations.Record("setup", "setup", "timeout", "data-out",
+                            incident: SetupIncident(TimeoutReason(statistics, true)));
+                    }
+                    progress?.Report(ListeningGuidance(statistics, port));
+                }
+            }
             cancellationToken.ThrowIfCancellationRequested();
             return new SetupTestResult(evidence, "Data Out verified: fresh parsed packets with advancing timestamps and speed data. Game display settings still need your confirmation.");
         }
@@ -228,6 +251,16 @@ public sealed class SetupTelemetryTest
         !listenerRunning || statistics.ListenerError is not null ? "listener-stopped" :
         statistics.AcceptedPackets == 0 && statistics.RejectedPackets > 0 ? "packets-rejected" :
         statistics.AcceptedPackets > 0 ? "sequence-incomplete" : "no-datagrams";
+
+    // What the player should do next while the test keeps listening, from what has arrived so far.
+    internal static string ListeningGuidance(ReceiverStatistics statistics, int port)
+    {
+        if (statistics.AcceptedPackets == 0 && statistics.RejectedPackets > 0)
+            return $"Packets arrived, but they were not valid FH6 Data Out data. Confirm FH6 is sending to port {port} and stop other senders using it. Wisp is still listening.";
+        if (statistics.AcceptedPackets > 0)
+            return "Data arrived, but not yet a complete live sequence. Leave pause, photo and menu screens and drive gently for a few seconds. Wisp is still listening.";
+        return $"No FH6 data yet. In FH6 Settings > HUD and Gameplay, enable Data Out, set its IP to 127.0.0.1 and its port to {port}, then leave the menus and drive. Wisp is still listening on port {port}.";
+    }
 
     internal static string TimeoutMessage(ReceiverStatistics statistics, bool listenerRunning)
     {

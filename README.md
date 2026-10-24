@@ -19,6 +19,10 @@ Wisp 2.7 is a reliability update. Clips keep recording when the graphics card is
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.7 release notes](docs/releases/Wisp-2.7.0-release-notes.md)
 
+### Wisp 2.7.1
+
+Wisp 2.7.1 runs on .NET 10. A gauge image or display driver failure no longer ends Wisp, the setup wizard keeps listening for Data Out, Wisp falls back to the next free UDP port when another app holds its port, and an update that keeps failing stops retrying and points at the full installer. See the [2.7.1 release notes](docs/releases/Wisp-2.7.1-release-notes.md).
+
 ### Clips
 
 Enable clipping to keep a rolling recording, then press **Save clip** or your shortcut to keep a moment. Saved clips stay in Wisp, ready to watch or export as MP4. Choose the filename and folder when exporting. For HDR and lossless clips, Wisp first explains the two choices: a compatible SDR H.264 copy for sharing, or the original recording.

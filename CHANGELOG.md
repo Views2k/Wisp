@@ -2,9 +2,20 @@
 
 Notable changes to Wisp are recorded here.
 
-## Unreleased
+## 2.7.1 - 2026-10-24
 
 - Build on .NET 10 and ship the .NET 10.0.13 runtime and Windows Desktop runtime; .NET 8 support ends on November 10, 2026.
+- Report a gauge image that fails to load and draw it transparent instead of closing Wisp.
+- Ignore a visibility update for a gauge window that was already closed instead of closing Wisp.
+- Draw the dashboard in software on the launch after a render thread failure ended a run; the HUD and clips keep using the graphics card.
+- Explain how to exclude Wisp in RivaTuner Statistics Server while its hooks are loaded inside Wisp.
+- Build the HUD renderer again after the graphics device is removed, reset or hung.
+- Keep the setup wizard's Data Out test listening with repeated guidance instead of giving up after 45 seconds.
+- Listen on the next free UDP port when another app holds the saved one at startup, and say which port to set in Forza.
+- Wait for the network before the first update check when Wisp starts with Windows.
+- Stop automatic update attempts after three failed handoffs for the same release and point at the full installer.
+- Record a Windows shutdown or sign-out as a close request from a window on its own thread, and classify a shutdown that ended a run as Windows ending it.
+- Name the unit system Forza reports on the Tune page when it is not imperial.
 - Report a feature-control policy Wisp rejected or could not keep as its own diagnostic, instead of an unclassified failure report.
 - Report a current tune Wisp could not read as a tune read failure in diagnostics, instead of an export validation failure.
 

@@ -13,6 +13,8 @@ internal sealed class CrashExceptionMonitor(ICrashReportSink sink, Func<DateTime
     private WeakReference<Exception>? _lastTerminatingException;
 
     internal void UiException(Exception exception) => Record(exception, CrashOrigin.UiDispatcher, true);
+    // An operation on the dashboard thread caught its failure and carried on; the report still reaches diagnostics.
+    internal void RecoveredUiException(Exception exception) => Record(exception, CrashOrigin.UiDispatcher, false);
     internal void BackgroundException(object? exception, bool terminating) =>
         Record(exception as Exception, CrashOrigin.BackgroundThread, terminating);
     internal void UnobservedTaskException(Exception exception) => Record(exception, CrashOrigin.UnobservedTask, false);

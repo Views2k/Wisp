@@ -10,6 +10,15 @@ namespace Wisp.App;
 
 public sealed class PowerTorqueGaugeWindow : Window
 {
+    private bool _closed;
+
+    // A closed window cannot be shown again; a visibility update that arrives after Close() is ignored.
+    protected override void OnClosed(EventArgs e)
+    {
+        _closed = true;
+        base.OnClosed(e);
+    }
+
     private const uint DefaultToNearestMonitor = 2;
     private const double BaseSize = PowerTorqueGaugeLayout.GaugeDiameter + 8;
     private readonly NonActivatingWindowDrag _windowDrag;
@@ -94,7 +103,7 @@ public sealed class PowerTorqueGaugeWindow : Window
     {
         if (_enabled && _telemetryVisible)
         {
-            if (!IsVisible) Show();
+            if (!IsVisible && !_closed) Show();
         }
         else if (IsVisible) Hide();
     }

@@ -8,6 +8,15 @@ namespace Wisp.App;
 
 public partial class TireTemperatureGaugeWindow : Window
 {
+    private bool _closed;
+
+    // A closed window cannot be shown again; a visibility update that arrives after Close() is ignored.
+    protected override void OnClosed(EventArgs e)
+    {
+        _closed = true;
+        base.OnClosed(e);
+    }
+
     private const uint DefaultToNearestMonitor = 2;
     private const double DigitalWidth = 310;
     private const double DigitalHeight = 92;
@@ -87,7 +96,7 @@ public partial class TireTemperatureGaugeWindow : Window
         if (_enabled && _telemetryVisible)
         {
             RootViewbox.Opacity = _configuredOpacity;
-            if (!IsVisible)
+            if (!IsVisible && !_closed)
             {
                 Show();
             }

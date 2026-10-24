@@ -26,12 +26,18 @@ internal sealed class AutomaticUpdateCoordinator(
     Func<DateTimeOffset>? clock = null,
     Action<string>? waiting = null)
 {
+    // A handoff that keeps failing the same way will not succeed later in this session either: after
+    // MaximumRetries for one release, automatic attempts stop and the dashboard points at the full installer.
+    internal const int MaximumRetries = 3;
     private bool _active;
     private bool _handoffUnavailable;
+    private int _retries;
+    private string? _retriedVersion;
     private DateTimeOffset _retryAfter;
     private readonly Func<DateTimeOffset> _clock = clock ?? (() => DateTimeOffset.UtcNow);
 
-    // Set once a handoff reports that the update helper is missing or rejected this installation.
+    // Set once a handoff reports that the update helper is missing or rejected this installation,
+    // or the same release failed its handoff MaximumRetries times.
     // The coordinator then stays idle for the rest of the session; a manual install from the
     // dashboard can still try again.
     internal bool HandoffUnavailable => _handoffUnavailable;
@@ -74,7 +80,13 @@ internal sealed class AutomaticUpdateCoordinator(
                     _handoffUnavailable = true;
                     break;
                 default:
-                    _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
+                    if (_retriedVersion != installer.Version.ToString())
+                    {
+                        _retriedVersion = installer.Version.ToString();
+                        _retries = 0;
+                    }
+                    if (++_retries >= MaximumRetries) _handoffUnavailable = true;
+                    else _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
                     break;
             }
         }

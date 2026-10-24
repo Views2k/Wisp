@@ -55,6 +55,19 @@ public sealed class WindowsStopEventReaderTests
             "<!DOCTYPE Event [<!ENTITY injected SYSTEM 'file:///PRIVATE_PATH'>]><Event>&injected;</Event>", "not xml"], LastSeen, NextStart));
     }
 
+    [Fact]
+    public void ACleanShutdownRightAfterTheLastCheckpointEndedTheRun()
+    {
+        Assert.True(WindowsStopEventReader.CorrelateShutdown([ShutdownInitiated(20), LogStopped(45)], LastSeen, NextStart));
+        Assert.True(WindowsStopEventReader.CorrelateShutdown([LogStopped(45)], LastSeen, NextStart));
+        Assert.False(WindowsStopEventReader.CorrelateShutdown([Boot(39), PowerLoss(41), UncleanShutdown(66)], LastSeen, NextStart));
+        Assert.False(WindowsStopEventReader.CorrelateShutdown([], LastSeen, NextStart));
+        var late = WindowsStopEventReader.MaximumShutdownDelay.TotalSeconds + 1;
+        Assert.False(WindowsStopEventReader.CorrelateShutdown([LogStopped(late)], LastSeen, LastSeen.AddHours(1)));
+    }
+
+    private static string LogStopped(double seconds) => Event("EventLog", 6006, seconds);
+    private static string ShutdownInitiated(double seconds) => Event("User32", 1074, seconds);
     private static string Boot(double seconds) => Event("Microsoft-Windows-Kernel-General", 12, seconds);
     private static string PowerLoss(double seconds) => Event("Microsoft-Windows-Kernel-Power", 41, seconds);
     private static string UncleanShutdown(double seconds) => Event("EventLog", 6008, seconds);

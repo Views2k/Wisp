@@ -22,6 +22,8 @@ internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTim
     public NativeFaultRecord? Native { get; init; }
     // Windows stopped without shutting down (power loss, reset or system crash) right after the run was last seen.
     public bool WindowsStopped { get; init; }
+    // Windows shut down or signed the user out within minutes of the run's last checkpoint while Wisp was still running.
+    public bool WindowsShutDown { get; init; }
 
     internal RecoveredExitInfo? Sanitize()
     {
@@ -35,7 +37,8 @@ internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTim
             {
                 Fault = fault with { Module = WindowsFaultEventReader.SafeModule(fault.Module), ModuleVersion = WindowsFaultEventReader.SafeVersion(fault.ModuleVersion) },
                 Native = Native?.Sanitize(),
-                WindowsStopped = false
+                WindowsStopped = false,
+                WindowsShutDown = false
             };
         }
         return this with { Fault = null, Native = Native?.Sanitize() };

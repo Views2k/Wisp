@@ -37,6 +37,7 @@ public abstract partial class ControlPanelWindow
         StateChanged += (_, _) => RefreshSupplementaryContentSurfaces();
         var app = Application.Current as App;
         if (app is not null) app.SupplementaryContentChanged += SupplementaryContentChanged;
+        _controller.LocalNotices.Changed += LocalNoticesChanged;
         _controller.ViewModel.PropertyChanged += DashboardUpdateAvailabilityChanged;
         LayoutUpdated += RecordVisibleUpdatePresentation;
         Activated += RecordVisibleUpdatePresentation;
@@ -46,10 +47,17 @@ public abstract partial class ControlPanelWindow
             _contentSlotsClosed = true;
             _contentSlotTimer.Stop();
             if (app is not null) app.SupplementaryContentChanged -= SupplementaryContentChanged;
+            _controller.LocalNotices.Changed -= LocalNoticesChanged;
             _controller.ViewModel.PropertyChanged -= DashboardUpdateAvailabilityChanged;
             LayoutUpdated -= RecordVisibleUpdatePresentation;
             Activated -= RecordVisibleUpdatePresentation;
         };
+    }
+
+    private void LocalNoticesChanged(object? sender, EventArgs e)
+    {
+        if (Dispatcher.CheckAccess()) RefreshSupplementaryContentSurfaces();
+        else Dispatcher.BeginInvoke(DispatcherPriority.DataBind, new Action(RefreshSupplementaryContentSurfaces));
     }
 
     private void SupplementaryContentChanged(object? sender, EventArgs e)
@@ -74,10 +82,12 @@ public abstract partial class ControlPanelWindow
         if (_contentSlotsClosed || _contentBanner is null) return;
         var slots = SupplementaryContentSlots.Select(content, audience, now);
         _supportReminder?.ApplyNote(slots.Note?.Title, slots.Note?.Message);
-        _contentExpiresAt = content.ExpiresAt;
-        _appliedBanner = slots.Banner is { } candidate &&
+        var published = slots.Banner is { } candidate &&
             !DashboardBannerDismissal.IsDismissed(candidate, _controller.Settings.DismissedDashboardBannerKey)
                 ? candidate : null;
+        // A published banner outranks a notice Wisp raised itself; the notice waits until the banner is gone.
+        _appliedBanner = published ?? _controller.LocalNotices.Current(_controller.Settings.DismissedDashboardBannerKey);
+        _contentExpiresAt = _appliedBanner is { } applied && LocalDashboardNotices.IsLocal(applied) ? applied.ExpiresAt : content.ExpiresAt;
         RefreshDashboardBannerVisibility();
         if (slots.NextChange is { } next && _contentSlotTimer is { } timer)
         {

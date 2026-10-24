@@ -10,6 +10,15 @@ namespace Wisp.App;
 
 public partial class OverlayWindow : Window
 {
+    private bool _closed;
+
+    // A closed window cannot be shown again; a visibility update that arrives after Close() is ignored.
+    protected override void OnClosed(EventArgs e)
+    {
+        _closed = true;
+        base.OnClosed(e);
+    }
+
     internal INativeNeedleHistorySource NativeNeedleSource => _controller.NativeNeedleSource;
     private const uint DefaultToNearestMonitor = 2;
     private const double MinimalWidth = 160;
@@ -213,7 +222,7 @@ public partial class OverlayWindow : Window
             return;
         }
 
-        if (target > 0 && !IsVisible)
+        if (target > 0 && !IsVisible && !_closed)
         {
             RootViewbox.BeginAnimation(OpacityProperty, null);
             RootViewbox.Opacity = 0;

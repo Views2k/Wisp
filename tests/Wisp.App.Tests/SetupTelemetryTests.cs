@@ -284,19 +284,49 @@ public sealed class SetupTelemetryTests
     }
 
     [Fact]
-    public async Task TimeoutIsBoundedReleasesListenerAndLeavesSetupUnverified()
+    public async Task NoDataKeepsListeningWithGuidanceUntilThePlayerCancels()
     {
+        // Half of new setups timed out at least once while the player was still in Forza's menus.
         var source = new FakeSource();
         var test = new SetupTelemetryTest(source, timeout: TimeSpan.FromMilliseconds(20));
+        var guidance = new List<string>();
+        var progress = new SynchronousProgress(guidance.Add);
+        using var cancellation = new CancellationTokenSource();
 
-        var result = await test.RunAsync("5500", cancellationToken: TestContext.Current.CancellationToken);
+        var running = test.RunAsync("5500", progress, cancellation.Token);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (guidance.Count < 2 && DateTime.UtcNow < deadline) await Task.Delay(10, TestContext.Current.CancellationToken);
+
+        Assert.False(running.IsCompleted);
+        Assert.Contains(guidance, message => message.Contains("No FH6 data yet", StringComparison.Ordinal) &&
+            message.Contains("port 5500", StringComparison.Ordinal) && message.Contains("still listening", StringComparison.Ordinal));
+        Assert.Equal(1, source.SubscriberCount);
+        cancellation.Cancel();
+
+        var result = await running;
 
         Assert.False(result.Passed);
-        Assert.Contains("No FH6 data arrived", result.Message, StringComparison.Ordinal);
-        Assert.Contains("match the port", result.Message, StringComparison.Ordinal);
+        Assert.Contains("cancelled", result.Message, StringComparison.Ordinal);
         Assert.Equal(1, source.StopCalls);
         Assert.Equal(0, source.SubscriberCount);
         Assert.Null(test.SuccessfulEvidence);
+    }
+
+    [Theory]
+    [InlineData(0, 0, "No FH6 data yet")]
+    [InlineData(0, 3, "not valid FH6 Data Out data")]
+    [InlineData(2, 0, "not yet a complete live sequence")]
+    public void ListeningGuidanceFollowsWhatArrivedSoFar(long accepted, long rejected, string expected)
+    {
+        var statistics = new ReceiverStatistics(accepted, rejected, 0, PacketParseError.None, null);
+        var guidance = SetupTelemetryTest.ListeningGuidance(statistics, 5500);
+        Assert.Contains(expected, guidance, StringComparison.Ordinal);
+        Assert.Contains("still listening", guidance, StringComparison.Ordinal);
+    }
+
+    private sealed class SynchronousProgress(Action<string> report) : IProgress<string>
+    {
+        public void Report(string value) => report(value);
     }
 
     [Fact]

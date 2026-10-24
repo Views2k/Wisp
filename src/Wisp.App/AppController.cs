@@ -222,6 +222,7 @@ public sealed partial class AppController : IAsyncDisposable
     public AppSettings Settings { get; }
     public DiagnosticsViewModel ViewModel { get; }
     public SetupTelemetryTest SetupTelemetry { get; }
+    internal LocalDashboardNotices LocalNotices { get; } = new();
     public OverlayWindow? Overlay { get; set; }
     public GForceWindow? GForceOverlay { get; set; }
     public BoostGaugeWindow? BoostGaugeOverlay { get; set; }
@@ -400,7 +401,7 @@ public sealed partial class AppController : IAsyncDisposable
         UpdateShiftCueObservation();
         _manualOverlayHidden = false;
 
-        await RestartListenerAsync(Settings.UdpPort);
+        await StartListenerWithFallbackAsync();
 
         if (!_receiverNotificationsAttached)
         {
@@ -594,10 +595,22 @@ public sealed partial class AppController : IAsyncDisposable
 
         using var operationLifetime = CancellationTokenSource.CreateLinkedTokenSource(_applicationUpdateLifetime.Token, ApplicationUpdateFeatureToken);
         using var supplementaryCheck = SupplementaryObservations.Begin("update", "update", "check");
+        if (automatic && !ApplicationUpdateCheckPolicy.NetworkAvailable())
+        {
+            // Wisp often starts with Windows before the network is up. Checking again after RetryInterval
+            // beats a failure report that only says the PC is not connected yet.
+            supplementaryCheck?.Discard();
+            ApplicationUpdateTelemetry.Record("paused", reason: "connection");
+            Interlocked.Exchange(ref _applicationUpdateOperation, 0);
+            _applicationUpdateTimer.Interval = ApplicationUpdateCheckPolicy.RetryInterval;
+            if (!_disposed && FeatureAllowed("updates") && !_applicationUpdateTimer.IsEnabled) _applicationUpdateTimer.Start();
+            return null;
+        }
         ApplicationUpdateTelemetry.Record("checking");
         try
         {
             _applicationUpdateTimer.Stop();
+            _applicationUpdateTimer.Interval = ApplicationUpdateCheckPolicy.MinimumInterval;
             if (!_disposed && FeatureAllowed("updates"))
             {
                 _applicationUpdateTimer.Start();
@@ -1001,6 +1014,54 @@ public sealed partial class AppController : IAsyncDisposable
             _nativeHudProcessService.SnapshotFor(_receiver.Latest?.CarOrdinal ?? 0).Status),
         _compatibilityUpdates.IsConfigured && !_compatibilityUpdates.IsChecking,
         NativeCompatibilityRuntime.Catalog.HasTrustedPublishers && !_compatibilityImportRunning);
+
+    // Five ports above the saved one are tried, skipping Forza's reserved range.
+    internal const int PortFallbackAttempts = 5;
+
+    // Another app can hold the saved UDP port when Wisp starts. The next free port keeps Wisp
+    // usable, and the dashboard says which port to set in Forza, or how to get the saved port back.
+    private async Task StartListenerWithFallbackAsync()
+    {
+        var saved = Settings.UdpPort;
+        try
+        {
+            await RestartListenerAsync(saved);
+            return;
+        }
+        catch (System.Net.Sockets.SocketException error) when (error.SocketErrorCode == System.Net.Sockets.SocketError.AddressAlreadyInUse)
+        {
+            if (await TryFallbackPortAsync(saved) is not { } port) throw;
+            ViewModel.ReportControlError(
+                $"UDP port {saved} is in use by another app. Wisp is listening on port {port} instead; in FH6, set Data Out to port {port}.");
+            LocalNotices.Raise(LocalDashboardNotices.Create("port-fallback", $"Wisp is listening on port {port}",
+                $"UDP port {saved} was in use by another app when Wisp started. In FH6 Settings > HUD and Gameplay, set the " +
+                $"Data Out port to {port}. To use port {saved} again, close the other app and change the port in Wisp's Connection settings."));
+        }
+    }
+
+    internal static IEnumerable<int> FallbackPorts(int taken)
+    {
+        for (var candidate = taken + 1; candidate <= taken + PortFallbackAttempts; candidate++)
+        {
+            try { TelemetryUdpReceiver.ValidatePort(candidate); }
+            catch (ArgumentOutOfRangeException) { continue; }
+            yield return candidate;
+        }
+    }
+
+    private async Task<int?> TryFallbackPortAsync(int taken)
+    {
+        foreach (var candidate in FallbackPorts(taken))
+        {
+            try
+            {
+                await RestartListenerAsync(candidate);
+                return candidate;
+            }
+            catch (System.Net.Sockets.SocketException error) when (error.SocketErrorCode == System.Net.Sockets.SocketError.AddressAlreadyInUse) { }
+        }
+        return null;
+    }
 
     public async Task RestartListenerAsync(int port)
     {

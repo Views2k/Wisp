@@ -9,6 +9,15 @@ namespace Wisp.App;
 
 public partial class GForceWindow : Window
 {
+    private bool _closed;
+
+    // A closed window cannot be shown again; a visibility update that arrives after Close() is ignored.
+    protected override void OnClosed(EventArgs e)
+    {
+        _closed = true;
+        base.OnClosed(e);
+    }
+
     private const uint DefaultToNearestMonitor = 2;
     private const double BaseWidth = 210;
     private const double BaseHeight = 150;
@@ -89,7 +98,7 @@ public partial class GForceWindow : Window
             return;
         }
 
-        if (target > 0 && !IsVisible)
+        if (target > 0 && !IsVisible && !_closed)
         {
             RootViewbox.BeginAnimation(OpacityProperty, null);
             RootViewbox.Opacity = 0;

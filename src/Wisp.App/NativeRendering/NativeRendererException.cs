@@ -11,6 +11,12 @@ namespace Wisp.App.NativeRendering;
 internal sealed class NativeRendererException : COMException
 {
     internal const int OutOfMemory = unchecked((int)0x8007000E); // E_OUTOFMEMORY
+    // DXGI device loss: the graphics device was removed, reset or hung, or its driver failed. The
+    // device is gone for every user; the renderer is built again on a fresh one.
+    internal const int DeviceRemoved = unchecked((int)0x887A0005); // DXGI_ERROR_DEVICE_REMOVED
+    internal const int DeviceHung = unchecked((int)0x887A0006); // DXGI_ERROR_DEVICE_HUNG
+    internal const int DeviceReset = unchecked((int)0x887A0007); // DXGI_ERROR_DEVICE_RESET
+    internal const int DriverInternalError = unchecked((int)0x887A0020); // DXGI_ERROR_DRIVER_INTERNAL_ERROR
 
     internal NativeRendererException(string operation, int hresult)
         : base($"The native renderer failed during {operation} (0x{hresult:X8}).", hresult) => Operation = operation;
