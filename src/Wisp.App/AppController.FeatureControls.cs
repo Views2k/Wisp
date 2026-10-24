@@ -70,9 +70,7 @@ public sealed partial class AppController
         }
         else if (Clips.IsRuntimeActive && _receiver.IsRunning && !_runtimeSuspended && !Settings.RequiresSetup)
         {
-            var settings = Clips.Preferences;
-            _ = ConfigureClipShortcut(false, settings.ToggleShortcutEnabled, settings.ToggleShortcut);
-            _ = ConfigureClipShortcut(true, settings.SaveShortcutEnabled, settings.SaveShortcut);
+            RegisterClipShortcuts();
             // A lifted pause restores the saved preference; the pause had stopped the recorder.
             _ = Clips.RestoreEnabledPreferenceAsync();
         }

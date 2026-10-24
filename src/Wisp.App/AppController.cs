@@ -2420,45 +2420,45 @@ public sealed partial class AppController : IAsyncDisposable
     private void ProcessPendingActivation()
     {
         Interlocked.Exchange(ref _activationDispatchPending, 0);
-        if (!_disposed) RunGuardedUiPass(ProcessUiUpdatePass);
+        if (!_disposed) RunGuardedUiPass(ProcessUiUpdatePass, UiPassKind.Packet);
     }
 
     private void ProcessUiUpdatePass() => ProcessUiUpdate();
 
     // One pass of the dashboard update loop; see UiUpdateGuard.
-    private void RunGuardedUiPass(Action pass)
+    private void RunGuardedUiPass(Action pass, UiPassKind kind)
     {
         if (_uiGuard.Stopped) return;
         try
         {
             pass();
-            _uiGuard.Succeeded();
+            _uiGuard.Succeeded(kind);
         }
         catch (Exception error) when (!UiUpdateGuard.IsFatal(error))
         {
-            RecordUiPassFailure(error);
+            RecordUiPassFailure(error, kind);
         }
     }
 
-    private void RunGuardedUiPass<T>(Action<T> pass, T argument)
+    private void RunGuardedUiPass<T>(Action<T> pass, T argument, UiPassKind kind)
     {
         if (_uiGuard.Stopped) return;
         try
         {
             pass(argument);
-            _uiGuard.Succeeded();
+            _uiGuard.Succeeded(kind);
         }
         catch (Exception error) when (!UiUpdateGuard.IsFatal(error))
         {
-            RecordUiPassFailure(error);
+            RecordUiPassFailure(error, kind);
         }
     }
 
-    private void RecordUiPassFailure(Exception error)
+    private void RecordUiPassFailure(Exception error, UiPassKind kind)
     {
         HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.UiUpdateFailed, error.HResult);
         App.RecoveredExceptionSink?.Invoke(error, null);
-        if (!_uiGuard.Failed()) return;
+        if (!_uiGuard.Failed(kind)) return;
         _uiTimer.Stop();
         SetCompositionRenderingEnabled(false);
         HideOverlaysAfterLoopStop();
@@ -2498,6 +2498,7 @@ public sealed partial class AppController : IAsyncDisposable
             return;
         }
         _listenerRecoveredAt = null;
+        if (_receiver.ListenerFailure is { } failure) Volatile.Write(ref _lastListenerFailure, failure);
         if (_cachedStatistics.ListenerError is null || _listenerRestartPending || _runtimeSuspended || Settings.RequiresSetup ||
             !_listenerRecovery.ShouldRestart(now)) return;
         _listenerRestartPending = true;
@@ -2529,7 +2530,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
     }
 
-    private void OnCompositionRendering(object? sender, EventArgs eventArgs) => RunGuardedUiPass(_compositionPass, eventArgs);
+    private void OnCompositionRendering(object? sender, EventArgs eventArgs) => RunGuardedUiPass(_compositionPass, eventArgs, UiPassKind.Composition);
 
     private void CompositionRenderingPass(EventArgs eventArgs)
     {
@@ -2577,7 +2578,7 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void OnUiTimer(object? sender, EventArgs eventArgs)
     {
-        if (!_disposed) RunGuardedUiPass(UiTimerPass);
+        if (!_disposed) RunGuardedUiPass(UiTimerPass, UiPassKind.Timer);
     }
 
     private void UiTimerPass()
@@ -3269,7 +3270,8 @@ public sealed partial class AppController : IAsyncDisposable
 
     private bool UpdateOverlayVisibility(DateTimeOffset now, bool force = false)
     {
-        if (Settings.RequiresSetup || _runtimeSuspended)
+        // A stopped update loop keeps the HUD hidden: nothing would update it again.
+        if (Settings.RequiresSetup || _runtimeSuspended || _uiGuard.Stopped)
         {
             _overlayVisibleRequested = false;
             SetCompositionRenderingEnabled(false);

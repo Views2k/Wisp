@@ -12,22 +12,28 @@ public sealed partial class RunStore
     private sealed record BulkTransaction(Guid Id, string Kind, string Phase, RunArchiveEntry[] Runs);
     private sealed record PreparedImport(RunSummary Summary, string ContentHash);
 
-    public Task<int> ExportAllAsync(string destination, CancellationToken cancellationToken = default) => InBackground(async () =>
+    public Task<RunExportBatch> ExportAllAsync(string destination, CancellationToken cancellationToken = default) => InBackground(async () =>
     {
         var (directory, _) = BeginTransaction("Export");
         try
         {
             var entries = new List<RunArchiveEntry>();
+            var skipped = 0;
             foreach (var (id, path) in LibraryFiles())
             {
                 var staged = TransactionRunPath(directory, id);
-                await using (var input = File.OpenRead(path))
-                    await RunArchive.CopyBoundedAsync(input, staged, MaximumFileBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
-                _ = await ReadAsync(staged, id, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await using (var input = File.OpenRead(path))
+                        await RunArchive.CopyBoundedAsync(input, staged, MaximumFileBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    _ = await ReadAsync(staged, id, cancellationToken).ConfigureAwait(false);
+                }
+                // An unreadable run stays in place and is left out, as Remove all does.
+                catch (Exception error) when (IsDataError(error)) { skipped++; continue; }
                 entries.Add(await RunArchive.DescribeAsync(id, staged, cancellationToken).ConfigureAwait(false));
             }
             await RunArchive.WriteAsync(Path.Combine(directory, "runs"), entries.ToArray(), destination, cancellationToken).ConfigureAwait(false);
-            return entries.Count;
+            return new RunExportBatch(entries.Count, skipped);
         }
         finally { CleanupTransaction(directory); }
     }, cancellationToken);

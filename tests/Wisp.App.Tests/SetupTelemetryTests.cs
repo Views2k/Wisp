@@ -179,6 +179,9 @@ public sealed class SetupTelemetryTests
         var result = await test.RunAsync(text, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Passed);
+        // The message is the one written for the user, without the runtime's parameter suffix.
+        Assert.DoesNotContain("Parameter", result.Message, StringComparison.Ordinal);
+        Assert.EndsWith(".", result.Message, StringComparison.Ordinal);
         Assert.Null(test.SuccessfulEvidence);
         Assert.Equal(0, source.BindCalls);
         Assert.False(test.IsRunning);

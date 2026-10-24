@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using Wisp.App;
 using Wisp.App.Tunes;
+using Wisp.Core;
 using Wisp.Core.Tunes;
 using Xunit;
 
@@ -22,6 +23,17 @@ public sealed class TunePerformanceTests
         Assert.False(rows[1].Changed);
         var missing = TunePresentation.PerformanceRows(null, Captured, true).ToArray();
         Assert.All(missing, row => { Assert.Equal("—", row.Value); Assert.Empty(row.Difference); });
+    }
+
+    [Fact]
+    public void MetricUsersSeeDistancesInMetresAndTopSpeedInKilometresPerHour()
+    {
+        var rows = TunePresentation.PerformanceRows(Captured, null, false, SpeedUnit.KilometersPerHour).ToArray();
+        Assert.Equal("16.0 m", rows[0].Value);
+        Assert.Equal("34.7 m", rows[1].Value);
+        Assert.Equal("374.0 km/h", rows[6].Value);
+        // The game's benchmarks keep their names; only the units follow the Wisp setting.
+        Assert.Equal("Braking · 60–0 mph", rows[0].Label);
     }
 
     [Fact]

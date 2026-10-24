@@ -5,8 +5,12 @@ namespace Wisp.App;
 
 public sealed partial class AppController
 {
-    internal SupplementaryIncident? SupplementaryListenerFailure => _receiver.ListenerFailure is { } failure
-        ? DebugLogging.SupplementaryOperationFailure.Receiver(failure) : null;
+    // The receiver clears its failure when it restarts, which the automatic restart does within a
+    // second; the heartbeat that reports the health sample still names the failure the sample saw.
+    private Wisp.Telemetry.ReceiverFailure? _lastListenerFailure;
+    internal SupplementaryIncident? SupplementaryListenerFailure =>
+        (_receiver.ListenerFailure ?? Volatile.Read(ref _lastListenerFailure)) is { } failure
+            ? DebugLogging.SupplementaryOperationFailure.Receiver(failure) : null;
     private readonly object _supplementaryObservationGate = new();
     private bool _supplementaryObservationsAttached, _supplementaryRunRecording, _supplementaryRunPreparing;
     private SupplementaryOperation? _supplementaryRunSave, _supplementaryFirstTelemetry;

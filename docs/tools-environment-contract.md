@@ -17,7 +17,7 @@ latest published selection. The service hashes content excluding `collectedAt`.
   driver version, dedicated memory in MiB and software-adapter flag.
 - Up to eight connected outputs: adapter-list index, current width/height,
   refresh rate in milliHz, scaling percent, HDR state and bits per color channel.
-- Wisp selections: CPU/GPU rendering, mph/kmh, fixed gauge-style enum, smoothing,
+- Wisp selections: CPU/GPU rendering, HUD GPU priority, mph/kmh, fixed gauge-style enum, smoothing,
   opacity/scale, game-aware visibility, enabled gauges/lap recording, debug logging
   and Clips enabled. Clips choices include resolution, frame rate, quality, length,
   lossless/HDR/system-audio settings. Invalid optional values are omitted.

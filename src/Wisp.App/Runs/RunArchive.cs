@@ -7,6 +7,7 @@ namespace Wisp.App.Runs;
 
 public sealed record RunImportResult(IReadOnlyList<RunSummary> Imported, int SkippedDuplicates);
 public sealed record RunDeletionBatch(Guid Id, int Count, int SkippedUnreadable = 0);
+public sealed record RunExportBatch(int Count, int SkippedUnreadable = 0);
 
 internal sealed record RunArchiveEntry(Guid Id, string Path, long Length, string Sha256);
 internal sealed record RunArchiveManifest(string Format, int Version, RunArchiveEntry[] Runs);

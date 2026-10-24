@@ -377,6 +377,9 @@ function Invoke-UpdaterGuardSmoke {
                 throw 'The staged update helper wrote an unexpected guard diagnostic.'
             }
         }
+        else {
+            throw 'The staged update helper wrote no guard diagnostic.'
+        }
     }
     finally {
         if ($hadResult) {

@@ -56,6 +56,7 @@ internal sealed class HudNativeHost : IDisposable
     {
         if (!Hosts.TryGetValue(window, out var host) || host._disposed || host._failed) return;
         try { host._compositionWindow?.Synchronize(host._snapshot?.Active == true); }
+        catch (Win32Exception error) { host.OnHostInterop(error); }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         { host.OnHostFailure(error.HResult); }
     }
@@ -340,7 +341,7 @@ internal sealed class HudNativeHost : IDisposable
         if (_window.Dispatcher.HasShutdownStarted) return;
         _window.Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (revision == _workerRevision) ApplyStatus(ready, hresult);
+            if (revision == _workerRevision) ApplyStatus(ready, hresult, fromWorker: true);
         }));
     }
     private void OnStatus(bool ready, int hresult)
@@ -348,22 +349,23 @@ internal sealed class HudNativeHost : IDisposable
         if (_window.Dispatcher.HasShutdownStarted) return;
         _window.Dispatcher.BeginInvoke(new Action(() => ApplyStatus(ready, hresult)));
     }
-    private void ApplyStatus(bool ready, int hresult)
+    private void ApplyStatus(bool ready, int hresult, bool fromWorker = false)
     {
         if (_disposed) return;
         // An occluded device may initialize without submitting. Only the
         // presentation callback may publish ready status, independently of
         // the WPF content suppression required from startup onward.
-        if (ready) return;
+        if (ready || _failed) return;
         // One device loss can be reported by the render thread and the needle motion thread; the
-        // second report must not spend another retry or restart a retry already scheduled.
-        if (_retryPending || _failed) return;
-        var worker = _worker;
-        _worker = null;
-        if (worker is not null) { worker.HudPresented -= OnPresented; worker.Dispose(); }
-        var release = worker?.Completion ?? Task.CompletedTask;
-        RetireCompositionWindow(release);
-        foreach (var source in _sources) source.Control.SetValue(PresentedProperty, false);
+        // second report must not spend another retry or restart a retry already scheduled. A worker
+        // that reports while a host-window retry is pending has ended its thread: it is retired now,
+        // so that retry rebuilds the window and the renderer instead of reusing a dead worker.
+        if (_retryPending)
+        {
+            if (fromWorker) RetireRenderer();
+            return;
+        }
+        var release = RetireRenderer();
         if (_recovery.TryBeginRetry(hresult, out var delay))
         {
             // Transient allocation pressure while the game starts: build the target
@@ -376,6 +378,18 @@ internal sealed class HudNativeHost : IDisposable
         }
         _failed = true;
         _vm?.ReportRendererHost(this, RendererHostState.Failed, $"HUD renderer: unavailable (0x{hresult:X8})");
+    }
+    // Disposes the worker and its composition window; the returned task completes when the worker
+    // has released the renderer.
+    private Task RetireRenderer()
+    {
+        var worker = _worker;
+        _worker = null;
+        if (worker is not null) { worker.HudPresented -= OnPresented; worker.Dispose(); }
+        var release = worker?.Completion ?? Task.CompletedTask;
+        RetireCompositionWindow(release);
+        foreach (var source in _sources) source.Control.SetValue(PresentedProperty, false);
+        return release;
     }
     private async Task RestartRendererAfterRelease(Task release, TimeSpan delay)
     {

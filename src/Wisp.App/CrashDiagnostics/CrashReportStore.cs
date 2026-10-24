@@ -114,9 +114,15 @@ internal sealed class CrashReportStore(string directory, Action<string, byte[]>?
             if (names.Length > MaximumCleanupEntries) complete = false;
             foreach (var name in names.Take(MaximumCleanupEntries))
             {
+                // Partial report writes are always the store's to remove. Native fault records
+                // (native-<run id>.txt) are read when their run is recovered, so only an explicit
+                // deletion removes the ones no recovery consumed.
                 if (name is { Length: 44 } && name.StartsWith("reports-", StringComparison.Ordinal) &&
                     name.EndsWith(".tmp", StringComparison.Ordinal) &&
-                    name.AsSpan(8, 32).IndexOfAnyExcept("0123456789abcdef") < 0)
+                    name.AsSpan(8, 32).IndexOfAnyExcept("0123456789abcdef") < 0 ||
+                    includeReport && name is { Length: 43 } && name.StartsWith("native-", StringComparison.Ordinal) &&
+                    name.EndsWith(".txt", StringComparison.Ordinal) &&
+                    name.AsSpan(7, 32).IndexOfAnyExcept("0123456789abcdef") < 0)
                     complete &= DeleteOwnedFile(parent, name);
             }
             return complete;

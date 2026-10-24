@@ -241,6 +241,26 @@ public sealed class RunStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task JournalsWithoutSamplesAreRemovedAtRecovery()
+    {
+        var run = RunTestData.CreateRun();
+        var store = new RunStore(_directory);
+        await using (var journal = store.CreateJournal(run with { Samples = [] }))
+            await journal.FlushAsync();
+        var headerOnly = Path.Combine(_directory, $"{run.Id:N}.partial");
+        var empty = Path.Combine(_directory, $"{Guid.NewGuid():N}.partial");
+        await File.WriteAllBytesAsync(empty, [], TestContext.Current.CancellationToken);
+        Assert.True(File.Exists(headerOnly));
+
+        // Nothing can be recovered from either file, so neither is kept to be read again at every start.
+        var recoveredStore = new RunStore(_directory);
+        Assert.Empty(await recoveredStore.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Null(recoveredStore.Warning);
+        Assert.False(File.Exists(headerOnly));
+        Assert.False(File.Exists(empty));
+    }
+
+    [Fact]
     public async Task ActiveJournalCannotBeRecoveredOrDuplicateItsCompletedRun()
     {
         var run = RunTestData.CreateRun();

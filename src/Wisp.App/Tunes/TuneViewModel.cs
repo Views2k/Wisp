@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using System.Windows.Threading;
+using Wisp.Core;
 using Wisp.Core.Tunes;
 using Wisp.App.Supplementary;
 
@@ -13,6 +14,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     private readonly TuneStore _store;
     private readonly Func<CancellationToken, Task<TuneCaptureResult>> _capture;
     private readonly Func<TuneSnapshot, bool> _isCurrent;
+    private readonly Func<SpeedUnit> _speedUnit;
     private readonly Dispatcher _dispatcher;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly List<TuneCommand> _commands = [];
@@ -43,9 +45,10 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
     private string PauseReason => !IsCurrentMode && !_libraryAvailable ? _libraryPause : !_readAvailable ? _readPause : _libraryPause;
 
     public TuneViewModel(TuneStore store, Func<CancellationToken, Task<TuneCaptureResult>> capture,
-        Func<TuneSnapshot, bool> isCurrent, Dispatcher dispatcher)
+        Func<TuneSnapshot, bool> isCurrent, Dispatcher dispatcher, Func<SpeedUnit>? speedUnit = null)
     {
         _store = store; _capture = capture; _isCurrent = isCurrent; _dispatcher = dispatcher;
+        _speedUnit = speedUnit ?? (() => SpeedUnit.MilesPerHour);
         RefreshCommand = Command(RefreshAsync, () => _readAvailable && WorkspaceAvailable && (IsCurrentMode || IsCompareMode) && !_busy && !_refreshing && !_dialogOpen);
         SaveCommand = Command(() => { BeginSave(); return Task.CompletedTask; }, () => CanSave);
         LoadCommand = Command(LoadSelectedAsync, () => _libraryAvailable && _selected is not null && !_busy && !_dialogOpen);
@@ -491,7 +494,7 @@ public sealed class TuneViewModel : INotifyPropertyChanged, IDisposable
         if (left is null && right is null) return;
         if (_category.Category == TuneCategory.Performance)
         {
-            foreach (var row in TunePresentation.PerformanceRows(left?.Performance, right?.Performance, IsCompareMode)) Rows.Add(row);
+            foreach (var row in TunePresentation.PerformanceRows(left?.Performance, right?.Performance, IsCompareMode, _speedUnit())) Rows.Add(row);
             return;
         }
         foreach (var row in TuneComparison.Compare(left, right).Where(row => row.Category == _category.Category))
