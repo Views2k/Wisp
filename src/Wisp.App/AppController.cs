@@ -922,7 +922,7 @@ public sealed partial class AppController : IAsyncDisposable
                 isUpdateAvailable: _availableApplicationRelease is not null);
             return null;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
             supplementaryDownload?.Fail(exception);
             ApplicationUpdateTelemetry.Record("failed", _availableApplicationRelease?.Version.ToString(), reason: "storage");
@@ -2042,6 +2042,31 @@ public sealed partial class AppController : IAsyncDisposable
                 Overlay.GetPlacementBounds(),
                 Overlay.CurrentMonitorPlacementArea());
         }
+    }
+
+    // After a display change every HUD window moves back inside the monitor nearest to it. Saved
+    // placements stay as they are; the user's layout returns with the display it was saved on.
+    internal void KeepOverlaysOnScreen()
+    {
+        if (_disposed) return;
+        HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.DisplayChanged);
+        KeepOnScreen(Overlay, window => window.RestorePosition(window.Left, window.Top));
+        KeepOnScreen(GForceOverlay, window => window.RestorePosition(window.Left, window.Top));
+        KeepOnScreen(BoostGaugeOverlay, window => window.RestorePosition(window.Left, window.Top));
+        KeepOnScreen(TireTemperatureGaugeOverlay, window => window.RestorePosition(window.Left, window.Top));
+        KeepOnScreen(PowerGaugeOverlay, window => window.RestorePosition(window.Left, window.Top));
+        KeepOnScreen(TorqueGaugeOverlay, window => window.RestorePosition(window.Left, window.Top));
+        KeepOnScreen(DriftGaugeOverlay, window => window.ClampToMonitor());
+        KeepOnScreen(LapDeltaOverlay, window => window.ClampToMonitor());
+        KeepOnScreen(LapMapOverlay, window => window.ClampToMonitor());
+    }
+
+    // A window without a presentation source was never shown or is already closed; a failure in one window does not stop the others.
+    private static void KeepOnScreen<TWindow>(TWindow? window, Action<TWindow> replace) where TWindow : Window
+    {
+        if (window is null || PresentationSource.FromVisual(window) is null) return;
+        try { replace(window); }
+        catch (Exception error) { App.RecoveredExceptionSink?.Invoke(error, "display-change"); }
     }
 
     public void ResetOverlayPosition()

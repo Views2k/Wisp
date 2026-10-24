@@ -20,7 +20,7 @@ internal sealed class LocalDashboardNotices
     internal static readonly SupplementaryContentItem SoftwareRendering = Create("software-rendering",
         "Dashboard drawing switched to software",
         "A display driver failure ended Wisp's last run, so the dashboard now draws in software mode. " +
-        "The HUD and clips keep using the graphics card.");
+        "The HUD and clips keep using the graphics card, and the dashboard returns to it after two weeks.");
 
     internal static readonly SupplementaryContentItem SettingsRestored = Create("settings-restored",
         "Settings restored from the last good copy",

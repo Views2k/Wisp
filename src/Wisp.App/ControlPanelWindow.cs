@@ -867,15 +867,34 @@ public abstract partial class ControlPanelWindow : Window
 
     protected async void CheckApplicationUpdate_Click(object sender, RoutedEventArgs e)
     {
-        if (_controller.ViewModel.IsApplicationUpdateAvailable && _controller.ViewModel.CanCheckApplicationUpdate)
-            SupplementaryObservations.Record("update", "update", "attempt", "chosen");
-        var details = await _controller.GetAvailableApplicationUpdateDetailsAsync();
-        if (details is null)
+        try
         {
-            return;
-        }
+            if (_controller.ViewModel.IsApplicationUpdateAvailable && _controller.ViewModel.CanCheckApplicationUpdate)
+                SupplementaryObservations.Record("update", "update", "attempt", "chosen");
+            var details = await _controller.GetAvailableApplicationUpdateDetailsAsync();
+            if (details is null)
+            {
+                return;
+            }
 
-        ShowApplicationUpdateConfirmation(details);
+            ShowApplicationUpdateConfirmation(details);
+        }
+        catch (Exception exception)
+        {
+            ReportApplicationUpdateFailure(exception);
+        }
+    }
+
+    // A click handler is the end of the line: anything the update path did not handle itself is
+    // reported and shown on the update card instead of ending Wisp.
+    private void ReportApplicationUpdateFailure(Exception exception)
+    {
+        App.RecoveredExceptionSink?.Invoke(exception, "update-action");
+        _controller.ViewModel.UpdateApplicationUpdateStatus(
+            "Wisp could not continue the update. No update was installed.",
+            "Try again",
+            canCheck: true,
+            isUpdateAvailable: _controller.ViewModel.IsApplicationUpdateAvailable);
     }
 
     private void ShowApplicationUpdateConfirmation(ApplicationUpdateDetails details)
@@ -933,32 +952,39 @@ public abstract partial class ControlPanelWindow : Window
 
         SupplementaryObservations.Record("update", "update", "success", "chosen");
         HideApplicationUpdateConfirmation();
-        var installer = await _controller.PrepareApplicationUpdateAsync(confirmedVersion);
-        if (installer is null)
+        try
         {
-            return;
-        }
+            var installer = await _controller.PrepareApplicationUpdateAsync(confirmedVersion);
+            if (installer is null)
+            {
+                return;
+            }
 
-        if (Application.Current is not App app)
-        {
-            MessageBox.Show(
-                this,
-                "Wisp could not start the update.",
-                "Update not started",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return;
-        }
+            if (Application.Current is not App app)
+            {
+                MessageBox.Show(
+                    this,
+                    "Wisp could not start the update.",
+                    "Update not started",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
 
-        var startResult = await app.TryBeginApplicationUpdateAsync(installer);
-        if (!startResult.Started)
+            var startResult = await app.TryBeginApplicationUpdateAsync(installer);
+            if (!startResult.Started)
+            {
+                MessageBox.Show(
+                    this,
+                    startResult.Error,
+                    "Update not started",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception exception)
         {
-            MessageBox.Show(
-                this,
-                startResult.Error,
-                "Update not started",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            ReportApplicationUpdateFailure(exception);
         }
     }
 

@@ -14,6 +14,10 @@ Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through ga
 - The gauge update loop reports a failed pass and keeps going; after five failures in a row it stops and the dashboard says so.
 - The telemetry listener restarts itself after an unexpected socket error, up to five times with growing delays.
 - Settings are backed up on every save and restored from the last good copy when the file cannot be read.
+- An update that cannot be staged on this PC is reported on the update card instead of closing Wisp.
+- When a HUD window or the feature-control client cannot start, the dashboard stays open and reports it.
+- HUD windows move back onto a display after a monitor is unplugged, turned off or changes resolution.
+- Two weeks after a display driver failure switched the dashboard to software drawing, the graphics card draws it again.
 
 ## Setup and connection
 
@@ -33,7 +37,9 @@ Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through ga
 - A stalled dashboard thread is recorded with its length in the run's diagnostics.
 - Crash reports carry breadcrumbs for HUD show and hide, tune reads, update handoffs and listener restarts.
 - The HUD status for an access-denied game process says to run Wisp and Forza at the same privilege level.
-- A locked program file names the process holding it in the local report.
+- A locked program file names the process holding it in the local report, looked up off the dashboard thread.
+- A recovered failure that repeats is saved once per minute, so other failures keep their place in the crash store.
+- A background startup task that fails is reported as soon as it fails.
 
 ## Runtime
 

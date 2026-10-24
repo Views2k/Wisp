@@ -128,6 +128,66 @@ public sealed class CrashExceptionMonitorTests
     }
 
     [Fact]
+    public void ARecoveredFailureOfOneKindIsSavedOncePerMinute()
+    {
+        var reports = new List<CrashReport>();
+        var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+        var monitor = new CrashExceptionMonitor(new Sink(report => { reports.Add(report); return true; }), () => now);
+        monitor.RecoveredUiException(new IOException("first"), "File held by: a");
+        monitor.RecoveredUiException(new IOException("second"), "File held by: b");
+        now += TimeSpan.FromSeconds(59);
+        monitor.RecoveredUiException(new IOException("third"));
+        Assert.Equal("File held by: a", Assert.Single(reports).Note);
+
+        now += TimeSpan.FromSeconds(1);
+        monitor.RecoveredUiException(new IOException("fourth"), "File held by: d");
+        Assert.Equal(2, reports.Count);
+        Assert.Equal("File held by: d", reports[1].Note);
+    }
+
+    [Fact]
+    public void TheRepeatWindowLeavesDistinctAndTerminatingFailuresAlone()
+    {
+        var reports = new List<CrashReport>();
+        var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+        var monitor = new CrashExceptionMonitor(new Sink(report => { reports.Add(report); return true; }), () => now);
+        monitor.RecoveredUiException(new IOException());
+        monitor.RecoveredUiException(new InvalidOperationException());
+        monitor.RecoveredUiException(new AggregateException(new IOException()));
+        monitor.UnobservedTaskException(new IOException());
+        monitor.UiException(new IOException());
+        monitor.BackgroundException(new IOException(), terminating: true);
+        Assert.Equal(6, reports.Count);
+        Assert.Equal([false, false, false, false, true, true], reports.Select(report => report.IsTerminating));
+    }
+
+    [Fact]
+    public void AReportTheStoreRefusedDoesNotStartTheRepeatWindow()
+    {
+        var saved = 0;
+        var accept = false;
+        var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+        var monitor = new CrashExceptionMonitor(new Sink(_ => accept && ++saved > 0), () => now);
+        monitor.RecoveredUiException(new IOException());
+        accept = true;
+        monitor.RecoveredUiException(new IOException());
+        monitor.RecoveredUiException(new IOException());
+        Assert.Equal(1, saved);
+    }
+
+    [Fact]
+    public void AClockThatRanBackwardsDoesNotSuppressReports()
+    {
+        var reports = 0;
+        var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+        var monitor = new CrashExceptionMonitor(new Sink(_ => ++reports > 0), () => now);
+        monitor.RecoveredUiException(new IOException());
+        now -= TimeSpan.FromHours(1);
+        monitor.RecoveredUiException(new IOException());
+        Assert.Equal(2, reports);
+    }
+
+    [Fact]
     public void FailedOptionalContextStillSavesTheException()
     {
         CrashReport? saved = null;
