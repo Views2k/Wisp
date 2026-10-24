@@ -265,6 +265,9 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             else
             {
                 if (_storageOperations > 0) { Error = "Let the current library action finish, then start recording."; return; }
+                // A debounced name or notes save holds the run store for a moment; the start waits for it.
+                await _metadataSaveTask;
+                if (_disposed) return;
                 _recordingNotice = null;
                 if (!_service.CanStart) { Error = RecordingStatus; return; }
                 _activeStopAfter = StopAfterSeconds == 0 ? null : TimeSpan.FromSeconds(StopAfterSeconds);

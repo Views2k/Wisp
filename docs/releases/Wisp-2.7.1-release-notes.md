@@ -24,6 +24,8 @@ Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through ga
 - The HUD works on spanned desktops wider than 8192 pixels.
 - An unreadable settings file is kept beside the restored copy.
 - Closing a notice or a published banner no longer brings another one back.
+- Recording starts after a pending name or notes save instead of refusing the shortcut or the countdown.
+- A run recorded while the PC clock was ahead stays readable after the clock is corrected.
 - Two weeks after a display driver failure switched the dashboard to software drawing, the graphics card draws it again.
 
 ## Setup and connection

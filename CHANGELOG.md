@@ -47,6 +47,9 @@ Notable changes to Wisp are recorded here.
 - Keep an unreadable settings file beside the restored copy, and write the restored copy back once.
 - Close a notice or a published banner without bringing another one back.
 - Keep startup failure reports classified, and name the operation in repeated recovered-failure reports.
+- Start recording after a pending name or notes save instead of refusing the shortcut or the countdown.
+- Keep a run recorded while the PC clock was ahead readable after the clock is corrected.
+- Remove a run's unsaved details draft together with the run.
 
 ## 2.7.0 - 2026-10-21
 

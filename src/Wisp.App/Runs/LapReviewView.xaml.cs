@@ -54,7 +54,7 @@ public partial class LapReviewView : UserControl
             await RunImageExporter.WriteAsync(bitmap, dialog.FileName);
             model.MapStatus = "Map image saved.";
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        catch (Exception error) when (error is not OutOfMemoryException)
         {
             model.MapStatus = "The map image could not be saved. Check the destination and try again.";
             DebugLogging.HealthContextRecorder.Current.RecordBreadcrumb(DebugLogging.HealthEventCode.LapReviewFailed, error.HResult, failureStage: DebugLogging.HealthFailureStage.LapExport);
