@@ -4,8 +4,8 @@ namespace Wisp.App.Tests;
 
 public sealed class NativeAssetCacheTests
 {
-    [Fact]
-    public void MissingResourceGivesThePlaceholderOnEveryRequestWithoutThrowing()
+    // Runs inside the WPF application check: pack URIs resolve only with an application present.
+    internal static void AssertMissingResourceOnCurrentDispatcher()
     {
         // A tire readout below freezing asked for "HUD_Dial_Speed_Analogue_-.png", which is not a
         // resource; the cache answers with its placeholder and never throws on the dashboard thread.

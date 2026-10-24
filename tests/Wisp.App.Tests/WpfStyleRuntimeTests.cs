@@ -136,6 +136,7 @@ public sealed class WpfStyleRuntimeTests
                 Check(nameof(ApplicationUpdateCheckPolicyTests), ApplicationUpdateCheckPolicyTests.AssertBannerOnCurrentDispatcher);
                 Check(nameof(NativeGaugeLifecycleTests), NativeGaugeLifecycleTests.AssertConsumersOnCurrentDispatcher);
                 Check(nameof(NativeRenderLifetimeTests), () => NativeRenderLifetimeTests.AssertConsumersOnCurrentDispatcher(_output.WriteLine));
+                Check(nameof(NativeAssetCacheTests), NativeAssetCacheTests.AssertMissingResourceOnCurrentDispatcher);
                 Check("Begin rendered-control and window-style assertions", () => { });
                 decodedGearBackplate = ColorAt(
                     NativeAssetCache.Get(NativeGaugeMode.Digital, "HUD_Dial_Digital_Gear_1.png"),
