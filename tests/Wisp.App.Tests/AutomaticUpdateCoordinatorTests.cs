@@ -13,14 +13,15 @@ public sealed class AutomaticUpdateCoordinatorTests
         internal Func<int, AutomaticUpdateApplyOutcome>? OutcomeForAttempt;
         internal DateTimeOffset Now = DateTimeOffset.UtcNow;
         internal TaskCompletionSource<VerifiedInstaller?>? Download;
-        internal readonly VerifiedInstaller Installer = (VerifiedInstaller)Activator.CreateInstance(typeof(VerifiedInstaller),
+        internal VerifiedInstaller Installer = CreateInstaller(2, 6, 9);
+        internal static VerifiedInstaller CreateInstaller(int major, int minor, int patch) => (VerifiedInstaller)Activator.CreateInstance(typeof(VerifiedInstaller),
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic, null,
-            ["unused.exe", new SemanticVersion(2, 6, 9), 1L, new string('a', 64)], null)!;
+            ["unused.exe", new SemanticVersion(major, minor, patch), 1L, new string('a', 64)], null)!;
         internal AutomaticUpdateCoordinator Create() => new(
             () => Enabled, () => HasUpdate, () => Task.FromResult(GameOpen), () => Busy,
             () => { Downloads++; return Download?.Task ?? Task.FromResult<VerifiedInstaller?>(Installer); },
             installer => { Assert.Same(Installer, installer); Installs++; return Task.FromResult(OutcomeForAttempt?.Invoke(Installs) ?? InstallOutcome); },
-            _ => { }, () => Now);
+            _ => { }, () => Now, pendingVersion: () => Installer.Version.ToString());
 
         // The dashboard install timer ticks every five seconds for as long as Wisp runs.
         internal async Task TickAsync(AutomaticUpdateCoordinator coordinator, TimeSpan duration)
@@ -83,10 +84,10 @@ public sealed class AutomaticUpdateCoordinatorTests
     }
 
     [Fact]
-    public async Task TransientHandoffFailureRetriesOncePerRetryIntervalThenStopsForTheSession()
+    public async Task TransientHandoffFailureRetriesOncePerRetryIntervalThenStopsForThatRelease()
     {
         // One PC on Wisp 2.6.12 failed its handoff verification 1,273 times in a week, once every
-        // RetryInterval. A third failure for the same release now ends automatic attempts.
+        // RetryInterval. A third failure for the same release now ends automatic attempts for it.
         var s = new Scenario { InstallOutcome = AutomaticUpdateApplyOutcome.Retry };
         var coordinator = s.Create();
         // The first attempt is at the first five-second tick; the retry follows one RetryInterval later.
@@ -95,12 +96,20 @@ public sealed class AutomaticUpdateCoordinatorTests
         Assert.False(coordinator.HandoffUnavailable);
         await s.TickAsync(coordinator, TimeSpan.FromHours(1));
         Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries, s.Installs);
-        Assert.True(coordinator.HandoffUnavailable);
+        Assert.False(coordinator.HandoffUnavailable);
+        Assert.True(coordinator.IsExhausted("2.6.9"));
         s.HasUpdate = false;
         await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.MinimumInterval);
         s.HasUpdate = true;
         await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.MinimumInterval);
         Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries, s.Installs);
+
+        // A newer release published while Wisp keeps running is tried again; the old one stays exhausted.
+        s.Installer = Scenario.CreateInstaller(2, 6, 10);
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.RetryInterval);
+        Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries + 1, s.Installs);
+        Assert.False(coordinator.IsExhausted("2.6.10"));
+        Assert.True(coordinator.IsExhausted("2.6.9"));
     }
 
     [Fact]

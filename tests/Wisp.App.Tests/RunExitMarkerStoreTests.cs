@@ -32,6 +32,24 @@ public sealed class RunExitMarkerStoreTests
     }
 
     [Fact]
+    public void ACancelledWindowsShutdownWithdrawsItsIntent()
+    {
+        using var directory = new TemporaryDirectory();
+        var marker = Marker(0);
+        using (var owner = RunExitMarkerStore.TryBegin(directory.Path, marker))
+        {
+            Assert.True(owner!.MarkShutdownStarted(ShutdownIntent.OperatingSystem));
+            Assert.False(owner.ClearShutdownIntent(ShutdownIntent.Requested));
+            Assert.True(owner.ClearShutdownIntent(ShutdownIntent.OperatingSystem));
+            Assert.False(owner.ClearShutdownIntent(ShutdownIntent.OperatingSystem));
+            // The run went on; a later shutdown is recorded again.
+            Assert.True(owner.MarkShutdownStarted(ShutdownIntent.OperatingSystem));
+        }
+        using var next = RunExitMarkerStore.TryBegin(directory.Path, Marker(1));
+        Assert.Equal(ShutdownIntent.OperatingSystem, next!.Previous!.ShutdownIntent);
+    }
+
+    [Fact]
     public void ShutdownIntentSurvivesCheckpointsAndRestartWithoutClaimingCompletedShutdown()
     {
         using var directory = new TemporaryDirectory();

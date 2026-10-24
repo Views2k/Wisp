@@ -101,7 +101,7 @@ public partial class App : Application
         _sessionEndSentinel = SessionEndSentinel.TryStart(() =>
         {
             if (Volatile.Read(ref _fatalExit) == 0) _runExitMarker?.MarkShutdownStarted(ShutdownIntent.OperatingSystem);
-        });
+        }, () => _runExitMarker?.ClearShutdownIntent(ShutdownIntent.OperatingSystem));
         // The native handler records the faulting address and call stack of a hardware fault
         // for this run; the next run reports it with the crash.
         NativeCrashCapture.TryInstall(_crashReports.StoreDirectory, _runId);
@@ -137,6 +137,8 @@ public partial class App : Application
             RecordSupplementarySignal("settings", "settings", "success", "recovery");
             DebugLogging.HealthContextRecorder.Current.RecordBreadcrumb(DebugLogging.HealthEventCode.SettingsRestored);
             _controller.LocalNotices.Raise(LocalDashboardNotices.SettingsRestored);
+            // The restored copy replaces the unreadable file now, so the next launch does not restore again.
+            _controller.TrySavePendingSettings();
         }
         _controller.ViewModel.InitializeCrashReport(_previousCrashReport, _crashReports.AcknowledgeThrough);
         if (_runExitMarker?.Previous is { } previous)
@@ -193,10 +195,6 @@ public partial class App : Application
         }
         _activationListener = ListenForActivationAsync(_activationCancellation.Token);
 
-        _controller.EnableAutomaticApplicationUpdates(async installer =>
-            (await TryBeginApplicationUpdateAsync(installer)).Outcome);
-        _controller.BeginStartupApplicationUpdateCheck();
-
         // A first run or legacy auto-completed install always opens the wizard,
         // including --background launches. No dashboard or HUD exists yet.
         var setupRequired = settings.RequiresSetup;
@@ -216,6 +214,12 @@ public partial class App : Application
                 return;
             }
         }
+
+        // Update checks and automatic installs start only once setup is complete, so an available
+        // release cannot close the wizard while the player is still in it.
+        _controller.EnableAutomaticApplicationUpdates(async installer =>
+            (await TryBeginApplicationUpdateAsync(installer)).Outcome);
+        _controller.BeginStartupApplicationUpdateCheck();
 
         var startInBackground = e.Args.Any(
             argument => argument.Equals("--background", StringComparison.OrdinalIgnoreCase)) && !setupRequired;
@@ -268,7 +272,7 @@ public partial class App : Application
             // A HUD window that cannot be created leaves the dashboard available and the failure in diagnostics.
             _crashMonitor.RecoveredUiException(exception, "hud-windows");
             RecordSupplementarySignal("startup", "hud", "failure", "hud-ready", incident:
-                DebugLogging.SupplementaryOperationFailure.Capture("hud", "hud-ready", exception, DateTimeOffset.UtcNow));
+                DebugLogging.SupplementaryOperationFailure.Capture("hud", "ready", exception, DateTimeOffset.UtcNow));
             _controller.ViewModel.ReportControlError("Wisp could not create its HUD windows; restart Wisp to try again");
         }
 
@@ -368,7 +372,13 @@ public partial class App : Application
             // alive after the user closed Wisp. An expired wait leaves the exit marker
             // incomplete, which is what happened.
             var disposal = _controller?.DisposeAsync().AsTask();
-            shutdownCompleted = disposal is null || disposal.Wait(TimeSpan.FromSeconds(10));
+            try { shutdownCompleted = disposal is null || disposal.Wait(TimeSpan.FromSeconds(10)); }
+            catch (AggregateException error)
+            {
+                // The process still ends below; the report says why instead of an unexplained incomplete shutdown.
+                _crashMonitor.RecoveredUiException(error.GetBaseException(), "shutdown");
+                shutdownCompleted = false;
+            }
         }
         finally
         {
@@ -621,7 +631,7 @@ public partial class App : Application
 
         // Keep the dispatcher alive while pending run details reach durable storage.
         e.Cancel = true;
-        if (sender is Window closingWindow) _ = CloseApplicationAsync(closingWindow);
+        if (sender is Window closingWindow) Observe(CloseApplicationAsync(closingWindow), "close");
     }
 
     private async Task SuspendRuntimeAsync()
@@ -689,164 +699,180 @@ public partial class App : Application
         }
 
         _applicationUpdateHandoffActive = true;
-        bool gameOpen;
-        try { gameOpen = await Task.Run(ForzaFocusService.IsOpenForApplicationUpdate); }
-        catch { _applicationUpdateHandoffActive = false; throw; }
-        if (_exiting || _controller is null)
-        {
-            _applicationUpdateHandoffActive = false;
-            return (false, "Wisp is already closing.");
-        }
-        if (gameOpen)
-        {
-            _applicationUpdateHandoffActive = false;
-            const string waiting = "Update ready. Wisp will update and restart after you close Forza.";
-            _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
-            return (false, waiting);
-        }
-
-        var permission = _controller.ApplicationUpdateFeatureToken;
-        if (!_controller.CanBeginApplicationUpdate(permission))
-        {
-            _applicationUpdateHandoffActive = false;
-            return (false, _controller.ViewModel.ApplicationUpdateStatus);
-        }
-        _controller.MarkApplicationUpdatePreparing(installer);
-        DebugLogging.HealthContextRecorder.Current.RecordBreadcrumb(DebugLogging.HealthEventCode.UpdateHandoffStarted);
-        if (!await PrepareRunMetadataForExitAsync())
-        {
-            _applicationUpdateHandoffActive = false;
-            const string saveError = "Save the pending run details before updating. Wisp has stayed open.";
-            _controller.ViewModel.UpdateApplicationUpdateStatus(saveError, "Try again", canCheck: true);
-            return (false, saveError);
-        }
-        if (!_controller.CanBeginApplicationUpdate(permission))
-        {
-            _applicationUpdateHandoffActive = false;
-            _controller.Runs.CancelMetadataClosePreparation();
-            return (false, "Application updates were paused. Review the update again when available.");
-        }
-        ApplicationUpdateHandoff handoff;
-        var launchedAt = DateTimeOffset.UtcNow;
+        var started = false;
+        var metadataPrepared = false;
         try
         {
-            handoff = ApplicationUpdateLauncher.Launch(installer);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
-                                           InvalidOperationException or ArgumentException or Win32Exception or
-                                           System.Security.SecurityException)
-        {
-            var error = ApplicationUpdateLauncher.DescribeStartFailure(exception);
-            RecordSupplementarySignal("update", "update", "failure", "install-handoff", incident:
-                DebugLogging.SupplementaryOperationFailure.Capture("update", "install-handoff", exception, DateTimeOffset.UtcNow));
-            _applicationUpdateHandoffActive = false;
-            _controller.Runs.CancelMetadataClosePreparation();
-            _controller.ViewModel.UpdateApplicationUpdateStatus(error, "Try again", canCheck: true);
-            // A missing helper cannot come back during this session, so the automatic coordinator
-            // stops after this report instead of retrying every RetryInterval.
-            return new ApplicationUpdateStartResult(false, error,
-                HelperUnavailable: ApplicationUpdateLauncher.IsHelperUnavailable(exception));
-        }
-
-        using (handoff)
-        {
-            ApplicationUpdateHandoffState handoffState;
-            try
+            bool gameOpen;
+            try { gameOpen = await Task.Run(ForzaFocusService.IsOpenForApplicationUpdate); }
+            catch { _applicationUpdateHandoffActive = false; throw; }
+            if (_exiting || _controller is null)
             {
-                handoffState = await handoff.WaitUntilReadyAsync(TimeSpan.FromSeconds(20), permission);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
-                                               InvalidOperationException or ObjectDisposedException)
-            {
-                handoff.StopIfRunning();
                 _applicationUpdateHandoffActive = false;
-                _controller.Runs.CancelMetadataClosePreparation();
-                const string waitError =
-                    "The update helper could not complete its safety checks. Wisp stayed open and no files were installed.";
-                RecordSupplementarySignal("update", "update", "failure", "install-handoff", incident:
-                DebugLogging.SupplementaryOperationFailure.Capture("update", "install-handoff", exception, DateTimeOffset.UtcNow));
-                _controller.ViewModel.UpdateApplicationUpdateStatus(waitError, "Try again", canCheck: true);
-                return (false, waitError);
+                return (false, "Wisp is already closing.");
+            }
+            if (gameOpen)
+            {
+                _applicationUpdateHandoffActive = false;
+                const string waiting = "Update ready. Wisp will update and restart after you close Forza.";
+                _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
+                return (false, waiting);
             }
 
-            if (handoffState == ApplicationUpdateHandoffState.Ready)
-            {
-                _controller.MarkApplicationUpdateStarting(installer);
-                await FlushSupplementaryForUpdateAsync();
-            }
-            // Recheck every exit guard after the bounded reporting wait.
+            var permission = _controller.ApplicationUpdateFeatureToken;
             if (!_controller.CanBeginApplicationUpdate(permission))
             {
-                handoff.StopIfRunning();
+                _applicationUpdateHandoffActive = false;
+                return (false, _controller.ViewModel.ApplicationUpdateStatus);
+            }
+            _controller.MarkApplicationUpdatePreparing(installer);
+            DebugLogging.HealthContextRecorder.Current.RecordBreadcrumb(DebugLogging.HealthEventCode.UpdateHandoffStarted);
+            if (!await PrepareRunMetadataForExitAsync())
+            {
+                _applicationUpdateHandoffActive = false;
+                const string saveError = "Save the pending run details before updating. Wisp has stayed open.";
+                _controller.ViewModel.UpdateApplicationUpdateStatus(saveError, "Try again", canCheck: true);
+                return (false, saveError);
+            }
+            metadataPrepared = true;
+            if (!_controller.CanBeginApplicationUpdate(permission))
+            {
                 _applicationUpdateHandoffActive = false;
                 _controller.Runs.CancelMetadataClosePreparation();
-                ApplicationUpdateTelemetry.Record("paused", installer.Version.ToString(), reason: "cancelled");
                 return (false, "Application updates were paused. Review the update again when available.");
             }
-            if (await Task.Run(ForzaFocusService.IsOpenForApplicationUpdate))
+            ApplicationUpdateHandoff handoff;
+            var launchedAt = DateTimeOffset.UtcNow;
+            try
             {
-                handoff.StopIfRunning();
-                _applicationUpdateHandoffActive = false;
-                _controller.Runs.CancelMetadataClosePreparation();
-                const string waiting = "Update ready. Wisp will restart after Forza closes.";
-                ApplicationUpdateTelemetry.Record("waiting-for-game", installer.Version.ToString());
-                _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
-                return (false, waiting);
+                handoff = ApplicationUpdateLauncher.Launch(installer);
             }
-            if (!_controller.CanBeginApplicationUpdate(permission))
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
+                                               InvalidOperationException or ArgumentException or Win32Exception or
+                                               System.Security.SecurityException)
             {
-                handoff.StopIfRunning();
-                _applicationUpdateHandoffActive = false;
-                _controller.Runs.CancelMetadataClosePreparation();
-                ApplicationUpdateTelemetry.Record("paused", installer.Version.ToString(), reason: "cancelled");
-                return (false, "Application updates are paused.");
-            }
-            if (_controller.HasApplicationUpdateWorkInProgress)
-            {
-                handoff.StopIfRunning();
-                _applicationUpdateHandoffActive = false;
-                _controller.Runs.CancelMetadataClosePreparation();
-                const string waiting = "Update ready. Wisp will restart after your current work is saved.";
-                ApplicationUpdateTelemetry.Record("waiting-for-work", installer.Version.ToString());
-                _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
-                return (false, waiting);
-            }
-            if (handoffState != ApplicationUpdateHandoffState.Ready)
-            {
-                string error;
-                var helperRejected = false;
-                if (handoffState == ApplicationUpdateHandoffState.HelperExited)
-                {
-                    // The helper records which check failed before it exits. Report that code now,
-                    // and stop automatic attempts when the same check fails again in this session.
-                    var exit = ApplicationUpdateLauncher.DescribeHelperExit(handoff.ExitCode, launchedAt);
-                    RecordSupplementarySignal("update", "update", "failure", "install-handoff", incident: exit.Incident);
-                    error = exit.Status;
-                    helperRejected = exit.Permanent;
-                }
-                else
-                {
-                    RecordSupplementarySignal("update", "update", handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "failure", "install-handoff",
-                        incident: Supplementary.SupplementaryIncidentSchema.Create("update",
-                            handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "update-verification-failed", "update-install-handoff"));
-                    error = handoffState == ApplicationUpdateHandoffState.TimedOut
-                        ? "The update helper did not become ready in time. Wisp stayed open and no files were installed."
-                        : "The update helper could not verify this installation. Wisp stayed open and no files were installed.";
-                }
-                handoff.StopIfRunning();
+                var error = ApplicationUpdateLauncher.DescribeStartFailure(exception);
+                RecordSupplementarySignal("update", "update", "failure", "install-handoff", incident:
+                    DebugLogging.SupplementaryOperationFailure.Capture("update", "install-handoff", exception, DateTimeOffset.UtcNow));
                 _applicationUpdateHandoffActive = false;
                 _controller.Runs.CancelMetadataClosePreparation();
                 _controller.ViewModel.UpdateApplicationUpdateStatus(error, "Try again", canCheck: true);
-                return new ApplicationUpdateStartResult(false, error, HelperRejected: helperRejected);
+                // A missing helper cannot come back during this session, so the automatic coordinator
+                // stops after this report instead of retrying every RetryInterval.
+                return new ApplicationUpdateStartResult(false, error,
+                    HelperUnavailable: ApplicationUpdateLauncher.IsHelperUnavailable(exception));
+            }
+
+            using (handoff)
+            {
+                ApplicationUpdateHandoffState handoffState;
+                try
+                {
+                    handoffState = await handoff.WaitUntilReadyAsync(TimeSpan.FromSeconds(20), permission);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
+                                                   InvalidOperationException or ObjectDisposedException)
+                {
+                    handoff.StopIfRunning();
+                    _applicationUpdateHandoffActive = false;
+                    _controller.Runs.CancelMetadataClosePreparation();
+                    const string waitError =
+                        "The update helper could not complete its safety checks. Wisp stayed open and no files were installed.";
+                    RecordSupplementarySignal("update", "update", "failure", "install-handoff", incident:
+                    DebugLogging.SupplementaryOperationFailure.Capture("update", "install-handoff", exception, DateTimeOffset.UtcNow));
+                    _controller.ViewModel.UpdateApplicationUpdateStatus(waitError, "Try again", canCheck: true);
+                    return (false, waitError);
+                }
+
+                if (handoffState == ApplicationUpdateHandoffState.Ready)
+                {
+                    _controller.MarkApplicationUpdateStarting(installer);
+                    await FlushSupplementaryForUpdateAsync();
+                }
+                // Recheck every exit guard after the bounded reporting wait.
+                if (!_controller.CanBeginApplicationUpdate(permission))
+                {
+                    handoff.StopIfRunning();
+                    _applicationUpdateHandoffActive = false;
+                    _controller.Runs.CancelMetadataClosePreparation();
+                    ApplicationUpdateTelemetry.Record("paused", installer.Version.ToString(), reason: "cancelled");
+                    return (false, "Application updates were paused. Review the update again when available.");
+                }
+                if (await Task.Run(ForzaFocusService.IsOpenForApplicationUpdate))
+                {
+                    handoff.StopIfRunning();
+                    _applicationUpdateHandoffActive = false;
+                    _controller.Runs.CancelMetadataClosePreparation();
+                    const string waiting = "Update ready. Wisp will restart after Forza closes.";
+                    ApplicationUpdateTelemetry.Record("waiting-for-game", installer.Version.ToString());
+                    _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
+                    return (false, waiting);
+                }
+                if (!_controller.CanBeginApplicationUpdate(permission))
+                {
+                    handoff.StopIfRunning();
+                    _applicationUpdateHandoffActive = false;
+                    _controller.Runs.CancelMetadataClosePreparation();
+                    ApplicationUpdateTelemetry.Record("paused", installer.Version.ToString(), reason: "cancelled");
+                    return (false, "Application updates are paused.");
+                }
+                if (_controller.HasApplicationUpdateWorkInProgress)
+                {
+                    handoff.StopIfRunning();
+                    _applicationUpdateHandoffActive = false;
+                    _controller.Runs.CancelMetadataClosePreparation();
+                    const string waiting = "Update ready. Wisp will restart after your current work is saved.";
+                    ApplicationUpdateTelemetry.Record("waiting-for-work", installer.Version.ToString());
+                    _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
+                    return (false, waiting);
+                }
+                if (handoffState != ApplicationUpdateHandoffState.Ready)
+                {
+                    string error;
+                    var helperRejected = false;
+                    if (handoffState == ApplicationUpdateHandoffState.HelperExited)
+                    {
+                        // The helper records which check failed before it exits. Report that code now,
+                        // and stop automatic attempts when the same check fails again in this session.
+                        var exit = ApplicationUpdateLauncher.DescribeHelperExit(handoff.ExitCode, launchedAt);
+                        RecordSupplementarySignal("update", "update", "failure", "install-handoff", incident: exit.Incident);
+                        error = exit.Status;
+                        helperRejected = exit.Permanent;
+                    }
+                    else
+                    {
+                        RecordSupplementarySignal("update", "update", handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "failure", "install-handoff",
+                            incident: Supplementary.SupplementaryIncidentSchema.Create("update",
+                                handoffState == ApplicationUpdateHandoffState.TimedOut ? "timeout" : "update-verification-failed", "update-install-handoff"));
+                        error = handoffState == ApplicationUpdateHandoffState.TimedOut
+                            ? "The update helper did not become ready in time. Wisp stayed open and no files were installed."
+                            : "The update helper could not verify this installation. Wisp stayed open and no files were installed.";
+                    }
+                    handoff.StopIfRunning();
+                    _applicationUpdateHandoffActive = false;
+                    _controller.Runs.CancelMetadataClosePreparation();
+                    _controller.ViewModel.UpdateApplicationUpdateStatus(error, "Try again", canCheck: true);
+                    return new ApplicationUpdateStartResult(false, error, HelperRejected: helperRejected);
+                }
+            }
+
+            _runExitMarker?.MarkShutdownStarted(ShutdownIntent.Update);
+            started = true;
+            _applicationUpdateHandoffActive = false;
+            _exiting = true;
+            _forzaStartupTimer?.Stop();
+            Shutdown();
+            return (true, string.Empty);
+        }
+        finally
+        {
+            // A failure the branches above did not expect must not leave Wisp unable to close or update.
+            if (!started && _applicationUpdateHandoffActive)
+            {
+                _applicationUpdateHandoffActive = false;
+                if (metadataPrepared) _controller?.Runs.CancelMetadataClosePreparation();
             }
         }
-
-        _runExitMarker?.MarkShutdownStarted(ShutdownIntent.Update);
-        _applicationUpdateHandoffActive = false;
-        _exiting = true;
-        _forzaStartupTimer?.Stop();
-        Shutdown();
-        return (true, string.Empty);
     }
 
     private static void SignalExistingInstance()

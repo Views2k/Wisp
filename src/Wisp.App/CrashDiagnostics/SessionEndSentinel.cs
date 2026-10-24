@@ -13,6 +13,7 @@ internal sealed class SessionEndSentinel : IDisposable
     private const int ERROR_CLASS_ALREADY_EXISTS = 1410;
     private const string ClassName = "WispSessionEndSentinel";
     private readonly Action _sessionEnding;
+    private readonly Action? _sessionContinuing;
     private readonly WindowProcedure _procedure; // Keeps the delegate alive for the window's lifetime.
     private readonly ManualResetEventSlim _started = new(false);
     private Thread? _thread;
@@ -21,15 +22,16 @@ internal sealed class SessionEndSentinel : IDisposable
 
     private delegate IntPtr WindowProcedure(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 
-    private SessionEndSentinel(Action sessionEnding)
+    private SessionEndSentinel(Action sessionEnding, Action? sessionContinuing)
     {
         _sessionEnding = sessionEnding;
+        _sessionContinuing = sessionContinuing;
         _procedure = Procedure;
     }
 
-    internal static SessionEndSentinel? TryStart(Action sessionEnding)
+    internal static SessionEndSentinel? TryStart(Action sessionEnding, Action? sessionContinuing = null)
     {
-        var sentinel = new SessionEndSentinel(sessionEnding);
+        var sentinel = new SessionEndSentinel(sessionEnding, sessionContinuing);
         try
         {
             sentinel._thread = new Thread(sentinel.Run) { IsBackground = true, Name = "Wisp session sentinel" };
@@ -81,6 +83,7 @@ internal sealed class SessionEndSentinel : IDisposable
                 return 1; // The session may end.
             case WM_ENDSESSION:
                 if (wParam != IntPtr.Zero) Signal();
+                else Continue();
                 return IntPtr.Zero;
             case WM_CLOSE:
                 DestroyWindow(window);
@@ -97,6 +100,15 @@ internal sealed class SessionEndSentinel : IDisposable
     {
         if (Interlocked.Exchange(ref _signalled, 1) != 0) return;
         try { _sessionEnding(); }
+        catch (Exception) { }
+    }
+
+    // Windows asked every window whether the session may end and a program vetoed it: the close
+    // request recorded on the query is withdrawn, and a later shutdown is recorded again.
+    private void Continue()
+    {
+        if (Interlocked.Exchange(ref _signalled, 0) == 0) return;
+        try { _sessionContinuing?.Invoke(); }
         catch (Exception) { }
     }
 

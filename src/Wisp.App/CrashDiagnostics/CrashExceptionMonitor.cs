@@ -34,7 +34,7 @@ internal sealed class CrashExceptionMonitor(ICrashReportSink sink, Func<DateTime
         try
         {
             var now = utcNow?.Invoke() ?? DateTimeOffset.UtcNow;
-            var repeatKey = !terminating && exception is not null ? RepeatKey(origin, exception) : null;
+            var repeatKey = !terminating && exception is not null ? RepeatKey(origin, exception, note) : null;
             lock (_seenGate)
             {
                 if (terminating && exception is not null && _lastTerminatingException?.TryGetTarget(out var previous) == true &&
@@ -58,12 +58,13 @@ internal sealed class CrashExceptionMonitor(ICrashReportSink sink, Func<DateTime
         finally { _recording = false; }
     }
 
-    // The origin and the exception types down the chain; messages and stacks vary between copies of one failure.
-    private static string RepeatKey(CrashOrigin origin, Exception exception)
+    // The origin, the exception types down the chain and the operation's note; messages and stacks vary
+    // between copies of one failure, while the note tells one recovering operation from another.
+    private static string RepeatKey(CrashOrigin origin, Exception exception, string? note)
     {
         var key = new StringBuilder(origin.ToString());
         for (var error = exception; error is not null; error = error.InnerException) key.Append('|').Append(error.GetType().FullName);
-        return key.ToString();
+        return key.Append('|').Append(note).ToString();
     }
 
     private HealthContextSnapshot? CaptureContext()

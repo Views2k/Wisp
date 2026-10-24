@@ -34,6 +34,7 @@ internal static class SupplementaryOperationFailure
                 "update" => "update",
                 "settings" => "settings",
                 "setup" or "telemetry" => "telemetry",
+                "app" or "hud" => "managed-exception",
                 "clips" when stage is "decode" or "playback" => "playback",
                 _ => "saved-data"
             };

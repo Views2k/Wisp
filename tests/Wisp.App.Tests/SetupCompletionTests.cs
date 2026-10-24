@@ -199,6 +199,20 @@ public sealed class SetupCompletionTests
         Assert.False(settings.HasCompletedSetup);
     }
 
+    [Fact]
+    public void EvidenceFromALongListeningSessionIsValid()
+    {
+        // The Data Out test keeps listening until data arrives; a car that sat still for a while before
+        // driving produces one contiguous sequence longer than the former 45-second test limit.
+        var settings = ExistingSettings();
+        var saved = false;
+        SetupCompletion.Save(settings, Choices(), new(5500, 400, 12, TimeSpan.FromSeconds(120), CompletedAt.AddSeconds(-5)),
+            _ => saved = true, CompletedAt);
+        Assert.True(saved);
+        Assert.False(settings.RequiresSetup);
+        Assert.Equal(120_000, settings.SetupCompletion!.ValidatedElapsedMilliseconds);
+    }
+
     private static SetupPreferences Choices() => new(
         5500, SpeedUnit.KilometersPerHour, SpeedSourceMode.Fh6VehicleSpeed,
         HudLayoutMode.Combined, NativeGaugeMode.Digital, GearDisplayMode.Manual, true, true, true);

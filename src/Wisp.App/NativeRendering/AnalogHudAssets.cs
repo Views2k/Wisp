@@ -44,11 +44,14 @@ internal static class AnalogHudAssets
         {
             ShiftCueArtwork.Texture(digital: false)
         };
+        // A set that holds a placeholder for an image that failed to decode serves this capture only.
+        var complete = true;
         foreach (var asset in Catalog)
         {
             var source = asset.Tint is { } tint
                 ? NativeAssetCache.GetTinted(asset.Family, asset.FileName, Color.FromArgb(tint.A, tint.R, tint.G, tint.B))
                 : NativeAssetCache.Get(asset.Family, asset.FileName);
+            complete &= !NativeAssetCache.IsPlaceholder(source);
             var premultiplied = new FormatConvertedBitmap(source, PixelFormats.Pbgra32, null, 0);
             premultiplied.Freeze();
             var stride = checked(premultiplied.PixelWidth * 4);
@@ -59,8 +62,9 @@ internal static class AnalogHudAssets
             textures.Add(new AnalogHudTexture(asset.Id, premultiplied.PixelWidth, premultiplied.PixelHeight, stride, pixels));
         }
 
-        _textures = textures.AsReadOnly();
-        return _textures;
+        var result = textures.AsReadOnly();
+        if (complete) _textures = result;
+        return result;
     }
 
     internal static void MakeWhiteAlphaMask(Span<byte> pixels)

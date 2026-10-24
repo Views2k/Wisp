@@ -387,7 +387,7 @@ internal sealed class DirectCompositionDevice : IDisposable
 
     private static void ValidateSize(int width, int height)
     {
-        if (width is < 1 or > 8192 || height is < 1 or > 8192) throw new ArgumentOutOfRangeException(nameof(width));
+        if (width is < 1 or > 16384 || height is < 1 or > 16384) throw new ArgumentOutOfRangeException(nameof(width));
     }
 
     private sealed class RendererHandle : SafeHandleZeroOrMinusOneIsInvalid

@@ -34,7 +34,7 @@ internal static class DashboardRenderingFallback
             var path = MarkerPath(directory);
             if (!File.Exists(path)) return false;
             if (DateTimeOffset.TryParseExact(File.ReadAllText(path).Trim(), "O", CultureInfo.InvariantCulture,
-                    DateTimeStyles.None, out var requested) && now - requested < Lifetime)
+                    DateTimeStyles.None, out var requested) && now - requested is { Ticks: >= 0 } age && age < Lifetime)
                 return true;
             File.Delete(path);
             return false;

@@ -1,6 +1,6 @@
 # Wisp UI review
 
-Windows/.NET 8 WPF console harness; no extra NuGet dependencies. Rebuild after UI changes. This project references the real `Wisp.App` project but is not part of the application or installer.
+Windows/.NET 10 WPF console harness; no extra NuGet dependencies. Rebuild after UI changes. This project references the real `Wisp.App` project but is not part of the application or installer.
 
 `--lap-review-check` reviews the actual expanded Lap review on the Runs page using two synthetic completed laps. It captures controls, speed and brake maps, the speed graph, and a selected section at 980x750 and 720x440, plus the empty disabled state. `lap-review.json` records binding and text-overflow findings. Fixtures stay in memory; this path creates no controller, opens no window or UDP listener, and reads no real settings or saved runs. The shared checks also run in the existing `WpfStyleRuntimeTests` STA stage. Run the visual checks only when the live game session has ended.
 

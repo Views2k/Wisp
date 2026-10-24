@@ -443,10 +443,11 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
     public Task ToggleAsync() => Operation(async () =>
     {
         var next = !_snapshot.Enabled;
+        // A refused folder ends the preference; a toggle that could not run keeps it for the next start.
         if (next && !ClipsSettings.CanRecordToDirectory(_libraryDirectory))
-        { ErrorText(ClipsSettings.RecordingPathTooLongMessage); return; }
+        { ErrorText(ClipsSettings.RecordingPathTooLongMessage); PersistEnabled(false); return; }
         if (next && await IsNetworkStorageAsync())
-        { ErrorText("Clip recording needs a local folder. Network drives are not supported."); return; }
+        { ErrorText("Clip recording needs a local folder. Network drives are not supported."); PersistEnabled(false); return; }
         if (_disposed || !_runtimeActive || !_featureAvailable) return;
         await _recorder.SetEnabledAsync(next, Recording(), _token);
         RefreshRecorder();
@@ -472,12 +473,10 @@ public sealed class ClipsViewModel : INotifyPropertyChanged, IDisposable
         if (!active) CancelQueuedSaves("Queued saves cancelled because clipping is paused.");
         NotifyState();
     }
-    internal async Task RestoreEnabledPreferenceAsync()
-    {
-        if (!_settings.Enabled || _snapshot.Enabled || !_featureAvailable) return;
-        await ToggleAsync();
-        if (!_snapshot.Enabled && _featureAvailable) PersistEnabled(false);
-    }
+    // Terminal recorder failures and refused folders clear the preference where they are decided; a
+    // toggle skipped because the page was busy, or a transient failure, leaves it for the next start.
+    internal Task RestoreEnabledPreferenceAsync() =>
+        !_settings.Enabled || _snapshot.Enabled || !_featureAvailable ? Task.CompletedTask : ToggleAsync();
 
     private void PersistEnabled(bool enabled)
     {

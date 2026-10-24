@@ -3,8 +3,9 @@ using Wisp.App.Supplementary;
 
 namespace Wisp.App;
 
-// Notices Wisp raises about this PC. They use the dashboard banner slot and the dismissal of a
-// published banner. Each one is raised at most once per run and says what the player can do.
+// Notices Wisp raises about this PC. They use the dashboard banner slot after any published banner.
+// Each one is raised at most once per run, says what the player can do, and closing it removes it for
+// the rest of the run without touching the saved dismissal of a published banner.
 internal sealed class LocalDashboardNotices
 {
     internal const string IdPrefix = "local:";
@@ -19,7 +20,7 @@ internal sealed class LocalDashboardNotices
 
     internal static readonly SupplementaryContentItem SoftwareRendering = Create("software-rendering",
         "Dashboard drawing switched to software",
-        "A display driver failure ended Wisp's last run, so the dashboard now draws in software mode. " +
+        "A display rendering failure ended Wisp's last run, so the dashboard now draws in software mode. " +
         "The HUD and clips keep using the graphics card, and the dashboard returns to it after two weeks.");
 
     internal static readonly SupplementaryContentItem SettingsRestored = Create("settings-restored",
@@ -43,11 +44,18 @@ internal sealed class LocalDashboardNotices
         return true;
     }
 
-    internal SupplementaryContentItem? Current(string? dismissedKey)
+    internal SupplementaryContentItem? Current()
+    {
+        lock (_gate) return _items.FirstOrDefault();
+    }
+
+    internal void Dismiss(SupplementaryContentItem item)
     {
         lock (_gate)
         {
-            return _items.FirstOrDefault(item => !DashboardBannerDismissal.IsDismissed(item, dismissedKey));
+            if (!_items.Any(existing => existing.Id == item.Id)) return;
+            _items = _items.RemoveAll(existing => existing.Id == item.Id);
         }
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 }

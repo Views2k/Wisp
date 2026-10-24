@@ -24,7 +24,8 @@ public sealed partial class AppController
             () => PrepareApplicationUpdateAsync(),
             apply,
             message => ViewModel.UpdateApplicationUpdateStatus(message, "Check again", true, true),
-            waiting: state => ApplicationUpdateTelemetry.Record(state, (_pendingInstaller?.Version ?? _availableApplicationRelease?.Version)?.ToString()));
+            waiting: state => ApplicationUpdateTelemetry.Record(state, (_pendingInstaller?.Version ?? _availableApplicationRelease?.Version)?.ToString()),
+            pendingVersion: () => (_pendingInstaller?.Version ?? _availableApplicationRelease?.Version)?.ToString());
         _automaticInstallTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
         {
             Interval = TimeSpan.FromSeconds(5)

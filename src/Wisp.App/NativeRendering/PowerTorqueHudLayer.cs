@@ -36,9 +36,12 @@ internal static class PowerTorqueHudLayer
         var key = new ArtworkKey(control.NativeArtworkRevision, control.IsTorque, control.Maximum,
             control.TorqueUnit, dpi.PixelsPerDip, rasterScale);
         var cache = Caches.GetValue(control, static _ => new CaptureCache());
-        if (cache.Artwork is null || cache.Key != key)
+        var artwork = cache.Artwork;
+        if (artwork is null || cache.Key != key)
         {
-            cache.Artwork = CaptureArtwork(control, rasterScale);
+            artwork = CaptureArtwork(control, rasterScale, out var complete);
+            // Artwork with a placeholder digit serves this capture only; the next one decodes again.
+            cache.Artwork = complete ? artwork : null;
             cache.Key = key;
         }
         var input = vm is null
@@ -48,12 +51,13 @@ internal static class PowerTorqueHudLayer
             control.IsElectricMaterial, control.ColorNumber,
             Color(control.PaletteColor(0)), Color(control.PaletteColor(.56)), Color(control.PaletteColor(1)), Color(control.DriftFlashColor));
         if (cache.Snapshot is { } previous && previous.Input == input && previous.Options == options &&
-            ReferenceEquals(previous.Artwork, cache.Artwork)) return previous;
-        return cache.Snapshot = new Snapshot(cache.Artwork, input, options);
+            ReferenceEquals(previous.Artwork, artwork)) return previous;
+        return cache.Snapshot = new Snapshot(artwork, input, options);
     }
 
-    private static Artwork CaptureArtwork(PowerTorqueGaugeView control, double scale)
+    private static Artwork CaptureArtwork(PowerTorqueGaugeView control, double scale, out bool complete)
     {
+        complete = true;
         var firstId = control.IsTorque ? 25_000u : 20_000u;
         var textures = new List<AnalogHudTexture>();
         void Add(uint offset, BitmapSource image) => textures.Add(Texture(firstId + offset, image));
@@ -83,6 +87,7 @@ internal static class PowerTorqueHudLayer
         for (var digit = 0; digit < 10; digit++)
         {
             var source = NativeAssetCache.Get(NativeGaugeMode.Analogue, $"HUD_Dial_Speed_Analogue_{digit}.png");
+            complete &= !NativeAssetCache.IsPlaceholder(source);
             var original = Texture(firstId + 10 + (uint)digit, source);
             textures.Add(original);
             var mask = original.Pixels.ToArray();

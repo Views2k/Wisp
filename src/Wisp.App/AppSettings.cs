@@ -635,7 +635,6 @@ public sealed record SetupCompletionRecord
         MovingPackets >= MinimumMovingPackets && MovingPackets <= ValidatedPackets &&
         double.IsFinite(ValidatedElapsedMilliseconds) &&
         ValidatedElapsedMilliseconds >= MinimumElapsedMilliseconds &&
-        ValidatedElapsedMilliseconds <= TestTimeoutSeconds * 1000 &&
         DataOutConfirmed && DisplayModeConfirmed && StockHudConfirmed;
 }
 
@@ -771,6 +770,7 @@ public sealed class SettingsService
                 _ => "storage"
             };
             LoadFailure = new(reason, unchecked((uint)error.HResult));
+            KeepUnreadableCopy();
             if (LoadBackup() is { } restored)
             {
                 RestoredFromBackup = true;
@@ -778,6 +778,19 @@ public sealed class SettingsService
             }
             return PrepareForLoad(new AppSettings());
         }
+    }
+
+    // The file that could not be read is kept beside the settings, so a layout written by another
+    // build or a hand edit can be recovered after the next save replaces the original. Best effort.
+    internal string UnreadablePath => _settingsPath + ".unreadable";
+
+    private void KeepUnreadableCopy()
+    {
+        try
+        {
+            if (File.Exists(_settingsPath)) File.Copy(_settingsPath, UnreadablePath, overwrite: true);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or SecurityException) { }
     }
 
     public void Save(AppSettings settings)

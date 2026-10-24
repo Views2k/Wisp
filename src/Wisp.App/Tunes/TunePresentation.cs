@@ -59,7 +59,7 @@ internal static class TunePresentation
             return $"Tune reading needs imperial game units; Forza is set to another unit system (game unit {string.Join(", ", units)}). " +
                 "Set Forza's units to imperial, then refresh.";
         if (snapshot.Fields.Any(field => field.Status == TuneFieldStatus.UnsupportedConversion))
-            return "This tune includes a value conversion Wisp does not support yet. It cannot be saved until all values can be read.";
+            return "Some tune values use a conversion that is still being added. Saving is available once every value reads.";
         return snapshot.IsComplete ? "Tune read. Save a copy to keep it in Wisp."
             : "Some tune values could not be read. Refresh to try again; saving is available when all values are read.";
     }

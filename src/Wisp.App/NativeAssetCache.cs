@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using Wisp.App.CrashDiagnostics;
 using System.Windows.Media;
@@ -29,12 +30,26 @@ internal static class NativeAssetCache
                 return existing;
             }
 
+            if (RecentlyFailed(key)) return Placeholder;
             var image = TryDecode(key);
             if (image is null) return Placeholder; // Not cached: the next request decodes again.
             Images.Add(key, image);
             return image;
         }
     }
+
+    internal static bool IsPlaceholder(BitmapSource image) => ReferenceEquals(image, Placeholder);
+
+    // A decode that just failed is not tried again for FailureHold: a held program file fails for every
+    // asset, and three attempts with waits per asset would stall the dashboard thread for seconds.
+    internal static readonly TimeSpan FailureHold = TimeSpan.FromSeconds(2);
+    internal static readonly TimeSpan ReportInterval = TimeSpan.FromMinutes(1);
+    private static readonly Dictionary<string, long> FailedAt = new(StringComparer.Ordinal);
+    private static long _lockedAt, _lastReportAt;
+
+    private static bool RecentlyFailed(string key) =>
+        _lockedAt != 0 && Stopwatch.GetElapsedTime(_lockedAt) < FailureHold ||
+        FailedAt.TryGetValue(key, out var failedAt) && Stopwatch.GetElapsedTime(failedAt) < FailureHold;
 
     // A gauge asset is an embedded resource of Wisp's own program files, and a read can still fail
     // while another process holds that file. A failed decode is reported and the gauge draws a
@@ -54,7 +69,17 @@ internal static class NativeAssetCache
                 if (attempt < DecodeAttempts) Thread.Sleep(25 * attempt);
             }
         }
-        if (failure is not null) Report(failure);
+        if (failure is not null)
+        {
+            var now = Stopwatch.GetTimestamp();
+            FailedAt[key] = now;
+            if (FileLockHolders.IsLockFailure(failure)) _lockedAt = now;
+            if (_lastReportAt == 0 || Stopwatch.GetElapsedTime(_lastReportAt) >= ReportInterval)
+            {
+                _lastReportAt = now;
+                Report(failure);
+            }
+        }
         return null;
     }
 

@@ -1025,6 +1025,7 @@ public abstract partial class ControlPanelWindow : Window
         finally
         {
             DebugLoggingToggle.IsEnabled = true;
+            DebugLoggingToggle.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty)?.UpdateTarget();
         }
     }
 

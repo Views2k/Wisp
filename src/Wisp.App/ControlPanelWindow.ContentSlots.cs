@@ -86,7 +86,7 @@ public abstract partial class ControlPanelWindow
             !DashboardBannerDismissal.IsDismissed(candidate, _controller.Settings.DismissedDashboardBannerKey)
                 ? candidate : null;
         // A published banner outranks a notice Wisp raised itself; the notice waits until the banner is gone.
-        _appliedBanner = published ?? _controller.LocalNotices.Current(_controller.Settings.DismissedDashboardBannerKey);
+        _appliedBanner = published ?? _controller.LocalNotices.Current();
         _contentExpiresAt = _appliedBanner is { } applied && LocalDashboardNotices.IsLocal(applied) ? applied.ExpiresAt : content.ExpiresAt;
         RefreshDashboardBannerVisibility();
         if (slots.NextChange is { } next && _contentSlotTimer is { } timer)
@@ -99,7 +99,7 @@ public abstract partial class ControlPanelWindow
     private SupplementaryContentItem? EligibleDashboardBanner(DateTimeOffset now) =>
         _appliedBanner is { } banner && now < _contentExpiresAt &&
         banner.StartsAt <= now && now < banner.ExpiresAt &&
-        !DashboardBannerDismissal.IsDismissed(banner, _controller.Settings.DismissedDashboardBannerKey)
+        (LocalDashboardNotices.IsLocal(banner) || !DashboardBannerDismissal.IsDismissed(banner, _controller.Settings.DismissedDashboardBannerKey))
             ? banner : null;
 
     private void ApplyDashboardBannerContent(SupplementaryContentItem? banner)
@@ -127,7 +127,8 @@ public abstract partial class ControlPanelWindow
     protected void DashboardBannerClose_Click(object sender, RoutedEventArgs e)
     {
         if (_appliedBanner is not { Dismissible: true } banner) return;
-        _controller.TryDismissDashboardBanner(DashboardBannerDismissal.Key(banner));
+        if (LocalDashboardNotices.IsLocal(banner)) _controller.LocalNotices.Dismiss(banner);
+        else _controller.TryDismissDashboardBanner(DashboardBannerDismissal.Key(banner));
         RefreshSupplementaryContentSurfaces();
     }
 }

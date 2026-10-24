@@ -175,7 +175,7 @@
 
                     <StackPanel x:Name="DisplayStep" Visibility="Collapsed">
                         <TextBlock Style="{StaticResource SetupBodyText}"
-                                   Text="Wisp does not change these game settings. Check them in FH6, then confirm each one below." />
+                                   Text="Check these settings in FH6, then confirm each one below." />
                         <Border Style="{StaticResource SetupCard}" Margin="0,18,0,0">
                             <StackPanel>
                                 <TextBlock Text="Display mode" Style="{StaticResource SectionTitleStyle}" />

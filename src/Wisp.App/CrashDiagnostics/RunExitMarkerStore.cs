@@ -148,6 +148,23 @@ internal sealed class RunExitMarkerStore : IDisposable
         }
     }
 
+    // A Windows shutdown that was cancelled did not end the run; the intent it recorded is withdrawn.
+    internal bool ClearShutdownIntent(ShutdownIntent intent)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _current.CleanExit || _current.ShutdownIntent != intent) return false;
+            try
+            {
+                if (Read(_parent)?.RunId != _current.RunId) return false;
+                var next = _current with { ShutdownIntent = ShutdownIntent.None };
+                Write(next); _current = next;
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
+    }
+
     internal bool Checkpoint(HealthContextSnapshot snapshot)
     {
         lock (_gate)
