@@ -311,11 +311,11 @@ internal sealed partial class ClipBufferStore : IAsyncDisposable
             var remaining = Directory.EnumerateFileSystemEntries(spoolPath).Take(maximumEntries + 1).Select(Path.GetFileName).ToArray();
             if (remaining.Length == 0) NativeFile.Delete(directory);
             else foreach (var name in remaining.Take(maximumEntries))
-                {
-                    if (name is null) continue;
-                    try { using var data = NativeFile.Open(directory, name, NativeFile.ReadAccess, 3, 1, false); retainedBytes = checked(retainedBytes + NativeFile.Identity(data).Bytes); }
-                    catch (Exception error) when (StorageError(error)) { incomplete = true; }
-                }
+            {
+                if (name is null) continue;
+                try { using var data = NativeFile.Open(directory, name, NativeFile.ReadAccess, 3, 1, false); retainedBytes = checked(retainedBytes + NativeFile.Identity(data).Bytes); }
+                catch (Exception error) when (StorageError(error)) { incomplete = true; }
+            }
         }
         catch (Exception error) when (StorageError(error)) { incomplete = true; }
         return (retainedBytes, incomplete || limited, limited);

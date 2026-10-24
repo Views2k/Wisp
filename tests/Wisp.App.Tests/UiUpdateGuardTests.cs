@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using Wisp.App.CrashDiagnostics;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -25,10 +27,14 @@ public sealed class UiUpdateGuardTests
     }
 
     [Fact]
-    public void OnlyMemoryAndStackExhaustionStayFatal()
+    public void OnlyMemoryStackExhaustionAndADeadRenderThreadStayFatal()
     {
         Assert.True(UiUpdateGuard.IsFatal(new OutOfMemoryException()));
         Assert.True(UiUpdateGuard.IsFatal(new StackOverflowException()));
+        Assert.True(UiUpdateGuard.IsFatal(new COMException("PRIVATE", DashboardRenderingFallback.RenderThreadFailure)));
+        Assert.True(UiUpdateGuard.IsFatal(new InvalidOperationException("PRIVATE",
+            new COMException("PRIVATE", DashboardRenderingFallback.RenderThreadFailure))));
+        Assert.False(UiUpdateGuard.IsFatal(new COMException("PRIVATE", unchecked((int)0x80004005))));
         Assert.False(UiUpdateGuard.IsFatal(new InvalidOperationException()));
         Assert.False(UiUpdateGuard.IsFatal(new System.IO.IOException()));
         Assert.False(UiUpdateGuard.IsFatal(new NullReferenceException()));
