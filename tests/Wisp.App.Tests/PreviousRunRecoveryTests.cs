@@ -175,6 +175,22 @@ public sealed class PreviousRunRecoveryTests
     }
 
     [Fact]
+    public async Task AWindowsShutdownAfterTheLastCheckpointIsReportedAsWindowsEndingTheRun()
+    {
+        using var fixture = new Fixture();
+        var marker = WindowsFaultEventReaderTests.Marker();
+        var stops = new Stops(false) { ShutDown = () => true };
+        var report = await fixture.Recover(marker, new Source(_ => new(WindowsFaultLookupStatus.NoMatchingEvent)), stops: stops);
+        Assert.NotNull(report);
+        Assert.Equal(CrashOrigin.UnexpectedExit, report.Origin);
+        Assert.False(report.RecoveredExit!.WindowsStopped);
+        Assert.True(report.RecoveredExit.WindowsShutDown);
+        Assert.True(fixture.Store.LatestPending()!.RecoveredExit!.WindowsShutDown);
+        Assert.Equal("system-shutdown", Wisp.App.DebugLogging.SupplementaryIncidentCapture.Crash(report).Reason);
+        Assert.Contains("shut down or signed out", report.Format(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AWindowsFaultOrARecordedShutdownWinsOverAWindowsStop()
     {
         using var fixture = new Fixture();
@@ -202,6 +218,8 @@ public sealed class PreviousRunRecoveryTests
     {
         internal Stops(bool stopped) : this(() => stopped) { }
         internal int Calls { get; private set; }
+        internal Func<bool> ShutDown { get; init; } = () => false;
+        public bool ShutDownNormally(DateTimeOffset lastSeenUtc, DateTimeOffset nextRunStartedAtUtc, CancellationToken cancellationToken) => ShutDown();
         internal DateTimeOffset? LastSeen { get; private set; }
         public bool StoppedUnexpectedly(DateTimeOffset lastSeenUtc, DateTimeOffset nextRunStartedAtUtc, CancellationToken cancellationToken)
         { Calls++; LastSeen = lastSeenUtc; return stopped(); }

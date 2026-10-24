@@ -13,12 +13,14 @@ internal sealed class CrashExceptionMonitor(ICrashReportSink sink, Func<DateTime
     private WeakReference<Exception>? _lastTerminatingException;
 
     internal void UiException(Exception exception) => Record(exception, CrashOrigin.UiDispatcher, true);
+    // An operation on the dashboard thread caught its failure and carried on; the report still reaches diagnostics.
+    internal void RecoveredUiException(Exception exception, string? note = null) => Record(exception, CrashOrigin.UiDispatcher, false, note);
     internal void BackgroundException(object? exception, bool terminating) =>
         Record(exception as Exception, CrashOrigin.BackgroundThread, terminating);
     internal void UnobservedTaskException(Exception exception) => Record(exception, CrashOrigin.UnobservedTask, false);
     internal void UnobservedTaskException(UnobservedTaskExceptionEventArgs args) => UnobservedTaskException(args.Exception);
 
-    private void Record(Exception? exception, CrashOrigin origin, bool terminating)
+    private void Record(Exception? exception, CrashOrigin origin, bool terminating, string? note = null)
     {
         if (_recording) return;
         _recording = true;
@@ -30,7 +32,7 @@ internal sealed class CrashExceptionMonitor(ICrashReportSink sink, Func<DateTime
                     ReferenceEquals(previous, exception)) return;
             }
             var report = CrashReport.Capture(exception, origin, terminating, utcNow?.Invoke() ?? DateTimeOffset.UtcNow) with
-            { Context = CaptureContext(), RunId = runId?.Invoke() };
+            { Context = CaptureContext(), RunId = runId?.Invoke(), Note = note };
             if (sink.TrySave(report) && terminating && exception is not null)
             {
                 lock (_seenGate) _lastTerminatingException = new(exception);

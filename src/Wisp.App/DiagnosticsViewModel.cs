@@ -1203,7 +1203,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     {
         ExactRedlineStatus.GameNotRunning => "FH6 not running",
         ExactRedlineStatus.UnsupportedBuild => "Unsupported FH6 build",
-        ExactRedlineStatus.AccessDenied => "Read access denied",
+        ExactRedlineStatus.AccessDenied => "Read access denied: run Wisp and Forza at the same privilege level",
         ExactRedlineStatus.InvalidProvider => "Provider unavailable",
         ExactRedlineStatus.PlayerNotUnique => "Local player unresolved",
         ExactRedlineStatus.TelemetryMismatch => "Telemetry mismatch",
@@ -1216,7 +1216,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         NativeAssistProviderStatus.Unavailable => "Inactive",
         NativeAssistProviderStatus.GameNotRunning => "FH6 not running",
         NativeAssistProviderStatus.UnsupportedBuild => "Unsupported FH6 build",
-        NativeAssistProviderStatus.AccessDenied => "Read access denied",
+        NativeAssistProviderStatus.AccessDenied => "Read access denied: run Wisp and Forza at the same privilege level",
         NativeAssistProviderStatus.InvalidSourceVector => "Source unavailable",
         NativeAssistProviderStatus.InvalidProvider => "Provider unavailable",
         NativeAssistProviderStatus.PlayerNotUnique => "Local player unresolved",

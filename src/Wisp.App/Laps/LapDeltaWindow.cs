@@ -10,6 +10,15 @@ namespace Wisp.App.Laps;
 
 internal sealed class LapDeltaWindow : Window
 {
+    private bool _closed;
+
+    // A closed window cannot be shown again; a visibility update that arrives after Close() is ignored.
+    protected override void OnClosed(EventArgs e)
+    {
+        _closed = true;
+        base.OnClosed(e);
+    }
+
     private readonly bool _map;
     private double BaseWidth => _map ? TrackMapHudLayer.Size : LapDeltaHudLayer.Width;
     private double BaseHeight => _map ? TrackMapHudLayer.Size : LapDeltaHudLayer.Height;
@@ -81,7 +90,7 @@ internal sealed class LapDeltaWindow : Window
     private void ApplyVisibility()
     {
         _root.Opacity = _enabled && _telemetryVisible ? _opacity : 0;
-        if (_enabled && _telemetryVisible && _opacity > 0) { if (!IsVisible) Show(); }
+        if (_enabled && _telemetryVisible && _opacity > 0) { if (!IsVisible && !_closed) Show(); }
         else if (IsVisible) Hide();
         _drag.SetInteractive(_enabled && _telemetryVisible && _editMode);
     }

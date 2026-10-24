@@ -21,8 +21,21 @@ public sealed class NativeRendererRecoveryTests
     }
 
     [Theory]
+    [InlineData(0x887A0005u)] // DXGI_ERROR_DEVICE_REMOVED
     [InlineData(0x887A0006u)] // DXGI_ERROR_DEVICE_HUNG
-    [InlineData(0x887A0004u)] // DXGI_ERROR_DEVICE_REMOVED
+    [InlineData(0x887A0007u)] // DXGI_ERROR_DEVICE_RESET
+    [InlineData(0x887A0020u)] // DXGI_ERROR_DRIVER_INTERNAL_ERROR
+    public void DeviceLossGetsTheSameRetryBudgetAsAllocationPressure(uint hresult)
+    {
+        var recovery = new NativeRendererRecovery();
+        Assert.True(NativeRendererRecovery.IsTransient(unchecked((int)hresult)));
+        Assert.True(recovery.TryBeginRetry(unchecked((int)hresult), out var delay));
+        Assert.Equal(TimeSpan.FromSeconds(1), delay);
+    }
+
+    [Theory]
+    [InlineData(0x887A0004u)] // DXGI_ERROR_UNSUPPORTED
+    [InlineData(0x887A0022u)] // DXGI_ERROR_ACCESS_DENIED
     [InlineData(0x80004005u)] // E_FAIL
     public void OtherFailuresKeepTheUnavailableState(uint hresult)
     {

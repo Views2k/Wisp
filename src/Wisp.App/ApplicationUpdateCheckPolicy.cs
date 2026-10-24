@@ -4,6 +4,13 @@ internal static class ApplicationUpdateCheckPolicy
 {
     internal static readonly TimeSpan MinimumInterval = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(2);
+
+    // Whether any network interface other than loopback is up. Replaceable for tests.
+    internal static Func<bool> NetworkAvailable { get; set; } = () =>
+    {
+        try { return System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable(); }
+        catch (Exception) { return true; }
+    };
 }
 
 // While the network or the release service is unavailable, every check fails the same way until it clears

@@ -41,7 +41,7 @@ internal static class SupplementaryIncidentSchema
     { "unknown", "application-still-running", "restarted", "deferred", "no-verified-installation", "restart-failed" };
     internal static readonly HashSet<string> Reasons = new(StringComparer.Ordinal)
     {
-        "exception-raised", "windows-application-fault", "shutdown-incomplete", "system-stopped",
+        "exception-raised", "windows-application-fault", "shutdown-incomplete", "system-stopped", "system-shutdown",
         "classification-missing", "policy-rejected", "policy-cache-unavailable", "unknown", "access-denied", "unsupported-build", "unsupported_os", "unsupported_gpu", "unsupported_format",
         "capture_failed", "encoder_failed", "audio_failed", "audio_capture_failed", "audio_unavailable", "buffer_full",
         "no_keyframe", "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error",
@@ -172,11 +172,11 @@ internal static class SupplementaryIncidentSchema
         var text = new StringBuilder($"wisp-tools-incident-v{value.SchemaVersion}\n").Append(value.Category).Append('\n').Append(value.Reason).Append('\n')
             .Append(value.FailureStage ?? "").Append('\n').Append(value.Code?.ToString(CultureInfo.InvariantCulture) ?? "").Append('\n');
         if (value.Exceptions is { IsDefault: false } exceptions) foreach (var exception in exceptions)
-            {
-                text.Append(exception.Type).Append('\n').Append(exception.Code.ToString(CultureInfo.InvariantCulture)).Append('\n');
-                foreach (var method in exception.Methods) text.Append(method).Append('\n');
-                text.Append('\n');
-            }
+        {
+            text.Append(exception.Type).Append('\n').Append(exception.Code.ToString(CultureInfo.InvariantCulture)).Append('\n');
+            foreach (var method in exception.Methods) text.Append(method).Append('\n');
+            text.Append('\n');
+        }
         if (value.SchemaVersion >= 2 && value.Recorder?.Components is { IsDefault: false } components)
             foreach (var component in components)
                 text.Append(component.Component).Append('\n').Append(component.Reason).Append('\n')

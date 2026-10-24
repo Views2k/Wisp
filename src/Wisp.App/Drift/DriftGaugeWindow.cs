@@ -10,6 +10,15 @@ namespace Wisp.App.Drift;
 
 public sealed class DriftGaugeWindow : Window, IDisposable
 {
+    private bool _closed;
+
+    // A closed window cannot be shown again; a visibility update that arrives after Close() is ignored.
+    protected override void OnClosed(EventArgs e)
+    {
+        _closed = true;
+        base.OnClosed(e);
+    }
+
     internal const double BaseWidth = 620;
     internal const double BaseHeight = 108;
     private readonly AppController _controller;
@@ -98,7 +107,7 @@ public sealed class DriftGaugeWindow : Window, IDisposable
         if (_disposed) return;
         if (_enabled && _telemetryVisible && !_failed && _opacity > 0)
         {
-            if (!IsVisible) Show();
+            if (!IsVisible && !_closed) Show();
         }
         else if (IsVisible) Hide();
         _drag.SetInteractive(_enabled && _editMode && _telemetryVisible && !_failed);

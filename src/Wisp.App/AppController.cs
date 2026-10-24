@@ -48,6 +48,11 @@ public sealed partial class AppController : IAsyncDisposable
     private readonly Dictionary<int, CalibrationPersistenceIdentity> _capturedCalibrationProfiles;
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _uiTimer;
+    private readonly UiUpdateGuard _uiGuard = new();
+    private readonly Action<EventArgs> _compositionPass;
+    private readonly TelemetryListenerRecovery _listenerRecovery = new();
+    private bool _listenerRestartPending;
+    private DateTimeOffset? _listenerRecoveredAt;
     private readonly DispatcherTimer _settingsSaveTimer;
     private readonly DispatcherTimer _applicationUpdateTimer;
     private TelemetryFreshness _freshness = new(TelemetryTimeout);
@@ -193,6 +198,7 @@ public sealed partial class AppController : IAsyncDisposable
             InitializeHealthContext();
             _debugHealthMonitor.StartMonitoring();
         }
+        _compositionPass = CompositionRenderingPass;
         _uiTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher)
         {
             Interval = IdleTimerInterval
@@ -222,6 +228,7 @@ public sealed partial class AppController : IAsyncDisposable
     public AppSettings Settings { get; }
     public DiagnosticsViewModel ViewModel { get; }
     public SetupTelemetryTest SetupTelemetry { get; }
+    internal LocalDashboardNotices LocalNotices { get; } = new();
     public OverlayWindow? Overlay { get; set; }
     public GForceWindow? GForceOverlay { get; set; }
     public BoostGaugeWindow? BoostGaugeOverlay { get; set; }
@@ -400,7 +407,7 @@ public sealed partial class AppController : IAsyncDisposable
         UpdateShiftCueObservation();
         _manualOverlayHidden = false;
 
-        await RestartListenerAsync(Settings.UdpPort);
+        await StartListenerWithFallbackAsync();
 
         if (!_receiverNotificationsAttached)
         {
@@ -594,10 +601,22 @@ public sealed partial class AppController : IAsyncDisposable
 
         using var operationLifetime = CancellationTokenSource.CreateLinkedTokenSource(_applicationUpdateLifetime.Token, ApplicationUpdateFeatureToken);
         using var supplementaryCheck = SupplementaryObservations.Begin("update", "update", "check");
+        if (automatic && !ApplicationUpdateCheckPolicy.NetworkAvailable())
+        {
+            // Wisp often starts with Windows before the network is up. Checking again after RetryInterval
+            // beats a failure report that only says the PC is not connected yet.
+            supplementaryCheck?.Discard();
+            ApplicationUpdateTelemetry.Record("paused", reason: "connection");
+            Interlocked.Exchange(ref _applicationUpdateOperation, 0);
+            _applicationUpdateTimer.Interval = ApplicationUpdateCheckPolicy.RetryInterval;
+            if (!_disposed && FeatureAllowed("updates") && !_applicationUpdateTimer.IsEnabled) _applicationUpdateTimer.Start();
+            return null;
+        }
         ApplicationUpdateTelemetry.Record("checking");
         try
         {
             _applicationUpdateTimer.Stop();
+            _applicationUpdateTimer.Interval = ApplicationUpdateCheckPolicy.MinimumInterval;
             if (!_disposed && FeatureAllowed("updates"))
             {
                 _applicationUpdateTimer.Start();
@@ -1001,6 +1020,54 @@ public sealed partial class AppController : IAsyncDisposable
             _nativeHudProcessService.SnapshotFor(_receiver.Latest?.CarOrdinal ?? 0).Status),
         _compatibilityUpdates.IsConfigured && !_compatibilityUpdates.IsChecking,
         NativeCompatibilityRuntime.Catalog.HasTrustedPublishers && !_compatibilityImportRunning);
+
+    // Five ports above the saved one are tried, skipping Forza's reserved range.
+    internal const int PortFallbackAttempts = 5;
+
+    // Another app can hold the saved UDP port when Wisp starts. The next free port keeps Wisp
+    // usable, and the dashboard says which port to set in Forza, or how to get the saved port back.
+    private async Task StartListenerWithFallbackAsync()
+    {
+        var saved = Settings.UdpPort;
+        try
+        {
+            await RestartListenerAsync(saved);
+            return;
+        }
+        catch (System.Net.Sockets.SocketException error) when (error.SocketErrorCode == System.Net.Sockets.SocketError.AddressAlreadyInUse)
+        {
+            if (await TryFallbackPortAsync(saved) is not { } port) throw;
+            ViewModel.ReportControlError(
+                $"UDP port {saved} is in use by another app. Wisp is listening on port {port} instead; in FH6, set Data Out to port {port}.");
+            LocalNotices.Raise(LocalDashboardNotices.Create("port-fallback", $"Wisp is listening on port {port}",
+                $"UDP port {saved} was in use by another app when Wisp started. In FH6 Settings > HUD and Gameplay, set the " +
+                $"Data Out port to {port}. To use port {saved} again, close the other app and change the port in Wisp's Connection settings."));
+        }
+    }
+
+    internal static IEnumerable<int> FallbackPorts(int taken)
+    {
+        for (var candidate = taken + 1; candidate <= taken + PortFallbackAttempts; candidate++)
+        {
+            try { TelemetryUdpReceiver.ValidatePort(candidate); }
+            catch (ArgumentOutOfRangeException) { continue; }
+            yield return candidate;
+        }
+    }
+
+    private async Task<int?> TryFallbackPortAsync(int taken)
+    {
+        foreach (var candidate in FallbackPorts(taken))
+        {
+            try
+            {
+                await RestartListenerAsync(candidate);
+                return candidate;
+            }
+            catch (System.Net.Sockets.SocketException error) when (error.SocketErrorCode == System.Net.Sockets.SocketError.AddressAlreadyInUse) { }
+        }
+        return null;
+    }
 
     public async Task RestartListenerAsync(int port)
     {
@@ -2268,13 +2335,96 @@ public sealed partial class AppController : IAsyncDisposable
     private void ProcessPendingActivation()
     {
         Interlocked.Exchange(ref _activationDispatchPending, 0);
-        if (!_disposed)
+        if (!_disposed) RunGuardedUiPass(ProcessUiUpdatePass);
+    }
+
+    private void ProcessUiUpdatePass() => ProcessUiUpdate();
+
+    // One pass of the dashboard update loop; see UiUpdateGuard.
+    private void RunGuardedUiPass(Action pass)
+    {
+        if (_uiGuard.Stopped) return;
+        try
         {
-            ProcessUiUpdate();
+            pass();
+            _uiGuard.Succeeded();
+        }
+        catch (Exception error) when (!UiUpdateGuard.IsFatal(error))
+        {
+            RecordUiPassFailure(error);
         }
     }
 
-    private void OnCompositionRendering(object? sender, EventArgs eventArgs)
+    private void RunGuardedUiPass<T>(Action<T> pass, T argument)
+    {
+        if (_uiGuard.Stopped) return;
+        try
+        {
+            pass(argument);
+            _uiGuard.Succeeded();
+        }
+        catch (Exception error) when (!UiUpdateGuard.IsFatal(error))
+        {
+            RecordUiPassFailure(error);
+        }
+    }
+
+    private void RecordUiPassFailure(Exception error)
+    {
+        HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.UiUpdateFailed, error.HResult);
+        App.RecoveredExceptionSink?.Invoke(error, null);
+        if (!_uiGuard.Failed()) return;
+        _uiTimer.Stop();
+        SetCompositionRenderingEnabled(false);
+        ViewModel.ReportControlError(
+            $"The HUD update loop stopped after {UiUpdateGuard.MaximumConsecutiveFailures} failures in a row. Restart Wisp to resume; Diagnostics has the reports.");
+    }
+
+    // The receive loop ends on an unexpected socket error and leaves the port unbound. Bounded
+    // restarts with growing delays bring telemetry back; after the budget the error stays shown.
+    private void ObserveListenerHealth(DateTimeOffset now)
+    {
+        if (_receiver.IsRunning)
+        {
+            _listenerRecoveredAt ??= now;
+            if (now - _listenerRecoveredAt >= TelemetryListenerRecovery.SettleTime) _listenerRecovery.Reset();
+            return;
+        }
+        _listenerRecoveredAt = null;
+        if (_cachedStatistics.ListenerError is null || _listenerRestartPending || _runtimeSuspended || Settings.RequiresSetup ||
+            !_listenerRecovery.ShouldRestart(now)) return;
+        _listenerRestartPending = true;
+        _ = RestartListenerAfterFailureAsync();
+    }
+
+    private async Task RestartListenerAfterFailureAsync()
+    {
+        using var binding = SupplementaryObservations.Begin("connection", "telemetry", "binding");
+        try
+        {
+            if (_disposed) return;
+            await _receiver.RestartAsync(Settings.UdpPort);
+            binding?.Complete("success");
+            HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.ListenerRestarted, _listenerRecovery.Attempts);
+            BeginSupplementaryFirstTelemetry();
+        }
+        catch (Exception error) when (error is System.Net.Sockets.SocketException or ObjectDisposedException or
+            InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            binding?.Fail(error);
+            if (_listenerRecovery.Exhausted && !_disposed)
+                ViewModel.ReportControlError(
+                    $"The telemetry listener stopped and could not be restarted on UDP port {Settings.UdpPort}. Check the Connection settings or restart Wisp.");
+        }
+        finally
+        {
+            _listenerRestartPending = false;
+        }
+    }
+
+    private void OnCompositionRendering(object? sender, EventArgs eventArgs) => RunGuardedUiPass(_compositionPass, eventArgs);
+
+    private void CompositionRenderingPass(EventArgs eventArgs)
     {
         if (_disposed || !_overlayVisibleRequested)
         {
@@ -2320,19 +2470,21 @@ public sealed partial class AppController : IAsyncDisposable
 
     private void OnUiTimer(object? sender, EventArgs eventArgs)
     {
-        if (!_disposed)
-        {
-            var now = DateTimeOffset.UtcNow;
-            var nativeStatus = _nativeHudProcessService.SnapshotFor(_receiver.Latest?.CarOrdinal ?? 0).Status;
-            _compatibilitySchedule.ObserveBuild(nativeStatus, _nativeHudProcessService.CompatibilityStatus, now);
-            if (_compatibilityUpdates.IsConfigured && _compatibilitySchedule.IsDue(now))
-            {
-                _ = CheckNativeCompatibilityUpdatesAsync();
-            }
+        if (!_disposed) RunGuardedUiPass(UiTimerPass);
+    }
 
-            ProcessUiUpdate(processLatestPacket: true);
-            RefreshOpenConnectionPanel();
+    private void UiTimerPass()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var nativeStatus = _nativeHudProcessService.SnapshotFor(_receiver.Latest?.CarOrdinal ?? 0).Status;
+        _compatibilitySchedule.ObserveBuild(nativeStatus, _nativeHudProcessService.CompatibilityStatus, now);
+        if (_compatibilityUpdates.IsConfigured && _compatibilitySchedule.IsDue(now))
+        {
+            _ = CheckNativeCompatibilityUpdatesAsync();
         }
+
+        ProcessUiUpdate(processLatestPacket: true);
+        RefreshOpenConnectionPanel();
     }
 
     private void PublishNativeHudSnapshot(VehicleState latest)
@@ -2388,6 +2540,7 @@ public sealed partial class AppController : IAsyncDisposable
         {
             _nextStatisticsAtUtc = now + TimeSpan.FromMilliseconds(250);
             _cachedStatistics = _receiver.GetStatistics(now);
+            ObserveListenerHealth(now);
             _tuneCapture?.ObserveCompatibilityGeneration();
             _runRecording.RefreshStatus();
             PublishRunContext();
@@ -3113,6 +3266,8 @@ public sealed partial class AppController : IAsyncDisposable
         var hideImmediately = _overlayVisibleRequested && !overlayVisible;
         var wasOverlayVisible = _overlayVisibleRequested;
         _overlayVisibleRequested = overlayVisible;
+        if (wasOverlayVisible != overlayVisible)
+            HealthContextRecorder.Current.RecordBreadcrumb(overlayVisible ? HealthEventCode.OverlayShown : HealthEventCode.OverlayHidden);
         var mainVisible = overlayVisible && FeatureAllowed("main-hud");
         Overlay?.SetTelemetryVisible(mainVisible, Settings.OverlayOpacity, hideImmediately || !mainVisible);
         DriftGaugeOverlay?.SetTelemetryVisible(overlayVisible && driftEnabled, Settings.OverlayOpacity, hideImmediately || !driftEnabled);

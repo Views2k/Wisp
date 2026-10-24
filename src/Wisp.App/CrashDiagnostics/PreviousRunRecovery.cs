@@ -39,6 +39,16 @@ internal sealed class PreviousRunRecovery(CrashReportStore reports, IWindowsFaul
                 catch (Exception) { stopped = false; }
                 cancellationToken.ThrowIfCancellationRequested();
                 exit = exit with { WindowsStopped = stopped };
+                if (!stopped)
+                {
+                    // A normal shutdown or sign-out shortly after the last checkpoint also ended the run.
+                    bool shutDown;
+                    try { shutDown = stops.ShutDownNormally(safe.Context?.CapturedAtUtc ?? safe.StartedAtUtc, nextRunStartedAtUtc, cancellationToken); }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception) { shutDown = false; }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    exit = exit with { WindowsShutDown = shutDown };
+                }
             }
             var report = safe.ToReport(exit.Fault?.TimeUtc ?? nextRunStartedAtUtc) with
             {
