@@ -67,7 +67,9 @@ public sealed class SupplementaryOperationFailureTests
     {
         using var observations = new ObservationScope();
         var source = new Source(null, new(AcceptedPackets: accepted, RejectedPackets: rejected, PacketsPerSecond: 0, LastParseError: PacketParseError.None, ListenerError: null));
-        var result = await new SetupTelemetryTest(source, timeout: TimeSpan.Zero).RunAsync("5500", cancellationToken: TestContext.Current.CancellationToken);
+        // The test keeps listening after its first timeout; cancelling ends it once that timeout has been observed.
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var result = await new SetupTelemetryTest(source, timeout: TimeSpan.FromMilliseconds(20)).RunAsync("5500", cancellationToken: cancellation.Token);
         Assert.False(result.Passed);
         var terminal = Assert.Single(observations.Values, v => v.Outcome == "timeout");
         Assert.Equal(reason, terminal.Incident?.Reason);
