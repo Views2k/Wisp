@@ -1,5 +1,6 @@
 using System.IO;
 using Wisp.App;
+using Wisp.Update;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -91,6 +92,30 @@ public sealed class ApplicationUpdateStagingTests : IDisposable
         Assert.True(Directory.Exists(unexpectedAttempt));
         Assert.True(Directory.Exists(unexpectedContents));
         Assert.True(File.Exists(Path.Combine(unexpectedContents, "notes.txt")));
+    }
+
+    [Fact]
+    public void CompletedVersionIsDeletedWhileOtherVersionsAndForeignEntriesStay()
+    {
+        var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+        var installed = CreateAttempt("2.7.2", now.AddHours(-1), 40);
+        var retry = CreateAttempt("2.7.2", now.AddHours(-2), 40);
+        var newer = CreateAttempt("2.7.3", now.AddMinutes(-5), 40);
+        var foreign = Path.Combine(_root, "2.7.2", "not-an-attempt");
+        Directory.CreateDirectory(foreign);
+        File.WriteAllText(Path.Combine(foreign, "keep.txt"), "keep");
+
+        ApplicationUpdateStaging.DeleteVersion(_root, new SemanticVersion(2, 7, 2));
+
+        Assert.False(Directory.Exists(installed));
+        Assert.False(Directory.Exists(retry));
+        Assert.True(Directory.Exists(newer));
+        Assert.True(File.Exists(Path.Combine(foreign, "keep.txt")));
+        // The version directory stays while anything the staging did not create is inside it.
+        Assert.True(Directory.Exists(Path.Combine(_root, "2.7.2")));
+
+        ApplicationUpdateStaging.DeleteVersion(_root, new SemanticVersion(2, 7, 3));
+        Assert.False(Directory.Exists(Path.Combine(_root, "2.7.3")));
     }
 
     [Fact]

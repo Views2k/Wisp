@@ -117,7 +117,11 @@ public sealed partial class AppController
         var last = map ? Settings.LastLapMapPlacementKey : Settings.LastLapDeltaPlacementKey;
         var key = window.GetDisplayKey(gameWindow);
         if (gameWindow == IntPtr.Zero && last is { } previous && placements.ContainsKey(previous)) key = previous;
-        if (placements.TryGetValue(key, out var placement)) window.RestorePosition(placement.Left, placement.Top);
+        if (placements.TryGetValue(key, out var placement))
+        {
+            MonitorPlacement.TryMoveToMonitor(window, key);
+            window.RestorePosition(placement.Left, placement.Top);
+        }
         else window.ResetPosition(gameWindow);
     }
 

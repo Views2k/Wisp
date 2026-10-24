@@ -68,6 +68,15 @@ public sealed class RunRecordingService : IAsyncDisposable
         while (session.Contexts.Count > 2048) session.Contexts.TryDequeue(out _);
     }
 
+    // An automatic lap save or a details save holds the run store for a moment; the start waits for it
+    // (up to StartWait) instead of refusing while it runs.
+    internal static readonly TimeSpan StartWait = TimeSpan.FromSeconds(3);
+    public async Task<bool> StartAsync(RunRecordingOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        await Store.WaitForIdleAsync(StartWait, cancellationToken).ConfigureAwait(false);
+        return Start(options);
+    }
+
     public bool Start(RunRecordingOptions? options = null)
     {
         options ??= new RunRecordingOptions();
@@ -379,6 +388,8 @@ public sealed class RunRecordingService : IAsyncDisposable
             {
                 try { await journal.DisposeAsync().ConfigureAwait(false); }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or ObjectDisposedException) { }
+                // A save that failed left the journal in place; the next listing recovers it.
+                if (saved is null) Store.RequestRecovery();
             }
             lock (_gate)
             {

@@ -93,12 +93,16 @@ public sealed partial class RunsViewModel
         // The countdown holds at zero while a name or notes save still holds the run store.
         if (!_metadataSaveTask.IsCompleted) return;
         _countdownStartedAt = null;
-        try { StartNow(); }
+        _ = StartAfterCountdownAsync();
+    }
+    private async Task StartAfterCountdownAsync()
+    {
+        try { await StartNowAsync(); }
         catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         { Fail("The recording could not start after the countdown. Check live telemetry and local storage, then try again."); }
     }
-    private void StartNow()
+    private async Task StartNowAsync()
     {
         var withoutTune = _recordWithoutTuneOnce;
         _recordWithoutTuneOnce = false;
@@ -115,7 +119,7 @@ public sealed partial class RunsViewModel
             return;
         }
         BeforeStart?.Invoke();
-        if (!_service.Start(new RunRecordingOptions(_activeStopAfter))) Error = _service.Error ?? _service.Status;
+        if (!await _service.StartAsync(new RunRecordingOptions(_activeStopAfter))) Error = _service.Error ?? _service.Status;
     }
     private void NotifyRecordingOptions()
     {

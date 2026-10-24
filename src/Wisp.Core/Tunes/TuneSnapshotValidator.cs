@@ -10,7 +10,7 @@ public static class TuneSnapshotValidator
         if (snapshot is null || snapshot.Id == Guid.Empty || snapshot.CapturedAtUtc == default
             || snapshot.CapturedAtUtc.Offset != TimeSpan.Zero || snapshot.Identity is not { } identity)
             return false;
-        if (identity.ReaderVersion != TuneDecoder.ReaderVersion ||
+        if (!TuneDecoder.TryGetDefinitions(identity.ReaderVersion, out var definitions) ||
             !TuneVerificationProfiles.IsSupported(identity.GameVersion, identity.ExecutableSha256, identity.Verification))
         {
             reason = "This tune uses an unsupported game build or reader.";
@@ -18,13 +18,14 @@ public static class TuneSnapshotValidator
         }
         if (snapshot.Performance is { IsValid: false } || !ValidCarName(snapshot.CarName) || identity.CarOrdinal <= 0 || !Enum.IsDefined(identity.Drivetrain) || identity.ForwardGearCount is < 1 or > 10
             || snapshot.UnitPreference is < 0 or > 6 || !TuneDecoder.ValidParts(snapshot.Parts, false)
-            || snapshot.Fields.IsDefault || snapshot.Fields.Length != TuneDecoder.FieldCount)
+            || snapshot.Fields.IsDefault || snapshot.Fields.Length != definitions.Length)
             return false;
         var parts = snapshot.Parts.ToDictionary(part => part.Kind);
-        for (int i = 0; i < TuneDecoder.FieldCount; i++)
+        var currentReader = identity.ReaderVersion == TuneDecoder.ReaderVersion;
+        for (int i = 0; i < definitions.Length; i++)
         {
             var field = snapshot.Fields[i];
-            var definition = TuneDecoder.Definitions[i];
+            var definition = definitions[i];
             if (field is null || field.Id != definition.Id || field.Category != definition.Category
                 || field.Quantity != definition.Quantity || field.DisplayDecimals != definition.Decimals
                 || !Enum.IsDefined(field.Status)) return false;
@@ -50,7 +51,7 @@ public static class TuneSnapshotValidator
                     || field.DisplayValue is not { } display || !double.IsFinite(display) || Math.Abs(display) >= 1e8
                     || BitConverter.SingleToUInt32Bits(rangeValue) != BitConverter.SingleToUInt32Bits(
                         TuneDecoder.Interpolate(minimum, maximum, normalized))
-                    || display != rangeValue * factor || field.DisplayText != TuneDecoder.FormatNumber(display, field.DisplayDecimals))
+                    || display != rangeValue * factor || !ValidDisplayText(field.DisplayText, display, field.DisplayDecimals, currentReader))
                     return false;
                 continue;
             }
@@ -70,6 +71,10 @@ public static class TuneSnapshotValidator
         reason = string.Empty;
         return true;
     }
+
+    // The current reader reproduces its text exactly; an earlier reader's text stays as it was written.
+    private static bool ValidDisplayText(string? text, double display, int decimals, bool currentReader) =>
+        currentReader ? text == TuneDecoder.FormatNumber(display, decimals) : text is { Length: > 0 and <= 32 } && text == text.Trim();
 
     internal static bool ValidCarName(string? value) => value is null ||
         value.Length is > 0 and <= 200 && value == value.Trim() && !value.Any(character =>

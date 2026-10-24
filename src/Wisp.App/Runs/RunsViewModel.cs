@@ -276,7 +276,7 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
                     _countdownStartedAt = _timeProvider.GetTimestamp(); _armedCountdownSeconds = CountdownSeconds;
                     _pendingAnalysis |= IsBusy || _preparingCharts; ++_analysisRevision; ++_chartRevision; _preparingCharts = false; OnChanged(nameof(IsPreparingCharts)); IsBusy = false;
                 }
-                else StartNow();
+                else await StartNowAsync();
             }
         }
         catch (LibraryPausedException) { }
@@ -295,7 +295,13 @@ public sealed partial class RunsViewModel : INotifyPropertyChanged, IDisposable
             if (revision == _analysisRevision) RequestCharts();
         }
     }
-    private void ServiceStateChanged(object? sender, EventArgs e) => OnUi(RefreshStatus);
+    private void ServiceStateChanged(object? sender, EventArgs e) => OnUi(() =>
+    {
+        RefreshStatus();
+        // A recording whose save failed left its journal for recovery; list it now, not at the next launch.
+        if (_service.Error is not null && !_service.IsRecording && LibraryFeatureAvailable && !_metadataClosing && !RecordingActive)
+            _ = LoadLibraryAsync();
+    });
     private void ServiceRunSaved(RecordedRun run) => OnUi(() => _ = ShowSavedAsync(run));
     private async Task ShowSavedAsync(RecordedRun run)
     {

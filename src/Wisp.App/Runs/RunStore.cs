@@ -190,6 +190,13 @@ public sealed partial class RunStore
         catch { _gate.Release(); throw; }
     }
 
+    // Completes when no library operation holds the store, or after the wait. An automatic lap save or
+    // a details save takes well under a second; the start that follows reserves the store itself.
+    internal async Task WaitForIdleAsync(TimeSpan wait, CancellationToken cancellationToken)
+    {
+        if (await _gate.WaitAsync(wait, cancellationToken).ConfigureAwait(false)) _gate.Release();
+    }
+
     internal RunJournal CreateJournal(RecordedRun header, RunJournalStartReservation reservation)
     {
         if (!reservation.BelongsTo(this)) throw new InvalidOperationException("The recording startup reservation is no longer valid.");
@@ -353,6 +360,10 @@ public sealed partial class RunStore
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
+    // A recording whose final save failed left its journal in place; the next listing recovers it
+    // instead of the next launch.
+    internal void RequestRecovery() => Volatile.Write(ref _recovered, false);
+
     private async Task RecoverAsync()
     {
         if (_recovered) return;
@@ -403,7 +414,7 @@ public sealed partial class RunStore
                         Markers = markers.ToArray(),
                         IsIncomplete = true,
                         TuneAttachment = header.TuneAttachment is { } attachment ? attachment with { DrivingContinuityInterrupted = true } : null,
-                        FinishReason = "Recovered after Wisp closed before the run finished"
+                        FinishReason = "Recovered from the recording's journal"
                     }, overwrite: false, finalizeContactFormat: true).ConfigureAwait(false);
                 reader.Dispose();
                 file.Dispose();

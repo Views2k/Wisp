@@ -162,6 +162,45 @@ internal static class ApplicationUpdateStaging
         }
     }
 
+    // The installer that completed an update has no further use; its attempt directories go at the
+    // next launch instead of waiting for the count, size and age limits.
+    internal static void TryDeleteCompleted(string? version)
+    {
+        if (!SemanticVersion.TryParse(version ?? string.Empty, out var parsed))
+        {
+            return;
+        }
+        try
+        {
+            DeleteVersion(RootDirectory, parsed);
+        }
+        catch (Exception exception) when (IsExpectedFileSystemFailure(exception))
+        {
+            // Staging cleanup is best effort and must never prevent a start.
+        }
+    }
+
+    internal static void DeleteVersion(string rootDirectory, SemanticVersion version)
+    {
+        var root = Path.GetFullPath(rootDirectory).TrimEnd(Path.DirectorySeparatorChar);
+        if (!Directory.Exists(root) || !IsRegularDirectory(root))
+        {
+            return;
+        }
+        foreach (var attempt in DiscoverAttempts(root))
+        {
+            if (TryResolveAttemptPath(root, attempt.Path, out _, out var attemptVersion) && attemptVersion == version)
+            {
+                TryDeleteManagedAttempt(root, attempt.Path);
+            }
+        }
+        var versionDirectory = Path.Combine(root, version.ToString());
+        if (Directory.Exists(versionDirectory) && IsRegularDirectory(versionDirectory) && GetEntries(versionDirectory).Length == 0)
+        {
+            Directory.Delete(versionDirectory, recursive: false);
+        }
+    }
+
     internal static string StageUpdater(string attemptDirectory)
     {
         var source = RequireUpdaterPath(AppContext.BaseDirectory);

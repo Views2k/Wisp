@@ -65,6 +65,14 @@ public partial class App : Application
 
     private void OnUnhandledUiException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
+        // A clip player whose video surface could not be created has already failed itself and closes;
+        // the exception WPF raises for the missing child window is reported, not fatal.
+        if (e.Exception is Clips.LosslessVideoSurfaceException surface)
+        {
+            _crashMonitor.RecoveredUiException(surface, "lossless-surface");
+            e.Handled = true;
+            return;
+        }
         Interlocked.Exchange(ref _fatalExit, 1);
         if (DashboardRenderingFallback.IsRenderThreadFailure(e.Exception))
             DashboardRenderingFallback.TryRequest(_crashReports.StoreDirectory, DateTimeOffset.UtcNow);
@@ -188,6 +196,7 @@ public partial class App : Application
             ApplicationUpdateTelemetry.Record(updateResult.Outcome == "success" ? "started" : "failed", updateResult.TargetVersion,
                 reason: updateResult.Outcome == "success" ? null : updateResult.Outcome == "unknown" ? "version-mismatch" : "installer", source: updateResult.SourceVersion);
             RecordSupplementarySignal("update", "update", updateResult.Outcome, "installed", incident: updateResult.Incident);
+            if (updateResult.Outcome == "success") ApplicationUpdateStaging.TryDeleteCompleted(updateResult.TargetVersion);
             _controller.ViewModel.UpdateApplicationUpdateStatus(
                 updateResult.Status,
                 updateResult.Action,
@@ -343,7 +352,9 @@ public partial class App : Application
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
     {
         base.OnSessionEnding(e);
-        if (!e.Cancel && Volatile.Read(ref _fatalExit) == 0)
+        // The sentinel records the notice and withdraws it when Windows cancels the shutdown. Without a
+        // sentinel no cancel notice can follow, so the intent is left to the stop-event correlation.
+        if (!e.Cancel && Volatile.Read(ref _fatalExit) == 0 && _sessionEndSentinel is not null)
             _runExitMarker?.MarkShutdownStarted(ShutdownIntent.OperatingSystem);
     }
 
