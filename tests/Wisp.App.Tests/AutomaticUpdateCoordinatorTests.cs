@@ -145,10 +145,11 @@ public sealed class AutomaticUpdateCoordinatorTests
         Assert.True(s.Downloads > AutomaticUpdateCoordinator.MaximumRetries);
         Assert.False(coordinator.IsExhausted("2.6.9"));
 
-        // The connection returns: the download succeeds and the release is handed off at once.
+        // The connection returns: the next attempt after the retry interval downloads and hands off.
         s.Network = true;
         s.Download = null;
-        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.RetryInterval);
+        s.Now += ApplicationUpdateCheckPolicy.RetryInterval;
+        await coordinator.RunAsync();
         Assert.Equal(1, s.Installs);
     }
 
