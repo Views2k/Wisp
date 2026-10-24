@@ -1,6 +1,6 @@
 # Wisp 2.7.1
 
-Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through gauge image and display driver failures, keeps listening during setup, and ends update loops.
+Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through gauge image and graphics device failures, keeps listening during setup, and ends update loops.
 
 [Download the latest Wisp release for Windows](https://github.com/Views2k/Wisp/releases/latest)
 
@@ -26,7 +26,7 @@ Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through ga
 - Closing a notice or a published banner no longer brings another one back.
 - Recording starts after a pending name or notes save instead of refusing the shortcut or the countdown.
 - A run recorded while the PC clock was ahead stays readable after the clock is corrected.
-- Two weeks after a display driver failure switched the dashboard to software drawing, the graphics card draws it again.
+- Two weeks after a display rendering failure switched the dashboard to software drawing, the graphics card draws it again.
 
 ## Setup and connection
 

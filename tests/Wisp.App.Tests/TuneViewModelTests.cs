@@ -112,7 +112,7 @@ public sealed class TuneViewModelTests
 
     [Theory]
     [InlineData(TuneFieldStatus.UnsupportedUnit, "imperial game units", "Imperial units required")]
-    [InlineData(TuneFieldStatus.UnsupportedConversion, "does not support yet", "Unsupported conversion")]
+    [InlineData(TuneFieldStatus.UnsupportedConversion, "still being added", "Unsupported conversion")]
     [InlineData(TuneFieldStatus.UnresolvedDefault, "could not be read", "Default not read")]
     [InlineData(TuneFieldStatus.UnresolvedPartLevel, "could not be read", "Part setting not read")]
     public void IncompleteTuneExplainsWhyItCannotBeSaved(TuneFieldStatus status, string explanation, string value) => OnDispatcher(async () =>

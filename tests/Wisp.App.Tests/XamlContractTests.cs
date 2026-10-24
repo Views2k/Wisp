@@ -1305,7 +1305,7 @@ public sealed class XamlContractTests
         var controllerSource = File.ReadAllText(Path.Combine(AppSourceDirectory(), "AppController.cs"));
 
         Assert.Contains(
-            "gForceOverlay.SetEnabled(_controller.IsStandaloneGForceWindowEnabled)",
+            "gForceOverlay.SetEnabled(controller.IsStandaloneGForceWindowEnabled)",
             appSource,
             StringComparison.Ordinal);
         Assert.Contains(
