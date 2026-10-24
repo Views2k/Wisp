@@ -54,7 +54,7 @@ public sealed record TuneSnapshot(Guid Id, DateTimeOffset CapturedAtUtc, TuneIde
     public string? CarName { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public TunePerformance? Performance { get; init; }
-    public bool IsComplete => !Fields.IsDefault && Fields.Length == TuneDecoder.FieldCount && Fields.All(field => field is not null && field.Status is
+    public bool IsComplete => !Fields.IsDefault && Fields.Length == TuneDecoder.FieldCount && Fields.All(entry => entry is not null && entry.Status is
         TuneFieldStatus.Available or TuneFieldStatus.NotApplicable or TuneFieldStatus.NotAdjustable);
 }
 

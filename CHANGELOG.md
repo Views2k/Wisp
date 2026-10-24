@@ -4,6 +4,7 @@ Notable changes to Wisp are recorded here.
 
 ## Unreleased
 
+- Build on .NET 10 and ship the .NET 10.0.13 runtime and Windows Desktop runtime; .NET 8 support ends on November 10, 2026.
 - Report a feature-control policy Wisp rejected or could not keep as its own diagnostic, instead of an unclassified failure report.
 - Report a current tune Wisp could not read as a tune read failure in diagnostics, instead of an export validation failure.
 
