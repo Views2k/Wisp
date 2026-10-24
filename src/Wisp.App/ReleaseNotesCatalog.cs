@@ -18,7 +18,7 @@ public static class ReleaseNotesCatalog
             "2.7.1",
             "October 24, 2026",
             "RELIABILITY UPDATE",
-            "Wisp runs on .NET 10, keeps going through gauge image and display driver failures, keeps listening during setup, and ends update loops.",
+            "Wisp runs on .NET 10, keeps going through gauge image and graphics device failures, keeps listening during setup, and ends update loops.",
             true,
             [
                 Group("Reliability",
@@ -42,7 +42,7 @@ public static class ReleaseNotesCatalog
                     "Closing a notice or a published banner no longer brings another one back.",
                     "Recording starts after a pending name or notes save instead of refusing the shortcut or the countdown.",
                     "A run recorded while the PC clock was ahead stays readable after the clock is corrected.",
-                    "Two weeks after a display driver failure switched the dashboard to software drawing, the graphics card draws it again."),
+                    "Two weeks after a display rendering failure switched the dashboard to software drawing, the graphics card draws it again."),
                 Group("Setup and connection",
                     "The setup wizard's Data Out test keeps listening and repeats its guidance instead of giving up after 45 seconds.",
                     "When another app holds Wisp's UDP port at startup, Wisp listens on the next free port, says which port to set in Forza, and shows that port in Diagnostics.",
