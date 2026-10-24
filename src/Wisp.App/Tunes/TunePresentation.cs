@@ -1,4 +1,5 @@
 using System.Globalization;
+using Wisp.Core;
 using Wisp.Core.Tunes;
 
 namespace Wisp.App.Tunes;
@@ -16,15 +17,21 @@ public sealed record TuneDisplayRow(string Label, string Value, string Range, st
 
 internal static class TunePresentation
 {
-    internal static IEnumerable<TuneDisplayRow> PerformanceRows(TunePerformance? a, TunePerformance? b, bool comparison)
+    // The benchmarks are the game's (60 and 100 mph); their distances and the top speed follow the
+    // speed unit chosen in Wisp.
+    internal static IEnumerable<TuneDisplayRow> PerformanceRows(TunePerformance? a, TunePerformance? b, bool comparison,
+        SpeedUnit unit = SpeedUnit.MilesPerHour)
     {
-        yield return PerformanceRow("Braking · 60–0 mph", a?.Braking60MphMetres, b?.Braking60MphMetres, 1 / 0.3048, 1, " ft", comparison);
-        yield return PerformanceRow("Braking · 100–0 mph", a?.Braking100MphMetres, b?.Braking100MphMetres, 1 / 0.3048, 1, " ft", comparison);
+        var metric = unit == SpeedUnit.KilometersPerHour;
+        var (distanceFactor, distanceUnit) = metric ? (1d, " m") : (1 / 0.3048, " ft");
+        var (speedFactor, speedUnit) = metric ? (3.6, " km/h") : (1 / 0.44704, " mph");
+        yield return PerformanceRow("Braking · 60–0 mph", a?.Braking60MphMetres, b?.Braking60MphMetres, distanceFactor, 1, distanceUnit, comparison);
+        yield return PerformanceRow("Braking · 100–0 mph", a?.Braking100MphMetres, b?.Braking100MphMetres, distanceFactor, 1, distanceUnit, comparison);
         yield return PerformanceRow("Lateral G · 60 mph", a?.LateralG60Mph, b?.LateralG60Mph, 1, 2, " g", comparison);
         yield return PerformanceRow("Lateral G · 120 mph", a?.LateralG120Mph, b?.LateralG120Mph, 1, 2, " g", comparison);
         yield return PerformanceRow("Acceleration · 0–60 mph", a?.Acceleration60MphSeconds, b?.Acceleration60MphSeconds, 1, 3, " s", comparison);
         yield return PerformanceRow("Acceleration · 0–100 mph", a?.Acceleration100MphSeconds, b?.Acceleration100MphSeconds, 1, 3, " s", comparison);
-        yield return PerformanceRow("Top speed", a?.TopSpeedMetresPerSecond, b?.TopSpeedMetresPerSecond, 1 / 0.44704, 1, " mph", comparison);
+        yield return PerformanceRow("Top speed", a?.TopSpeedMetresPerSecond, b?.TopSpeedMetresPerSecond, speedFactor, 1, speedUnit, comparison);
         yield return PerformanceRow("Mechanical balance", a?.MechanicalBalance, b?.MechanicalBalance, 1, 2, "", comparison);
         yield return PerformanceRow("Aero balance", a?.AeroBalance, b?.AeroBalance, 1, 2, "", comparison);
         yield return PerformanceRow("Aero efficiency", a?.AeroEfficiency, b?.AeroEfficiency, 1, 3, "", comparison);
@@ -53,11 +60,8 @@ internal static class TunePresentation
 
     internal static string CaptureStatus(TuneSnapshot snapshot)
     {
-        var units = snapshot.Fields.Where(field => field.Status == TuneFieldStatus.UnsupportedUnit)
-            .Select(field => field.UnitId?.ToString(CultureInfo.InvariantCulture) ?? "?").Distinct().ToArray();
-        if (units.Length > 0)
-            return $"Tune reading needs imperial game units; Forza is set to another unit system (game unit {string.Join(", ", units)}). " +
-                "Set Forza's units to imperial, then refresh.";
+        if (snapshot.Fields.Any(field => field.Status == TuneFieldStatus.UnsupportedUnit))
+            return "Tune reading needs imperial game units; Forza is set to another unit system. Set Forza's units to imperial, then refresh.";
         if (snapshot.Fields.Any(field => field.Status == TuneFieldStatus.UnsupportedConversion))
             return "Some tune values use a conversion that is still being added. Saving is available once every value reads.";
         return snapshot.IsComplete ? "Tune read. Save a copy to keep it in Wisp."

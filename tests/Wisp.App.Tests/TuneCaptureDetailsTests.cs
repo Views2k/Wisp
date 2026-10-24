@@ -175,6 +175,17 @@ public sealed class TuneCaptureDetailsTests
         Assert.Contains("The current car structure is unavailable.", result.Details, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task BuildWithoutAVerifiedTuneLayoutNeedsACompatibilityUpdateNotAReport()
+    {
+        await using var service = new TuneCaptureService(new Factory(), (_, _) => throw new TuneLayoutException(TuneLayoutFailure.UnsupportedIdentity));
+        var result = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(TuneCaptureStatus.UnsupportedBuild, result.Status);
+        Assert.Equal(TuneCaptureService.CompatibilityUnavailableMessage, result.Message);
+        Assert.Equal("compatibility-unavailable", result.Incident?.Reason);
+        Assert.Contains("Layout check: UnsupportedIdentity", result.Details, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData((int)TuneLayoutFailure.DescriptorProfile)]
     [InlineData((int)TuneLayoutFailure.CodeGuardHash)]

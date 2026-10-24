@@ -59,7 +59,16 @@ internal sealed class UpdaterApplication
             new WindowsUpdateReadySignal().Signal(request.ReadyEventName);
             workflow.Apply(request, installer, () => parentExited = true);
             resultFile.TryWriteSuccess(request.SourceVersion, request.TargetVersion);
-            workflow.Restart(request);
+            try
+            {
+                workflow.Restart(request);
+            }
+            catch (UpdateFailureException exception) when (exception.ExitCode == UpdaterExitCode.RestartFailure)
+            {
+                // The update is installed and its record says so; the next manual launch runs the
+                // new version. Overwriting the record would report a failed update that succeeded.
+                return (int)exception.ExitCode;
+            }
             return (int)UpdaterExitCode.Success;
         }
         catch (UpdateFailureException exception)

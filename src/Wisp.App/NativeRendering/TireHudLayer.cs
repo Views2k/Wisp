@@ -24,12 +24,15 @@ internal static class TireHudLayer
             SupplementaryHudArt.Color(visual.LowBrush), SupplementaryHudArt.Color(visual.MidBrush),
             SupplementaryHudArt.Color(visual.HighBrush));
         var cache = Caches.GetValue(control, _ => new Cache());
-        if (cache.Key != config || cache.Art is null)
+        var art = cache.Art;
+        if (art is null || cache.Key != config)
         {
+            art = BuildArt(config, out var complete);
+            // Artwork with a placeholder digit or ring serves this capture only; the next one decodes again.
+            cache.Art = complete ? art : null;
             cache.Key = config;
-            cache.Art = BuildArt(config);
         }
-        return new Snapshot(config, cache.Art, display, frame.CarOrdinal, frame.GameTimestampMilliseconds,
+        return new Snapshot(config, art, display, frame.CarOrdinal, frame.GameTimestampMilliseconds,
             frame.ReceivedTimestamp ?? 0);
     }
 
@@ -183,8 +186,9 @@ internal static class TireHudLayer
         }
     }
 
-    private static Art BuildArt(Configuration c)
+    private static Art BuildArt(Configuration c, out bool complete)
     {
+        var intact = true;
         var textures = new List<AnalogHudTexture>();
         textures.Add(SupplementaryHudArt.Raster(40000, c.Width, c.Height, c.RasterScale, dc =>
         {
@@ -208,7 +212,7 @@ internal static class TireHudLayer
             if (c.Digital)
                 dc.DrawGeometry(null, new Pen(SupplementaryHudArt.Brush(238, 241, 246, 168), 1),
                     SupplementaryHudArt.Rail(9.05, 292.05, 58.75, 65.25, 1.3));
-            else DrawAnalogForeground(dc, c);
+            else intact &= DrawAnalogForeground(dc, c);
         }));
         if (c.Digital)
         {
@@ -225,6 +229,7 @@ internal static class TireHudLayer
             }
             var readout = SupplementaryHudArt.Glyphs(textures, 40100, "0123456789.-° FREAR", 14, c.RasterScale,
                 FontWeights.SemiBold, FontStyles.Italic);
+            complete = intact;
             return new(textures.AsReadOnly(), readout);
         }
         var needleBounds = NeedleBounds(c);
@@ -243,9 +248,10 @@ internal static class TireHudLayer
             }
             dc.DrawGeometry(Brushes.White, null, geometry);
         }));
-        SupplementaryHudArt.AddNativeDigits(textures, 40010);
+        intact &= SupplementaryHudArt.AddNativeDigits(textures, 40010);
         textures.Add(SupplementaryHudArt.Pixel(40022));
         var labels = SupplementaryHudArt.Glyphs(textures, 40100, "FR", 8, c.RasterScale, FontWeights.Bold);
+        complete = intact;
         return new(textures.AsReadOnly(), labels);
     }
 
@@ -275,10 +281,11 @@ internal static class TireHudLayer
         }
     }
 
-    private static void DrawAnalogForeground(DrawingContext dc, Configuration c)
+    // False when the gear ring decoded to the placeholder.
+    private static bool DrawAnalogForeground(DrawingContext dc, Configuration c)
     {
         var center = new Point(c.Width / 2, c.Height / 2);
-        SupplementaryHudArt.GearRing(dc, center, 92, 34, 28);
+        var ring = SupplementaryHudArt.GearRing(dc, center, 92, 34, 28);
         var brush = SupplementaryHudArt.Brush(210, 215, 225, 205);
         dc.DrawText(SupplementaryHudArt.Text("FRONT", 5.8, brush, FontWeights.Bold), new(center.X - 21, center.Y - 18));
         dc.DrawText(SupplementaryHudArt.Text("REAR", 5.8, brush, FontWeights.Bold), new(center.X - 21, center.Y + 5));
@@ -288,5 +295,6 @@ internal static class TireHudLayer
         dc.DrawText(unit, new(center.X - unit.Width / 2, center.Y + 36));
         dc.DrawText(SupplementaryHudArt.Text("TIRE TEMP", 9.5, brush, FontWeights.SemiBold, FontStyles.Italic),
             new(center.X + 23, center.Y + 43));
+        return ring;
     }
 }

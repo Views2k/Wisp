@@ -447,6 +447,7 @@ try {
     )
     $freshLog = Join-Path $canaryRoot 'fresh-install.log'
     $updateLog = Join-Path $canaryRoot 'in-place-update.log'
+    $reinstallLog = Join-Path $canaryRoot 'manual-reinstall.log'
     $uninstallLog = Join-Path $canaryRoot 'uninstall.log'
 
     Invoke-CheckedProcess $installer ($installArguments + @(
@@ -483,6 +484,20 @@ try {
         throw 'An in-place update did not preserve the existing settings file.'
     }
 
+    # Running the installer by hand over the registered installation is the recovery the dashboard
+    # recommends when automatic updates fail; it must preserve the completed setup as well.
+    Invoke-CheckedProcess $installer ($installArguments + @(
+        "/LOG=`"$reinstallLog`"", '/LOGCLOSEAPPLICATIONS'
+    )) 'Manual reinstall canary' $reinstallLog
+    Assert-RegisteredInstallation
+    if (Test-Path -LiteralPath $setupMarker) {
+        throw 'A manual reinstall over a registered installation incorrectly required first-run setup again.'
+    }
+    if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf) -or
+        [System.IO.File]::ReadAllText($settingsPath) -cne $settingsSentinel) {
+        throw 'A manual reinstall did not preserve the existing settings file.'
+    }
+
     $uninstaller = Join-Path $installDirectory 'unins000.exe'
     Invoke-CheckedProcess $uninstaller @(
         '/VERYSILENT',
@@ -494,7 +509,7 @@ try {
     Wait-ForRemoval $uninstaller $false
     Wait-ForRemoval $uninstallKey $true
 
-    Write-Output 'Verified fresh install, Wisp Setup launch, in-place update preservation, and uninstall.'
+    Write-Output 'Verified fresh install, Wisp Setup launch, in-place update and manual reinstall preservation, and uninstall.'
 }
 finally {
     if ($ownsCanaryState) {

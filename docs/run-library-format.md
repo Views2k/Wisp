@@ -65,7 +65,7 @@ The internal legacy `ImportAsync(string)` API still creates a new ID for a singl
 
 ## Export, removal, and interrupted operations
 
-Export all snapshots canonical saved run files under the store's operation lock. It excludes active journals, removed runs, cached summaries, and unrelated files. If any saved run in that snapshot is unreadable, export fails and leaves the originals intact. The archive is fully written to a temporary file beside the selected destination, flushed, and renamed without overwriting an existing file.
+Export all snapshots canonical saved run files under the store's operation lock. It excludes active journals, removed runs, cached summaries, and unrelated files. Unreadable files in that snapshot stay in place and are left out of the archive; the Runs page reports how many were kept. The archive is fully written to a temporary file beside the selected destination, flushed, and renamed without overwriting an existing file.
 
 Bulk import validates and stages the whole batch before installing its first run. A small local transaction journal supports rollback after an ordinary I/O failure and recovery of an interrupted batch when the library next opens. Substantive transaction entries carry IDs, lengths, and hashes. Recovery checks paths and preserves files when it cannot safely recover; it does not treat ambiguous content as disposable. Committed runs keep their original compressed bytes; summary caches can be rebuilt independently.
 

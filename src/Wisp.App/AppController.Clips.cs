@@ -70,12 +70,7 @@ public sealed partial class AppController
     {
         var revision = ++_clipsRuntimeRevision;
         Clips.SetRuntimeActive(true);
-        var settings = Clips.Preferences;
-        var toggleError = ConfigureClipShortcut(false, settings.ToggleShortcutEnabled, settings.ToggleShortcut);
-        var saveError = ConfigureClipShortcut(true, settings.SaveShortcutEnabled, settings.SaveShortcut);
-        Clips.SetShortcutStatus(string.Join(" ",
-            ClipShortcutStatus("Toggle clipping", settings.ToggleShortcutEnabled, settings.ToggleShortcut, toggleError),
-            ClipShortcutStatus("Save a clip", settings.SaveShortcutEnabled, settings.SaveShortcut, saveError)));
+        RegisterClipShortcuts();
         await Clips.InitializeAsync();
         if (!_disposed && !_runtimeSuspended && revision == _clipsRuntimeRevision && FeatureAllowed("clip-recording"))
             await Clips.RestoreEnabledPreferenceAsync();
@@ -98,6 +93,17 @@ public sealed partial class AppController
     {
         var settings = Clips.Preferences;
         return new(settings.LengthSeconds, settings.ResolutionHeight, settings.FrameRate, settings.Quality, settings.CaptureSystemAudio);
+    }
+
+    // Registers both shortcuts from the saved preferences and shows the outcome on the Clips page.
+    private void RegisterClipShortcuts()
+    {
+        var settings = Clips.Preferences;
+        var toggleError = ConfigureClipShortcut(false, settings.ToggleShortcutEnabled, settings.ToggleShortcut);
+        var saveError = ConfigureClipShortcut(true, settings.SaveShortcutEnabled, settings.SaveShortcut);
+        Clips.SetShortcutStatus(string.Join(" ",
+            ClipShortcutStatus("Toggle clipping", settings.ToggleShortcutEnabled, settings.ToggleShortcut, toggleError),
+            ClipShortcutStatus("Save a clip", settings.SaveShortcutEnabled, settings.SaveShortcut, saveError)));
     }
 
     private void UnregisterClipShortcuts()

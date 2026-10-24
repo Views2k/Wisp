@@ -13,8 +13,9 @@ public sealed partial class RunsViewModel
         {
             if (!await RestoreLibraryMetadataDraftsAsync()) return;
             if (!await FlushMetadataAsync()) { Fail("Save the pending run details before exporting the library. Your drafts are kept."); return; }
-            var count = await StoreOperationAsync(token => _service.Store.ExportAllAsync(destination, token), permission);
-            Status = $"Exported {count} saved runs. Import the ZIP in Wisp to restore or compare them.";
+            var batch = await StoreOperationAsync(token => _service.Store.ExportAllAsync(destination, token), permission);
+            Status = $"Exported {batch.Count} saved runs. Import the ZIP in Wisp to restore or compare them.";
+            if (batch.SkippedUnreadable > 0) Status += $" Kept {batch.SkippedUnreadable} unreadable files; they are not in the ZIP.";
         }
         catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)

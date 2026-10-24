@@ -250,6 +250,13 @@ public sealed class TuneCaptureService : IAsyncDisposable
                 return new(snapshot, TuneCaptureStatus.Ready, snapshot.IsComplete ? string.Empty : "Some settings are unavailable for this tune.");
             }
             catch (OperationCanceledException) { return new(null, TuneCaptureStatus.Cancelled, "Tune reading was cancelled."); }
+            catch (TuneLayoutException exception) when (exception.Failure == TuneLayoutFailure.UnsupportedIdentity)
+            {
+                // No verified tune layout exists for this game build yet; a compatibility update declares
+                // one. That is the expected state after a game update, not a verification failure.
+                return Fail(TuneCaptureStatus.UnsupportedBuild, CompatibilityUnavailableMessage, generation,
+                    TuneCaptureDetails.Create(stage, build, exception), TuneIncident(stage, "compatibility-unavailable", exception));
+            }
             catch (TuneLayoutException exception)
             {
                 return Fail(TuneCaptureStatus.UnsupportedBuild, LayoutUnavailableMessage, generation,

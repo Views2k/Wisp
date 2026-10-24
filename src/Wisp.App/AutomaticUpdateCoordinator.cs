@@ -27,9 +27,9 @@ internal sealed class AutomaticUpdateCoordinator(
     Action<string>? waiting = null,
     Func<string?>? pendingVersion = null)
 {
-    // A handoff that keeps failing the same way will not succeed later in this session either: after
-    // MaximumRetries for one release, automatic attempts stop for that release and the dashboard
-    // points at the full installer. A newer release published later gets a fresh budget.
+    // A download or handoff that keeps failing the same way will not succeed later in this session
+    // either: after MaximumRetries for one release, automatic attempts stop for that release and the
+    // dashboard points at the full installer. A newer release published later gets a fresh budget.
     internal const int MaximumRetries = 3;
     private bool _active;
     private bool _handoffUnavailable;
@@ -46,6 +46,19 @@ internal sealed class AutomaticUpdateCoordinator(
 
     // True for the release whose handoff failed MaximumRetries times in this session.
     internal bool IsExhausted(string? version) => version is not null && version == _exhaustedVersion;
+
+    // Counts one failed attempt for the release; the next attempt waits RetryInterval, and the
+    // MaximumRetries-th failure exhausts the release for this session.
+    private void RecordRetry(string? version)
+    {
+        if (_retriedVersion != version)
+        {
+            _retriedVersion = version;
+            _retries = 0;
+        }
+        if (++_retries >= MaximumRetries) _exhaustedVersion = version;
+        else _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
+    }
 
     internal async Task RunAsync()
     {
@@ -69,7 +82,7 @@ internal sealed class AutomaticUpdateCoordinator(
             }
             var installer = await prepare();
             if (!enabled()) return;
-            if (installer is null) { _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval; return; }
+            if (installer is null) { RecordRetry(pendingVersion?.Invoke()); return; }
             if (IsExhausted(installer.Version.ToString())) { _retryAfter = _clock() + ApplicationUpdateCheckPolicy.MinimumInterval; return; }
             var gameIsOpen = await gameOpen();
             if (gameIsOpen || workInProgress())
@@ -87,13 +100,7 @@ internal sealed class AutomaticUpdateCoordinator(
                     _handoffUnavailable = true;
                     break;
                 default:
-                    if (_retriedVersion != installer.Version.ToString())
-                    {
-                        _retriedVersion = installer.Version.ToString();
-                        _retries = 0;
-                    }
-                    if (++_retries >= MaximumRetries) _exhaustedVersion = installer.Version.ToString();
-                    else _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
+                    RecordRetry(installer.Version.ToString());
                     break;
             }
         }

@@ -25,12 +25,15 @@ internal static class BoostHudLayer
             SupplementaryHudArt.Color(visual.LowBrush), SupplementaryHudArt.Color(visual.MidBrush),
             SupplementaryHudArt.Color(visual.HighBrush), display.ScaleMaximumPsi);
         var cache = Caches.GetValue(control, _ => new Cache());
-        if (cache.Key != key || cache.Art is null)
+        var art = cache.Art;
+        if (art is null || cache.Key != key)
         {
+            art = BuildArt(key, out var complete);
+            // Artwork with a placeholder digit or ring serves this capture only; the next one decodes again.
+            cache.Art = complete ? art : null;
             cache.Key = key;
-            cache.Art = BuildArt(key);
         }
-        return new Snapshot(key, cache.Art, display, frame.CarOrdinal, frame.GameTimestampMilliseconds,
+        return new Snapshot(key, art, display, frame.CarOrdinal, frame.GameTimestampMilliseconds,
             frame.ReceivedTimestamp ?? 0);
     }
 
@@ -236,8 +239,9 @@ internal static class BoostHudLayer
         }
     }
 
-    private static Art BuildArt(Configuration c)
+    private static Art BuildArt(Configuration c, out bool complete)
     {
+        var intact = true;
         var textures = new List<AnalogHudTexture>();
         textures.Add(SupplementaryHudArt.Raster(30000, c.Width, c.Height, c.RasterScale, dc =>
         {
@@ -256,7 +260,7 @@ internal static class BoostHudLayer
         textures.Add(SupplementaryHudArt.Raster(30001, c.Width, c.Height, c.RasterScale, dc =>
         {
             if (c.Digital) DrawDigitalStatic(dc, c);
-            else DrawAnalogStatic(dc, c);
+            else intact &= DrawAnalogStatic(dc, c);
         }));
         if (c.Digital)
         {
@@ -284,6 +288,7 @@ internal static class BoostHudLayer
             }));
             var glyphs = SupplementaryHudArt.Glyphs(textures, 30100, "0123456789.- PBARSI", 16, c.RasterScale,
                 FontWeights.SemiBold, FontStyles.Italic);
+            complete = intact;
             return new(textures.AsReadOnly(), glyphs);
         }
         var size = Math.Min(c.Width, c.Height);
@@ -293,10 +298,11 @@ internal static class BoostHudLayer
             dc.DrawEllipse(null, new Pen(SupplementaryHudArt.Brush(255, 255, 255, 58), 8), center, size * .43, size * .43);
             dc.DrawEllipse(null, new Pen(Brushes.White, 3.2), center, size * .43, size * .43);
         }));
-        SupplementaryHudArt.AddNativeDigits(textures, 30010);
+        intact &= SupplementaryHudArt.AddNativeDigits(textures, 30010);
         textures.Add(SupplementaryHudArt.Raster(30021, 2.7, 2.7, c.RasterScale,
             dc => dc.DrawEllipse(Brushes.White, null, new(1.35, 1.35), 1.35, 1.35)));
         textures.Add(SupplementaryHudArt.Pixel(30022));
+        complete = intact;
         return new(textures.AsReadOnly(), null);
     }
 
@@ -317,7 +323,8 @@ internal static class BoostHudLayer
             FontWeights.SemiBold, FontStyles.Italic), new(13.85, 69));
     }
 
-    private static void DrawAnalogStatic(DrawingContext dc, Configuration c)
+    // False when the gear ring decoded to the placeholder.
+    private static bool DrawAnalogStatic(DrawingContext dc, Configuration c)
     {
         var center = new Point(c.Width / 2, c.Height / 2);
         var radius = Math.Min(c.Width, c.Height) * .43;
@@ -333,12 +340,13 @@ internal static class BoostHudLayer
                 SupplementaryHudArt.Tick(dc, center, radius, 110 + 260 * ((pressure + ticks[i + 1]) / 2 - minimum) / (maximum - minimum), 3.5, .8, null, 7, 15);
         }
 
-        SupplementaryHudArt.GearRing(dc, center, 84, 29, 22.5);
+        var ring = SupplementaryHudArt.GearRing(dc, center, 84, 29, 22.5);
         var unit = SupplementaryHudArt.Text(BoostPressureUnits.Symbol(c.Unit), 9,
             SupplementaryHudArt.Brush(185, 193, 207, 190), FontWeights.SemiBold);
         dc.DrawText(unit, new(center.X - unit.Width / 2, center.Y + 30));
         dc.DrawText(SupplementaryHudArt.Text("BOOST", 10.5, SupplementaryHudArt.Brush(210, 215, 225, 205),
             FontWeights.SemiBold, FontStyles.Italic), new(center.X + 27, center.Y + 40));
+        return ring;
     }
 }
 
@@ -411,17 +419,21 @@ internal static class SupplementaryHudArt
 
     internal static AnalogHudTexture Pixel(uint id) => new(id, 1, 1, 4, new byte[] { 255, 255, 255, 255 });
 
-    internal static void AddNativeDigits(List<AnalogHudTexture> textures, uint firstId)
+    // False when a digit decoded to the placeholder; such artwork serves one capture only.
+    internal static bool AddNativeDigits(List<AnalogHudTexture> textures, uint firstId)
     {
+        var complete = true;
         for (var digit = 0; digit <= 9; digit++)
         {
             var source = NativeAssetCache.Get(NativeGaugeMode.Analogue, $"HUD_Dial_Speed_Analogue_{digit}.png");
+            complete &= !NativeAssetCache.IsPlaceholder(source);
             var bitmap = new FormatConvertedBitmap(source, PixelFormats.Pbgra32, null, 0);
             var stride = bitmap.PixelWidth * 4;
             var pixels = new byte[stride * bitmap.PixelHeight];
             bitmap.CopyPixels(pixels, stride, 0);
             textures.Add(new(firstId + (uint)digit, bitmap.PixelWidth, bitmap.PixelHeight, stride, pixels));
         }
+        return complete;
     }
 
     internal static GlyphSet Glyphs(List<AnalogHudTexture> textures, uint firstId, string characters,
@@ -520,12 +532,14 @@ internal static class SupplementaryHudArt
         dc.DrawText(text, new(point.X - text.Width / 2, point.Y - text.Height / 2));
     }
 
-    internal static void GearRing(DrawingContext dc, Point center, double size, double outer, double inner)
+    // False when the ring artwork decoded to the placeholder.
+    internal static bool GearRing(DrawingContext dc, Point center, double size, double outer, double inner)
     {
+        var image = NativeAssetCache.Get(NativeGaugeMode.Analogue, "HUD_Dial_Analog_Gear_1.png");
         dc.PushClip(new CombinedGeometry(GeometryCombineMode.Exclude,
             new EllipseGeometry(center, outer, outer), new EllipseGeometry(center, inner, inner)));
-        dc.DrawImage(NativeAssetCache.Get(NativeGaugeMode.Analogue, "HUD_Dial_Analog_Gear_1.png"),
-            new(center.X - size / 2, center.Y - size / 2, size, size));
+        dc.DrawImage(image, new(center.X - size / 2, center.Y - size / 2, size, size));
         dc.Pop();
+        return !NativeAssetCache.IsPlaceholder(image);
     }
 }

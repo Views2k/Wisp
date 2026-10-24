@@ -117,7 +117,7 @@ public sealed class RunStoreContactsTests : IDisposable
         Assert.Equal(RecordedRun.CurrentSchemaVersion, loaded.SchemaVersion);
         Assert.Equal(run.Samples, loaded.Samples);
         var archive = Path.Combine(_directory, "contacts.zip");
-        Assert.Equal(1, await store.ExportAllAsync(archive, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(new RunExportBatch(1), await store.ExportAllAsync(archive, cancellationToken: TestContext.Current.CancellationToken));
         var importedDirectory = Path.Combine(_directory, "imported");
         var imported = new RunStore(importedDirectory);
         await imported.ImportManyAsync([archive], cancellationToken: TestContext.Current.CancellationToken);

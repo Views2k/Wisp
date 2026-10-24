@@ -203,6 +203,14 @@ public sealed class TelemetryUdpReceiver : IAsyncDisposable
         lock (_statisticsGate)
         {
             var elapsed = nowUtc - _previousRateAtUtc;
+            if (elapsed < TimeSpan.Zero)
+            {
+                // The clock stepped backwards (a time correction); the window starts again instead
+                // of holding the cached rate until the clock catches up.
+                _previousAcceptedPackets = Interlocked.Read(ref _acceptedPackets);
+                _previousRateAtUtc = nowUtc;
+                elapsed = TimeSpan.Zero;
+            }
             if (elapsed >= TimeSpan.FromMilliseconds(500))
             {
                 var accepted = Interlocked.Read(ref _acceptedPackets);
