@@ -334,7 +334,7 @@ public sealed class PowerTorqueGaugeView : Grid
                 if (!_flashDigitImages.TryGetValue(digit, out var tinted))
                 {
                     tinted = new NativeTintedBitmap(image);
-                    _flashDigitImages.Add(digit, tinted);
+                    if (!NativeAssetCache.IsPlaceholder(image)) _flashDigitImages.Add(digit, tinted);
                 }
                 _activeFlashDigitImages.Add(tinted);
                 dc.DrawImage(tinted.GetImage(_flashReadoutBrush.Color), rect);

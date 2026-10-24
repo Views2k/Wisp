@@ -73,6 +73,8 @@ public sealed partial class AppController
             var settings = Clips.Preferences;
             _ = ConfigureClipShortcut(false, settings.ToggleShortcutEnabled, settings.ToggleShortcut);
             _ = ConfigureClipShortcut(true, settings.SaveShortcutEnabled, settings.SaveShortcut);
+            // A lifted pause restores the saved preference; the pause had stopped the recorder.
+            _ = Clips.RestoreEnabledPreferenceAsync();
         }
         ApplyHudGpuPriority();
         FeatureControlsChanged?.Invoke(this, EventArgs.Empty);

@@ -199,10 +199,6 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         {
             _debugLoggingStatus = $"On — expires {expiresAtUtc.ToLocalTime():g}";
         }
-        if (!_automaticApplicationUpdateChecks)
-        {
-            _applicationUpdateStatus = "Automatic update checks are off. You can still check manually.";
-        }
         _tractionCueEnabled = settings.TractionCueEnabled;
     }
 

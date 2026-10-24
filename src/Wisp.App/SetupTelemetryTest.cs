@@ -52,6 +52,7 @@ public sealed class SetupTelemetryTest
 {
     private readonly ISetupTelemetrySource _source;
     private readonly TimeProvider _clock;
+    internal static readonly TimeSpan ListenerCheckInterval = TimeSpan.FromSeconds(5);
     private readonly TimeSpan _timeout;
     private int _running;
 
@@ -181,20 +182,27 @@ public sealed class SetupTelemetryTest
                 "Wisp listens until data arrives or you cancel.");
 
             // Players switch to Forza and work through its settings while this runs. Instead of giving
-            // up, the test keeps listening and repeats guidance for what it has seen so far.
+            // up, the test keeps listening, notices a listener that stopped within ListenerCheckInterval,
+            // and repeats guidance for what it has seen so far once per timeout period.
             SetupTelemetryEvidence evidence;
             var guidanceGiven = false;
+            var slice = TimeSpan.FromTicks(Math.Min(_timeout.Ticks, ListenerCheckInterval.Ticks));
+            var waited = TimeSpan.Zero;
             while (true)
             {
                 try
                 {
-                    evidence = await completion.Task.WaitAsync(_timeout, cancellationToken).ConfigureAwait(false);
+                    evidence = await completion.Task.WaitAsync(slice, cancellationToken).ConfigureAwait(false);
                     break;
                 }
                 catch (TimeoutException)
                 {
                     var statistics = _source.GetStatistics(_clock.GetUtcNow());
                     if (!_source.IsRunning || statistics.ListenerError is not null) throw;
+                    // Guidance keeps its cadence by counting the waits, so a test clock that stands still cannot delay it.
+                    waited += slice;
+                    if (waited < _timeout) continue;
+                    waited = TimeSpan.Zero;
                     if (!guidanceGiven)
                     {
                         guidanceGiven = true;

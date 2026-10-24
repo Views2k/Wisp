@@ -163,6 +163,7 @@ internal sealed class HudNativeHost : IDisposable
             if (_disposed || _failed) return;
             _capturing = true;
             try { Capture(); }
+            catch (Win32Exception error) { OnHostInterop(error); }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
             { OnHostFailure(error.HResult); }
             finally { _capturing = false; }
@@ -293,6 +294,7 @@ internal sealed class HudNativeHost : IDisposable
         {
             if (_disposed || _failed || _snapshot is null || !presented.CompatibleWith(_snapshot)) return;
             _recovery.Reset();
+            _hostRetries = 0;
             try { _compositionWindow?.SetLayoutCloaked(!_interactive); }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
             { OnHostFailure(error.HResult); return; }
@@ -310,6 +312,26 @@ internal sealed class HudNativeHost : IDisposable
     {
         DebugLogging.HealthContextRecorder.Current.RecordRendererFailure(hresult, DebugLogging.HealthFailureStage.RendererHost);
         OnStatus(false, hresult);
+    }
+
+    // The layout window, its owner or its monitor can change under a Win32 call while a display is
+    // added or removed or the game closes. The renderer is intact; the host window is synchronised
+    // again shortly, up to HostRetries times before the failure retires the HUD.
+    internal const int HostRetries = 3;
+    private static readonly TimeSpan HostRetryDelay = TimeSpan.FromMilliseconds(500);
+    private int _hostRetries;
+
+    private void OnHostInterop(Win32Exception error)
+    {
+        DebugLogging.HealthContextRecorder.Current.RecordRendererFailure(error.HResult, DebugLogging.HealthFailureStage.RendererHost);
+        if (_disposed || _failed || _retryPending) return;
+        if (++_hostRetries > HostRetries)
+        {
+            OnHostFailure(error.HResult);
+            return;
+        }
+        _retryPending = true;
+        _ = RestartRendererAfterRelease(Task.CompletedTask, HostRetryDelay);
     }
 
     // A retired worker's late status must not fail or restart its replacement.
@@ -333,6 +355,9 @@ internal sealed class HudNativeHost : IDisposable
         // presentation callback may publish ready status, independently of
         // the WPF content suppression required from startup onward.
         if (ready) return;
+        // One device loss can be reported by the render thread and the needle motion thread; the
+        // second report must not spend another retry or restart a retry already scheduled.
+        if (_retryPending || _failed) return;
         var worker = _worker;
         _worker = null;
         if (worker is not null) { worker.HudPresented -= OnPresented; worker.Dispose(); }

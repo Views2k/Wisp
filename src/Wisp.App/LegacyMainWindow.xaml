@@ -1584,10 +1584,10 @@
                                                               IsChecked="{Binding CpuRenderingEnabled, Mode=OneWay}" Click="CpuRenderingToggle_Click"
                                                               Style="{StaticResource ToggleSwitchStyle}" FontSize="11"
                                                               AutomationProperties.Name="CPU rendering for the Analogue tachometer"
-                                                              AutomationProperties.HelpText="Please enable CPU rendering if you are experiencing lag or hitching in the overlay. Applies to the Analogue tachometer. Restart Wisp to apply." />
+                                                              AutomationProperties.HelpText="Please enable CPU rendering if you are experiencing lag or hitching in the overlay. Applies to the HUD renderer in every HUD window. Restart Wisp to apply." />
                                                     <TextBlock Text="Please enable CPU rendering if you are experiencing lag or hitching in the overlay."
                                                                Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0" />
-                                                    <TextBlock Text="Applies to the Analogue tachometer. Exit Wisp from the tray icon and reopen it to apply. CPU usage may increase."
+                                                    <TextBlock Text="Applies to the HUD renderer in every HUD window. Exit Wisp from the tray icon and reopen it to apply. CPU usage may increase."
                                                                Foreground="{DynamicResource FaintBrush}" TextWrapping="Wrap" FontSize="10" Margin="0,6,0,0" />
                                                     <TextBlock Text="{Binding CpuRenderingChangeStatus}" TextWrapping="Wrap" FontSize="11"
                                                                Foreground="{DynamicResource TextBrush}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />

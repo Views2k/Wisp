@@ -188,7 +188,7 @@ public sealed class SetupStartupTests
         var end = source.IndexOf("internal bool InitializeStartupRegistration()", start, StringComparison.Ordinal);
         var startup = source[start..end];
 
-        var listener = startup.IndexOf("await RestartListenerAsync(Settings.UdpPort);", StringComparison.Ordinal);
+        var listener = startup.IndexOf("await StartListenerWithFallbackAsync();", StringComparison.Ordinal);
         Assert.True(listener >= 0);
         Assert.True(listener < startup.IndexOf("_receiver.PacketAvailable += OnPacketAvailable;", StringComparison.Ordinal));
         Assert.True(listener < startup.IndexOf("_uiTimer.Start();", StringComparison.Ordinal));

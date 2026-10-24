@@ -47,7 +47,7 @@ namespace
 
     bool ValidSize(uint32_t width, uint32_t height) noexcept
     {
-        return width > 0 && height > 0 && width <= 8192 && height <= 8192;
+        return width > 0 && height > 0 && width <= 16384 && height <= 16384;
     }
 
     struct Constants

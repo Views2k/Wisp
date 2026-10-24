@@ -707,6 +707,24 @@ public sealed partial class AppController : IAsyncDisposable
             }
             return null;
         }
+        catch (IOException error)
+        {
+            // The response headers arrived and the connection dropped while the body was read.
+            FailApplicationUpdateCheck(supplementaryCheck, error);
+            ApplicationUpdateTelemetry.Record("failed", reason: "connection");
+            if (automatic)
+            {
+                RestoreAutomaticApplicationUpdateStatus();
+            }
+            else
+            {
+                ViewModel.UpdateApplicationUpdateStatus(
+                    "The release service could not be reached. Check the connection and try again.",
+                    "Try again",
+                    canCheck: true);
+            }
+            return null;
+        }
         catch (UpdateSecurityException error)
         {
             supplementaryCheck?.Fail(error);
@@ -758,17 +776,19 @@ public sealed partial class AppController : IAsyncDisposable
         }
     }
 
-    // Once automatic installation has stopped for the session (the update helper is missing or
-    // rejected this installation), the periodic check points at the full installer instead of
-    // promising an installation that cannot happen. The buttons still try once per click.
-    private bool AutomaticInstallationStopped => _automaticInstaller is { HandoffUnavailable: true };
+    // Once automatic installation has stopped (the update helper is missing or rejected this
+    // installation, or this release failed its handoff three times), the periodic check points at
+    // the full installer instead of promising an installation that cannot happen. The buttons still
+    // try once per click, and a newer release gets automatic attempts again.
+    private bool AutomaticInstallationStopped(SemanticVersion version) =>
+        _automaticInstaller is { } installer && (installer.HandoffUnavailable || installer.IsExhausted(version.ToString()));
 
     private static string ManualInstallStatus(SemanticVersion version) =>
         $"Wisp {ApplicationVersionInfo.Format(version)} could not be installed automatically. Download and run the full installer from wispoverlay.com.";
 
     private void ShowAvailableApplicationUpdate(UpdateRelease release) =>
         ViewModel.UpdateApplicationUpdateStatus(
-            AutomaticInstallationStopped
+            AutomaticInstallationStopped(release.Version)
                 ? ManualInstallStatus(release.Version)
                 : $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. Wisp will update and restart after Forza closes.",
             "Update",
@@ -782,7 +802,7 @@ public sealed partial class AppController : IAsyncDisposable
             return false;
         }
         ViewModel.UpdateApplicationUpdateStatus(
-            AutomaticInstallationStopped
+            AutomaticInstallationStopped(pending.Version)
                 ? ManualInstallStatus(pending.Version)
                 : $"Wisp {ApplicationVersionInfo.Format(pending.Version)} is verified and ready to install.",
             "Install update",
@@ -922,6 +942,17 @@ public sealed partial class AppController : IAsyncDisposable
                 isUpdateAvailable: _availableApplicationRelease is not null);
             return null;
         }
+        catch (IOException error) when (error is HttpIOException || error.InnerException is System.Net.Sockets.SocketException)
+        {
+            supplementaryDownload?.Fail(error);
+            ApplicationUpdateTelemetry.Record("failed", _availableApplicationRelease?.Version.ToString(), reason: "connection");
+            ViewModel.UpdateApplicationUpdateStatus(
+                "The installer could not be downloaded. Check the connection and try again.",
+                "Try again",
+                canCheck: true,
+                isUpdateAvailable: _availableApplicationRelease is not null);
+            return null;
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
             supplementaryDownload?.Fail(exception);
@@ -1034,7 +1065,7 @@ public sealed partial class AppController : IAsyncDisposable
             await RestartListenerAsync(saved);
             return;
         }
-        catch (System.Net.Sockets.SocketException error) when (error.SocketErrorCode == System.Net.Sockets.SocketError.AddressAlreadyInUse)
+        catch (System.Net.Sockets.SocketException error) when (error.SocketErrorCode is System.Net.Sockets.SocketError.AddressAlreadyInUse or System.Net.Sockets.SocketError.AccessDenied)
         {
             if (await TryFallbackPortAsync(saved) is not { } port) throw;
             ViewModel.ReportControlError(
@@ -1064,7 +1095,7 @@ public sealed partial class AppController : IAsyncDisposable
                 await RestartListenerAsync(candidate);
                 return candidate;
             }
-            catch (System.Net.Sockets.SocketException error) when (error.SocketErrorCode == System.Net.Sockets.SocketError.AddressAlreadyInUse) { }
+            catch (System.Net.Sockets.SocketException error) when (error.SocketErrorCode is System.Net.Sockets.SocketError.AddressAlreadyInUse or System.Net.Sockets.SocketError.AccessDenied) { }
         }
         return null;
     }
@@ -1105,6 +1136,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
 
         Settings.UdpPort = port;
+        ViewModel.UdpPort = port;
         ResetControllerSession();
         ScheduleSettingsSave();
     }
@@ -2044,21 +2076,46 @@ public sealed partial class AppController : IAsyncDisposable
         }
     }
 
-    // After a display change every HUD window moves back inside the monitor nearest to it. Saved
-    // placements stay as they are; the user's layout returns with the display it was saved on.
+    // After a display change every HUD window is placed again: at its saved placement when there is
+    // one, so a layout kept on a monitor that was off comes back with that monitor, and otherwise at
+    // its current position inside the nearest monitor. Both clamp into the monitors present now.
     internal void KeepOverlaysOnScreen()
     {
         if (_disposed) return;
         HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.DisplayChanged);
-        KeepOnScreen(Overlay, window => window.RestorePosition(window.Left, window.Top));
-        KeepOnScreen(GForceOverlay, window => window.RestorePosition(window.Left, window.Top));
-        KeepOnScreen(BoostGaugeOverlay, window => window.RestorePosition(window.Left, window.Top));
-        KeepOnScreen(TireTemperatureGaugeOverlay, window => window.RestorePosition(window.Left, window.Top));
-        KeepOnScreen(PowerGaugeOverlay, window => window.RestorePosition(window.Left, window.Top));
-        KeepOnScreen(TorqueGaugeOverlay, window => window.RestorePosition(window.Left, window.Top));
-        KeepOnScreen(DriftGaugeOverlay, window => window.ClampToMonitor());
-        KeepOnScreen(LapDeltaOverlay, window => window.ClampToMonitor());
-        KeepOnScreen(LapMapOverlay, window => window.ClampToMonitor());
+        KeepOnScreen(Overlay, window =>
+        {
+            if (Saved(Settings.Placements, Settings.LastOverlayPlacementKey) is { } saved) window.RestorePlacementPosition(saved.Left, saved.Top);
+            else window.RestorePosition(window.Left, window.Top);
+        });
+        KeepOnScreen(GForceOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.GForcePlacements, Settings.LastGForcePlacementKey));
+        KeepOnScreen(BoostGaugeOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.BoostGaugePlacements, Settings.LastBoostGaugePlacementKey));
+        KeepOnScreen(TireTemperatureGaugeOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.TireTemperatureGaugePlacements, Settings.LastTireTemperatureGaugePlacementKey));
+        KeepOnScreen(PowerGaugeOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.PowerGaugePlacements, Settings.LastPowerGaugePlacementKey));
+        KeepOnScreen(TorqueGaugeOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.TorqueGaugePlacements, Settings.LastTorqueGaugePlacementKey));
+        KeepOnScreen(DriftGaugeOverlay, window =>
+        {
+            if (Saved(Settings.DriftGaugePlacements, Settings.LastDriftGaugePlacementKey) is { } saved) window.RestorePosition(saved.Left, saved.Top);
+            else window.ClampToMonitor();
+        });
+        KeepOnScreen(LapDeltaOverlay, window =>
+        {
+            if (Saved(Settings.LapDeltaPlacements, Settings.LastLapDeltaPlacementKey) is { } saved) window.RestorePosition(saved.Left, saved.Top);
+            else window.ClampToMonitor();
+        });
+        KeepOnScreen(LapMapOverlay, window =>
+        {
+            if (Saved(Settings.LapMapPlacements, Settings.LastLapMapPlacementKey) is { } saved) window.RestorePosition(saved.Left, saved.Top);
+            else window.ClampToMonitor();
+        });
+
+        static OverlayPlacement? Saved(IReadOnlyDictionary<string, OverlayPlacement> placements, string? key) =>
+            key is not null && placements.TryGetValue(key, out var placement) ? placement : null;
+        static void Replace(Action<double, double> restore, double left, double top, IReadOnlyDictionary<string, OverlayPlacement> placements, string? key)
+        {
+            var saved = Saved(placements, key);
+            restore(saved?.Left ?? left, saved?.Top ?? top);
+        }
     }
 
     // A window without a presentation source was never shown or is already closed; a failure in one window does not stop the others.
@@ -2242,7 +2299,9 @@ public sealed partial class AppController : IAsyncDisposable
         var tunesDisposed = DisposeTunesAsync();
         var clipsDisposed = DisposeClipsAsync();
         var calibrationStopped = ViewModel.SuspendShiftCalibration();
-        await StopShiftCaptureAsync();
+        // Awaited below with the other background work: the dashboard thread is blocked in OnExit
+        // while this runs, and the window calls that follow must stay on it.
+        var captureStopped = StopShiftCaptureAsync();
         UpdateShiftCueObservation();
         _ = _runRecording.StopAsync("Wisp closed before the run finished");
         SuspendRunShortcut();
@@ -2314,6 +2373,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         await tunesDisposed.ConfigureAwait(false);
         await _runRecording.DisposeAsync().ConfigureAwait(false);
+        await captureStopped.ConfigureAwait(false);
         await _nativeHudProcessService.DisposeAsync().ConfigureAwait(false);
         await _receiver.DisposeAsync().ConfigureAwait(false);
         await calibrationStopped.ConfigureAwait(false);
@@ -2401,8 +2461,30 @@ public sealed partial class AppController : IAsyncDisposable
         if (!_uiGuard.Failed()) return;
         _uiTimer.Stop();
         SetCompositionRenderingEnabled(false);
+        HideOverlaysAfterLoopStop();
         ViewModel.ReportControlError(
             $"The HUD update loop stopped after {UiUpdateGuard.MaximumConsecutiveFailures} failures in a row. Restart Wisp to resume; Diagnostics has the reports.");
+    }
+
+    // Nothing updates visibility once the loop has stopped, so a HUD that was showing would stay on
+    // screen after the game closes. Each window is hidden on its own; one failure does not stop the rest.
+    private void HideOverlaysAfterLoopStop()
+    {
+        Hide(() => Overlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true));
+        Hide(() => GForceOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true));
+        Hide(() => BoostGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true));
+        Hide(() => TireTemperatureGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true));
+        Hide(() => PowerGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true));
+        Hide(() => TorqueGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true));
+        Hide(() => DriftGaugeOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true));
+        Hide(() => LapDeltaOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true));
+        Hide(() => LapMapOverlay?.SetTelemetryVisible(false, Settings.OverlayOpacity, hideImmediately: true));
+
+        static void Hide(Action hide)
+        {
+            try { hide(); }
+            catch (Exception error) when (!UiUpdateGuard.IsFatal(error)) { App.RecoveredExceptionSink?.Invoke(error, "loop-stop"); }
+        }
     }
 
     // The receive loop ends on an unexpected socket error and leaves the port unbound. Bounded

@@ -134,15 +134,20 @@ public sealed class CrashExceptionMonitorTests
         var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
         var monitor = new CrashExceptionMonitor(new Sink(report => { reports.Add(report); return true; }), () => now);
         monitor.RecoveredUiException(new IOException("first"), "File held by: a");
-        monitor.RecoveredUiException(new IOException("second"), "File held by: b");
+        monitor.RecoveredUiException(new IOException("second"), "File held by: a");
         now += TimeSpan.FromSeconds(59);
-        monitor.RecoveredUiException(new IOException("third"));
+        monitor.RecoveredUiException(new IOException("third"), "File held by: a");
         Assert.Equal("File held by: a", Assert.Single(reports).Note);
 
-        now += TimeSpan.FromSeconds(1);
-        monitor.RecoveredUiException(new IOException("fourth"), "File held by: d");
+        // Another operation recovering from the same exception type is a different kind of failure.
+        monitor.RecoveredUiException(new IOException("other"), "display-change");
         Assert.Equal(2, reports.Count);
-        Assert.Equal("File held by: d", reports[1].Note);
+        Assert.Equal("display-change", reports[1].Note);
+
+        now += TimeSpan.FromSeconds(1);
+        monitor.RecoveredUiException(new IOException("fourth"), "File held by: a");
+        Assert.Equal(3, reports.Count);
+        Assert.Equal("File held by: a", reports[2].Note);
     }
 
     [Fact]

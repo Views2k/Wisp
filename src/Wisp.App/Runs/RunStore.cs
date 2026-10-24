@@ -87,6 +87,10 @@ public sealed partial class RunStore
 
     public Task<RunSummary> SaveAsync(RecordedRun run) => InBackground(async () =>
     {
+        // A clock far ahead is refused when the run is recorded; a run already saved stays readable
+        // after the clock is corrected.
+        if (run.StartedAtUtc > DateTimeOffset.UtcNow.AddDays(1))
+            throw new InvalidDataException("The run start time is in the future.");
         await WriteAsync(run, overwrite: false, finalizeContactFormat: true).ConfigureAwait(false);
         return Summarize(run);
     });
@@ -116,6 +120,7 @@ public sealed partial class RunStore
             File.Move(destination, earlier, overwrite: false);
         }
         File.Move(source, destination, overwrite: false);
+        TryDeleteMetadataDraft(id);
         Volatile.Write(ref _isFull, false);
         await Task.CompletedTask;
         return true;
@@ -428,7 +433,7 @@ public sealed partial class RunStore
             run.Markers is null || run.Markers.Length > MaximumMarkers ||
             run.LapTimingMode is { } timing && !Enum.IsDefined(timing) ||
             run.RejectedDatagrams < 0 || run.DroppedDatagrams < 0 ||
-            run.StartedAtUtc < new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero) || run.StartedAtUtc > DateTimeOffset.UtcNow.AddDays(1))
+            run.StartedAtUtc < new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero))
             throw new InvalidDataException("The run metadata, version, or sample count is invalid.");
         RunSample? previous = null;
         foreach (var sample in run.Samples)

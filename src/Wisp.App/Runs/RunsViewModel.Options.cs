@@ -90,6 +90,8 @@ public sealed partial class RunsViewModel
             return;
         }
         if (CountdownRemainingSeconds > 0) return;
+        // The countdown holds at zero while a name or notes save still holds the run store.
+        if (!_metadataSaveTask.IsCompleted) return;
         _countdownStartedAt = null;
         try { StartNow(); }
         catch (LibraryPausedException) { }

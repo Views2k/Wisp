@@ -47,6 +47,21 @@ public sealed class NativeRendererRecoveryTests
     }
 
     [Fact]
+    public void ARetryInProgressContinuesThroughAnotherFailureCode()
+    {
+        // While the driver restarts after device loss, creating the next device can fail with a code
+        // that is permanent on a first creation, such as no hardware adapter being present yet.
+        var recovery = new NativeRendererRecovery();
+        Assert.True(recovery.TryBeginRetry(NativeRendererException.DeviceRemoved, out _));
+        Assert.True(recovery.TryBeginRetry(unchecked((int)0x887A0004u), out var second)); // DXGI_ERROR_UNSUPPORTED
+        Assert.Equal(TimeSpan.FromSeconds(2), second);
+        Assert.True(recovery.TryBeginRetry(unchecked((int)0x80004005u), out _)); // E_FAIL
+        Assert.False(recovery.TryBeginRetry(NativeRendererException.DeviceRemoved, out _));
+        recovery.Reset();
+        Assert.False(recovery.TryBeginRetry(unchecked((int)0x887A0004u), out _));
+    }
+
+    [Fact]
     public void APresentedFrameRestoresTheRetryBudget()
     {
         var recovery = new NativeRendererRecovery();

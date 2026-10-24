@@ -488,9 +488,9 @@ public sealed class AnalogBoostGaugeView : BoostVisualBase
             }
             if (!_digitImages.TryGetValue(digit, out var image))
             {
-                image = new NativeTintedBitmap(NativeAssetCache.Get(
-                    NativeGaugeMode.Analogue, $"HUD_Dial_Speed_Analogue_{digit}.png"));
-                _digitImages.Add(digit, image);
+                var source = NativeAssetCache.Get(NativeGaugeMode.Analogue, $"HUD_Dial_Speed_Analogue_{digit}.png");
+                image = new NativeTintedBitmap(source);
+                if (!NativeAssetCache.IsPlaceholder(source)) _digitImages.Add(digit, image);
             }
             dc.DrawImage(image.GetImage(tint), new Rect(left, center.Y - height / 2, width, height));
             left += width + gap;

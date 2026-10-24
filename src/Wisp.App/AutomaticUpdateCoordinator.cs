@@ -24,27 +24,33 @@ internal sealed class AutomaticUpdateCoordinator(
     Func<VerifiedInstaller, Task<AutomaticUpdateApplyOutcome>> apply,
     Action<string> status,
     Func<DateTimeOffset>? clock = null,
-    Action<string>? waiting = null)
+    Action<string>? waiting = null,
+    Func<string?>? pendingVersion = null)
 {
     // A handoff that keeps failing the same way will not succeed later in this session either: after
-    // MaximumRetries for one release, automatic attempts stop and the dashboard points at the full installer.
+    // MaximumRetries for one release, automatic attempts stop for that release and the dashboard
+    // points at the full installer. A newer release published later gets a fresh budget.
     internal const int MaximumRetries = 3;
     private bool _active;
     private bool _handoffUnavailable;
     private int _retries;
     private string? _retriedVersion;
+    private string? _exhaustedVersion;
     private DateTimeOffset _retryAfter;
     private readonly Func<DateTimeOffset> _clock = clock ?? (() => DateTimeOffset.UtcNow);
 
-    // Set once a handoff reports that the update helper is missing or rejected this installation,
-    // or the same release failed its handoff MaximumRetries times.
+    // Set once a handoff reports that the update helper is missing or rejected this installation.
     // The coordinator then stays idle for the rest of the session; a manual install from the
     // dashboard can still try again.
     internal bool HandoffUnavailable => _handoffUnavailable;
 
+    // True for the release whose handoff failed MaximumRetries times in this session.
+    internal bool IsExhausted(string? version) => version is not null && version == _exhaustedVersion;
+
     internal async Task RunAsync()
     {
-        if (_active || _handoffUnavailable || !enabled() || !hasUpdate() || _clock() < _retryAfter) return;
+        if (_active || _handoffUnavailable || !enabled() || !hasUpdate() || _clock() < _retryAfter ||
+            IsExhausted(pendingVersion?.Invoke())) return;
         _active = true;
         try
         {
@@ -64,6 +70,7 @@ internal sealed class AutomaticUpdateCoordinator(
             var installer = await prepare();
             if (!enabled()) return;
             if (installer is null) { _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval; return; }
+            if (IsExhausted(installer.Version.ToString())) { _retryAfter = _clock() + ApplicationUpdateCheckPolicy.MinimumInterval; return; }
             var gameIsOpen = await gameOpen();
             if (gameIsOpen || workInProgress())
             {
@@ -85,7 +92,7 @@ internal sealed class AutomaticUpdateCoordinator(
                         _retriedVersion = installer.Version.ToString();
                         _retries = 0;
                     }
-                    if (++_retries >= MaximumRetries) _handoffUnavailable = true;
+                    if (++_retries >= MaximumRetries) _exhaustedVersion = installer.Version.ToString();
                     else _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
                     break;
             }

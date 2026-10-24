@@ -28,11 +28,14 @@ internal static class ElectricHudAssets
         {
             new(WhiteTextureId, 1, 1, 4, new byte[] { 255, 255, 255, 255 })
         };
+        // A set that holds a placeholder for an image that failed to decode serves this capture only.
+        var complete = true;
         foreach (var asset in Catalog)
         {
             var source = asset.Tint is { } tint
                 ? NativeAssetCache.GetTinted(asset.Family, asset.FileName, Color.FromArgb(tint.A, tint.R, tint.G, tint.B))
                 : NativeAssetCache.Get(asset.Family, asset.FileName);
+            complete &= !NativeAssetCache.IsPlaceholder(source);
             var bitmap = new FormatConvertedBitmap(source, PixelFormats.Pbgra32, null, 0);
             bitmap.Freeze();
             var stride = checked(bitmap.PixelWidth * 4);
@@ -41,7 +44,9 @@ internal static class ElectricHudAssets
             if (asset.AlphaMask) AnalogHudAssets.MakeWhiteAlphaMask(pixels);
             textures.Add(new(asset.Id, bitmap.PixelWidth, bitmap.PixelHeight, stride, pixels));
         }
-        return _textures = textures.AsReadOnly();
+        var result = textures.AsReadOnly();
+        if (complete) _textures = result;
+        return result;
     }
 
     private static List<AnalogHudAsset> CreateCatalog()

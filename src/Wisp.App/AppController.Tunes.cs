@@ -116,6 +116,6 @@ public sealed partial class AppController
         Tunes.Dispose();
         if (_tuneCapture is not { } capture) return;
         capture.Invalidated -= TuneCaptureInvalidated;
-        await capture.DisposeAsync();
+        await capture.DisposeAsync().ConfigureAwait(false);
     }
 }

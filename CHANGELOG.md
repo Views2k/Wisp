@@ -15,7 +15,7 @@ Notable changes to Wisp are recorded here.
 - Wait for the network before the first update check when Wisp starts with Windows.
 - Stop automatic update attempts after three failed handoffs for the same release and point at the full installer.
 - Record a Windows shutdown or sign-out as a close request from a window on its own thread, and classify a shutdown that ended a run as Windows ending it.
-- Name the unit system Forza reports on the Tune page when it is not imperial.
+- Show the game unit code Forza reports on the Tune page when it is not imperial.
 - Report a failed pass of the gauge update loop and keep going; stop the loop after five failures in a row and say so.
 - Restart the telemetry listener after an unexpected socket error, up to five times with growing delays.
 - Back up settings on every save and restore the last good copy when the file cannot be read.
@@ -26,12 +26,30 @@ Notable changes to Wisp are recorded here.
 - Report a feature-control policy Wisp rejected or could not keep as its own diagnostic, instead of an unclassified failure report.
 - Report a current tune Wisp could not read as a tune read failure in diagnostics, instead of an export validation failure.
 - Report an update that could not be staged on this PC on the update card instead of closing Wisp when it is confirmed.
-- Keep the dashboard open and report the failure when a HUD window or the feature-control client cannot start.
+- Keep the dashboard open and report the failure when a HUD window or the feature-control client cannot start, or the runtime start fails.
 - Report a background startup task that fails as soon as it fails.
 - Look up the process holding a locked program file off the dashboard thread.
 - Save one report per minute for a recovered failure that repeats, so other failures keep their place in the crash store.
 - Return the dashboard to the graphics card two weeks after a render thread failure switched it to software drawing.
-- Move HUD windows back onto a display after a monitor is unplugged, turned off or changes resolution.
+- Place HUD windows again after a monitor is unplugged, turned off or changes resolution: at their saved layout when there is one, otherwise inside the nearest display.
+- Finish setup after a Data Out test that listened for more than 45 seconds before the car moved.
+- Show the port Wisp listens on after a port fallback, and treat a port Windows reserves as taken.
+- Give a newer release automatic install attempts after an earlier release failed its handoff three times.
+- Report a connection lost while reading the release service or downloading the installer as a connection failure.
+- Start update checks and automatic installs after the setup wizard has finished.
+- Close within seconds when a shift capture or a tune read is still open, instead of waiting ten seconds and ending the process.
+- Report a disposal that failed at exit instead of ending the process silently.
+- Withdraw the Windows shutdown intent when Windows cancels the shutdown, and count a shutdown as ending the run only within 90 seconds of its last checkpoint.
+- Keep the clipping preference when the recorder could not be started at launch, and start it again when a pause is lifted.
+- Hide the HUD when its update loop stops, retry the HUD window when a display or the game changes under it, and keep retrying the renderer while the driver restarts.
+- Show a gauge image again after a temporary read failure instead of leaving it transparent, and report the failure once a minute.
+- Allow the HUD on spanned desktops wider than 8192 pixels.
+- Keep an unreadable settings file beside the restored copy, and write the restored copy back once.
+- Close a notice or a published banner without bringing another one back.
+- Keep startup failure reports classified, and name the operation in repeated recovered-failure reports.
+- Start recording after a pending name or notes save instead of refusing the shortcut or the countdown.
+- Keep a run recorded while the PC clock was ahead readable after the clock is corrected.
+- Remove a run's unsaved details draft together with the run.
 
 ## 2.7.0 - 2026-10-21
 

@@ -51,7 +51,7 @@ internal sealed class ShiftCalibrationManager(string? directory, Func<long>? tim
                     ? _canArm ? "Ready to arm calibration. Return to driving after pressing Calibrate."
                     : state?.IsElectric == true ? "Electric vehicles do not need shift calibration."
                     : data?.Status is "UnsupportedBuild"
-                        ? "Shift guidance requires Steam FH6 6.440.853.0. It is not available on the Xbox app / Microsoft Store (Game Pass) edition."
+                        ? "Shift guidance is being updated for this Forza version."
                     : data?.Status is "UnsupportedPowertrain" or "UnsupportedTransmission"
                         ? "Calibration is unavailable for this vehicle configuration."
                         : "Return to driving briefly so Wisp can read the car, then come back here to start calibration."

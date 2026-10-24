@@ -151,6 +151,8 @@ internal sealed class NativeCompositionWindow : IDisposable
                 Synchronize(_visible && IsWindowVisible(hwnd) && !IsIconic(hwnd), raise);
                 _changed();
             }
+            // A window or monitor handle that changed under the call: the next capture synchronises again.
+            catch (Win32Exception) { _changed(); }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
             { _failed(error.HResult); }
         }

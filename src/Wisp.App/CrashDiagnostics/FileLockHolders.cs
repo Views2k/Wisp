@@ -64,9 +64,16 @@ internal static class FileLockHolders
             uint count = 0, reasons = 0;
             var result = RmGetList(session, out var needed, ref count, null, ref reasons);
             if (result != ErrorMoreData && result != 0 || needed == 0) return [];
-            var entries = new RmProcessInfo[needed];
-            count = needed;
-            if (RmGetList(session, out needed, ref count, entries, ref reasons) != 0) return [];
+            // Another process can open the file between the sizing call and the fill call.
+            RmProcessInfo[] entries;
+            var attempt = 0;
+            do
+            {
+                entries = new RmProcessInfo[needed];
+                count = needed;
+                result = RmGetList(session, out needed, ref count, entries, ref reasons);
+            } while (result == ErrorMoreData && ++attempt < 3);
+            if (result != 0) return [];
             var current = Environment.ProcessId;
             var names = new List<string>();
             foreach (var entry in entries.Take((int)Math.Min(count, entries.Length)))

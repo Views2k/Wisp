@@ -27,8 +27,9 @@ internal sealed class WindowsStopEventReader : IWindowsStopEventSource
     private static readonly TimeSpan LookupBudget = TimeSpan.FromSeconds(10);
     private static readonly XNamespace Namespace = "http://schemas.microsoft.com/win/2004/08/events/event";
 
-    // A shutdown that ends a running Wisp follows its last checkpoint within the time Windows gives applications to close.
-    internal static readonly TimeSpan MaximumShutdownDelay = TimeSpan.FromMinutes(5);
+    // A shutdown that ends a running Wisp follows its last checkpoint (every 10 s) within the time Windows
+    // gives applications to close. A wider window would turn a crash followed by a reboot into a shutdown.
+    internal static readonly TimeSpan MaximumShutdownDelay = TimeSpan.FromSeconds(90);
 
     public bool StoppedUnexpectedly(DateTimeOffset lastSeenUtc, DateTimeOffset nextRunStartedAtUtc, CancellationToken cancellationToken)
     {

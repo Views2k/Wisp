@@ -19,10 +19,12 @@ internal sealed class NativeRendererRecovery
 
     // True when the host should create the renderer again after the returned delay instead of
     // retiring it. The delay grows 1 s, 2 s, 4 s so a slow game launch is covered without a spin.
+    // Once a retry sequence has begun, the driver may still be restarting, so the next creation
+    // failing with any other code (no adapter yet, E_FAIL) continues the sequence within the budget.
     internal bool TryBeginRetry(int hresult, out TimeSpan delay)
     {
         delay = TimeSpan.Zero;
-        if (!IsTransient(hresult) || _attempts >= MaximumAttempts) return false;
+        if (_attempts == 0 && !IsTransient(hresult) || _attempts >= MaximumAttempts) return false;
         _attempts++;
         delay = InitialDelay * (1 << (_attempts - 1));
         return true;

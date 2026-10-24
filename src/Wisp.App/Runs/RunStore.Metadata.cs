@@ -65,6 +65,13 @@ public sealed partial class RunStore
         return draft is not null && draft.Id == id && ValidMetadataDraft(draft) ? draft : throw new InvalidDataException("The saved details draft is invalid.");
     }
 
+    // A draft left behind by a removed run would otherwise reappear on a copy imported later.
+    private void TryDeleteMetadataDraft(Guid id)
+    {
+        try { File.Delete(MetadataDraftPath(id)); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
+
     private string MetadataDraftPath(Guid id)
     {
         if (id == Guid.Empty) throw new ArgumentException("Choose a saved run.", nameof(id));

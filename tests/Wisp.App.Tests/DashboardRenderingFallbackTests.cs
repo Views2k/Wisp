@@ -46,6 +46,14 @@ public sealed class DashboardRenderingFallbackTests : IDisposable
     }
 
     [Fact]
+    public void AMarkerDatedInTheFutureIsNoRequest()
+    {
+        Assert.True(DashboardRenderingFallback.TryRequest(_directory, Now + TimeSpan.FromDays(1)));
+        Assert.False(DashboardRenderingFallback.IsRequested(_directory, Now));
+        Assert.False(File.Exists(DashboardRenderingFallback.MarkerPath(_directory)));
+    }
+
+    [Fact]
     public void AMissingMarkerIsNoRequest() => Assert.False(DashboardRenderingFallback.IsRequested(_directory, Now));
 
     public void Dispose()

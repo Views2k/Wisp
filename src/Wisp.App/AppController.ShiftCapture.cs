@@ -75,29 +75,37 @@ public sealed partial class AppController
     {
         if (_shiftCaptureSaving is not null) return _shiftCaptureSaving;
         if (_shiftCapture is not { } session) return Task.FromResult<string?>(null);
-        return _shiftCaptureSaving = SaveAsync(session);
+        // The task field is set before the save can complete, and the save never waits for the
+        // dashboard thread: at exit that thread is blocked until disposal has finished.
+        var saving = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _shiftCaptureSaving = saving.Task;
+        _ = SaveAsync(session, saving);
+        return saving.Task;
     }
 
-    private async Task<string?> SaveAsync(ShiftCaptureSession session)
+    private async Task SaveAsync(ShiftCaptureSession session, TaskCompletionSource<string?> saving)
     {
-        // Ensure the task field is set before a synchronously completed save can clear it.
-        await Task.Yield();
+        string? path = null;
         try
         {
-            var path = await session.StopAsync();
+            path = await session.StopAsync().ConfigureAwait(false);
             _shiftCaptureStatus = session.SavedSummary;
-            return path;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             _shiftCaptureStatus = "ZIP could not be completed. Original evidence remains in Wisp's ShiftCaptures folder.";
-            return null;
+        }
+        catch (Exception error) when (!UiUpdateGuard.IsFatal(error))
+        {
+            _shiftCaptureStatus = "ZIP could not be completed. Original evidence remains in Wisp's ShiftCaptures folder.";
+            App.RecoveredExceptionSink?.Invoke(error, "shift-capture");
         }
         finally
         {
             _shiftCapture = null;
             _shiftCaptureSaving = null;
             _nativeHudProcessService.ShiftCueEnabled = ShiftCueRuntimeEnabled;
+            saving.TrySetResult(path);
         }
     }
 }

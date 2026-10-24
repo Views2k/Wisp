@@ -8,7 +8,7 @@ public sealed partial class RunsViewModel
     private TaskCompletionSource? _libraryIdle;
     private CancellationTokenSource _libraryFeatureLifetime = new();
     private sealed class LibraryPausedException : OperationCanceledException { }
-    public bool LibraryFeatureAvailable => _libraryFeatureAvailable;
+    public bool LibraryFeatureAvailable => _libraryFeatureAvailable && !_disposed;
     public string LibraryFeatureStatus => _libraryFeatureStatus;
 
     internal async Task SetLibraryFeatureAvailableAsync(bool available, string? reason)
