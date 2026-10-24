@@ -181,6 +181,22 @@ public sealed class CrashReportTests
         Assert.Equal("keep", File.ReadAllText(child));
     }
 
+    [Fact]
+    public void ExplicitDeletionRemovesNativeFaultRecordsThatStartupKeeps()
+    {
+        using var directory = new TemporaryDirectory();
+        Directory.CreateDirectory(directory.Path);
+        var record = System.IO.Path.Combine(directory.Path, $"native-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(record, "fault");
+        var store = new CrashReportStore(directory.Path);
+
+        // Startup cleanup keeps the record: the previous run's recovery reads it.
+        Assert.Null(store.LatestPending());
+        Assert.True(File.Exists(record));
+        Assert.True(store.TryDeleteAll());
+        Assert.False(File.Exists(record));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

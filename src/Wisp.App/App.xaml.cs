@@ -540,6 +540,10 @@ public partial class App : Application
         }
     }
 
+    // The Connection panel calls this after it applied a port. A runtime that never started because
+    // the saved port could not be bound starts now; a running one returns at once.
+    internal Task ResumeRuntimeAsync() => StartRuntimeAsync(showControlPanel: false, minimize: false);
+
     private async Task StartRuntimeAsync(bool showControlPanel, bool minimize, bool fromForza = false)
     {
         await _runtimeGate.WaitAsync();

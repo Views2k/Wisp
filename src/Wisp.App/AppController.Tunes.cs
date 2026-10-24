@@ -22,7 +22,7 @@ public sealed partial class AppController
         directory ??= Path.Combine(Path.GetTempPath(), "Wisp", "TuneReview", Guid.NewGuid().ToString("N"));
         _tuneStore = new TuneStore(directory);
         Tunes = new TuneViewModel(_tuneStore, CaptureTuneAsync,
-            snapshot => _tuneCapture?.IsCurrent(snapshot) == true, _dispatcher);
+            snapshot => _tuneCapture?.IsCurrent(snapshot) == true, _dispatcher, () => Settings.SpeedUnit);
         if (_tuneCapture is not null) _tuneCapture.Invalidated += TuneCaptureInvalidated;
         Runs.LoadTuneChoices = async token => FeatureAllowed("tune-library") ? (await _tuneStore.ListAsync(token)).Select(saved =>
             new RunTuneChoice($"{saved.Name} · {TunePresentation.Car(saved.Snapshot)} · {saved.SavedAtUtc.ToLocalTime():g}", SavedTuneId: saved.Id)).ToArray() : [];

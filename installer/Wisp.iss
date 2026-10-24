@@ -88,8 +88,12 @@ end;
 
 function InitializeSetup(): Boolean;
 begin
-  { Capture this before Setup creates or refreshes its uninstall entry. }
-  UpdatingExistingInstallation := UpdateSwitchPresent() and ExistingInstallationPresent();
+  { Capture this before Setup creates or refreshes its uninstall entry. Any install over a
+    registered installation keeps the completed setup, whether the update helper or the user
+    runs it; the helper's switch only marks its runs in the log. }
+  UpdatingExistingInstallation := ExistingInstallationPresent();
+  if UpdateSwitchPresent() then
+    Log('Started by the Wisp update helper.');
   Result := True;
 end;
 
@@ -100,9 +104,9 @@ begin
   if CurStep <> ssPostInstall then
     Exit;
 
-  { A verified in-place update preserves the completed setup record. A fresh
-    install, including one given /WISPUPDATE without an existing registration,
-    still has to pass through the setup wizard. }
+  { An install over a registered installation preserves the completed setup
+    record. A fresh install, including one given /WISPUPDATE without an existing
+    registration, still has to pass through the setup wizard. }
   if UpdatingExistingInstallation then
     Exit;
 

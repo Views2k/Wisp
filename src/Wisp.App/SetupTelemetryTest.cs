@@ -217,7 +217,10 @@ public sealed class SetupTelemetryTest
         }
         catch (ArgumentOutOfRangeException exception)
         {
-            return new SetupTestResult(null, exception.Message.Split(Environment.NewLine)[0]) { Outcome = "idle" };
+            // The port messages are written for the user; the runtime appends the parameter name.
+            var suffix = $" (Parameter '{exception.ParamName}')";
+            var message = exception.Message.EndsWith(suffix, StringComparison.Ordinal) ? exception.Message[..^suffix.Length] : exception.Message;
+            return new SetupTestResult(null, message) { Outcome = "idle" };
         }
         catch (SocketException exception)
         {

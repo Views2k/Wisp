@@ -37,8 +37,8 @@ public sealed class RunBulkStoreTests : IDisposable
         await source.SaveAsync(first);
         var archivePath = Path.Combine(_root, "backup.zip");
         var again = Path.Combine(_root, "same-library.zip");
-        Assert.Equal(2, await source.ExportAllAsync(archivePath, cancellationToken: TestContext.Current.CancellationToken));
-        Assert.Equal(2, await source.ExportAllAsync(again, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(new RunExportBatch(2), await source.ExportAllAsync(archivePath, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(new RunExportBatch(2), await source.ExportAllAsync(again, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(await File.ReadAllBytesAsync(archivePath, TestContext.Current.CancellationToken), await File.ReadAllBytesAsync(again, TestContext.Current.CancellationToken));
         using (var zip = ZipFile.OpenRead(archivePath))
         {
@@ -61,7 +61,7 @@ public sealed class RunBulkStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task BulkExportNeverOverwritesAndLeavesCorruptSourceUntouched()
+    public async Task BulkExportNeverOverwritesAndLeavesOutCorruptSourceUntouched()
     {
         var source = new RunStore(Library("source"));
         await source.SaveAsync(RunTestData.CreateRun() with { Id = FirstId });
@@ -71,9 +71,10 @@ public sealed class RunBulkStoreTests : IDisposable
         Assert.Equal("keep existing backup", await File.ReadAllTextAsync(destination, TestContext.Current.CancellationToken));
         var corrupt = RunPath(Library("source"), SecondId);
         await File.WriteAllTextAsync(corrupt, "keep corrupt run", TestContext.Current.CancellationToken);
-        var failedDestination = Path.Combine(_root, "failed.zip");
-        await Assert.ThrowsAsync<InvalidDataException>(() => source.ExportAllAsync(failedDestination, cancellationToken: TestContext.Current.CancellationToken));
-        Assert.False(File.Exists(failedDestination));
+        // The readable run is exported; the unreadable file is left out and kept in place, as Remove all does.
+        var partialDestination = Path.Combine(_root, "partial.zip");
+        Assert.Equal(new RunExportBatch(1, SkippedUnreadable: 1), await source.ExportAllAsync(partialDestination, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(File.Exists(partialDestination));
         Assert.Equal("keep corrupt run", await File.ReadAllTextAsync(corrupt, TestContext.Current.CancellationToken));
         Assert.Empty(Directory.EnumerateDirectories(Library("source"), ".wisp-bulk-*"));
     }

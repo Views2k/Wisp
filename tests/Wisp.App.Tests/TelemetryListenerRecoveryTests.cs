@@ -23,6 +23,18 @@ public sealed class TelemetryListenerRecoveryTests
     }
 
     [Fact]
+    public void AClockThatSteppedBackwardsDoesNotPostponeTheNextAttempt()
+    {
+        var recovery = new TelemetryListenerRecovery();
+        Assert.True(recovery.ShouldRestart(Start));
+        Assert.False(recovery.ShouldRestart(Start.AddMilliseconds(500)));
+        // The next attempt was due one second after Start; a wait longer than the largest delay
+        // can only mean the clock moved, so the attempt is due now.
+        Assert.True(recovery.ShouldRestart(Start.AddHours(-1)));
+        Assert.Equal(2, recovery.Attempts);
+    }
+
+    [Fact]
     public void ASettledListenerGetsAFreshBudget()
     {
         var recovery = new TelemetryListenerRecovery();

@@ -113,6 +113,29 @@ public sealed class AutomaticUpdateCoordinatorTests
     }
 
     [Fact]
+    public async Task FailedDownloadsSpendTheSameBudgetAsFailedHandoffs()
+    {
+        // 2.7.1 retried a failing download every RetryInterval for the whole session, with one
+        // failure report per attempt; the apply budget applied to the handoff only.
+        var s = new Scenario { Download = new TaskCompletionSource<VerifiedInstaller?>() };
+        s.Download.SetResult(null);
+        var coordinator = s.Create();
+        await s.TickAsync(coordinator, TimeSpan.FromHours(1));
+        Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries, s.Downloads);
+        Assert.Equal(0, s.Installs);
+        Assert.True(coordinator.IsExhausted("2.6.9"));
+
+        // A newer release gets a fresh budget, and a download that succeeds is handed off at once.
+        s.Installer = Scenario.CreateInstaller(2, 6, 10);
+        s.Download = null;
+        s.Now += TimeSpan.FromSeconds(5);
+        await coordinator.RunAsync();
+        Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries + 1, s.Downloads);
+        Assert.Equal(1, s.Installs);
+        Assert.False(coordinator.IsExhausted("2.6.10"));
+    }
+
+    [Fact]
     public async Task MissingUpdateHelperStopsAutomaticHandoffForTheSession()
     {
         // Wisp 2.6.11 retried the handoff every RetryInterval for more than eight hours when

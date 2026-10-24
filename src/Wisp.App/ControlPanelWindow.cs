@@ -833,6 +833,8 @@ public abstract partial class ControlPanelWindow : Window
             PortApplyFeedback.Text = $"Applying UDP port {port}…";
             await _controller.RestartListenerAsync(port);
             _controller.ViewModel.UdpPort = port;
+            // A start that failed on the saved port left the HUD loop, hotkeys, Runs and Clips off.
+            if (Application.Current is App app) await app.ResumeRuntimeAsync();
             PortApplyFeedback.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
             PortApplyFeedback.Text = $"UDP port {port} applied.";
         }

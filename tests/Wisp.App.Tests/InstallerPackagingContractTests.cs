@@ -270,7 +270,7 @@ public sealed class InstallerPackagingContractTests
         var updateSwitch = script.IndexOf("function UpdateSwitchPresent(): Boolean;", StringComparison.Ordinal);
         var existingInstall = script.IndexOf("function ExistingInstallationPresent(): Boolean;", StringComparison.Ordinal);
         var captureUpdate = script.IndexOf(
-            "UpdatingExistingInstallation := UpdateSwitchPresent() and ExistingInstallationPresent()",
+            "UpdatingExistingInstallation := ExistingInstallationPresent()",
             StringComparison.Ordinal);
         var callback = script.IndexOf("procedure CurStepChanged(CurStep: TSetupStep);", StringComparison.Ordinal);
         var postInstall = script.IndexOf("if CurStep <> ssPostInstall then", callback, StringComparison.Ordinal);
@@ -321,7 +321,7 @@ public sealed class InstallerPackagingContractTests
         Assert.Contains("Write-BuildProvenance $repository $publishFullPath", packaging, StringComparison.Ordinal);
         Assert.Contains($"#define MyAppVersion \"{ApplicationVersionInfo.MachineVersion}\"", inno, StringComparison.Ordinal);
         Assert.Contains("#define MyAppOutputVersion MyAppVersion", inno, StringComparison.Ordinal);
-        Assert.Contains("UpdatingExistingInstallation := UpdateSwitchPresent() and ExistingInstallationPresent();", inno,
+        Assert.Contains("UpdatingExistingInstallation := ExistingInstallationPresent();", inno,
             StringComparison.Ordinal);
         Assert.DoesNotContain("WispDiagnostics", inno, StringComparison.Ordinal);
         Assert.DoesNotContain("diagnostics.4", packaging, StringComparison.Ordinal);

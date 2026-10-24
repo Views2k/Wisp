@@ -44,6 +44,7 @@ public sealed partial class RunStore
 
     public Task<IReadOnlyList<RunSummary>> ListAsync(CancellationToken cancellationToken = default) => InBackground<IReadOnlyList<RunSummary>>(async () =>
     {
+        Warning = null; // A warning describes one listing; the next listing starts clean.
         await RecoverAsync().ConfigureAwait(false);
         var summaries = new List<RunSummary>();
         foreach (var path in Directory.EnumerateFiles(_directory, "*.wisprun"))
@@ -362,12 +363,13 @@ public sealed partial class RunStore
                 CheckPath(path);
                 if (Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "N", out var activeId) && _activeJournals.ContainsKey(activeId)) continue;
                 var info = new FileInfo(path);
-                if (info.Length is <= 0 or > MaximumJsonBytes) continue;
+                if (info.Length <= 0) { File.Delete(path); continue; }
+                if (info.Length > MaximumJsonBytes) continue;
                 using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
                 using var reader = new StreamReader(file);
                 var lines = new BoundedLineReader(reader);
                 var headerLine = await lines.ReadLineAsync(131_072).ConfigureAwait(false);
-                if (headerLine is null) continue;
+                if (headerLine is null) { Discard(); continue; }
                 var header = JsonSerializer.Deserialize<RecordedRun>(headerLine, JsonOptions);
                 if (header is null || header.Samples is null || header.Samples.Length != 0 || header.Markers is null || header.Markers.Length > MaximumMarkers || !Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "N", out var id) || header.Id != id) continue;
                 var samples = new List<RunSample>();
@@ -393,7 +395,7 @@ public sealed partial class RunStore
                     }
                     catch (Exception error) when (IsDataError(error)) { break; }
                 }
-                if (samples.Count == 0) continue;
+                if (samples.Count == 0) { Discard(); continue; }
                 if (!File.Exists(RunPath(header.Id)))
                     await WriteAsync(header with
                     {
@@ -406,6 +408,15 @@ public sealed partial class RunStore
                 reader.Dispose();
                 file.Dispose();
                 File.Delete(path);
+
+                // A journal without a sample has nothing to recover; it is removed instead of being
+                // read again at every start.
+                void Discard()
+                {
+                    reader.Dispose();
+                    file.Dispose();
+                    File.Delete(path);
+                }
             }
             catch (Exception error) when (IsDataError(error))
             {
