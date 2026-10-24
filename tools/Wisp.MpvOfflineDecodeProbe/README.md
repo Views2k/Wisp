@@ -67,7 +67,7 @@ dotnet build tools/Wisp.MpvOfflineDecodeProbe/Wisp.MpvOfflineDecodeProbe.csproj 
 $probeSource = Join-Path $env:LOCALAPPDATA 'Wisp/Clips/29e58a5054f547e7b7fc7535c16252da.mp4'
 $probeDependency = Join-Path $PWD 'work/clips-short-save-20261001/mpv-dependency/verified'
 $probeOutput = Join-Path $PWD 'work/clips-short-save-20261001/mpv-headless-01'
-& tools/Wisp.MpvOfflineDecodeProbe/bin/Release/net8.0-windows/Wisp.MpvOfflineDecodeProbe.exe --source $probeSource --dependency $probeDependency --output $probeOutput
+& tools/Wisp.MpvOfflineDecodeProbe/bin/Release/net10.0-windows/Wisp.MpvOfflineDecodeProbe.exe --source $probeSource --dependency $probeDependency --output $probeOutput
 ```
 
 ## Source-backed rationale and remaining distribution work

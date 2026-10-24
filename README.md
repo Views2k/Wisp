@@ -462,7 +462,7 @@ builds, validation boundary, and update behavior.
 
 ## Build from source
 
-Use a Git checkout and the .NET 8 SDK selected by `global.json`. Building the
+Use a Git checkout and the .NET 10 SDK selected by `global.json`. Building the
 native renderer also requires Visual Studio C++ build tools for x64 and a
 Windows SDK containing `fxc.exe`; the application build compiles and copies
 `Wisp.NativeRenderer.dll` automatically. Python 3.12 or later runs the offline

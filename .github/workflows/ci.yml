@@ -234,7 +234,7 @@ jobs:
           $revision = (& git rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') { throw 'Exact source revision unavailable.' }
           dotnet run --project tools/Wisp.SymbolCatalog/Wisp.SymbolCatalog.csproj --configuration Release -- `
-            src/Wisp.App/bin/Release/net8.0-windows/win-x64 outputs/Wisp-diagnostic-symbols.json $revision
+            src/Wisp.App/bin/Release/net10.0-windows/win-x64 outputs/Wisp-diagnostic-symbols.json $revision
           if ($LASTEXITCODE -ne 0) { throw 'Diagnostic symbol catalog export failed.' }
           $catalog = Get-Content -LiteralPath outputs/Wisp-diagnostic-symbols.json -Raw | ConvertFrom-Json
           if ($catalog.sourceRevision -cne $revision -or $catalog.sourceState -ne 'clean') { throw 'Diagnostic symbols do not identify the clean CI source.' }

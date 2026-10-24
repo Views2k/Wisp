@@ -47,7 +47,7 @@ remain subject to the same review, validation, and merge-approval rules.
 
 ## Validation
 
-Wisp requires Windows, the .NET 8 SDK selected by `global.json`, and Python
+Wisp requires Windows, the .NET 10 SDK selected by `global.json`, and Python
 3.12 or later. CI pins Python 3.14.7. Inno Setup 6 is required only for
 installer packaging.
 

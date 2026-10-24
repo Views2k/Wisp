@@ -1115,7 +1115,7 @@ try {
 
     $dotnetExecutable = Resolve-Executable $DotNet $dotnetCandidates @('dotnet.exe', 'dotnet')
     if ($null -eq $dotnetExecutable) {
-        throw 'The .NET 8 SDK was not found. Install it from https://dotnet.microsoft.com/download/dotnet/8.0 or pass -DotNet <path>.'
+        throw 'The .NET 10 SDK was not found. Install it from https://dotnet.microsoft.com/download/dotnet/10.0 or pass -DotNet <path>.'
     }
 
     $innoExecutable = Resolve-Executable $InnoCompiler $innoCandidates @('ISCC.exe', 'ISCC')
