@@ -125,10 +125,11 @@ public sealed class AutomaticUpdateCoordinatorTests
         Assert.Equal(0, s.Installs);
         Assert.True(coordinator.IsExhausted("2.6.9"));
 
-        // A newer release gets a fresh budget, and a download that succeeds is handed off.
+        // A newer release gets a fresh budget, and a download that succeeds is handed off at once.
         s.Installer = Scenario.CreateInstaller(2, 6, 10);
         s.Download = null;
-        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.RetryInterval);
+        s.Now += TimeSpan.FromSeconds(5);
+        await coordinator.RunAsync();
         Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries + 1, s.Downloads);
         Assert.Equal(1, s.Installs);
         Assert.False(coordinator.IsExhausted("2.6.10"));
