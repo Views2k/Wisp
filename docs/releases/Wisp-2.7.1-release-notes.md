@@ -15,10 +15,9 @@ Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through ga
 - The telemetry listener restarts itself after an unexpected socket error, up to five times with growing delays.
 - Settings are backed up on every save and restored from the last good copy when the file cannot be read.
 - An update that cannot be staged on this PC is reported on the update card instead of closing Wisp.
-- When a HUD window or the feature-control client cannot start, the dashboard stays open and reports it.
+- When a HUD window or the feature-control client cannot start, or the runtime start fails, the dashboard stays open and reports it.
 - HUD windows are placed again after a monitor is unplugged, turned off or changes resolution: at their saved layout when there is one, otherwise inside the nearest display.
 - Wisp closes within seconds when a shift capture or a tune read is still open.
-- The dashboard, saved runs and clips keep running when the telemetry port cannot be bound; a corrected port in Connection settings completes the start.
 - The clipping preference survives a launch where the recorder could not start, and clipping starts again when a pause is lifted.
 - When the HUD update loop stops, the HUD is hidden; the HUD window is retried when a display or the game changes under it, and the renderer keeps retrying while the driver restarts.
 - A gauge image shows again after a temporary read failure.
@@ -44,7 +43,7 @@ Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through ga
 
 - A Windows shutdown or sign-out that ends Wisp is recorded as a close request even while the dashboard is busy.
 - Diagnostics tell a Windows shutdown that ended a run apart from a problem in Wisp.
-- The Tune page names the unit system Forza reports when it is not imperial.
+- The Tune page shows the game unit code Forza reports when it is not imperial.
 - A stalled dashboard thread is recorded with its length in the run's diagnostics.
 - Crash reports carry breadcrumbs for HUD show and hide, tune reads, update handoffs and listener restarts.
 - The HUD status for an access-denied game process says to run Wisp and Forza at the same privilege level.

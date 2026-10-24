@@ -12,7 +12,7 @@ try {
         'TachDiagnosticsTests.DisabledRecordCallsCreateNoHistoryOrPerCallAllocations')
     if ($Full) {
         $filter = ($isolated | ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
-        & $DotNet test Wisp.sln -c Release --no-build --no-restore --filter $filter -m:1
+        & $DotNet test Wisp.sln -c Release --no-build --no-restore --filter $filter -m:1 --blame-hang --blame-hang-timeout 10m
         if ($LASTEXITCODE -ne 0) { throw 'Nightly application tests failed.' }
         foreach ($test in $isolated) {
             & $DotNet test tests/Wisp.App.Tests -c Release --no-build --no-restore --filter "FullyQualifiedName~$test"
@@ -61,7 +61,8 @@ try {
     }
     if ($classes.Count -eq 0) { throw 'No application safety tests were selected.' }
     $filter = (($classes | Sort-Object | ForEach-Object { "FullyQualifiedName~Wisp.App.Tests.$_." }) -join '|')
-    & $DotNet test tests/Wisp.App.Tests -c Release --no-build --no-restore --filter $filter
+    # A hung test is named and the run ends before the job's time limit does.
+    & $DotNet test tests/Wisp.App.Tests -c Release --no-build --no-restore --filter $filter --blame-hang --blame-hang-timeout 3m
     if ($LASTEXITCODE -ne 0) { throw 'Application behavioral tests failed.' }
 }
 finally { Pop-Location }

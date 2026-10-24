@@ -407,12 +407,7 @@ public sealed partial class AppController : IAsyncDisposable
         UpdateShiftCueObservation();
         _manualOverlayHidden = false;
 
-        // The dashboard loop, run library, shortcuts and clips do not need the listener. A port that
-        // cannot be bound is reported after they have started, so a corrected port in Connection
-        // settings completes the start instead of leaving them off until Wisp restarts.
-        Exception? listenerFailure = null;
-        try { await StartListenerWithFallbackAsync(); }
-        catch (Exception error) when (error is ArgumentOutOfRangeException or System.Net.Sockets.SocketException) { listenerFailure = error; }
+        await StartListenerWithFallbackAsync();
 
         if (!_receiverNotificationsAttached)
         {
@@ -424,7 +419,6 @@ public sealed partial class AppController : IAsyncDisposable
         ApplyOverlayHotkeyRegistration();
         StartRunsUi();
         await StartClipsAsync();
-        if (listenerFailure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(listenerFailure);
     }
 
     internal bool InitializeStartupRegistration()

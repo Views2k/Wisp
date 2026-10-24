@@ -379,8 +379,8 @@ complete bundled-build list and validation rules. Data Out reception and dashboa
 calculations remain independent of those contracts. Wisp runs alongside a local
 Windows PC installation of the game.
 
-The installer is self-contained and installs for the current user. It does not
-require administrator access or a separate .NET runtime.
+The installer is self-contained, installs for the current user without
+administrator access, and includes its .NET runtime.
 
 ## Install
 

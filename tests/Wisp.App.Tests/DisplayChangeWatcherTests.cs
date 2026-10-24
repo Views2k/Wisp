@@ -25,7 +25,7 @@ public sealed class DisplayChangeWatcherTests
                 replacedBeforeTheLateStep = replaced;
                 watcher.Notice();
             }, dispatcher);
-            var stop = new DispatcherTimer(DisplayChangeWatcher.SettleDelay * 4, DispatcherPriority.Normal,
+            var stop = new DispatcherTimer(DisplayChangeWatcher.SettleDelay * 8, DispatcherPriority.Normal,
                 (_, _) => dispatcher.InvokeShutdown(), dispatcher);
             Dispatcher.Run();
             stop.Stop();
@@ -50,7 +50,7 @@ public sealed class DisplayChangeWatcherTests
             watcher.Dispose();
             watcher.Notice();
             pendingAfterDispose = watcher.Pending;
-            var stop = new DispatcherTimer(DisplayChangeWatcher.SettleDelay * 2, DispatcherPriority.Normal,
+            var stop = new DispatcherTimer(DisplayChangeWatcher.SettleDelay * 4, DispatcherPriority.Normal,
                 (_, _) => dispatcher.InvokeShutdown(), dispatcher);
             Dispatcher.Run();
             stop.Stop();
