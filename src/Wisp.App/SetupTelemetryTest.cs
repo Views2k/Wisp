@@ -187,7 +187,7 @@ public sealed class SetupTelemetryTest
             SetupTelemetryEvidence evidence;
             var guidanceGiven = false;
             var slice = TimeSpan.FromTicks(Math.Min(_timeout.Ticks, ListenerCheckInterval.Ticks));
-            var lastGuidanceAt = _clock.GetTimestamp();
+            var waited = TimeSpan.Zero;
             while (true)
             {
                 try
@@ -199,8 +199,10 @@ public sealed class SetupTelemetryTest
                 {
                     var statistics = _source.GetStatistics(_clock.GetUtcNow());
                     if (!_source.IsRunning || statistics.ListenerError is not null) throw;
-                    if (_clock.GetElapsedTime(lastGuidanceAt) + TimeSpan.FromMilliseconds(1) < _timeout) continue;
-                    lastGuidanceAt = _clock.GetTimestamp();
+                    // Guidance keeps its cadence by counting the waits, so a test clock that stands still cannot delay it.
+                    waited += slice;
+                    if (waited < _timeout) continue;
+                    waited = TimeSpan.Zero;
                     if (!guidanceGiven)
                     {
                         guidanceGiven = true;
