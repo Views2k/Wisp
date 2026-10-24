@@ -41,9 +41,10 @@ public partial class App : Application
     private CancellationTokenSource? _previousRunCancellation;
     private int _fatalExit;
     private SessionEndSentinel? _sessionEndSentinel;
+    private DebugLogging.UiStallWatchdog? _uiStallWatchdog;
 
     // Receives an exception an operation on the dashboard thread caught and recovered from.
-    internal static Action<Exception>? RecoveredExceptionSink { get; private set; }
+    internal static Action<Exception, string?>? RecoveredExceptionSink { get; private set; }
     // The dashboard draws in software after a render thread failure ended a previous run.
     internal static bool SoftwareRenderingActive { get; private set; }
 
@@ -113,11 +114,18 @@ public partial class App : Application
         var settings = settingsService.Load();
         _controller = new AppController(settings, settingsService);
         if (SoftwareRenderingActive) _controller.LocalNotices.Raise(LocalDashboardNotices.SoftwareRendering);
+        _uiStallWatchdog = DebugLogging.UiStallWatchdog.Start(Dispatcher);
         await StartFeatureControlsAsync();
         StartSupplementaryReporting();
         RecordSupplementarySignal("settings", "settings", settingsService.LoadOutcome, "load",
             incident: settingsService.LoadFailure is { } loadFailure ? Supplementary.SupplementaryIncidentSchema.Create(
                 "settings", loadFailure.Reason, "settings-load", loadFailure.Code) : null);
+        if (settingsService.RestoredFromBackup)
+        {
+            RecordSupplementarySignal("settings", "settings", "success", "recovery");
+            DebugLogging.HealthContextRecorder.Current.RecordBreadcrumb(DebugLogging.HealthEventCode.SettingsRestored);
+            _controller.LocalNotices.Raise(LocalDashboardNotices.SettingsRestored);
+        }
         _controller.ViewModel.InitializeCrashReport(_previousCrashReport, _crashReports.AcknowledgeThrough);
         if (_runExitMarker?.Previous is { } previous)
         {
@@ -354,6 +362,8 @@ public partial class App : Application
             }
             finally
             {
+                _uiStallWatchdog?.Dispose();
+                _uiStallWatchdog = null;
                 _sessionEndSentinel?.Dispose();
                 _sessionEndSentinel = null;
                 _runExitMarker?.Dispose();
@@ -656,6 +666,7 @@ public partial class App : Application
             return (false, _controller.ViewModel.ApplicationUpdateStatus);
         }
         _controller.MarkApplicationUpdatePreparing(installer);
+        DebugLogging.HealthContextRecorder.Current.RecordBreadcrumb(DebugLogging.HealthEventCode.UpdateHandoffStarted);
         if (!await PrepareRunMetadataForExitAsync())
         {
             _applicationUpdateHandoffActive = false;

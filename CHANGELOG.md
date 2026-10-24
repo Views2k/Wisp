@@ -16,6 +16,13 @@ Notable changes to Wisp are recorded here.
 - Stop automatic update attempts after three failed handoffs for the same release and point at the full installer.
 - Record a Windows shutdown or sign-out as a close request from a window on its own thread, and classify a shutdown that ended a run as Windows ending it.
 - Name the unit system Forza reports on the Tune page when it is not imperial.
+- Report a failed pass of the gauge update loop and keep going; stop the loop after five failures in a row and say so.
+- Restart the telemetry listener after an unexpected socket error, up to five times with growing delays.
+- Back up settings on every save and restore the last good copy when the file cannot be read.
+- Record a stalled dashboard thread and its length in the run's diagnostics.
+- Add crash breadcrumbs for HUD show and hide, tune reads, update handoffs and listener restarts.
+- Say that Wisp and Forza must run at the same privilege level when the game process denies access.
+- Name the process holding a locked program file in the local report.
 - Report a feature-control policy Wisp rejected or could not keep as its own diagnostic, instead of an unclassified failure report.
 - Report a current tune Wisp could not read as a tune read failure in diagnostics, instead of an export validation failure.
 

@@ -11,6 +11,9 @@ Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through ga
 - After a display driver failure ends a run, the dashboard draws in software mode on the next launch; the HUD and clips keep using the graphics card.
 - When RivaTuner Statistics Server hooks Wisp, the dashboard explains how to exclude Wisp in RivaTuner.
 - The HUD renderer is built again after the graphics device is removed, reset or hung, instead of staying off.
+- The gauge update loop reports a failed pass and keeps going; after five failures in a row it stops and the dashboard says so.
+- The telemetry listener restarts itself after an unexpected socket error, up to five times with growing delays.
+- Settings are backed up on every save and restored from the last good copy when the file cannot be read.
 
 ## Setup and connection
 
@@ -27,6 +30,10 @@ Wisp 2.7.1 is a reliability update. Wisp runs on .NET 10, keeps going through ga
 - A Windows shutdown or sign-out that ends Wisp is recorded as a close request even while the dashboard is busy.
 - Diagnostics tell a Windows shutdown that ended a run apart from a problem in Wisp.
 - The Tune page names the unit system Forza reports when it is not imperial.
+- A stalled dashboard thread is recorded with its length in the run's diagnostics.
+- Crash reports carry breadcrumbs for HUD show and hide, tune reads, update handoffs and listener restarts.
+- The HUD status for an access-denied game process says to run Wisp and Forza at the same privilege level.
+- A locked program file names the process holding it in the local report.
 
 ## Runtime
 

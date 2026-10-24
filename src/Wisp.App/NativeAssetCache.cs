@@ -1,4 +1,5 @@
 using System.IO;
+using Wisp.App.CrashDiagnostics;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -53,7 +54,9 @@ internal static class NativeAssetCache
                 if (attempt < DecodeAttempts) Thread.Sleep(25 * attempt);
             }
         }
-        if (failure is not null) App.RecoveredExceptionSink?.Invoke(failure);
+        if (failure is not null)
+            App.RecoveredExceptionSink?.Invoke(failure,
+                FileLockHolders.IsLockFailure(failure) ? FileLockHolders.Note(FileLockHolders.DescribeProgramFiles()) : null);
         return null;
     }
 

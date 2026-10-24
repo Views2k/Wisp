@@ -10,7 +10,9 @@ internal enum HealthEventCode
 {
     ApplicationStarted, ApplicationStopping, RecorderChanged, PlayerChanged,
     ClipSelected, ClipClosed, ClipExportStarted, ClipExportFinished,
-    ClipActionFailed, TuneReadFailed, SettingsSaveFailed, RendererFailed, HealthCollectionFailed, LapReviewFailed
+    ClipActionFailed, TuneReadFailed, SettingsSaveFailed, RendererFailed, HealthCollectionFailed, LapReviewFailed,
+    UiUpdateFailed, UiStalled, UiStallEnded, OverlayShown, OverlayHidden, TuneReadStarted, UpdateHandoffStarted,
+    ListenerRestarted, SettingsRestored
 }
 
 internal enum HealthFailureStage
@@ -120,7 +122,7 @@ internal sealed class HealthContextRecorder
     internal void RecordBreadcrumb(HealthEventCode code, int errorCode = 0,
         ClipRecorderState? recorderState = null, HealthPlayerState? playerState = null, HealthFailureStage failureStage = HealthFailureStage.Unknown)
     {
-        if ((uint)code > (uint)HealthEventCode.LapReviewFailed || (uint)failureStage > (uint)HealthFailureStage.LapExport ||
+        if ((uint)code > (uint)HealthEventCode.SettingsRestored || (uint)failureStage > (uint)HealthFailureStage.LapExport ||
             recorderState is { } checkedRecorder && (uint)checkedRecorder > (uint)ClipRecorderState.Paused ||
             playerState is { } checkedPlayer && (uint)checkedPlayer > (uint)HealthPlayerState.Failed) return;
         var sequence = Interlocked.Increment(ref _breadcrumbSequence);

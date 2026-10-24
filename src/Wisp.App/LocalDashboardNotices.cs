@@ -22,6 +22,10 @@ internal sealed class LocalDashboardNotices
         "A display driver failure ended Wisp's last run, so the dashboard now draws in software mode. " +
         "The HUD and clips keep using the graphics card.");
 
+    internal static readonly SupplementaryContentItem SettingsRestored = Create("settings-restored",
+        "Settings restored from the last good copy",
+        "Wisp's settings file could not be read, so the last good copy was restored. Check your HUD layout and profiles.");
+
     internal static SupplementaryContentItem Create(string id, string title, string message) =>
         new(IdPrefix + id, "dashboard-banner", title, message, null, "info", Always, Never, Everyone, Dismissible: true);
 

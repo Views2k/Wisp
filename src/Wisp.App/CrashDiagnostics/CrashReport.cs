@@ -29,6 +29,8 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
     public Guid? RunId { get; init; }
     public RecoveredExitInfo? RecoveredExit { get; init; }
     public HealthContextSnapshot? Context { get; init; }
+    // A short local-only remark from the operation that recovered, such as which process held a locked file.
+    public string? Note { get; init; }
 
     internal static CrashReport Capture(Exception? exception, CrashOrigin origin, bool terminating, DateTimeOffset now)
     {
@@ -83,7 +85,8 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
             RunId = RunId is { } runId && runId != Guid.Empty ? runId : null,
             RecoveredExit = Origin is CrashOrigin.UnexpectedExit or CrashOrigin.WindowsApplicationFault ? exit : null,
             Exceptions = exceptions,
-            Context = HealthContextRecorder.IsValidSnapshot(Context) ? Context : null
+            Context = HealthContextRecorder.IsValidSnapshot(Context) ? Context : null,
+            Note = SafeNote(Note)
         };
     }
 
@@ -101,6 +104,7 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
         report.AppendLine($"Process architecture: {safe.ProcessArchitecture?.ToString() ?? "Not available"}");
         report.AppendLine($"Origin: {safe.Origin}");
         report.AppendLine($"Process terminating: {(safe.IsTerminating ? "Yes" : "No")}");
+        if (safe.Note is { } note) report.AppendLine($"Note: {note}");
         if (safe.RecoveredExit is { } exit)
         {
             report.AppendLine($"Previous run started UTC: {exit.RunStartedAtUtc.ToString("O", CultureInfo.InvariantCulture)}");
@@ -146,6 +150,9 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
         else report.AppendLine("Recent health context: Not available");
         return report.ToString().TrimEnd();
     }
+
+    internal static string? SafeNote(string? value) => value is { Length: > 0 and <= 160 } &&
+        value.All(character => char.IsAsciiLetterOrDigit(character) || character is ' ' or '.' or ',' or ':' or '_' or '-') ? value : null;
 
     private static string SafeVersion(string? value) => value is { Length: > 0 and <= 32 } &&
         value.All(character => character is >= '0' and <= '9' or '.') && Version.TryParse(value, out _) ? value : "Not available";

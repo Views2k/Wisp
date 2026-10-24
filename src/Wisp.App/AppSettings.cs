@@ -705,6 +705,9 @@ public sealed class SettingsService
     internal string DataDirectory => Path.GetDirectoryName(_settingsPath)!;
     internal string LoadOutcome { get; private set; } = "unknown";
     internal SettingsLoadFailure? LoadFailure { get; private set; }
+    // The last successful load or save is kept beside the settings file and restored when the file cannot be read.
+    internal bool RestoredFromBackup { get; private set; }
+    private string BackupPath => _settingsPath + ".bak";
 
     public SettingsService(string? settingsPath = null)
     {
@@ -729,12 +732,15 @@ public sealed class SettingsService
     {
         LoadOutcome = "unknown";
         LoadFailure = null;
+        RestoredFromBackup = false;
         try
         {
-            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), JsonOptions);
+            var text = File.ReadAllText(_settingsPath);
+            var settings = JsonSerializer.Deserialize<AppSettings>(text, JsonOptions);
             if (settings is null) throw new JsonException();
             var prepared = PrepareForLoad(settings);
             LoadOutcome = "success";
+            if (!File.Exists(BackupPath)) WriteBackup(System.Text.Encoding.UTF8.GetBytes(text));
             return prepared;
         }
         catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
@@ -765,6 +771,11 @@ public sealed class SettingsService
                 _ => "storage"
             };
             LoadFailure = new(reason, unchecked((uint)error.HResult));
+            if (LoadBackup() is { } restored)
+            {
+                RestoredFromBackup = true;
+                return restored;
+            }
             return PrepareForLoad(new AppSettings());
         }
     }
@@ -818,6 +829,7 @@ public sealed class SettingsService
             }
 
             File.Move(temporaryPath, _settingsPath, overwrite: true);
+            WriteBackup(bytes);
         }
         finally
         {
@@ -830,6 +842,36 @@ public sealed class SettingsService
             {
                 // Staging files are never loaded; a later save uses a unique name.
             }
+        }
+    }
+
+    private AppSettings? LoadBackup()
+    {
+        try
+        {
+            var restored = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(BackupPath), JsonOptions);
+            return restored is null ? null : PrepareForLoad(restored);
+        }
+        catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException or SecurityException)
+        {
+            return null;
+        }
+    }
+
+    // Best effort: a backup that cannot be written changes nothing about the save.
+    private void WriteBackup(byte[] bytes)
+    {
+        var temporaryPath = Path.Combine(Path.GetDirectoryName(_settingsPath)!, $".{Path.GetFileName(BackupPath)}-{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllBytes(temporaryPath, bytes);
+            File.Move(temporaryPath, BackupPath, overwrite: true);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or SecurityException) { }
+        finally
+        {
+            try { File.Delete(temporaryPath); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or SecurityException) { }
         }
     }
 

@@ -39,6 +39,7 @@ public sealed partial class AppController
         if (!FeatureAllowed("tune-read"))
             return new(null, TuneCaptureStatus.Cancelled, FeatureControls.Reason("tune-read") ?? "Tune reading is temporarily paused.");
         using var observation = SupplementaryObservations.Begin("feature", "tune", "capture");
+        DebugLogging.HealthContextRecorder.Current.RecordBreadcrumb(DebugLogging.HealthEventCode.TuneReadStarted);
         try
         {
             var result = _tuneCapture is { } capture ? await capture.RequestSnapshotAsync(token)
