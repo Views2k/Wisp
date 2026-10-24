@@ -1237,9 +1237,9 @@ try {
     & $dotnetExecutable build $solution -c Release --no-restore -m:1 -p:UseSharedCompilation=false
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
     # CI has the time for every test on the packaged revision; a local build keeps the fast subset.
-    $behaviorArguments = @('-DotNet', $dotnetExecutable)
-    if ($env:GITHUB_ACTIONS -eq 'true') { $behaviorArguments += '-Full' }
-    & (Join-Path $repository '.github/scripts/Test-AppBehavior.ps1') @behaviorArguments
+    $behaviorScript = Join-Path $repository '.github/scripts/Test-AppBehavior.ps1'
+    if ($env:GITHUB_ACTIONS -eq 'true') { & $behaviorScript -DotNet $dotnetExecutable -Full }
+    else { & $behaviorScript -DotNet $dotnetExecutable }
     if ($LASTEXITCODE -ne 0) { throw 'Release behavioral checks failed.' }
 
     & $dotnetExecutable build $uiReviewProject --configuration Release `
