@@ -22,7 +22,15 @@ internal sealed class LosslessVideoHost(FrameworkElement viewport) : HwndHost
         const int styles = 0x40000000 | 0x10000000 | 0x08000000 | 0x04000000 | 0x02000000;
         _window = CreateWindowEx(0x08000000, "STATIC", "", styles, 0, 0, 1, 1,
             hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        if (_window == IntPtr.Zero) throw new InvalidOperationException("The lossless video surface could not be created.");
+        if (_window == IntPtr.Zero)
+        {
+            // WPF requires a window from this call and raises the exception on the dispatcher, where App
+            // treats this type as recovered; the player learns of the failure after the call unwinds.
+            var failure = new LosslessVideoSurfaceException();
+            _ready.TrySetException(failure);
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Send, () => Failed?.Invoke(this, EventArgs.Empty));
+            throw failure;
+        }
         Loaded += OnLoaded; viewport.Loaded += OnLoaded; LayoutUpdated += UpdateClip;
         return new HandleRef(this, _window);
     }
@@ -102,3 +110,5 @@ internal sealed class LosslessVideoHost(FrameworkElement viewport) : HwndHost
     [DllImport("gdi32.dll")] private static extern int GetRgnBox(IntPtr region, out NativeRect rectangle);
     [DllImport("gdi32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool DeleteObject(IntPtr value);
 }
+
+internal sealed class LosslessVideoSurfaceException() : InvalidOperationException("The lossless video surface could not be created.");

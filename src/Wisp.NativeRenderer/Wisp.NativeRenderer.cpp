@@ -1505,12 +1505,14 @@ HRESULT __cdecl WispRendererDeviceRemovedReason(void* renderer) noexcept
 // app opens at startup. Windows' own event log only keeps the faulting module and offset,
 // and nothing of the stack. The handler never allocates, never throws and never handles the
 // exception: it writes one bounded record and lets the fault continue to whoever owns it.
+// The file holds the latest fault only. A handler higher up may continue from an earlier
+// fault (a driver's own guard; the runtime's null checks are excluded below), and the fault
+// that ends the process is the last one written, so no cap on records can hide it.
 namespace
 {
     HANDLE crashCaptureFile = INVALID_HANDLE_VALUE;
     void* crashCaptureHandler = nullptr;
-    LONG crashCaptureRecords = 0;
-    constexpr LONG kCrashCaptureMaximumRecords = 3;
+    LONG crashCaptureWriting = 0;
     constexpr ULONG kCrashCaptureMaximumFrames = 48;
 
     struct CrashText { char* cursor; char* end; };
@@ -1620,12 +1622,16 @@ namespace
         if (!pointers || !pointers->ExceptionRecord || crashCaptureFile == INVALID_HANDLE_VALUE) return EXCEPTION_CONTINUE_SEARCH;
         const EXCEPTION_RECORD& record = *pointers->ExceptionRecord;
         if (!CrashCapturable(record)) return EXCEPTION_CONTINUE_SEARCH;
-        if (InterlockedIncrement(&crashCaptureRecords) > kCrashCaptureMaximumRecords) return EXCEPTION_CONTINUE_SEARCH;
+        // A second thread faulting at the same time skips the write rather than interleaving it.
+        if (InterlockedCompareExchange(&crashCaptureWriting, 1, 0) != 0) return EXCEPTION_CONTINUE_SEARCH;
         char buffer[6144];
         const size_t length = CrashFormat(record, true, buffer, sizeof(buffer));
         DWORD written = 0;
-        if (length) WriteFile(crashCaptureFile, buffer, static_cast<DWORD>(length), &written, nullptr);
+        if (length && SetFilePointer(crashCaptureFile, 0, nullptr, FILE_BEGIN) != INVALID_SET_FILE_POINTER &&
+            WriteFile(crashCaptureFile, buffer, static_cast<DWORD>(length), &written, nullptr))
+            SetEndOfFile(crashCaptureFile);
         FlushFileBuffers(crashCaptureFile);
+        InterlockedExchange(&crashCaptureWriting, 0);
         return EXCEPTION_CONTINUE_SEARCH;
     }
 }

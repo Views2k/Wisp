@@ -28,8 +28,9 @@ public sealed partial class RunStore
                         await RunArchive.CopyBoundedAsync(input, staged, MaximumFileBytes, cancellationToken: cancellationToken).ConfigureAwait(false);
                     _ = await ReadAsync(staged, id, cancellationToken).ConfigureAwait(false);
                 }
-                // An unreadable run stays in place and is left out, as Remove all does.
-                catch (Exception error) when (IsDataError(error)) { skipped++; continue; }
+                // A run whose content cannot be read stays in place and is left out, as Remove all does; a
+                // failure to read or write the files themselves still fails the export.
+                catch (Exception error) when (error is InvalidDataException or System.Text.Json.JsonException) { skipped++; continue; }
                 entries.Add(await RunArchive.DescribeAsync(id, staged, cancellationToken).ConfigureAwait(false));
             }
             await RunArchive.WriteAsync(Path.Combine(directory, "runs"), entries.ToArray(), destination, cancellationToken).ConfigureAwait(false);

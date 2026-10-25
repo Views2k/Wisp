@@ -188,13 +188,17 @@ public sealed class CrashReportTests
         Directory.CreateDirectory(directory.Path);
         var record = System.IO.Path.Combine(directory.Path, $"native-{Guid.NewGuid():N}.txt");
         File.WriteAllText(record, "fault");
-        var store = new CrashReportStore(directory.Path);
+        // The current run's record stays open in the native handler for the whole run; deletion skips it.
+        var active = NativeCrashCapture.PathFor(directory.Path, Guid.NewGuid());
+        File.WriteAllText(active, string.Empty);
+        var store = new CrashReportStore(directory.Path) { ActiveNativeRecord = System.IO.Path.GetFileName(active) };
 
         // Startup cleanup keeps the record: the previous run's recovery reads it.
         Assert.Null(store.LatestPending());
         Assert.True(File.Exists(record));
         Assert.True(store.TryDeleteAll());
         Assert.False(File.Exists(record));
+        Assert.True(File.Exists(active));
     }
 
     [Theory]

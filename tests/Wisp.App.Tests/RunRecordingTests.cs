@@ -49,6 +49,41 @@ public sealed class RunRecordingTests
 
 
     [Fact]
+    public async Task StartWaitsForALibraryOperationToReleaseTheStore()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "WispRunTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            await using var receiver = new TelemetryUdpReceiver();
+            var port = AvailablePort();
+            await receiver.StartAsync(port, TestContext.Current.CancellationToken);
+            using var sender = new UdpClient(AddressFamily.InterNetwork);
+            async Task Send(int stamp) => await sender.SendAsync(Packet(stamp), new IPEndPoint(IPAddress.Loopback, port), TestContext.Current.CancellationToken);
+            await Send(0);
+            await WaitUntil(() => receiver.Latest is not null);
+            await using var service = new RunRecordingService(receiver, directory);
+            service.UpdateContext(new(Stopwatch.GetTimestamp(), 2468, DrivetrainType.RearWheelDrive, true));
+            // An automatic lap save holds the run store while it writes. A plain start is refused; the
+            // library wait completes when the store is released, and the start that follows succeeds.
+            var held = service.Store.TryReserveJournalStart();
+            Assert.NotNull(held);
+            Assert.False(service.Start());
+            var wait = service.WaitForLibraryAsync(TestContext.Current.CancellationToken);
+            await Task.Delay(200, TestContext.Current.CancellationToken);
+            Assert.False(wait.IsCompleted);
+            held.Dispose();
+            await wait;
+            await Send(10);
+            await WaitUntil(() => receiver.Latest?.GameTimestampMilliseconds == 10);
+            service.UpdateContext(new(Stopwatch.GetTimestamp(), 2468, DrivetrainType.RearWheelDrive, true));
+            Assert.True(service.Start());
+            Assert.True(service.IsRecording);
+            await service.StopAsync();
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task CaptureStartFailureReportsOnceAndLeavesReceiverAndReservationUsable()
     {
         var directory = Path.Combine(Path.GetTempPath(), "WispRunTests", Guid.NewGuid().ToString("N"));

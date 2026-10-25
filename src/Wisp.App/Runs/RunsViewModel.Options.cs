@@ -93,29 +93,43 @@ public sealed partial class RunsViewModel
         // The countdown holds at zero while a name or notes save still holds the run store.
         if (!_metadataSaveTask.IsCompleted) return;
         _countdownStartedAt = null;
-        try { StartNow(); }
+        _ = StartAfterCountdownAsync();
+    }
+    private async Task StartAfterCountdownAsync()
+    {
+        try { await StartNowAsync(); }
         catch (LibraryPausedException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         { Fail("The recording could not start after the countdown. Check live telemetry and local storage, then try again."); }
     }
-    private void StartNow()
+    private async Task StartNowAsync()
     {
-        var withoutTune = _recordWithoutTuneOnce;
-        _recordWithoutTuneOnce = false;
-        _recordingNotice = null;
-        _tunePreparationFailed = false;
-        if (!withoutTune && (AttachTuneChoice.CurrentCar || AttachTuneChoice.SavedTuneId is not null))
+        if (_startPending) return;
+        _startPending = true;
+        try
         {
-            if (_tunePreparation is not null) return;
-            var cancellation = new CancellationTokenSource();
-            _tunePreparation = cancellation;
-            var revision = ++_tunePreparationRevision;
-            RefreshStatus();
-            _ = PrepareTuneAndStartAsync(AttachTuneChoice, cancellation, revision);
-            return;
+            // An automatic lap save or a details save holds the run store for a moment. Waiting here, before
+            // the tune check and the start, lets their freshness windows begin on a free library.
+            await _service.WaitForLibraryAsync();
+            if (_disposed) return;
+            var withoutTune = _recordWithoutTuneOnce;
+            _recordWithoutTuneOnce = false;
+            _recordingNotice = null;
+            _tunePreparationFailed = false;
+            if (!withoutTune && (AttachTuneChoice.CurrentCar || AttachTuneChoice.SavedTuneId is not null))
+            {
+                if (_tunePreparation is not null) return;
+                var cancellation = new CancellationTokenSource();
+                _tunePreparation = cancellation;
+                var revision = ++_tunePreparationRevision;
+                RefreshStatus();
+                _ = PrepareTuneAndStartAsync(AttachTuneChoice, cancellation, revision);
+                return;
+            }
+            BeforeStart?.Invoke();
+            if (!_service.Start(new RunRecordingOptions(_activeStopAfter))) Error = _service.Error ?? _service.Status;
         }
-        BeforeStart?.Invoke();
-        if (!_service.Start(new RunRecordingOptions(_activeStopAfter))) Error = _service.Error ?? _service.Status;
+        finally { _startPending = false; }
     }
     private void NotifyRecordingOptions()
     {
