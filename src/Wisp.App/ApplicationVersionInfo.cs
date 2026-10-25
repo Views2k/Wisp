@@ -15,6 +15,11 @@ public static class ApplicationVersionInfo
 
     public static string? DiagnosticBuildLabel { get; } = ReadBuildMetadata("WispDiagnosticBuildLabel");
 
+    // Private test builds never install updates automatically (AppController.EnableAutomaticApplicationUpdates);
+    // their copy points at the Update button instead of promising an installation.
+    internal static bool AutomaticInstallation => DiagnosticBuildId is null;
+    internal static string AutomaticInstallationNote => AutomaticInstallation ? " Updates install automatically after Forza closes." : "";
+
     internal static bool LapDiagnosticsEnabled { get; } = ShouldEnableLapDiagnostics(
         DiagnosticBuildId, ReadBuildMetadata("WispLapDiagnosticsEnabled"));
 

@@ -24,6 +24,9 @@ internal sealed class CrashReportStore(string directory, Action<string, byte[]>?
     internal long RecoveryGeneration { get { lock (_gate) return _recoveryGeneration; } }
     private readonly string _path = Path.Combine(directory, "reports.json");
     internal string StoreDirectory => directory;
+    // The current run's native fault record: the native handler keeps it open for the whole run, so an
+    // explicit deletion leaves it to the next launch's recovery instead of failing on it.
+    internal string? ActiveNativeRecord { get; set; }
     private sealed record Entry(CrashReport Report, bool Acknowledged);
     private sealed record Document(int Version, Entry[] Reports);
 
@@ -120,7 +123,7 @@ internal sealed class CrashReportStore(string directory, Action<string, byte[]>?
                 if (name is { Length: 44 } && name.StartsWith("reports-", StringComparison.Ordinal) &&
                     name.EndsWith(".tmp", StringComparison.Ordinal) &&
                     name.AsSpan(8, 32).IndexOfAnyExcept("0123456789abcdef") < 0 ||
-                    includeReport && name is { Length: 43 } && name.StartsWith("native-", StringComparison.Ordinal) &&
+                    includeReport && name != ActiveNativeRecord && name is { Length: 43 } && name.StartsWith("native-", StringComparison.Ordinal) &&
                     name.EndsWith(".txt", StringComparison.Ordinal) &&
                     name.AsSpan(7, 32).IndexOfAnyExcept("0123456789abcdef") < 0)
                     complete &= DeleteOwnedFile(parent, name);

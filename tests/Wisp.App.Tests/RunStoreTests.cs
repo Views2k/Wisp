@@ -241,6 +241,27 @@ public sealed class RunStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task RequestedRecoveryListsAJournalLeftByAFailedSaveWithoutWaitingForTheNextLaunch()
+    {
+        var run = RunTestData.CreateRun();
+        var store = new RunStore(_directory);
+        Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        await using (var journal = store.CreateJournal(run with { Samples = [] }))
+        {
+            await journal.AppendAsync(run.Samples[0]);
+            await journal.AppendAsync(run.Samples[1]);
+            await journal.FlushAsync();
+        }
+        // The store recovered once at its first listing; a journal closed afterwards waits for a request.
+        Assert.Empty(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        store.RequestRecovery();
+        var summary = Assert.Single(await store.ListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(summary.IsIncomplete);
+        Assert.Equal("Recovered from the recording's journal", summary.FinishReason);
+        Assert.False(File.Exists(Path.Combine(_directory, $"{run.Id:N}.partial")));
+    }
+
+    [Fact]
     public async Task JournalsWithoutSamplesAreRemovedAtRecovery()
     {
         var run = RunTestData.CreateRun();

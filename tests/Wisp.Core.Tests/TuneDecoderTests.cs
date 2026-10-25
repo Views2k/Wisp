@@ -206,6 +206,61 @@ public sealed class TuneDecoderTests
     public void FormatterPreservesTracedSignedHalfAndTruncation(double value, int digits, string expected) =>
         Assert.Equal(expected, TuneDecoder.FormatNumber(value, digits));
 
+    // A saved tune or run attachment validates against the definitions of the reader that wrote it. A
+    // change to any definition is a new ReaderVersion with its own entry in TryGetDefinitions, and the
+    // entries below stay so earlier snapshots remain readable.
+    private static readonly string[] ShippedDefinitions =
+    [
+        "FrontTirePressure:Tires:Pressure:1:",
+        "RearTirePressure:Tires:Pressure:1:",
+        "FinalDrive:Gearing:Number:2:Transmission",
+        "Gear1:Gearing:Number:2:Transmission",
+        "Gear2:Gearing:Number:2:Transmission",
+        "Gear3:Gearing:Number:2:Transmission",
+        "Gear4:Gearing:Number:2:Transmission",
+        "Gear5:Gearing:Number:2:Transmission",
+        "Gear6:Gearing:Number:2:Transmission",
+        "Gear7:Gearing:Number:2:Transmission",
+        "Gear8:Gearing:Number:2:Transmission",
+        "Gear9:Gearing:Number:2:Transmission",
+        "Gear10:Gearing:Number:2:Transmission",
+        "FrontCamber:Alignment:Angle:1:SpringDamper",
+        "RearCamber:Alignment:Angle:1:SpringDamper",
+        "FrontToe:Alignment:Angle:1:SpringDamper",
+        "RearToe:Alignment:Angle:1:SpringDamper",
+        "FrontCaster:Alignment:Angle:1:SpringDamper",
+        "FrontAntiroll:AntirollBars:Number:2:FrontAntiroll",
+        "RearAntiroll:AntirollBars:Number:2:RearAntiroll",
+        "FrontSprings:Springs:SpringRate:1:SpringDamper",
+        "RearSprings:Springs:SpringRate:1:SpringDamper",
+        "FrontRideHeight:Springs:RideHeight:1:SpringDamper",
+        "RearRideHeight:Springs:RideHeight:1:SpringDamper",
+        "FrontRebound:Damping:Number:1:SpringDamper",
+        "RearRebound:Damping:Number:1:SpringDamper",
+        "FrontBump:Damping:Number:1:SpringDamper",
+        "RearBump:Damping:Number:1:SpringDamper",
+        "FrontDownforce:Aero:Downforce:0:FrontAero",
+        "RearDownforce:Aero:Downforce:0:RearAero",
+        "BrakeBalance:Brake:Percentage:0:Brakes",
+        "BrakePressure:Brake:Percentage:0:Brakes",
+        "FrontDiffAcceleration:Differential:Percentage:0:Differential",
+        "FrontDiffDeceleration:Differential:Percentage:0:Differential",
+        "RearDiffAcceleration:Differential:Percentage:0:Differential",
+        "RearDiffDeceleration:Differential:Percentage:0:Differential",
+        "CenterDiffBalance:Differential:Percentage:0:Differential"
+    ];
+
+    [Fact]
+    public void ShippedReaderVersionsKeepTheirDefinitions()
+    {
+        Assert.Equal("fh6-tune-1", TuneDecoder.ReaderVersion);
+        Assert.True(TuneDecoder.TryGetDefinitions("fh6-tune-1", out var definitions));
+        Assert.Equal(ShippedDefinitions, definitions.Select(definition =>
+            $"{definition.Id}:{definition.Category}:{definition.Quantity}:{definition.Decimals}:{definition.Part}").ToArray());
+        Assert.False(TuneDecoder.TryGetDefinitions("fh6-tune-0", out _));
+        Assert.False(TuneDecoder.TryGetDefinitions(null, out _));
+    }
+
     [Fact]
     public void SnapshotRoundTripsAndRejectsTamperedContent()
     {

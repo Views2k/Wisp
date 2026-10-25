@@ -34,6 +34,15 @@ public sealed partial class RunStore
     private bool _recovered;
     private bool _isFull;
     public string? Warning { get; private set; }
+
+    // The warning of the last operation, handed over once: the page shows it with that operation's
+    // result, and the next refresh starts clean instead of repeating it.
+    internal string? TakeWarning()
+    {
+        var warning = Warning;
+        Warning = null;
+        return warning;
+    }
     public bool IsFull => Volatile.Read(ref _isFull);
 
     public RunStore(string directory)
@@ -44,7 +53,6 @@ public sealed partial class RunStore
 
     public Task<IReadOnlyList<RunSummary>> ListAsync(CancellationToken cancellationToken = default) => InBackground<IReadOnlyList<RunSummary>>(async () =>
     {
-        Warning = null; // A warning describes one listing; the next listing starts clean.
         await RecoverAsync().ConfigureAwait(false);
         var summaries = new List<RunSummary>();
         foreach (var path in Directory.EnumerateFiles(_directory, "*.wisprun"))
@@ -188,6 +196,13 @@ public sealed partial class RunStore
         if (!_gate.Wait(0)) return null;
         try { return new RunJournalStartReservation(this, _gate); }
         catch { _gate.Release(); throw; }
+    }
+
+    // Completes when no library operation holds the store, or after the wait. An automatic lap save or
+    // a details save takes well under a second; the start that follows reserves the store itself.
+    internal async Task WaitForIdleAsync(TimeSpan wait, CancellationToken cancellationToken)
+    {
+        if (await _gate.WaitAsync(wait, cancellationToken).ConfigureAwait(false)) _gate.Release();
     }
 
     internal RunJournal CreateJournal(RecordedRun header, RunJournalStartReservation reservation)
@@ -353,6 +368,10 @@ public sealed partial class RunStore
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
+    // A recording whose final save failed left its journal in place; the next listing recovers it
+    // instead of the next launch.
+    internal void RequestRecovery() => Volatile.Write(ref _recovered, false);
+
     private async Task RecoverAsync()
     {
         if (_recovered) return;
@@ -403,7 +422,7 @@ public sealed partial class RunStore
                         Markers = markers.ToArray(),
                         IsIncomplete = true,
                         TuneAttachment = header.TuneAttachment is { } attachment ? attachment with { DrivingContinuityInterrupted = true } : null,
-                        FinishReason = "Recovered after Wisp closed before the run finished"
+                        FinishReason = "Recovered from the recording's journal"
                     }, overwrite: false, finalizeContactFormat: true).ConfigureAwait(false);
                 reader.Dispose();
                 file.Dispose();

@@ -65,6 +65,14 @@ public partial class App : Application
 
     private void OnUnhandledUiException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
+        // A clip player whose video surface could not be created has already failed itself and closes;
+        // the exception WPF raises for the missing child window is reported, not fatal.
+        if (e.Exception is Clips.LosslessVideoSurfaceException surface)
+        {
+            _crashMonitor.RecoveredUiException(surface, "lossless-surface");
+            e.Handled = true;
+            return;
+        }
         Interlocked.Exchange(ref _fatalExit, 1);
         if (DashboardRenderingFallback.IsRenderThreadFailure(e.Exception))
             DashboardRenderingFallback.TryRequest(_crashReports.StoreDirectory, DateTimeOffset.UtcNow);
@@ -105,6 +113,7 @@ public partial class App : Application
         // The native handler records the faulting address and call stack of a hardware fault
         // for this run; the next run reports it with the crash.
         NativeCrashCapture.TryInstall(_crashReports.StoreDirectory, _runId);
+        _crashReports.ActiveNativeRecord = Path.GetFileName(NativeCrashCapture.PathFor(_crashReports.StoreDirectory, _runId));
         _activationEvent = new EventWaitHandle(
             initialState: false,
             EventResetMode.AutoReset,
@@ -188,6 +197,7 @@ public partial class App : Application
             ApplicationUpdateTelemetry.Record(updateResult.Outcome == "success" ? "started" : "failed", updateResult.TargetVersion,
                 reason: updateResult.Outcome == "success" ? null : updateResult.Outcome == "unknown" ? "version-mismatch" : "installer", source: updateResult.SourceVersion);
             RecordSupplementarySignal("update", "update", updateResult.Outcome, "installed", incident: updateResult.Incident);
+            if (updateResult.Outcome == "success") ApplicationUpdateStaging.TryDeleteCompleted(updateResult.TargetVersion);
             _controller.ViewModel.UpdateApplicationUpdateStatus(
                 updateResult.Status,
                 updateResult.Action,
@@ -343,7 +353,9 @@ public partial class App : Application
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
     {
         base.OnSessionEnding(e);
-        if (!e.Cancel && Volatile.Read(ref _fatalExit) == 0)
+        // The sentinel records the notice and withdraws it when Windows cancels the shutdown. Without a
+        // sentinel no cancel notice can follow, so the intent is left to the stop-event correlation.
+        if (!e.Cancel && Volatile.Read(ref _fatalExit) == 0 && _sessionEndSentinel is not null)
             _runExitMarker?.MarkShutdownStarted(ShutdownIntent.OperatingSystem);
     }
 
@@ -718,7 +730,9 @@ public partial class App : Application
             if (gameOpen)
             {
                 _applicationUpdateHandoffActive = false;
-                const string waiting = "Update ready. Wisp will update and restart after you close Forza.";
+                var waiting = ApplicationVersionInfo.AutomaticInstallation
+                    ? "Update ready. Wisp will update and restart after you close Forza."
+                    : "Update ready. Close Forza, then use Update to install it.";
                 _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
                 return (false, waiting);
             }
@@ -807,7 +821,9 @@ public partial class App : Application
                     handoff.StopIfRunning();
                     _applicationUpdateHandoffActive = false;
                     _controller.Runs.CancelMetadataClosePreparation();
-                    const string waiting = "Update ready. Wisp will restart after Forza closes.";
+                    var waiting = ApplicationVersionInfo.AutomaticInstallation
+                        ? "Update ready. Wisp will restart after Forza closes."
+                        : "Update ready. Close Forza, then use Update to install it.";
                     ApplicationUpdateTelemetry.Record("waiting-for-game", installer.Version.ToString());
                     _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
                     return (false, waiting);
@@ -825,7 +841,9 @@ public partial class App : Application
                     handoff.StopIfRunning();
                     _applicationUpdateHandoffActive = false;
                     _controller.Runs.CancelMetadataClosePreparation();
-                    const string waiting = "Update ready. Wisp will restart after your current work is saved.";
+                    var waiting = ApplicationVersionInfo.AutomaticInstallation
+                        ? "Update ready. Wisp will restart after your current work is saved."
+                        : "Update ready. Finish your current work, then use Update to install it.";
                     ApplicationUpdateTelemetry.Record("waiting-for-work", installer.Version.ToString());
                     _controller.ViewModel.UpdateApplicationUpdateStatus(waiting, "Check again", true, true);
                     return (false, waiting);

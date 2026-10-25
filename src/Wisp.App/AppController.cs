@@ -656,7 +656,7 @@ public sealed partial class AppController : IAsyncDisposable
             if (release is null)
             {
                 ViewModel.UpdateApplicationUpdateStatus(
-                    $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is up to date. Updates install automatically after Forza closes.",
+                    $"Wisp {ApplicationVersionInfo.Format(installedVersion)} is up to date.{ApplicationVersionInfo.AutomaticInstallationNote}",
                     "Check again",
                     canCheck: true);
                 return null;
@@ -784,13 +784,15 @@ public sealed partial class AppController : IAsyncDisposable
         _automaticInstaller is { } installer && (installer.HandoffUnavailable || installer.IsExhausted(version.ToString()));
 
     private static string ManualInstallStatus(SemanticVersion version) =>
-        $"Wisp {ApplicationVersionInfo.Format(version)} could not be installed automatically. Download and run the full installer from wispoverlay.com.";
+        $"Wisp {ApplicationVersionInfo.Format(version)} could not be installed automatically. Use Update to try again, or download and run the full installer from wispoverlay.com.";
 
     private void ShowAvailableApplicationUpdate(UpdateRelease release) =>
         ViewModel.UpdateApplicationUpdateStatus(
             AutomaticInstallationStopped(release.Version)
                 ? ManualInstallStatus(release.Version)
-                : $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. Wisp will update and restart after Forza closes.",
+                : ApplicationVersionInfo.AutomaticInstallation
+                    ? $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. Wisp will update and restart after Forza closes."
+                    : $"Wisp {ApplicationVersionInfo.Format(release.Version)} is available. Use Update to install it.",
             "Update",
             canCheck: true,
             isUpdateAvailable: true);
@@ -823,7 +825,7 @@ public sealed partial class AppController : IAsyncDisposable
             return;
         }
         ViewModel.UpdateApplicationUpdateStatus(
-            "Wisp checks on launch and every 15 minutes. Updates install automatically after Forza closes.",
+            $"Wisp checks on launch and every 15 minutes.{ApplicationVersionInfo.AutomaticInstallationNote}",
             "Check now",
             canCheck: true);
     }
@@ -873,6 +875,13 @@ public sealed partial class AppController : IAsyncDisposable
                 return null;
             }
 
+            if (!ApplicationUpdateCheckPolicy.NetworkAvailable())
+            {
+                // As for the check: no connection is a wait, not a failure to report.
+                ApplicationUpdateTelemetry.Record("paused", release.Version.ToString(), reason: "connection");
+                ViewModel.UpdateApplicationUpdateStatus("Connect to the internet to download the update.", "Try again", canCheck: true, isUpdateAvailable: true);
+                return null;
+            }
             supplementaryDownload = SupplementaryObservations.Begin("update", "update", "download");
             ApplicationUpdateTelemetry.Record("downloading", release.Version.ToString(), 0);
             createdAttemptDirectory = ApplicationUpdateStaging.CreateAttemptDirectory(release.Version);
@@ -1947,6 +1956,7 @@ public sealed partial class AppController : IAsyncDisposable
                 Settings.OverlayWidthScale,
                 Settings.OverlayHeightScale,
                 Settings.OverlayOpacity);
+            MonitorPlacement.TryMoveToMonitor(Overlay, key);
             Overlay.RestorePlacementPosition(placement.Left, placement.Top);
         }
         else
@@ -1994,6 +2004,7 @@ public sealed partial class AppController : IAsyncDisposable
         if (placement is not null && key is not null)
         {
             Settings.LastGForcePlacementKey = key;
+            MonitorPlacement.TryMoveToMonitor(GForceOverlay, key);
             GForceOverlay.RestorePosition(placement.Left, placement.Top);
             ViewModel.GForceWidthScale = placement.WidthScale;
             ViewModel.GForceHeightScale = placement.HeightScale;
@@ -2030,6 +2041,7 @@ public sealed partial class AppController : IAsyncDisposable
             Settings.BoostGaugeScale = Math.Clamp(placement.WidthScale, 0.5, 2.0);
             ViewModel.BoostGaugeScale = Settings.BoostGaugeScale;
             BoostGaugeOverlay.ApplyAppearance(Settings.BoostGaugeScale, Settings.OverlayOpacity);
+            MonitorPlacement.TryMoveToMonitor(BoostGaugeOverlay, key);
             BoostGaugeOverlay.RestorePosition(placement.Left, placement.Top);
             return;
         }
@@ -2064,6 +2076,7 @@ public sealed partial class AppController : IAsyncDisposable
             TireTemperatureGaugeOverlay.ApplyAppearance(
                 Settings.TireTemperatureGaugeScale,
                 Settings.OverlayOpacity);
+            MonitorPlacement.TryMoveToMonitor(TireTemperatureGaugeOverlay, key);
             TireTemperatureGaugeOverlay.RestorePosition(placement.Left, placement.Top);
             return;
         }
@@ -2085,35 +2098,52 @@ public sealed partial class AppController : IAsyncDisposable
         HealthContextRecorder.Current.RecordBreadcrumb(HealthEventCode.DisplayChanged);
         KeepOnScreen(Overlay, window =>
         {
-            if (Saved(Settings.Placements, Settings.LastOverlayPlacementKey) is { } saved) window.RestorePlacementPosition(saved.Left, saved.Top);
+            if (Saved(Settings.Placements, Settings.LastOverlayPlacementKey) is { } saved)
+            {
+                MonitorPlacement.TryMoveToMonitor(window, Settings.LastOverlayPlacementKey);
+                window.RestorePlacementPosition(saved.Left, saved.Top);
+            }
             else window.RestorePosition(window.Left, window.Top);
         });
-        KeepOnScreen(GForceOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.GForcePlacements, Settings.LastGForcePlacementKey));
-        KeepOnScreen(BoostGaugeOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.BoostGaugePlacements, Settings.LastBoostGaugePlacementKey));
-        KeepOnScreen(TireTemperatureGaugeOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.TireTemperatureGaugePlacements, Settings.LastTireTemperatureGaugePlacementKey));
-        KeepOnScreen(PowerGaugeOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.PowerGaugePlacements, Settings.LastPowerGaugePlacementKey));
-        KeepOnScreen(TorqueGaugeOverlay, window => Replace(window.RestorePosition, window.Left, window.Top, Settings.TorqueGaugePlacements, Settings.LastTorqueGaugePlacementKey));
+        KeepOnScreen(GForceOverlay, window => Replace(window, window.RestorePosition, window.Left, window.Top, Settings.GForcePlacements, Settings.LastGForcePlacementKey));
+        KeepOnScreen(BoostGaugeOverlay, window => Replace(window, window.RestorePosition, window.Left, window.Top, Settings.BoostGaugePlacements, Settings.LastBoostGaugePlacementKey));
+        KeepOnScreen(TireTemperatureGaugeOverlay, window => Replace(window, window.RestorePosition, window.Left, window.Top, Settings.TireTemperatureGaugePlacements, Settings.LastTireTemperatureGaugePlacementKey));
+        KeepOnScreen(PowerGaugeOverlay, window => Replace(window, window.RestorePosition, window.Left, window.Top, Settings.PowerGaugePlacements, Settings.LastPowerGaugePlacementKey));
+        KeepOnScreen(TorqueGaugeOverlay, window => Replace(window, window.RestorePosition, window.Left, window.Top, Settings.TorqueGaugePlacements, Settings.LastTorqueGaugePlacementKey));
         KeepOnScreen(DriftGaugeOverlay, window =>
         {
-            if (Saved(Settings.DriftGaugePlacements, Settings.LastDriftGaugePlacementKey) is { } saved) window.RestorePosition(saved.Left, saved.Top);
+            if (Saved(Settings.DriftGaugePlacements, Settings.LastDriftGaugePlacementKey) is { } saved)
+            {
+                MonitorPlacement.TryMoveToMonitor(window, Settings.LastDriftGaugePlacementKey);
+                window.RestorePosition(saved.Left, saved.Top);
+            }
             else window.ClampToMonitor();
         });
         KeepOnScreen(LapDeltaOverlay, window =>
         {
-            if (Saved(Settings.LapDeltaPlacements, Settings.LastLapDeltaPlacementKey) is { } saved) window.RestorePosition(saved.Left, saved.Top);
+            if (Saved(Settings.LapDeltaPlacements, Settings.LastLapDeltaPlacementKey) is { } saved)
+            {
+                MonitorPlacement.TryMoveToMonitor(window, Settings.LastLapDeltaPlacementKey);
+                window.RestorePosition(saved.Left, saved.Top);
+            }
             else window.ClampToMonitor();
         });
         KeepOnScreen(LapMapOverlay, window =>
         {
-            if (Saved(Settings.LapMapPlacements, Settings.LastLapMapPlacementKey) is { } saved) window.RestorePosition(saved.Left, saved.Top);
+            if (Saved(Settings.LapMapPlacements, Settings.LastLapMapPlacementKey) is { } saved)
+            {
+                MonitorPlacement.TryMoveToMonitor(window, Settings.LastLapMapPlacementKey);
+                window.RestorePosition(saved.Left, saved.Top);
+            }
             else window.ClampToMonitor();
         });
 
         static OverlayPlacement? Saved(IReadOnlyDictionary<string, OverlayPlacement> placements, string? key) =>
             key is not null && placements.TryGetValue(key, out var placement) ? placement : null;
-        static void Replace(Action<double, double> restore, double left, double top, IReadOnlyDictionary<string, OverlayPlacement> placements, string? key)
+        static void Replace(Window window, Action<double, double> restore, double left, double top, IReadOnlyDictionary<string, OverlayPlacement> placements, string? key)
         {
             var saved = Saved(placements, key);
+            if (saved is not null) MonitorPlacement.TryMoveToMonitor(window, key);
             restore(saved?.Left ?? left, saved?.Top ?? top);
         }
     }

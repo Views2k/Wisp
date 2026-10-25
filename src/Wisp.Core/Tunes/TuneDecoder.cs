@@ -17,6 +17,15 @@ public static class TuneDecoder
 
     internal static readonly ImmutableArray<Definition> Definitions = CreateDefinitions();
 
+    // A saved tune or run attachment validates against the definitions of the reader that wrote it,
+    // so a later reader keeps it readable: a change to a definition is a new ReaderVersion with its own
+    // entry here, and the earlier entries stay. TuneDecoderTests pins each shipped version.
+    internal static bool TryGetDefinitions(string? readerVersion, out ImmutableArray<Definition> definitions)
+    {
+        definitions = readerVersion == ReaderVersion ? Definitions : default;
+        return !definitions.IsDefault;
+    }
+
     public static bool TryDecode(TuneDecodeInput? input, out TuneSnapshot? snapshot, out TuneDecodeFailure failure)
     {
         snapshot = null;

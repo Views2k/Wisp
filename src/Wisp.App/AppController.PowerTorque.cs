@@ -105,6 +105,7 @@ public sealed partial class AppController
         {
             if (window.IsTorque) Settings.LastTorqueGaugePlacementKey = key;
             else Settings.LastPowerGaugePlacementKey = key;
+            MonitorPlacement.TryMoveToMonitor(window, key);
             window.RestorePosition(placement.Left, placement.Top);
         }
         else if (Overlay is not null)

@@ -2180,7 +2180,7 @@
                                                            TextWrapping="Wrap" Margin="0,7,0,0"
                                                            AutomationProperties.LiveSetting="Polite" />
 
-                                                <TextBlock Text="Updates install automatically when Forza is closed. Wisp restarts with your settings preserved."
+                                                <TextBlock Text="{Binding ApplicationUpdateDescription}"
                                                            TextWrapping="Wrap" Foreground="{DynamicResource FaintBrush}" Margin="0,12,0,0" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">

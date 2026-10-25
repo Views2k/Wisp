@@ -25,7 +25,8 @@ internal sealed class AutomaticUpdateCoordinator(
     Action<string> status,
     Func<DateTimeOffset>? clock = null,
     Action<string>? waiting = null,
-    Func<string?>? pendingVersion = null)
+    Func<string?>? pendingVersion = null,
+    Func<bool>? networkAvailable = null)
 {
     // A download or handoff that keeps failing the same way will not succeed later in this session
     // either: after MaximumRetries for one release, automatic attempts stop for that release and the
@@ -38,6 +39,7 @@ internal sealed class AutomaticUpdateCoordinator(
     private string? _exhaustedVersion;
     private DateTimeOffset _retryAfter;
     private readonly Func<DateTimeOffset> _clock = clock ?? (() => DateTimeOffset.UtcNow);
+    private readonly Func<bool> _networkAvailable = networkAvailable ?? (() => ApplicationUpdateCheckPolicy.NetworkAvailable());
 
     // Set once a handoff reports that the update helper is missing or rejected this installation.
     // The coordinator then stays idle for the rest of the session; a manual install from the
@@ -82,7 +84,14 @@ internal sealed class AutomaticUpdateCoordinator(
             }
             var installer = await prepare();
             if (!enabled()) return;
-            if (installer is null) { RecordRetry(pendingVersion?.Invoke()); return; }
+            if (installer is null)
+            {
+                // A download that could not happen while the PC has no connection is a wait, as for the
+                // check, not one of the release's attempts.
+                if (_networkAvailable()) RecordRetry(pendingVersion?.Invoke());
+                else _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
+                return;
+            }
             if (IsExhausted(installer.Version.ToString())) { _retryAfter = _clock() + ApplicationUpdateCheckPolicy.MinimumInterval; return; }
             var gameIsOpen = await gameOpen();
             if (gameIsOpen || workInProgress())

@@ -65,7 +65,11 @@ public sealed partial class AppController
         if (DriftGaugeOverlay is not { } window) return;
         var key = window.GetDisplayKey(gameWindow);
         if (gameWindow == IntPtr.Zero && Settings.LastDriftGaugePlacementKey is { } previous && Settings.DriftGaugePlacements.ContainsKey(previous)) key = previous;
-        if (Settings.DriftGaugePlacements.TryGetValue(key, out var placement)) window.RestorePosition(placement.Left, placement.Top);
+        if (Settings.DriftGaugePlacements.TryGetValue(key, out var placement))
+        {
+            MonitorPlacement.TryMoveToMonitor(window, key);
+            window.RestorePosition(placement.Left, placement.Top);
+        }
         else window.ResetPosition(gameWindow);
     }
 
