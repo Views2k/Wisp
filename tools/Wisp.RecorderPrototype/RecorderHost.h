@@ -53,7 +53,16 @@ namespace recorder::host
     // that cannot drain within SpoolQueueWaitMs means storage is slower than the recording.
     constexpr std::uint64_t SpoolQueueLimitBytes = 512ull * 1024 * 1024;
     constexpr std::uint32_t SpoolQueueWaitMs = 1500;
-    bool SpoolQueueAdmits(std::uint64_t queuedBytes, std::uint64_t packetBytes) noexcept;
+    inline bool SpoolQueueAdmits(std::uint64_t queuedBytes, std::uint64_t packetBytes) noexcept
+    {
+        return packetBytes > 0 && packetBytes <= SpoolQueueLimitBytes && queuedBytes <= SpoolQueueLimitBytes - packetBytes;
+    }
+    // The helper's own stop deadline: past it, the watchdog ends the process. A clean stop gives the
+    // audio source AudioStopMs to end, then the spool writer finishes the packet in hand and closes.
+    // Queued packets are dropped (SpoolWriterQueue::DropPackets), so a stop never waits on a backlog
+    // of up to SpoolQueueLimitBytes on slow storage.
+    constexpr std::uint64_t StopLimitMs = 4500;
+    constexpr std::uint32_t AudioStopMs = 1500;
     // A resumed audio sample preserves its existing media index. Only the wall
     // scheduler origin changes, within the normal bounded A/V scheduling gap.
     bool RebasePausedClock(std::uint64_t source100ns, std::int64_t media100ns,

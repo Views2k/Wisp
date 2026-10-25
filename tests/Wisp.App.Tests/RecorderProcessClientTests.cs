@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -450,6 +451,64 @@ public sealed class RecorderProcessClientTests
         await client.StopAsync(TestToken);
     }
 
+    [Fact]
+    public async Task HelperEndingAfterAnUnansweredStopIsACleanStop()
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild { ExitOnStop = true };
+        var observed = new System.Collections.Concurrent.ConcurrentQueue<Supplementary.SupplementaryObservation>();
+        var previous = Supplementary.SupplementaryObservations.Observer;
+        Supplementary.SupplementaryObservations.Observer = observed.Enqueue;
+        try
+        {
+            await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+            var states = new System.Collections.Concurrent.ConcurrentQueue<RecorderStateUpdate>();
+            client.StateChanged += (_, state) => states.Enqueue(state);
+            await client.OpenAsync(Recording, fixture.Directory, TestToken);
+            await client.StopAsync(TestToken);
+            Assert.Single(child.Commands, command => command.GetProperty("command").GetString() == "stop");
+            Assert.True(child.Exited);
+            Assert.Equal(0, child.Kills);
+            Assert.Null(client.ClientFailure);
+            Assert.DoesNotContain(states, state => state.State == "error");
+            Assert.DoesNotContain(observed, observation => observation.Incident is not null);
+        }
+        finally { Supplementary.SupplementaryObservations.Observer = previous; }
+    }
+
+    [Fact]
+    public async Task FinishedSaveCompletesItsLibraryCopyAfterTheHelperClosesForATransition()
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild { HoldSave = true };
+        var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+        await client.OpenAsync(Recording, fixture.Directory, TestToken);
+        var bufferField = typeof(RecorderProcessClient).GetField("_buffer", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var buffer = Assert.IsType<ClipBufferStore>(bufferField.GetValue(client));
+        var gate = Assert.IsType<SemaphoreSlim>(typeof(ClipBufferStore).GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(buffer));
+        var reconnecting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.StateChanged += (_, state) => { if (state.State == "reconnecting") reconnecting.TrySetResult(); };
+        var id = Guid.NewGuid();
+        var target = new ClipSaveTarget(id, DateTimeOffset.UtcNow, Recording, Path.Combine(fixture.Directory, $"{id:N}.mp4"));
+        var saving = client.SaveAsync(target, TestToken);
+        await child.SaveArrived.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        // Hold the library copy until the helper has gone and the client is disposed.
+        await gate.WaitAsync(TestToken);
+        try
+        {
+            child.CompleteSave();
+            child.Terminal(client.Session, "reconnecting", "target_exited");
+            await reconnecting.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            await client.DisposeAsync();
+            Assert.False(saving.IsCompleted);
+        }
+        finally { gate.Release(); }
+        var media = await saving.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.Equal(1024, media.FileBytes);
+        Assert.Equal(1024, new FileInfo(target.MediaPath).Length);
+        Assert.Null(bufferField.GetValue(client));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -514,6 +573,7 @@ public sealed class RecorderProcessClientTests
         internal bool SilentSave { get; init; }
         internal bool WrongRequest { get; init; }
         internal bool HoldSave { get; init; }
+        internal bool ExitOnStop { get; init; }
         internal string? RejectSaveReason { get; init; }
         internal bool RejectedSaveLeavesFile { get; init; }
         internal bool DelayDiagnosticUntilWait { get; init; }
@@ -557,6 +617,7 @@ public sealed class RecorderProcessClientTests
             var command = document.RootElement.Clone(); Commands.Add(command);
             var name = command.GetProperty("command").GetString();
             if (name == "save") { SaveArrived.TrySetResult(); if (HoldSave) return; }
+            if (name == "stop" && ExitOnStop) { Finish(); return; }
             var request = command.GetProperty("request").GetInt64() + (WrongRequest ? 1 : 0);
             var session = command.GetProperty("session").GetString()!;
             if (name == "save" && RejectSaveReason is not null)

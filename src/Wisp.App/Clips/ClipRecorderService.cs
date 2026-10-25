@@ -76,6 +76,11 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     private long _resetSequence, _sessionStarted;
     private bool _featureAvailable = true;
     private bool _enabled, _saving, _cleanupFailed, _showCaptureBorder;
+    // Completes when the current session's save has ended, library copy included.
+    private Task? _saveEnded;
+    // Closing Wisp waits this long for a clip still being written; the stop that follows cancels
+    // the write. Wisp's own exit bound stays in charge.
+    private static readonly TimeSpan ExitSaveWait = TimeSpan.FromSeconds(4);
     private CancellationTokenSource? _recoveryCancellation;
     private Task _recoveryTask = Task.CompletedTask;
     private bool _recoveryWaiting;
@@ -271,17 +276,31 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
     public async Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken)
     {
         IRecorderSession session;
-        CancellationToken sessionToken;
+        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_sync)
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             if (!_enabled || _saving || _session is null || _sessionLifetime!.IsCancellationRequested ||
                 !NativeCanSave(_nativeState)) throw new RecorderClientException("not_ready") { SaveCompletedWithoutMedia = true };
-            session = _session; sessionToken = _sessionLifetime!.Token; _saving = true;
+            session = _session; _saving = true; _saveEnded = ended.Task;
         }
         PublishNativeState();
-        using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, sessionToken);
-        try { return await session.SaveAsync(target, operation.Token).ConfigureAwait(false); }
+        // A started save finishes on its own budget: the game closing, clipping stopping or Wisp
+        // closing does not abandon a clip that is already being written, and closing the session
+        // waits for it. The caller's token only stops waiting.
+        var save = SaveToEndAsync(session, target, ended);
+        try { return await save.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _ = save.ContinueWith(static task => _ = task.Exception, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            throw;
+        }
+    }
+
+    private async Task<FinalizedClipMedia> SaveToEndAsync(IRecorderSession session, ClipSaveTarget target, TaskCompletionSource ended)
+    {
+        try { return await session.SaveAsync(target, CancellationToken.None).ConfigureAwait(false); }
         catch (RecorderClientException error)
         {
             var current = false;
@@ -294,9 +313,18 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         }
         finally
         {
-            lock (_sync) { if (ReferenceEquals(session, _session)) _saving = false; }
+            lock (_sync) { if (ReferenceEquals(session, _session)) { _saving = false; _saveEnded = null; } }
+            ended.TrySetResult();
             PublishNativeState();
         }
+    }
+
+    private async Task WaitForSaveAsync(Task saveEnded)
+    {
+        try { await saveEnded.WaitAsync(_lifetime.Token).ConfigureAwait(false); return; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        try { await saveEnded.WaitAsync(ExitSaveWait).ConfigureAwait(false); }
+        catch (TimeoutException) { }
     }
 
     private async Task WorkAsync()
@@ -570,6 +598,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         IRecorderSession? session;
         CancellationTokenSource? lifetime;
         EventHandler<RecorderStateUpdate>? handler;
+        Task? saveEnded;
         double? staleDuration, lateDuration;
         lock (_sync)
         {
@@ -577,6 +606,7 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
             // after the backoff; never create another helper until exit is confirmed.
             if (_unconfirmedSession is not null && _recoveryWaiting && Volatile.Read(ref _disposed) == 0) return;
             session = _session ?? _unconfirmedSession; lifetime = _sessionLifetime; handler = _sessionHandler;
+            saveEnded = _saveEnded; _saveEnded = null;
             staleDuration = ObserveCaptureStaleLocked(false);
             lateDuration = ObserveSchedulerLateLocked(false);
             _session = null; _sessionLifetime = null; _sessionHandler = null; _activeObservation = null; _nativeState = null; _saving = false;
@@ -588,6 +618,8 @@ internal sealed class ClipRecorderService : IClipRecorder, IAsyncDisposable
         if (session is null) return;
         if (handler is not null) session.StateChanged -= handler;
         lifetime?.Cancel();
+        // A clip already being written finishes, library copy included, before its recorder stops.
+        if (saveEnded is not null) await WaitForSaveAsync(saveEnded).ConfigureAwait(false);
         var cleanupFailed = false;
         if (lifetime is not null)
         {

@@ -212,8 +212,10 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
     private IRecorderChild? _child;
     private Task? _output, _error;
     private readonly Dictionary<long, TaskCompletionSource<RecorderReply>> _pending = new();
-    private long _nextRequest;
+    private long _nextRequest, _stopRequest;
     private bool _stopping, _configured;
+    // A save, including its library copy, keeps the private buffer open until it ends.
+    private bool _saveActive, _releaseBufferAfterSave;
     private int _opened, _disposed, _lifetimeDisposed;
     private string? _terminalReason, _storage;
     private ClipRecordingSpec? _recording;
@@ -342,8 +344,11 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
         if (target.Id == Guid.Empty || target.Recording != _recording || !string.Equals(target.MediaPath, expected, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("The clip destination does not match its library reservation.", nameof(target));
         if (!await _saves.WaitAsync(0, cancellationToken).ConfigureAwait(false)) throw new RecorderClientException("save_in_progress");
-        using var publication = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _token);
+        // The helper exits right after a recoverable transition, which ends this client's lifetime.
+        // A finished save still completes its library copy, within its own budget.
+        using var publication = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         publication.CancelAfter(TimeSpan.FromMinutes(5));
+        lock (_sync) _saveActive = true;
         try
         {
             var buffer = _buffer ?? throw new RecorderClientException("buffer_storage_unavailable");
@@ -369,7 +374,17 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
             }
             return await buffer.PublishAsync(target, media, publication.Token).ConfigureAwait(false);
         }
-        finally { _saves.Release(); }
+        finally
+        {
+            ClipBufferStore? release = null;
+            lock (_sync)
+            {
+                _saveActive = false;
+                if (_releaseBufferAfterSave) { _releaseBufferAfterSave = false; release = _buffer; _buffer = null; }
+            }
+            if (release is not null) await release.DisposeAsync().ConfigureAwait(false);
+            _saves.Release();
+        }
     }
 
     internal async Task StopAsync(CancellationToken cancellationToken)
@@ -406,6 +421,7 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 if (_pending.Count >= 3) throw new RecorderClientException("protocol_error");
                 _pending.Add(request, pending);
+                if (command == "stop") _stopRequest = request;
             }
             var message = RecorderProtocol.Command(Session, request, command);
             foreach (var field in fields) message.Add(field.Key, field.Value);
@@ -480,6 +496,12 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                     return;
                 }
                 if (_stopping && _pending.Count == 0) return;
+                // The helper ended after a stop request without answering it: the stop is done.
+                if (_stopping && _pending.Count == 1 && _pending.Remove(_stopRequest, out var stop))
+                {
+                    stop.TrySetResult(new(_stopRequest, true, "none"));
+                    return;
+                }
             }
             Fail("helper_exited");
         }
@@ -583,7 +605,7 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
             }
             if (child is null)
             {
-                if (_buffer is { } unopened) { await unopened.DisposeAsync().ConfigureAwait(false); _buffer = null; }
+                await ReleaseBufferAsync().ConfigureAwait(false);
                 return;
             }
             try { child.Input.Close(); } catch (Exception error) when (error is IOException or ObjectDisposedException) { }
@@ -612,13 +634,25 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                     if (exited)
                     {
                         child.Dispose();
-                        if (_buffer is { } finished) { await finished.DisposeAsync().ConfigureAwait(false); _buffer = null; }
+                        await ReleaseBufferAsync().ConfigureAwait(false);
                     }
                 }
             }
             if (!exited) throw new RecorderClientException("helper_shutdown_failed");
         }
         finally { _shutdown.Release(); }
+    }
+
+    // A save still copying its finished clip into the library releases the buffer when it ends.
+    private async Task ReleaseBufferAsync()
+    {
+        ClipBufferStore? buffer;
+        lock (_sync)
+        {
+            if (_saveActive) { _releaseBufferAfterSave = true; return; }
+            buffer = _buffer; _buffer = null;
+        }
+        if (buffer is not null) await buffer.DisposeAsync().ConfigureAwait(false);
     }
 
     public async ValueTask DisposeAsync()

@@ -44,7 +44,11 @@ Commands and their additional members:
   directly inside the private session workspace that contains `spoolDirectory`).
   The writer uses create-new semantics; this is not the user export folder.
 - `stop`: no additional members. Stop capture, drain bounded work and acknowledge;
-  the client then closes stdin and waits for process exit.
+  the client then closes stdin and waits for process exit. Encoded packets still
+  queued for the spool writer are dropped, not written: they are newer than anything
+  a save retained, and writing up to the queue limit to slow storage would outlast
+  the helper's stop deadline. A helper that closes its output after `stop` without
+  answering it has stopped; the client does not report it as an unexpected exit.
 
 The managed client creates an exclusively leased workspace at
 `%LOCALAPPDATA%/Wisp/ClipBuffer/<session GUID-N>`. Its spool directory is
@@ -95,7 +99,11 @@ within the bounded queue.
 `reconnecting` is valid only with `target_exited`,
 `target_changed`, `window_closed`, `window_resized`, `capture_reconnecting`,
 `encoder_reconnecting`, `audio_reconnecting` or `scheduler_late`. These terminal
-states are emitted after successful cleanup. Managed recovery waits for eligible
+states are emitted after successful cleanup. When the transition happens while a
+save is writing, the save finishes first (it reads only the on-disk spool and the
+save deadline bounds it): its result is sent, then the recording closes and the
+terminal state follows. Meanwhile `pause` is acknowledged, `resume` is refused with
+the current pause reason, and `save` reports `save_in_progress`. Managed recovery waits for eligible
 target observations and starts a fresh A/V epoch with a new rolling buffer;
 already saved clips remain. A `buffering`/`capture_stale` state instead reports
 repetition of the latest frame while the same target remains eligible.
@@ -122,8 +130,10 @@ a different fixed reason.
 The native helper must terminate on stdin EOF, including when the parent dies.
 No helper-created child processes. Commands have managed deadlines: config/start
 15seconds, save5minutes, stop5seconds. The save bound permits a five-minute2160p
-clip to finish on slower storage; cancellation and stopping do not wait for that
-deadline. Timeout, cancellation, malformed protocol,
+clip to finish on slower storage. A save that has started is not tied to the
+recording's lifetime: the managed service waits for it, including its library copy,
+before stopping the helper, and on Wisp exit waits only briefly before the stop
+cancels it. Timeout, cancellation, malformed protocol,
 unexpected EOF or stderr overflow fail pending work and terminate only the exact
 owned helper. The transport does not retry; the managed service owns bounded,
 visible recovery from supported interruption reasons. Shutdown allows5seconds after

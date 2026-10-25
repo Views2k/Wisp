@@ -8,6 +8,7 @@
 #include "AacEncoder.h"
 #include "EncodedSpool.h"
 #include "SpoolMp4Writer.h"
+#include "SpoolWriterQueue.h"
 
 #include <codecapi.h>
 #include <mfapi.h>
@@ -127,10 +128,6 @@ namespace recorder::host
     {
         if (SchedulingAllowed(now, due)) return SchedulingVerdict::OnTime;
         return now - due <= TerminalLateness100ns ? SchedulingVerdict::Late : SchedulingVerdict::Terminal;
-    }
-    bool SpoolQueueAdmits(std::uint64_t queuedBytes, std::uint64_t packetBytes) noexcept
-    {
-        return packetBytes > 0 && packetBytes <= SpoolQueueLimitBytes && queuedBytes <= SpoolQueueLimitBytes - packetBytes;
     }
     std::uint32_t FrameSpan(std::uint64_t now, std::uint64_t due, std::uint32_t rate) noexcept
     {
@@ -297,7 +294,7 @@ namespace recorder::host
                 return true;
             }
         };
-        constexpr ULONGLONG StartupLimitMs = 14000, ProgressLimitMs = 12000, StopLimitMs = 4500;
+        constexpr ULONGLONG StartupLimitMs = 14000, ProgressLimitMs = 12000;
         constexpr ULONGLONG SaveCancelMs = 290000, SaveKillMs = 295000;
         struct Failure { Reason reason; HRESULT hr; };
         void Require(bool value, Reason reason, HRESULT hr = E_FAIL) { if (!value) throw Failure{ reason, hr }; }
@@ -643,7 +640,6 @@ namespace recorder::host
             bool PostSpoolAppend(spool::Track, LONGLONG time, LONGLONG duration, bool clean, const BYTE*, std::size_t) noexcept;
             void RunOnSpoolThread(std::function<void()> work, DWORD timeoutMs);
             bool PostSpoolDetached(std::function<void()> work) noexcept;
-            void DropQueuedSpoolWork() noexcept;
             void NoteDroppedFrames(std::uint32_t count) noexcept;
             spool::Evidence SpoolEvidence() noexcept;
             void PublishSpoolEvidence() noexcept;
@@ -688,25 +684,11 @@ namespace recorder::host
             audio::FeedSlice pendingSlice_{};
             std::array<std::int16_t, aac::MaximumChunkFrames * audio::Channels> silencePcm_{};
             spool::EncodedSpool spool_;
-            // The spool writer thread owns spool_ from its initialization on. Encoded packets wait
-            // here for it, so the media thread never performs filesystem work: a slow write costs
-            // queue memory, not frames.
-            struct SpoolWork
-            {
-                enum class Kind { Append, Request, Detached, Stop } kind = Kind::Append;
-                spool::Track track = spool::Track::Video;
-                LONGLONG time = 0, duration = 0;
-                bool clean = false;
-                std::vector<BYTE> bytes;
-                std::function<void()>* request = nullptr;
-                std::function<void()> owned;
-                Event* done = nullptr;
-            };
+            // The spool writer thread owns spool_ from its initialization on (SpoolWriterQueue).
             std::thread spoolThread_;
+            SpoolWriterQueue spoolQueue_;
+            // Spool evidence and the lossless plan the writer answers.
             std::mutex spoolMutex_;
-            std::condition_variable spoolSignal_, spoolDrained_;
-            std::deque<SpoolWork> spoolQueue_;
-            std::uint64_t spoolQueuedBytes_ = 0, spoolQueuePeakBytes_ = 0, spoolQueueWait100ns_ = 0;
             std::atomic<bool> spoolFailed_{ false };
             spool::Evidence spoolEvidence_{};
             std::uint32_t lateEpisodes_ = 0;
@@ -755,7 +737,7 @@ namespace recorder::host
             firstFailure_.localFrameAgeKnown = localFrameAgeKnown_; firstFailure_.localFrameAge100ns = localFrameAge100ns_;
             firstFailure_.lateEpisodes = lateEpisodes_; firstFailure_.droppedFrames = droppedFrames_;
             firstFailure_.maximumLateness100ns = maximumLateness100ns_;
-            firstFailure_.spoolQueuePeakBytes = spoolQueuePeakBytes_; firstFailure_.spoolQueueWait100ns = spoolQueueWait100ns_;
+            firstFailure_.spoolQueuePeakBytes = spoolQueue_.PeakBytes(); firstFailure_.spoolQueueWait100ns = spoolQueue_.Wait100ns();
         }
         void MediaSession::EmitFailureDiagnostic(Reason reason, HRESULT hr, const char* stage) noexcept
         {
@@ -1374,111 +1356,48 @@ namespace recorder::host
         }
         void MediaSession::SpoolThreadMain() noexcept
         {
-            for (;;)
+            spoolQueue_.Serve([this](SpoolWriterQueue::Packet& packet)
             {
-                SpoolWork work;
-                {
-                    std::unique_lock<std::mutex> lock(spoolMutex_);
-                    spoolSignal_.wait(lock, [this] { return !spoolQueue_.empty(); });
-                    work = std::move(spoolQueue_.front()); spoolQueue_.pop_front();
-                    if (work.kind == SpoolWork::Kind::Append) spoolQueuedBytes_ -= work.bytes.size();
-                }
-                // Capacity is free as soon as the packet leaves the queue, not once it is on disk.
-                if (work.kind == SpoolWork::Kind::Append) spoolDrained_.notify_all();
-                if (work.kind == SpoolWork::Kind::Stop) { spoolDrained_.notify_all(); return; }
-                if (work.kind == SpoolWork::Kind::Detached)
-                {
-                    try { work.owned(); } catch (...) { spoolFailed_.store(true); }
-                    PublishSpoolEvidence();
-                    continue;
-                }
-                if (work.kind == SpoolWork::Kind::Request)
-                {
-                    try { (*work.request)(); } catch (...) { spoolFailed_.store(true); }
-                    PublishSpoolEvidence();
-                    work.done->Signal();
-                    continue;
-                }
-                if (!spoolFailed_.load())
-                {
-                    const bool okay = work.track == spool::Track::Video
-                        ? spool_.AppendVideo(work.time, work.duration, work.clean, work.bytes.data(), work.bytes.size())
-                        : spool_.AppendAudio(work.time, work.duration, work.bytes.data(), work.bytes.size());
-                    if (!okay) spoolFailed_.store(true);
-                    PublishSpoolEvidence();
-                }
-                spoolDrained_.notify_all();
-            }
+                if (spoolFailed_.load()) return;
+                const bool okay = packet.video
+                    ? spool_.AppendVideo(packet.time, packet.duration, packet.clean, packet.bytes.data(), packet.bytes.size())
+                    : spool_.AppendAudio(packet.time, packet.duration, packet.bytes.data(), packet.bytes.size());
+                if (!okay) spoolFailed_.store(true);
+                PublishSpoolEvidence();
+            }, [this](std::function<void()>& call)
+            {
+                try { call(); } catch (...) { spoolFailed_.store(true); }
+                PublishSpoolEvidence();
+            });
         }
         bool MediaSession::PostSpoolAppend(spool::Track track, LONGLONG time, LONGLONG duration, bool clean,
             const BYTE* data, std::size_t size) noexcept
         {
             try
             {
-                SpoolWork work;
-                work.track = track; work.time = time; work.duration = duration; work.clean = clean;
-                work.bytes.assign(data, data + size);
-                std::unique_lock<std::mutex> lock(spoolMutex_);
-                if (spoolFailed_.load()) return false;
-                if (!SpoolQueueAdmits(spoolQueuedBytes_, size))
-                {
-                    // Storage is behind the recording. Wait a bounded moment for the writer; after
-                    // that the recording cannot be kept and the failure says so (spool_queue_full).
-                    const auto began = std::chrono::steady_clock::now();
-                    spoolDrained_.wait_for(lock, std::chrono::milliseconds(SpoolQueueWaitMs),
-                        [this, size] { return spoolFailed_.load() || SpoolQueueAdmits(spoolQueuedBytes_, size); });
-                    spoolQueueWait100ns_ += static_cast<std::uint64_t>(
-                        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - began).count() / 100);
-                    if (spoolFailed_.load() || !SpoolQueueAdmits(spoolQueuedBytes_, size))
-                    {
-                        diagnosticStage_ = "spool_queue_full";
-                        return false;
-                    }
-                }
-                spoolQueuedBytes_ += size; spoolQueuePeakBytes_ = (std::max)(spoolQueuePeakBytes_, spoolQueuedBytes_);
-                spoolQueue_.push_back(std::move(work));
-                lock.unlock();
-                spoolSignal_.notify_one();
-                return true;
+                SpoolWriterQueue::Packet packet;
+                packet.video = track == spool::Track::Video; packet.time = time; packet.duration = duration; packet.clean = clean;
+                packet.bytes.assign(data, data + size);
+                // Storage behind the recording waits a bounded moment for the writer; after that the
+                // recording cannot be kept and the failure says so (spool_queue_full).
+                const auto posted = spoolQueue_.PostPacket(std::move(packet), SpoolQueueWaitMs, spoolFailed_);
+                if (posted == SpoolWriterQueue::Post::QueueFull) diagnosticStage_ = "spool_queue_full";
+                return posted == SpoolWriterQueue::Post::Accepted;
             }
             catch (...) { return false; }
         }
         void MediaSession::RunOnSpoolThread(std::function<void()> work, DWORD timeoutMs)
         {
             Event done;
-            {
-                std::lock_guard<std::mutex> lock(spoolMutex_);
-                SpoolWork item; item.kind = SpoolWork::Kind::Request; item.request = &work; item.done = &done;
-                spoolQueue_.push_back(std::move(item));
-            }
-            spoolSignal_.notify_one();
+            spoolQueue_.PostCall([&work] { work(); }, [&done] { done.Signal(); });
             // The request borrows this frame's locals. A writer stuck in a filesystem call past the
             // deadline is a hung helper, which ends like every other blocked driver or storage call.
             if (WaitForSingleObject(done.value, timeoutMs) != WAIT_OBJECT_0) TerminateSelf(ProgressTimeoutExit);
         }
         bool MediaSession::PostSpoolDetached(std::function<void()> work) noexcept
         {
-            try
-            {
-                SpoolWork item; item.kind = SpoolWork::Kind::Detached; item.owned = std::move(work);
-                {
-                    std::lock_guard<std::mutex> lock(spoolMutex_);
-                    spoolQueue_.push_back(std::move(item));
-                }
-                spoolSignal_.notify_one();
-                return true;
-            }
+            try { spoolQueue_.PostCall(std::move(work)); return true; }
             catch (...) { return false; }
-        }
-        void MediaSession::DropQueuedSpoolWork() noexcept
-        {
-            std::lock_guard<std::mutex> lock(spoolMutex_);
-            for (auto it = spoolQueue_.begin(); it != spoolQueue_.end();)
-            {
-                if (it->kind != SpoolWork::Kind::Append) { ++it; continue; }
-                spoolQueuedBytes_ -= it->bytes.size();
-                it = spoolQueue_.erase(it);
-            }
         }
         spool::Evidence MediaSession::SpoolEvidence() noexcept
         {
@@ -1753,7 +1672,7 @@ namespace recorder::host
         bool MediaSession::StopAudio() noexcept
         {
             audioStop_.Signal();
-            if (!Join(audioThread_, 1500)) return false;
+            if (!Join(audioThread_, AudioStopMs)) return false;
             return !audioDone_.load() || AudioCleanupSucceeded(audioEvidence_);
         }
         bool MediaSession::Close(bool clean) noexcept
@@ -1824,8 +1743,10 @@ namespace recorder::host
             okay = cleanupOkay && okay;
             if (spoolThread_.joinable())
             {
-                // A clean stop writes what is still queued; an abandoned recording does not.
-                if (!clean || !okay) DropQueuedSpoolWork();
+                // The writer finishes the packet in hand; queued ones are newer than anything a save
+                // retained, and a discarded buffer never needs them. Writing them could take a slow
+                // drive past the stop deadline (StopLimitMs).
+                (void)spoolQueue_.DropPackets();
                 const bool discardBuffer = clean && okay && !preserveBuffer_ && spoolInitialized_;
                 HRESULT discard = S_OK, close = S_OK;
                 try
@@ -1835,12 +1756,7 @@ namespace recorder::host
                         if (discardBuffer) discard = spool_.DiscardOwnedBuffer();
                         close = spool_.Close();
                     }, 10000);
-                    {
-                        std::lock_guard<std::mutex> lock(spoolMutex_);
-                        SpoolWork stop; stop.kind = SpoolWork::Kind::Stop;
-                        spoolQueue_.push_back(std::move(stop));
-                    }
-                    spoolSignal_.notify_one();
+                    spoolQueue_.PostStop();
                 }
                 catch (...) { cleanupOkay = false; }
                 if (!Join(spoolThread_, 5000)) TerminateSelf();
@@ -1987,10 +1903,19 @@ namespace recorder::host
         bool configured = false, started = false, announcedReady = false, announcedStale = false, announcedLate = false, stopping = false;
         bool initialPaused = false, announcedPaused = false, announcedBufferReady = false;
         Reason initialPauseReason = Reason::FocusLost;
+        // A recoverable transition (the game closed, the display or video device changed) waiting
+        // for the save already writing: the save reads only the on-disk spool and the save watchdog
+        // bounds it. The recording closes, and the transition's state is sent, after its result.
+        Reason closeAfterSave = Reason::None;
         int exitCode = 0;
         try
         {
             shared = std::make_unique<Shared>(); shared->Start();
+            const auto failMedia = [&]
+            {
+                if (!media->Saving() || !protocol::IsRecoverable(media->Error())) throw Failure{ media->Error(), E_FAIL };
+                closeAfterSave = media->Error();
+            };
             const auto startMedia = [&](const protocol::Command& target)
             {
                 shared->startup.store(GetTickCount64()); shared->mediaActive.store(true);
@@ -2033,8 +1958,10 @@ namespace recorder::host
                         break;
                     case protocol::CommandKind::Pause:
                         Require(configured && started && (media || initialPaused), Reason::ProtocolError);
-                        if (media && !media->Pause()) throw Failure{ media->Error(), E_FAIL };
+                        if (media && closeAfterSave == Reason::None && !media->Pause()) failMedia();
                         EmitResult(*shared, { config.session, command.request, true, Reason::None, std::nullopt });
+                        // Acquisition has already ended; only the save is still writing.
+                        if (closeAfterSave != Reason::None) break;
                         if (media)
                         {
                             EmitMediaState(*shared, config.session, *media);
@@ -2045,10 +1972,17 @@ namespace recorder::host
                     case protocol::CommandKind::Resume:
                     {
                         Require(configured && started && SameTarget(command, originalTarget), Reason::TargetChanged);
-                        const bool resumed = initialPaused ? startMedia(command) : media && media->Resume(command);
-                        if (media && media->Failed()) throw Failure{ media->Error(), E_FAIL };
+                        if (closeAfterSave != Reason::None)
+                        {
+                            // Capture stays stopped until the recording closes after the save.
+                            EmitResult(*shared, { config.session, command.request, false, media->PauseReason(), std::nullopt });
+                            break;
+                        }
+                        bool resumed = initialPaused ? startMedia(command) : media && media->Resume(command);
+                        if (media && media->Failed()) { failMedia(); resumed = false; }
                         const auto reason = resumed ? Reason::None : media ? media->PauseReason() : initialPauseReason;
                         EmitResult(*shared, { config.session, command.request, resumed, reason, std::nullopt });
+                        if (closeAfterSave != Reason::None) break;
                         if (!resumed)
                         {
                             if (media) EmitMediaState(*shared, config.session, *media);
@@ -2088,8 +2022,8 @@ namespace recorder::host
                 }
                 if (media)
                 {
-                    if (!media->Tick()) throw Failure{ media->Error(), E_FAIL };
-                    if ((media->Ready() || media->Paused()) && !media->Saving() &&
+                    if (closeAfterSave == Reason::None && !media->Tick()) failMedia();
+                    if (closeAfterSave == Reason::None && (media->Ready() || media->Paused()) && !media->Saving() &&
                         (!announcedReady || announcedPaused != media->Paused() || announcedBufferReady != media->Ready() ||
                             announcedStale != media->SourceStale() || announcedLate != media->SchedulerLate() ||
                             media->BufferStatusChanged()))
@@ -2103,13 +2037,16 @@ namespace recorder::host
                     if (media->CollectSave(result, false))
                     {
                         EmitResult(*shared, result);
+                        if (closeAfterSave != Reason::None) throw Failure{ closeAfterSave, E_FAIL };
                         announcedPaused = media->Paused(); announcedBufferReady = media->Ready();
                         announcedStale = media->SourceStale(); announcedLate = media->SchedulerLate();
                         EmitMediaState(*shared, config.session, *media);
                     }
                 }
                 shared->progress.store(GetTickCount64());
-                const DWORD wait = WaitForSingleObject(shared->wake.value, media ? media->WaitMilliseconds() : INFINITE);
+                // The save signals wake when it finishes; the short wait keeps commands answered meanwhile.
+                const DWORD wait = WaitForSingleObject(shared->wake.value,
+                    !media ? INFINITE : closeAfterSave != Reason::None ? 100 : media->WaitMilliseconds());
                 Require(wait != WAIT_FAILED, Reason::ProtocolError);
             }
         }

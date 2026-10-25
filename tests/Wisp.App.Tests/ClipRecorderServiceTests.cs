@@ -1120,6 +1120,115 @@ public sealed class ClipRecorderServiceTests
         Assert.Empty(service.FailureReport);
     }
 
+    [Theory]
+    [InlineData("reconnecting", "target_exited")]
+    [InlineData("reconnecting", "capture_reconnecting")]
+    [InlineData("stopped", "window_closed")]
+    public async Task GameTransitionDuringSaveFinishesTheClipBeforeClosingTheSession(string state, string reason)
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        var saving = service.SaveAsync(new(Guid.NewGuid(), DateTimeOffset.UtcNow, Recording, "unused"), TestToken);
+        session.Emit(state, reason);
+        // Give a premature close the time to happen.
+        Assert.NotSame(session.Disposed.Task, await Task.WhenAny(session.Disposed.Task, Task.Delay(200, TestToken)));
+        Assert.False(saving.IsCompleted);
+        Assert.False(session.SaveToken.CanBeCanceled);
+        var expected = new FinalizedClipMedia(1024, 1920, 1080, 60, 0, 100_000_000, true);
+        session.Saved.SetResult(expected);
+        Assert.Equal(expected, await saving);
+        await session.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.False(session.StoppedDuringSave);
+        Assert.False(session.DisposedDuringSave);
+        Assert.True(service.Snapshot.Enabled);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StoppingClippingDuringSaveFinishesTheClipBeforeTheRecorderStops(bool featurePause)
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        await using var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        var saving = service.SaveAsync(new(Guid.NewGuid(), DateTimeOffset.UtcNow, Recording, "unused"), TestToken);
+        // A feature pause, or the companion suspend that turns clipping off.
+        var stopping = featurePause ? service.SetFeatureAvailableAsync(false, Recording) : service.SetEnabledAsync(false, Recording, TestToken);
+        Assert.NotSame(stopping, await Task.WhenAny(stopping, Task.Delay(200, TestToken)));
+        Assert.Equal(0, session.Stops);
+        Assert.False(saving.IsCompleted);
+        var expected = new FinalizedClipMedia(1024, 1920, 1080, 60, 0, 100_000_000, true);
+        session.Saved.SetResult(expected);
+        Assert.Equal(expected, await saving);
+        await stopping.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.Equal(1, session.Stops);
+        Assert.False(session.StoppedDuringSave);
+        Assert.True(session.Disposed.Task.IsCompleted);
+        Assert.False(service.Snapshot.Enabled);
+    }
+
+    [Fact]
+    public async Task ClosingWispDuringSaveLetsTheClipFinishBeforeTheRecorderStops()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        using var page = CancellationTokenSource.CreateLinkedTokenSource(TestToken);
+        var saving = service.SaveAsync(new(Guid.NewGuid(), DateTimeOffset.UtcNow, Recording, "unused"), page.Token);
+        // The clips page closes before the recorder when Wisp exits.
+        page.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => saving);
+        var disposal = service.DisposeAsync().AsTask();
+        Assert.NotSame(disposal, await Task.WhenAny(disposal, Task.Delay(200, TestToken)));
+        Assert.Equal(0, session.Stops);
+        Assert.False(session.SaveToken.IsCancellationRequested);
+        session.Saved.SetResult(new(1024, 1920, 1080, 60, 0, 100_000_000, true));
+        await disposal.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        Assert.Equal(1, session.Stops);
+        Assert.False(session.StoppedDuringSave);
+        Assert.True(session.Disposed.Task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task ClosingWispStopsASaveThatOutlastsTheExitWait()
+    {
+        using var fixture = new Fixture();
+        var factory = new SessionFactory();
+        var service = fixture.Service(factory);
+        await service.SetEnabledAsync(true, Recording, TestToken);
+        service.ObserveTarget(new(Target, 1), service.TargetObservationGeneration);
+        var session = await factory.NextAsync();
+        await session.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+        session.Emit("buffering", "none");
+        using var page = CancellationTokenSource.CreateLinkedTokenSource(TestToken);
+        var saving = service.SaveAsync(new(Guid.NewGuid(), DateTimeOffset.UtcNow, Recording, "unused"), page.Token);
+        page.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => saving);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        await service.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15), TestToken);
+        Assert.InRange(System.Diagnostics.Stopwatch.GetElapsedTime(started), TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(10));
+        Assert.Equal(1, session.Stops);
+        Assert.True(session.StoppedDuringSave);
+        // The stop ends a real write; its failure has no caller left and must stay observed.
+        session.Saved.SetException(new RecorderClientException("cancelled"));
+    }
+
     [Fact]
     public async Task PauseBeforeFirstFrameIsNotSaveableAndDoesNotRestart()
     {
@@ -1312,10 +1421,16 @@ public sealed class ClipRecorderServiceTests
             else if (ResumeEmitsBuffering) Emit("buffering", "none");
             return Task.CompletedTask;
         }
-        public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken) => Saved.Task.WaitAsync(cancellationToken);
+        internal CancellationToken SaveToken { get; private set; }
+        internal bool StoppedDuringSave { get; private set; }
+        internal bool DisposedDuringSave { get; private set; }
+        private bool _saveStarted;
+        private bool SaveRunning => _saveStarted && !Saved.Task.IsCompleted;
+        public Task<FinalizedClipMedia> SaveAsync(ClipSaveTarget target, CancellationToken cancellationToken)
+        { _saveStarted = true; SaveToken = cancellationToken; return Saved.Task.WaitAsync(cancellationToken); }
         public Task StopAsync(CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested(); Stops++;
+            cancellationToken.ThrowIfCancellationRequested(); Stops++; StoppedDuringSave |= SaveRunning;
             return StopFailureReason is { } reason ? Task.FromException(new RecorderClientException(reason)) : Task.CompletedTask;
         }
         internal Task<(int Attempt, bool Succeeded)> NextDisposalAsync() =>
@@ -1323,6 +1438,7 @@ public sealed class ClipRecorderServiceTests
         public ValueTask DisposeAsync()
         {
             var attempt = Interlocked.Increment(ref _disposalCount);
+            DisposedDuringSave |= SaveRunning;
             var succeeded = !FailCleanup;
             Disposed.TrySetResult();
             if (succeeded) CleanupConfirmed.TrySetResult();
