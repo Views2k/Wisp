@@ -2,6 +2,22 @@ using Xunit;
 
 namespace Wisp.Updater.Tests;
 
+public sealed class InstallationRegistrationKeyTests
+{
+    [Fact]
+    public void RegistrationKeyIsTheInstallersAppId()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Wisp.sln"))) directory = directory.Parent;
+        Assert.NotNull(directory);
+        var script = File.ReadAllText(Path.Combine(directory.FullName, "installer", "Wisp.iss"));
+        var appId = System.Text.RegularExpressions.Regex.Match(script, @"^AppId=\{\{([0-9A-F-]{36})\}", System.Text.RegularExpressions.RegexOptions.Multiline);
+        Assert.True(appId.Success);
+        Assert.Equal(Wisp.Update.UpdateApplyContract.UninstallRegistryKey,
+            $@"Software\Microsoft\Windows\CurrentVersion\Uninstall\{{{appId.Groups[1].Value}}}_is1");
+    }
+}
+
 public sealed class InstalledApplicationValidatorTests
 {
     [Fact]

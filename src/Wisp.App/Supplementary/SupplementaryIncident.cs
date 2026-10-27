@@ -182,7 +182,14 @@ internal static class SupplementaryIncidentSchema
                 text.Append(component.Component).Append('\n').Append(component.Reason).Append('\n')
                     .Append(component.Code.ToString(CultureInfo.InvariantCulture)).Append('\n');
         if (value.SchemaVersion == 3 && value.Crash is { } crash)
+        {
             text.Append(crash.Origin).Append('\n').Append(crash.Module ?? "").Append('\n');
+            // Windows names the process module (wisp.exe, which carries the .NET runtime) for most faults;
+            // the module Wisp captured at the fault separates a renderer, driver or hook fault from a
+            // runtime one. Its offset changes with every build, so it stays out. Wisp Tools accepts the
+            // signature with or without this line, so reports from earlier versions keep their grouping.
+            if (crash.FaultModule is { Length: > 0 } faultModule) text.Append(faultModule).Append('\n');
+        }
         if (value.SchemaVersion == 3 && value.Update is { } update)
             text.Append(update.InstallerExitCode?.ToString(CultureInfo.InvariantCulture) ?? "").Append('\n');
         if (value.SchemaVersion == 3 && value.Recorder?.Resolution is { } resolution)

@@ -15,6 +15,19 @@ public sealed class SupplementaryIncidentTests
         Assert.True(SupplementaryIncidentSchema.Valid(incident));
         Assert.Equal(incident.Signature, SupplementaryIncidentSchema.Signature(incident with { Crash = incident.Crash! with { Lookup = "timeout" } }));
         Assert.NotEqual(incident.Signature, SupplementaryIncidentSchema.Signature(incident with { Crash = incident.Crash! with { Module = "dxgi.dll" } }));
+        // The module Wisp captured at the fault splits faults Windows attributes to the same module; its offset does not.
+        var native = incident with { Crash = incident.Crash! with { Module = "wisp.exe", FaultModule = "dxgi.dll", FaultOffset = 0x15f2 } };
+        var renderer = native with { Crash = native.Crash! with { FaultModule = "wisp.nativerenderer.dll" } };
+        Assert.NotEqual(SupplementaryIncidentSchema.Signature(native), SupplementaryIncidentSchema.Signature(renderer));
+        Assert.Equal(SupplementaryIncidentSchema.Signature(native),
+            SupplementaryIncidentSchema.Signature(native with { Crash = native.Crash! with { FaultOffset = 0x450f } }));
+        // Without a captured fault module the signature is the one earlier versions sent; with one, the module
+        // is one more line. Wisp Tools' incident signature test uses the same text.
+        static string Hash(string text) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
+        Assert.Equal(3, incident.SchemaVersion);
+        Assert.Equal(Hash("wisp-tools-incident-v3\nwindows-fault\nwindows-application-fault\ncrash-windows\n\nwindows\nntdll.dll\n"), incident.Signature);
+        Assert.Equal(Hash("wisp-tools-incident-v3\nwindows-fault\nwindows-application-fault\ncrash-windows\n\nwindows\nwisp.exe\ndxgi.dll\n"),
+            SupplementaryIncidentSchema.Signature(native));
         Assert.False(SupplementaryIncidentSchema.Valid(incident with { SchemaVersion = 1 }));
         Assert.False(SupplementaryIncidentSchema.Valid(SupplementaryIncidentSchema.Create("windows-fault", crash: new("ui"))));
         Assert.False(SupplementaryIncidentSchema.Valid(SupplementaryIncidentSchema.Create("windows-fault", crash: new("windows", Module: "C:\\PRIVATE\\ntdll.dll"))));

@@ -77,6 +77,11 @@ public static class UpdateApplyContract
     // The same request fails the same way again, so the app stops automatic attempts for the session.
     public const int InvalidRequestExitCode = 2;
 
+    // The installer's registration under the current user, named by its AppId in installer/Wisp.iss.
+    // Setup writes DisplayVersion after it has installed the files.
+    public const string UninstallRegistryKey =
+        @"Software\Microsoft\Windows\CurrentVersion\Uninstall\{A8FC0D58-11E3-4B25-B78D-3B98E9855473}_is1";
+
     public static string CreateReadyEventName(string token)
     {
         if (!IsValidReadyToken(token))

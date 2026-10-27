@@ -16,8 +16,7 @@ internal interface IInstallationRegistrationReader
 
 internal sealed class WindowsInstallationRegistrationReader : IInstallationRegistrationReader
 {
-    private const string UninstallKey =
-        @"Software\Microsoft\Windows\CurrentVersion\Uninstall\{A8FC0D58-11E3-4B25-B78D-3B98E9855473}_is1";
+    private const string UninstallKey = Wisp.Update.UpdateApplyContract.UninstallRegistryKey;
 
     public string? ReadInstallLocation()
     {

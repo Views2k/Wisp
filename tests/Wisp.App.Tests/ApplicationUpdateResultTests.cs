@@ -121,6 +121,35 @@ public sealed class ApplicationUpdateResultTests
     }
 
     [Fact]
+    public void FailedInstallerExitForTheRunningRegisteredTargetIsAnInstalledUpdate()
+    {
+        var target = ApplicationVersionInfo.MachineVersion;
+        string Record(string recorded) =>
+            $$"""{"schemaVersion":1,"state":"failed","sourceVersion":"1.0.0","targetVersion":"{{recorded}}","errorCode":"UPDATE_INSTALLER_EXIT_FAILED","recoveryState":"restarted","installerExitCode":1073807364}""";
+
+        // The installer ended with a failure code after Setup installed and registered the target.
+        using (var layout = new ResultLayout(Record(target)))
+        {
+            Assert.True(ApplicationUpdateLauncher.TryConsumeResult(layout.Root, out var result, () => target));
+            Assert.Equal("success", result.Outcome);
+            Assert.Null(result.Incident);
+            Assert.Equal(target, result.TargetVersion);
+            Assert.Equal($"Wisp {target} was installed successfully.", result.Status);
+            Assert.False(File.Exists(layout.ResultPath));
+        }
+
+        // Setup did not register the target, or the target is not the running build: the update did not complete.
+        foreach (var (registered, recorded) in new[] { ("1.0.0", target), ((string?)null, target), (target, "9.9.9") })
+        {
+            using var layout = new ResultLayout(Record(recorded));
+            Assert.True(ApplicationUpdateLauncher.TryConsumeResult(layout.Root, out var result, () => registered));
+            Assert.Equal("failure", result.Outcome);
+            Assert.Equal("update-installer-exit-failed", result.Incident?.Reason);
+            Assert.Equal(1073807364u, result.Incident?.Update?.InstallerExitCode);
+        }
+    }
+
+    [Fact]
     public void InvalidResultIsConsumedWithoutBeingDisplayed()
     {
         using var layout = new ResultLayout("{\"schemaVersion\":99,\"state\":\"installed\"}");
