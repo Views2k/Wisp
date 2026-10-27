@@ -288,6 +288,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
         }
     }
 
+    // The methods on the failing stack say which of the reader's checks failed; the message stays local.
     internal static SupplementaryIncident TuneIncident(TuneCaptureStage stage, string reason, Exception? error = null) =>
         SupplementaryIncidentSchema.Create("tune", reason, stage switch
         {
@@ -298,7 +299,6 @@ public sealed class TuneCaptureService : IAsyncDisposable
             _ => "tune-current"
         }, error is System.ComponentModel.Win32Exception native ? unchecked((uint)native.NativeErrorCode) :
             error is not null ? unchecked((uint)error.HResult) : null,
-        // The methods on the failing stack say which of the reader's checks failed; the message stays local.
         error is null ? null : SupplementaryIncidentCapture.Exceptions(CrashDiagnostics.CrashReport.DescribeExceptions(error)),
         SupplementaryIncidentCapture.Context(HealthContextRecorder.Current.Snapshot(), DateTimeOffset.UtcNow));
 
