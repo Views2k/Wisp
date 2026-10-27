@@ -15,11 +15,24 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.7.3",
+            "October 27, 2026",
+            "MAINTENANCE",
+            "Wisp 2.7.3 shows a completed update as installed and makes tune read and crash reports more precise.",
+            true,
+            [
+                Group("Updates",
+                    "An update that installed completely is shown as installed, even when the installer process ends with an error code afterwards."),
+                Group("Diagnostics",
+                    "A tune read failure report names the step of the tune reader that failed.",
+                    "Crash reports name the module where a crash happened, so crashes in Wisp's renderer, the graphics driver or other software loaded into Wisp are tracked separately.")
+            ]),
+        new(
             "2.7.2",
             "October 25, 2026",
             "RELIABILITY UPDATE",
             "Wisp 2.7.2 ships every fix from the 2.7.1 audits: HUD layouts return to the right monitor, a clip that is already saving finishes when Forza or Wisp closes, recording waits for a library save, saved tunes stay readable across reader versions, and updates and diagnostics report what happened.",
-            true,
+            false,
             [
                 Group("Reliability",
                     "HUD windows move to the monitor their layout was saved on before taking their saved position, so layouts on monitors with different scaling come back on the right screen.",

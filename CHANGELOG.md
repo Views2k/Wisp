@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.7.3 - 2026-10-27
+
+- An update that installed completely is shown as installed, even when the installer process ends with an error code afterwards.
+- A tune read failure report names the step of the tune reader that failed.
+- Crash reports name the module where a crash happened, so crashes in Wisp's renderer, the graphics driver or other software loaded into Wisp are tracked separately.
+
 ## 2.7.2 - 2026-10-25
 
 - HUD windows move to the monitor their layout was saved on before taking their saved position, so layouts on monitors with different scaling come back on the right screen.

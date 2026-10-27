@@ -19,6 +19,10 @@ Wisp 2.7 is a reliability update. Clips keep recording when the graphics card is
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.7 release notes](docs/releases/Wisp-2.7.0-release-notes.md)
 
+### Wisp 2.7.3
+
+Wisp 2.7.3 shows a completed update as installed and makes tune read and crash reports more precise.
+
 ### Wisp 2.7.2
 
 Wisp 2.7.2 ships every fix from the 2.7.1 audits: HUD layouts return to the right monitor, a clip that is already saving finishes when Forza or Wisp closes, recording waits for a library save, saved tunes stay readable across reader versions, and updates and diagnostics report what happened. See the [2.7.2 release notes](docs/releases/Wisp-2.7.2-release-notes.md).
