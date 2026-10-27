@@ -287,7 +287,8 @@ internal static class ApplicationUpdateLauncher
 
     internal static bool TryConsumeResult(
         string localApplicationDataPath,
-        out ApplicationUpdateResultStatus result)
+        out ApplicationUpdateResultStatus result,
+        Func<string?>? registeredVersion = null)
     {
         result = default;
         var resultPath = ResultPath(localApplicationDataPath);
@@ -319,6 +320,19 @@ internal static class ApplicationUpdateLauncher
                     startedTarget ? $"Wisp {targetVersion} was installed successfully." : "The update needs another attempt. Check for updates to try again.",
                     "Check again", startedTarget ? "success" : "unknown",
                     SourceVersion: record.SourceVersion, TargetVersion: targetVersion);
+                return true;
+            }
+
+            if (record.State == "failed" && record.TargetVersion is { } completedVersion &&
+                completedVersion == ApplicationVersionInfo.MachineVersion &&
+                (registeredVersion ?? RegisteredVersion)() == completedVersion)
+            {
+                // The helper judged the installer by its exit code alone. When the target build is the one
+                // running and Setup registered it, the files were installed and the update completed, even
+                // though the installer process itself ended with a failure code.
+                result = new ApplicationUpdateResultStatus(
+                    $"Wisp {completedVersion} was installed successfully.",
+                    "Check again", "success", SourceVersion: record.SourceVersion, TargetVersion: completedVersion);
                 return true;
             }
 
@@ -385,6 +399,22 @@ internal static class ApplicationUpdateLauncher
                 exitCode is { } code ? unchecked((uint)code) : null)
             : UpdateResultIncident(record, "update-install-handoff");
         return new(incident, HelperExitStatus(reason, permanent), permanent);
+    }
+
+    // The version Setup registered for this user's installation, or null when it cannot be read.
+    private static string? RegisteredVersion()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(UpdateApplyContract.UninstallRegistryKey, writable: false);
+            return key?.GetValue("DisplayVersion") is string text && SemanticVersion.TryParse(text, out var version)
+                ? version.ToString()
+                : null;
+        }
+        catch (Exception exception) when (exception is System.Security.SecurityException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private static string ResultPath(string localApplicationDataPath) =>

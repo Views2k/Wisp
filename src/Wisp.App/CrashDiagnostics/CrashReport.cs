@@ -32,7 +32,18 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
     // A short local-only remark from the operation that recovered, such as which process held a locked file.
     public string? Note { get; init; }
 
-    internal static CrashReport Capture(Exception? exception, CrashOrigin origin, bool terminating, DateTimeOffset now)
+    internal static CrashReport Capture(Exception? exception, CrashOrigin origin, bool terminating, DateTimeOffset now) =>
+        new(Guid.NewGuid(), now.ToUniversalTime(), ApplicationVersionInfo.MachineVersion,
+            ApplicationVersionInfo.DiagnosticBuildId, Environment.Version.ToString(), origin, terminating, DescribeExceptions(exception))
+        {
+            ModuleVersionId = typeof(App).Assembly.ManifestModule.ModuleVersionId,
+            WindowsVersion = Environment.OSVersion.Version.ToString(),
+            ProcessArchitecture = RuntimeInformation.ProcessArchitecture
+        };
+
+    // The exception chain as types, HRESULTs and the methods on each stack; operation failures that are
+    // not crashes use the same projection so their reports can name where they failed.
+    internal static CrashExceptionInfo[] DescribeExceptions(Exception? exception)
     {
         var errors = new List<CrashExceptionInfo>();
         var pending = new Queue<Exception>();
@@ -52,13 +63,7 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
             }
             else if (error.InnerException is { } inner) pending.Enqueue(inner);
         }
-        return new(Guid.NewGuid(), now.ToUniversalTime(), ApplicationVersionInfo.MachineVersion,
-            ApplicationVersionInfo.DiagnosticBuildId, Environment.Version.ToString(), origin, terminating, errors.ToArray())
-        {
-            ModuleVersionId = typeof(App).Assembly.ManifestModule.ModuleVersionId,
-            WindowsVersion = Environment.OSVersion.Version.ToString(),
-            ProcessArchitecture = RuntimeInformation.ProcessArchitecture
-        };
+        return errors.ToArray();
     }
 
     // Revalidate disk content before showing or copying it, even though only safe fields are written.

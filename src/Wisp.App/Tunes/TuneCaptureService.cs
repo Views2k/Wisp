@@ -298,7 +298,8 @@ public sealed class TuneCaptureService : IAsyncDisposable
             _ => "tune-current"
         }, error is System.ComponentModel.Win32Exception native ? unchecked((uint)native.NativeErrorCode) :
             error is not null ? unchecked((uint)error.HResult) : null,
-        error is null ? null : [new(CrashDiagnostics.CrashReportSymbols.ExceptionType(error.GetType()), unchecked((uint)error.HResult), [])],
+        // The methods on the failing stack say which of the reader's checks failed; the message stays local.
+        error is null ? null : SupplementaryIncidentCapture.Exceptions(CrashDiagnostics.CrashReport.DescribeExceptions(error)),
         SupplementaryIncidentCapture.Context(HealthContextRecorder.Current.Snapshot(), DateTimeOffset.UtcNow));
 
     private TuneCaptureResult Fail(TuneCaptureStatus status, string message, long generation, string details, SupplementaryIncident? incident = null)
