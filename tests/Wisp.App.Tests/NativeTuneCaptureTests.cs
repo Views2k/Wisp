@@ -122,10 +122,10 @@ public sealed class NativeTuneCaptureTests
         var memory = new Memory();
         var read = new NativeTuneRead(memory, CancellationToken.None);
         _ = read.Bytes(0x10000, 4);
-        read.Require(true);
-        Assert.Throws<InvalidDataException>(() => read.Require(false));
+        read.Require(true, TuneReadCheck.CarOrdinal);
+        Assert.Throws<InvalidDataException>(() => read.Require(false, TuneReadCheck.CarOrdinal));
         memory.Fill = 1;
-        Assert.Throws<TuneChangedException>(() => read.Require(false));
+        Assert.Throws<TuneChangedException>(() => read.Require(false, TuneReadCheck.CarOrdinal));
     }
 
     [Fact]
@@ -210,6 +210,35 @@ public sealed class NativeTuneCaptureTests
         Assert.True(service.IsCurrent(restarted));
         service.Invalidate();
         Assert.False(service.IsCurrent(restarted));
+    }
+
+    [Theory]
+    [InlineData("setup")]
+    [InlineData("unverified")]
+    [InlineData("session")]
+    [InlineData("generation")]
+    [InlineData("compatibility")]
+    public async Task UnverifiedOrDifferentSetupDoesNotInheritBenchmarks(string change)
+    {
+        var factory = new Factory();
+        var performance = new TunePerformance(32f, 90f, 1.1f, 1.2f, 4.5f, 10.5f, 85f, 0.5f, 0.5f, 12f);
+        var input = Input() with { Performance = performance, PerformanceSetupKey = "first" };
+        await using var service = new TuneCaptureService(factory, (_, _) => input);
+        var first = (await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Snapshot!;
+        Assert.Equal(performance, first.Performance);
+        input = input with { Performance = null };
+        switch (change)
+        {
+            case "setup": input = input with { PerformanceSetupKey = "different" }; break;
+            case "unverified": input = input with { PerformanceSetupKey = null }; break;
+            case "session": factory.Session = "next-session"; break;
+            case "generation": service.Invalidate(); break;
+            case "compatibility": factory.Generation++; break;
+        }
+        var current = (await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Snapshot!;
+        Assert.Null(current.Performance);
+        Assert.False(service.IsCurrent(first));
+        Assert.True(service.IsCurrent(current));
     }
 
     [Fact]
@@ -378,7 +407,7 @@ public sealed class NativeTuneCaptureTests
         };
     }
 
-    private sealed class Factory : INativeHudProcessMemoryFactory
+    internal sealed class Factory : INativeHudProcessMemoryFactory
     {
         internal NativeGameVerification Verification = NativeGameVerification.Unavailable;
         internal int Opens;

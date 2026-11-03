@@ -4,6 +4,31 @@ using System.IO;
 
 namespace Wisp.App.Tunes;
 
+// Stable FACILITY_ITF codes carried by existing Tune incidents and copied read details.
+internal enum TuneReadCheck : uint
+{
+    CarOrdinal = 0x8004A601,
+    Drivetrain = 0x8004A602,
+    GearCount = 0x8004A603,
+    GearRatio = 0x8004A604,
+    FinalDrive = 0x8004A605,
+    WheelIdentity = 0x8004A606,
+    DescriptorCar = 0x8004A607,
+    SpringOwner = 0x8004A608,
+    SpringScale = 0x8004A609,
+    UnitProfile = 0x8004A60A,
+    UnitPreference = 0x8004A60B,
+    PartIndex = 0x8004A60C,
+    CarVector = 0x8004A60D,
+    CarAddress = 0x8004A60E,
+    CarProvider = 0x8004A60F,
+    ConversionReady = 0x8004A610,
+    UnitOverride = 0x8004A611,
+    UnitIndex = 0x8004A612,
+    UnitIdentity = 0x8004A613,
+    UnitCallback = 0x8004A614,
+}
+
 // Per-request read budget. Nothing here writes to, invokes, or scans the game.
 internal sealed class NativeTuneRead(IReadOnlyProcessMemory memory, CancellationToken cancellationToken,
     int maximumBytes = 96 * 1024, TimeSpan? timeout = null)
@@ -53,11 +78,11 @@ internal sealed class NativeTuneRead(IReadOnlyProcessMemory memory, Cancellation
 
     // A check that fails while bytes read so far are changing describes a transition (car or session
     // change, loading), reported as such; only a stable mismatch is a failure of the reader.
-    internal void Require(bool condition)
+    internal void Require(bool condition, TuneReadCheck check)
     {
         if (condition) return;
         VerifyStable();
-        throw new InvalidDataException("The current car's tune is not available yet.");
+        throw new InvalidDataException("The current car's tune is not available yet.") { HResult = unchecked((int)check) };
     }
 
     internal void VerifyStable()

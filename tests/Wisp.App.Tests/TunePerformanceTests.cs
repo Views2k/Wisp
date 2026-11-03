@@ -100,6 +100,20 @@ public sealed class TunePerformanceTests
         else Assert.Throws<InvalidDataException>(() => memory.Read());
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SetupKeyIncludesEveryInstalledPartAndNormalizedSetting(bool changePart)
+    {
+        var memory = new Memory();
+        var key = memory.SetupKey();
+        var address = changePart ? Memory.Descriptor + 0xC + 0x193 : Memory.Actor + 0x71F4 + 0xB7;
+        memory.Put(address, [1]);
+        Assert.NotEqual(key, memory.SetupKey());
+        memory.Put(address, [0]);
+        Assert.Equal(key, memory.SetupKey());
+    }
+
     private sealed class Memory : IReadOnlyProcessMemory
     {
         internal const ulong Actor = 0x200000, Descriptor = 0x300000, Benchmark = 0x400000;
@@ -110,13 +124,19 @@ public sealed class TunePerformanceTests
         {
             I32(Actor + 0x100, 3141); I32(Descriptor, 3141); I32(Benchmark + 0x90C, 3141);
             Put(Actor + 0x2E0, BitConverter.GetBytes(Descriptor));
-            Put(Descriptor + 0xC, new byte[0x188]); Put(Benchmark + 0x134, new byte[0x188]);
+            Put(Descriptor + 0xC, new byte[0x194]); Put(Benchmark + 0x134, new byte[0x188]);
             Put(Actor + 0x71F4, new byte[0xB8]); Put(Benchmark + 0x2C8, new byte[0xB8]);
             I32(Benchmark + 0xB10, 13); Put(Benchmark + 0xB14, [1]);
             foreach (var offset in new ulong[] { 0x954, 0x944, 0x96C, 0x974, 0x914, 0x924, 0x93C, 0xAD8, 0xAD0, 0xAC8 })
             { I32(Benchmark + offset, BitConverter.SingleToInt32Bits(offset is 0xAD8 or 0xAD0 ? .5f : 3.5f)); I32(Benchmark + offset + 4, 2); }
         }
-        internal TunePerformance? Read() => NativeTunePerformance.ReadResults(new(this, TestContext.Current.CancellationToken), Benchmark, Actor, 0x100);
+        internal string SetupKey() => NativeTunePerformance.ReadSetup(new(this, TestContext.Current.CancellationToken), Actor, 0x100)!.Key;
+        internal TunePerformance? Read()
+        {
+            var read = new NativeTuneRead(this, TestContext.Current.CancellationToken);
+            return NativeTunePerformance.ReadSetup(read, Actor, 0x100) is { } setup
+                ? NativeTunePerformance.ReadResults(read, Benchmark, setup) : null;
+        }
         internal void I32(ulong address, int value) => Put(address, BitConverter.GetBytes(value));
         internal void Put(ulong address, byte[] data)
         { for (var i = 0; i < data.Length; i++) _bytes[address + (ulong)i] = data[i]; }

@@ -37,6 +37,8 @@ public sealed class TuneCaptureService : IAsyncDisposable
     private long _observedCompatibilityGeneration;
     private string _session = string.Empty;
     private int _carOrdinal;
+    private string? _performanceSetupKey;
+    private TunePerformance? _verifiedPerformance;
     private bool _disposed;
     private bool _featureAvailable = true;
     private Task? _disposeTask;
@@ -236,11 +238,17 @@ public sealed class TuneCaptureService : IAsyncDisposable
                             TuneCaptureDetails.Create(stage, build))
                         { Incident = TuneIncident(stage, "session-changed") };
                     if (_session.Length != 0 && (_session != memory.SessionIdentity || _carOrdinal != snapshot.Identity.CarOrdinal ||
-                        _compatibilityGeneration != compatibility))
+                        _compatibilityGeneration != compatibility ||
+                        (_performanceSetupKey is not null && _performanceSetupKey != input.PerformanceSetupKey)))
                     {
                         _generation++;
                         changed = true;
                     }
+                    if (!changed && _session.Length != 0 && input.PerformanceSetupKey is not null &&
+                        input.PerformanceSetupKey == _performanceSetupKey && snapshot.Performance is null && _verifiedPerformance is not null)
+                        snapshot = snapshot with { Performance = _verifiedPerformance };
+                    _performanceSetupKey = input.PerformanceSetupKey;
+                    _verifiedPerformance = _performanceSetupKey is null ? null : snapshot.Performance;
                     _session = memory.SessionIdentity;
                     _carOrdinal = snapshot.Identity.CarOrdinal;
                     _compatibilityGeneration = compatibility;
