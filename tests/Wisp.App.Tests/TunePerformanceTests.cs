@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Wisp.App;
 using Wisp.App.Tunes;
 using Wisp.Core;
@@ -10,6 +11,27 @@ namespace Wisp.App.Tests;
 
 public sealed class TunePerformanceTests
 {
+    [Theory]
+    [InlineData("verified", true)]
+    [InlineData("version", false)]
+    [InlineData("hash", false)]
+    [InlineData("length", false)]
+    [InlineData("image", false)]
+    public void Steam479PerformanceRequiresTheVerifiedExecutable(string field, bool expected)
+    {
+        using var source = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.UpdatedSteam.json")!;
+        var document = JsonNode.Parse(source)!.AsObject();
+        document["gameVersion"] = field == "version" ? "6.479.875.0" : "6.479.874.0";
+        document["executableSha256"] = field == "hash" ? new string('A', 64) : "28FE0814168D474F162592D5568479554882D82C6CA6575965B25BBBDFFA89F0";
+        document["executableLength"] = field == "length" ? 184214489L : 184214488L;
+        document["imageSize"] = field == "image" ? 188669952u + 4096 : 188669952u;
+        var profile = NativeTunePerformanceProfiles.Resolve(NativeHudCompatibilityPack.FromRuntimeValidation(document));
+        if (!expected) { Assert.Null(profile); return; }
+        Assert.NotNull(profile);
+        Assert.Equal((0x70E8698UL, 0x716D280UL, 0x6E41728UL), (profile.RootPageVtable, profile.TunePageVtable, profile.BenchmarkVtable));
+        Assert.Equal(new[] { 303, 668, 255, 1884, 346, 637, 1546 }, profile.Guards.Select(g => g.Length));
+    }
+
     private static TunePerformance Captured => new(16.000036f, 34.689072f, 1.928532f, 2.594379f,
         2.1999986f, 3.7833304f, 103.90273f, .504751f, .38999075f, .75537235f);
 
