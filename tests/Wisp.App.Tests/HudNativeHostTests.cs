@@ -140,6 +140,11 @@ internal static class HudNativeHostTests
             AssertMinimizedHostStopsRendering(window, host, handle, Rows);
             AssertForeignOwnerRestart(window, host, presentationHandle, Rows,
                 () => Seed(analog, electric, digital, electricDigital, 6));
+            // Failed host-window Win32 calls release the host and rebuild it on the next attach;
+            // the rebuilt host presents through a new HWND.
+            HudNativeHostRecoveryTests.AssertHostRebuildOnAttach(window, host, controller, analog,
+                () => Seed(analog, electric, digital, electricDigital, 8));
+            presentationHandle = HudNativeHost.PresentationHandle(window);
 
             // Native E_OUTOFMEMORY (allocation pressure while the game starts) restarts
             // the native HUD instead of retiring it: a new target and worker present again.

@@ -25,6 +25,28 @@ internal readonly record struct NativeHostPlacement(NativeHostBounds Bounds, int
     }
 }
 
+// A failed host-window Win32 call, named. Win32Exception reports E_FAIL as its HResult whichever
+// call failed, so failure reports carry the call and HRESULT_FROM_WIN32 of its error code instead.
+internal sealed class NativeHostInteropException : Win32Exception
+{
+    private const int UnspecifiedFailure = unchecked((int)0x80004005); // E_FAIL
+
+    internal NativeHostInteropException(string call, int error) : base(error) => Call = call;
+
+    internal string Call { get; }
+    internal int FailureCode => FailureCodeOf(this);
+
+    internal static string CallOf(Win32Exception error) => (error as NativeHostInteropException)?.Call ?? "Win32";
+
+    // HRESULT_FROM_WIN32 of the error code. A call that left no error code keeps E_FAIL.
+    internal static int FailureCodeOf(Win32Exception error) => error.NativeErrorCode switch
+    {
+        0 => UnspecifiedFailure,
+        < 0 => error.NativeErrorCode,
+        var code => unchecked((int)0x80070000) | (code & 0xFFFF)
+    };
+}
+
 // A Win32-only target: no HwndSource/HwndTarget, GDI bitmap, or WPF pixels.
 // The WPF window remains the layout/editing model, outside the visible HUD path.
 internal sealed class NativeCompositionWindow : IDisposable
@@ -61,7 +83,7 @@ internal sealed class NativeCompositionWindow : IDisposable
         Handle = CreateWindowEx(NoRedirection | Transparent | ToolWindow | NoActivate | 0x00080000,
             ClassName, "Wisp native HUD", 0x80000000, 0, 0, 1, 1,
             IntPtr.Zero, IntPtr.Zero, GetModuleHandle(null), IntPtr.Zero);
-        if (Handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (Handle == IntPtr.Zero) throw Failure("CreateWindowEx");
         _ = OverlayPassiveUpdate.Apply(Handle, native: true);
         _layoutSource.AddHook(LayoutWindowProcedure);
     }
@@ -74,8 +96,8 @@ internal sealed class NativeCompositionWindow : IDisposable
         {
             var layout = _layoutSource.Handle;
             var origin = new Point();
-            if (!GetClientRect(layout, out var client) || !ClientToScreen(layout, ref origin))
-                throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (!GetClientRect(layout, out var client)) throw Failure("GetClientRect");
+            if (!ClientToScreen(layout, ref origin)) throw Failure("ClientToScreen");
             var layoutBounds = new NativeHostBounds(origin.X, origin.Y,
                 origin.X + client.Right, origin.Y + client.Bottom);
             var monitorBounds = layoutBounds;
@@ -83,8 +105,8 @@ internal sealed class NativeCompositionWindow : IDisposable
             {
                 var monitor = MonitorFromWindow(layout, 2); // MONITOR_DEFAULTTONEAREST
                 var info = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
-                if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info))
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                if (monitor == IntPtr.Zero) throw Failure("MonitorFromWindow");
+                if (!GetMonitorInfo(monitor, ref info)) throw Failure("GetMonitorInfo");
                 monitorBounds = new(info.Monitor.Left, info.Monitor.Top, info.Monitor.Right, info.Monitor.Bottom);
             }
             var placement = NativeHostPlacement.Create(layoutBounds, monitorBounds, _fillMonitor);
@@ -105,7 +127,7 @@ internal sealed class NativeCompositionWindow : IDisposable
                 Marshal.SetLastPInvokeError(0);
                 var previousOwner = SetWindowLongPtr(Handle, -8, owner);
                 var error = Marshal.GetLastPInvokeError();
-                if (previousOwner == IntPtr.Zero && error != 0) throw new Win32Exception(error);
+                if (previousOwner == IntPtr.Zero && error != 0) throw new NativeHostInteropException("SetWindowLongPtr", error);
                 raise = true;
             }
             var topmost = (GetWindowLong(layout, -20) & 8) != 0;
@@ -116,7 +138,7 @@ internal sealed class NativeCompositionWindow : IDisposable
                 if (!raise && _visible && _topmost == topmost) flags |= 0x0004; // NOZORDER
                 if (!SetWindowPos(Handle, order, bounds.Left, bounds.Top,
                     bounds.Right - bounds.Left, bounds.Bottom - bounds.Top, flags))
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                    throw Failure("SetWindowPos");
                 _bounds = bounds;
                 _topmost = topmost;
             }
@@ -193,9 +215,12 @@ internal sealed class NativeCompositionWindow : IDisposable
             ClassName = ClassName
         };
         var atom = RegisterClassEx(ref windowClass);
-        if (atom == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (atom == 0) throw Failure("RegisterClassEx");
         return atom;
     }
+
+    // Called directly after the failed call, before any other interop call replaces its error code.
+    private static NativeHostInteropException Failure(string call) => new(call, Marshal.GetLastWin32Error());
 
     private static IntPtr WindowProc(IntPtr hwnd, uint message, IntPtr word, IntPtr data)
     {
