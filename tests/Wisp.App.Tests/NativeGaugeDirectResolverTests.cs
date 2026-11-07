@@ -31,6 +31,76 @@ public sealed class NativeGaugeDirectResolverTests
     private static NativeGaugeLayout Layout => NativeHudBuildContract.BuiltIn.NativeGauge!;
 
     [Fact]
+    public void MissingGaugeSharesRetryAcrossFullAndFastReadsAndResumesNormalSampling()
+    {
+        var memory = ValidMemory(1, false);
+        ConfigureHudReader(memory, Source, 314, 0);
+        memory.SetUInt64(Outer + Layout.OuterChildOffset, 0);
+        var clock = new GaugeClock();
+        var resolver = new NativeHudMemoryResolver(clock, NativeHudBuildContract.BuiltIn);
+        var discoveries = 0;
+        memory.BeforeRead = (address, _) =>
+        {
+            if (address == Module + Layout.RegistryGlobalRva) discoveries++;
+        };
+        var snapshot = resolver.Resolve(memory, Module, 314, 4_000, 8_000, 1);
+        Assert.Equal(NativeAssistProviderStatus.Ready, snapshot.Status);
+        Assert.False(snapshot.HasNativeNeedleState);
+        Assert.Equal(1, discoveries);
+
+        memory.SetUInt64(Outer + Layout.OuterChildOffset, Child);
+        for (var ms = 1; ms < 250; ms++)
+        {
+            clock.Milliseconds = ms;
+            snapshot = ms % 16 == 0
+                ? resolver.Resolve(memory, Module, 314, 4_000, 8_000, (ulong)ms, forceSourceAudit: true)
+                : resolver.RefreshNativeGauge(memory, Module, snapshot, (ulong)ms, false);
+            Assert.Equal(0, snapshot.NativeGaugeObservedTimestamp);
+        }
+        Assert.Equal(1, discoveries);
+
+        clock.Milliseconds = 250;
+        snapshot = resolver.RefreshNativeGauge(memory, Module, snapshot, 250, false);
+        Assert.True(snapshot.HasNativeNeedleState);
+        memory.ResetReadCounts();
+        Assert.True(resolver.RefreshNativeGauge(memory, Module, snapshot, 251, false).HasNativeNeedleState);
+        Assert.Equal(3, memory.ReadCount);
+
+        memory.SetUInt64(Outer + Layout.OuterChildOffset, 0);
+        snapshot = resolver.Resolve(memory, Module, 314, 4_000, 8_000, 252, forceSourceAudit: true);
+        Assert.Equal(0, snapshot.NativeGaugeObservedTimestamp);
+    }
+
+    [Theory]
+    [InlineData("car")]
+    [InlineData("source")]
+    [InlineData("session")]
+    public void NewGaugeContextCanRecoverImmediately(string changed)
+    {
+        var clock = new GaugeClock();
+        var memory = ValidMemory(1, false);
+        ConfigureHudReader(memory, Source, 314, 0);
+        memory.SetUInt64(Outer + Layout.OuterChildOffset, 0);
+        var resolver = new NativeHudMemoryResolver(clock, NativeHudBuildContract.BuiltIn);
+        Assert.False(resolver.Resolve(memory, Module, 314, 4_000, 8_000, 1).HasNativeNeedleState);
+
+        var car = changed == "car" ? 315 : 314;
+        var source = changed == "source" ? Source + 0x10000 : Source;
+        if (changed == "session") resolver.Reset();
+        ConfigureHudReader(memory, source, (uint)car, 0);
+        memory.SetUInt64(Outer + Layout.OuterSourceOffset, source);
+        memory.SetUInt64(Outer + Layout.OuterChildOffset, Child);
+        Assert.True(resolver.Resolve(memory, Module, car, 4_000, 8_000, 2, forceSourceAudit: true).HasNativeNeedleState);
+    }
+
+    private sealed class GaugeClock : TimeProvider
+    {
+        public long Milliseconds { get; set; }
+        public override long TimestampFrequency => 1000;
+        public override long GetTimestamp() => Milliseconds;
+    }
+
+    [Fact]
     public void RuntimeOwnedGaugeTypeRequiresUniqueFullOwnershipAndKeepsGuardedCache()
     {
         using var resource = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.BuiltIn.json")!;

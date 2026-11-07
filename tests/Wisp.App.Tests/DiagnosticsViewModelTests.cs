@@ -541,6 +541,37 @@ public sealed class DiagnosticsViewModelTests
     }
 
     [Fact]
+    public void ElectricMaterialNotificationFollowsPowertrainTransitions()
+    {
+        var viewModel = new DiagnosticsViewModel(new AppSettings());
+        var changes = new List<bool>();
+        var frames = 0;
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(DiagnosticsViewModel.IsElectricPowertrain))
+                changes.Add(viewModel.IsElectricPowertrain);
+            if (e.PropertyName == nameof(DiagnosticsViewModel.NativeGaugeFrame))
+                frames++;
+        };
+        var state = DrivingState();
+        void Update(int cylinders, float rpm) => viewModel.Update(
+            state with { NumCylinders = cylinders, EngineRpm = rpm },
+            new IndicatedSpeed(0, 0, false, false, "Rear (RL + RR)"),
+            new CalibrationResult(null, 0.3, 0.2, 0, true, string.Empty, false),
+            default(ReceiverStatistics), TimeSpan.Zero, SpeedUnit.MilesPerHour, 60,
+            refreshDiagnostics: false, updateGForce: false);
+
+        Update(6, 1200);
+        Update(0, 1300);
+        Update(0, 1400);
+        viewModel.UpdateWaiting(default, TelemetryConnectionState.Waiting, null, 0);
+        viewModel.UpdateWaiting(default, TelemetryConnectionState.Waiting, null, 0);
+
+        Assert.Equal(new[] { true, false }, changes);
+        Assert.Equal(4, frames);
+    }
+
+    [Fact]
     public void WaitingStateClearsRpmEvidence()
     {
         var viewModel = new DiagnosticsViewModel(new AppSettings());

@@ -343,13 +343,18 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     public double GForceOffsetX { get => _gForceOffsetX; private set => Set(ref _gForceOffsetX, value); }
     public double GForceOffsetY { get => _gForceOffsetY; private set => Set(ref _gForceOffsetY, value); }
     public Point GForceTrailPosition { get => _gForceTrailPosition; private set => Set(ref _gForceTrailPosition, value); }
+    public bool IsElectricPowertrain => _nativeGaugeFrame.IsElectric;
+
     public NativeGaugeFrame NativeGaugeFrame
     {
         get => _nativeGaugeFrame;
         private set
         {
+            var powertrainChanged = value.IsElectric != _nativeGaugeFrame.IsElectric;
             if (Set(ref _nativeGaugeFrame, value))
             {
+                if (powertrainChanged)
+                    OnPropertyChanged(nameof(IsElectricPowertrain));
                 OnPropertyChanged(nameof(NativePreviewFrame));
                 NotifyDashboardFrame();
             }

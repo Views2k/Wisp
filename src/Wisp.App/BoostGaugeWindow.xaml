@@ -16,7 +16,7 @@
                                         Display="{Binding BoostDisplay}"
                                         PressureUnit="{Binding SelectedBoostPressureUnit}"
                                         ColorNumber="{Binding BoostGaugeColorNumber}"
-                                        IsElectricMaterial="{Binding NativeGaugeFrame.IsElectric}"
+                                        IsElectricMaterial="{Binding IsElectricPowertrain}"
                                         LowBrush="{DynamicResource BoostLowBrush}"
                                         MidBrush="{DynamicResource BoostMidBrush}"
                                         HighBrush="{DynamicResource BoostHighBrush}" />

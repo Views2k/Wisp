@@ -50,11 +50,21 @@ public sealed partial class NativeHudMemoryResolver
     private ulong _cachedSource;
     private readonly NativeHudCompatibilityPack _pack;
     private readonly NativeGaugeDirectResolver _nativeGaugeResolver;
+    private readonly TimeProvider _gaugeClock;
+    private static readonly TimeSpan GaugeRetryInterval = TimeSpan.FromMilliseconds(250);
+    private (ulong Module, ulong Source, int Car, bool Electric)? _missingGauge;
+    private long _lastGaugeMiss;
 
     public NativeHudMemoryResolver(NativeHudCompatibilityPack? pack = null)
+        : this(TimeProvider.System, pack)
+    {
+    }
+
+    internal NativeHudMemoryResolver(TimeProvider gaugeClock, NativeHudCompatibilityPack? pack)
     {
         _pack = pack ?? NativeHudBuildContract.BuiltIn;
         _nativeGaugeResolver = new NativeGaugeDirectResolver(_pack);
+        _gaugeClock = gaugeClock;
     }
 
     internal NativeHudMemoryResolver(NativeHudCompatibilityPack pack, NativeShiftPerformanceReader shiftReader)
@@ -191,10 +201,21 @@ public sealed partial class NativeHudMemoryResolver
         IReadOnlyProcessMemory memory, ulong moduleBase, ulong source, bool isElectric,
         bool forceStructuralValidation, ulong generation, int carOrdinal, string route)
     {
+        var identity = (moduleBase, source, carOrdinal, isElectric);
+        if (_missingGauge == identity && _gaugeClock.GetElapsedTime(_lastGaugeMiss) < GaugeRetryInterval)
+            return default;
+
+        _missingGauge = null;
         _nativeGaugeResolver.DiagnosticsEnabled = TachDiagnostics.IsEnabled;
         try
         {
-            return _nativeGaugeResolver.Read(memory, moduleBase, source, isElectric, forceStructuralValidation);
+            var gauge = _nativeGaugeResolver.Read(memory, moduleBase, source, isElectric, forceStructuralValidation);
+            if (!gauge.IsAvailable)
+            {
+                _missingGauge = identity;
+                _lastGaugeMiss = _gaugeClock.GetTimestamp();
+            }
+            return gauge;
         }
         finally
         {
@@ -206,6 +227,7 @@ public sealed partial class NativeHudMemoryResolver
     public void Reset()
     {
         _cachedSource = 0;
+        _missingGauge = null;
         _nativeGaugeResolver.Reset();
         ResetShiftPerformance();
     }
