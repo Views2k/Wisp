@@ -70,16 +70,18 @@ public sealed class NativeAdaptiveCacheTests
             return true;
         }
 
-        Assert.False(NativeAdaptiveCompatibility.TryResolve(identity, 1, default, Package, Read, out var pack, out var reason, TestContext.Current.CancellationToken));
+        Assert.False(NativeAdaptiveCompatibility.TryResolve(identity, 1, default, Package, Read, out var pack, out var reason, out var pending, TestContext.Current.CancellationToken));
         Assert.Null(pack);
+        Assert.False(pending);
         Assert.Equal("Adaptive image header", reason);
         var initialReads = reads;
         Assert.True(initialReads > 0);
-        Assert.False(NativeAdaptiveCompatibility.TryResolve(identity, 1, default, Package, Read, out _, out _, TestContext.Current.CancellationToken));
+        Assert.False(NativeAdaptiveCompatibility.TryResolve(identity, 1, default, Package, Read, out _, out _, out pending, TestContext.Current.CancellationToken));
+        Assert.False(pending);
         Assert.Equal(initialReads, reads);
 
         Assert.False(NativeAdaptiveCompatibility.TryResolve(identity with { StartTimeUtcTicks = identity.StartTimeUtcTicks + 1 },
-            1, default, Package, Read, out _, out _, TestContext.Current.CancellationToken));
+            1, default, Package, Read, out _, out _, out _, TestContext.Current.CancellationToken));
         Assert.True(reads > initialReads);
     }
 
@@ -100,12 +102,12 @@ public sealed class NativeAdaptiveCacheTests
         }
         static bool UnexpectedRead(ulong address, Span<byte> destination) => throw new InvalidOperationException("The cancelled caller must not read");
         var first = Task.Run(() => NativeAdaptiveCompatibility.TryResolve(firstIdentity, 1, default, Package,
-            BlockedRead, out _, out _, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+            BlockedRead, out _, out _, out _, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
         try
         {
             Assert.True(entered.Wait(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
             var waiting = Task.Run(() => NativeAdaptiveCompatibility.TryResolve(secondIdentity, 1, default, Package,
-                UnexpectedRead, out _, out _, cancellation.Token), TestContext.Current.CancellationToken);
+                UnexpectedRead, out _, out _, out _, cancellation.Token), TestContext.Current.CancellationToken);
             cancellation.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
             Assert.False(first.IsCompleted);
