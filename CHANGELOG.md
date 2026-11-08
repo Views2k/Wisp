@@ -2,6 +2,18 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.7.4 - 2026-11-07
+
+- When Forza's own speedometer is shown, Wisp reads it again on Forza Horizon 6 builds 6.483.970.0 and 3.483.970.0.
+- A compatibility check that is still running is shown as checking, not as an unsupported game build.
+- A tune read failure report names the check that rejected the car, and a car with an unresolved part level is read as an incomplete snapshot instead of failing.
+- Tune Performance results stay with the current setup while the parts and settings are unchanged.
+- The gauge reader waits 250 ms between attempts when the game's own speedometer is hidden.
+- On the Microsoft Store build, a HUD window whose host window failed at alt-tab or game attach is rebuilt at the next attach; the report names the failing Windows call.
+- A run that ended with a Windows shutdown or sign-out no longer shows a crash card.
+- The setup wizard's Data Out test no longer records its 45-second guidance checkpoint as a failed test.
+- An update check that runs before the PC is connected is retried after two minutes and not reported as a failure.
+
 ## 2.7.3 - 2026-10-27
 
 - An update that installed completely is shown as installed, even when the installer process ends with an error code afterwards.
