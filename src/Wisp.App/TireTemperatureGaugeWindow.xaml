@@ -26,7 +26,7 @@
                                                   Display="{Binding TireTemperatureDisplay}"
                                                   TemperatureUnit="{Binding SelectedTireTemperatureUnit}"
                                                   ReactiveColors="{Binding TireTemperatureReactiveColors}"
-                                                  IsElectricMaterial="{Binding NativeGaugeFrame.IsElectric}"
+                                                  IsElectricMaterial="{Binding IsElectricPowertrain}"
                                                   LowBrush="{DynamicResource BoostLowBrush}"
                                                   MidBrush="{DynamicResource BoostMidBrush}"
                                                   HighBrush="{DynamicResource BoostHighBrush}" />

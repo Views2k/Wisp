@@ -51,7 +51,7 @@ public sealed class PowerTorqueGaugeWindow : Window
             IsTorque = isTorque
         };
         gauge.SetBinding(PowerTorqueGaugeView.DisplayProperty, new Binding(nameof(DiagnosticsViewModel.PowerTorqueDisplay)));
-        gauge.SetBinding(PowerTorqueGaugeView.IsElectricMaterialProperty, new Binding("NativeGaugeFrame.IsElectric"));
+        gauge.SetBinding(PowerTorqueGaugeView.IsElectricMaterialProperty, new Binding(nameof(DiagnosticsViewModel.IsElectricPowertrain)));
         gauge.SetBinding(PowerTorqueGaugeView.TorqueUnitProperty, new Binding(nameof(DiagnosticsViewModel.SelectedTorqueUnit)));
         gauge.SetBinding(PowerTorqueGaugeView.MaximumProperty,
             new Binding(isTorque ? nameof(DiagnosticsViewModel.TorqueGaugeMaximum) : nameof(DiagnosticsViewModel.PowerGaugeMaximum)));
