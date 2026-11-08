@@ -93,6 +93,21 @@ public sealed class NativeAdaptiveFieldVerifierTests
     }
 
     [Fact]
+    public void ASharedHelperMayBeReachedThroughOneJumpThunk()
+    {
+        using var fixture = new Fixture();
+        // Getter 1 calls the shared helper through a 5-byte jump at 0x1700 instead of directly.
+        fixture.Bytes[0x1700] = 0xe9;
+        fixture.Relative(0x1700, 1, 5, 0x1600);
+        fixture.Relative(Fixture.Getter(1), 83, 87, 0x1700);
+        var image = fixture.Image(TestContext.Current.CancellationToken);
+        fixture.Validate(image);
+        // The thunk is part of the proof: a changed jump invalidates the accepted evidence.
+        fixture.Bytes[0x1701] ^= 1;
+        Assert.Throws<IOException>(() => image.FinishProof());
+    }
+
+    [Fact]
     public void ReferencesIntoAnotherMatchedRangeMustKeepTheirInteriorOffset()
     {
         using var fixture = new Fixture();

@@ -153,7 +153,12 @@ internal static class NativeAdaptiveFieldVerifier
                 current = identity.Canonical;
             }
             if (relationships.TryGetValue(previous, out var existing) && existing != current)
+            {
+                // The same single-jump-alias rule as the resolver: one side may reach a shared helper through a thunk.
+                if (NativeAdaptiveResolver.JumpAliasTarget(image, existing) == current) { relationships[previous] = current; return; }
+                if (NativeAdaptiveResolver.JumpAliasTarget(image, current) == existing) return;
                 throw new InvalidDataException("template-shared-reference-conflict");
+            }
             relationships[previous] = current;
         }
         Bind(signature.ReferenceRva, rva);

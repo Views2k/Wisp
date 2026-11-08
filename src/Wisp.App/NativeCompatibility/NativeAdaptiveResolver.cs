@@ -298,8 +298,27 @@ internal sealed class NativeAdaptiveResolver
     private void BindRelationship(uint previous, uint current)
     {
         if (_relationships.TryGetValue(previous, out var existing) && existing != current)
+        {
+            // A build may route one call site of a shared helper through a single jump thunk. The
+            // reference then names the helper through the thunk on one side and directly on the
+            // other; keep the helper itself. Anything else is a disagreement.
+            if (JumpAliasTarget(_image, existing) == current) { _relationships[previous] = current; return; }
+            if (JumpAliasTarget(_image, current) == existing) return;
             throw new InvalidDataException("Adaptive references disagree");
+        }
         _relationships[previous] = current;
+    }
+
+    // The target of a 5-byte relative jump at rva, when both ends are code; the thunk bytes join the proof.
+    internal static uint? JumpAliasTarget(NativeAdaptiveImage image, uint rva)
+    {
+        if (image.Kind(rva, 5) != "code") return null;
+        var bytes = image.Bytes(rva, 5);
+        if (bytes[0] != 0xE9) return null;
+        var target = (long)rva + 5 + BinaryPrimitives.ReadInt32LittleEndian(bytes[1..]);
+        if (target <= 0 || target >= image.ImageSize || image.Kind((uint)target, 1) != "code") return null;
+        image.Remember(rva, bytes);
+        return (uint)target;
     }
 
     private void ValidateRelationships()
