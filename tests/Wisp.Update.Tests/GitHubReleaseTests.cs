@@ -26,6 +26,7 @@ public sealed class GitHubReleaseTests
         Assert.Equal(16, handler.MaxResponseHeadersLength);
         Assert.Equal(1, handler.MaxConnectionsPerServer);
         Assert.NotNull(handler.ConnectCallback);
+        Assert.NotNull(handler.PlaintextStreamFilter);
     }
 
     [Fact]

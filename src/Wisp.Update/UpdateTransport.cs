@@ -26,8 +26,16 @@ internal static class UpdateTransport
         },
         MaxResponseHeadersLength = 16,
         MaxConnectionsPerServer = 1,
-        ConnectCallback = ConnectAsync
+        ConnectCallback = ConnectAsync,
+        PlaintextStreamFilter = ConnectionReady
     };
+
+    // Runs once the TLS handshake of a new connection completed; the stream is used unchanged.
+    internal static ValueTask<Stream> ConnectionReady(SocketsHttpPlaintextStreamFilterContext context, CancellationToken cancellationToken)
+    {
+        if (context.InitialRequestMessage.Options.TryGetValue(TimerOption, out var timer)) timer.Ready();
+        return ValueTask.FromResult(context.PlaintextStream);
+    }
 
     // The default connection (a dual-mode TCP socket with Nagle off), timed for the request that opened it.
     internal static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)

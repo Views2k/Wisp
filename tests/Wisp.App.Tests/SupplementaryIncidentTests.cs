@@ -34,6 +34,36 @@ public sealed class SupplementaryIncidentTests
     }
 
     [Fact]
+    public void TimedOutUpdateRequestCarriesItsPhasesWithoutRecoveryOrChangingTheSignature()
+    {
+        var timing = new Wisp.Update.UpdateRequestTiming("installer", TimeSpan.FromMilliseconds(15283.4),
+            TimeSpan.FromMilliseconds(41.2), TimeSpan.FromMilliseconds(12000.6), TimeSpan.FromMilliseconds(3241.6));
+        var download = SupplementaryIncidentSchema.DownloadEvidence(timing);
+        Assert.Equal(new SupplementaryUpdateDownloadEvidence("installer", 41, 12001, 3242), download);
+        var incident = SupplementaryIncidentSchema.Create("update", "timeout", "update-download", 0x8013153B,
+            update: new(null, Download: download));
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+        Assert.Equal(3, incident.SchemaVersion);
+        Assert.Equal(incident.Signature, SupplementaryIncidentSchema.Signature(incident with
+        {
+            Update = new(null, Download: new("installer", ResponseMs: 1))
+        }));
+        // Wisp Tools validates this exact shape: no recovery key, camel-case phases.
+        var json = JsonSerializer.SerializeToNode(incident, SupplementarySchema.Json)!["update"]!.ToJsonString();
+        Assert.Equal("{\"download\":{\"request\":\"installer\",\"connectMs\":41,\"tlsMs\":12001,\"responseMs\":3242}}", json);
+
+        // Helper failures still state their recovery; unknown requests and out-of-range phases are rejected.
+        Assert.False(SupplementaryIncidentSchema.Valid(SupplementaryIncidentSchema.Create("update", "timeout", "update-download", update: new(null))));
+        Assert.False(SupplementaryIncidentSchema.Valid(SupplementaryIncidentSchema.Create("update", "timeout", "update-download",
+            update: new(null, Download: new("https://github.com/private")))));
+        Assert.False(SupplementaryIncidentSchema.Valid(SupplementaryIncidentSchema.Create("update", "timeout", "update-download",
+            update: new(null, Download: new("installer", ConnectMs: -1)))));
+        Assert.Null(SupplementaryIncidentSchema.DownloadEvidence(timing with { Request = "other" }));
+        Assert.Equal(SupplementaryIncidentSchema.MaximumUpdatePhaseMs, SupplementaryIncidentSchema.DownloadEvidence(
+            timing with { Response = TimeSpan.FromHours(1) })!.ResponseMs);
+    }
+
+    [Fact]
     public void SignatureRetainsFailureIdentityButExcludesChangingContext()
     {
         var first = SupplementaryIncidentSchema.Create("recorder", "encoder_failed", "video_submit", 0x80004005,

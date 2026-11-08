@@ -46,9 +46,12 @@ internal static class SupplementaryOperationFailure
                 HttpRequestException { StatusCode: { } status } => (uint)status,
                 _ => unchecked((uint)error.HResult)
             };
+            // A check or download that reached its response deadline says where that request spent its time.
+            var download = category == "update" ? SupplementaryIncidentSchema.DownloadEvidence(UpdateRequestTiming.From(error)) : null;
             return SupplementaryIncidentSchema.Create(category, Reason(error), failureStage, code,
                 [new(CrashReportSymbols.ExceptionType(error.GetType()), unchecked((uint)error.HResult), [])],
-                SupplementaryIncidentCapture.Context(HealthContextRecorder.Current.Snapshot(), now));
+                SupplementaryIncidentCapture.Context(HealthContextRecorder.Current.Snapshot(), now),
+                update: download is null ? null : new(null, Download: download));
         }
         catch (Exception) { return null; }
     }

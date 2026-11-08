@@ -70,9 +70,10 @@ public sealed class UpdateRequestTimingTests
         var timing = Assert.IsType<UpdateRequestTiming>(UpdateRequestTiming.From(error));
         Assert.Equal(expected, timing.Request);
         Assert.True(timing.Elapsed >= TimeSpan.FromMilliseconds(100));
-        // The scripted handler opens no connection of its own.
-        Assert.Equal(UpdateConnectionState.None, timing.Connection);
-        Assert.Null(timing.ConnectDuration);
+        // The scripted handler opens no connection of its own: the whole wait is the response wait.
+        Assert.Null(timing.Connect);
+        Assert.Null(timing.Tls);
+        Assert.Equal(timing.Elapsed, timing.Response);
         Assert.Empty(Directory.EnumerateFileSystemEntries(directory.Path));
     }
 
@@ -145,21 +146,41 @@ public sealed class UpdateRequestTimingTests
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         var timing = timer.Snapshot();
         Assert.Equal("probe", timing.Request);
-        Assert.Equal(UpdateConnectionState.Connected, timing.Connection);
-        Assert.NotNull(timing.ConnectDuration);
-        Assert.True(timing.ConnectDuration <= timing.Elapsed);
+        Assert.NotNull(timing.Connect);
+        // Plain HTTP has no handshake; the stream filter still marks the connection ready.
+        Assert.NotNull(timing.Tls);
+        Assert.NotNull(timing.Response);
+        Assert.True(timing.Connect + timing.Tls + timing.Response <= timing.Elapsed);
     }
 
     [Fact]
-    public void ConnectionStatesFollowTheConnectCallback()
+    public void TheLastPhasePresentIsTheOneTheDeadlineInterrupted()
     {
-        var timer = new UpdateRequestTimer("installer", TimeProvider.System);
-        Assert.Equal(UpdateConnectionState.None, timer.Snapshot().Connection);
+        var clock = new StepClock();
+        var timer = new UpdateRequestTimer("installer", clock);
+        clock.Advance(1);
+        Assert.Equal(new UpdateRequestTiming("installer", Ms(1), null, null, Ms(1)), timer.Snapshot());
+
         timer.ConnectStarted();
-        Assert.Equal(UpdateConnectionState.Connecting, timer.Snapshot().Connection);
-        Assert.Null(timer.Snapshot().ConnectDuration);
+        clock.Advance(10);
+        Assert.Equal(new UpdateRequestTiming("installer", Ms(11), Ms(10), null, null), timer.Snapshot());
+
         timer.Connected();
-        Assert.Equal(UpdateConnectionState.Connected, timer.Snapshot().Connection);
-        Assert.NotNull(timer.Snapshot().ConnectDuration);
+        clock.Advance(12000);
+        Assert.Equal(new UpdateRequestTiming("installer", Ms(12011), Ms(10), Ms(12000), null), timer.Snapshot());
+
+        timer.Ready();
+        clock.Advance(3000);
+        Assert.Equal(new UpdateRequestTiming("installer", Ms(15011), Ms(10), Ms(12000), Ms(3000)), timer.Snapshot());
+    }
+
+    private static TimeSpan Ms(long milliseconds) => TimeSpan.FromMilliseconds(milliseconds);
+
+    private sealed class StepClock : TimeProvider
+    {
+        private long _timestamp;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _timestamp;
+        internal void Advance(long milliseconds) => _timestamp += TimeSpan.FromMilliseconds(milliseconds).Ticks;
     }
 }
