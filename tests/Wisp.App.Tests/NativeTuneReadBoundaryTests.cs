@@ -223,6 +223,30 @@ public sealed class NativeTuneReadBoundaryTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnmappedInstalledSpringLevelStillReturnsOtherVerifiedTuneFields(bool store)
+    {
+        var memory = new Memory(store);
+        var input = MiataInput();
+        var metadata = memory.CompleteCar(input);
+        // CompleteCar maps the spring/damper category to the sixth installed ID.
+        memory.I32(Memory.Descriptor + 0x10 + 5 * 4, int.MaxValue);
+
+        var actual = NativeTuneCapture.Read(memory, metadata, Token, memory.Layout);
+        Assert.True(TuneDecoder.TryDecode(actual, out var snapshot, out var failure), failure.ToString());
+        Assert.True(TuneDecoder.TryDecode(input, out var reference, out _));
+        Assert.NotNull(snapshot);
+        Assert.NotNull(reference);
+        Assert.False(snapshot.IsComplete);
+        var spring = snapshot.Fields.Single(field => field.Id == TuneFieldId.FrontSprings);
+        Assert.Equal(TuneFieldStatus.UnresolvedPartLevel, spring.Status);
+        Assert.Null(spring.DisplayValue);
+        Assert.Equal(reference.Fields.Single(field => field.Id == TuneFieldId.BrakeBalance),
+            snapshot.Fields.Single(field => field.Id == TuneFieldId.BrakeBalance));
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]
@@ -250,6 +274,32 @@ public sealed class NativeTuneReadBoundaryTests
         Assert.Throws<TuneChangedException>(() => NativeTuneCapture.Read(memory, metadata, Token, memory.Layout));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnusedGearRecordBytesDoNotInvalidateAStableTune(bool store)
+    {
+        var memory = new Memory(store) { GearMutationOffset = 4 };
+        var input = MiataInput();
+        var metadata = memory.CompleteCar(input);
+
+        var actual = NativeTuneCapture.Read(memory, metadata, Token, memory.Layout);
+        Assert.True(TuneDecoder.TryDecode(actual, out var snapshot, out _));
+        Assert.True(snapshot!.IsComplete);
+        Assert.True(TuneDecoder.TryDecode(input, out var reference, out _));
+        Assert.True(reference!.Fields.SequenceEqual(snapshot.Fields));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ChangedGearRatioStillInvalidatesTheCapture(bool store)
+    {
+        var memory = new Memory(store) { GearMutationOffset = 0 };
+        var metadata = memory.CompleteCar(MiataInput());
+        Assert.Throws<TuneChangedException>(() => NativeTuneCapture.Read(memory, metadata, Token, memory.Layout));
+    }
+
     private static TuneDecodeInput MiataInput()
     {
         using var resource = typeof(NativeTuneReadBoundaryTests).Assembly.GetManifestResourceStream("Wisp.TuneFixtures.miata.json");
@@ -266,6 +316,8 @@ public sealed class NativeTuneReadBoundaryTests
         private int _vectorReads;
         private int _activeReads;
         internal ulong? Missing { get; set; }
+        internal int GearMutationOffset { get; init; } = -1;
+        private int _gearReads;
         internal bool ChangeVectorOnRepeat { get; set; }
         internal bool ChangeActiveOnRepeat { get; set; }
         internal int Reads { get; private set; }
@@ -390,6 +442,8 @@ public sealed class NativeTuneReadBoundaryTests
             Reads++;
             for (var i = 0; i < destination.Length; i++)
                 if (address + (ulong)i == Missing || !_bytes.TryGetValue(address + (ulong)i, out destination[i])) return false;
+            if (address == Provider + 0x28 && ++_gearReads > 1 && (uint)GearMutationOffset < (uint)destination.Length)
+                destination[GearMutationOffset] ^= 1;
             if (address == VectorAddress && ++_vectorReads > 1 && ChangeVectorOnRepeat) destination[0] ^= 8;
             if (address == Actor + 0x71F4 && ++_activeReads > 1 && ChangeActiveOnRepeat) destination[0x40] ^= 1;
             return true;
