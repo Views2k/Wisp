@@ -32,6 +32,8 @@ internal sealed class AnalogHudRenderWorker : IDisposable
     private AnalogHudPresentation _presentation;
     private bool _gpuPriority;
     private bool _reset;
+    // Announce the next presented HUD frame even when its scene is compatible with the last announced one.
+    private bool _announceHud;
     private bool _disposed;
     private bool _surfaceVisible;
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -79,7 +81,10 @@ internal sealed class AnalogHudRenderWorker : IDisposable
         }
     }
 
-    internal void UpdateHud(HudWindowSnapshot snapshot, long timestamp)
+    // HudPresented is raised when a presented snapshot is not compatible with the last announced one.
+    // `announce` raises it for the first frame presented from this snapshot on even when the scene is
+    // unchanged: the host asks for that after it synchronized its window again following a failed call.
+    internal void UpdateHud(HudWindowSnapshot snapshot, long timestamp, bool announce = false)
     {
         lock (_gate)
         {
@@ -94,6 +99,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
             _presentation = new(snapshot.Width, snapshot.Height, 0, 0, 1, 0, 0, 1, snapshot.Opacity,
                 snapshot.Active, false, default, null, snapshot);
             _hudFrames.Enqueue((snapshot, timestamp));
+            if (announce) _announceHud = true;
             if (_motion is not null) _motionGeneration = _motion.Publish(_presentation, null, timestamp);
             _changed.Set();
         }
@@ -206,6 +212,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     _queueDropped = 0;
                     while (_frames.Count > 0) batch[count++] = _frames.Dequeue();
                     while (_hudFrames.Count > 0) hudBatch[hudCount++] = _hudFrames.Dequeue();
+                    if (_announceHud) { announcedHud = null; _announceHud = false; }
                 }
                 if (queueDropped > 0)
                     RecordStage("state", "discarded", Stopwatch.GetTimestamp(), dropped: queueDropped);
@@ -356,6 +363,7 @@ internal sealed class AnalogHudRenderWorker : IDisposable
                     hudCount = 0;
                     while (_frames.Count > 0) batch[count++] = _frames.Dequeue();
                     while (_hudFrames.Count > 0) hudBatch[hudCount++] = _hudFrames.Dequeue();
+                    if (_announceHud) { announcedHud = null; _announceHud = false; }
                 }
                 for (int i = 0; i < count; i++) Observe(batch[i]);
                 for (int i = 0; i < hudCount; i++)
