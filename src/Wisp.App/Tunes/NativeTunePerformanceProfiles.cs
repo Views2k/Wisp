@@ -38,8 +38,23 @@ internal static class NativeTunePerformanceProfiles
             new(0xA7E670, 1546, "DFB541A86C784B115946055F2BC3DBF0750D5A328AC782B34F64A988E8C763C2"),
         ]);
 
+    // 6.483.970.0: vtables matched by class hierarchy, slot layout and unwind data; every guard is
+    // byte-identical to the 6.461 reader once address operands are masked (checked on live code).
+    private static readonly Profile Steam483 = new(0x6F1F698, 0x6FA4AD0, 0x6422F48,
+        [
+            new(0x47AEA0, 303, "1883B76BA6D3CA2755BAC628B8F463EA7C38D07B534FBF333C87811731C29ECF"),
+            new(0x47AFD0, 668, "3A488F4769154C7EA86501C6A8E441AE24E374AA0169ED72AAE7054CF769D20A"),
+            new(0x48A1F0, 255, "7EA106BB2D3EC5A29347ED3B84AEC944E5E1E20C34B408013566A103A9D666A7"),
+            new(0x48AEF0, 1884, "F639CC817E8B6F3D074A062E0CA32BCEDF8454FEC38D3E66C86FA9D98F516882"),
+            new(0x43C5E70, 346, "1C1665733A6CD215460119DA3DEFBB860A21A2BC6DEA682040BB217C28A4D919"),
+            new(0x21490B0, 637, "08003A6AC6FF73B08E6FEAF540CC947E2EEF0B41F765D42A54235CF5EEA08F4A"),
+            new(0x214DAE0, 1546, "63016DC6ED107E4AD1FCC0BDA6730D5AB213BCD2F87B4700530158D854C4D3BB"),
+        ]);
+
     internal static Profile? Resolve(NativeHudCompatibilityPack pack)
     {
+        if (pack.ImageSize == 188731392 && pack.Matches("6.483.970.0", 184268248,
+            "63791D0B686186C23ADE10A1AE02EFD785045BD818CC89816F472CAD9A69FCB9")) return Steam483;
         if (pack.ImageSize == 188669952 && pack.Matches("6.479.874.0", 184214488,
             "28FE0814168D474F162592D5568479554882D82C6CA6575965B25BBBDFFA89F0")) return Steam479;
         if (pack.StoreIdentity is null && pack.GameVersion == "6.461.691.0" &&
