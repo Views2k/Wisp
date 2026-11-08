@@ -41,6 +41,28 @@ public sealed class SupplementaryIncidentCaptureTests
     }
 
     [Theory]
+    [InlineData(false, false, false, false, "shutdown-incomplete")]
+    [InlineData(false, false, true, false, "system-sleep")]
+    [InlineData(false, false, false, true, "session-locked")]
+    [InlineData(false, false, true, true, "system-sleep")]
+    [InlineData(true, false, true, true, "system-stopped")]
+    [InlineData(false, true, true, true, "system-shutdown")]
+    public void RecoveredExitReasonsNameASleepingPcOrALockedSessionBehindWindowsEvents(bool stopped, bool shutDown, bool suspended, bool locked, string reason)
+    {
+        var marker = WindowsFaultEventReaderTests.Marker();
+        var now = marker.StartedAtUtc.AddMinutes(5);
+        var report = marker.ToReport(now) with
+        {
+            RecoveredExit = new(marker.StartedAtUtc, now, WindowsFaultLookupStatus.NoMatchingEvent, null)
+            { WindowsStopped = stopped, WindowsShutDown = shutDown, Suspended = suspended, SessionLocked = locked }
+        };
+        var incident = SupplementaryIncidentCapture.Crash(report);
+        Assert.Equal("unexpected-exit", incident.Category);
+        Assert.Equal(reason, incident.Reason);
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+    }
+
+    [Theory]
     [InlineData((int)ClipRecorderState.WaitingForGame, "waiting")]
     [InlineData((int)ClipRecorderState.Stopping, "stopping")]
     [InlineData((int)ClipRecorderState.Paused, "paused")]

@@ -104,12 +104,9 @@ public partial class App : Application
         }
 
         _runExitMarker = RunExitMarkerStore.BeginCurrent(_runId);
-        // Windows delivers its shutdown notice to this window on its own thread, so the close request
-        // is recorded even while the dashboard thread is busy.
-        _sessionEndSentinel = SessionEndSentinel.TryStart(() =>
-        {
-            if (Volatile.Read(ref _fatalExit) == 0) _runExitMarker?.MarkShutdownStarted(ShutdownIntent.OperatingSystem);
-        }, () => _runExitMarker?.ClearShutdownIntent(ShutdownIntent.OperatingSystem));
+        // Windows delivers its shutdown, sleep and lock notices to this window on its own thread, so they
+        // are recorded even while the dashboard thread is busy.
+        _sessionEndSentinel = SessionEndSentinel.TryStart(RecordSessionNotice);
         // The native handler records the faulting address and call stack of a hardware fault
         // for this run; the next run reports it with the crash.
         NativeCrashCapture.TryInstall(_crashReports.StoreDirectory, _runId);
@@ -348,6 +345,23 @@ public partial class App : Application
                 model.TryInitializeRecoveredCrashReport(report, generation, _crashReports.AcknowledgeThrough);
         }
         catch (Exception) { } // Diagnostics and shutdown races must not interrupt startup.
+    }
+
+    // The run marker keeps what Windows said last, so the next start can tell a run that ended on a
+    // sleeping or locked PC from one that stopped without explanation.
+    private void RecordSessionNotice(SessionNotice notice)
+    {
+        switch (notice)
+        {
+            case SessionNotice.Ending:
+                if (Volatile.Read(ref _fatalExit) == 0) _runExitMarker?.MarkShutdownStarted(ShutdownIntent.OperatingSystem);
+                break;
+            case SessionNotice.Continuing: _runExitMarker?.ClearShutdownIntent(ShutdownIntent.OperatingSystem); break;
+            case SessionNotice.Suspending: _runExitMarker?.MarkSuspended(DateTimeOffset.UtcNow); break;
+            case SessionNotice.Resumed: _runExitMarker?.MarkResumed(); break;
+            case SessionNotice.Locked: _runExitMarker?.MarkSessionLocked(DateTimeOffset.UtcNow); break;
+            case SessionNotice.Unlocked: _runExitMarker?.MarkSessionUnlocked(); break;
+        }
     }
 
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
