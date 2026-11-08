@@ -18,6 +18,10 @@ Core HUD compatibility is required first. Tune and direct native gauge readers a
 
 Both platforms require typed code witnesses for all 18 direct-gauge fields. Steam uses the independently verified common field-reader code in an isolated Store reference namespace: complete initializer and getter code, exact property names, member offsets, type calls and the complete type function must all match. Only a verified single jump alias is accepted. This does not copy Store addresses into a Steam reader.
 
+The field reader code carries the game's thread-local storage slot offset as an immediate operand (`mov edx, imm32` after the `gs:[0x58]` access). That offset is recompiled per build: 0x420 through 6.461.691.0 and 3.461.691.0, 0x42C from 6.483.970.0 and 3.483.970.0, where it rejected the direct gauge on every PC. The type function template and the 18 initializer templates declare it as a `threadLocalSlot` operand: it is masked like an address operand, it has no target, and every matched reader must carry the same 4-byte-aligned value below 64 KB. Getters do not contain it, and their member displacements are still compared byte for byte.
+
+A reference that two templates share may reach its target through a single 5-byte jump thunk on one side and directly on the other (Store 3.483.970.0 routes one Tune guard's call to a helper that the gauge templates call directly through such a thunk). Both shared-reference checks accept exactly that case and keep the helper itself; the thunk bytes join the proof. Any other disagreement between shared references is still rejected.
+
 Steam's secondary HUD table is linked to the already verified main HUD table through the same complete-object RTTI type and hierarchy. Its subobject offset, full inheritance topology and slot code must still match, and the candidate must be unique. Table spacing and numeric RTTI labels are not treated as stable identities. This relationship was checked in both retained versions of both platforms.
 
 ## Drift angle and scoring guidance
