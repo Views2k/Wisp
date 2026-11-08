@@ -80,7 +80,7 @@ public sealed class ElectricNativeRoutingTests
         Assert.Same(root, analogue.Parent);
         Assert.Equal("{Binding TireTemperatureDisplay}", digital.Attribute("Display")?.Value);
         Assert.Equal("{Binding TireTemperatureDisplay}", analogue.Attribute("Display")?.Value);
-        Assert.Equal("{Binding NativeGaugeFrame.IsElectric}", analogue.Attribute("IsElectricMaterial")?.Value);
+        Assert.Equal("{Binding IsElectricPowertrain}", analogue.Attribute("IsElectricMaterial")?.Value);
         Assert.DoesNotContain("IsElectric", digital.ToString(), StringComparison.Ordinal);
     }
 

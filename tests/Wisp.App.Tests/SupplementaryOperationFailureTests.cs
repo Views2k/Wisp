@@ -60,20 +60,21 @@ public sealed class SupplementaryOperationFailureTests
     }
 
     [Theory]
-    [InlineData(0, 0, "no-datagrams")]
-    [InlineData(0, 4, "packets-rejected")]
-    [InlineData(5, 1, "sequence-incomplete")]
-    public async Task SetupTimeoutReportsWhatTheReceiverActuallyObserved(long accepted, long rejected, string reason)
+    [InlineData(0, 0)]
+    [InlineData(0, 4)]
+    [InlineData(5, 1)]
+    public async Task CancellingAfterTheGuidanceCheckpointRecordsNoTimeout(long accepted, long rejected)
     {
         using var observations = new ObservationScope();
         var source = new Source(null, new(AcceptedPackets: accepted, RejectedPackets: rejected, PacketsPerSecond: 0, LastParseError: PacketParseError.None, ListenerError: null));
-        // The test keeps listening after its first timeout; cancelling ends it once that timeout has been observed.
+        // The test keeps listening past its guidance checkpoint; a player who cancels afterwards has not failed the test,
+        // whatever the receiver had seen, so no timeout outcome or incident is recorded.
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
         var result = await new SetupTelemetryTest(source, timeout: TimeSpan.FromMilliseconds(20)).RunAsync("5500", cancellationToken: cancellation.Token);
         Assert.False(result.Passed);
-        var terminal = Assert.Single(observations.Values, v => v.Outcome == "timeout");
-        Assert.Equal(reason, terminal.Incident?.Reason);
-        Assert.True(SupplementaryIncidentSchema.Valid(terminal.Incident!));
+        Assert.DoesNotContain(observations.Values, v => v.Outcome == "timeout");
+        Assert.Contains(observations.Values, v => v.Outcome == "cancelled");
+        Assert.All(observations.Values, v => Assert.Null(v.Incident));
         Assert.False(source.IsRunning);
     }
 
