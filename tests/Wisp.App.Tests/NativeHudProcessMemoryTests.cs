@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Wisp.App;
+using Wisp.App.Supplementary;
 using Wisp.Core;
 using Xunit;
 
@@ -481,6 +482,21 @@ public sealed class NativeHudProcessMemoryTests
         Assert.True(factory.TrySelectCompatibility(Identity(), out var pack, out var fingerprint, out _));
         Assert.Same(NativeHudBuildContract.BuiltIn, pack);
         Assert.Equal(NativeHudBuildContract.BuiltIn.ExecutableSha256, fingerprint.Sha256);
+    }
+
+    [Fact]
+    public void APendingAdaptiveCheckIsNotReportedAsAnUnsupportedBuild()
+    {
+        var waiting = NativeHudProcessMemoryFactory.DescribeAdaptiveFailure("Another reader compatibility check is still running", pending: true);
+        Assert.Equal(NativeAssistProviderStatus.Unavailable, waiting.Status);
+        Assert.StartsWith("Checking the updated game's reader compatibility", waiting.Text, StringComparison.Ordinal);
+        Assert.EndsWith("Another reader compatibility check is still running", waiting.Text, StringComparison.Ordinal);
+        Assert.False(SupplementaryNativeStatusReports.Reportable(waiting.Status));
+
+        var rejected = NativeHudProcessMemoryFactory.DescribeAdaptiveFailure("Adaptive image header", pending: false);
+        Assert.Equal(NativeAssistProviderStatus.UnsupportedBuild, rejected.Status);
+        Assert.Equal("Adaptive image header", rejected.Text);
+        Assert.True(SupplementaryNativeStatusReports.Reportable(rejected.Status));
     }
 
     [Theory]
