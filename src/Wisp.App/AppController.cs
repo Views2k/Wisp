@@ -604,7 +604,8 @@ public sealed partial class AppController : IAsyncDisposable
         if (automatic && !ApplicationUpdateCheckPolicy.NetworkAvailable())
         {
             // Wisp often starts with Windows before the network is up. Checking again after RetryInterval
-            // beats a failure report that only says the PC is not connected yet.
+            // beats a failure report that only says the PC is not connected yet. An adapter that is up does
+            // not mean the release service is reachable yet; TryDeferApplicationUpdateCheck covers that case.
             supplementaryCheck?.Discard();
             ApplicationUpdateTelemetry.Record("paused", reason: "connection");
             Interlocked.Exchange(ref _applicationUpdateOperation, 0);
@@ -673,6 +674,10 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (OperationCanceledException error)
         {
+            if (TryDeferApplicationUpdateCheck(automatic, supplementaryCheck, error))
+            {
+                return null;
+            }
             FailApplicationUpdateCheck(supplementaryCheck, error, "timeout");
             ApplicationUpdateTelemetry.Record("failed", reason: "timeout");
             if (automatic)
@@ -690,6 +695,10 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (HttpRequestException error)
         {
+            if (TryDeferApplicationUpdateCheck(automatic, supplementaryCheck, error))
+            {
+                return null;
+            }
             FailApplicationUpdateCheck(supplementaryCheck, error);
             ApplicationUpdateTelemetry.Record("failed", reason: "connection");
             if (automatic)
@@ -774,6 +783,27 @@ public sealed partial class AppController : IAsyncDisposable
         {
             check?.Discard();
         }
+    }
+
+    // An automatic check that got no response from the release service before any check in this process
+    // succeeded is deferred, not reported: the PC is most likely still coming online after launch. The next
+    // automatic check runs after RetryInterval instead of MinimumInterval. Manual checks always report.
+    private bool TryDeferApplicationUpdateCheck(bool automatic, SupplementaryOperation? check, Exception error)
+    {
+        if (!automatic || !_applicationUpdateCheckOutage.ShouldDefer(SupplementaryOperationFailure.Reason(error)))
+        {
+            return false;
+        }
+        check?.Discard();
+        ApplicationUpdateTelemetry.Record("paused", reason: "connection");
+        _applicationUpdateTimer.Stop();
+        _applicationUpdateTimer.Interval = ApplicationUpdateCheckPolicy.RetryInterval;
+        if (!_disposed && FeatureAllowed("updates"))
+        {
+            _applicationUpdateTimer.Start();
+        }
+        RestoreAutomaticApplicationUpdateStatus();
+        return true;
     }
 
     // Once automatic installation has stopped (the update helper is missing or rejected this

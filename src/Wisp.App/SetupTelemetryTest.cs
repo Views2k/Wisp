@@ -183,9 +183,10 @@ public sealed class SetupTelemetryTest
 
             // Players switch to Forza and work through its settings while this runs. Instead of giving
             // up, the test keeps listening, notices a listener that stopped within ListenerCheckInterval,
-            // and repeats guidance for what it has seen so far once per timeout period.
+            // and repeats guidance for what it has seen so far once per timeout period. The guidance
+            // checkpoint is not an outcome: only the test's final result is recorded, because a "timeout"
+            // observation counts as a failed test on the player's PC.
             SetupTelemetryEvidence evidence;
-            var guidanceGiven = false;
             var slice = TimeSpan.FromTicks(Math.Min(_timeout.Ticks, ListenerCheckInterval.Ticks));
             var waited = TimeSpan.Zero;
             while (true)
@@ -203,12 +204,6 @@ public sealed class SetupTelemetryTest
                     waited += slice;
                     if (waited < _timeout) continue;
                     waited = TimeSpan.Zero;
-                    if (!guidanceGiven)
-                    {
-                        guidanceGiven = true;
-                        SupplementaryObservations.Record("setup", "setup", "timeout", "data-out",
-                            incident: SetupIncident(TimeoutReason(statistics, true)));
-                    }
                     progress?.Report(ListeningGuidance(statistics, port));
                 }
             }

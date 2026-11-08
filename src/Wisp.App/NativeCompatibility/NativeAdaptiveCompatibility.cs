@@ -11,11 +11,15 @@ internal static class NativeAdaptiveCompatibility
     private static readonly Dictionary<CacheKey, Entry> Entries = [];
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMinutes(1);
 
+    // A false result with pending set means the check could not finish (time budget, lock wait,
+    // unreadable file or memory) or is still inside its retry delay, so a later attachment may
+    // succeed. Only a false result without pending is a verdict on the build.
     internal static bool TryResolve(NativeHudProcessIdentity identity, long catalogGeneration,
         NativeHudExecutableFingerprint fingerprint, NativeStorePackageIdentity? package, NativeAdaptiveRead read,
-        out NativeHudCompatibilityPack? pack, out string reason, CancellationToken cancellationToken = default)
+        out NativeHudCompatibilityPack? pack, out string reason, out bool pending, CancellationToken cancellationToken = default)
     {
         pack = null;
+        pending = false;
         reason = "The updated game's reader layout could not be verified";
         var key = new CacheKey(identity, catalogGeneration, fingerprint, package?.PackageFullName);
         var budget = new NativeAdaptiveBudget(TimeSpan.FromSeconds(30), cancellationToken);
@@ -24,6 +28,7 @@ internal static class NativeAdaptiveCompatibility
         catch (TimeoutException)
         {
             reason = "Another reader compatibility check is still running";
+            pending = true;
             return false;
         }
         using (lease)
@@ -37,6 +42,7 @@ internal static class NativeAdaptiveCompatibility
                     {
                         pack = cachedPack;
                         reason = cachedReason;
+                        pending = pack is null && entry.RetryAt != DateTimeOffset.MaxValue;
                         return pack is not null;
                     }
                     Entries.Remove(key);
@@ -79,9 +85,11 @@ internal static class NativeAdaptiveCompatibility
                 // These messages contain only release-owned role names, not paths,
                 // memory addresses, player details or raw game data.
                 reason = exception is InvalidDataException or TimeoutException ? exception.Message : reason;
+                // A structural mismatch is final for this image; every other failure is retried.
+                var structural = exception is InvalidDataException or FormatException;
+                pending = !structural;
                 if (Entries.Count >= 4) Entries.Clear();
-                Entries[key] = new Entry(null, null, exception is InvalidDataException or FormatException
-                    ? DateTimeOffset.MaxValue : DateTimeOffset.UtcNow + RetryDelay, reason);
+                Entries[key] = new Entry(null, null, structural ? DateTimeOffset.MaxValue : DateTimeOffset.UtcNow + RetryDelay, reason);
                 return false;
             }
         }

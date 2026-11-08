@@ -243,14 +243,21 @@ public sealed class TelemetryUdpReceiverTests
         await sender.SendAsync(Fh6PacketFixture.Create(), endpoint, TestContext.Current.CancellationToken);
         await sender.SendAsync(new byte[4096], endpoint, TestContext.Current.CancellationToken);
         await sender.SendAsync(Fh6PacketFixture.Create(), endpoint, TestContext.Current.CancellationToken);
-        await WaitForStatistics(receiver, _ => receiver.ReceivedDatagrams == 3);
+        await WaitForStatistics(receiver, statistics => Settled(receiver, statistics, 3));
         var statistics = receiver.GetStatistics(DateTimeOffset.UtcNow);
         Assert.Null(statistics.ListenerError);
         Assert.NotNull(receiver.Latest);
         await sender.SendAsync(Fh6PacketFixture.Create(), endpoint, TestContext.Current.CancellationToken);
-        await WaitForStatistics(receiver, _ => receiver.ReceivedDatagrams == 4);
+        await WaitForStatistics(receiver, statistics => Settled(receiver, statistics, 4));
         Assert.Null(receiver.GetStatistics(DateTimeOffset.UtcNow).ListenerError);
     }
+
+    // A datagram is counted when it arrives, before it is parsed. It is settled once it was parsed
+    // or superseded by a newer one in the same drain, and Latest is published before the accepted
+    // count moves. Each counter only grows after the received count, so a stale read can only delay.
+    private static bool Settled(TelemetryUdpReceiver receiver, ReceiverStatistics statistics, long datagrams) =>
+        receiver.ReceivedDatagrams == datagrams &&
+        statistics.AcceptedPackets + statistics.RejectedPackets + receiver.DrainedDatagrams == datagrams;
 
     private static async Task WaitForStatistics(TelemetryUdpReceiver receiver, Func<ReceiverStatistics, bool> ready)
     {

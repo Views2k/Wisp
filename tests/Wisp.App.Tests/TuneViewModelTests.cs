@@ -395,19 +395,23 @@ public sealed class TuneViewModelTests
     {
         using var fixture = new Fixture();
         var performance = new TunePerformance(32f, 90f, 1.1f, 1.2f, 4.5f, 10.5f, 85f, 0.5f, 0.5f, 12f);
-        var captured = Snapshot() with { Performance = performance };
-        var later = captured with { Performance = null, CapturedAtUtc = captured.CapturedAtUtc.AddMinutes(5) };
-        var calls = 0;
-        using var model = new TuneViewModel(fixture.Store,
-            _ => Task.FromResult(new TuneCaptureResult(++calls == 1 ? captured : later, TuneCaptureStatus.Ready, "Ready")),
-            _ => true, Dispatcher.CurrentDispatcher);
+        var input = NativeTuneCaptureTests.Input() with { Performance = performance, PerformanceSetupKey = "same" };
+        await using var service = new TuneCaptureService(new NativeTuneCaptureTests.Factory(), (_, _) => input);
+        using var model = new TuneViewModel(fixture.Store, service.RequestSnapshotAsync, service.IsCurrent,
+            Dispatcher.CurrentDispatcher);
         await model.InitializeAsync(); await model.RefreshAsync();
         model.SelectedCategory = model.Categories.Single(option => option.Category == TuneCategory.Performance);
         Assert.Empty(model.PerformanceHint);
+        input = input with { Performance = null, CapturedAtUtc = input.CapturedAtUtc.AddMinutes(5) };
         await model.RefreshAsync();
-        Assert.Equal(2, calls);
         Assert.Empty(model.PerformanceHint);
-        Assert.True(model.HasSnapshot);
+        Assert.True(model.CanSave);
+        Assert.Contains(model.ComparisonChoices, choice => choice.Snapshot.Performance == performance);
+        model.BeginSave();
+        model.DialogName = "Track setup";
+        await model.ConfirmDialogAsync();
+        var saved = Assert.Single(model.Library);
+        Assert.Equal(performance, (await fixture.Store.LoadAsync(saved.Id, TestContext.Current.CancellationToken)).Snapshot.Performance);
     });
 
     private static TuneSnapshot Snapshot(string name = "miata") => TuneUiTestData.ValidSnapshot(name);
