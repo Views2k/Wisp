@@ -46,6 +46,9 @@ internal static class WindowZOrder
             helper.Owner = gameWindow;
             NativeRendering.HudNativeHost.SynchronizeWindow(window);
         }
+        // The HUD is above the game again, whether the game attached or came back to the
+        // foreground: a native host released after failed window calls is built again now.
+        NativeRendering.HudNativeHost.RebuildOnGameAttach(window);
 
         if (raise)
         {

@@ -28,6 +28,7 @@ internal sealed class HudNativeHost : IDisposable
     private bool _interactive;
     private HudWindowSnapshot? _snapshot;
     private readonly NativeRendererRecovery _recovery = new();
+    private readonly HudNativeHostRecovery _hostRecovery = new();
     private static readonly TimeSpan RendererReleaseTimeout = TimeSpan.FromSeconds(5);
     private bool _scheduled, _capturing, _failed, _retryPending, _disposed;
     private int _nextId, _workerRevision;
@@ -59,6 +60,14 @@ internal sealed class HudNativeHost : IDisposable
         catch (Win32Exception error) { host.OnHostInterop(error); }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         { host.OnHostFailure(error.HResult); }
+    }
+    // The window was attached above the game, at the game's start or on a return to the foreground.
+    // A host released because its window calls kept failing at an earlier transition is built again
+    // now: once per such event, so a window that keeps failing cannot spin.
+    internal static void RebuildOnGameAttach(Window window)
+    {
+        if (!Hosts.TryGetValue(window, out var host) || host._disposed || host._failed) return;
+        if (host._hostRecovery.TryBeginRebuild()) host.RequestCapture();
     }
     internal static void SetInteractive(Window window, bool interactive)
     {
@@ -156,7 +165,8 @@ internal sealed class HudNativeHost : IDisposable
 
     private void RequestCapture()
     {
-        if (_disposed || _failed || _retryPending || _scheduled || _capturing || _window.Dispatcher.HasShutdownStarted) return;
+        if (_disposed || _failed || _retryPending || _hostRecovery.RebuildPending || _scheduled || _capturing ||
+            _window.Dispatcher.HasShutdownStarted) return;
         _scheduled = true;
         _window.Dispatcher.BeginInvoke(DispatcherPriority.DataBind, new Action(() =>
         {
@@ -293,9 +303,9 @@ internal sealed class HudNativeHost : IDisposable
         if (_window.Dispatcher.HasShutdownStarted) return;
         _window.Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (_disposed || _failed || _snapshot is null || !presented.CompatibleWith(_snapshot)) return;
+            if (_disposed || _failed || _hostRecovery.RebuildPending || _snapshot is null || !presented.CompatibleWith(_snapshot)) return;
             _recovery.Reset();
-            _hostRetries = 0;
+            _hostRecovery.Presented();
             try { _compositionWindow?.SetLayoutCloaked(!_interactive); }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
             { OnHostFailure(error.HResult); return; }
@@ -315,24 +325,35 @@ internal sealed class HudNativeHost : IDisposable
         OnStatus(false, hresult);
     }
 
-    // The layout window, its owner or its monitor can change under a Win32 call while a display is
-    // added or removed or the game closes. The renderer is intact; the host window is synchronised
-    // again shortly, up to HostRetries times before the failure retires the HUD.
-    internal const int HostRetries = 3;
-    private static readonly TimeSpan HostRetryDelay = TimeSpan.FromMilliseconds(500);
-    private int _hostRetries;
-
+    // A host-window Win32 call failed; HudNativeHostRecovery bounds the retries, the rebuild on the
+    // next game attach and the retirement. The report names the call and carries HRESULT_FROM_WIN32
+    // of its error code, once per episode, since every Win32Exception reports E_FAIL itself.
     private void OnHostInterop(Win32Exception error)
     {
-        DebugLogging.HealthContextRecorder.Current.RecordRendererFailure(error.HResult, DebugLogging.HealthFailureStage.RendererHost);
-        if (_disposed || _failed || _retryPending) return;
-        if (++_hostRetries > HostRetries)
+        if (_disposed || _failed || _retryPending || _hostRecovery.RebuildPending) return;
+        var hresult = NativeHostInteropException.FailureCodeOf(error);
+        var call = NativeHostInteropException.CallOf(error);
+        if (_hostRecovery.Retries == 0)
+            DebugLogging.HealthContextRecorder.Current.RecordRendererFailure(hresult, DebugLogging.HealthFailureStage.RendererHost);
+        switch (_hostRecovery.Fail())
         {
-            OnHostFailure(error.HResult);
-            return;
+            case HudNativeHostRecoveryAction.Retry:
+                // The renderer is intact; the host window is synchronized again shortly.
+                _retryPending = true;
+                _vm?.ReportRendererHost(this, RendererHostState.Starting, $"HUD renderer: host window retry after {call} (0x{hresult:X8})");
+                _ = RestartRendererAfterRelease(Task.CompletedTask, HudNativeHostRecovery.HostRetryDelay);
+                return;
+            case HudNativeHostRecoveryAction.Rebuild:
+                // The window stays unusable at this transition. Its renderer and HWND are released
+                // and built again when the game attaches or returns to the foreground; the WPF
+                // artwork stays suppressed meanwhile, as during any other native failure.
+                RetireRenderer();
+                _vm?.ReportRendererHost(this, RendererHostState.Starting, $"HUD renderer: host window rebuild pending after {call} (0x{hresult:X8})");
+                return;
+            default:
+                ReportStatus(false, hresult, call);
+                return;
         }
-        _retryPending = true;
-        _ = RestartRendererAfterRelease(Task.CompletedTask, HostRetryDelay);
     }
 
     // A retired worker's late status must not fail or restart its replacement.
@@ -344,12 +365,14 @@ internal sealed class HudNativeHost : IDisposable
             if (revision == _workerRevision) ApplyStatus(ready, hresult, fromWorker: true);
         }));
     }
-    private void OnStatus(bool ready, int hresult)
+    private void OnStatus(bool ready, int hresult) => ReportStatus(ready, hresult, call: null);
+    // `call` names the host-window Win32 call behind a failure, when one is known.
+    private void ReportStatus(bool ready, int hresult, string? call)
     {
         if (_window.Dispatcher.HasShutdownStarted) return;
-        _window.Dispatcher.BeginInvoke(new Action(() => ApplyStatus(ready, hresult)));
+        _window.Dispatcher.BeginInvoke(new Action(() => ApplyStatus(ready, hresult, call: call)));
     }
-    private void ApplyStatus(bool ready, int hresult, bool fromWorker = false)
+    private void ApplyStatus(bool ready, int hresult, bool fromWorker = false, string? call = null)
     {
         if (_disposed) return;
         // An occluded device may initialize without submitting. Only the
@@ -359,8 +382,9 @@ internal sealed class HudNativeHost : IDisposable
         // One device loss can be reported by the render thread and the needle motion thread; the
         // second report must not spend another retry or restart a retry already scheduled. A worker
         // that reports while a host-window retry is pending has ended its thread: it is retired now,
-        // so that retry rebuilds the window and the renderer instead of reusing a dead worker.
-        if (_retryPending)
+        // so that retry rebuilds the window and the renderer instead of reusing a dead worker. A
+        // host waiting for its rebuild has released its worker already; a late report changes nothing.
+        if (_retryPending || _hostRecovery.RebuildPending)
         {
             if (fromWorker) RetireRenderer();
             return;
@@ -377,7 +401,9 @@ internal sealed class HudNativeHost : IDisposable
             return;
         }
         _failed = true;
-        _vm?.ReportRendererHost(this, RendererHostState.Failed, $"HUD renderer: unavailable (0x{hresult:X8})");
+        _vm?.ReportRendererHost(this, RendererHostState.Failed, call is null
+            ? $"HUD renderer: unavailable (0x{hresult:X8})"
+            : $"HUD renderer: unavailable after {call} (0x{hresult:X8})");
     }
     // Disposes the worker and its composition window; the returned task completes when the worker
     // has released the renderer.
