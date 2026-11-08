@@ -5,11 +5,13 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using Wisp.App.Supplementary;
 using Wisp.Update;
 using Xunit;
 
 namespace Wisp.App.Tests;
 
+[Collection("Supplementary instrumentation")]
 public sealed class ApplicationUpdateCheckPolicyTests
 {
     [Theory]
@@ -292,6 +294,84 @@ public sealed class ApplicationUpdateCheckPolicyTests
         Assert.True(Timer(controller).IsEnabled);
     }
 
+    [Fact]
+    public void OutageDefersConnectionReasonsOnlyUntilTheFirstSuccessfulCheck()
+    {
+        var outage = new ApplicationUpdateCheckOutage();
+        Assert.True(outage.ShouldDefer("timeout"));
+        Assert.True(outage.ShouldDefer("network-name-resolution"));
+        Assert.False(outage.ShouldDefer("rate-limited"));
+        Assert.False(outage.ShouldDefer("http-status"));
+        Assert.False(outage.ShouldDefer("update-verification-failed"));
+        Assert.True(outage.ShouldReport("timeout"));
+        outage.Recovered();
+        Assert.False(outage.ShouldDefer("timeout"));
+        Assert.False(outage.ShouldDefer("network-connection"));
+        Assert.True(outage.ShouldReport("timeout"));
+    }
+
+    [Theory]
+    [InlineData("http")]
+    [InlineData("timeout")]
+    public async Task FirstAutomaticCheckWithoutAResponseIsDeferredNotReported(string failure)
+    {
+        using var observed = new ObservationScope();
+        var checks = 0;
+        await using var controller = Controller(CompletedSettings(), (_, _) => ++checks == 1
+            ? Task.FromException<UpdateRelease?>(Failure(failure)) : Task.FromResult<UpdateRelease?>(null));
+        controller.BeginStartupApplicationUpdateCheck();
+        await WaitForCheckAsync(controller);
+        Assert.Equal(1, checks);
+        Assert.DoesNotContain(observed.Values, o => o.Kind == "update" && o.Stage == "check" && o.Outcome is ("failure" or "timeout"));
+        var deferred = ApplicationUpdateTelemetry.Current!;
+        Assert.Equal(("paused", "connection"), (deferred.State, deferred.Reason));
+        Assert.True(Timer(controller).IsEnabled);
+        Assert.Equal(ApplicationUpdateCheckPolicy.RetryInterval, Timer(controller).Interval);
+        Assert.True(controller.ViewModel.CanCheckApplicationUpdate);
+        Assert.False(controller.ViewModel.IsApplicationUpdateAvailable);
+        Assert.StartsWith("Wisp checks on launch and every 15 minutes.", controller.ViewModel.ApplicationUpdateStatus);
+        FireDailyTimer(controller);
+        await WaitForCheckAsync(controller);
+        Assert.Equal(2, checks);
+        Assert.Equal("current", ApplicationUpdateTelemetry.Current!.State);
+        Assert.Equal(ApplicationUpdateCheckPolicy.MinimumInterval, Timer(controller).Interval);
+        Assert.DoesNotContain(observed.Values, o => o.Kind == "update" && o.Stage == "check" && o.Outcome is ("failure" or "timeout"));
+    }
+
+    [Theory]
+    [InlineData("http", "failure", "network-request")]
+    [InlineData("timeout", "timeout", "timeout")]
+    public async Task ConnectionFailureAfterASuccessfulCheckIsReportedAsBefore(string failure, string outcome, string reason)
+    {
+        using var observed = new ObservationScope();
+        var checks = 0;
+        await using var controller = Controller(CompletedSettings(), (_, _) => ++checks == 1
+            ? Task.FromResult<UpdateRelease?>(null) : Task.FromException<UpdateRelease?>(Failure(failure)));
+        controller.BeginStartupApplicationUpdateCheck();
+        FireDailyTimer(controller);
+        await WaitForCheckAsync(controller);
+        Assert.Equal(2, checks);
+        var reported = Assert.Single(observed.Values, o => o.Kind == "update" && o.Stage == "check" && o.Outcome == outcome);
+        Assert.Equal(("update", reason), (reported.Incident!.Category, reported.Incident.Reason));
+        Assert.Equal("failed", ApplicationUpdateTelemetry.Current!.State);
+        Assert.Equal(ApplicationUpdateCheckPolicy.MinimumInterval, Timer(controller).Interval);
+        Assert.True(controller.ViewModel.CanCheckApplicationUpdate);
+    }
+
+    [Theory]
+    [InlineData("http", "failure")]
+    [InlineData("timeout", "timeout")]
+    public async Task ManualCheckFailureIsReportedBeforeAnyCheckSucceeded(string failure, string outcome)
+    {
+        using var observed = new ObservationScope();
+        await using var controller = Controller(CompletedSettings(), (_, _) => Task.FromException<UpdateRelease?>(Failure(failure)));
+        Assert.Null(await controller.GetAvailableApplicationUpdateDetailsAsync());
+        Assert.Single(observed.Values, o => o.Kind == "update" && o.Stage == "check" && o.Outcome == outcome);
+        Assert.Equal("failed", ApplicationUpdateTelemetry.Current!.State);
+        Assert.Equal("Try again", controller.ViewModel.ApplicationUpdateAction);
+        Assert.Equal(ApplicationUpdateCheckPolicy.MinimumInterval, Timer(controller).Interval);
+    }
+
     internal static void AssertBannerOnCurrentDispatcher()
     {
         var checks = 0;
@@ -399,6 +479,14 @@ public sealed class ApplicationUpdateCheckPolicyTests
         failing = false;
         Assert.True(controller.TrySavePendingSettings());
         Assert.Equal("Layout saved.", controller.Runs.WorkspaceStatus);
+    }
+
+    private sealed class ObservationScope : IDisposable
+    {
+        private readonly Action<SupplementaryObservation>? _previous = SupplementaryObservations.Observer;
+        internal List<SupplementaryObservation> Values { get; } = [];
+        internal ObservationScope() => SupplementaryObservations.Observer = Values.Add;
+        public void Dispose() => SupplementaryObservations.Observer = _previous;
     }
 
     private sealed class NoStartupRegistration : IStartupRegistrationService
