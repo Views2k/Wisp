@@ -1,12 +1,16 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Sockets;
 using Wisp.App;
+using Wisp.App.Supplementary;
 using Wisp.Core;
 using Wisp.Telemetry;
 using Xunit;
 
 namespace Wisp.App.Tests;
 
+// The observation tests swap the process-wide observation sink.
+[Collection("Supplementary instrumentation")]
 public sealed class SetupTelemetryTests
 {
     [Fact]
@@ -315,6 +319,74 @@ public sealed class SetupTelemetryTests
         Assert.Null(test.SuccessfulEvidence);
     }
 
+    [Fact]
+    public async Task PassingAfterTheGuidanceCheckpointRecordsOnlyTheFinalSuccess()
+    {
+        // 2.7.1 to 2.7.3 recorded the 45 s guidance checkpoint as a "timeout" outcome, which Tools counts
+        // as a failed test, on PCs whose test then passed in the same session.
+        var observed = new ConcurrentQueue<SupplementaryObservation>();
+        var previous = SupplementaryObservations.Observer;
+        SupplementaryObservations.Observer = observed.Enqueue;
+        try
+        {
+            var clock = new ManualClock();
+            var source = new FakeSource();
+            var test = new SetupTelemetryTest(source, clock, TimeSpan.FromMilliseconds(20));
+            var guidance = new ConcurrentQueue<string>();
+            var running = test.RunAsync("5500", new SynchronousProgress(guidance.Enqueue), TestContext.Current.CancellationToken);
+            await WaitForListeningGuidanceAsync(guidance);
+            Assert.False(running.IsCompleted);
+
+            EmitSequence(source, clock);
+            var result = await running;
+
+            Assert.True(result.Passed);
+            Assert.Equal(new[] { "attempt", "success" }, observed.Select(v => v.Outcome));
+            Assert.All(observed, v => { Assert.Equal("setup", v.Kind); Assert.Equal("data-out", v.Stage); Assert.Null(v.Incident); });
+        }
+        finally { SupplementaryObservations.Observer = previous; }
+    }
+
+    [Fact]
+    public async Task ListenerStoppedAfterTheGuidanceCheckpointRecordsOneFinalTimeout()
+    {
+        var observed = new ConcurrentQueue<SupplementaryObservation>();
+        var previous = SupplementaryObservations.Observer;
+        SupplementaryObservations.Observer = observed.Enqueue;
+        try
+        {
+            var source = new FakeSource();
+            var test = new SetupTelemetryTest(source, timeout: TimeSpan.FromMilliseconds(20));
+            var guidance = new ConcurrentQueue<string>();
+            var running = test.RunAsync("5500", new SynchronousProgress(guidance.Enqueue), TestContext.Current.CancellationToken);
+            await WaitForListeningGuidanceAsync(guidance);
+            Assert.False(running.IsCompleted);
+
+            source.ListenerError = "synthetic listener failure";
+            var result = await running;
+
+            Assert.False(result.Passed);
+            Assert.Contains("listener stopped", result.Message, StringComparison.Ordinal);
+            Assert.Equal(new[] { "attempt", "timeout" }, observed.Select(v => v.Outcome));
+            var timeout = Assert.Single(observed, v => v.Outcome == "timeout");
+            Assert.Equal("listener-stopped", timeout.Incident!.Reason);
+            Assert.NotNull(timeout.DurationMs);
+        }
+        finally { SupplementaryObservations.Observer = previous; }
+    }
+
+    // The port announcement comes first; the first "still listening" guidance marks the first timeout period.
+    private static async Task WaitForListeningGuidanceAsync(ConcurrentQueue<string> guidance)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!guidance.Any(message => message.Contains("still listening", StringComparison.Ordinal)) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Contains(guidance, message => message.Contains("still listening", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData(0, 0, "No FH6 data yet")]
     [InlineData(0, 3, "not valid FH6 Data Out data")]
@@ -504,6 +576,7 @@ public sealed class SetupTelemetryTests
         public Exception? BindError { get; init; }
         public Exception? StopError { get; init; }
         public bool RemainStoppedAfterBinding { get; init; }
+        public string? ListenerError { get; set; }
         public int SubscriberCount => _packetAvailable?.GetInvocationList().Length ?? 0;
         public VehicleState? Latest { get; private set; }
         public bool IsRunning { get; private set; }
@@ -562,6 +635,6 @@ public sealed class SetupTelemetryTests
         }
 
         public ReceiverStatistics GetStatistics(DateTimeOffset nowUtc) =>
-            new(_accepted, _rejected, 0, PacketParseError.None, null);
+            new(_accepted, _rejected, 0, PacketParseError.None, ListenerError);
     }
 }
