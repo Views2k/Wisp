@@ -55,6 +55,37 @@ public sealed class ApplicationUpdateStagingTests : IDisposable
     }
 
     [Fact]
+    public void StagedInstallersOfTheVersionAreListedNewestAttemptFirst()
+    {
+        var version = new SemanticVersion(9, 9, 9);
+        var older = StageInstaller(version, new DateTime(2026, 11, 8, 17, 1, 0, DateTimeKind.Utc));
+        var newer = StageInstaller(version, new DateTime(2026, 11, 8, 17, 6, 0, DateTimeKind.Utc));
+        StageInstaller(new SemanticVersion(9, 9, 8), new DateTime(2026, 11, 8, 17, 7, 0, DateTimeKind.Utc));
+        var unmanaged = Path.Combine(_root, version.ToString(), "not-an-attempt");
+        Directory.CreateDirectory(unmanaged);
+        File.WriteAllBytes(Path.Combine(unmanaged, $"Wisp-Setup-{version}.exe"), [1]);
+        var partial = Path.Combine(_root, version.ToString(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(partial);
+        File.WriteAllBytes(Path.Combine(partial, $".Wisp-Setup-{version}.exe.{Guid.NewGuid():N}.partial"), [1]);
+
+        Assert.Equal([newer, older], ApplicationUpdateStaging.StagedInstallers(_root, version));
+        Assert.Empty(ApplicationUpdateStaging.StagedInstallers(_root, new SemanticVersion(9, 9, 7)));
+        Assert.Empty(ApplicationUpdateStaging.StagedInstallers(Path.Combine(_root, "missing"), version));
+    }
+
+    private string StageInstaller(SemanticVersion version, DateTime writtenUtc)
+    {
+        var attempt = Path.Combine(_root, version.ToString(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(attempt);
+        var installer = Path.Combine(attempt, $"Wisp-Setup-{version}.exe");
+        File.WriteAllBytes(installer, [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(attempt, "Wisp.Updater.exe"), [4]);
+        foreach (var file in Directory.GetFiles(attempt)) File.SetLastWriteTimeUtc(file, writtenUtc);
+        Directory.SetLastWriteTimeUtc(attempt, writtenUtc);
+        return installer;
+    }
+
+    [Fact]
     public void PruneRetainsPendingAttemptAndIgnoresUnexpectedEntries()
     {
         var now = new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero);

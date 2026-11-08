@@ -155,7 +155,8 @@ internal static class ApplicationUpdateLauncher
         WriteIndented = false
     };
 
-    internal static ApplicationUpdateHandoff Launch(VerifiedInstaller installer)
+    // canContinue is checked before each retry of a start that Windows refused for a moment.
+    internal static Task<ApplicationUpdateHandoff> LaunchAsync(VerifiedInstaller installer, Func<bool> canContinue)
     {
         ArgumentNullException.ThrowIfNull(installer);
         var installerPath = Path.GetFullPath(installer.StagedPath);
@@ -196,8 +197,14 @@ internal static class ApplicationUpdateLauncher
             installer.Size,
             readyEventName);
 
-        return StartHelper(helperPath, request);
+        return StartHelperAsync(helperPath, request, canContinue);
     }
+
+    // STATUS_DLL_INIT_FAILED_LOGOFF: Windows stopped the helper while it initialized because the
+    // window station is shutting down. It is a sign-out or shutdown, not an update failure.
+    internal const int SessionEndExitCode = unchecked((int)0xC000026B);
+
+    internal static bool IsSessionEndExit(int? exitCode) => exitCode == SessionEndExitCode;
 
     internal static bool IsHelperUnavailable(Exception exception) =>
         exception is ApplicationUpdateHelperUnavailableException;
@@ -207,7 +214,9 @@ internal static class ApplicationUpdateLauncher
             ? "This copy of Wisp is missing a usable update helper. Download and run the full installer from wispoverlay.com to repair it. Wisp stayed open and no files were installed."
             : "Wisp could not start the verified update. Try again, or download and run the full installer from wispoverlay.com. Wisp stayed open and no files were installed.";
 
-    internal static ApplicationUpdateHandoff StartHelper(string helperPath, UpdateApplyRequest request)
+    // start and wait replace Process.Start and Task.Delay in tests.
+    internal static async Task<ApplicationUpdateHandoff> StartHelperAsync(string helperPath, UpdateApplyRequest request,
+        Func<bool> canContinue, Func<ProcessStartInfo, Process?>? start = null, Func<TimeSpan, Task>? wait = null)
     {
         var attemptDirectory = Path.GetDirectoryName(request.StagedInstallerPath)!;
         var requestPath = Path.Combine(attemptDirectory, "apply-request.json");
@@ -263,7 +272,10 @@ internal static class ApplicationUpdateLauncher
             };
             startInfo.ArgumentList.Add("--apply");
             startInfo.ArgumentList.Add(requestPath);
-            var helper = Process.Start(startInfo)
+            // The staged helper, its request and the ready event stay in place while a refused start is
+            // tried again (ProcessStartRetry).
+            var helper = await ProcessStartRetry.StartAsync(() => (start ?? Process.Start)(startInfo), canContinue,
+                    wait ?? (delay => Task.Delay(delay)))
                 ?? throw new InvalidOperationException("The Wisp update helper could not be started.");
             return new ApplicationUpdateHandoff(helper, readyEvent);
         }

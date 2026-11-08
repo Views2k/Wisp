@@ -1,24 +1,52 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Wisp.Update;
 
 internal static class UpdateTransport
 {
-    internal static HttpClientHandler CreateHandler() => new()
+    internal static readonly HttpRequestOptionsKey<UpdateRequestTimer> TimerOption = new("Wisp.Update.RequestTimer");
+
+    internal static SocketsHttpHandler CreateHandler() => new()
     {
         AllowAutoRedirect = false,
         AutomaticDecompression = DecompressionMethods.None,
         UseCookies = false,
-        UseDefaultCredentials = false,
         PreAuthenticate = false,
         Credentials = null,
+        DefaultProxyCredentials = null,
         UseProxy = false,
         Proxy = null,
-        CheckCertificateRevocationList = true,
+        SslOptions = new SslClientAuthenticationOptions
+        {
+            CertificateRevocationCheckMode = X509RevocationMode.Online
+        },
         MaxResponseHeadersLength = 16,
-        MaxConnectionsPerServer = 1
+        MaxConnectionsPerServer = 1,
+        ConnectCallback = ConnectAsync
     };
+
+    // The default connection (a dual-mode TCP socket with Nagle off), timed for the request that opened it.
+    internal static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+    {
+        context.InitialRequestMessage.Options.TryGetValue(TimerOption, out var timer);
+        timer?.ConnectStarted();
+        var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            await socket.ConnectAsync(context.DnsEndPoint, cancellationToken).ConfigureAwait(false);
+            timer?.Connected();
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
 
     internal static HttpClient CreateClient() => new(CreateHandler())
     {

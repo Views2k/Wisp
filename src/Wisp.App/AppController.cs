@@ -45,6 +45,9 @@ public sealed partial class AppController : IAsyncDisposable
     private readonly Func<Version, CancellationToken, Task<UpdateRelease?>> _checkForApplicationUpdate;
     private readonly CancellationTokenSource _applicationUpdateLifetime = new();
     private readonly ApplicationUpdateCheckOutage _applicationUpdateCheckOutage = new();
+    // Download failures that got no response, reported once per reason until a download succeeds.
+    private readonly ApplicationUpdateCheckOutage _applicationUpdateDownloadOutage = new();
+    private bool _applicationUpdateDownloadInterrupted;
     private readonly Dictionary<int, CalibrationPersistenceIdentity> _capturedCalibrationProfiles;
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _uiTimer;
@@ -773,6 +776,22 @@ public sealed partial class AppController : IAsyncDisposable
         }
     }
 
+    // A download that timed out or lost its connection does not spend the release's automatic budget
+    // (AutomaticUpdateCoordinator retries it at the check interval), so its failure is reported once per
+    // reason, as for the check, until a download succeeds.
+    private void FailInterruptedApplicationUpdateDownload(SupplementaryOperation? download, Exception error, string outcome = "failure")
+    {
+        _applicationUpdateDownloadInterrupted = true;
+        if (_applicationUpdateDownloadOutage.ShouldReport(SupplementaryOperationFailure.Reason(error)))
+        {
+            download?.Fail(error, outcome);
+        }
+        else
+        {
+            download?.Discard();
+        }
+    }
+
     private void FailApplicationUpdateCheck(SupplementaryOperation? check, Exception error, string outcome = "failure")
     {
         if (_applicationUpdateCheckOutage.ShouldReport(SupplementaryOperationFailure.Reason(error)))
@@ -869,6 +888,7 @@ public sealed partial class AppController : IAsyncDisposable
             return null;
         }
 
+        _applicationUpdateDownloadInterrupted = false;
         using var operationLifetime = CancellationTokenSource.CreateLinkedTokenSource(_applicationUpdateLifetime.Token, ApplicationUpdateFeatureToken);
         var operationToken = operationLifetime.Token;
         var downloadFinished = false;
@@ -905,6 +925,24 @@ public sealed partial class AppController : IAsyncDisposable
                 return null;
             }
 
+            // When the update helper could not start the installer, it restarted Wisp with that installer still
+            // staged. Verified again, it is installed instead of being downloaded again (one PC downloaded
+            // 95 MB three times in ten minutes on 2.7.3).
+            if (await Task.Run(() => ReuseStagedInstaller(release)) is { } staged)
+            {
+                operationToken.ThrowIfCancellationRequested();
+                _pendingInstaller = staged;
+                ApplicationUpdateTelemetry.Record("verified", staged.Version.ToString(), 100);
+                _pendingApplicationUpdateDetails = ApplicationUpdateDetailsFrom(release);
+                _availableApplicationRelease = null;
+                ViewModel.UpdateApplicationUpdateStatus(
+                    $"Wisp {ApplicationVersionInfo.Format(staged.Version)} is verified and ready to install.",
+                    "Install update",
+                    canCheck: true,
+                    isUpdateAvailable: true);
+                return staged;
+            }
+
             if (!ApplicationUpdateCheckPolicy.NetworkAvailable())
             {
                 // As for the check: no connection is a wait, not a failure to report.
@@ -933,6 +971,7 @@ public sealed partial class AppController : IAsyncDisposable
             _pendingInstaller = downloaded;
             ApplicationUpdateTelemetry.Record("verified", downloaded.Version.ToString(), 100);
             supplementaryDownload?.Complete("success");
+            _applicationUpdateDownloadOutage.Recovered();
             _pendingApplicationUpdateDetails = ApplicationUpdateDetailsFrom(release);
             _availableApplicationRelease = null;
             ViewModel.UpdateApplicationUpdateStatus(
@@ -950,7 +989,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (OperationCanceledException error)
         {
-            supplementaryDownload?.Fail(error, "timeout");
+            FailInterruptedApplicationUpdateDownload(supplementaryDownload, error, "timeout");
             ApplicationUpdateTelemetry.Record("failed", _availableApplicationRelease?.Version.ToString(), reason: "timeout");
             ViewModel.UpdateApplicationUpdateStatus(
                 "The update download timed out. No files were installed.",
@@ -961,7 +1000,9 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (HttpRequestException error)
         {
-            supplementaryDownload?.Fail(error);
+            // An HTTP status is an answer from the release service and spends the release's budget.
+            if (error.StatusCode is null) FailInterruptedApplicationUpdateDownload(supplementaryDownload, error);
+            else supplementaryDownload?.Fail(error);
             ApplicationUpdateTelemetry.Record("failed", _availableApplicationRelease?.Version.ToString(), reason: "connection");
             ViewModel.UpdateApplicationUpdateStatus(
                 "The installer could not be downloaded. Check the connection and try again.",
@@ -983,7 +1024,7 @@ public sealed partial class AppController : IAsyncDisposable
         }
         catch (IOException error) when (error is HttpIOException || error.InnerException is System.Net.Sockets.SocketException)
         {
-            supplementaryDownload?.Fail(error);
+            FailInterruptedApplicationUpdateDownload(supplementaryDownload, error);
             ApplicationUpdateTelemetry.Record("failed", _availableApplicationRelease?.Version.ToString(), reason: "connection");
             ViewModel.UpdateApplicationUpdateStatus(
                 "The installer could not be downloaded. Check the connection and try again.",
@@ -1018,6 +1059,15 @@ public sealed partial class AppController : IAsyncDisposable
                 BeginStartupApplicationUpdateCheck();
             }
         }
+    }
+
+    private static VerifiedInstaller? ReuseStagedInstaller(UpdateRelease release)
+    {
+        foreach (var path in ApplicationUpdateStaging.StagedInstallers(release.Version))
+        {
+            if (WispUpdateClient.TryVerifyStagedInstaller(release, path) is { } installer) return installer;
+        }
+        return null;
     }
 
     public void MarkApplicationUpdateDeferred(VerifiedInstaller installer)

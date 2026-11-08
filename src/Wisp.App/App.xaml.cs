@@ -105,11 +105,16 @@ public partial class App : Application
 
         _runExitMarker = RunExitMarkerStore.BeginCurrent(_runId);
         // Windows delivers its shutdown notice to this window on its own thread, so the close request
-        // is recorded even while the dashboard thread is busy.
+        // is recorded, and no update starts, even while the dashboard thread is busy.
         _sessionEndSentinel = SessionEndSentinel.TryStart(() =>
         {
+            _controller?.SetWindowsSessionEnding(true);
             if (Volatile.Read(ref _fatalExit) == 0) _runExitMarker?.MarkShutdownStarted(ShutdownIntent.OperatingSystem);
-        }, () => _runExitMarker?.ClearShutdownIntent(ShutdownIntent.OperatingSystem));
+        }, () =>
+        {
+            _controller?.SetWindowsSessionEnding(false);
+            _runExitMarker?.ClearShutdownIntent(ShutdownIntent.OperatingSystem);
+        });
         // The native handler records the faulting address and call stack of a hardware fault
         // for this run; the next run reports it with the crash.
         NativeCrashCapture.TryInstall(_crashReports.StoreDirectory, _runId);
@@ -763,7 +768,8 @@ public partial class App : Application
             var launchedAt = DateTimeOffset.UtcNow;
             try
             {
-                handoff = ApplicationUpdateLauncher.Launch(installer);
+                handoff = await ApplicationUpdateLauncher.LaunchAsync(installer,
+                    () => !_exiting && _controller?.CanBeginApplicationUpdate(permission) == true);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
                                                InvalidOperationException or ArgumentException or Win32Exception or
@@ -852,7 +858,16 @@ public partial class App : Application
                 {
                     string error;
                     var helperRejected = false;
-                    if (handoffState == ApplicationUpdateHandoffState.HelperExited)
+                    if (handoffState == ApplicationUpdateHandoffState.HelperExited &&
+                        ApplicationUpdateLauncher.IsSessionEndExit(handoff.ExitCode))
+                    {
+                        // Windows was signing out or shutting down before its notice reached Wisp: the
+                        // helper could not initialize, nothing was installed, and the next launch updates.
+                        RecordSupplementarySignal("update", "update", "cancelled", "install-handoff");
+                        ApplicationUpdateTelemetry.Record("paused", installer.Version.ToString(), reason: "cancelled");
+                        error = "Windows is signing out. Wisp will update the next time it starts.";
+                    }
+                    else if (handoffState == ApplicationUpdateHandoffState.HelperExited)
                     {
                         // The helper records which check failed before it exits. Report that code now,
                         // and stop automatic attempts when the same check fails again in this session.
