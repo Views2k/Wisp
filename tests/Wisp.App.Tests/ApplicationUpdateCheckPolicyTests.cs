@@ -89,6 +89,11 @@ public sealed class ApplicationUpdateCheckPolicyTests
         await RestoreUpdatesAsync(controller);
         Assert.Equal(1, checks);
         response.SetResult(Release());
+        // The restore already set CanCheckApplicationUpdate, and the old check releases
+        // _applicationUpdateOperation before its finally block begins the fresh check, so the
+        // controller looks idle for a moment before the fresh request is counted. Wait for that
+        // request before waiting for the controller to go idle.
+        await WaitUntilAsync(() => checks == 2);
         await WaitForCheckAsync(controller);
         Assert.Equal(2, checks);
         Assert.False(controller.ViewModel.IsApplicationUpdateAvailable);
@@ -431,10 +436,14 @@ public sealed class ApplicationUpdateCheckPolicyTests
         .GetMethod("OnApplicationUpdateTimer", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(controller, [null, EventArgs.Empty]);
     private static async Task WaitForCheckAsync(AppController controller)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while ((!controller.ViewModel.CanCheckApplicationUpdate || CheckActive(controller)) && DateTime.UtcNow < deadline) await Task.Delay(10);
+        await WaitUntilAsync(() => controller.ViewModel.CanCheckApplicationUpdate && !CheckActive(controller));
         Assert.True(controller.ViewModel.CanCheckApplicationUpdate);
         Assert.False(CheckActive(controller));
+    }
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(10);
     }
     private static bool CheckActive(AppController controller) => (int)typeof(AppController)
         .GetField("_applicationUpdateOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(controller)! != 0;
