@@ -334,7 +334,13 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
         SafeProcessHandle? handle = NativeHudProcessMemory.OpenReadOnly(identity.ProcessId);
         try
         {
-            if (handle.IsInvalid) return false;
+            if (handle.IsInvalid)
+            {
+                // Nothing was learned about the build; report the same access failure as the exact path.
+                status = NativeAssistProviderStatus.AccessDenied;
+                SetStatus("The FH6 process could not be opened read-only");
+                return false;
+            }
             NativeStorePackageIdentity? package = NativeStorePackageIdentity.TryRead(handle, identity.ExecutablePath, out var store) ? store : null;
             // A rejected/revoked exact pack must never be bypassed by discovery.
             if (package is { } installed)
@@ -351,16 +357,22 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             var generation = _catalog.Generation;
             process.Refresh();
             if (CaptureIdentity(process) != identity ||
-                !NativeHudProcessMemory.HandleMatchesIdentity(handle, identity, allowStoreFileAlias: package is not null)) return false;
+                !NativeHudProcessMemory.HandleMatchesIdentity(handle, identity, allowStoreFileAlias: package is not null))
+            {
+                status = NativeAssistProviderStatus.ReadFailure;
+                SetStatus("FH6 identity changed before reader validation");
+                return false;
+            }
             SetStatus("Checking the updated game's reader compatibility");
             IReadOnlyProcessMemory admission = new BorrowedReadOnlyMemory(handle);
             if (_storeAdmissionWrapper is not null)
                 admission = _storeAdmissionWrapper(admission) ?? throw new InvalidOperationException("The admission read wrapper is unavailable.");
             if (!NativeAdaptiveCompatibility.TryResolve(identity, generation, fingerprint, package,
-                admission.TryReadBytes, out var pack, out var reason, cancellationToken))
+                admission.TryReadBytes, out var pack, out var reason, out var pending, cancellationToken))
             {
-                status = NativeAssistProviderStatus.UnsupportedBuild;
-                SetStatus(reason);
+                var failure = DescribeAdaptiveFailure(reason, pending);
+                status = failure.Status;
+                SetStatus(failure.Text);
                 return false;
             }
             process.Refresh();
@@ -388,6 +400,14 @@ public sealed class NativeHudProcessMemoryFactory : INativeHudProcessMemoryFacto
             handle?.Dispose();
         }
     }
+
+    // A check that could not finish, or that is waiting out its retry delay, is not a verdict on
+    // the build. Only a structural rejection may carry UnsupportedBuild, because that status is
+    // reported to Tools once per game process and shown to the player as a game update needing support.
+    internal static (NativeAssistProviderStatus Status, string Text) DescribeAdaptiveFailure(string reason, bool pending) =>
+        pending
+            ? (NativeAssistProviderStatus.Unavailable, "Checking the updated game's reader compatibility; " + reason)
+            : (NativeAssistProviderStatus.UnsupportedBuild, reason);
 
     private static NativeHudProcessIdentity CaptureIdentity(Process process)
     {

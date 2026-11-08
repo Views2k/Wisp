@@ -10,6 +10,8 @@ namespace Wisp.App.Tests;
 
 public sealed class NativeAdaptiveCompatibilityTests
 {
+    private static int _nextProcess = 600_000;
+
     [Theory]
     [InlineData("steam", "BuiltIn")]
     [InlineData("store", "Store")]
@@ -173,6 +175,68 @@ public sealed class NativeAdaptiveCompatibilityTests
         Assert.Throws<FormatException>(() => NativeHudCompatibilityPack.Parse(bytes));
         Assert.True(NativeHudCompatibilityPack.FromRuntimeValidation(json).IsRuntimeValidated);
     }
+
+    [Fact]
+    public void AnUnreadableStoreImageLeavesTheCompatibilityCheckPending()
+    {
+        var identity = Identity();
+        static bool UnreadableRead(ulong address, Span<byte> destination) => false;
+
+        Assert.False(NativeAdaptiveCompatibility.TryResolve(identity, 1, default, StorePackage, UnreadableRead,
+            out var pack, out var reason, out var pending, TestContext.Current.CancellationToken));
+        Assert.Null(pack);
+        Assert.True(pending);
+        Assert.Equal("The updated game's reader layout could not be verified", reason);
+
+        // The cached transient result stays pending until its retry delay has passed.
+        Assert.False(NativeAdaptiveCompatibility.TryResolve(identity, 1, default, StorePackage, UnreadableRead,
+            out pack, out reason, out pending, TestContext.Current.CancellationToken));
+        Assert.Null(pack);
+        Assert.True(pending);
+        Assert.Equal("The updated game's reader layout could not be verified", reason);
+    }
+
+    [Fact]
+    public void AnUnverifiableSteamPublisherLeavesTheCompatibilityCheckPending()
+    {
+        // The Steam path checks the executable's signer before it reads the image. A file it
+        // cannot open is a temporary condition, not a rejection, and no image read may follow.
+        static bool UnexpectedRead(ulong address, Span<byte> destination) =>
+            throw new InvalidOperationException("The publisher check must deny before any read");
+
+        Assert.False(NativeAdaptiveCompatibility.TryResolve(Identity(), 1, default, null, UnexpectedRead,
+            out var pack, out var reason, out var pending, TestContext.Current.CancellationToken));
+        Assert.Null(pack);
+        Assert.True(pending);
+        Assert.Equal("The updated Steam executable's publisher could not be verified", reason);
+    }
+
+    [Fact]
+    public void AChangedStoreLayoutIsADefinitiveRejection()
+    {
+        var identity = Identity();
+        static bool ClearedRead(ulong address, Span<byte> destination) { destination.Clear(); return true; }
+
+        Assert.False(NativeAdaptiveCompatibility.TryResolve(identity, 1, default, StorePackage, ClearedRead,
+            out var pack, out var reason, out var pending, TestContext.Current.CancellationToken));
+        Assert.Null(pack);
+        Assert.False(pending);
+        Assert.Equal("Adaptive image header", reason);
+
+        // The cached structural rejection is just as definitive on the next attachment.
+        Assert.False(NativeAdaptiveCompatibility.TryResolve(identity, 1, default, StorePackage, ClearedRead,
+            out pack, out reason, out pending, TestContext.Current.CancellationToken));
+        Assert.Null(pack);
+        Assert.False(pending);
+        Assert.Equal("Adaptive image header", reason);
+    }
+
+    private static NativeHudProcessIdentity Identity() => new(Interlocked.Increment(ref _nextProcess), 1,
+        MissingExecutable, Fixture.Module, 0x8000);
+    // No file exists at this path, so the Steam publisher check cannot open it.
+    private const string MissingExecutable = @"C:\Wisp.App.Tests\Missing\ForzaHorizon6.exe";
+    // Discovery after the factory's OS package-provenance boundary; no process is opened.
+    private static NativeStorePackageIdentity StorePackage => new("Microsoft.ForteBaseGame_3.999.4.0_x64__8wekyb3d8bbwe", MissingExecutable);
 
     private sealed class Fixture
     {
