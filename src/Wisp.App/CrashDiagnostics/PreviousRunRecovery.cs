@@ -50,6 +50,10 @@ internal sealed class PreviousRunRecovery(CrashReportStore reports, IWindowsFaul
                     exit = exit with { WindowsShutDown = shutDown };
                 }
             }
+            // Nobody closed Wisp on a PC that was asleep, or whose session was locked, when the run was last
+            // seen, and Windows recorded no stop. Markers from earlier versions carry neither state.
+            if (exit.Fault is null && exit.Native is null && !exit.WindowsStopped && !exit.WindowsShutDown)
+                exit = exit with { Suspended = safe.SuspendedAtUtc is not null, SessionLocked = safe.SessionLockedAtUtc is not null };
             var report = safe.ToReport(exit.Fault?.TimeUtc ?? nextRunStartedAtUtc) with
             {
                 Origin = exit.Fault is null ? CrashOrigin.UnexpectedExit : CrashOrigin.WindowsApplicationFault,

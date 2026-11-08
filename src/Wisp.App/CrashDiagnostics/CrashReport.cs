@@ -126,6 +126,8 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
             }
             else if (exit.WindowsStopped) report.AppendLine("Windows stopped without shutting down (Kernel-Power 41 or EventLog 6008) and restarted within 10 minutes of the previous run's last checkpoint.");
             else if (exit.WindowsShutDown) report.AppendLine("Windows shut down or signed out (EventLog 6006 or User32 1074) within minutes of the run's last checkpoint while Wisp was still running.");
+            else if (exit.Suspended) report.AppendLine("Windows was about to sleep or hibernate when the run was last seen, and the run did not resume. No shutdown, stop or crash event was found.");
+            else if (exit.SessionLocked) report.AppendLine("The Windows session was locked when the run was last seen. No shutdown, stop or crash event was found.");
             else report.AppendLine("The previous run did not finish normal shutdown. The cause is not established; termination or power loss can also leave this marker.");
             if (exit.Native is { } native)
             {

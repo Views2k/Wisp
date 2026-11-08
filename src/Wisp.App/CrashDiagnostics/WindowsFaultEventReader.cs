@@ -24,6 +24,10 @@ internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTim
     public bool WindowsStopped { get; init; }
     // Windows shut down or signed the user out within minutes of the run's last checkpoint while Wisp was still running.
     public bool WindowsShutDown { get; init; }
+    // Windows was about to sleep or hibernate when the run was last seen, and the run never resumed.
+    public bool Suspended { get; init; }
+    // The Windows session was locked when the run was last seen.
+    public bool SessionLocked { get; init; }
 
     internal RecoveredExitInfo? Sanitize()
     {
@@ -38,7 +42,9 @@ internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTim
                 Fault = fault with { Module = WindowsFaultEventReader.SafeModule(fault.Module), ModuleVersion = WindowsFaultEventReader.SafeVersion(fault.ModuleVersion) },
                 Native = Native?.Sanitize(),
                 WindowsStopped = false,
-                WindowsShutDown = false
+                WindowsShutDown = false,
+                Suspended = false,
+                SessionLocked = false
             };
         }
         return this with { Fault = null, Native = Native?.Sanitize() };
