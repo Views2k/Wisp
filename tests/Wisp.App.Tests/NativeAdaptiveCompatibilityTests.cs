@@ -10,6 +10,16 @@ namespace Wisp.App.Tests;
 
 public sealed class NativeAdaptiveCompatibilityTests
 {
+    [Fact]
+    public void ThreadLocalSlotsMustAgreeAndStayBounded()
+    {
+        NativeAdaptiveResolver.CheckThreadLocalSlots(new HashSet<uint>());
+        NativeAdaptiveResolver.CheckThreadLocalSlots(new HashSet<uint> { 0x42c });
+        Assert.Throws<InvalidDataException>(() => NativeAdaptiveResolver.CheckThreadLocalSlots(new HashSet<uint> { 0x420, 0x42c }));
+        Assert.Throws<InvalidDataException>(() => NativeAdaptiveResolver.CheckThreadLocalSlots(new HashSet<uint> { 0x422 }));
+        Assert.Throws<InvalidDataException>(() => NativeAdaptiveResolver.CheckThreadLocalSlots(new HashSet<uint> { 0x10000 }));
+    }
+
     private static int _nextProcess = 600_000;
 
     [Theory]

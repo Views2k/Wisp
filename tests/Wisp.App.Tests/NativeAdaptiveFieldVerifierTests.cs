@@ -167,6 +167,40 @@ public sealed class NativeAdaptiveFieldVerifierTests
         Assert.Throws<IOException>(() => image.FinishProof());
     }
 
+    [Theory]
+    [InlineData(0x420u)]
+    [InlineData(0x42cu)]
+    public void ThreadLocalSlotMayDifferFromTheReference(uint slot)
+    {
+        using var fixture = new Fixture(slotValue: slot);
+        var image = fixture.Image(TestContext.Current.CancellationToken);
+        fixture.Validate(image);
+        Assert.True(image.FinishProof().Matches(fixture.Read, Fixture.Module,
+            new NativeAdaptiveBudget(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)));
+    }
+
+    [Theory]
+    [InlineData("initializer")]
+    [InlineData("type-body")]
+    public void ThreadLocalSlotMustAgreeAcrossTheTypeFunctionAndEveryInitializer(string changed)
+    {
+        using var fixture = new Fixture();
+        var offset = changed == "initializer" ? Fixture.Initializer(3) + 27 : Fixture.TypeBody + 9;
+        BinaryPrimitives.WriteUInt32LittleEndian(fixture.Bytes.AsSpan(offset), 0x42c);
+        var error = Assert.Throws<InvalidDataException>(() => fixture.Validate(fixture.Image(TestContext.Current.CancellationToken)));
+        Assert.Equal("thread-slot-inconsistent", error.Message);
+    }
+
+    [Theory]
+    [InlineData(0x422u)]
+    [InlineData(0x10000u)]
+    public void ThreadLocalSlotMustBeAlignedAndBelow64K(uint slot)
+    {
+        using var fixture = new Fixture(slotValue: slot);
+        var error = Assert.Throws<InvalidDataException>(() => fixture.Validate(fixture.Image(TestContext.Current.CancellationToken)));
+        Assert.Equal("thread-slot-bounds", error.Message);
+    }
+
     [Fact]
     public void CancellationIsNotConvertedIntoStructuralRejection()
     {
@@ -178,7 +212,8 @@ public sealed class NativeAdaptiveFieldVerifierTests
     }
 
     private sealed record Field(string Name, string Path, ulong Offset, string Kind);
-    private sealed record Relocation(int Offset, int Width, int Next, uint ReferenceTarget, string Section, uint? Inner = null);
+    private sealed record Relocation(int Offset, int Width, int Next, uint ReferenceTarget, string Section, uint? Inner = null,
+        string Kind = "relative");
 
     private sealed class Fixture : IDisposable
     {
@@ -200,8 +235,11 @@ public sealed class NativeAdaptiveFieldVerifierTests
         internal static int Getter(int index) => Initializer(index) + 0x100;
         internal static int Name(int index) => 0x11400 + index * 0x40;
 
-        internal Fixture(bool alias = true, bool getterUsesBody = false)
+        internal uint SlotValue { get; }
+
+        internal Fixture(bool alias = true, bool getterUsesBody = false, uint slotValue = 0x420)
         {
+            SlotValue = slotValue;
             Write16(0, 0x5a4d);
             Write32(0x3c, 0x80);
             Write32(0x80, 0x4550);
@@ -217,10 +255,13 @@ public sealed class NativeAdaptiveFieldVerifierTests
             Bytes[TypeEntry] = 0xe9;
             Relative(TypeEntry, 1, 5, TypeBody);
             Convert.FromHexString("4831C0909090909090909090909090C3").CopyTo(Bytes, TypeBody);
+            // mov edx, imm32: the game's thread-local slot offset, masked by the template.
+            Bytes[TypeBody + 8] = 0xba;
+            BinaryPrimitives.WriteUInt32LittleEndian(Bytes.AsSpan(TypeBody + 9), slotValue);
             Bytes[SharedHelper] = 0xc3;
             Bytes[0x1700] = 0xc3;
             TypeTemplate = JsonDocument.Parse(JsonSerializer.Serialize(
-                Signature("type", ReferenceBody, TypeBody, 16, [])));
+                Signature("type", ReferenceBody, TypeBody, 16, [new(9, 4, 13, 0, "none", null, "threadLocalSlot")])));
 
             var signatures = new List<object>();
             var fields = new List<object>();
@@ -246,6 +287,8 @@ public sealed class NativeAdaptiveFieldVerifierTests
                 Relative(initializer, 19, 23, name);
                 Bytes[initializer + 24] = 0xeb;
                 Bytes[initializer + 25] = 2;
+                Bytes[initializer + 26] = 0xba;
+                BinaryPrimitives.WriteUInt32LittleEndian(Bytes.AsSpan(initializer + 27), slotValue);
                 Bytes[initializer + BodyLength - 1] = 0xc3;
                 Convert.FromHexString("534889CB").CopyTo(Bytes, getter);
                 Bytes[getter + 23] = 0xe8;
@@ -265,7 +308,8 @@ public sealed class NativeAdaptiveFieldVerifierTests
                     new(5, 4, 9, ReferenceType, "code"),
                     new(12, 4, 16, referenceGetter, "code"),
                     new(19, 4, 23, referenceName, "readonly"),
-                    new(25, 1, 26, referenceInitializer + 28, "code", 28)
+                    new(25, 1, 26, referenceInitializer + 28, "code", 28),
+                    new(27, 4, 31, 0, "none", null, "threadLocalSlot")
                 ]));
                 signatures.Add(Signature("getter-" + index, referenceGetter, getter, BodyLength,
                 [
@@ -324,7 +368,7 @@ public sealed class NativeAdaptiveFieldVerifierTests
                     offset = r.Offset,
                     width = r.Width,
                     next = r.Next,
-                    kind = "relative",
+                    kind = r.Kind,
                     targetRva = r.ReferenceTarget,
                     expectedTargetSection = r.Section,
                     internalOffset = r.Inner
