@@ -30,7 +30,7 @@ internal sealed class HudNativeHost : IDisposable
     private readonly NativeRendererRecovery _recovery = new();
     private readonly HudNativeHostRecovery _hostRecovery = new();
     private static readonly TimeSpan RendererReleaseTimeout = TimeSpan.FromSeconds(5);
-    private bool _scheduled, _capturing, _failed, _retryPending, _disposed;
+    private bool _scheduled, _capturing, _failed, _retryPending, _announceRetriedHost, _disposed;
     private int _nextId, _workerRevision;
 
     private sealed class Source(int id, FrameworkElement control)
@@ -258,7 +258,8 @@ internal sealed class HudNativeHost : IDisposable
             _vm?.ReportRendererHost(this, RendererHostState.Starting, "HUD renderer: native starting");
         }
         _worker.SetGpuPriority(_vm?.HudGpuPriorityActive == true);
-        _worker.UpdateHud(_snapshot, Stopwatch.GetTimestamp());
+        _worker.UpdateHud(_snapshot, Stopwatch.GetTimestamp(), announce: _announceRetriedHost);
+        _announceRetriedHost = false;
     }
 
     private void Deactivate()
@@ -426,7 +427,12 @@ internal sealed class HudNativeHost : IDisposable
         _ = _window.Dispatcher.BeginInvoke(new Action(() =>
         {
             _retryPending = false;
-            if (!_disposed && !_failed) RequestCapture();
+            if (_disposed || _failed) return;
+            // The worker announces a presented frame only when the scene changed. The retried
+            // synchronization is proven by the first frame presented after it, so that frame is
+            // announced regardless: OnPresented then ends the host-window retry and reports Ready.
+            _announceRetriedHost = true;
+            RequestCapture();
         }));
     }
     private static void SuppressWpfContent(Source source)
