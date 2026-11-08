@@ -28,19 +28,21 @@ public sealed class TachDiagnosticsTests : IDisposable
         var needle = Needle(TachDiagnostics.NextControlId(), timestamp);
         var native = NativeRead();
         var state = State(timestamp);
-        RecordAll(input, needle, native, state);
+        // Warm up with the same loop that is measured. Its first run includes one-time runtime work on this
+        // thread, such as the loop's on-stack replacement compile, and that work can allocate.
+        RecordAllRepeatedly(input, needle, native, state, 10_000);
         var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
         var started = Stopwatch.GetTimestamp();
-        for (var index = 0; index < 10_000; index++)
-            RecordAll(input, needle, native, state);
-        var elapsed = Stopwatch.GetElapsedTime(started);
+        RecordAllRepeatedly(input, needle, native, state, 10_000);
+        var finished = Stopwatch.GetTimestamp();
         var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
         Assert.False(TachDiagnostics.IsEnabled);
         Assert.Null(TachDiagnostics.Snapshot());
         Assert.Null(TachDiagnostics.CollectInterval(DateTimeOffset.UtcNow));
         Assert.Equal(0, allocated);
-        _output.WriteLine($"Disabled: 60,000 record calls, {allocated} bytes, {elapsed.TotalMilliseconds:F3} ms.");
+        _output.WriteLine($"Disabled: 60,000 record calls after 60,000 warm-up calls, {allocated} bytes, " +
+            $"{Stopwatch.GetElapsedTime(started, finished).TotalMilliseconds:F3} ms.");
     }
 
     [Fact]
@@ -344,6 +346,13 @@ public sealed class TachDiagnosticsTests : IDisposable
     {
         for (var index = start; index < start + count; index++)
             TachDiagnostics.RecordNeedle(in samples[index]);
+    }
+
+    private static void RecordAllRepeatedly(TelemetryPacketDiagnostic input, TachNeedleDiagnostic needle,
+        NativeGaugeReadDiagnostics native, VehicleState state, int count)
+    {
+        for (var index = 0; index < count; index++)
+            RecordAll(input, needle, native, state);
     }
 
     private static void RecordAll(TelemetryPacketDiagnostic input, TachNeedleDiagnostic needle,
