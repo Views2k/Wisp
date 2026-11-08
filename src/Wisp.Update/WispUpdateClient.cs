@@ -9,6 +9,10 @@ public sealed class WispUpdateClient : IDisposable
 {
     public const long MaximumInstallerSizeBytes = 512L * 1024 * 1024;
     public static readonly TimeSpan DefaultHeaderTimeout = TimeSpan.FromSeconds(15);
+    // Each request of the installer download, its redirects included, waits longer for its response than a
+    // check: on 2.7.3 two PCs whose checks took about 12 s timed out at 15 s on the download's first request,
+    // and one of them never updated in that session.
+    public static readonly TimeSpan DefaultDownloadHeaderTimeout = TimeSpan.FromSeconds(60);
     public static readonly TimeSpan DefaultApiBodyTimeout = TimeSpan.FromSeconds(15);
     public static readonly TimeSpan DefaultDownloadTimeout = TimeSpan.FromMinutes(30);
 
@@ -20,6 +24,7 @@ public sealed class WispUpdateClient : IDisposable
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
     private readonly TimeSpan _headerTimeout;
+    private readonly TimeSpan _downloadHeaderTimeout;
     private readonly TimeSpan _apiBodyTimeout;
     private readonly TimeSpan _downloadTimeout;
     private readonly TimeProvider _clock;
@@ -34,6 +39,7 @@ public sealed class WispUpdateClient : IDisposable
         HttpClient httpClient,
         bool ownsHttpClient,
         TimeSpan headerTimeout,
+        TimeSpan downloadHeaderTimeout,
         TimeSpan apiBodyTimeout,
         TimeSpan downloadTimeout,
         TimeProvider clock)
@@ -41,11 +47,13 @@ public sealed class WispUpdateClient : IDisposable
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(clock);
         ValidateTimeout(headerTimeout, nameof(headerTimeout), TimeSpan.FromMinutes(1));
+        ValidateTimeout(downloadHeaderTimeout, nameof(downloadHeaderTimeout), TimeSpan.FromMinutes(5));
         ValidateTimeout(apiBodyTimeout, nameof(apiBodyTimeout), TimeSpan.FromMinutes(1));
         ValidateTimeout(downloadTimeout, nameof(downloadTimeout), TimeSpan.FromHours(2));
         _httpClient = httpClient;
         _ownsHttpClient = ownsHttpClient;
         _headerTimeout = headerTimeout;
+        _downloadHeaderTimeout = downloadHeaderTimeout;
         _apiBodyTimeout = apiBodyTimeout;
         _downloadTimeout = downloadTimeout;
         _clock = clock;
@@ -55,9 +63,11 @@ public sealed class WispUpdateClient : IDisposable
         HttpClient httpClient,
         TimeSpan? headerTimeout = null,
         TimeSpan? apiBodyTimeout = null,
-        TimeSpan? downloadTimeout = null)
+        TimeSpan? downloadTimeout = null,
+        TimeSpan? downloadHeaderTimeout = null)
         : this(httpClient, false,
             headerTimeout ?? DefaultHeaderTimeout,
+            downloadHeaderTimeout ?? DefaultDownloadHeaderTimeout,
             apiBodyTimeout ?? DefaultApiBodyTimeout,
             downloadTimeout ?? DefaultDownloadTimeout,
             TimeProvider.System)
@@ -65,20 +75,20 @@ public sealed class WispUpdateClient : IDisposable
     }
 
     internal WispUpdateClient(HttpClient httpClient, TimeProvider clock)
-        : this(httpClient, false, DefaultHeaderTimeout, DefaultApiBodyTimeout, DefaultDownloadTimeout, clock)
+        : this(httpClient, false, DefaultHeaderTimeout, DefaultDownloadHeaderTimeout, DefaultApiBodyTimeout, DefaultDownloadTimeout, clock)
     {
     }
 
     public static WispUpdateClient CreateDefault() =>
         new(UpdateTransport.CreateClient(), true,
-            DefaultHeaderTimeout, DefaultApiBodyTimeout, DefaultDownloadTimeout, TimeProvider.System);
+            DefaultHeaderTimeout, DefaultDownloadHeaderTimeout, DefaultApiBodyTimeout, DefaultDownloadTimeout, TimeProvider.System);
 
     public async Task<UpdateRelease> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ThrowWhileRateLimited();
         using var request = UpdateTransport.CreateApiRequest(ReleaseUriPolicy.LatestReleaseUri);
-        using var response = await SendHeadersAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendHeadersAsync(request, "release-api", _headerTimeout, cancellationToken).ConfigureAwait(false);
 
         RequireUnredirectedResponse(response, ReleaseUriPolicy.LatestReleaseUri);
         if (response.StatusCode != HttpStatusCode.OK)
@@ -214,6 +224,54 @@ public sealed class WispUpdateClient : IDisposable
         }
     }
 
+    // An installer an earlier attempt staged for this release, verified again against the release's file
+    // name, size, SHA-256 and installer identity. When the update helper could not start it and restarted
+    // Wisp, the next attempt installs that copy instead of downloading it again. Null for any mismatch or
+    // a file that cannot be read.
+    public static VerifiedInstaller? TryVerifyStagedInstaller(UpdateRelease release, string stagedPath)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stagedPath);
+        try
+        {
+            ValidateReleaseForDownload(release);
+            var path = Path.GetFullPath(stagedPath);
+            var file = new FileInfo(path);
+            if (!string.Equals(file.Name, release.FileName, StringComparison.Ordinal) || !file.Exists ||
+                (file.Attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0 ||
+                file.Length != release.Size)
+            {
+                return null;
+            }
+
+            byte[] actualHash;
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
+                       FileOptions.SequentialScan))
+            {
+                if (stream.Length != release.Size)
+                {
+                    return null;
+                }
+
+                actualHash = SHA256.HashData(stream);
+            }
+
+            if (!CryptographicOperations.FixedTimeEquals(actualHash, Convert.FromHexString(release.Sha256)))
+            {
+                return null;
+            }
+
+            InstallerArtifactVerifier.Verify(path, release.Version, release.Size);
+            return new VerifiedInstaller(path, release.Version, release.Size, release.Sha256);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
+                                           UpdateSecurityException or ArgumentException or NotSupportedException or
+                                           System.Security.SecurityException)
+        {
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -251,7 +309,8 @@ public sealed class WispUpdateClient : IDisposable
             }
 
             using var request = UpdateTransport.CreateDownloadRequest(current);
-            var response = await SendHeadersAsync(request, cancellationToken).ConfigureAwait(false);
+            var response = await SendHeadersAsync(request, redirects == 0 ? "installer" : $"installer-redirect-{redirects}",
+                _downloadHeaderTimeout, cancellationToken).ConfigureAwait(false);
             try
             {
                 RequireUnredirectedResponse(response, current);
@@ -286,20 +345,30 @@ public sealed class WispUpdateClient : IDisposable
         }
     }
 
+    // name says which request of the chain this is in the timing attached to a response timeout.
     private async Task<HttpResponseMessage> SendHeadersAsync(
         HttpRequestMessage request,
+        string name,
+        TimeSpan timeout,
         CancellationToken cancellationToken)
     {
+        var timer = new UpdateRequestTimer(name, _clock);
+        request.Options.Set(UpdateTransport.TimerOption, timer);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(_headerTimeout);
+        deadline.CancelAfter(timeout);
         var pending = _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
         try
         {
             return await pending.WaitAsync(deadline.Token).ConfigureAwait(false);
         }
-        catch
+        catch (Exception error)
         {
             _ = DisposeLateResponseAsync(pending);
+            if (error is OperationCanceledException && deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                UpdateRequestTiming.Attach(error, timer.Snapshot());
+            }
+
             throw;
         }
     }
@@ -311,7 +380,7 @@ public sealed class WispUpdateClient : IDisposable
         try
         {
             using var request = UpdateTransport.CreatePageRequest(ReleaseUriPolicy.LatestReleasePageUri);
-            using var response = await SendHeadersAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHeadersAsync(request, "release-page", _headerTimeout, cancellationToken).ConfigureAwait(false);
             RequireUnredirectedResponse(response, ReleaseUriPolicy.LatestReleasePageUri);
             return response.StatusCode == HttpStatusCode.Found &&
                 ReleaseUriPolicy.TryParseLatestTagRedirect(response.Headers.Location, out var version)

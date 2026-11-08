@@ -140,6 +140,35 @@ internal static class ApplicationUpdateStaging
         }
     }
 
+    // Installers that earlier attempts staged for this version, newest attempt first. The caller verifies
+    // each one before using it (WispUpdateClient.TryVerifyStagedInstaller).
+    internal static IReadOnlyList<string> StagedInstallers(SemanticVersion version) => StagedInstallers(RootDirectory, version);
+
+    internal static IReadOnlyList<string> StagedInstallers(string rootDirectory, SemanticVersion version)
+    {
+        try
+        {
+            var root = Path.GetFullPath(rootDirectory).TrimEnd(Path.DirectorySeparatorChar);
+            if (!Directory.Exists(root) || !IsRegularDirectory(root))
+            {
+                return [];
+            }
+
+            var installerName = $"Wisp-Setup-{version}.exe";
+            return DiscoverAttempts(root)
+                .Where(attempt => TryResolveAttemptPath(root, attempt.Path, out _, out var attemptVersion) && attemptVersion == version)
+                .OrderByDescending(attempt => attempt.LastWriteUtc)
+                .Select(attempt => attempt.Files.FirstOrDefault(file =>
+                    string.Equals(Path.GetFileName(file), installerName, StringComparison.Ordinal)))
+                .OfType<string>()
+                .ToList();
+        }
+        catch (Exception exception) when (IsExpectedFileSystemFailure(exception))
+        {
+            return [];
+        }
+    }
+
     internal static void TryDeleteAttemptDirectory(string? attemptDirectory)
     {
         if (string.IsNullOrWhiteSpace(attemptDirectory))

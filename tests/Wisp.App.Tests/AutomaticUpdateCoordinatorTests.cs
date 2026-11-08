@@ -7,7 +7,7 @@ public sealed class AutomaticUpdateCoordinatorTests
 {
     private sealed class Scenario
     {
-        internal bool Enabled = true, HasUpdate = true, GameOpen, Busy, Network = true;
+        internal bool Enabled = true, HasUpdate = true, GameOpen, Busy, Network = true, Interrupted;
         internal int Downloads, Installs;
         internal AutomaticUpdateApplyOutcome InstallOutcome = AutomaticUpdateApplyOutcome.Started;
         internal Func<int, AutomaticUpdateApplyOutcome>? OutcomeForAttempt;
@@ -21,7 +21,8 @@ public sealed class AutomaticUpdateCoordinatorTests
             () => Enabled, () => HasUpdate, () => Task.FromResult(GameOpen), () => Busy,
             () => { Downloads++; return Download?.Task ?? Task.FromResult<VerifiedInstaller?>(Installer); },
             installer => { Assert.Same(Installer, installer); Installs++; return Task.FromResult(OutcomeForAttempt?.Invoke(Installs) ?? InstallOutcome); },
-            _ => { }, () => Now, pendingVersion: () => Installer.Version.ToString(), networkAvailable: () => Network);
+            _ => { }, () => Now, pendingVersion: () => Installer.Version.ToString(), networkAvailable: () => Network,
+            downloadInterrupted: () => Interrupted);
 
         // The dashboard install timer ticks every five seconds for as long as Wisp runs.
         internal async Task TickAsync(AutomaticUpdateCoordinator coordinator, TimeSpan duration)
@@ -133,6 +134,53 @@ public sealed class AutomaticUpdateCoordinatorTests
         Assert.Equal(AutomaticUpdateCoordinator.MaximumRetries + 1, s.Downloads);
         Assert.Equal(1, s.Installs);
         Assert.False(coordinator.IsExhausted("2.6.10"));
+    }
+
+    [Fact]
+    public async Task DownloadsThatGetNoResponseKeepRetryingAtTheCheckInterval()
+    {
+        // On 2.7.3 one PC's download timed out three times in four minutes; the release was then
+        // exhausted and the PC made no further attempt in a nine-hour session.
+        var s = new Scenario { Interrupted = true, Download = new TaskCompletionSource<VerifiedInstaller?>() };
+        s.Download.SetResult(null);
+        var coordinator = s.Create();
+        await coordinator.RunAsync();
+        Assert.Equal(1, s.Downloads);
+
+        // The first retry follows RetryInterval, later ones MinimumInterval.
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.RetryInterval - TimeSpan.FromSeconds(5));
+        Assert.Equal(1, s.Downloads);
+        await s.TickAsync(coordinator, TimeSpan.FromSeconds(5));
+        Assert.Equal(2, s.Downloads);
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.MinimumInterval - TimeSpan.FromSeconds(5));
+        Assert.Equal(2, s.Downloads);
+        await s.TickAsync(coordinator, TimeSpan.FromSeconds(5));
+        Assert.Equal(3, s.Downloads);
+        await s.TickAsync(coordinator, TimeSpan.FromHours(9));
+        Assert.Equal(3 + 36, s.Downloads);
+        Assert.False(coordinator.IsExhausted("2.6.9"));
+
+        // The download succeeds and is handed off at once.
+        s.Download = null;
+        await s.TickAsync(coordinator, ApplicationUpdateCheckPolicy.MinimumInterval);
+        Assert.Equal(1, s.Installs);
+    }
+
+    [Fact]
+    public async Task OtherDownloadFailuresStillSpendTheBudgetAfterInterruptedOnes()
+    {
+        var s = new Scenario { Interrupted = true, Download = new TaskCompletionSource<VerifiedInstaller?>() };
+        s.Download.SetResult(null);
+        var coordinator = s.Create();
+        await s.TickAsync(coordinator, TimeSpan.FromHours(1));
+        Assert.False(coordinator.IsExhausted("2.6.9"));
+
+        // A download that fails verification or storage is counted.
+        s.Interrupted = false;
+        var before = s.Downloads;
+        await s.TickAsync(coordinator, TimeSpan.FromHours(1));
+        Assert.Equal(before + AutomaticUpdateCoordinator.MaximumRetries, s.Downloads);
+        Assert.True(coordinator.IsExhausted("2.6.9"));
     }
 
     [Fact]

@@ -19,7 +19,7 @@ public sealed class ApplicationUpdateLauncherTests : IDisposable
     private string ResultPath => Path.Combine(_root, "Wisp", "update-result.json");
 
     [Fact]
-    public void InvalidRequestEntryReleasesHandoffWithoutDeletingTheEntry()
+    public async Task InvalidRequestEntryReleasesHandoffWithoutDeletingTheEntry()
     {
         Directory.CreateDirectory(_root);
         var helperPath = Path.Combine(_root, "Wisp.Updater.exe");
@@ -29,7 +29,7 @@ public sealed class ApplicationUpdateLauncherTests : IDisposable
         File.WriteAllText(Path.Combine(requestPath, "keep.txt"), "keep");
         var request = CreateRequest();
 
-        Assert.Throws<IOException>(() => ApplicationUpdateLauncher.StartHelper(helperPath, request));
+        await Assert.ThrowsAsync<IOException>(() => ApplicationUpdateLauncher.StartHelperAsync(helperPath, request, () => true));
 
         AssertEventClosed(request.ReadyEventName);
         Assert.True(File.Exists(Path.Combine(requestPath, "keep.txt")));
@@ -38,16 +38,80 @@ public sealed class ApplicationUpdateLauncherTests : IDisposable
     }
 
     [Fact]
-    public void FailedHelperStartReleasesHandoffAndRemovesItsRequest()
+    public async Task FailedHelperStartReleasesHandoffAndRemovesItsRequest()
     {
         Directory.CreateDirectory(_root);
         var helperPath = Path.Combine(_root, "missing-updater.exe");
         var request = CreateRequest();
+        var waits = new List<TimeSpan>();
 
-        Assert.Throws<Win32Exception>(() => ApplicationUpdateLauncher.StartHelper(helperPath, request));
+        // A missing helper is not a refusal: it is not retried.
+        await Assert.ThrowsAsync<Win32Exception>(() => ApplicationUpdateLauncher.StartHelperAsync(helperPath, request,
+            () => true, wait: delay => { waits.Add(delay); return Task.CompletedTask; }));
 
+        Assert.Empty(waits);
         AssertEventClosed(request.ReadyEventName);
         Assert.Empty(Directory.GetFileSystemEntries(_root));
+    }
+
+    [Fact]
+    public async Task RefusedHelperStartIsTriedAgainWithTheSameStagedHelperAndRequest()
+    {
+        // On 2.7.3 Windows refused to start one PC's staged helper (access denied) about 2 s after the
+        // download finished, twice; the automatic retry 2 min later started it.
+        Directory.CreateDirectory(_root);
+        var helperPath = Path.Combine(_root, "Wisp.Updater.exe");
+        File.WriteAllText(helperPath, "not executed");
+        var request = CreateRequest();
+        var requestPath = Path.Combine(_root, "apply-request.json");
+        var commandProcessor = Environment.GetEnvironmentVariable("ComSpec")!;
+        var waits = new List<TimeSpan>();
+        var starts = 0;
+
+        using (var handoff = await ApplicationUpdateLauncher.StartHelperAsync(helperPath, request, () => true,
+                   startInfo =>
+                   {
+                       Assert.True(File.Exists(helperPath));
+                       Assert.True(File.Exists(requestPath));
+                       Assert.Equal(helperPath, startInfo.FileName);
+                       return ++starts == 1
+                           ? throw new Win32Exception(5)
+                           : System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(commandProcessor, "/d /c exit 0")
+                           { UseShellExecute = false, CreateNoWindow = true });
+                   },
+                   delay => { waits.Add(delay); return Task.CompletedTask; }))
+        {
+            Assert.Equal(2, starts);
+            Assert.Equal([TimeSpan.FromSeconds(1)], waits);
+            Assert.True(File.Exists(requestPath));
+        }
+    }
+
+    [Fact]
+    public async Task RefusedHelperStartStopsRetryingWhenTheUpdateMayNoLongerStart()
+    {
+        Directory.CreateDirectory(_root);
+        var helperPath = Path.Combine(_root, "Wisp.Updater.exe");
+        File.WriteAllText(helperPath, "not executed");
+        var request = CreateRequest();
+        var starts = 0;
+
+        var error = await Assert.ThrowsAsync<Win32Exception>(() => ApplicationUpdateLauncher.StartHelperAsync(helperPath, request,
+            () => false, _ => { starts++; throw new Win32Exception(5); }, _ => Task.CompletedTask));
+
+        Assert.Equal(5, error.NativeErrorCode);
+        Assert.Equal(1, starts);
+        AssertEventClosed(request.ReadyEventName);
+        Assert.Empty(Directory.GetFileSystemEntries(_root));
+    }
+
+    [Fact]
+    public void HelperStoppedBecauseWindowsIsSigningOutIsNotAnUpdateFailure()
+    {
+        Assert.True(ApplicationUpdateLauncher.IsSessionEndExit(unchecked((int)0xC000026B)));
+        Assert.False(ApplicationUpdateLauncher.IsSessionEndExit(unchecked((int)0xC0000005)));
+        Assert.False(ApplicationUpdateLauncher.IsSessionEndExit(1));
+        Assert.False(ApplicationUpdateLauncher.IsSessionEndExit(null));
     }
 
     [Fact]

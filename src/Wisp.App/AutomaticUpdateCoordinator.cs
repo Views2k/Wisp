@@ -26,16 +26,21 @@ internal sealed class AutomaticUpdateCoordinator(
     Func<DateTimeOffset>? clock = null,
     Action<string>? waiting = null,
     Func<string?>? pendingVersion = null,
-    Func<bool>? networkAvailable = null)
+    Func<bool>? networkAvailable = null,
+    Func<bool>? downloadInterrupted = null)
 {
     // A download or handoff that keeps failing the same way will not succeed later in this session
     // either: after MaximumRetries for one release, automatic attempts stop for that release and the
     // dashboard points at the full installer. A newer release published later gets a fresh budget.
+    // Downloads that got no response from the release service (downloadInterrupted) are not counted:
+    // see RecordInterruptedDownload.
     internal const int MaximumRetries = 3;
     private bool _active;
     private bool _handoffUnavailable;
     private int _retries;
     private string? _retriedVersion;
+    private int _interruptions;
+    private string? _interruptedVersion;
     private string? _exhaustedVersion;
     private DateTimeOffset _retryAfter;
     private readonly Func<DateTimeOffset> _clock = clock ?? (() => DateTimeOffset.UtcNow);
@@ -60,6 +65,22 @@ internal sealed class AutomaticUpdateCoordinator(
         }
         if (++_retries >= MaximumRetries) _exhaustedVersion = version;
         else _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
+    }
+
+    // A download that timed out or lost its connection before the release service answered is retried
+    // without spending the release's budget: on 2.7.3 one PC timed out three times in four minutes and
+    // made no further attempt for the rest of a nine-hour session. The first retry follows RetryInterval,
+    // later ones MinimumInterval, the automatic check interval.
+    private void RecordInterruptedDownload(string? version)
+    {
+        if (_interruptedVersion != version)
+        {
+            _interruptedVersion = version;
+            _interruptions = 0;
+        }
+        _retryAfter = _clock() + (++_interruptions == 1
+            ? ApplicationUpdateCheckPolicy.RetryInterval
+            : ApplicationUpdateCheckPolicy.MinimumInterval);
     }
 
     internal async Task RunAsync()
@@ -88,8 +109,9 @@ internal sealed class AutomaticUpdateCoordinator(
             {
                 // A download that could not happen while the PC has no connection is a wait, as for the
                 // check, not one of the release's attempts.
-                if (_networkAvailable()) RecordRetry(pendingVersion?.Invoke());
-                else _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
+                if (!_networkAvailable()) _retryAfter = _clock() + ApplicationUpdateCheckPolicy.RetryInterval;
+                else if (downloadInterrupted?.Invoke() == true) RecordInterruptedDownload(pendingVersion?.Invoke());
+                else RecordRetry(pendingVersion?.Invoke());
                 return;
             }
             if (IsExhausted(installer.Version.ToString())) { _retryAfter = _clock() + ApplicationUpdateCheckPolicy.MinimumInterval; return; }

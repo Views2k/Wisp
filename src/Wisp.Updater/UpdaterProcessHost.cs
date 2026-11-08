@@ -14,7 +14,11 @@ internal interface IUpdaterProcessHost
     void StartApplication(string applicationPath);
 }
 
-internal sealed class WindowsUpdaterProcessHost(Func<bool>? gameRunning = null) : IUpdaterProcessHost
+// start and wait replace Process.Start and Thread.Sleep in tests.
+internal sealed class WindowsUpdaterProcessHost(
+    Func<bool>? gameRunning = null,
+    Func<ProcessStartInfo, Process?>? start = null,
+    Action<TimeSpan>? wait = null) : IUpdaterProcessHost
 {
     public void ValidateParentIdentity(int parentProcessId, string expectedApplicationPath)
     {
@@ -52,15 +56,20 @@ internal sealed class WindowsUpdaterProcessHost(Func<bool>? gameRunning = null) 
 
     public void RunInstaller(string installerPath, IReadOnlyList<string> arguments, TimeSpan timeout)
     {
-        if ((gameRunning ?? Wisp.Update.UpdateGameActivity.IsRunning)())
-            throw InstallerFailure("UPDATE_GAME_RUNNING", "Forza opened before the update could start. Wisp will try again after it closes.");
         Process? installer = null;
         try
         {
-            installer = Process.Start(CreateInstallerStartInfo(installerPath, arguments))
-                ?? throw InstallerFailure(
-                    "UPDATE_INSTALLER_START_FAILED",
-                    "The Wisp installer could not be started.");
+            // A start that Windows refuses for a moment is tried again (ProcessStartRetry); Forza can open
+            // while it waits, so the game is checked before every start.
+            installer = Wisp.Update.ProcessStartRetry.Start(() =>
+            {
+                if ((gameRunning ?? Wisp.Update.UpdateGameActivity.IsRunning)())
+                    throw InstallerFailure("UPDATE_GAME_RUNNING", "Forza opened before the update could start. Wisp will try again after it closes.");
+                return (start ?? Process.Start)(CreateInstallerStartInfo(installerPath, arguments))
+                    ?? throw InstallerFailure(
+                        "UPDATE_INSTALLER_START_FAILED",
+                        "The Wisp installer could not be started.");
+            }, static () => true, wait ?? Thread.Sleep);
             if (!installer.WaitForExit(TimeoutMilliseconds(timeout)))
             {
                 var recoveryIsSafe = TryStopInstaller(installer);

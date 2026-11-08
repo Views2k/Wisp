@@ -12,7 +12,13 @@ internal sealed record SupplementaryIncidentContext(int AgeMs, string Connection
     double? UiHeartbeatAgeMs = null, double? NativeAgeMs = null, string? Foreground = null,
     string? GameBuild = null, string? GameVerification = null, string? RecorderState = null,
     string? RenderMode = null, bool? GameActive = null, bool? NativeExpected = null, bool? OverlayExpectedVisible = null);
-internal sealed record SupplementaryUpdateEvidence(string Recovery, uint? InstallerExitCode = null);
+// Recovery says how Wisp recovered from a helper failure. A check or download that reached its response
+// deadline carries Download instead, which has no recovery.
+internal sealed record SupplementaryUpdateEvidence(string? Recovery, uint? InstallerExitCode = null,
+    SupplementaryUpdateDownloadEvidence? Download = null);
+// Milliseconds each phase of the timed-out request took (UpdateRequestTiming); the last one present is
+// the phase the deadline interrupted. Measurements stay out of the signature.
+internal sealed record SupplementaryUpdateDownloadEvidence(string Request, int? ConnectMs = null, int? TlsMs = null, int? ResponseMs = null);
 internal sealed record SupplementaryCrashEvidence(string Origin, string? Lookup = null, string? Module = null,
     ulong? Offset = null, string? ModuleVersion = null, string? FaultModule = null, ulong? FaultOffset = null,
     ImmutableArray<string>? Frames = null);
@@ -37,6 +43,9 @@ internal static class SupplementaryIncidentSchema
     };
     internal static readonly HashSet<string> UpdateFailureReasons = new(StringComparer.Ordinal)
     { "update-application-path", "update-arguments", "update-game-running", "update-helper-path", "update-installed-app-invalid", "update-installer-exit-failed", "update-installer-hash", "update-installer-hash-mismatch", "update-installer-not-pe", "update-installer-path", "update-installer-product-mismatch", "update-installer-read-failed", "update-installer-size", "update-installer-size-mismatch", "update-installer-start-failed", "update-installer-stop-failed", "update-installer-timeout", "update-installer-version-mismatch", "update-install-registration", "update-parent-exited", "update-parent-identity", "update-parent-inspection", "update-parent-process", "update-parent-timeout", "update-ready-event", "update-ready-signal", "update-request-json", "update-request-path", "update-request-root", "update-request-size", "update-restart-failed", "update-source-version", "update-target-version", "update-unexpected-failure" };
+    internal static readonly HashSet<string> UpdateDownloadRequests = new(StringComparer.Ordinal)
+    { "release-page", "release-api", "installer", "installer-redirect-1", "installer-redirect-2", "installer-redirect-3" };
+    internal const int MaximumUpdatePhaseMs = 600000;
     internal static readonly HashSet<string> UpdateRecoveries = new(StringComparer.Ordinal)
     { "unknown", "application-still-running", "restarted", "deferred", "no-verified-installation", "restart-failed" };
     internal static readonly HashSet<string> Reasons = new(StringComparer.Ordinal)
@@ -112,7 +121,7 @@ internal static class SupplementaryIncidentSchema
         (value.Crash is null || value.SchemaVersion == 3 && ValidCrashOrigin(value.Category, value.Crash.Origin) &&
             value.Crash.Lookup is null or "no-match" or "matched" or "access-denied" or "timeout" or "read-failed" or "scan-limit" &&
             ValidCrashDetails(value.Crash)) &&
-        (value.Update is null || value.SchemaVersion == 3 && value.Category == "update" && UpdateRecoveries.Contains(value.Update.Recovery)) &&
+        (value.Update is null || value.SchemaVersion == 3 && value.Category == "update" && ValidUpdate(value.Update)) &&
         (Reasons.Contains(value.Reason) || value.Category == "update" && UpdateFailureReasons.Contains(value.Reason)) && (value.FailureStage is null || FailureStages.Contains(value.FailureStage)) &&
         (value.Exceptions is null || value.Exceptions is { IsDefault: false, Length: > 0 and <= 3 } exceptions && exceptions.All(e =>
             e is not null && ExceptionTypes.Contains(e.Type) && !e.Methods.IsDefault && e.Methods.Length <= 4 &&
@@ -136,6 +145,18 @@ internal static class SupplementaryIncidentSchema
         c.GameVerification is null or "verified" or "unverified" or "unavailable" or "not-running" &&
         c.RecorderState is null or "disabled" or "waiting" or "preparing" or "buffering" or "saving" or "stopping" or "reconnecting" or "unavailable" or "error" or "paused" &&
         c.RenderMode is null or "cpu" or "gpu";
+    private static bool ValidUpdate(SupplementaryUpdateEvidence update) =>
+        (update.Recovery is null ? update.Download is not null : UpdateRecoveries.Contains(update.Recovery)) &&
+        (update.Download is not { } download || UpdateDownloadRequests.Contains(download.Request) &&
+            Phase(download.ConnectMs) && Phase(download.TlsMs) && Phase(download.ResponseMs));
+    private static bool Phase(int? milliseconds) => milliseconds is null or >= 0 and <= MaximumUpdatePhaseMs;
+    internal static SupplementaryUpdateDownloadEvidence? DownloadEvidence(Wisp.Update.UpdateRequestTiming? timing)
+    {
+        static int? Ms(TimeSpan? phase) => phase is { } value ? (int)Math.Clamp(Math.Round(value.TotalMilliseconds), 0, MaximumUpdatePhaseMs) : null;
+        return timing is not null && UpdateDownloadRequests.Contains(timing.Request)
+            ? new(timing.Request, Ms(timing.Connect), Ms(timing.Tls), Ms(timing.Response))
+            : null;
+    }
     private static bool ValidCrashDetails(SupplementaryCrashEvidence crash) =>
         (crash.Module is null || CrashDiagnostics.WindowsFaultEventReader.SafeModule(crash.Module) == crash.Module) &&
         (crash.ModuleVersion is null || CrashDiagnostics.WindowsFaultEventReader.SafeVersion(crash.ModuleVersion) == crash.ModuleVersion) &&
