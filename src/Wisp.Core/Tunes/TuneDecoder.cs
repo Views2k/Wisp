@@ -31,6 +31,7 @@ public static class TuneDecoder
         snapshot = null;
         failure = ValidateInput(input);
         if (failure != TuneDecodeFailure.None || input is null) return false;
+        var useKnownPartLevels = input.PartLevelsResolved || input.VerifiedPartProjection;
         var parts = input.Parts.ToDictionary(part => part.Kind);
         var rows = ImmutableArray.CreateBuilder<TuneField>(FieldCount);
         var words = input.ActiveNormalizedWords.IsDefault ? input.NormalizedCopies[0] : input.ActiveNormalizedWords;
@@ -39,7 +40,7 @@ public static class TuneDecoder
             uint bits = words[definition.Offset / 4];
             float normalized = BitConverter.UInt32BitsToSingle(bits);
             bool applicable = IsApplicable(definition.Id, input.Drivetrain, input.ObservedGearEntryCount - 1);
-            bool? adjustable = IsAdjustable(definition, parts, input.PartLevelsResolved);
+            bool? adjustable = IsAdjustable(definition, parts, useKnownPartLevels);
             var status = !applicable ? TuneFieldStatus.NotApplicable
                 : adjustable is null ? TuneFieldStatus.UnresolvedPartLevel
                 : !adjustable.Value ? TuneFieldStatus.NotAdjustable
@@ -77,7 +78,7 @@ public static class TuneDecoder
             new(input.GameVersion, input.ExecutableSha256?.ToUpperInvariant(), ReaderVersion, input.CarOrdinal,
                 input.Drivetrain, input.ObservedGearEntryCount - 1)
             { Verification = input.Verification }, input.UnitPreference,
-            input.Parts.Select(part => input.PartLevelsResolved ? part : part with { Level = null })
+            input.Parts.Select(part => useKnownPartLevels ? part : part with { Level = null })
                 .OrderBy(part => part.Kind).ToImmutableArray(), rows.MoveToImmutable())
         { CarName = input.CarName, Performance = input.Performance is { IsValid: true } ? input.Performance : null };
         return true;

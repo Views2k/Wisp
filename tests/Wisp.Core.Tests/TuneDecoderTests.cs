@@ -154,6 +154,32 @@ public sealed class TuneDecoderTests
         Reject(source with { Format = source.Format with { PositiveHalf = .4 } }, TuneDecodeFailure.InvalidFormatter);
     }
 
+    [Theory]
+    [InlineData(TunePartId.SpringDamper)]
+    [InlineData(TunePartId.Engine)]
+    public void MissingInstalledPartPreservesIndependentlyVerifiedSettings(TunePartId missing)
+    {
+        var source = Fixture("miata");
+        var baseline = Decode(source);
+        var part = source.Parts.Single(value => value.Kind == missing);
+        var partial = Decode(source with
+        {
+            Parts = source.Parts.SetItem(source.Parts.IndexOf(part), part with { Level = null }),
+            PartLevelsResolved = false,
+            VerifiedPartProjection = true
+        });
+        Assert.False(partial.IsComplete);
+        Assert.True(TuneSnapshotValidator.TryValidate(partial, out var reason), reason);
+        foreach (var definition in TuneDecoder.Definitions)
+        {
+            var expected = Field(baseline, definition.Id);
+            if (definition.Part == missing && expected.Status != TuneFieldStatus.NotApplicable)
+                AssertUnavailable(partial, definition.Id, TuneFieldStatus.UnresolvedPartLevel);
+            else
+                Assert.Equal(expected, Field(partial, definition.Id));
+        }
+    }
+
     [Fact]
     public void UnresolvedStatesNeverInventValuesAndRemainUnsavable()
     {

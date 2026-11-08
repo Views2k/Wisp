@@ -54,7 +54,8 @@ public sealed record TuneSnapshot(Guid Id, DateTimeOffset CapturedAtUtc, TuneIde
     public string? CarName { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public TunePerformance? Performance { get; init; }
-    public bool IsComplete => !Fields.IsDefault && TuneDecoder.TryGetDefinitions(Identity?.ReaderVersion, out var definitions) &&
+    public bool IsComplete => !Parts.IsDefaultOrEmpty && Parts.All(part => part?.Level is not null) &&
+        !Fields.IsDefault && TuneDecoder.TryGetDefinitions(Identity?.ReaderVersion, out var definitions) &&
         Fields.Length == definitions.Length && Fields.All(entry => entry is not null && entry.Status is
         TuneFieldStatus.Available or TuneFieldStatus.NotApplicable or TuneFieldStatus.NotAdjustable);
 }
@@ -69,6 +70,7 @@ public sealed record TuneDecodeInput
     public TuneVerification? Verification { get; init; }
     public string? CarName { get; init; }
     public TunePerformance? Performance { get; init; }
+    [JsonIgnore] public string? PerformanceSetupKey { get; init; }
     public bool CompatibilityDescriptorVerified { get; init; }
     public bool RuntimeLayoutVerified { get; init; }
     public required bool CaptureComplete { get; init; }
@@ -89,6 +91,8 @@ public sealed record TuneDecodeInput
     public required ImmutableDictionary<TuneFieldId, TuneRange> CarRanges { get; init; }
     public required float SpringScale { get; init; }
     public required bool PartLevelsResolved { get; init; }
+    // The validated game asset can resolve some installed parts even when another row is missing.
+    [JsonIgnore] public bool VerifiedPartProjection { get; init; }
     public required ImmutableArray<TunePart> Parts { get; init; }
 }
 

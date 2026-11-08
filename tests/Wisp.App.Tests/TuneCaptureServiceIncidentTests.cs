@@ -27,6 +27,22 @@ public sealed class TuneCaptureServiceIncidentTests
         Assert.NotEqual(incident.Signature, elsewhere.Signature);
     }
 
+    [Fact]
+    public void StableValidationChecksAreDistinguishableWithoutSendingCarData()
+    {
+        var read = new NativeTuneRead(new Memory(), CancellationToken.None);
+        var count = Assert.Throws<InvalidDataException>(() => read.Require(false, TuneReadCheck.GearCount));
+        var ratio = Assert.Throws<InvalidDataException>(() => read.Require(false, TuneReadCheck.GearRatio));
+        var a = TuneCaptureService.TuneIncident(TuneCaptureStage.ReadTune, "tune-read-failed", count);
+        var b = TuneCaptureService.TuneIncident(TuneCaptureStage.ReadTune, "tune-read-failed", ratio);
+        Assert.Equal((uint)TuneReadCheck.GearCount, a.Code);
+        Assert.Equal((uint)TuneReadCheck.GearRatio, b.Code);
+        Assert.NotEqual(a.Signature, b.Signature);
+        Assert.True(SupplementaryIncidentSchema.Valid(a));
+        Assert.True(SupplementaryIncidentSchema.Valid(b));
+        Assert.Contains("Tune check: GearCount", TuneCaptureDetails.Create(TuneCaptureStage.ReadTune, exception: count));
+    }
+
     private sealed class Memory : IReadOnlyProcessMemory
     {
         public bool TryReadByte(ulong address, out byte value) { value = 0; return false; }
