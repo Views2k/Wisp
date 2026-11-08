@@ -10,6 +10,10 @@ namespace Wisp.App;
 // Only address operands may move; opcodes, member offsets and constants must match.
 internal sealed class NativeAdaptiveResolver
 {
+    // A thread-local storage slot offset the game recompiles into its field readers. It is masked
+    // like an address operand, but it has no target; every reader must carry the same value.
+    internal const string ThreadLocalSlotKind = "threadLocalSlot";
+    internal const uint ThreadLocalSlotLimit = 0x10000;
     private readonly NativeAdaptiveImage _image;
     private readonly JsonElement _profile;
     private readonly Dictionary<string, Signature> _signatures;
@@ -265,6 +269,11 @@ internal sealed class NativeAdaptiveResolver
         var normalized = bytes.ToArray();
         foreach (var relocation in signature.Relocations)
         {
+            if (relocation.Kind == ThreadLocalSlotKind)
+            {
+                normalized.AsSpan(relocation.Offset, relocation.Width).Clear();
+                continue;
+            }
             uint target;
             try { target = Target(signature, rva, relocation); }
             catch (Exception e) when (e is InvalidDataException or OverflowException) { return false; }
@@ -281,7 +290,7 @@ internal sealed class NativeAdaptiveResolver
             _matched[signature.Id] = rva;
             BindRelationship(signature.ReferenceRva, rva);
             foreach (var relocation in signature.Relocations)
-                BindRelationship(relocation.TargetRva, Target(signature, rva, relocation));
+                if (relocation.Kind != ThreadLocalSlotKind) BindRelationship(relocation.TargetRva, Target(signature, rva, relocation));
         }
         return true;
     }
@@ -289,8 +298,27 @@ internal sealed class NativeAdaptiveResolver
     private void BindRelationship(uint previous, uint current)
     {
         if (_relationships.TryGetValue(previous, out var existing) && existing != current)
+        {
+            // A build may route one call site of a shared helper through a single jump thunk. The
+            // reference then names the helper through the thunk on one side and directly on the
+            // other; keep the helper itself. Anything else is a disagreement.
+            if (JumpAliasTarget(_image, existing) == current) { _relationships[previous] = current; return; }
+            if (JumpAliasTarget(_image, current) == existing) return;
             throw new InvalidDataException("Adaptive references disagree");
+        }
         _relationships[previous] = current;
+    }
+
+    // The target of a 5-byte relative jump at rva, when both ends are code; the thunk bytes join the proof.
+    internal static uint? JumpAliasTarget(NativeAdaptiveImage image, uint rva)
+    {
+        if (image.Kind(rva, 5) != "code") return null;
+        var bytes = image.Bytes(rva, 5);
+        if (bytes[0] != 0xE9) return null;
+        var target = (long)rva + 5 + BinaryPrimitives.ReadInt32LittleEndian(bytes[1..]);
+        if (target <= 0 || target >= image.ImageSize || image.Kind((uint)target, 1) != "code") return null;
+        image.Remember(rva, bytes);
+        return (uint)target;
     }
 
     private void ValidateRelationships()
@@ -614,6 +642,7 @@ internal sealed class NativeAdaptiveResolver
             throw new InvalidDataException("Adaptive native gauge fields could not be verified");
         }
         var required = capability.GetProperty("requiredFieldWitnessPaths").EnumerateArray().Select(p => p.GetString()!).ToHashSet(StringComparer.Ordinal);
+        var threadLocalSlots = new HashSet<uint>();
         foreach (var field in fields.EnumerateArray())
         {
             var path = field.GetProperty("path").GetString()!;
@@ -642,8 +671,20 @@ internal sealed class NativeAdaptiveResolver
             Match(getter, Target(initializer, selected, getterOperand), remember: true);
             _image.Remember(Target(initializer, selected, nameOperand), name);
             _image.Pointer(typeSlot, proof: true);
+            threadLocalSlots.UnionWith(ThreadLocalSlots(initializer, selected));
         }
         if (required.Count != 0) throw new InvalidDataException("Adaptive field witness is missing");
+        CheckThreadLocalSlots(threadLocalSlots);
+    }
+
+    private IEnumerable<uint> ThreadLocalSlots(Signature signature, uint rva) =>
+        signature.Relocations.Where(r => r.Kind == ThreadLocalSlotKind)
+            .Select(r => BinaryPrimitives.ReadUInt32LittleEndian(_image.Bytes(checked(rva + (uint)r.Offset), 4)));
+
+    internal static void CheckThreadLocalSlots(IReadOnlySet<uint> slots)
+    {
+        if (slots.Count > 1) throw new InvalidDataException("Adaptive thread-local slot differs between field readers");
+        if (slots.Any(slot => slot % 4 != 0 || slot >= ThreadLocalSlotLimit)) throw new InvalidDataException("Adaptive thread-local slot bounds");
     }
 
     private static void Set(JsonObject root, string path, JsonNode? value)
@@ -675,7 +716,8 @@ internal sealed class NativeAdaptiveResolver
             if (Length is < 1 or > 8192 || Hash.Length != 32 || AnchorOffset < 0 || AnchorOffset > Length - Anchor.Length ||
                 CanDiscover && Anchor.Length < 4 || Relocations.Any(r => r.Width is not (1 or 4 or 8) || r.Offset < 0 ||
                     r.Offset > Length - r.Width || r.Kind == "relative" && (r.Next < r.Offset + r.Width || r.Next > Length) ||
-                    r.Kind == "absolute" && r.Width != 8 || r.Kind == "image" && r.Width != 4 || r.Kind == "relative" && r.Width == 8))
+                    r.Kind == "absolute" && r.Width != 8 || r.Kind == "image" && r.Width != 4 || r.Kind == "relative" && r.Width == 8 ||
+                    r.Kind == ThreadLocalSlotKind && r.Width != 4))
                 throw new InvalidDataException("Adaptive signature bounds");
             var occupied = new bool[Length];
             foreach (var relocation in Relocations)

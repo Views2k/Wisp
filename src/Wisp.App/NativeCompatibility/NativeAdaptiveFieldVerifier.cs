@@ -59,6 +59,7 @@ internal static class NativeAdaptiveFieldVerifier
         var selected = new List<Selected>();
         var relationships = new Dictionary<uint, uint>();
         var typeReferences = new HashSet<uint>();
+        var threadLocalSlots = new HashSet<uint>();
         var typeSlot = checked(childVtableRva + 24);
         if (typeSlot % 8 != 0 || image.Kind(typeSlot, 8) != "readonly")
             throw new InvalidDataException("type-slot");
@@ -76,7 +77,7 @@ internal static class NativeAdaptiveFieldVerifier
         }
         var identity = new TypeIdentity(typeEntry, canonicalType, hasAlias);
         if (!Match(image, typeBody, canonicalType)) throw new InvalidDataException("type-body-template-changed");
-        BindSignature(image, typeBody, canonicalType, identity, typeReferences, relationships, selected);
+        BindSignature(image, typeBody, canonicalType, identity, typeReferences, relationships, selected, threadLocalSlots);
         image.Remember(typeSlot, image.Bytes(typeSlot, 8));
         if (hasAlias) image.Remember(typeEntry, entry);
         image.Remember(canonicalType, image.Bytes(canonicalType, typeBody.Length));
@@ -120,8 +121,8 @@ internal static class NativeAdaptiveFieldVerifier
             if (candidates.Count != 1)
                 throw new InvalidDataException(candidates.Count == 0 ? "no-complete-typed-match" : "ambiguous-complete-typed-match");
             var choice = candidates[0];
-            BindSignature(image, initializer, choice.Initializer, identity, typeReferences, relationships, selected);
-            BindSignature(image, getter, choice.Getter, identity, typeReferences, relationships, selected);
+            BindSignature(image, initializer, choice.Initializer, identity, typeReferences, relationships, selected, threadLocalSlots);
+            BindSignature(image, getter, choice.Getter, identity, typeReferences, relationships, selected, threadLocalSlots);
             image.Remember(choice.Initializer, image.Bytes(choice.Initializer, initializer.Length));
             image.Remember(choice.Getter, image.Bytes(choice.Getter, getter.Length));
             image.Remember(choice.Name, image.Bytes(choice.Name, expectedName.Length));
@@ -131,13 +132,18 @@ internal static class NativeAdaptiveFieldVerifier
                 if (previous >= range.Signature.ReferenceRva && previous - range.Signature.ReferenceRva < range.Signature.Length &&
                     current != checked(range.Rva + previous - range.Signature.ReferenceRva))
                     throw new InvalidDataException("template-interior-reference-conflict");
+        // The game's thread-local slot offset moves between builds; it must still be one value for the
+        // type function and every field initializer.
+        if (threadLocalSlots.Count > 1) throw new InvalidDataException("thread-slot-inconsistent");
+        if (threadLocalSlots.Any(slot => slot % 4 != 0 || slot >= NativeAdaptiveResolver.ThreadLocalSlotLimit))
+            throw new InvalidDataException("thread-slot-bounds");
         image.CheckBudget();
     }
 
     private static Relocation Operand(Signature signature, int offset) => signature.Relocations.Single(r => r.Offset == offset);
 
     private static void BindSignature(NativeAdaptiveImage image, Signature signature, uint rva, TypeIdentity identity,
-        HashSet<uint> typeReferences, Dictionary<uint, uint> relationships, List<Selected> selected)
+        HashSet<uint> typeReferences, Dictionary<uint, uint> relationships, List<Selected> selected, HashSet<uint> threadLocalSlots)
     {
         void Bind(uint previous, uint current)
         {
@@ -147,11 +153,21 @@ internal static class NativeAdaptiveFieldVerifier
                 current = identity.Canonical;
             }
             if (relationships.TryGetValue(previous, out var existing) && existing != current)
+            {
+                // The same single-jump-alias rule as the resolver: one side may reach a shared helper through a thunk.
+                if (NativeAdaptiveResolver.JumpAliasTarget(image, existing) == current) { relationships[previous] = current; return; }
+                if (NativeAdaptiveResolver.JumpAliasTarget(image, current) == existing) return;
                 throw new InvalidDataException("template-shared-reference-conflict");
+            }
             relationships[previous] = current;
         }
         Bind(signature.ReferenceRva, rva);
-        foreach (var relocation in signature.Relocations) Bind(relocation.ReferenceTarget, Target(image, signature, rva, relocation));
+        foreach (var relocation in signature.Relocations)
+        {
+            if (relocation.Kind == NativeAdaptiveResolver.ThreadLocalSlotKind)
+                threadLocalSlots.Add(BinaryPrimitives.ReadUInt32LittleEndian(image.Bytes(checked(rva + (uint)relocation.Offset), 4)));
+            else Bind(relocation.ReferenceTarget, Target(image, signature, rva, relocation));
+        }
         selected.Add(new Selected(signature, rva));
     }
 
@@ -198,6 +214,11 @@ internal static class NativeAdaptiveFieldVerifier
         var normalized = image.Bytes(rva, signature.Length).ToArray();
         foreach (var relocation in signature.Relocations)
         {
+            if (relocation.Kind == NativeAdaptiveResolver.ThreadLocalSlotKind)
+            {
+                normalized.AsSpan(relocation.Offset, relocation.Width).Clear();
+                continue;
+            }
             uint target;
             try { target = Target(image, signature, rva, relocation); }
             catch (Exception e) when (e is InvalidDataException or OverflowException) { return false; }
@@ -241,8 +262,11 @@ internal static class NativeAdaptiveFieldVerifier
             foreach (var r in Relocations)
             {
                 if (r.Width is not (1 or 4 or 8) || r.Offset < 0 || r.Offset > Length - r.Width ||
-                    r.Kind is not ("relative" or "absolute" or "image") || r.Kind == "relative" && (r.Width == 8 || r.Next < r.Offset + r.Width || r.Next > Length) ||
-                    r.Kind == "absolute" && r.Width != 8 || r.Kind == "image" && r.Width != 4 || r.Section is not ("code" or "readonly" or "data" or "image"))
+                    r.Kind is not ("relative" or "absolute" or "image" or NativeAdaptiveResolver.ThreadLocalSlotKind) ||
+                    r.Kind == "relative" && (r.Width == 8 || r.Next < r.Offset + r.Width || r.Next > Length) ||
+                    r.Kind == "absolute" && r.Width != 8 || r.Kind == "image" && r.Width != 4 ||
+                    r.Kind == NativeAdaptiveResolver.ThreadLocalSlotKind && (r.Width != 4 || r.Section != "none") ||
+                    r.Kind != NativeAdaptiveResolver.ThreadLocalSlotKind && r.Section is not ("code" or "readonly" or "data" or "image"))
                     throw new InvalidDataException("template-relocation-bounds");
                 for (var i = r.Offset; i < r.Offset + r.Width; i++)
                 {
@@ -280,12 +304,14 @@ internal static class NativeAdaptiveFieldVerifier
     // Complete old Store type body; independently matched both current Store
     // and captured Steam bodies after declared relocation normalization.
     // All field and type templates share this isolated OLD Store namespace.
+    // Offset 34 is the game's thread-local slot immediate (0x420 through 6.461/3.461,
+    // 0x42C from 6.483/3.483); it is masked and checked for consistency instead.
     private static JsonDocument ReadTypeBodyTemplate()
     {
         return JsonDocument.Parse(TypeBodyTemplate);
     }
 
     private const string TypeBodyTemplate = """
-{"referenceRva":58668368,"length":505,"normalizedSha256":"96C92ABE8C4B1E06321A753EAC44A2BD52E4112C7BB873572313D42D91918641","anchorHex":"48895C24104889742418574881EC80","anchorOffset":0,"section":"code","relocations":[{"offset":20,"width":4,"next":24,"kind":"relative","targetRva":180139504,"expectedTargetSection":"data","internalOffset":null},{"offset":49,"width":4,"next":53,"kind":"relative","targetRva":177820000,"expectedTargetSection":"data","internalOffset":null},{"offset":55,"width":4,"next":59,"kind":"relative","targetRva":58668586,"expectedTargetSection":"code","internalOffset":218},{"offset":62,"width":4,"next":66,"kind":"relative","targetRva":177819824,"expectedTargetSection":"data","internalOffset":null},{"offset":91,"width":4,"next":95,"kind":"relative","targetRva":104645616,"expectedTargetSection":"readonly","internalOffset":null},{"offset":130,"width":4,"next":134,"kind":"relative","targetRva":98646732,"expectedTargetSection":"code","internalOffset":null},{"offset":146,"width":4,"next":150,"kind":"relative","targetRva":3864832,"expectedTargetSection":"code","internalOffset":null},{"offset":179,"width":4,"next":183,"kind":"relative","targetRva":177819824,"expectedTargetSection":"data","internalOffset":null},{"offset":184,"width":4,"next":188,"kind":"relative","targetRva":61564832,"expectedTargetSection":"code","internalOffset":null},{"offset":191,"width":4,"next":195,"kind":"relative","targetRva":103282304,"expectedTargetSection":"code","internalOffset":null},{"offset":196,"width":4,"next":200,"kind":"relative","targetRva":94177100,"expectedTargetSection":"code","internalOffset":null},{"offset":204,"width":4,"next":208,"kind":"relative","targetRva":177820000,"expectedTargetSection":"data","internalOffset":null},{"offset":209,"width":4,"next":213,"kind":"relative","targetRva":94177304,"expectedTargetSection":"code","internalOffset":null},{"offset":214,"width":4,"next":218,"kind":"relative","targetRva":58668427,"expectedTargetSection":"code","internalOffset":59},{"offset":221,"width":4,"next":225,"kind":"relative","targetRva":177820000,"expectedTargetSection":"data","internalOffset":null},{"offset":226,"width":4,"next":230,"kind":"relative","targetRva":94177412,"expectedTargetSection":"code","internalOffset":null},{"offset":232,"width":4,"next":237,"kind":"relative","targetRva":177820000,"expectedTargetSection":"data","internalOffset":null},{"offset":239,"width":4,"next":243,"kind":"relative","targetRva":58668427,"expectedTargetSection":"code","internalOffset":59},{"offset":246,"width":4,"next":250,"kind":"relative","targetRva":58144224,"expectedTargetSection":"code","internalOffset":null},{"offset":276,"width":4,"next":280,"kind":"relative","targetRva":3864640,"expectedTargetSection":"code","internalOffset":null},{"offset":289,"width":4,"next":293,"kind":"relative","targetRva":104645664,"expectedTargetSection":"readonly","internalOffset":null},{"offset":302,"width":4,"next":306,"kind":"relative","targetRva":114154208,"expectedTargetSection":"readonly","internalOffset":null},{"offset":311,"width":4,"next":315,"kind":"relative","targetRva":114154224,"expectedTargetSection":"readonly","internalOffset":null},{"offset":325,"width":4,"next":329,"kind":"relative","targetRva":177825984,"expectedTargetSection":"data","internalOffset":null},{"offset":333,"width":4,"next":337,"kind":"relative","targetRva":177826016,"expectedTargetSection":"data","internalOffset":null},{"offset":338,"width":1,"next":339,"kind":"relative","targetRva":58668766,"expectedTargetSection":"code","internalOffset":398},{"offset":342,"width":4,"next":346,"kind":"relative","targetRva":177826016,"expectedTargetSection":"data","internalOffset":null},{"offset":347,"width":4,"next":351,"kind":"relative","targetRva":94177412,"expectedTargetSection":"code","internalOffset":null},{"offset":353,"width":4,"next":358,"kind":"relative","targetRva":177826016,"expectedTargetSection":"data","internalOffset":null},{"offset":359,"width":1,"next":360,"kind":"relative","targetRva":58668766,"expectedTargetSection":"code","internalOffset":398},{"offset":369,"width":4,"next":373,"kind":"relative","targetRva":61733360,"expectedTargetSection":"code","internalOffset":null},{"offset":376,"width":4,"next":380,"kind":"relative","targetRva":103275760,"expectedTargetSection":"code","internalOffset":null},{"offset":381,"width":4,"next":385,"kind":"relative","targetRva":94177100,"expectedTargetSection":"code","internalOffset":null},{"offset":389,"width":4,"next":393,"kind":"relative","targetRva":177826016,"expectedTargetSection":"data","internalOffset":null},{"offset":394,"width":4,"next":398,"kind":"relative","targetRva":94177304,"expectedTargetSection":"code","internalOffset":null},{"offset":401,"width":4,"next":406,"kind":"relative","targetRva":177826008,"expectedTargetSection":"data","internalOffset":null},{"offset":410,"width":4,"next":414,"kind":"relative","targetRva":177825984,"expectedTargetSection":"data","internalOffset":null},{"offset":425,"width":4,"next":429,"kind":"relative","targetRva":58668455,"expectedTargetSection":"code","internalOffset":87},{"offset":448,"width":1,"next":449,"kind":"relative","targetRva":58668862,"expectedTargetSection":"code","internalOffset":494},{"offset":469,"width":1,"next":470,"kind":"relative","targetRva":58668862,"expectedTargetSection":"code","internalOffset":494},{"offset":489,"width":4,"next":493,"kind":"relative","targetRva":104291080,"expectedTargetSection":"readonly","internalOffset":null},{"offset":495,"width":4,"next":499,"kind":"relative","targetRva":3870928,"expectedTargetSection":"code","internalOffset":null},{"offset":500,"width":4,"next":504,"kind":"relative","targetRva":58668455,"expectedTargetSection":"code","internalOffset":87}]}
+{"referenceRva":58668368,"length":505,"normalizedSha256":"99CE202773165E54B18CEDB69D9E0626223AB757F86F308014D087E822D6E37E","anchorHex":"48895C24104889742418574881EC80","anchorOffset":0,"section":"code","relocations":[{"offset":20,"width":4,"next":24,"kind":"relative","targetRva":180139504,"expectedTargetSection":"data","internalOffset":null},{"offset":34,"width":4,"next":38,"kind":"threadLocalSlot","targetRva":0,"expectedTargetSection":"none","internalOffset":null},{"offset":49,"width":4,"next":53,"kind":"relative","targetRva":177820000,"expectedTargetSection":"data","internalOffset":null},{"offset":55,"width":4,"next":59,"kind":"relative","targetRva":58668586,"expectedTargetSection":"code","internalOffset":218},{"offset":62,"width":4,"next":66,"kind":"relative","targetRva":177819824,"expectedTargetSection":"data","internalOffset":null},{"offset":91,"width":4,"next":95,"kind":"relative","targetRva":104645616,"expectedTargetSection":"readonly","internalOffset":null},{"offset":130,"width":4,"next":134,"kind":"relative","targetRva":98646732,"expectedTargetSection":"code","internalOffset":null},{"offset":146,"width":4,"next":150,"kind":"relative","targetRva":3864832,"expectedTargetSection":"code","internalOffset":null},{"offset":179,"width":4,"next":183,"kind":"relative","targetRva":177819824,"expectedTargetSection":"data","internalOffset":null},{"offset":184,"width":4,"next":188,"kind":"relative","targetRva":61564832,"expectedTargetSection":"code","internalOffset":null},{"offset":191,"width":4,"next":195,"kind":"relative","targetRva":103282304,"expectedTargetSection":"code","internalOffset":null},{"offset":196,"width":4,"next":200,"kind":"relative","targetRva":94177100,"expectedTargetSection":"code","internalOffset":null},{"offset":204,"width":4,"next":208,"kind":"relative","targetRva":177820000,"expectedTargetSection":"data","internalOffset":null},{"offset":209,"width":4,"next":213,"kind":"relative","targetRva":94177304,"expectedTargetSection":"code","internalOffset":null},{"offset":214,"width":4,"next":218,"kind":"relative","targetRva":58668427,"expectedTargetSection":"code","internalOffset":59},{"offset":221,"width":4,"next":225,"kind":"relative","targetRva":177820000,"expectedTargetSection":"data","internalOffset":null},{"offset":226,"width":4,"next":230,"kind":"relative","targetRva":94177412,"expectedTargetSection":"code","internalOffset":null},{"offset":232,"width":4,"next":237,"kind":"relative","targetRva":177820000,"expectedTargetSection":"data","internalOffset":null},{"offset":239,"width":4,"next":243,"kind":"relative","targetRva":58668427,"expectedTargetSection":"code","internalOffset":59},{"offset":246,"width":4,"next":250,"kind":"relative","targetRva":58144224,"expectedTargetSection":"code","internalOffset":null},{"offset":276,"width":4,"next":280,"kind":"relative","targetRva":3864640,"expectedTargetSection":"code","internalOffset":null},{"offset":289,"width":4,"next":293,"kind":"relative","targetRva":104645664,"expectedTargetSection":"readonly","internalOffset":null},{"offset":302,"width":4,"next":306,"kind":"relative","targetRva":114154208,"expectedTargetSection":"readonly","internalOffset":null},{"offset":311,"width":4,"next":315,"kind":"relative","targetRva":114154224,"expectedTargetSection":"readonly","internalOffset":null},{"offset":325,"width":4,"next":329,"kind":"relative","targetRva":177825984,"expectedTargetSection":"data","internalOffset":null},{"offset":333,"width":4,"next":337,"kind":"relative","targetRva":177826016,"expectedTargetSection":"data","internalOffset":null},{"offset":338,"width":1,"next":339,"kind":"relative","targetRva":58668766,"expectedTargetSection":"code","internalOffset":398},{"offset":342,"width":4,"next":346,"kind":"relative","targetRva":177826016,"expectedTargetSection":"data","internalOffset":null},{"offset":347,"width":4,"next":351,"kind":"relative","targetRva":94177412,"expectedTargetSection":"code","internalOffset":null},{"offset":353,"width":4,"next":358,"kind":"relative","targetRva":177826016,"expectedTargetSection":"data","internalOffset":null},{"offset":359,"width":1,"next":360,"kind":"relative","targetRva":58668766,"expectedTargetSection":"code","internalOffset":398},{"offset":369,"width":4,"next":373,"kind":"relative","targetRva":61733360,"expectedTargetSection":"code","internalOffset":null},{"offset":376,"width":4,"next":380,"kind":"relative","targetRva":103275760,"expectedTargetSection":"code","internalOffset":null},{"offset":381,"width":4,"next":385,"kind":"relative","targetRva":94177100,"expectedTargetSection":"code","internalOffset":null},{"offset":389,"width":4,"next":393,"kind":"relative","targetRva":177826016,"expectedTargetSection":"data","internalOffset":null},{"offset":394,"width":4,"next":398,"kind":"relative","targetRva":94177304,"expectedTargetSection":"code","internalOffset":null},{"offset":401,"width":4,"next":406,"kind":"relative","targetRva":177826008,"expectedTargetSection":"data","internalOffset":null},{"offset":410,"width":4,"next":414,"kind":"relative","targetRva":177825984,"expectedTargetSection":"data","internalOffset":null},{"offset":425,"width":4,"next":429,"kind":"relative","targetRva":58668455,"expectedTargetSection":"code","internalOffset":87},{"offset":448,"width":1,"next":449,"kind":"relative","targetRva":58668862,"expectedTargetSection":"code","internalOffset":494},{"offset":469,"width":1,"next":470,"kind":"relative","targetRva":58668862,"expectedTargetSection":"code","internalOffset":494},{"offset":489,"width":4,"next":493,"kind":"relative","targetRva":104291080,"expectedTargetSection":"readonly","internalOffset":null},{"offset":495,"width":4,"next":499,"kind":"relative","targetRva":3870928,"expectedTargetSection":"code","internalOffset":null},{"offset":500,"width":4,"next":504,"kind":"relative","targetRva":58668455,"expectedTargetSection":"code","internalOffset":87}]}
 """;
 }
