@@ -430,7 +430,11 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
             await child.Input.WriteAsync(new byte[] { (byte)'\n' }, operation.Token).ConfigureAwait(false);
             await child.Input.FlushAsync(operation.Token).ConfigureAwait(false);
             _commands.Release(); entered = false;
-            var reply = await pending.Task.WaitAsync(operation.Token).ConfigureAwait(false);
+            RecorderReply reply;
+            // The reader sets the reply before it reports a later state or exit, but this wait sees it through a
+            // queued continuation, so a shutdown that follows can cancel the wait first. A reply that arrived is kept.
+            try { reply = await pending.Task.WaitAsync(operation.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (pending.Task.IsCompletedSuccessfully) { reply = await pending.Task.ConfigureAwait(false); }
             if (!reply.Ok) throw new RecorderClientException(reply.Reason) { NativeRequestRejected = true };
             if (command != "save" && reply.Media is not null) throw new RecorderClientException("protocol_error");
             return reply;
