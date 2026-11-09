@@ -47,10 +47,13 @@ public sealed class PreviousRunRecoveryTests
             Origin = CrashOrigin.WindowsApplicationFault,
             RecoveredExit = new(marker.StartedAtUtc, detected, WindowsFaultLookupStatus.Matched,
                 new(marker.StartedAtUtc.AddMinutes(1), 0xc0000005, 1234, "C:\\PRIVATE_PATH\\ntdll.dll", false))
+            { Suspended = true, SessionLocked = true }
         };
         Assert.True(fixture.Store.TrySave(report));
         var loaded = fixture.Store.LatestPending()!;
         Assert.Null(loaded.RecoveredExit!.Fault!.Module);
+        // A matched Windows fault ended the run, whatever state the PC was in.
+        Assert.False(loaded.RecoveredExit.Suspended); Assert.False(loaded.RecoveredExit.SessionLocked);
         Assert.DoesNotContain("PRIVATE_", loaded.Format(), StringComparison.Ordinal);
         Assert.DoesNotContain("PRIVATE_", System.Text.Json.JsonSerializer.Serialize(loaded), StringComparison.Ordinal);
         Assert.Null((report with
@@ -203,6 +206,62 @@ public sealed class PreviousRunRecoveryTests
         Assert.Null(await fixture.Recover(marker with { ShutdownIntent = ShutdownIntent.OperatingSystem },
             new Source(_ => new(WindowsFaultLookupStatus.NoMatchingEvent)), stops: stops));
         Assert.Equal(0, stops.Calls);
+    }
+
+    [Theory]
+    [InlineData(true, false, "system-sleep")]
+    [InlineData(false, true, "session-locked")]
+    [InlineData(true, true, "system-sleep")]
+    [InlineData(false, false, "shutdown-incomplete")]
+    public async Task ASleepingPcOrALockedSessionAtTheLastCheckpointNamesTheExit(bool suspended, bool locked, string reason)
+    {
+        using var fixture = new Fixture();
+        var marker = WindowsFaultEventReaderTests.Marker() with
+        {
+            SuspendedAtUtc = suspended ? WindowsFaultEventReaderTests.Started.AddMinutes(2) : null,
+            SessionLockedAtUtc = locked ? WindowsFaultEventReaderTests.Started.AddMinutes(1) : null
+        };
+        var report = await fixture.Recover(marker, new Source(_ => new(WindowsFaultLookupStatus.NoMatchingEvent)), stops: new Stops(false));
+        Assert.NotNull(report);
+        Assert.Equal(CrashOrigin.UnexpectedExit, report.Origin);
+        Assert.Equal(suspended, report.RecoveredExit!.Suspended);
+        Assert.Equal(locked, report.RecoveredExit.SessionLocked);
+        var saved = fixture.Store.LatestPending()!.RecoveredExit!;
+        Assert.Equal(suspended, saved.Suspended); Assert.Equal(locked, saved.SessionLocked);
+        Assert.Equal(reason, Wisp.App.DebugLogging.SupplementaryIncidentCapture.Crash(report).Reason);
+        Assert.Contains(suspended ? "sleep or hibernate" : locked ? "session was locked" : "cause is not established", report.Format(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true, false, "system-stopped")]
+    [InlineData(false, true, "system-shutdown")]
+    public async Task AWindowsStopOrShutdownWinsOverASleepingPcOrALockedSession(bool stopped, bool shutDown, string reason)
+    {
+        using var fixture = new Fixture();
+        var marker = WindowsFaultEventReaderTests.Marker() with
+        {
+            SuspendedAtUtc = WindowsFaultEventReaderTests.Started.AddMinutes(2),
+            SessionLockedAtUtc = WindowsFaultEventReaderTests.Started.AddMinutes(1)
+        };
+        var stops = new Stops(stopped) { ShutDown = () => shutDown };
+        var report = await fixture.Recover(marker, new Source(_ => new(WindowsFaultLookupStatus.NoMatchingEvent)), stops: stops);
+        Assert.NotNull(report);
+        Assert.False(report.RecoveredExit!.Suspended); Assert.False(report.RecoveredExit.SessionLocked);
+        Assert.Equal(reason, Wisp.App.DebugLogging.SupplementaryIncidentCapture.Crash(report).Reason);
+    }
+
+    [Fact]
+    public async Task AWindowsFaultOrARecordedShutdownWinsOverASleepingPc()
+    {
+        using var fixture = new Fixture();
+        var marker = WindowsFaultEventReaderTests.Marker() with { SuspendedAtUtc = WindowsFaultEventReaderTests.Started.AddMinutes(2) };
+        var fault = await fixture.Recover(marker, new Source(_ => WindowsFaultEventReader.Correlate([WindowsFaultEventReaderTests.Fault(marker)],
+            marker, WindowsFaultEventReaderTests.Started.AddMinutes(5))), stops: new Stops(false));
+        Assert.Equal(CrashOrigin.WindowsApplicationFault, fault!.Origin);
+        Assert.False(fault.RecoveredExit!.Suspended);
+        Assert.Equal("windows-application-fault", Wisp.App.DebugLogging.SupplementaryIncidentCapture.Crash(fault).Reason);
+        Assert.Null(await fixture.Recover(marker with { ShutdownIntent = ShutdownIntent.OperatingSystem },
+            new Source(_ => new(WindowsFaultLookupStatus.NoMatchingEvent)), stops: new Stops(false)));
     }
 
     [Fact]

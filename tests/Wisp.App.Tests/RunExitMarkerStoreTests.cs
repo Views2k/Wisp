@@ -71,6 +71,71 @@ public sealed class RunExitMarkerStoreTests
     }
 
     [Fact]
+    public void SleepAndLockNoticesSurviveCheckpointsAndRestartUntilWithdrawn()
+    {
+        using var directory = new TemporaryDirectory();
+        var marker = Marker(0);
+        var locked = marker.StartedAtUtc.AddSeconds(5);
+        var suspended = marker.StartedAtUtc.AddSeconds(15);
+        using (var owner = RunExitMarkerStore.TryBegin(directory.Path, marker))
+        {
+            Assert.False(owner!.MarkResumed()); Assert.False(owner.MarkSessionUnlocked());
+            Assert.False(owner.MarkSuspended(marker.StartedAtUtc.AddSeconds(-1)));
+            Assert.False(owner.MarkSuspended(suspended.ToOffset(TimeSpan.FromHours(1))));
+            Assert.True(owner.MarkSessionLocked(locked));
+            Assert.True(owner.MarkSuspended(suspended));
+            // A checkpoint right after the sleep notice keeps it: the PC is still on its way to sleep.
+            Assert.True(owner.Checkpoint(new(suspended.AddSeconds(2), [new() { TimestampUtc = suspended.AddSeconds(1) }], [])));
+            Assert.Equal<DateTimeOffset?>(suspended, Read(directory).SuspendedAtUtc);
+            Assert.Equal<DateTimeOffset?>(locked, Read(directory).SessionLockedAtUtc);
+        }
+        using (var next = RunExitMarkerStore.TryBegin(directory.Path, Marker(1)))
+        {
+            Assert.Equal<DateTimeOffset?>(suspended, next!.Previous!.SuspendedAtUtc);
+            Assert.Equal<DateTimeOffset?>(locked, next.Previous.SessionLockedAtUtc);
+            Assert.True(next.MarkSuspended(next.StartedAtUtc.AddSeconds(1)));
+            Assert.True(next.MarkResumed()); Assert.False(next.MarkResumed());
+            Assert.True(next.MarkSessionLocked(next.StartedAtUtc.AddSeconds(2)));
+            Assert.True(next.MarkSessionUnlocked()); Assert.False(next.MarkSessionUnlocked());
+        }
+        using var third = RunExitMarkerStore.TryBegin(directory.Path, Marker(2));
+        Assert.Null(third!.Previous!.SuspendedAtUtc); Assert.Null(third.Previous.SessionLockedAtUtc);
+    }
+
+    [Fact]
+    public void ACheckpointWellAfterTheSleepNoticeMeansWindowsResumedWithoutSayingSo()
+    {
+        using var directory = new TemporaryDirectory();
+        var marker = Marker(0);
+        var suspended = marker.StartedAtUtc.AddSeconds(10);
+        using (var owner = RunExitMarkerStore.TryBegin(directory.Path, marker))
+        {
+            Assert.True(owner!.MarkSuspended(suspended));
+            var captured = suspended + RunExitMarkerStore.ResumeGrace;
+            Assert.True(owner.Checkpoint(new(captured, [new() { TimestampUtc = captured.AddSeconds(-1) }], [])));
+        }
+        using var next = RunExitMarkerStore.TryBegin(directory.Path, Marker(2));
+        Assert.Null(next!.Previous!.SuspendedAtUtc);
+        Assert.Equal(suspended + RunExitMarkerStore.ResumeGrace, next.Previous.Context!.CapturedAtUtc);
+    }
+
+    [Fact]
+    public void InvalidSleepOrLockTimesInAMarkerAreDroppedWithoutLosingTheRun()
+    {
+        using var directory = new TemporaryDirectory();
+        var marker = Marker(0);
+        File.WriteAllBytes(Path.Combine(directory.Path, "running.json"), JsonSerializer.SerializeToUtf8Bytes(marker with
+        {
+            SuspendedAtUtc = marker.StartedAtUtc.AddMinutes(-1),
+            SessionLockedAtUtc = marker.StartedAtUtc.AddSeconds(30).ToOffset(TimeSpan.FromHours(2))
+        }));
+        using var next = RunExitMarkerStore.TryBegin(directory.Path, Marker(1));
+        var previous = Assert.IsType<RunExitMarker>(next!.Previous);
+        Assert.Null(previous.SuspendedAtUtc); Assert.Null(previous.SessionLockedAtUtc);
+        Assert.Equal(marker.RunId, previous.RunId);
+    }
+
+    [Fact]
     public void CheckpointSurvivesRestartWithBoundedSamplesAndOriginalAges()
     {
         using var directory = new TemporaryDirectory();
