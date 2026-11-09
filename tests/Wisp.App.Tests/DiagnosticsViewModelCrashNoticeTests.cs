@@ -36,6 +36,20 @@ public sealed class DiagnosticsViewModelCrashNoticeTests
         Assert.Equal("Windows stopped while Wisp was running", model.CrashReportTitle);
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void ARunThatEndedOnASleepingOrLockedPcGetsNoCard(bool suspended, bool locked)
+    {
+        var model = new DiagnosticsViewModel(new AppSettings());
+        var report = RecoveredReport();
+        report = report with { RecoveredExit = report.RecoveredExit! with { Suspended = suspended, SessionLocked = locked } };
+        model.InitializeCrashReport(report, _ => throw new InvalidOperationException());
+        Assert.False(model.HasCrashReport);
+        Assert.False(model.TryInitializeRecoveredCrashReport(report, model.CrashReportNoticeGeneration, _ => true));
+        Assert.False(model.HasCrashReport);
+    }
+
     private static CrashReport RecoveredReport(bool stopped = false, bool shutDown = false)
     {
         var marker = WindowsFaultEventReaderTests.Marker();

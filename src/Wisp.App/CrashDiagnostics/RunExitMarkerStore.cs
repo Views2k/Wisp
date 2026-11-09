@@ -16,6 +16,10 @@ internal sealed record RunExitMarker(Guid RunId, int ProcessId, long ProcessCrea
 {
     public HealthContextSnapshot? Context { get; init; }
     public ShutdownIntent ShutdownIntent { get; init; }
+    // Windows reported that it was about to sleep or hibernate, and has not reported resuming since.
+    public DateTimeOffset? SuspendedAtUtc { get; init; }
+    // The Windows session was locked (Win+L, the lock screen or a user switch) and has not been unlocked since.
+    public DateTimeOffset? SessionLockedAtUtc { get; init; }
 
     internal RunExitMarker? Sanitize()
     {
@@ -32,9 +36,14 @@ internal sealed record RunExitMarker(Guid RunId, int ProcessId, long ProcessCrea
         {
             Build = new(report.WispVersion, report.PrivateBuildId, module,
             report.RuntimeVersion, report.WindowsVersion, architecture),
-            Context = ValidContext(Context) ? Context : null
+            Context = ValidContext(Context) ? Context : null,
+            SuspendedAtUtc = AfterStart(SuspendedAtUtc) ? SuspendedAtUtc : null,
+            SessionLockedAtUtc = AfterStart(SessionLockedAtUtc) ? SessionLockedAtUtc : null
         };
     }
+
+    // A moment this run can have observed: UTC, at or after its start.
+    internal bool AfterStart(DateTimeOffset? value) => value is { } moment && moment.Offset == TimeSpan.Zero && moment >= StartedAtUtc;
 
     internal CrashReport ToReport(DateTimeOffset detectedAtUtc) => new(RunId, detectedAtUtc,
         Build.WispVersion, Build.PrivateBuildId, Build.RuntimeVersion, CrashOrigin.UnexpectedExit, true, [])
@@ -60,6 +69,9 @@ internal sealed record RunExitMarker(Guid RunId, int ProcessId, long ProcessCrea
 internal sealed class RunExitMarkerStore : IDisposable
 {
     private const int MaximumMarkerBytes = 8192;
+    // The checkpoint timer does not run while Windows sleeps, so a checkpoint this long after the sleep
+    // notice means Windows is running again, whether or not the resume notice arrived.
+    internal static readonly TimeSpan ResumeGrace = TimeSpan.FromMinutes(1);
     private readonly string _directory;
     private readonly SafeFileHandle _parent, _lease;
     private RunExitMarker _current;
@@ -165,6 +177,34 @@ internal sealed class RunExitMarkerStore : IDisposable
         }
     }
 
+    // Windows is about to sleep or hibernate. Checkpoints stop with it, so a run that never resumes keeps
+    // this state for the next start to read; resuming withdraws it.
+    internal bool MarkSuspended(DateTimeOffset nowUtc) =>
+        Mark(current => current.AfterStart(nowUtc) ? current with { SuspendedAtUtc = nowUtc } : null);
+
+    internal bool MarkResumed() => Mark(current => current.SuspendedAtUtc is null ? null : current with { SuspendedAtUtc = null });
+
+    // The Windows session was locked: a run that ends while it stays locked was not closed by the user.
+    internal bool MarkSessionLocked(DateTimeOffset nowUtc) =>
+        Mark(current => current.AfterStart(nowUtc) ? current with { SessionLockedAtUtc = nowUtc } : null);
+
+    internal bool MarkSessionUnlocked() => Mark(current => current.SessionLockedAtUtc is null ? null : current with { SessionLockedAtUtc = null });
+
+    private bool Mark(Func<RunExitMarker, RunExitMarker?> change)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _current.CleanExit) return false;
+            try
+            {
+                if (change(_current) is not { } next || Read(_parent)?.RunId != _current.RunId) return false;
+                Write(next); _current = next;
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
+    }
+
     internal bool Checkpoint(HealthContextSnapshot snapshot)
     {
         lock (_gate)
@@ -174,7 +214,8 @@ internal sealed class RunExitMarkerStore : IDisposable
                 sample.TimestampUtc <= snapshot.CapturedAtUtc && snapshot.CapturedAtUtc - sample.TimestampUtc <= TimeSpan.FromSeconds(30))
                 .OrderBy(sample => sample.TimestampUtc).TakeLast(3).ToImmutableArray();
             if (samples.Length == 0 || _current.Context?.CapturedAtUtc >= snapshot.CapturedAtUtc) return false;
-            var next = _current with { Context = new(snapshot.CapturedAtUtc, samples, []) };
+            var resumed = _current.SuspendedAtUtc is { } suspended && snapshot.CapturedAtUtc - suspended >= ResumeGrace;
+            var next = _current with { Context = new(snapshot.CapturedAtUtc, samples, []), SuspendedAtUtc = resumed ? null : _current.SuspendedAtUtc };
             try
             {
                 if (Read(_parent)?.RunId != _current.RunId) return false;

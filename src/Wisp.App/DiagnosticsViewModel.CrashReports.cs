@@ -28,7 +28,7 @@ public sealed partial class DiagnosticsViewModel
     {
         CrashReportNoticeGeneration++;
         var safe = report?.Sanitize();
-        _crashReport = EndedByWindowsShutdown(safe) ? null : safe;
+        _crashReport = EndedWithoutTheUser(safe) ? null : safe;
         _acknowledgeCrashReport = acknowledge;
         _crashReportCopyStatus = "";
         NotifyCrashReport();
@@ -36,14 +36,16 @@ public sealed partial class DiagnosticsViewModel
 
     internal bool TryInitializeRecoveredCrashReport(CrashReport report, long expectedGeneration, Func<Guid, bool> acknowledge)
     {
-        if (CrashReportNoticeGeneration != expectedGeneration || EndedByWindowsShutdown(report.Sanitize())) return false;
+        if (CrashReportNoticeGeneration != expectedGeneration || EndedWithoutTheUser(report.Sanitize())) return false;
         InitializeCrashReport(report, acknowledge);
         return true;
     }
 
-    // Windows shutting down or signing out while Wisp ran is not an unexpected end, so that run gets no card.
+    // Windows shutting down or signing out while Wisp ran is not an unexpected end, and neither is a run that
+    // ended while the PC was asleep or its session locked, so those runs get no card.
     // The report stays in the store, where the diagnostics bundle and Tools reporting read it.
-    private static bool EndedByWindowsShutdown(CrashReport? report) => report?.RecoveredExit?.WindowsShutDown == true;
+    private static bool EndedWithoutTheUser(CrashReport? report) =>
+        report?.RecoveredExit is { } exit && (exit.WindowsShutDown || exit.Suspended || exit.SessionLocked);
 
     public void ReportCrashDetailsCopied(bool copied)
     {

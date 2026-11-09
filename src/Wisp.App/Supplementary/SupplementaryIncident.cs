@@ -50,7 +50,7 @@ internal static class SupplementaryIncidentSchema
     { "unknown", "application-still-running", "restarted", "deferred", "no-verified-installation", "restart-failed" };
     internal static readonly HashSet<string> Reasons = new(StringComparer.Ordinal)
     {
-        "exception-raised", "windows-application-fault", "shutdown-incomplete", "system-stopped", "system-shutdown",
+        "exception-raised", "windows-application-fault", "shutdown-incomplete", "system-stopped", "system-shutdown", "system-sleep", "session-locked",
         "classification-missing", "policy-rejected", "policy-cache-unavailable", "unknown", "access-denied", "unsupported-build", "unsupported_os", "unsupported_gpu", "unsupported_format",
         "capture_failed", "encoder_failed", "audio_failed", "audio_capture_failed", "audio_unavailable", "buffer_full",
         "no_keyframe", "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error",
