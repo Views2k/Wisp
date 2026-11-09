@@ -14,15 +14,19 @@ public sealed class GitHubReleaseTests
         Assert.False(handler.AllowAutoRedirect);
         Assert.Equal(DecompressionMethods.None, handler.AutomaticDecompression);
         Assert.False(handler.UseCookies);
-        Assert.False(handler.UseDefaultCredentials);
         Assert.False(handler.PreAuthenticate);
         Assert.Null(handler.Credentials);
+        Assert.Null(handler.DefaultProxyCredentials);
         Assert.False(handler.UseProxy);
         Assert.Null(handler.Proxy);
-        Assert.True(handler.CheckCertificateRevocationList);
+        Assert.Equal(System.Security.Cryptography.X509Certificates.X509RevocationMode.Online,
+            handler.SslOptions.CertificateRevocationCheckMode);
+        Assert.Null(handler.SslOptions.RemoteCertificateValidationCallback);
+        Assert.Null(handler.SslOptions.ClientCertificates);
         Assert.Equal(16, handler.MaxResponseHeadersLength);
         Assert.Equal(1, handler.MaxConnectionsPerServer);
-        Assert.Null(handler.ServerCertificateCustomValidationCallback);
+        Assert.NotNull(handler.ConnectCallback);
+        Assert.NotNull(handler.PlaintextStreamFilter);
     }
 
     [Fact]

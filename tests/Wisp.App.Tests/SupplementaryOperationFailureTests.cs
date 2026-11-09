@@ -198,6 +198,27 @@ public sealed class SupplementaryOperationFailureTests
         Assert.DoesNotContain("PRIVATE_SENTINEL", JsonSerializer.Serialize(incident));
     }
 
+    [Fact]
+    public void UpdateTimeoutReportsWhereTheTimedOutRequestSpentItsTime()
+    {
+        var error = new TaskCanceledException();
+        Wisp.Update.UpdateRequestTiming.Attach(error, new("installer-redirect-1", TimeSpan.FromSeconds(60),
+            TimeSpan.FromMilliseconds(30), TimeSpan.FromMilliseconds(59970), null));
+
+        var incident = SupplementaryOperationFailure.Capture("update", "download", error, DateTimeOffset.UtcNow)!;
+
+        Assert.Equal("timeout", incident.Reason);
+        Assert.Equal("update-download", incident.FailureStage);
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+        Assert.Equal(new SupplementaryUpdateDownloadEvidence("installer-redirect-1", 30, 59970), incident.Update?.Download);
+        Assert.Null(incident.Update?.Recovery);
+
+        // Without a timing the incident keeps its earlier shape.
+        var plain = SupplementaryOperationFailure.Capture("update", "download", new TaskCanceledException(), DateTimeOffset.UtcNow)!;
+        Assert.Null(plain.Update);
+        Assert.Equal(1, plain.SchemaVersion);
+    }
+
     private static AppSettings CompletedSettings()
     {
         var settings = new AppSettings { StartWithWindows = false, AutomaticApplicationUpdateChecks = false };

@@ -15,6 +15,71 @@ public sealed class UpdaterWorkflowTests
     }
 
     [Fact]
+    public void InstallerStartThatWindowsRefusesIsTriedAgain()
+    {
+        // On 2.7.3 one PC's helper could not start the installer (access denied) twice and restarted
+        // Wisp each time; the same installer started on a later attempt.
+        var commandProcessor = Environment.GetEnvironmentVariable("ComSpec");
+        Assert.False(string.IsNullOrWhiteSpace(commandProcessor));
+        var waits = new List<TimeSpan>();
+        var starts = 0;
+        new WindowsUpdaterProcessHost(() => false,
+            startInfo => ++starts < 3 ? throw new System.ComponentModel.Win32Exception(5) : System.Diagnostics.Process.Start(startInfo),
+            waits.Add).RunInstaller(commandProcessor!, ["/d", "/s", "/c", "exit 0"], TimeSpan.FromSeconds(30));
+
+        Assert.Equal(3, starts);
+        Assert.Equal([TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)], waits);
+    }
+
+    [Fact]
+    public void ForzaOpeningWhileARefusedStartWaitsStopsTheInstall()
+    {
+        var gameOpen = false;
+        var starts = 0;
+        var error = Assert.Throws<UpdateFailureException>(() =>
+            new WindowsUpdaterProcessHost(() => gameOpen, _ =>
+            {
+                starts++;
+                throw new System.ComponentModel.Win32Exception(32);
+            }, _ => gameOpen = true).RunInstaller("must-not-execute.exe", [], TimeSpan.FromSeconds(1)));
+
+        Assert.Equal("UPDATE_GAME_RUNNING", error.ErrorCode);
+        Assert.True(error.RecoveryIsSafe);
+        Assert.Equal(1, starts);
+    }
+
+    [Fact]
+    public void InstallerStartThatKeepsFailingIsReportedAfterTheRetries()
+    {
+        var waits = new List<TimeSpan>();
+        var starts = 0;
+        var error = Assert.Throws<UpdateFailureException>(() =>
+            new WindowsUpdaterProcessHost(() => false, _ =>
+            {
+                starts++;
+                throw new System.ComponentModel.Win32Exception(5);
+            }, waits.Add).RunInstaller("must-not-execute.exe", [], TimeSpan.FromSeconds(1)));
+
+        Assert.Equal("UPDATE_INSTALLER_START_FAILED", error.ErrorCode);
+        Assert.True(error.RecoveryIsSafe);
+        Assert.Equal(Wisp.Update.ProcessStartRetry.Delays.Count + 1, starts);
+        Assert.Equal(Wisp.Update.ProcessStartRetry.Delays, waits);
+
+        // A missing installer is not a refusal and is reported at once.
+        starts = 0;
+        waits.Clear();
+        error = Assert.Throws<UpdateFailureException>(() =>
+            new WindowsUpdaterProcessHost(() => false, _ =>
+            {
+                starts++;
+                throw new System.ComponentModel.Win32Exception(2);
+            }, waits.Add).RunInstaller("must-not-execute.exe", [], TimeSpan.FromSeconds(1)));
+        Assert.Equal("UPDATE_INSTALLER_START_FAILED", error.ErrorCode);
+        Assert.Equal(1, starts);
+        Assert.Empty(waits);
+    }
+
+    [Fact]
     public void PreparesBeforeExitThenRunsFixedInstallerAndRestartsVerifiedApp()
     {
         using var layout = new TestLayout();

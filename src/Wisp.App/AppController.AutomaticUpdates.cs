@@ -17,7 +17,7 @@ public sealed partial class AppController
         // Private candidates stay available for their intended test session.
         if (ApplicationVersionInfo.DiagnosticBuildId is not null || _automaticInstaller is not null) return;
         _automaticInstaller = new(
-            () => !_disposed && FeatureAllowed("updates"),
+            () => !_disposed && FeatureAllowed("updates") && !_windowsSessionEnding,
             () => _pendingInstaller is not null || _availableApplicationRelease is not null,
             () => Task.Run(ForzaFocusService.IsOpenForApplicationUpdate),
             () => HasApplicationUpdateWorkInProgress,
@@ -25,7 +25,8 @@ public sealed partial class AppController
             apply,
             message => ViewModel.UpdateApplicationUpdateStatus(message, "Check again", true, true),
             waiting: state => ApplicationUpdateTelemetry.Record(state, (_pendingInstaller?.Version ?? _availableApplicationRelease?.Version)?.ToString()),
-            pendingVersion: () => (_pendingInstaller?.Version ?? _availableApplicationRelease?.Version)?.ToString());
+            pendingVersion: () => (_pendingInstaller?.Version ?? _availableApplicationRelease?.Version)?.ToString(),
+            downloadInterrupted: () => _applicationUpdateDownloadInterrupted);
         _automaticInstallTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
         {
             Interval = TimeSpan.FromSeconds(5)
