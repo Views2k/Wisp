@@ -1,22 +1,25 @@
 version: 2
+
+multi-ecosystem-groups:
+  build-dependencies:
+    schedule:
+      interval: weekly
+
 updates:
   - package-ecosystem: nuget
     directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+    patterns: ["*"]
+    multi-ecosystem-group: build-dependencies
 
   - package-ecosystem: dotnet-sdk
     directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+    patterns: ["*"]
+    multi-ecosystem-group: build-dependencies
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+    patterns: ["*"]
+    multi-ecosystem-group: build-dependencies

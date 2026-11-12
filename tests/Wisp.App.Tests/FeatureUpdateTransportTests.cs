@@ -24,7 +24,7 @@ public sealed class FeatureUpdateTransportTests
             using var handler = new DownloadHandler(stream);
             using var http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
             using var client = (WispUpdateClient)Activator.CreateInstance(typeof(WispUpdateClient),
-                BindingFlags.Instance | BindingFlags.NonPublic, null, [http, null, null, null], null)!;
+                BindingFlags.Instance | BindingFlags.NonPublic, null, [http, TimeProvider.System], null)!;
             var version = new SemanticVersion(9, 8, 7);
             var release = (UpdateRelease)Activator.CreateInstance(typeof(UpdateRelease),
                 BindingFlags.Instance | BindingFlags.NonPublic, null,
