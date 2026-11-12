@@ -329,16 +329,24 @@ public sealed class RunsAutosaveTests
         Assert.NotNull(directory);
         var source = File.ReadAllText(Path.Combine(directory.FullName, "src", "Wisp.App", "App.xaml.cs"));
         var close = Between("private async Task CloseApplicationAsync", "private async Task<bool> PrepareRunMetadataForExitAsync");
-        Assert.True(close.IndexOf("await PrepareRunMetadataForExitAsync()", StringComparison.Ordinal) < close.IndexOf("_exiting = true", StringComparison.Ordinal));
+        AssertPreparedBefore(close, "_exiting = true");
         Assert.Contains("closingWindow.Close();", close); Assert.Contains("else Shutdown();", close);
         var closing = Between("private void OnControlPanelClosing", "private async Task SuspendRuntimeAsync");
         Assert.Contains("e.Cancel = true;\n        if (sender is Window closingWindow)", closing.Replace("\r\n", "\n", StringComparison.Ordinal));
         Assert.Contains("_closePreparationActive", closing);
         var update = Between("internal async Task<ApplicationUpdateStartResult> TryBeginApplicationUpdateAsync", "private static void SignalExistingInstance");
-        Assert.True(update.IndexOf("await PrepareRunMetadataForExitAsync()", StringComparison.Ordinal) < update.IndexOf("ApplicationUpdateLauncher.Launch(installer)", StringComparison.Ordinal));
+        AssertPreparedBefore(update, "await ApplicationUpdateLauncher.LaunchAsync(installer,");
         Assert.Contains("_controller.Runs.CancelMetadataClosePreparation();", update);
         var exit = Between("protected override void OnExit", "private async Task ListenForActivationAsync");
         Assert.DoesNotContain("FlushMetadataAsync", exit); Assert.DoesNotContain("PrepareToCloseMetadataAsync", exit);
+
+        static void AssertPreparedBefore(string method, string action)
+        {
+            var prepare = method.IndexOf("await PrepareRunMetadataForExitAsync()", StringComparison.Ordinal);
+            var next = method.IndexOf(action, StringComparison.Ordinal);
+            Assert.True(prepare >= 0, "Missing run metadata preparation.");
+            Assert.True(next > prepare, $"Expected {action} after run metadata preparation.");
+        }
 
         string Between(string start, string end)
         {
