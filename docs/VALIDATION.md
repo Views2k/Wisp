@@ -146,7 +146,9 @@ are not proof of physical display cadence.
 Pull requests run one `Build and test` job on `windows-latest`, capped at ten
 minutes. It restores locked dependencies, builds the solution, and runs
 `Test-AppBehavior.ps1`: fast data/settings, telemetry, security, HUD/needle and
-update safeguards plus affected behavioral tests. It builds no installer.
+update safeguards plus the behavioral tests named after a changed file or using
+a changed type by name (a type used by more than twelve test classes counts as
+a hub and relies on the name rule alone). It builds no installer.
 There is no push-to-main rerun after a successful protected PR.
 
 Full UI/layout checks, full-race simulations and isolated allocation checks run
