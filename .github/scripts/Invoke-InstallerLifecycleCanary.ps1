@@ -106,5 +106,10 @@ $worker = New-InstallerLifecycleWorker (Join-Path $PSHOME 'pwsh.exe') `
     $BaselineInstallerPath $BaselineVersion
 
 Write-Output 'Installer lifecycle supervisor started.'
-Invoke-InstallerLifecycleWorker $worker
+try { Invoke-InstallerLifecycleWorker $worker }
+finally {
+    Get-Content -LiteralPath $stageLog -Tail 10 -ErrorAction SilentlyContinue |
+        Where-Object { $_ -cmatch '\AInstaller lifecycle failure: type=[A-Za-z][A-Za-z0-9]{0,79}; line=[0-9]+(?:; updater_state=(?:failed|installed); updater_error=(?:UPDATE_[A-Z0-9_]{1,80})?)?\z' } |
+        Write-Output
+}
 Write-Output 'Installer lifecycle supervisor completed.'
