@@ -63,7 +63,9 @@ function Invoke-InstallerLifecycleWorker {
     $outputTasks = @()
     try {
         try {
+            Write-Host 'Supervisor diagnostic: before worker start.'
             $started = $Process.Start()
+            Write-Host 'Supervisor diagnostic: worker start returned.'
         }
         catch {
             throw 'The installer lifecycle worker could not start.'
@@ -77,11 +79,14 @@ function Invoke-InstallerLifecycleWorker {
             $Process.StandardOutput.BaseStream.CopyToAsync([System.IO.Stream]::Null)
             $Process.StandardError.BaseStream.CopyToAsync([System.IO.Stream]::Null)
         )
+        Write-Host 'Supervisor diagnostic: output drains scheduled; entering process wait.'
         # The installer launch runs inside this worker, so its entire launch and wait
         # are bounded even if a native launch call never returns to the inner script.
         if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
+            Write-Host 'Supervisor diagnostic: process wait reached its deadline.'
             throw "The installer lifecycle worker exceeded its $TimeoutSeconds-second deadline."
         }
+        Write-Host 'Supervisor diagnostic: process wait completed.'
         if ($Process.ExitCode -ne 0) {
             throw "The installer lifecycle worker failed with exit code $($Process.ExitCode)."
         }
@@ -89,12 +94,15 @@ function Invoke-InstallerLifecycleWorker {
     finally {
         try {
             if ($started -and -not $Process.HasExited) {
+                Write-Host 'Supervisor diagnostic: terminating the owned worker tree.'
                 $Process.Kill($true)
+                Write-Host 'Supervisor diagnostic: termination returned.'
                 if (-not $Process.WaitForExit(10000)) {
                     throw 'The installer lifecycle worker did not stop after termination.'
                 }
             }
             if ($outputTasks.Count -gt 0) {
+                Write-Host 'Supervisor diagnostic: waiting for output drains.'
                 try {
                     if (-not [System.Threading.Tasks.Task]::WaitAll(
                             [System.Threading.Tasks.Task[]]$outputTasks, 10000)) {
@@ -102,10 +110,13 @@ function Invoke-InstallerLifecycleWorker {
                     }
                 }
                 catch { throw 'The installer lifecycle worker output could not be drained.' }
+                Write-Host 'Supervisor diagnostic: output drains completed.'
             }
         }
         finally {
+            Write-Host 'Supervisor diagnostic: disposing worker handles.'
             $Process.Dispose()
+            Write-Host 'Supervisor diagnostic: worker handles disposed.'
         }
     }
 }

@@ -53,7 +53,10 @@ class InstallerSupervisorTests(unittest.TestCase):
             capture_output=True, text=True, timeout=25)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stderr, "")
-        return json.loads(result.stdout)
+        self.assertNotIn("PRIVATE_FIXTURE_VALUE", result.stdout)
+        lines = result.stdout.splitlines()
+        self.diagnostics = [line for line in lines if line.startswith("Supervisor diagnostic: ")]
+        return json.loads("\n".join(line for line in lines if not line.startswith("Supervisor diagnostic: ")))
 
     def test_direct_hidden_worker_preserves_argument_boundaries(self):
         result = self.evaluate(r"""
@@ -84,6 +87,9 @@ class InstallerSupervisorTests(unittest.TestCase):
             @{ completed = $true } | ConvertTo-Json -Compress
         """, "param([string]$InstallerPath, [string]$ExpectedVersion)\nexit 0\n")
         self.assertTrue(result["completed"])
+        self.assertIn("Supervisor diagnostic: worker start returned.", self.diagnostics)
+        self.assertIn("Supervisor diagnostic: process wait completed.", self.diagnostics)
+        self.assertEqual(self.diagnostics[-1], "Supervisor diagnostic: worker handles disposed.")
 
     def test_noisy_worker_drains_both_streams_without_exposing_output(self):
         result = self.evaluate(r"""
@@ -132,6 +138,8 @@ exit 0
             @{ message = $message } | ConvertTo-Json -Compress
         """, "param([string]$InstallerPath, [string]$ExpectedVersion)\nexit 7\n")
         self.assertIn("failed with exit code 7", result["message"])
+        self.assertIn("Supervisor diagnostic: process wait completed.", self.diagnostics)
+        self.assertEqual(self.diagnostics[-1], "Supervisor diagnostic: worker handles disposed.")
 
     def test_timeout_terminates_only_the_owned_worker_tree(self):
         result = self.evaluate(r"""
@@ -160,6 +168,11 @@ Start-Sleep -Seconds 60
         self.assertIn("exceeded its 3-second deadline", result["message"])
         self.assertFalse(result["childRunning"])
         self.assertLess(result["elapsed"], 13)
+        deadline = self.diagnostics.index("Supervisor diagnostic: process wait reached its deadline.")
+        termination = self.diagnostics.index("Supervisor diagnostic: terminating the owned worker tree.")
+        disposed = self.diagnostics.index("Supervisor diagnostic: worker handles disposed.")
+        self.assertLess(deadline, termination)
+        self.assertLess(termination, disposed)
 
     def test_failed_launch_is_sanitized_and_disposed(self):
         result = self.evaluate(r"""
@@ -173,6 +186,8 @@ Start-Sleep -Seconds 60
         """)
         self.assertEqual(result["message"], "The installer lifecycle worker could not start.")
         self.assertTrue(result["disposed"])
+        self.assertNotIn("Supervisor diagnostic: worker start returned.", self.diagnostics)
+        self.assertEqual(self.diagnostics[-1], "Supervisor diagnostic: worker handles disposed.")
 
 
 if __name__ == "__main__":
