@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.7.5 - 2026-11-16
+
+- Automatic updates retry after slow or interrupted downloads and temporarily refused updater launches.
+- Update installation waits while Windows is signing out or shutting down.
+- Completed clip requests are recognized when the recorder closes immediately afterward.
+- Session diagnostics include sleep and lock context and identify the first HUD frame after a window retry.
+
 ## 2.7.4 - 2026-11-07
 
 - When Forza's own speedometer is shown, Wisp reads it again on Forza Horizon 6 builds 6.483.970.0 and 3.483.970.0.

@@ -5,7 +5,9 @@ param(
 
     [Parameter(Mandatory)]
     [ValidatePattern('^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')]
-    [string]$ExpectedVersion
+    [string]$ExpectedVersion,
+    [string]$BaselineInstallerPath,
+    [string]$BaselineVersion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,9 +19,15 @@ function New-InstallerLifecycleWorker {
         [string]$CanaryScript,
         [string]$InstallerPath,
         [string]$ExpectedVersion,
-        [string]$StageLogPath
+        [string]$StageLogPath,
+        [string]$BaselineInstallerPath,
+        [string]$BaselineVersion
     )
 
+    if ([string]::IsNullOrWhiteSpace($BaselineInstallerPath) -ne
+        [string]::IsNullOrWhiteSpace($BaselineVersion)) {
+        throw 'The published upgrade installer and version must be supplied together.'
+    }
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $PowerShellPath
     $startInfo.UseShellExecute = $false
@@ -30,6 +38,12 @@ function New-InstallerLifecycleWorker {
         $startInfo.ArgumentList.Add($argument)
     }
     $startInfo.Environment['WISP_INSTALLER_STAGE_LOG'] = $StageLogPath
+    if ($BaselineInstallerPath) {
+        foreach ($argument in @('-BaselineInstallerPath', $BaselineInstallerPath,
+            '-BaselineVersion', $BaselineVersion)) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+    }
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     return $process
@@ -84,10 +98,12 @@ if (-not $IsWindows -or $env:GITHUB_ACTIONS -cne 'true' -or $env:CI -cne 'true')
 $installer = (Resolve-Path -LiteralPath $InstallerPath -ErrorAction Stop).Path
 $evidenceDirectory = Join-Path $PSScriptRoot '../../outputs/installer-lifecycle'
 [void][System.IO.Directory]::CreateDirectory($evidenceDirectory)
-$stageLog = [System.IO.Path]::GetFullPath((Join-Path $evidenceDirectory 'stages.log'))
+$scenario = if ($BaselineInstallerPath) { 'upgrade' } else { 'fresh' }
+$stageLog = [System.IO.Path]::GetFullPath((Join-Path $evidenceDirectory "$scenario-stages.log"))
 [System.IO.File]::WriteAllText($stageLog, '', [System.Text.UTF8Encoding]::new($false))
 $worker = New-InstallerLifecycleWorker (Join-Path $PSHOME 'pwsh.exe') `
-    (Join-Path $PSScriptRoot 'Test-InstallerLifecycle.ps1') $installer $ExpectedVersion $stageLog
+    (Join-Path $PSScriptRoot 'Test-InstallerLifecycle.ps1') $installer $ExpectedVersion $stageLog `
+    $BaselineInstallerPath $BaselineVersion
 
 Write-Output 'Installer lifecycle supervisor started.'
 Invoke-InstallerLifecycleWorker $worker

@@ -49,16 +49,23 @@ class CiValidationPlanTests(unittest.TestCase):
                 "status": "completed", "conclusion": "success", "repository": {"full_name": "Views2k/Wisp"},
                 "head_repository": {"full_name": "Views2k/Wisp"}}]},
             self.job_suffix: {"total_count": 3, "jobs": [
-                self.job("Build and test", "Build verified installer bundle"),
-                self.job("Build installer", "Test installer lifecycle"),
+                self.job("Release build and test", "Build verified installer bundle"),
+                self.job("Build installer", "Test installer lifecycle", "Test published-version upgrade"),
                 self.job("Publish release", "Publish immutable release")
             ]},
         }
 
     @staticmethod
-    def job(name, step):
+    def job(name, *steps):
         return {"name": name, "status": "completed", "conclusion": "success",
-                "steps": [{"name": step, "status": "completed", "conclusion": "success"}]}
+                "steps": [{"name": step, "status": "completed", "conclusion": "success"} for step in steps]}
+
+    def test_missing_published_upgrade_proof_requires_full_validation(self):
+        self.docs_change()
+        self.api[self.job_suffix]["jobs"][1]["steps"].pop()
+        result = self.evaluate()
+        self.assertEqual(result["mode"], "full")
+        self.assertIn("No successful stable-tag", result["reason"])
 
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True,

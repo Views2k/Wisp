@@ -352,12 +352,40 @@ jobs:
             -InstallerPath $installer `
             -ExpectedVersion $version
 
+      - name: Download verified published upgrade baseline
+        id: upgrade-baseline
+        if: needs.validation-plan.outputs.mode == 'full'
+        timeout-minutes: 2
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $project = [xml](Get-Content -LiteralPath ./src/Wisp.App/Wisp.App.csproj -Raw)
+          $version = @($project.Project.PropertyGroup | Where-Object { $null -ne $_.Version })[0].Version
+          ./.github/scripts/Get-InstallerUpgradeBaseline.ps1 -TargetVersion $version
+
+      - name: Test published-version upgrade
+        if: needs.validation-plan.outputs.mode == 'full'
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          BASELINE_INSTALLER: ${{ steps.upgrade-baseline.outputs.installer }}
+          BASELINE_VERSION: ${{ steps.upgrade-baseline.outputs.version }}
+        run: |
+          $project = [xml](Get-Content -LiteralPath ./src/Wisp.App/Wisp.App.csproj -Raw)
+          $version = @($project.Project.PropertyGroup | Where-Object { $null -ne $_.Version })[0].Version
+          ./.github/scripts/Invoke-InstallerLifecycleCanary.ps1 `
+            -InstallerPath (Resolve-Path -LiteralPath "./outputs/Wisp-Setup-$version.exe").Path `
+            -ExpectedVersion $version `
+            -BaselineInstallerPath $env:BASELINE_INSTALLER `
+            -BaselineVersion $env:BASELINE_VERSION
+
       - name: Upload installer lifecycle diagnostics
         if: always() && needs.validation-plan.outputs.mode == 'full'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installer-lifecycle-diagnostics-${{ github.sha }}
-          path: outputs/installer-lifecycle/stages.log
+          path: outputs/installer-lifecycle/*-stages.log
           if-no-files-found: warn
           retention-days: 7
 

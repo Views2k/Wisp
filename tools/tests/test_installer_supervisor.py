@@ -80,6 +80,28 @@ class InstallerSupervisorTests(unittest.TestCase):
         """, "param([string]$InstallerPath, [string]$ExpectedVersion)\nexit 0\n")
         self.assertTrue(result["completed"])
 
+    def test_upgrade_worker_preserves_baseline_arguments(self):
+        result = self.evaluate(r"""
+            $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'candidate.exe' '2.7.5' $stageLog `
+                'C:\baseline folder\setup.exe' '2.7.4'
+            try { @($p.StartInfo.ArgumentList) | ConvertTo-Json -Compress } finally { $p.Dispose() }
+        """)
+        self.assertEqual(result[-4:], ["-BaselineInstallerPath", "C:\\baseline folder\\setup.exe",
+                                      "-BaselineVersion", "2.7.4"])
+
+    def test_incomplete_baseline_arguments_are_rejected(self):
+        result = self.evaluate(r"""
+            @(foreach ($pair in @(@('baseline.exe', ''), @('', '2.7.4'))) {
+                try {
+                    $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'candidate.exe' '2.7.5' $stageLog `
+                        $pair[0] $pair[1]
+                    $p.Dispose()
+                    $false
+                } catch { $true }
+            }) | ConvertTo-Json -Compress
+        """)
+        self.assertEqual(result, [True, True])
+
     def test_failed_worker_cannot_report_success(self):
         result = self.evaluate(r"""
             $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'fixture' '2.6.1' $stageLog
