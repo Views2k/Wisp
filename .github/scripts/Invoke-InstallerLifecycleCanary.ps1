@@ -31,7 +31,10 @@ function New-InstallerLifecycleWorker {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $PowerShellPath
     $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
+    $startInfo.CreateNoWindow = $false
+    $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
     $startInfo.WorkingDirectory = (Get-Location).Path
     foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File',
         $CanaryScript, '-InstallerPath', $InstallerPath, '-ExpectedVersion', $ExpectedVersion)) {
@@ -57,6 +60,7 @@ function Invoke-InstallerLifecycleWorker {
     )
 
     $started = $false
+    $outputTasks = @()
     try {
         try {
             $started = $Process.Start()
@@ -67,6 +71,12 @@ function Invoke-InstallerLifecycleWorker {
         if (-not $started) {
             throw 'The installer lifecycle worker could not start.'
         }
+        # A hidden console keeps the Windows installer lifecycle responsive. Drain both
+        # streams concurrently; only the sanitized stage file reaches public CI output.
+        $outputTasks = @(
+            $Process.StandardOutput.BaseStream.CopyToAsync([System.IO.Stream]::Null)
+            $Process.StandardError.BaseStream.CopyToAsync([System.IO.Stream]::Null)
+        )
         # The installer launch runs inside this worker, so its entire launch and wait
         # are bounded even if a native launch call never returns to the inner script.
         if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
@@ -83,6 +93,15 @@ function Invoke-InstallerLifecycleWorker {
                 if (-not $Process.WaitForExit(10000)) {
                     throw 'The installer lifecycle worker did not stop after termination.'
                 }
+            }
+            if ($outputTasks.Count -gt 0) {
+                try {
+                    if (-not [System.Threading.Tasks.Task]::WaitAll(
+                            [System.Threading.Tasks.Task[]]$outputTasks, 10000)) {
+                        throw 'The worker output did not close before its deadline.'
+                    }
+                }
+                catch { throw 'The installer lifecycle worker output could not be drained.' }
             }
         }
         finally {
@@ -106,5 +125,10 @@ $worker = New-InstallerLifecycleWorker (Join-Path $PSHOME 'pwsh.exe') `
     $BaselineInstallerPath $BaselineVersion
 
 Write-Output 'Installer lifecycle supervisor started.'
-Invoke-InstallerLifecycleWorker $worker
+try { Invoke-InstallerLifecycleWorker $worker }
+finally {
+    Get-Content -LiteralPath $stageLog -Tail 10 -ErrorAction SilentlyContinue |
+        Where-Object { $_ -cmatch '\AInstaller lifecycle failure: type=[A-Za-z][A-Za-z0-9]{0,79}; line=[0-9]+(?:; updater_state=(?:failed|installed); updater_error=(?:UPDATE_[A-Z0-9_]{1,80})?)?\z' } |
+        Write-Output
+}
 Write-Output 'Installer lifecycle supervisor completed.'

@@ -23,7 +23,9 @@ try {
     if ($errors.Count -ne 0) { throw 'The lifecycle source did not parse.' }
     $names = @('Get-InstallerLogStages', 'Write-InstallerLifecycleMarker',
         'Write-InstallerLogStages', 'Wait-InstallerProcessExit', 'Invoke-CheckedProcess',
-        'New-InstallerProcess', 'Assert-FirstRunSetupLaunch', 'Invoke-IsolatedCanaryApplication')
+        'New-InstallerProcess', 'Assert-FirstRunSetupLaunch', 'Invoke-IsolatedCanaryApplication',
+        'Complete-CanaryParentHandoff', 'Wait-CanaryMainWindow', 'Assert-CanarySavedSettings',
+        'Write-InstallerLifecycleFailure')
     $functions = @($ast.FindAll({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $node.Name -cin $names
@@ -189,10 +191,69 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
     def test_first_run_entrypoint_uses_network_isolation(self):
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("Invoke-IsolatedCanaryApplication $canaryApplication {\n"
-                      "        Assert-FirstRunSetupLaunch $canaryApplication ([ref]$script:canaryParentId)\n    }", source)
+                      "        Assert-FirstRunSetupLaunch $canaryApplication\n    }", source)
         self.assertIn("Invoke-IsolatedCanaryApplication $canaryApplication {\n"
-                      "            Invoke-PublishedUpgrade $installer $canaryApplication $initialVersion $script:canaryParentId\n"
+                      "            Invoke-PublishedUpgrade $installer $canaryApplication $initialVersion\n"
                       "        }", source)
+
+    def test_parent_closes_only_after_the_helper_is_ready(self):
+        result = json.loads(self.evaluate(r"""
+            $script:events = [Collections.Generic.List[string]]::new()
+            $ready = [pscustomobject]@{}
+            $ready | Add-Member ScriptMethod WaitOne { param($timeout) $script:events.Add('ready'); return $true }
+            $parent = [pscustomobject]@{HasExited=$false; ExitCode=0}
+            $parent | Add-Member ScriptMethod CloseMainWindow { $script:events.Add('close'); return $true }
+            $parent | Add-Member ScriptMethod WaitForExit { param($timeout) $script:events.Add('exit'); return $true }
+            Complete-CanaryParentHandoff $parent $ready
+            @($script:events) | ConvertTo-Json -Compress
+        """))
+        self.assertEqual(result, ["ready", "close", "exit"])
+
+    def test_missing_handoff_or_failed_parent_exit_cannot_pass(self):
+        result = json.loads(self.evaluate(r"""
+            @(foreach ($scenario in @('not-ready', 'already-exited', 'close-refused', 'still-running', 'crashed')) {
+                $ready = [pscustomobject]@{Allowed=($scenario -ne 'not-ready')}
+                $ready | Add-Member ScriptMethod WaitOne { param($timeout) return $this.Allowed }
+                $parent = [pscustomobject]@{HasExited=($scenario -eq 'already-exited');
+                    ExitCode=$(if($scenario -eq 'crashed'){7}else{0}); Closed=$false;
+                    CanClose=($scenario -ne 'close-refused'); Exits=($scenario -ne 'still-running')}
+                $parent | Add-Member ScriptMethod CloseMainWindow { $this.Closed=$true; return $this.CanClose }
+                $parent | Add-Member ScriptMethod WaitForExit { param($timeout) return $this.Exits }
+                $failed=$false
+                try { Complete-CanaryParentHandoff $parent $ready } catch { $failed=$true }
+                @{ failed=$failed; closed=$parent.Closed }
+            }) | ConvertTo-Json -Compress
+        """))
+        self.assertTrue(all(item["failed"] for item in result))
+        self.assertFalse(result[0]["closed"])
+        self.assertFalse(result[1]["closed"])
+
+    def test_closed_parent_is_rejected_before_an_update_request(self):
+        result = json.loads(self.evaluate(r"""
+            $failed=$false
+            try { Wait-CanaryMainWindow ([pscustomobject]@{HasExited=$true}) } catch { $failed=$true }
+            $failed | ConvertTo-Json
+        """))
+        self.assertTrue(result)
+
+    def test_failure_evidence_retains_safe_codes_without_private_text(self):
+        output = self.evaluate(r"""
+            $stateDirectory=$FixtureDirectory
+            $env:WISP_INSTALLER_STAGE_LOG=Join-Path $FixtureDirectory 'stages.log'
+            $failure=[pscustomobject]@{Exception=[InvalidOperationException]::new('PRIVATE_FIXTURE_VALUE');
+                InvocationInfo=[pscustomobject]@{ScriptLineNumber=42}}
+            [IO.File]::WriteAllText((Join-Path $stateDirectory 'update-result.json'),
+                '{"state":"failed","errorCode":"UPDATE_PARENT_EXITED","message":"PRIVATE_FIXTURE_VALUE"}')
+            Write-InstallerLifecycleFailure $failure
+            [IO.File]::WriteAllText((Join-Path $stateDirectory 'update-result.json'),
+                '{"state":"failed","errorCode":"PRIVATE_FIXTURE_VALUE"}')
+            Write-InstallerLifecycleFailure $failure
+            Get-Content -LiteralPath $env:WISP_INSTALLER_STAGE_LOG
+        """)
+        self.assertNotIn("PRIVATE_FIXTURE_VALUE", output)
+        self.assertEqual(output.splitlines(), [
+            "Installer lifecycle failure: type=InvalidOperationException; line=42; updater_state=failed; updater_error=UPDATE_PARENT_EXITED",
+            "Installer lifecycle failure: type=InvalidOperationException; line=42"])
 
     def test_network_probe_refuses_a_non_ci_machine(self):
         environment = dict(os.environ, GITHUB_ACTIONS="false", CI="false")

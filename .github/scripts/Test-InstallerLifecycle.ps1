@@ -70,6 +70,7 @@ $settingsSentinel = [ordered]@{
     SettingsRevision = 7
     UdpPort = 5500
     StartWithWindows = $false
+    StartWithForza = $false
     HasCompletedSetup = $true
     SetupCompletion = [ordered]@{
         Version = 1
@@ -157,7 +158,7 @@ function Write-InstallerLifecycleMarker {
 
     if ($Label -cnotin @('Fresh installer canary', 'In-place update canary', 'Manual reinstall canary',
             'Uninstaller canary', 'First-run Wisp Setup', 'Published upgrade canary') -or
-        $Stage -cnotmatch '\A(?:started|launch returned|before process wait|completed|window detected|close requested|native stage observed: (?:restart-manager-(?:registering-files|resources-ready|query-started|query-completed|query-failed|no-applications|application-wisp|application-wisp-updater|application-found)|installation-started|installation-succeeded|setup-deinitializing))\z') {
+        $Stage -cnotmatch '\A(?:started|launch returned|before process wait|completed|window detected|close requested|parent launch started|parent launch returned|parent window detected|digest check started|digest rejected|handoff started|parent exited|application restarted|native stage observed: (?:restart-manager-(?:registering-files|resources-ready|query-started|query-completed|query-failed|no-applications|application-wisp|application-wisp-updater|application-found)|installation-started|installation-succeeded|setup-deinitializing))\z') {
         return
     }
     $message = "{0} {1}. utc={2:o} elapsed_ms={3}" -f
@@ -175,6 +176,31 @@ function Write-InstallerLifecycleMarker {
             Write-Warning 'Could not persist installer lifecycle stage evidence.'
         }
     }
+}
+
+function Write-InstallerLifecycleFailure {
+    param($Failure)
+
+    try {
+        $line = if ($null -ne $Failure.InvocationInfo) { $Failure.InvocationInfo.ScriptLineNumber } else { 0 }
+        $message = 'Installer lifecycle failure: type={0}; line={1}' -f $Failure.Exception.GetType().Name, $line
+        $resultPath = Join-Path $stateDirectory 'update-result.json'
+        if (Test-Path -LiteralPath $resultPath -PathType Leaf) {
+            try {
+                $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+                if ($result.state -cin @('failed', 'installed') -and
+                    $result.errorCode -cmatch '\A(?:UPDATE_[A-Z0-9_]{1,80})?\z') {
+                    $message += '; updater_state={0}; updater_error={1}' -f $result.state, $result.errorCode
+                }
+            }
+            catch { }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:WISP_INSTALLER_STAGE_LOG)) {
+            [IO.File]::AppendAllText($env:WISP_INSTALLER_STAGE_LOG, $message + [Environment]::NewLine,
+                [Text.UTF8Encoding]::new($false))
+        }
+    }
+    catch { Write-Warning 'Could not persist installer lifecycle failure evidence.' }
 }
 
 function New-InstallerProcess {
@@ -359,7 +385,7 @@ function Invoke-IsolatedCanaryApplication {
 }
 
 function Assert-FirstRunSetupLaunch {
-    param([string]$ApplicationPath, [ref]$ParentProcessId)
+    param([string]$ApplicationPath)
 
     $operationTimer = [System.Diagnostics.Stopwatch]::StartNew()
     Write-InstallerLifecycleMarker 'First-run Wisp Setup' 'started' $operationTimer
@@ -389,7 +415,6 @@ function Assert-FirstRunSetupLaunch {
         }
 
         Write-InstallerLifecycleMarker 'First-run Wisp Setup' 'window detected' $operationTimer
-        if ($null -ne $ParentProcessId) { $ParentProcessId.Value = $process.Id }
         if (-not $process.CloseMainWindow()) {
             throw 'The Wisp Setup window did not accept a bounded close request.'
         }
@@ -413,8 +438,40 @@ function Assert-FirstRunSetupLaunch {
     }
 }
 
+function Assert-CanarySavedSettings {
+    $preserved = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+    if ($preserved.UdpPort -ne 5500 -or $preserved.HasCompletedSetup -ne $true -or
+        $preserved.StartWithForza -ne $false -or $preserved.SetupCompletion.ValidatedUdpPort -ne 5500) {
+        throw 'The published-version upgrade did not retain the completed setup and settings.'
+    }
+}
+
+function Wait-CanaryMainWindow {
+    param($Process)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while (-not $Process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+        $Process.Refresh()
+        if ($Process.MainWindowHandle -ne 0 -and $Process.MainWindowTitle -ceq 'Wisp') { return }
+        Start-Sleep -Milliseconds 200
+    }
+    throw 'The published application did not open its main window for the update handoff.'
+}
+
+function Complete-CanaryParentHandoff {
+    param($Parent, $Ready)
+
+    if (-not $Ready.WaitOne(30000)) {
+        throw 'The published updater did not signal a verified handoff.'
+    }
+    if ($Parent.HasExited -or -not $Parent.CloseMainWindow() -or
+        -not $Parent.WaitForExit(10000) -or $Parent.ExitCode -ne 0) {
+        throw 'The published application did not close cleanly after the verified handoff.'
+    }
+}
+
 function Invoke-PublishedUpgrade {
-    param([string]$InstallerPath, [string]$ApplicationPath, [string]$SourceVersion, [int]$ParentProcessId)
+    param([string]$InstallerPath, [string]$ApplicationPath, [string]$SourceVersion)
 
     $timer = [Diagnostics.Stopwatch]::StartNew()
     Write-InstallerLifecycleMarker 'Published upgrade canary' 'started' $timer
@@ -431,7 +488,7 @@ function Invoke-PublishedUpgrade {
     $requestPath = Join-Path $attempt 'request.json'
     $request = [ordered]@{
         stagedInstallerPath = $stagedInstaller; targetVersion = $ExpectedVersion
-        sourceVersion = $SourceVersion; parentProcessId = $ParentProcessId
+        sourceVersion = $SourceVersion; parentProcessId = 0
         appExecutablePath = $ApplicationPath; expectedSha256 = ('0' * 64)
         expectedSizeBytes = (Get-Item -LiteralPath $stagedInstaller).Length
         readyEventName = $eventName
@@ -446,23 +503,32 @@ function Invoke-PublishedUpgrade {
     }
     $helper = $null
     $helperStarted = $false
+    $parent = New-InstallerProcess $ApplicationPath @()
+    $parentStarted = $false
     try {
+        Write-InstallerLifecycleMarker 'Published upgrade canary' 'parent launch started' $timer
+        $parentStarted = $parent.Start()
+        if (-not $parentStarted) { throw 'The published application could not start for the update handoff.' }
+        Write-InstallerLifecycleMarker 'Published upgrade canary' 'parent launch returned' $timer
+        Wait-CanaryMainWindow $parent
+        Write-InstallerLifecycleMarker 'Published upgrade canary' 'parent window detected' $timer
+        $request.parentProcessId = $parent.Id
         [IO.File]::WriteAllText($requestPath, ($request | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
         $helper = New-InstallerProcess $stagedHelper @('--apply', "`"$requestPath`"")
+        Write-InstallerLifecycleMarker 'Published upgrade canary' 'digest check started' $timer
         $helperStarted = $helper.Start()
         if (-not $helperStarted -or -not $helper.WaitForExit(30000) -or $helper.ExitCode -ne 4) {
             throw 'The published updater did not reject an incorrect installer digest.'
         }
         $result = Get-Content -LiteralPath (Join-Path $stateDirectory 'update-result.json') -Raw | ConvertFrom-Json
-        if ($ready.WaitOne(0) -or $result.state -cne 'failed' -or
+        if ($parent.HasExited -or $ready.WaitOne(0) -or $result.state -cne 'failed' -or
             $result.errorCode -cne 'UPDATE_INSTALLER_HASH_MISMATCH') {
             throw 'The incorrect-digest update did not fail before handoff.'
         }
         Assert-RegisteredInstallation $SourceVersion
         Assert-InstalledExecutable $ApplicationPath 'Wisp' $SourceVersion
-        if ([IO.File]::ReadAllText($settingsPath) -cne $settingsSentinel) {
-            throw 'A rejected update changed the saved settings.'
-        }
+        Assert-CanarySavedSettings
+        Write-InstallerLifecycleMarker 'Published upgrade canary' 'digest rejected' $timer
         Write-Output 'Published updater rejected the incorrect digest and preserved the prior installation.'
         $helper.Dispose()
         $helper = $null
@@ -470,10 +536,11 @@ function Invoke-PublishedUpgrade {
         $request.expectedSha256 = $hash
         [IO.File]::WriteAllText($requestPath, ($request | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
         $helper = New-InstallerProcess $stagedHelper @('--apply', "`"$requestPath`"")
+        Write-InstallerLifecycleMarker 'Published upgrade canary' 'handoff started' $timer
         $helperStarted = $helper.Start()
-        if (-not $helperStarted -or -not $ready.WaitOne(30000)) {
-            throw 'The published updater did not signal a verified handoff.'
-        }
+        if (-not $helperStarted) { throw 'The published update helper could not start.' }
+        Complete-CanaryParentHandoff $parent $ready
+        Write-InstallerLifecycleMarker 'Published upgrade canary' 'parent exited' $timer
         if (-not $helper.WaitForExit(90000) -or $helper.ExitCode -ne 0) {
             throw 'The published updater did not finish installing and restarting the candidate.'
         }
@@ -496,6 +563,7 @@ function Invoke-PublishedUpgrade {
             if (-not $restarted) { Start-Sleep -Milliseconds 200 }
         }
         if (-not $restarted) { throw 'The upgraded application did not reopen its main window.' }
+        Write-InstallerLifecycleMarker 'Published upgrade canary' 'application restarted' $timer
         foreach ($file in $preservedFiles.Keys) {
             if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $preservedFiles[$file]) {
                 throw 'The published-version upgrade changed a saved user file.'
@@ -509,6 +577,8 @@ function Invoke-PublishedUpgrade {
             if ($helperStarted -and -not $helper.HasExited) { $helper.Kill($true); [void]$helper.WaitForExit(10000) }
             $helper.Dispose()
         }
+        if ($parentStarted -and -not $parent.HasExited) { $parent.Kill($true); [void]$parent.WaitForExit(10000) }
+        $parent.Dispose()
         $ready.Dispose()
         foreach ($application in @(Get-Process -Name Wisp -ErrorAction SilentlyContinue)) {
             try {
@@ -588,9 +658,8 @@ try {
         throw 'A fresh installation did not require first-run setup.'
     }
     $canaryApplication = Join-Path $installDirectory 'Wisp.exe'
-    $script:canaryParentId = 0
     Invoke-IsolatedCanaryApplication $canaryApplication {
-        Assert-FirstRunSetupLaunch $canaryApplication ([ref]$script:canaryParentId)
+        Assert-FirstRunSetupLaunch $canaryApplication
     }
 
     [System.IO.File]::WriteAllText(
@@ -601,13 +670,9 @@ try {
 
     if ($BaselineInstallerPath) {
         Invoke-IsolatedCanaryApplication $canaryApplication {
-            Invoke-PublishedUpgrade $installer $canaryApplication $initialVersion $script:canaryParentId
+            Invoke-PublishedUpgrade $installer $canaryApplication $initialVersion
         }
-        $preserved = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
-        if ($preserved.UdpPort -ne 5500 -or $preserved.HasCompletedSetup -ne $true -or
-            $preserved.SetupCompletion.ValidatedUdpPort -ne 5500) {
-            throw 'The published-version upgrade did not retain the completed setup and settings.'
-        }
+        Assert-CanarySavedSettings
         $settingsSentinel = [IO.File]::ReadAllText($settingsPath)
     }
     else {
@@ -652,6 +717,10 @@ try {
     Wait-ForRemoval $uninstallKey $true
 
     Write-Output 'Verified fresh install, Wisp Setup launch, in-place update and manual reinstall preservation, and uninstall.'
+}
+catch {
+    Write-InstallerLifecycleFailure $_
+    throw
 }
 finally {
     if ($ownsCanaryState) {
