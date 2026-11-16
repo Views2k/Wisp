@@ -5,7 +5,9 @@ param(
 
     [Parameter(Mandatory)]
     [ValidatePattern('^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')]
-    [string]$ExpectedVersion
+    [string]$ExpectedVersion,
+    [string]$BaselineInstallerPath,
+    [string]$BaselineVersion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +23,20 @@ if ($env:GITHUB_ACTIONS -cne 'true' -or $env:CI -cne 'true') {
 $installer = (Resolve-Path -LiteralPath $InstallerPath -ErrorAction Stop).Path
 if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
     throw 'The installer lifecycle canary requires an existing installer file.'
+}
+if ([string]::IsNullOrWhiteSpace($BaselineInstallerPath) -ne
+    [string]::IsNullOrWhiteSpace($BaselineVersion)) {
+    throw 'The published upgrade installer and version must be supplied together.'
+}
+$initialInstaller = $installer
+$initialVersion = $ExpectedVersion
+if ($BaselineInstallerPath) {
+    if ($BaselineVersion -cnotmatch '\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z' -or
+        [version]$BaselineVersion -ge [version]$ExpectedVersion) {
+        throw 'The baseline version must precede the candidate version.'
+    }
+    $initialInstaller = (Resolve-Path -LiteralPath $BaselineInstallerPath -ErrorAction Stop).Path
+    $initialVersion = $BaselineVersion
 }
 
 if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP) -or
@@ -140,7 +156,7 @@ function Write-InstallerLifecycleMarker {
     )
 
     if ($Label -cnotin @('Fresh installer canary', 'In-place update canary', 'Manual reinstall canary',
-            'Uninstaller canary', 'First-run Wisp Setup') -or
+            'Uninstaller canary', 'First-run Wisp Setup', 'Published upgrade canary') -or
         $Stage -cnotmatch '\A(?:started|launch returned|before process wait|completed|window detected|close requested|native stage observed: (?:restart-manager-(?:registering-files|resources-ready|query-started|query-completed|query-failed|no-applications|application-wisp|application-wisp-updater|application-found)|installation-started|installation-succeeded|setup-deinitializing))\z') {
         return
     }
@@ -253,7 +269,8 @@ function Invoke-CheckedProcess {
 function Assert-InstalledExecutable {
     param(
         [string]$Path,
-        [string]$ExpectedDescription
+        [string]$ExpectedDescription,
+        [string]$Version = $ExpectedVersion
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -265,8 +282,8 @@ function Assert-InstalledExecutable {
     $productVersion = $identity.ProductVersion?.TrimEnd($versionPadding)
     $productName = $identity.ProductName?.TrimEnd($versionPadding)
     $description = $identity.FileDescription?.TrimEnd($versionPadding)
-    if ($fileVersion -cne "$ExpectedVersion.0" -or
-        $productVersion -cne $ExpectedVersion -or
+    if ($fileVersion -cne "$Version.0" -or
+        $productVersion -cne $Version -or
         $productName -cne 'Wisp' -or
         $description -cne $ExpectedDescription) {
         throw "The installed identity is invalid: $([System.IO.Path]::GetFileName($Path))"
@@ -274,6 +291,7 @@ function Assert-InstalledExecutable {
 }
 
 function Assert-RegisteredInstallation {
+    param([string]$Version = $ExpectedVersion)
     if (-not (Test-Path -LiteralPath $uninstallKey)) {
         throw 'The installer did not create its current-user uninstall registration.'
     }
@@ -283,7 +301,7 @@ function Assert-RegisteredInstallation {
         ([string]$registration.InstallLocation).TrimEnd(
             [System.IO.Path]::DirectorySeparatorChar,
             [System.IO.Path]::AltDirectorySeparatorChar))
-    if ([string]$registration.DisplayVersion -cne $ExpectedVersion -or
+    if ([string]$registration.DisplayVersion -cne $Version -or
         -not $registeredLocation.Equals(
             [System.IO.Path]::GetFullPath($installDirectory),
             [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -341,7 +359,7 @@ function Invoke-IsolatedCanaryApplication {
 }
 
 function Assert-FirstRunSetupLaunch {
-    param([string]$ApplicationPath)
+    param([string]$ApplicationPath, [ref]$ParentProcessId)
 
     $operationTimer = [System.Diagnostics.Stopwatch]::StartNew()
     Write-InstallerLifecycleMarker 'First-run Wisp Setup' 'started' $operationTimer
@@ -371,6 +389,7 @@ function Assert-FirstRunSetupLaunch {
         }
 
         Write-InstallerLifecycleMarker 'First-run Wisp Setup' 'window detected' $operationTimer
+        if ($null -ne $ParentProcessId) { $ParentProcessId.Value = $process.Id }
         if (-not $process.CloseMainWindow()) {
             throw 'The Wisp Setup window did not accept a bounded close request.'
         }
@@ -391,6 +410,115 @@ function Assert-FirstRunSetupLaunch {
             }
         }
         $process.Dispose()
+    }
+}
+
+function Invoke-PublishedUpgrade {
+    param([string]$InstallerPath, [string]$ApplicationPath, [string]$SourceVersion, [int]$ParentProcessId)
+
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    Write-InstallerLifecycleMarker 'Published upgrade canary' 'started' $timer
+    $attempt = Join-Path $stateDirectory "Updates/$ExpectedVersion/upgrade attempt $([guid]::NewGuid().ToString('N'))"
+    [void][IO.Directory]::CreateDirectory($attempt)
+    $stagedInstaller = Join-Path $attempt "Wisp-Setup-$ExpectedVersion.exe"
+    $stagedHelper = Join-Path $attempt 'Wisp.Updater.exe'
+    Copy-Item -LiteralPath $InstallerPath -Destination $stagedInstaller
+    Copy-Item -LiteralPath (Join-Path $installDirectory 'Wisp.Updater.exe') -Destination $stagedHelper
+    $hash = (Get-FileHash -LiteralPath $stagedInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
+    $eventName = 'Local\Wisp.Update.Ready.' + [Convert]::ToHexString(
+        [Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
+    $ready = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $eventName)
+    $requestPath = Join-Path $attempt 'request.json'
+    $request = [ordered]@{
+        stagedInstallerPath = $stagedInstaller; targetVersion = $ExpectedVersion
+        sourceVersion = $SourceVersion; parentProcessId = $ParentProcessId
+        appExecutablePath = $ApplicationPath; expectedSha256 = ('0' * 64)
+        expectedSizeBytes = (Get-Item -LiteralPath $stagedInstaller).Length
+        readyEventName = $eventName
+    }
+    $preservedFiles = @{}
+    foreach ($name in @('Profiles', 'Runs', 'Tunes', 'Clips')) {
+        $directory = Join-Path $stateDirectory $name
+        [void][IO.Directory]::CreateDirectory($directory)
+        $file = Join-Path $directory '.upgrade-preservation'
+        [IO.File]::WriteAllBytes($file, [Security.Cryptography.RandomNumberGenerator]::GetBytes(64))
+        $preservedFiles[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+    }
+    $helper = $null
+    $helperStarted = $false
+    try {
+        [IO.File]::WriteAllText($requestPath, ($request | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+        $helper = New-InstallerProcess $stagedHelper @('--apply', "`"$requestPath`"")
+        $helperStarted = $helper.Start()
+        if (-not $helperStarted -or -not $helper.WaitForExit(30000) -or $helper.ExitCode -ne 4) {
+            throw 'The published updater did not reject an incorrect installer digest.'
+        }
+        $result = Get-Content -LiteralPath (Join-Path $stateDirectory 'update-result.json') -Raw | ConvertFrom-Json
+        if ($ready.WaitOne(0) -or $result.state -cne 'failed' -or
+            $result.errorCode -cne 'UPDATE_INSTALLER_HASH_MISMATCH') {
+            throw 'The incorrect-digest update did not fail before handoff.'
+        }
+        Assert-RegisteredInstallation $SourceVersion
+        Assert-InstalledExecutable $ApplicationPath 'Wisp' $SourceVersion
+        if ([IO.File]::ReadAllText($settingsPath) -cne $settingsSentinel) {
+            throw 'A rejected update changed the saved settings.'
+        }
+        Write-Output 'Published updater rejected the incorrect digest and preserved the prior installation.'
+        $helper.Dispose()
+        $helper = $null
+        $helperStarted = $false
+        $request.expectedSha256 = $hash
+        [IO.File]::WriteAllText($requestPath, ($request | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+        $helper = New-InstallerProcess $stagedHelper @('--apply', "`"$requestPath`"")
+        $helperStarted = $helper.Start()
+        if (-not $helperStarted -or -not $ready.WaitOne(30000)) {
+            throw 'The published updater did not signal a verified handoff.'
+        }
+        if (-not $helper.WaitForExit(90000) -or $helper.ExitCode -ne 0) {
+            throw 'The published updater did not finish installing and restarting the candidate.'
+        }
+        Assert-RegisteredInstallation
+        Assert-InstalledExecutable $ApplicationPath 'Wisp'
+        Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.Updater.exe') 'Wisp Update Helper'
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        $restarted = $false
+        while ([DateTime]::UtcNow -lt $deadline -and -not $restarted) {
+            foreach ($application in @(Get-Process -Name Wisp -ErrorAction SilentlyContinue)) {
+                try {
+                    $application.Refresh()
+                    if ($application.Path -eq $ApplicationPath -and $application.MainWindowHandle -ne 0 -and
+                        $application.MainWindowTitle.StartsWith('Wisp') -and $application.MainWindowTitle -ne 'Wisp Setup') {
+                        $restarted = $true
+                    }
+                }
+                finally { $application.Dispose() }
+            }
+            if (-not $restarted) { Start-Sleep -Milliseconds 200 }
+        }
+        if (-not $restarted) { throw 'The upgraded application did not reopen its main window.' }
+        foreach ($file in $preservedFiles.Keys) {
+            if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne $preservedFiles[$file]) {
+                throw 'The published-version upgrade changed a saved user file.'
+            }
+        }
+        Write-Output "Verified published updater $SourceVersion to $ExpectedVersion, restart and saved-file preservation."
+        Write-InstallerLifecycleMarker 'Published upgrade canary' 'completed' $timer
+    }
+    finally {
+        if ($null -ne $helper) {
+            if ($helperStarted -and -not $helper.HasExited) { $helper.Kill($true); [void]$helper.WaitForExit(10000) }
+            $helper.Dispose()
+        }
+        $ready.Dispose()
+        foreach ($application in @(Get-Process -Name Wisp -ErrorAction SilentlyContinue)) {
+            try {
+                if ($application.Path -eq $ApplicationPath -and -not $application.HasExited) {
+                    $application.Kill($true)
+                    if (-not $application.WaitForExit(10000)) { throw 'The upgraded canary application did not stop.' }
+                }
+            }
+            finally { $application.Dispose() }
+        }
     }
 }
 
@@ -450,18 +578,19 @@ try {
     $reinstallLog = Join-Path $canaryRoot 'manual-reinstall.log'
     $uninstallLog = Join-Path $canaryRoot 'uninstall.log'
 
-    Invoke-CheckedProcess $installer ($installArguments + @(
+    Invoke-CheckedProcess $initialInstaller ($installArguments + @(
         "/LOG=`"$freshLog`"", '/LOGCLOSEAPPLICATIONS'
     )) 'Fresh installer canary' $freshLog
-    Assert-RegisteredInstallation
-    Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.exe') 'Wisp'
-    Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.Updater.exe') 'Wisp Update Helper'
+    Assert-RegisteredInstallation $initialVersion
+    Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.exe') 'Wisp' $initialVersion
+    Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.Updater.exe') 'Wisp Update Helper' $initialVersion
     if (-not (Test-Path -LiteralPath $setupMarker -PathType Leaf)) {
         throw 'A fresh installation did not require first-run setup.'
     }
     $canaryApplication = Join-Path $installDirectory 'Wisp.exe'
+    $script:canaryParentId = 0
     Invoke-IsolatedCanaryApplication $canaryApplication {
-        Assert-FirstRunSetupLaunch $canaryApplication
+        Assert-FirstRunSetupLaunch $canaryApplication ([ref]$script:canaryParentId)
     }
 
     [System.IO.File]::WriteAllText(
@@ -470,9 +599,22 @@ try {
         [System.Text.UTF8Encoding]::new($false))
     [System.IO.File]::Delete($setupMarker)
 
-    Invoke-CheckedProcess $installer ($installArguments + @(
-        '/WISPUPDATE', "/LOG=`"$updateLog`"", '/LOGCLOSEAPPLICATIONS'
-    )) 'In-place update canary' $updateLog
+    if ($BaselineInstallerPath) {
+        Invoke-IsolatedCanaryApplication $canaryApplication {
+            Invoke-PublishedUpgrade $installer $canaryApplication $initialVersion $script:canaryParentId
+        }
+        $preserved = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+        if ($preserved.UdpPort -ne 5500 -or $preserved.HasCompletedSetup -ne $true -or
+            $preserved.SetupCompletion.ValidatedUdpPort -ne 5500) {
+            throw 'The published-version upgrade did not retain the completed setup and settings.'
+        }
+        $settingsSentinel = [IO.File]::ReadAllText($settingsPath)
+    }
+    else {
+        Invoke-CheckedProcess $installer ($installArguments + @(
+            '/WISPUPDATE', "/LOG=`"$updateLog`"", '/LOGCLOSEAPPLICATIONS'
+        )) 'In-place update canary' $updateLog
+    }
     Assert-RegisteredInstallation
     Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.exe') 'Wisp'
     Assert-InstalledExecutable (Join-Path $installDirectory 'Wisp.Updater.exe') 'Wisp Update Helper'

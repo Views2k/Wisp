@@ -19,6 +19,10 @@ Wisp 2.7 is a reliability update. Clips keep recording when the graphics card is
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.7 release notes](docs/releases/Wisp-2.7.0-release-notes.md)
 
+### Wisp 2.7.5
+
+Wisp 2.7.5 improves automatic update retries, recognizes completed clip requests during recorder shutdown, and adds sleep and lock context to session diagnostics. See the [2.7.5 release notes](docs/releases/Wisp-2.7.5-release-notes.md).
+
 ### Wisp 2.7.4
 
 Wisp 2.7.4 reads Forza's own speedometer again on the November 5 Forza build, names the step of a failed tune read, and stops reporting normal shutdowns, slow setup tests and an offline launch as problems.

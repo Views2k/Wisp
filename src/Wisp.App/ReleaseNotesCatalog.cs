@@ -15,11 +15,26 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.7.5",
+            "November 16, 2026",
+            "MAINTENANCE",
+            "Wisp 2.7.5 improves automatic update retries, recognizes completed clip requests during recorder shutdown, and adds sleep and lock context to session diagnostics.",
+            true,
+            [
+                Group("Updates",
+                    "Automatic updates retry after slow or interrupted downloads and temporarily refused updater launches.",
+                    "Update installation waits while Windows is signing out or shutting down."),
+                Group("Clips",
+                    "Completed clip requests are recognized when the recorder closes immediately afterward."),
+                Group("Diagnostics",
+                    "Session diagnostics include sleep and lock context and identify the first HUD frame after a window retry.")
+            ]),
+        new(
             "2.7.4",
             "November 7, 2026",
             "FORZA UPDATE",
             "Wisp 2.7.4 reads Forza's own speedometer again on the November 5 Forza build, names the step of a failed tune read, and stops reporting normal shutdowns, slow setup tests and an offline launch as problems.",
-            true,
+            false,
             [
                 Group("Forza compatibility",
                     "When Forza's own speedometer is shown, Wisp reads it again on build 6.483.970.0 (Steam) and 3.483.970.0 (Xbox app / Microsoft Store): needle angle and blur, EV speed digits, power and regen fill and headlight state come from the game, as before the November 5 update.",

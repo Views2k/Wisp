@@ -203,5 +203,12 @@ valid completed-setup record, applies the same package with `/WISPUPDATE`, prove
 that settings remain byte-identical and setup is not required again, runs the
 real uninstaller, and verifies that the application and uninstall registration
 are gone. It refuses to run outside GitHub Actions CI or over existing Wisp user
-state. The installer is not Authenticode-signed; packaging emits a SHA-256 file
+state. A second isolated canary downloads the previous immutable public installer,
+verifies its GitHub asset digest and size, installs it, and invokes its real update
+helper against the candidate. It first requires rejection of an incorrect digest
+without changing the installation, then verifies upgrade, application restart,
+completed setup, saved settings and user-file preservation. It also repeats the
+manual reinstall and uninstall checks on the upgraded installation. Both scenarios
+retain their stage logs and run with the installed application's outbound access blocked.
+The installer is not Authenticode-signed; packaging emits a SHA-256 file
 beside it.

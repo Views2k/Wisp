@@ -189,7 +189,10 @@ class InstallerLifecycleDiagnosticsTests(unittest.TestCase):
     def test_first_run_entrypoint_uses_network_isolation(self):
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("Invoke-IsolatedCanaryApplication $canaryApplication {\n"
-                      "        Assert-FirstRunSetupLaunch $canaryApplication\n    }", source)
+                      "        Assert-FirstRunSetupLaunch $canaryApplication ([ref]$script:canaryParentId)\n    }", source)
+        self.assertIn("Invoke-IsolatedCanaryApplication $canaryApplication {\n"
+                      "            Invoke-PublishedUpgrade $installer $canaryApplication $initialVersion $script:canaryParentId\n"
+                      "        }", source)
 
     def test_network_probe_refuses_a_non_ci_machine(self):
         environment = dict(os.environ, GITHUB_ACTIONS="false", CI="false")

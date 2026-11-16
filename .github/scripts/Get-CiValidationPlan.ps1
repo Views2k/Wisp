@@ -129,8 +129,9 @@ try {
         $jobs = Read-Api "actions/runs/$($run.id)/jobs?filter=latest&per_page=100"
         if ($jobs.total_count -gt 100) { continue }
         try {
-            Require-PassedStep $jobs.jobs 'Build and test' 'Build verified installer bundle'
+            Require-PassedStep $jobs.jobs 'Release build and test' 'Build verified installer bundle'
             Require-PassedStep $jobs.jobs 'Build installer' 'Test installer lifecycle'
+            Require-PassedStep $jobs.jobs 'Build installer' 'Test published-version upgrade'
             Require-PassedStep $jobs.jobs 'Publish release' 'Publish immutable release'
             $verifiedRun = $run
             break
