@@ -60,13 +60,18 @@ class InstallerSupervisorTests(unittest.TestCase):
             $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'C:\fixture folder\setup.exe' '2.6.1' $stageLog
             try {
                 $s = $p.StartInfo
-                @{ shell = $s.UseShellExecute; hidden = $s.CreateNoWindow;
+                @{ shell = $s.UseShellExecute; noConsole = $s.CreateNoWindow;
+                   hidden = ($s.WindowStyle -eq [Diagnostics.ProcessWindowStyle]::Hidden);
+                   stdout = $s.RedirectStandardOutput; stderr = $s.RedirectStandardError;
                    arguments = @($s.ArgumentList); log = $s.Environment['WISP_INSTALLER_STAGE_LOG']
                 } | ConvertTo-Json -Compress
             } finally { $p.Dispose() }
         """)
         self.assertFalse(result["shell"])
+        self.assertFalse(result["noConsole"])
         self.assertTrue(result["hidden"])
+        self.assertTrue(result["stdout"])
+        self.assertTrue(result["stderr"])
         self.assertEqual(result["arguments"], ["-NoLogo", "-NoProfile", "-NonInteractive", "-File",
                          str(self.root / "benign worker.ps1"), "-InstallerPath",
                          "C:\\fixture folder\\setup.exe", "-ExpectedVersion", "2.6.1"])
@@ -78,6 +83,22 @@ class InstallerSupervisorTests(unittest.TestCase):
             Invoke-InstallerLifecycleWorker $p -TimeoutSeconds 5
             @{ completed = $true } | ConvertTo-Json -Compress
         """, "param([string]$InstallerPath, [string]$ExpectedVersion)\nexit 0\n")
+        self.assertTrue(result["completed"])
+
+    def test_noisy_worker_drains_both_streams_without_exposing_output(self):
+        result = self.evaluate(r"""
+            $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'fixture' '2.7.5' $stageLog
+            Invoke-InstallerLifecycleWorker $p -TimeoutSeconds 10
+            @{ completed = $true } | ConvertTo-Json -Compress
+        """, r"""
+param([string]$InstallerPath, [string]$ExpectedVersion)
+$chunk = 'PRIVATE_FIXTURE_VALUE' * 4096
+for ($index = 0; $index -lt 32; $index++) {
+    [Console]::Out.Write($chunk)
+    [Console]::Error.Write($chunk)
+}
+exit 0
+""")
         self.assertTrue(result["completed"])
 
     def test_upgrade_worker_preserves_baseline_arguments(self):

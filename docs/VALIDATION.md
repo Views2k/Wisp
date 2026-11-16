@@ -211,5 +211,7 @@ handoff. It verifies upgrade, application restart,
 completed setup, saved settings and user-file preservation. It also repeats the
 manual reinstall and uninstall checks on the upgraded installation. Both scenarios
 retain their stage logs and run with the installed application's outbound access blocked.
+The supervisor keeps the worker console hidden and drains both output streams
+concurrently. Public diagnostics come from the sanitized stage log.
 The installer is not Authenticode-signed; packaging emits a SHA-256 file
 beside it.
