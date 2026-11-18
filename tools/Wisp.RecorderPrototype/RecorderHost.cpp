@@ -286,11 +286,17 @@ namespace recorder::host
         struct DiagnosticBudget
         {
             unsigned saves = 0;
-            bool terminal = false;
+            bool terminal = false, cleanup = false;
             bool Take(bool save, Reason reason) noexcept
             {
                 if (reason == Reason::Cancelled || (save ? saves >= 3 : terminal)) return false;
                 if (save) ++saves; else terminal = true;
+                return true;
+            }
+            bool TakeCleanup() noexcept
+            {
+                if (cleanup) return false;
+                cleanup = true;
                 return true;
             }
         };
@@ -313,6 +319,15 @@ namespace recorder::host
         {
             (void)TerminateProcess(GetCurrentProcess(), code);
             std::terminate();
+        }
+        // A watchdog exit says where the media thread stopped before the helper ends: its last stage
+        // marker, with the exit code as a FACILITY_ITF code, on one bounded diagnostic line.
+        [[noreturn]] void TerminateAfterTimeout(const char* stage, DWORD code) noexcept
+        {
+            DiagnosticSnapshot snapshot;
+            snapshot.first.Record(Reason::HelperTimeout, MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, code), stage);
+            WriteDiagnostic(snapshot);
+            TerminateSelf(code);
         }
         struct Handle
         {
@@ -354,6 +369,8 @@ namespace recorder::host
             std::atomic<bool> abort{ false }, eof{ false }, pipeStop{ false }, exportCancel{ false };
             std::atomic<bool> mediaActive{ false }, outputFailed{ false };
             std::atomic<ULONGLONG> progress{ 0 }, startup{ 0 }, stopping{ 0 }, saving{ 0 };
+            // The media thread's current diagnostic stage, read by the watchdog thread at a timeout.
+            std::atomic<const char*> stage{ "not_started" };
             std::thread reader, writer, watchdog;
 
             void Abort(bool endOfInput = false) noexcept
@@ -392,14 +409,14 @@ namespace recorder::host
                     {
                         const DWORD wait = WaitForSingleObject(watchdogStop.value, 100);
                         if (wait == WAIT_OBJECT_0) return;
-                        if (wait != WAIT_TIMEOUT) TerminateSelf(WatchdogWaitExit);
+                        if (wait != WAIT_TIMEOUT) TerminateAfterTimeout(stage.load(), WatchdogWaitExit);
                         const auto now = GetTickCount64();
                         const auto stop = stopping.load(), start = startup.load(), save = saving.load();
                         if (abort.load() || (save && now - save >= SaveCancelMs)) exportCancel.store(true);
-                        if (stop && now - stop >= StopLimitMs) TerminateSelf(ShutdownTimeoutExit);
-                        if (start && now - start >= StartupLimitMs) TerminateSelf(StartupTimeoutExit);
-                        if (save && now - save >= SaveKillMs) TerminateSelf(SaveTimeoutExit);
-                        if (mediaActive.load() && now - progress.load() >= ProgressLimitMs) TerminateSelf(ProgressTimeoutExit);
+                        if (stop && now - stop >= StopLimitMs) TerminateAfterTimeout(stage.load(), ShutdownTimeoutExit);
+                        if (start && now - start >= StartupLimitMs) TerminateAfterTimeout(stage.load(), StartupTimeoutExit);
+                        if (save && now - save >= SaveKillMs) TerminateAfterTimeout(stage.load(), SaveTimeoutExit);
+                        if (mediaActive.load() && now - progress.load() >= ProgressLimitMs) TerminateAfterTimeout(stage.load(), ProgressTimeoutExit);
                     }
                 });
                 writer = std::thread([this]
@@ -579,6 +596,17 @@ namespace recorder::host
             std::atomic<bool> done{ false };
         };
 
+        // The media thread's stage, kept where the watchdog thread can read it for its exit diagnostic.
+        struct StageMarker
+        {
+            std::atomic<const char*>& shared;
+            const char* value;
+            StageMarker(std::atomic<const char*>& target, const char* initial) noexcept : shared(target), value(initial) { shared.store(initial); }
+            StageMarker(const StageMarker&) = delete;
+            StageMarker& operator=(const StageMarker&) = delete;
+            StageMarker& operator=(const char* next) noexcept { value = next; shared.store(next); return *this; }
+            operator const char*() const noexcept { return value; }
+        };
         class MediaSession final : public encoder::PacketObserver, public aac::PacketObserver,
             public encoder::FrameWriter, public capture::FrameConsumer
         {
@@ -609,6 +637,7 @@ namespace recorder::host
             Reason Error() const noexcept { return reason_; }
             DWORD WaitMilliseconds() noexcept;
             void EmitFailureDiagnostic(Reason, HRESULT, const char*) noexcept;
+            void EmitCleanupDiagnostic(const FailureDiagnostic&) noexcept;
             DiagnosticSnapshot CaptureDiagnostic(Reason, HRESULT, const char*, bool) noexcept;
 
             HRESULT OnConfiguration(IMFMediaType*, const encoder::EncodeConfig&) noexcept override { return S_OK; }
@@ -717,7 +746,7 @@ namespace recorder::host
             bool resumeSilence_ = false;
             Reason pauseReason_ = Reason::FocusLost;
             ULONGLONG resumeBegan_ = 0;
-            const char* diagnosticStage_ = "not_started";
+            StageMarker diagnosticStage_{ shared_.stage, "not_started" };
             FailureDiagnostic firstFailure_{};
             bool schedulerLagKnown_ = false, sourceAgeKnown_ = false, localFrameAgeKnown_ = false;
             DiagnosticBudget diagnosticBudget_;
@@ -746,6 +775,16 @@ namespace recorder::host
             // Reserve one of four bounded lines for the terminal capture failure.
             if (!diagnosticBudget_.Take(saveFailure, reason)) return;
             WriteDiagnostic(CaptureDiagnostic(reason, hr, stage, false));
+        }
+        void MediaSession::EmitCleanupDiagnostic(const FailureDiagnostic& failure) noexcept
+        {
+            // One bounded line beside the terminal failure's: that failure is already known, the
+            // cleanup step that failed is the new information.
+            if (!shared_.watchdog.joinable() || !diagnosticBudget_.TakeCleanup()) return;
+            auto snapshot = CaptureDiagnostic(failure.reason, failure.hr, failure.stage, false);
+            snapshot.first = failure;
+            snapshot.first.videoPackets = videoPackets_; snapshot.first.audioPackets = audioPackets_;
+            WriteDiagnostic(snapshot);
         }
         DiagnosticSnapshot MediaSession::CaptureDiagnostic(Reason reason, HRESULT hr, const char* stage, bool notice) noexcept
         {
@@ -1392,7 +1431,7 @@ namespace recorder::host
             spoolQueue_.PostCall([&work] { work(); }, [&done] { done.Signal(); });
             // The request borrows this frame's locals. A writer stuck in a filesystem call past the
             // deadline is a hung helper, which ends like every other blocked driver or storage call.
-            if (WaitForSingleObject(done.value, timeoutMs) != WAIT_OBJECT_0) TerminateSelf(ProgressTimeoutExit);
+            if (WaitForSingleObject(done.value, timeoutMs) != WAIT_OBJECT_0) TerminateAfterTimeout(diagnosticStage_, ProgressTimeoutExit);
         }
         bool MediaSession::PostSpoolDetached(std::function<void()> work) noexcept
         {
@@ -1679,9 +1718,16 @@ namespace recorder::host
         {
             if (closed_) return !failed_ && cleanupSucceeded_;
             bool okay = !failed_;
+            // The first cleanup step that fails names the stage of the cleanup_failed diagnostic.
+            FailureDiagnostic cleanupFailure{};
+            const auto step = [&cleanupFailure](bool succeeded, const char* stage, HRESULT hr) noexcept
+            {
+                if (!succeeded) cleanupFailure.Record(Reason::CleanupFailed, FAILED(hr) ? hr : E_FAIL, stage);
+                return succeeded;
+            };
             const bool stoppedAudio = StopAudio();
             if (!stoppedAudio && audioThread_.joinable()) TerminateSelf();
-            bool cleanupOkay = stoppedAudio;
+            bool cleanupOkay = step(stoppedAudio, "audio_cleanup", audioEvidence_.hr);
             okay = stoppedAudio && okay;
             if (clean && audioEnabled_ && audioDone_.load() && !Paused())
                 okay = audioEvidence_.completed && SUCCEEDED(audioEvidence_.hr) && okay;
@@ -1693,7 +1739,8 @@ namespace recorder::host
                 preserveBuffer_ = true;
                 okay = false; // An interrupted export always keeps recovery data.
             }
-            cleanupOkay = SUCCEEDED(capture_.Close()) && cleanupOkay;
+            const HRESULT captureClose = capture_.Close();
+            cleanupOkay = step(SUCCEEDED(captureClose), "capture_cleanup", captureClose) && cleanupOkay;
             okay = cleanupOkay && okay;
             if (clean && okay && !shared_.abort.load() && spoolInitialized_)
             {
@@ -1734,12 +1781,18 @@ namespace recorder::host
                 EmitFailureDiagnostic(Reason::CleanupFailed, videoClose, "video_cleanup");
                 TerminateSelf(); // Retained driver resources belong to this disposable helper.
             }
-            cleanupOkay = SUCCEEDED(videoClose) && cleanupOkay;
-            cleanupOkay = SUCCEEDED(audioEncoder_.Close()) && cleanupOkay;
+            cleanupOkay = step(SUCCEEDED(videoClose), "video_cleanup", videoClose) && cleanupOkay;
+            const HRESULT audioClose = audioEncoder_.Close();
+            cleanupOkay = step(SUCCEEDED(audioClose), "audio_cleanup", audioClose) && cleanupOkay;
             converter_ = hdr::HdrFrameConverter{};
             pendingPcm_.reset(); resumedPcm_.reset(); pendingSlice_ = {}; bootstrap_.reset();
-            cleanupOkay = process_.Close() && cleanupOkay;
-            if (mfStarted_) { cleanupOkay = SUCCEEDED(MFShutdown()) && cleanupOkay; mfStarted_ = false; }
+            cleanupOkay = step(process_.Close(), "runtime_cleanup", E_FAIL) && cleanupOkay;
+            if (mfStarted_)
+            {
+                const HRESULT shutdown = MFShutdown();
+                cleanupOkay = step(SUCCEEDED(shutdown), "runtime_cleanup", shutdown) && cleanupOkay;
+                mfStarted_ = false;
+            }
             okay = cleanupOkay && okay;
             if (spoolThread_.joinable())
             {
@@ -1758,17 +1811,23 @@ namespace recorder::host
                     }, 10000);
                     spoolQueue_.PostStop();
                 }
-                catch (...) { cleanupOkay = false; }
+                catch (...) { cleanupOkay = step(false, "spool_cleanup", E_FAIL); }
                 if (!Join(spoolThread_, 5000)) TerminateSelf();
                 if (discardBuffer) okay = SUCCEEDED(discard) && okay;
-                cleanupOkay = SUCCEEDED(close) && cleanupOkay;
+                cleanupOkay = step(SUCCEEDED(close), "spool_cleanup", close) && cleanupOkay;
             }
-            else cleanupOkay = SUCCEEDED(spool_.Close()) && cleanupOkay;
-            cleanupOkay = audioStop_.Close() && cleanupOkay;
+            else
+            {
+                const HRESULT spoolClose = spool_.Close();
+                cleanupOkay = step(SUCCEEDED(spoolClose), "spool_cleanup", spoolClose) && cleanupOkay;
+            }
+            const bool eventClosed = audioStop_.Close();
+            cleanupOkay = step(eventClosed, "runtime_cleanup", eventClosed ? S_OK : HRESULT_FROM_WIN32(GetLastError())) && cleanupOkay;
             if (runtimeStarted_) { RoUninitialize(); runtimeStarted_ = false; }
             closed_ = true;
             cleanupSucceeded_ = cleanupOkay;
             okay = cleanupOkay && okay;
+            if (!cleanupOkay) EmitCleanupDiagnostic(cleanupFailure);
             if (!okay) (void)Fail(reason_ == Reason::None ? Reason::StorageFailed : reason_);
             return okay;
         }

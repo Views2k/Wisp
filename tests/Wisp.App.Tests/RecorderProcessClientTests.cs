@@ -71,6 +71,60 @@ public sealed class RecorderProcessClientTests
         Assert.Equal("helper-exit", client.ClientFailure?.FailureStage);
     }
 
+    [Fact]
+    public async Task ExitExplainedByTheHelperIsReportedOnceThroughItsDiagnostic()
+    {
+        // Tools showed "Recorder process exited" beside the capture, encoder or audio failure the helper
+        // had already reported: a controlled exit (code 3) follows the helper's own diagnostic line.
+        using var fixture = new Fixture();
+        var child = new FakeChild { ReportedExitCode = 3, ExitDiagnostic = RecorderFailureDiagnosticTests.Line().Append((byte)10).ToArray() };
+        var observed = new System.Collections.Concurrent.ConcurrentQueue<Supplementary.SupplementaryObservation>();
+        var previous = Supplementary.SupplementaryObservations.Observer;
+        Supplementary.SupplementaryObservations.Observer = observed.Enqueue;
+        try
+        {
+            await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+            var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            client.StateChanged += (_, state) => { if (state.Reason == "helper_exited") terminal.TrySetResult(); };
+            await client.OpenAsync(Recording, fixture.Directory, TestToken);
+            child.CompleteOutput();
+            await terminal.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            await client.DisposeAsync();
+            Assert.Equal(3u, client.ClientFailure?.FailureCode);
+            Assert.Equal("video_submit", client.FailureDiagnostic?.Stage);
+            var incident = Assert.Single(observed, observation => observation.Incident is not null).Incident!;
+            Assert.Equal("encoder_failed", incident.Reason);
+            Assert.Equal("video_submit", incident.FailureStage);
+        }
+        finally { Supplementary.SupplementaryObservations.Observer = previous; }
+    }
+
+    [Fact]
+    public async Task ExitWithoutAnExplanationIsReportedWithItsExitCode()
+    {
+        using var fixture = new Fixture();
+        var child = new FakeChild { ReportedExitCode = 35 };
+        var observed = new System.Collections.Concurrent.ConcurrentQueue<Supplementary.SupplementaryObservation>();
+        var previous = Supplementary.SupplementaryObservations.Observer;
+        Supplementary.SupplementaryObservations.Observer = observed.Enqueue;
+        try
+        {
+            await using var client = new RecorderProcessClient(fixture.Helper, _ => child, fixture.BufferRoot);
+            var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            client.StateChanged += (_, state) => { if (state.Reason == "helper_exited") terminal.TrySetResult(); };
+            await client.OpenAsync(Recording, fixture.Directory, TestToken);
+            child.CompleteOutput();
+            await terminal.Task.WaitAsync(TimeSpan.FromSeconds(3), TestToken);
+            await client.DisposeAsync();
+            var incident = Assert.Single(observed, observation => observation.Incident is not null).Incident!;
+            Assert.Equal("helper_exited", incident.Reason);
+            Assert.Equal("helper-exit", incident.FailureStage);
+            Assert.Equal(35u, incident.Code);
+            Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(incident));
+        }
+        finally { Supplementary.SupplementaryObservations.Observer = previous; }
+    }
+
     [Theory]
     [InlineData("config", "helper-config")]
     [InlineData("pause", "helper-pause")]

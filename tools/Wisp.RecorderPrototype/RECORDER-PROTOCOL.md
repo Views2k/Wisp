@@ -113,6 +113,19 @@ has a 16384-byte total bound. The client retains only the first valid, allowlist
 failure-diagnostic JSON record of at most 4096 bytes for Copy error details;
 other stderr text is discarded and never shown as a raw error message.
 
+Exit codes: 0 after `stop`, on stdin EOF (`parent_closed`) and after a recoverable
+transition whose cleanup succeeded; 2 for unknown arguments; 3 for every other
+failure, including a recoverable transition whose cleanup failed, after a
+`recorder_failure` line with stage `host_configuration`, `host_loop` or
+`host_exception`; 30 when a cleanup step could not finish; 31 to 35 when a watchdog
+ends the helper (watchdog wait, stop, startup, save and progress limits). A watchdog
+exit first writes a `recorder_failure` line with reason `helper_timeout`, the media
+thread's last stage and the exit code as a FACILITY_ITF `hr` (0x8004001F to
+0x80040023). A cleanup that fails writes one `cleanup_failed` line whose stage names
+the step: `audio_cleanup`, `capture_cleanup`, `video_cleanup`, `spool_cleanup` or
+`runtime_cleanup`. The client reports `helper_exited` only for an exit without such
+a line.
+
 Fixed reasons (the managed list is authoritative for v2):
 `none`, `waiting_for_game`, `target_exited`, `target_changed`, `window_closed`,
 `window_minimized`, `window_resized`, `focus_lost`, `fullscreen_required`, `unsupported_os`,
@@ -120,7 +133,8 @@ Fixed reasons (the managed list is authoritative for v2):
 `audio_failed`, `audio_capture_failed`, `audio_unavailable`, `buffer_full`, `no_keyframe`, `not_ready`, `save_in_progress`,
 `storage_failed`, `mux_failed`, `protocol_error`, `cancelled`, `stopped`,
 `parent_closed`, `capture_stale`, `capture_reconnecting`, `encoder_reconnecting`,
-`audio_reconnecting`, `scheduler_late`, `cleanup_failed`.
+`audio_reconnecting`, `scheduler_late`, `cleanup_failed`, and on the diagnostic line
+only, `helper_timeout`.
 Successful results use `none`, except a valid silent save uses
 `hasAudio:false,reason:"audio_unavailable"`; the UI must explain that selected audio
 was unavailable. An audible save uses `hasAudio:true,reason:"none"`. Unsupported
@@ -141,7 +155,7 @@ stdin closure, then terminates that child and waits up to2seconds. This transpor
 does not establish full-recorder performance, playable A/V output or game support.
 
 Managed-only failure codes (not accepted from child JSON): `helper_start_failed`,
-`helper_exited`, `helper_timeout`, `helper_shutdown_failed`,
+`helper_exited`, `helper_shutdown_failed`,
 `buffer_storage_unavailable`, `buffer_storage_full`, `clip_storage_full`,
 `clip_publish_failed`. These contain no raw
 operating-system error text or paths. A caller must not treat an unconfirmed

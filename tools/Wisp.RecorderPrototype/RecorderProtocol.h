@@ -38,7 +38,7 @@ namespace recorder::protocol
         CaptureFailed, EncoderFailed, AudioFailed, AudioCaptureFailed, AudioUnavailable,
         CaptureStale, CaptureReconnecting, EncoderReconnecting, AudioReconnecting, SchedulerLate,
         BufferFull, NoKeyframe, NotReady, SaveInProgress, StorageFailed, LosslessStorageLow, MuxFailed,
-        ProtocolError, CleanupFailed, Cancelled, Stopped, ParentClosed
+        ProtocolError, CleanupFailed, Cancelled, Stopped, ParentClosed, HelperTimeout
     };
     const char* Name(State state) noexcept;
     const char* Name(Reason reason) noexcept;
