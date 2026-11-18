@@ -19,9 +19,16 @@ public sealed class TuneCaptureService : IAsyncDisposable
 {
     internal const string CompatibilityUnavailableMessage = "Tune reading isn't ready for this Forza update. Wisp checks for compatibility updates automatically.";
     internal const string LayoutUnavailableMessage = "Wisp could not verify this game's tune data. Copy details to report the problem.";
+    internal const string NotReadyMessage = "The current car's tune isn't ready yet. Refresh and try again.";
+    internal const string CarNotReadyMessage = "No current car is available yet. Drive in the open world, then refresh.";
+    // A "not ready" state that outlasts this many reads over this long in one game session is no longer a
+    // transition the player waits out; it is reported as the read failure it has become.
+    internal const int PersistentNotReadyReads = 3;
+    internal static readonly TimeSpan PersistentNotReadySpan = TimeSpan.FromSeconds(30);
     private readonly object _gate = new();
     private readonly INativeHudProcessMemoryFactory _factory;
     private readonly Func<INativeHudProcessMemory, CancellationToken, TuneDecodeInput> _capture;
+    private readonly TimeProvider _time;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SemaphoreSlim _captureGate = new(1, 1);
     private readonly ConditionalWeakTable<TuneSnapshot, SnapshotStamp> _stamps = new();
@@ -42,14 +49,16 @@ public sealed class TuneCaptureService : IAsyncDisposable
     private bool _disposed;
     private bool _featureAvailable = true;
     private Task? _disposeTask;
+    private NotReadyStreak? _notReady;
 
     public TuneCaptureService() : this(new NativeHudProcessMemoryFactory(), null) { }
     internal TuneCaptureService(INativeHudProcessMemoryFactory factory,
-        Func<INativeHudProcessMemory, CancellationToken, TuneDecodeInput>? capture)
+        Func<INativeHudProcessMemory, CancellationToken, TuneDecodeInput>? capture, TimeProvider? time = null)
     {
         _factory = factory;
         _observedCompatibilityGeneration = factory.CompatibilityGeneration;
         _capture = capture ?? Read;
+        _time = time ?? TimeProvider.System;
     }
 
     public event EventHandler? Invalidated;
@@ -198,6 +207,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
             var entered = false;
             var stage = TuneCaptureStage.OpenGame;
             NativeHudCompatibilityPack? build = null;
+            var session = string.Empty;
             try
             {
                 await _captureGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -218,6 +228,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
                             status == NativeAssistProviderStatus.AccessDenied ? "access-denied" : "session-unverified"));
                 using var memory = opened;
                 build = memory.CompatibilityPack;
+                session = memory.SessionIdentity;
                 stage = TuneCaptureStage.VerifySession;
                 if (string.IsNullOrEmpty(memory.SessionIdentity))
                     return Fail(TuneCaptureStatus.Unavailable, "The current game session could not be verified.", generation,
@@ -253,6 +264,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
                     _carOrdinal = snapshot.Identity.CarOrdinal;
                     _compatibilityGeneration = compatibility;
                     _stamps.Add(snapshot, new SnapshotStamp(_generation, compatibility, _session));
+                    _notReady = null;
                 }
                 if (changed) Invalidated?.Invoke(this, EventArgs.Empty);
                 return new(snapshot, TuneCaptureStatus.Ready, snapshot.IsComplete ? string.Empty : "Some settings are unavailable for this tune.");
@@ -274,6 +286,18 @@ public sealed class TuneCaptureService : IAsyncDisposable
             {
                 return Fail(TuneCaptureStatus.Changed, "The car or tune changed while reading. Refresh and try again.", generation,
                     TuneCaptureDetails.Create(stage, build, exception), TuneIncident(stage, "session-changed", exception));
+            }
+            catch (TuneNotReadyException exception)
+            {
+                // The car is there but the game has not finished setting up what the reader needs. A
+                // transition is idle for the player and for Tools; the same stable state read after read
+                // in one game session is a read failure, reported with the check that rejected it.
+                var details = TuneCaptureDetails.Create(stage, build, exception);
+                if (ObserveNotReady(session, exception.Check))
+                    return Fail(TuneCaptureStatus.Unavailable, "The current tune could not be read. Refresh and try again.", generation,
+                        details, TuneIncident(stage, "tune-read-failed", exception));
+                return Fail(TuneCaptureStatus.Unavailable, exception.Check == TuneReadCheck.CarProvider ? CarNotReadyMessage : NotReadyMessage,
+                    generation, details, TuneIncident(stage, "not_ready", exception), retainNotReady: true);
             }
             catch (TuneCarSelectionException exception)
             {
@@ -310,11 +334,26 @@ public sealed class TuneCaptureService : IAsyncDisposable
         error is null ? null : SupplementaryIncidentCapture.Exceptions(CrashDiagnostics.CrashReport.DescribeExceptions(error)),
         SupplementaryIncidentCapture.Context(HealthContextRecorder.Current.Snapshot(), DateTimeOffset.UtcNow));
 
-    private TuneCaptureResult Fail(TuneCaptureStatus status, string message, long generation, string details, SupplementaryIncident? incident = null)
+    private bool ObserveNotReady(string session, TuneReadCheck check)
+    {
+        var now = _time.GetTimestamp();
+        lock (_gate)
+        {
+            var streak = _notReady is { } current && current.Session == session && current.Check == check
+                ? current with { Reads = current.Reads + 1 }
+                : new NotReadyStreak(session, check, 1, now);
+            _notReady = streak;
+            return streak.Reads >= PersistentNotReadyReads && _time.GetElapsedTime(streak.First, now) >= PersistentNotReadySpan;
+        }
+    }
+
+    private TuneCaptureResult Fail(TuneCaptureStatus status, string message, long generation, string details,
+        SupplementaryIncident? incident = null, bool retainNotReady = false)
     {
         var changed = false;
         lock (_gate)
         {
+            if (!retainNotReady) _notReady = null;
             if (generation == _generation && _session.Length != 0)
             {
                 _generation++;
@@ -353,6 +392,7 @@ public sealed class TuneCaptureService : IAsyncDisposable
     }
 
     private sealed record SnapshotStamp(long Generation, long CompatibilityGeneration, string Session);
+    private sealed record NotReadyStreak(string Session, TuneReadCheck Check, int Reads, long First);
     private sealed class Flight(long generation, CancellationTokenSource cancellation)
     {
         internal long Generation { get; } = generation;

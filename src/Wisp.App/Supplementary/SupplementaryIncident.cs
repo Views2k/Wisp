@@ -95,7 +95,8 @@ internal static class SupplementaryIncidentSchema
         "TaskCanceledException", "TimeoutException", "DllNotFoundException", "EntryPointNotFoundException", "TypeLoadException",
         "TypeInitializationException", "ApplicationUpdateHelperUnavailableException", "LosslessMpvException", "RecorderClientException",
         "NativeCompatibilityEnvelopeException", "RejectedResponseException", "ByteLimitException", "TuneLayoutException",
-        "TuneChangedException", "TuneAssetValidationException", "TuneAssetStreamValidationException", "RunLibraryFullException", "UpdateSecurityException"
+        "TuneChangedException", "TuneNotReadyException", "TuneAssetValidationException", "TuneAssetStreamValidationException",
+        "RunLibraryFullException", "UpdateSecurityException"
     };
     internal static readonly HashSet<string> Methods = new(StringComparer.Ordinal)
     {

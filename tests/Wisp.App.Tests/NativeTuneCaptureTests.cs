@@ -370,6 +370,92 @@ public sealed class NativeTuneCaptureTests
         Assert.Null((await pending).Snapshot);
     }
 
+    [Fact]
+    public async Task NotReadyStateIsIdleUntilItPersistsAcrossReadsAndTime()
+    {
+        // One Steam PC read its tune 22 times in ten minutes with the same stable unit-profile state while
+        // others saw it once between successful reads: the first reads are idle, the persistent state is
+        // the read failure Tools should show, with the check that rejected it.
+        var time = new TestTime();
+        var factory = new Factory();
+        var ready = false;
+        await using var service = new TuneCaptureService(factory,
+            (_, _) => ready ? Input() : throw new TuneNotReadyException(TuneReadCheck.UnitProfile, -1), time);
+        var first = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(TuneCaptureStatus.Unavailable, first.Status);
+        Assert.Null(first.Snapshot);
+        Assert.Equal("not_ready", first.Incident!.Reason);
+        Assert.Equal(TuneCaptureService.NotReadyMessage, first.Message);
+        Assert.Contains("Error type: TuneNotReadyException", first.Details, StringComparison.Ordinal);
+        Assert.Contains("Tune check: UnitProfile", first.Details, StringComparison.Ordinal);
+        Assert.Contains("Observed value: -1", first.Details, StringComparison.Ordinal);
+        time.Advance(TimeSpan.FromSeconds(40));
+        Assert.Equal("not_ready", (await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Incident!.Reason);
+        var third = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("tune-read-failed", third.Incident!.Reason);
+        Assert.Equal((uint)TuneReadCheck.UnitProfile, third.Incident.Code);
+        Assert.Equal("The current tune could not be read. Refresh and try again.", third.Message);
+        Assert.True(Supplementary.SupplementaryIncidentSchema.Valid(third.Incident));
+        ready = true;
+        Assert.True((await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Success);
+        ready = false;
+        Assert.Equal("not_ready", (await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Incident!.Reason);
+    }
+
+    [Fact]
+    public async Task RapidNotReadyReadsStayIdleUntilTheStateHasLastedHalfAMinute()
+    {
+        var time = new TestTime();
+        await using var service = new TuneCaptureService(new Factory(),
+            (_, _) => throw new TuneNotReadyException(TuneReadCheck.CarProvider, 1), time);
+        for (var read = 0; read < 5; read++)
+        {
+            var result = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+            Assert.Equal("not_ready", result.Incident!.Reason);
+            Assert.Equal(TuneCaptureService.CarNotReadyMessage, result.Message);
+            Assert.Contains("Tune check: CarProvider", result.Details, StringComparison.Ordinal);
+            time.Advance(TimeSpan.FromSeconds(5));
+        }
+        time.Advance(TimeSpan.FromSeconds(10));
+        Assert.Equal("tune-read-failed", (await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Incident!.Reason);
+    }
+
+    [Fact]
+    public async Task NotReadyStreakRestartsWithANewGameSessionADifferentCheckOrAnotherFailure()
+    {
+        var time = new TestTime();
+        var factory = new Factory();
+        Exception error = new TuneNotReadyException(TuneReadCheck.UnitProfile, -1);
+        await using var service = new TuneCaptureService(factory, (_, _) => throw error, time);
+        async Task<string> Read() => (await service.RequestSnapshotAsync(TestContext.Current.CancellationToken)).Incident!.Reason;
+        Assert.Equal("not_ready", await Read());
+        time.Advance(TimeSpan.FromSeconds(40));
+        Assert.Equal("not_ready", await Read());
+        factory.Session = "next-session";
+        Assert.Equal("not_ready", await Read());
+        time.Advance(TimeSpan.FromSeconds(40));
+        Assert.Equal("not_ready", await Read());
+        error = new TuneNotReadyException(TuneReadCheck.CarProvider, 1);
+        Assert.Equal("not_ready", await Read());
+        time.Advance(TimeSpan.FromSeconds(40));
+        Assert.Equal("not_ready", await Read());
+        error = new TuneChangedException();
+        Assert.Equal("session-changed", await Read());
+        error = new TuneNotReadyException(TuneReadCheck.CarProvider, 1);
+        Assert.Equal("not_ready", await Read());
+        time.Advance(TimeSpan.FromSeconds(40));
+        Assert.Equal("not_ready", await Read());
+        Assert.Equal("tune-read-failed", await Read());
+    }
+
+    private sealed class TestTime : TimeProvider
+    {
+        private long _timestamp = TimeSpan.TicksPerSecond;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _timestamp;
+        internal void Advance(TimeSpan span) => _timestamp += span.Ticks;
+    }
+
     internal static TuneDecodeInput Input()
     {
         var words = Enumerable.Repeat(BitConverter.SingleToUInt32Bits(.5f), 46).ToImmutableArray();
