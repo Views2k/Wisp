@@ -344,6 +344,7 @@ namespace recorder::protocol
         case Reason::ProtocolError: return "protocol_error"; case Reason::Cancelled: return "cancelled";
         case Reason::CleanupFailed: return "cleanup_failed";
         case Reason::Stopped: return "stopped"; case Reason::ParentClosed: return "parent_closed";
+        case Reason::HelperTimeout: return "helper_timeout";
         default: return nullptr;
         }
     }

@@ -96,8 +96,9 @@ public sealed class RecorderFailureDiagnosticTests
         while (root is not null && !System.IO.File.Exists(System.IO.Path.Combine(root.FullName, "tools", "Wisp.RecorderPrototype", "RecorderHost.cpp"))) root = root.Parent;
         Assert.NotNull(root);
         var source = System.IO.File.ReadAllText(System.IO.Path.Combine(root.FullName, "tools", "Wisp.RecorderPrototype", "RecorderHost.cpp"));
-        var stages = System.Text.RegularExpressions.Regex.Matches(source, "diagnosticStage_\\s*=\\s*\"([a-z_]+)\"")
+        var stages = System.Text.RegularExpressions.Regex.Matches(source, "(?:diagnosticStage_\\s*=\\s*|step\\([^\"]*)\"([a-z_]+)\"")
             .Select(match => match.Groups[1].Value).Distinct().ToArray();
+        Assert.Contains("spool_cleanup", stages);
         Assert.True(stages.Length > 30);
         foreach (var stage in stages)
         {

@@ -33,7 +33,8 @@ internal static class RecorderProtocol
         "window_resized", "focus_lost", "fullscreen_required", "unsupported_os", "unsupported_gpu", "unsupported_format", "capture_failed",
         "encoder_failed", "audio_failed", "audio_capture_failed", "audio_unavailable", "buffer_full", "no_keyframe",
         "not_ready", "save_in_progress", "storage_failed", "mux_failed", "protocol_error", "cancelled", "stopped", "parent_closed",
-        "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed", "lossless_storage_low", "lossless_encoder_unsupported", "hdr_encoder_unsupported"
+        "capture_stale", "capture_reconnecting", "encoder_reconnecting", "audio_reconnecting", "scheduler_late", "cleanup_failed", "lossless_storage_low", "lossless_encoder_unsupported", "hdr_encoder_unsupported",
+        "helper_timeout"
     };
     private static readonly HashSet<string> States = new(StringComparer.Ordinal) { "waiting", "reconnecting", "paused", "buffering", "saving", "stopped", "error" };
 
@@ -210,7 +211,7 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
     private readonly CancellationToken _token;
     private readonly object _sync = new();
     private IRecorderChild? _child;
-    private Task? _output, _error;
+    private Task? _output, _error, _exitReport;
     private readonly Dictionary<long, TaskCompletionSource<RecorderReply>> _pending = new();
     private long _nextRequest, _stopRequest;
     private bool _stopping, _configured;
@@ -584,9 +585,21 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
             child = _child;
         }
         _lifetime.Cancel();
-        if (reason != "cancelled") DebugLogging.SupplementaryIncidentCapture.RecordRecorder(reason, clientFailure: ClientFailure);
+        if (reason == "helper_exited") _exitReport = ReportExitAsync();
+        else if (reason != "cancelled") DebugLogging.SupplementaryIncidentCapture.RecordRecorder(reason, clientFailure: ClientFailure);
         try { child?.Kill(); } catch (Exception error) when (error is not OutOfMemoryException) { }
         StateChanged?.Invoke(this, new("error", reason));
+    }
+
+    // The helper writes why it is ending on stderr before its output closes, and that line can arrive
+    // after stdout's EOF. An exit the helper explained is already reported through that diagnostic;
+    // only an exit without one is the unexpected exit, reported with its exit code.
+    private async Task ReportExitAsync()
+    {
+        try { if (_error is { } drain) await drain.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); }
+        catch (Exception error) when (error is not OutOfMemoryException) { }
+        if (FailureDiagnostic is { Resolution: null } explained && !explained.Stage.StartsWith("save_", StringComparison.Ordinal)) return;
+        DebugLogging.SupplementaryIncidentCapture.RecordRecorder("helper_exited", clientFailure: ClientFailure);
     }
 
     // Caller owns _sync. Continuations always run outside this lock.
@@ -630,7 +643,7 @@ internal sealed class RecorderProcessClient : IAsyncDisposable
                 {
                     lock (_sync) { if (ReferenceEquals(_child, child)) _child = null; }
                 }
-                var readers = Task.WhenAll(_output ?? Task.CompletedTask, _error ?? Task.CompletedTask);
+                var readers = Task.WhenAll(_output ?? Task.CompletedTask, _error ?? Task.CompletedTask, _exitReport ?? Task.CompletedTask);
                 try { await readers.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); }
                 catch (Exception error) when (error is not OutOfMemoryException) { }
                 finally
