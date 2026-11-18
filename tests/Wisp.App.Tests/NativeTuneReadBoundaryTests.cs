@@ -92,8 +92,6 @@ public sealed class NativeTuneReadBoundaryTests
     [InlineData(true, 3)]
     [InlineData(false, 4)]
     [InlineData(true, 4)]
-    [InlineData(false, 5)]
-    [InlineData(true, 5)]
     public void MalformedOrUnreadableCandidatesNeverSuggestDrivingWillFixThem(bool store, int fault)
     {
         var memory = new Memory(store);
@@ -103,14 +101,114 @@ public sealed class NativeTuneReadBoundaryTests
             case 0: memory.U64(memory.VectorAddress + 8, Memory.Vector - 8); break;
             case 1: memory.U64(memory.VectorAddress, Memory.Vector + 1); break;
             case 2: memory.U64(Memory.Vector, 0); break;
-            case 3: memory.U64(Memory.Actor + memory.CompatibilityPack.Fields.SourceProvider, 0); break;
-            case 4: memory.Missing = Memory.Provider + memory.CompatibilityPack.Fields.LocalPlayerFlag; break;
-            case 5:
+            case 3: memory.Missing = Memory.Provider + memory.CompatibilityPack.Fields.LocalPlayerFlag; break;
+            case 4:
                 var slot = memory.CompatibilityPack.RequiredVtableSlots.First();
                 memory.U64(memory.ModuleBase + memory.CompatibilityPack.LeadVtableRva + slot.Key, 0);
                 break;
         }
         Assert.Throws<InvalidDataException>(() => NativeTuneCapture.ReadLocalCar(memory, memory.Reader()));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ActorWithoutItsProviderYetIsNotReadyRatherThanMalformed(bool store)
+    {
+        // Tools showed stable car-provider failures on Store PCs that read tunes fine minutes before and
+        // after: an actor in the source vector whose provider is not attached yet is a car being set up.
+        var memory = new Memory(store);
+        memory.Cars(1);
+        memory.U64(Memory.Actor + memory.CompatibilityPack.Fields.SourceProvider, 0);
+        var error = Assert.Throws<TuneNotReadyException>(() => NativeTuneCapture.ReadLocalCar(memory, memory.Reader()));
+        Assert.Equal(TuneReadCheck.CarProvider, error.Check);
+        Assert.Equal(1, error.Observed);
+        Assert.Equal(unchecked((int)TuneReadCheck.CarProvider), error.HResult);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void VerifiedLocalCarIsSelectedBesideAnActorWithoutItsProvider(bool store)
+    {
+        var memory = new Memory(store);
+        memory.Cars(2);
+        memory.U64(Memory.Actor + 0x10000 + memory.CompatibilityPack.Fields.SourceProvider, 0);
+        Assert.Equal((Memory.Actor, Memory.Provider), NativeTuneCapture.ReadLocalCar(memory, memory.Reader()));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnverifiedProviderStillRejectsTheReadBesideAnActorWithoutItsProvider(bool store)
+    {
+        var memory = new Memory(store);
+        memory.Cars(2, local: false);
+        memory.U64(Memory.Actor + 0x10000 + memory.CompatibilityPack.Fields.SourceProvider, 0);
+        var slot = memory.CompatibilityPack.RequiredVtableSlots.First();
+        memory.U64(memory.ModuleBase + memory.CompatibilityPack.LeadVtableRva + slot.Key, 0);
+        var error = Assert.Throws<InvalidDataException>(() => NativeTuneCapture.ReadLocalCar(memory, memory.Reader()));
+        Assert.Equal(unchecked((int)TuneReadCheck.CarProvider), error.HResult);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ChangingBytesDuringANotReadyCheckReportTheTransition(bool store)
+    {
+        var memory = new Memory(store);
+        memory.Cars(1);
+        memory.U64(Memory.Actor + memory.CompatibilityPack.Fields.SourceProvider, 0);
+        memory.ChangeVectorOnRepeat = true;
+        Assert.Throws<TuneChangedException>(() => NativeTuneCapture.ReadLocalCar(memory, memory.Reader()));
+    }
+
+    [Theory]
+    [InlineData(false, -1)]
+    [InlineData(true, -1)]
+    [InlineData(false, 8)]
+    [InlineData(true, 8)]
+    public void LocaleWithoutAnActiveUnitProfileIsNotReadyRatherThanAReadFailure(bool store, int profileIndex)
+    {
+        // Tools showed stable unit-profile failures on Steam PCs between successful reads minutes apart.
+        var memory = new Memory(store);
+        var metadata = memory.CompleteCar(MiataInput());
+        memory.I32(Memory.Locale + 0x34, -1);
+        memory.I32(Memory.Locale + 0x28, profileIndex);
+        var error = Assert.Throws<TuneNotReadyException>(() => NativeTuneCapture.Read(memory, metadata, Token, memory.Layout));
+        Assert.Equal(TuneReadCheck.UnitProfile, error.Check);
+        Assert.Equal(profileIndex, error.Observed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ActiveUnitProfileSuppliesThePreferenceWhenNoneIsSetDirectly(bool store)
+    {
+        var memory = new Memory(store);
+        var input = MiataInput();
+        var metadata = memory.CompleteCar(input);
+        memory.I32(Memory.Locale + 0x34, -1);
+        memory.I32(Memory.Locale + 0x28, 3);
+        memory.I32(Memory.Locale + 3 * 0x94 + 0x9C, input.UnitPreference);
+        var actual = NativeTuneCapture.Read(memory, metadata, Token, memory.Layout);
+        Assert.Equal(input.UnitPreference, actual.UnitPreference);
+        Assert.True(TuneDecoder.TryDecode(actual, out var snapshot, out var failure), failure.ToString());
+        Assert.True(snapshot!.IsComplete);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ActiveUnitProfileWithAnInvalidPreferenceStillRejectsTheRead(bool store)
+    {
+        var memory = new Memory(store);
+        var metadata = memory.CompleteCar(MiataInput());
+        memory.I32(Memory.Locale + 0x34, -1);
+        memory.I32(Memory.Locale + 0x28, 3);
+        memory.I32(Memory.Locale + 3 * 0x94 + 0x9C, 7);
+        var error = Assert.Throws<InvalidDataException>(() => NativeTuneCapture.Read(memory, metadata, Token, memory.Layout));
+        Assert.Equal(unchecked((int)TuneReadCheck.UnitPreference), error.HResult);
     }
 
     [Theory]
@@ -311,7 +409,7 @@ public sealed class NativeTuneReadBoundaryTests
     private sealed class Memory(bool store) : INativeHudProcessMemory
     {
         internal const ulong Vector = 0x30000, Actor = 0x40000, Provider = 0x100000,
-            UnitOwner = 0x200000, OverrideTable = 0x300000, Descriptor = 0x500000, OtherDescriptor = 0x510000;
+            UnitOwner = 0x200000, OverrideTable = 0x300000, Descriptor = 0x500000, OtherDescriptor = 0x510000, Locale = 0x710000;
         private readonly Dictionary<ulong, byte> _bytes = [];
         private int _vectorReads;
         private int _activeReads;
@@ -405,7 +503,7 @@ public sealed class NativeTuneReadBoundaryTests
                 (TuneFieldId.FrontAntiroll, 0x5F0, 0x5F4), (TuneFieldId.RearAntiroll, 0x744, 0x748)
             })
             { Single(Actor + 0x310 + low, input.CarRanges[id].Minimum); Single(Actor + 0x310 + high, input.CarRanges[id].Maximum); }
-            var locale = 0x710000UL;
+            var locale = Locale;
             U64(ModuleBase + Layout.Rva(0xA862060), locale);
             I32(locale + 0x34, input.UnitPreference);
             Units(input.UnitPreference);

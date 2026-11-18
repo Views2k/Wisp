@@ -74,8 +74,10 @@ internal static class TuneCaptureDetails
             report.AppendLine($"Error code: 0x{exception.HResult.ToString("X8", CultureInfo.InvariantCulture)}");
             report.AppendLine($"Message: {SafeMessage(exception)}");
             report.AppendLine($"Method: {SafeMethod(exception)}");
-            if (exception is InvalidDataException && Enum.IsDefined((TuneReadCheck)(uint)exception.HResult))
+            if (exception is InvalidDataException or TuneNotReadyException && Enum.IsDefined((TuneReadCheck)(uint)exception.HResult))
                 report.AppendLine($"Tune check: {(TuneReadCheck)(uint)exception.HResult}");
+            if (exception is TuneNotReadyException notReady)
+                report.AppendLine(FormattableString.Invariant($"Observed value: {notReady.Observed}"));
             if (exception is Win32Exception native)
                 report.AppendLine(FormattableString.Invariant($"Native error code: {native.NativeErrorCode}"));
             if (exception is TuneLayoutException layout)
@@ -122,6 +124,7 @@ internal static class TuneCaptureDetails
         TuneLayoutException => nameof(TuneLayoutException),
         TuneCarSelectionException => nameof(TuneCarSelectionException),
         TuneChangedException => nameof(TuneChangedException),
+        TuneNotReadyException => nameof(TuneNotReadyException),
         InvalidDataException => nameof(InvalidDataException),
         UnauthorizedAccessException => nameof(UnauthorizedAccessException),
         Win32Exception => nameof(Win32Exception),
@@ -165,7 +168,7 @@ internal static class TuneCaptureDetails
                 method.Name.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
             {
                 var symbol = $"{owner.Name}.{method.Name}";
-                if (method.Name is "Require" or "Fail" or "Check") helper ??= symbol;
+                if (method.Name is "Require" or "RequireReady" or "Fail" or "Check") helper ??= symbol;
                 else return symbol;
             }
         }
