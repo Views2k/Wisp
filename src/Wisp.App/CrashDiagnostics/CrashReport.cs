@@ -182,8 +182,8 @@ internal static class CrashReportSymbols
         nameof(DllNotFoundException), nameof(EntryPointNotFoundException), nameof(TypeLoadException), nameof(TypeInitializationException),
         "ApplicationUpdateHelperUnavailableException", "LosslessMpvException", "RecorderClientException",
         "NativeCompatibilityEnvelopeException", "RejectedResponseException", "ByteLimitException", "TuneLayoutException",
-        "TuneChangedException", "TuneAssetValidationException", "TuneAssetStreamValidationException", "RunLibraryFullException",
-        "UpdateSecurityException"
+        "TuneChangedException", "TuneNotReadyException", "TuneAssetValidationException", "TuneAssetStreamValidationException",
+        "RunLibraryFullException", "UpdateSecurityException"
     };
     private const BindingFlags Members = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
 

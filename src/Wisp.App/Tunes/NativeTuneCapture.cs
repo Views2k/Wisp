@@ -69,8 +69,10 @@ internal static class NativeTuneCapture
         var preference = read.Int32(locale + 0x34);
         if (preference == -1)
         {
+            // Without a direct preference the units follow the active locale profile. A locale that has no
+            // active profile yet has no units to read; the game is still setting them up.
             var profileIndex = read.Int32(locale + 0x28);
-            read.Require(profileIndex is >= 0 and < 8, TuneReadCheck.UnitProfile);
+            read.RequireReady(profileIndex is >= 0 and < 8, TuneReadCheck.UnitProfile, profileIndex);
             preference = read.Int32(locale + (ulong)profileIndex * 0x94 + 0x9C);
         }
         read.Require(preference is >= 0 and < 7, TuneReadCheck.UnitPreference);
@@ -139,6 +141,7 @@ internal static class NativeTuneCapture
             NativeHudProcessMemory.IsValidReadSpan(begin, 8) && NativeHudProcessMemory.IsValidReadSpan(capacity, 8), TuneReadCheck.CarVector);
         var candidates = new List<(ulong Actor, ulong Provider)>();
         var unverifiedProvider = false;
+        var pendingProviders = 0;
         if (begin != end)
         {
             var sources = read.Bytes(begin, checked((int)(end - begin)));
@@ -147,7 +150,8 @@ internal static class NativeTuneCapture
                 var actor = BinaryPrimitives.ReadUInt64LittleEndian(sources.AsSpan(index));
                 read.Require(NativeHudProcessMemory.IsValidReadSpan(actor, 0x8000), TuneReadCheck.CarAddress);
                 var provider = read.UInt64(actor + fields.SourceProvider);
-                if (!NativeHudProcessMemory.IsValidReadSpan(provider, 0xC000)) { unverifiedProvider = true; continue; }
+                // An actor whose provider is not attached yet is a car the game is still setting up.
+                if (!NativeHudProcessMemory.IsValidReadSpan(provider, 0xC000)) { pendingProviders++; continue; }
                 var table = read.UInt64(provider);
                 if (table != module + pack.LeadVtableRva) continue;
                 var valid = true;
@@ -161,8 +165,10 @@ internal static class NativeTuneCapture
         }
         if (candidates.Count != 1)
         {
-            // A bad provider is not evidence that the player is in a menu.
+            // A lead provider whose vtable slots do not match is not evidence that the player is in a menu,
+            // and neither is an actor that has no provider yet: that car is not ready.
             read.Require(candidates.Count != 0 || !unverifiedProvider, TuneReadCheck.CarProvider);
+            read.RequireReady(candidates.Count != 0 || pendingProviders == 0, TuneReadCheck.CarProvider, pendingProviders);
             read.VerifyStable();
             throw new TuneCarSelectionException(candidates.Count);
         }

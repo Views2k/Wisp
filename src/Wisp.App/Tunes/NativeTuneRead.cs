@@ -85,6 +85,16 @@ internal sealed class NativeTuneRead(IReadOnlyProcessMemory memory, Cancellation
         throw new InvalidDataException("The current car's tune is not available yet.") { HResult = unchecked((int)check) };
     }
 
+    // A stable check that fails because the game has not finished setting up what the reader needs (an
+    // actor without its provider, a locale without an active unit profile) is not a mismatch either: the
+    // player refreshes once the game is ready. The capture service reports the state once it persists.
+    internal void RequireReady(bool condition, TuneReadCheck check, long observed)
+    {
+        if (condition) return;
+        VerifyStable();
+        throw new TuneNotReadyException(check, observed);
+    }
+
     internal void VerifyStable()
     {
         foreach (var (address, bytes) in _observations)
@@ -96,4 +106,18 @@ internal sealed class NativeTuneRead(IReadOnlyProcessMemory memory, Cancellation
 internal sealed class TuneChangedException : IOException
 {
     internal TuneChangedException() : base("The car or tune changed while reading. Refresh and try again.") { }
+}
+
+internal sealed class TuneNotReadyException : IOException
+{
+    internal TuneNotReadyException(TuneReadCheck check, long observed) : base("The current car's tune is not available yet.")
+    {
+        if (!Enum.IsDefined(check)) throw new ArgumentOutOfRangeException(nameof(check));
+        Check = check;
+        Observed = observed;
+        HResult = unchecked((int)check);
+    }
+    internal TuneReadCheck Check { get; }
+    // The value the check rejected (a profile index, a count of actors), for the copied read details.
+    internal long Observed { get; }
 }

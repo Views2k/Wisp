@@ -43,6 +43,20 @@ public sealed class TuneCaptureServiceIncidentTests
         Assert.Contains("Tune check: GearCount", TuneCaptureDetails.Create(TuneCaptureStage.ReadTune, exception: count));
     }
 
+    [Fact]
+    public void PersistentNotReadyIncidentCarriesTheCheckAndItsOwnType()
+    {
+        var error = new TuneNotReadyException(TuneReadCheck.UnitProfile, 9);
+        var incident = TuneCaptureService.TuneIncident(TuneCaptureStage.ReadTune, "tune-read-failed", error);
+        Assert.Equal((uint)TuneReadCheck.UnitProfile, incident.Code);
+        Assert.Equal("TuneNotReadyException", Assert.Single(incident.Exceptions!.Value).Type);
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+        var details = TuneCaptureDetails.Create(TuneCaptureStage.ReadTune, exception: error);
+        Assert.Contains("Tune check: UnitProfile", details, StringComparison.Ordinal);
+        Assert.Contains("Observed value: 9", details, StringComparison.Ordinal);
+        Assert.DoesNotContain("Observed", System.Text.Json.JsonSerializer.Serialize(incident), StringComparison.Ordinal);
+    }
+
     private sealed class Memory : IReadOnlyProcessMemory
     {
         public bool TryReadByte(ulong address, out byte value) { value = 0; return false; }
