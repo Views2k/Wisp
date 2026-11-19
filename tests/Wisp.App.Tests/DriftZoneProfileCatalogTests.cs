@@ -55,6 +55,52 @@ public sealed class DriftZoneProfileCatalogTests
     }
 
     [Theory]
+    [InlineData("verified", true)]
+    [InlineData("version", false)]
+    [InlineData("hash", false)]
+    [InlineData("length", false)]
+    [InlineData("image", false)]
+    public void Steam483ReceivesTheAngleGuideOnlyForTheCheckedExecutable(string field, bool expected)
+    {
+        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.UpdatedSteam.json")!;
+        var document = JsonNode.Parse(stream)!.AsObject();
+        document["gameVersion"] = field == "version" ? "6.483.971.0" : "6.483.970.0";
+        document["executableSha256"] = field == "hash" ? new string('A', 64) : "63791D0B686186C23ADE10A1AE02EFD785045BD818CC89816F472CAD9A69FCB9";
+        document["executableLength"] = field == "length" ? 184268249L : 184268248L;
+        document["imageSize"] = field == "image" ? 188731392u + 4096 : 188731392u;
+
+        var pack = NativeHudCompatibilityPack.FromRuntimeValidation(document);
+        var profile = DriftZoneProfileCatalog.ForBuild(pack);
+
+        Assert.True(pack.IsRuntimeValidated);
+        if (!expected) { Assert.Null(profile); return; }
+        Assert.Equal(DriftZoneProfileCatalog.ForBuild(NativeHudBuildContract.BuiltIn), profile);
+    }
+
+    [Theory]
+    [InlineData("verified", true)]
+    [InlineData("version", false)]
+    [InlineData("image", false)]
+    [InlineData("timestamp", false)]
+    public void Store483ReceivesTheAngleGuideOnlyForTheCheckedImage(string field, bool expected)
+    {
+        using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.UpdatedStore.json")!;
+        var document = JsonNode.Parse(stream)!.AsObject();
+        var version = field == "version" ? "3.483.971.0" : "3.483.970.0";
+        document["gameVersion"] = version;
+        document["imageSize"] = field == "image" ? 188641280u + 4096 : 188641280u;
+        document["storeIdentity"]!["packageFullName"] = $"Microsoft.ForteBaseGame_{version}_x64__8wekyb3d8bbwe";
+        document["storeIdentity"]!["timeDateStamp"] = field == "timestamp" ? 1793745132u : 1793745131u;
+
+        var pack = NativeHudCompatibilityPack.FromRuntimeValidation(document);
+        var profile = DriftZoneProfileCatalog.ForBuild(pack);
+
+        Assert.True(pack.IsRuntimeValidated);
+        if (!expected) { Assert.Null(profile); return; }
+        Assert.Equal(DriftZoneProfileCatalog.ForBuild(NativeHudBuildContract.BuiltIn), profile);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void NewestBundledBuildMustIncludeDriftGuidance(bool xboxStore)
