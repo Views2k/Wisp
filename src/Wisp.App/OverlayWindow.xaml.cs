@@ -175,6 +175,7 @@ public partial class OverlayWindow : Window
             var left = Left;
             var top = Top;
             var previousAnchor = _layoutMode == HudLayoutMode.Native ? NativePlacementAnchorBounds() : Rect.Empty;
+            var previousBounds = double.IsFinite(left) && double.IsFinite(top) ? new Rect(left, top, Width, Height) : Rect.Empty;
             ApplyLayout(_layoutMode, _nativeGaugeMode,
                 _controller.Settings.OverlayWidthScale,
                 _controller.Settings.OverlayHeightScale,
@@ -182,6 +183,8 @@ public partial class OverlayWindow : Window
             var position = new Point(left, top);
             if (!previousAnchor.IsEmpty)
                 position = OverlayPlacementGeometry.PreserveAnchorPosition(position, previousAnchor, NativePlacementAnchorBounds());
+            else
+                position = OverlayPlacementGeometry.KeepEdgeGaps(CurrentMonitorBounds(), previousBounds, new Size(Width, Height), position);
             RestorePosition(position.X, position.Y);
         }
     }

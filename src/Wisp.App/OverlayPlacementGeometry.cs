@@ -103,6 +103,32 @@ public static class OverlayPlacementGeometry
             Math.Clamp(requested.Y, monitorBounds.Top, maximumTop));
     }
 
+    // When Wisp resizes an element itself and a side would cross the monitor edge, that side keeps
+    // the gap it had, up to the default margin. A default placement keeps its margin and an element
+    // the player put against the edge stays against it.
+    public static Point KeepEdgeGaps(Rect monitorBounds, Rect previous, Size next, Point requested)
+    {
+        if (previous.IsEmpty || !double.IsFinite(previous.Right) || !double.IsFinite(previous.Bottom) ||
+            !double.IsFinite(requested.X) || !double.IsFinite(requested.Y))
+        {
+            return requested;
+        }
+
+        var left = requested.X;
+        var top = requested.Y;
+        if (left + next.Width > monitorBounds.Right)
+        {
+            left = monitorBounds.Right - Math.Clamp(monitorBounds.Right - previous.Right, 0, WorkAreaMargin) - next.Width;
+        }
+
+        if (top + next.Height > monitorBounds.Bottom)
+        {
+            top = monitorBounds.Bottom - Math.Clamp(monitorBounds.Bottom - previous.Bottom, 0, WorkAreaMargin) - next.Height;
+        }
+
+        return new Point(left, top);
+    }
+
     public static double NativeReferenceScale(double monitorPixelHeight, double dpiScaleY)
     {
         if (!double.IsFinite(monitorPixelHeight) || monitorPixelHeight <= 0 ||

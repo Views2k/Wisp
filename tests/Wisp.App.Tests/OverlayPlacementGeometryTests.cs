@@ -53,6 +53,35 @@ public sealed class OverlayPlacementGeometryTests
         Assert.Equal(new Point(1920 - 24 - 620, 24), OverlayPlacementGeometry.PlaceTopRight(workArea, Gauge));
     }
 
+    // In order: at the default margin it keeps the margin; against the edge it stays against it; ten away
+    // it stays ten away; far away but growing past the edge it gets the default margin; still inside
+    // after growing it does not move.
+    [Theory]
+    [InlineData(-214, 24, 190, 390, -414)]
+    [InlineData(-190, 0, 190, 390, -390)]
+    [InlineData(-200, 10, 190, 390, -400)]
+    [InlineData(-400, 210, 190, 500, -524)]
+    [InlineData(-1000, 810, 190, 390, -1000)]
+    public void AnElementWispResizesKeepsItsGapToTheEdgeItWouldCross(double left, double gap, double width, double nextWidth, double expectedLeft)
+    {
+        var previous = new Rect(left, 64, width, 100);
+        Assert.Equal(gap, Monitor.Right - previous.Right);
+
+        var position = OverlayPlacementGeometry.KeepEdgeGaps(Monitor, previous, new Size(nextWidth, 100), previous.TopLeft);
+
+        Assert.Equal(new Point(expectedLeft, 64), position);
+    }
+
+    [Fact]
+    public void AnElementWispResizesKeepsItsGapToTheBottomEdgeAndIgnoresAnUnknownPosition()
+    {
+        var previous = new Rect(-1000, 996, 300, 100);
+        Assert.Equal(new Point(-1000, 896), OverlayPlacementGeometry.KeepEdgeGaps(Monitor, previous, new Size(300, 200), previous.TopLeft));
+        var unknown = new Point(double.NaN, double.NaN);
+        var kept = OverlayPlacementGeometry.KeepEdgeGaps(Monitor, Rect.Empty, new Size(300, 200), unknown);
+        Assert.True(double.IsNaN(kept.X) && double.IsNaN(kept.Y));
+    }
+
     [Fact]
     public void TheNativeLayoutUsesTheSameRule()
     {
