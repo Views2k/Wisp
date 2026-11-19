@@ -42,7 +42,7 @@ public sealed class OverlayInputContractTests
         Assert.Contains("EnsureHandle()", restore, StringComparison.Ordinal);
         Assert.True(
             restore.IndexOf("Left = left;", StringComparison.Ordinal) <
-            restore.IndexOf("CurrentMonitorWorkArea()", StringComparison.Ordinal));
+            restore.IndexOf("MonitorPlacement.BoundsFor(this)", StringComparison.Ordinal));
     }
 
     [Theory]

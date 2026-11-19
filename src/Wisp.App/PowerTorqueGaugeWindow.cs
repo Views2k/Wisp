@@ -123,7 +123,7 @@ public sealed class PowerTorqueGaugeWindow : Window
         _ = new WindowInteropHelper(this).EnsureHandle();
         Left = left;
         Top = top;
-        var position = OverlayPlacementGeometry.ClampInside(CurrentMonitorWorkArea(),
+        var position = OverlayPlacementGeometry.ClampOnScreen(MonitorPlacement.BoundsFor(this),
             new Size(Width, Height), new Point(left, top));
         Left = position.X;
         Top = position.Y;
@@ -141,18 +141,6 @@ public sealed class PowerTorqueGaugeWindow : Window
         return GetMonitorInfo(MonitorFromWindow(handle, DefaultToNearestMonitor), ref info)
             ? $"{info.Device}-{info.Monitor.Right - info.Monitor.Left}x{info.Monitor.Bottom - info.Monitor.Top}{PlacementSuffix}"
             : fallback;
-    }
-
-    private Rect CurrentMonitorWorkArea()
-    {
-        var handle = new WindowInteropHelper(this).Handle;
-        if (handle == IntPtr.Zero) return SystemParameters.WorkArea;
-        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-        if (!GetMonitorInfo(MonitorFromWindow(handle, DefaultToNearestMonitor), ref info)) return SystemParameters.WorkArea;
-        var dpi = VisualTreeHelper.GetDpi(this);
-        return new Rect(info.WorkArea.Left / dpi.DpiScaleX, info.WorkArea.Top / dpi.DpiScaleY,
-            (info.WorkArea.Right - info.WorkArea.Left) / dpi.DpiScaleX,
-            (info.WorkArea.Bottom - info.WorkArea.Top) / dpi.DpiScaleY);
     }
 
     [DllImport("user32.dll")]

@@ -145,9 +145,9 @@ internal sealed class LapDeltaWindow : Window
     internal void ClampToMonitor()
     {
         if (!double.IsFinite(Left) || !double.IsFinite(Top)) return;
-        var area = MonitorWorkArea(new WindowInteropHelper(this).Handle);
-        FitSizeToArea(area);
-        var point = OverlayPlacementGeometry.ClampInside(area,
+        var handle = new WindowInteropHelper(this).Handle;
+        FitSizeToArea(MonitorWorkArea(handle));
+        var point = OverlayPlacementGeometry.ClampOnScreen(MonitorPlacement.BoundsFor(this, handle),
             new Size(Width, Height), new Point(Left, Top));
         Left = point.X; Top = point.Y;
     }

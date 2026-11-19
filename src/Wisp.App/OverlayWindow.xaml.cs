@@ -572,12 +572,8 @@ public partial class OverlayWindow : Window
         _ = new WindowInteropHelper(this).EnsureHandle();
         Left = left;
         Top = top;
-        var placementArea = CurrentMonitorPlacementArea();
-        var size = new Size(Width, Height);
-        var requested = new Point(left, top);
-        var position = _layoutMode == HudLayoutMode.Native
-            ? OverlayPlacementGeometry.ClampNativeInside(placementArea, size, requested)
-            : OverlayPlacementGeometry.ClampInside(placementArea, size, requested);
+        var position = OverlayPlacementGeometry.ClampOnScreen(
+            CurrentMonitorBounds(), new Size(Width, Height), new Point(left, top));
         Left = position.X;
         Top = position.Y;
     }

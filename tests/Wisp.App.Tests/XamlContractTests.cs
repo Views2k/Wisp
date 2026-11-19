@@ -1816,13 +1816,36 @@ public sealed class XamlContractTests
         Assert.Contains("OverlayPlacementGeometry.PlaceNativeBottomRight", overlaySource, StringComparison.Ordinal);
         Assert.Contains("CurrentMonitorPlacementArea", overlaySource, StringComparison.Ordinal);
         Assert.Contains("info.Monitor.Left", overlaySource, StringComparison.Ordinal);
-        Assert.Contains("OverlayPlacementGeometry.ClampInside", overlaySource, StringComparison.Ordinal);
+        Assert.Contains("OverlayPlacementGeometry.ClampOnScreen", overlaySource, StringComparison.Ordinal);
         Assert.Contains("EnsureHandle", overlaySource, StringComparison.Ordinal);
         Assert.Contains("OverlayPlacementGeometry.PlaceTopRight", gForceSource, StringComparison.Ordinal);
-        Assert.Contains("OverlayPlacementGeometry.ClampInside", gForceSource, StringComparison.Ordinal);
+        Assert.Contains("OverlayPlacementGeometry.ClampOnScreen", gForceSource, StringComparison.Ordinal);
         Assert.Contains("EnsureHandle", gForceSource, StringComparison.Ordinal);
         Assert.Contains("GForceOverlay.ResetPositionBelow", controllerSource, StringComparison.Ordinal);
         Assert.DoesNotContain("GForceOverlay.ResetPositionAbove", controllerSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryMovableHudWindowKeepsAChosenPositionAnywhereOnItsMonitor()
+    {
+        foreach (var file in new[]
+                 {
+                     "OverlayWindow.xaml.cs", "GForceWindow.xaml.cs", "BoostGaugeWindow.xaml.cs", "TireTemperatureGaugeWindow.xaml.cs",
+                     "PowerTorqueGaugeWindow.cs", Path.Combine("Drift", "DriftGaugeWindow.cs"), Path.Combine("Laps", "LapDeltaWindow.cs")
+                 })
+        {
+            var source = File.ReadAllText(Path.Combine(AppSourceDirectory(), file));
+            Assert.Contains("OverlayPlacementGeometry.ClampOnScreen", source, StringComparison.Ordinal);
+            var restoreStart = source.IndexOf("public void RestorePosition", StringComparison.Ordinal);
+            Assert.True(restoreStart >= 0, file);
+            var restore = source[restoreStart..source.IndexOf("\n    }", restoreStart, StringComparison.Ordinal)];
+            // The 24-DIP margin belongs to default placements only.
+            Assert.DoesNotContain("ClampInside", restore, StringComparison.Ordinal);
+            Assert.DoesNotContain("WorkArea", restore, StringComparison.Ordinal);
+        }
+
+        var driftSettings = File.ReadAllText(Path.Combine(AppSourceDirectory(), "Drift", "DriftGaugeSettingsControl.xaml"));
+        Assert.Contains("Content=\"Center at top\" Click=\"ResetPosition_Click\"", driftSettings, StringComparison.Ordinal);
     }
 
     [Fact]
