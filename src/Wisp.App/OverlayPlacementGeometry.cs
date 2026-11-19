@@ -85,10 +85,12 @@ public static class OverlayPlacementGeometry
         return Math.Round(value * dpiScale, MidpointRounding.AwayFromZero) / dpiScale;
     }
 
-    public static Point ClampNativeInside(Rect monitorBounds, Size subject, Point requested) =>
+    public static Point ClampNativeInside(Rect monitorBounds, Size subject, Point requested)
+    {
         // Native insets are already reference-scaled. A second, fixed 24-DIP
         // margin moves the HUD inward at high display DPI, even when it fits.
-        ClampOnScreen(monitorBounds, subject, requested);
+        return ClampOnScreen(monitorBounds, subject, requested);
+    }
 
     // A position the player chose only has to stay on its monitor. It may touch any edge,
     // including the strip the taskbar covers on the desktop; defaults keep their margins.
