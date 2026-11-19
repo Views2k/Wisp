@@ -16,12 +16,21 @@ public sealed class DriftGaugePlacementTests
         var area = new Rect(x, y, width, height);
         var size = DriftGaugeWindow.FitSize(area, scale);
         var position = DriftGaugeWindow.DefaultPosition(area, size);
-        Assert.Equal(area.Top + 24, position.Y, 6);
+        Assert.Equal(area.Top + DriftGaugeWindow.DefaultTopGap, position.Y, 6);
         Assert.Equal(area.Left + area.Width / 2, position.X + size.Width / 2, 6);
-        Assert.True(new Rect(position, size).Left >= area.Left + 24 - .001);
-        Assert.True(new Rect(position, size).Right <= area.Right - 24 + .001);
-        Assert.True(new Rect(position, size).Bottom <= area.Bottom - 24 + .001);
+        Assert.True(new Rect(position, size).Left >= area.Left - .001);
+        Assert.True(new Rect(position, size).Right <= area.Right + .001);
+        Assert.True(new Rect(position, size).Bottom <= area.Bottom + .001);
         Assert.Equal(DriftGaugeWindow.BaseWidth / DriftGaugeWindow.BaseHeight, size.Width / size.Height, 6);
+    }
+
+    [Fact]
+    public void TheDefaultSitsHalfAsFarFromTheTopEdgeAsTheDefaultMargin()
+    {
+        Assert.Equal(OverlayPlacementGeometry.WorkAreaMargin / 2, DriftGaugeWindow.DefaultTopGap);
+        var monitor = new Rect(0, 0, 2560, 1440);
+        var position = DriftGaugeWindow.DefaultPosition(monitor, new Size(DriftGaugeWindow.BaseWidth, DriftGaugeWindow.BaseHeight));
+        Assert.Equal(new Point((2560 - DriftGaugeWindow.BaseWidth) / 2, 12), position);
     }
 
     [Fact]

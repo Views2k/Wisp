@@ -21,6 +21,8 @@ public sealed class DriftGaugeWindow : Window, IDisposable
 
     internal const double BaseWidth = 620;
     internal const double BaseHeight = 108;
+    // The default sits close to the top edge without touching it.
+    internal const double DefaultTopGap = 12;
     private readonly AppController _controller;
     private readonly NonActivatingWindowDrag _drag;
     private DriftGaugeRenderWorker? _worker;
@@ -200,20 +202,20 @@ public sealed class DriftGaugeWindow : Window, IDisposable
     public void ResetPosition(IntPtr gameWindow = default)
     {
         var reference = gameWindow != IntPtr.Zero ? gameWindow : new WindowInteropHelper(this).Handle;
-        var area = MonitorWorkArea(reference);
-        FitSizeToArea(area);
-        var point = DefaultPosition(area, new Size(Width, Height));
+        FitSizeToArea(MonitorWorkArea(reference));
+        var point = DefaultPosition(MonitorPlacement.BoundsFor(this, reference), new Size(Width, Height));
         Left = point.X; Top = point.Y;
         _ = new WindowInteropHelper(this).EnsureHandle();
         // Creating or moving the HWND may change its DPI. Recalculate in the new coordinate space.
-        area = MonitorWorkArea(reference != IntPtr.Zero ? reference : new WindowInteropHelper(this).Handle);
-        FitSizeToArea(area);
-        point = DefaultPosition(area, new Size(Width, Height));
+        if (reference == IntPtr.Zero) reference = new WindowInteropHelper(this).Handle;
+        FitSizeToArea(MonitorWorkArea(reference));
+        point = DefaultPosition(MonitorPlacement.BoundsFor(this, reference), new Size(Width, Height));
         Left = point.X; Top = point.Y;
     }
 
-    internal static Point DefaultPosition(Rect area, Size size) => OverlayPlacementGeometry.ClampInside(area, size,
-        new Point(area.Left + (area.Width - size.Width) / 2, area.Top + 24));
+    // Centered on the monitor, just below its top edge.
+    internal static Point DefaultPosition(Rect monitor, Size size) => OverlayPlacementGeometry.ClampOnScreen(monitor, size,
+        new Point(monitor.Left + (monitor.Width - size.Width) / 2, monitor.Top + DefaultTopGap));
 
     internal static Size FitSize(Rect area, double scale)
     {
@@ -239,9 +241,9 @@ public sealed class DriftGaugeWindow : Window, IDisposable
     internal void ClampToMonitor()
     {
         if (!double.IsFinite(Left) || !double.IsFinite(Top)) return;
-        var area = MonitorWorkArea(new WindowInteropHelper(this).Handle);
-        FitSizeToArea(area);
-        var point = OverlayPlacementGeometry.ClampInside(area,
+        var handle = new WindowInteropHelper(this).Handle;
+        FitSizeToArea(MonitorWorkArea(handle));
+        var point = OverlayPlacementGeometry.ClampOnScreen(MonitorPlacement.BoundsFor(this, handle),
             new Size(Width, Height), new Point(Left, Top));
         Left = point.X; Top = point.Y;
     }

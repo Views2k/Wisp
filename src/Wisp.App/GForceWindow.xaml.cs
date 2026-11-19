@@ -200,8 +200,8 @@ public partial class GForceWindow : Window
         _ = new WindowInteropHelper(this).EnsureHandle();
         Left = left;
         Top = top;
-        var position = OverlayPlacementGeometry.ClampInside(
-            CurrentMonitorWorkArea(),
+        var position = OverlayPlacementGeometry.ClampOnScreen(
+            MonitorPlacement.BoundsFor(this),
             new Size(Width, Height),
             new Point(left, top));
         Left = position.X;

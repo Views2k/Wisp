@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace Wisp.App;
 
@@ -19,6 +20,19 @@ internal static class MonitorPlacement
         if (string.IsNullOrEmpty(placementKey)) return null;
         var separator = placementKey.IndexOf('-', StringComparison.Ordinal);
         return separator > 0 ? placementKey[..separator] : null;
+    }
+
+    // The whole monitor that holds the reference window, or this window when none is given, in this
+    // window's device-independent pixels. Unlike the work area it includes the taskbar strip.
+    internal static Rect BoundsFor(Window window, IntPtr reference = default)
+    {
+        if (reference == IntPtr.Zero) reference = new WindowInteropHelper(window).Handle;
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (reference == IntPtr.Zero || !GetMonitorInfo(MonitorFromWindow(reference, MonitorDefaultToNearest), ref info))
+            return new Rect(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+        var dpi = VisualTreeHelper.GetDpi(window);
+        return new Rect(info.Monitor.Left / dpi.DpiScaleX, info.Monitor.Top / dpi.DpiScaleY,
+            (info.Monitor.Right - info.Monitor.Left) / dpi.DpiScaleX, (info.Monitor.Bottom - info.Monitor.Top) / dpi.DpiScaleY);
     }
 
     // True when the window is on the key's monitor afterwards; false leaves the window where it is,
