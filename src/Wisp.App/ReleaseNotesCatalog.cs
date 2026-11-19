@@ -15,11 +15,25 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.7.6",
+            "November 19, 2026",
+            "MAINTENANCE",
+            "Wisp 2.7.6 brings Drift Zone angle-bonus guidance back on the current Forza Horizon 6 build, reads a tune that Forza is still loading on the next refresh, and reports a clip recorder stop once with its cause.",
+            true,
+            [
+                Group("Drift",
+                    "Drift Zone angle-bonus guidance works again on Forza Horizon 6 builds 6.483.970.0 (Steam) and 3.483.970.0 (Xbox app / Microsoft Store): the colored scoring guide, the bonus percentage and the scoring captions are back."),
+                Group("Tune",
+                    "When Forza is still loading the current car or its unit settings, Tune says the tune isn't ready yet and reads it on the next refresh."),
+                Group("Clips",
+                    "A clip recorder stop is reported once and names the step that stopped it.")
+            ]),
+        new(
             "2.7.5",
             "November 16, 2026",
             "MAINTENANCE",
             "Wisp 2.7.5 improves automatic update retries, recognizes completed clip requests during recorder shutdown, and adds sleep and lock context to session diagnostics.",
-            true,
+            false,
             [
                 Group("Updates",
                     "Automatic updates retry after slow or interrupted downloads and temporarily refused updater launches.",
