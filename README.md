@@ -19,6 +19,10 @@ Wisp 2.7 is a reliability update. Clips keep recording when the graphics card is
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.7 release notes](docs/releases/Wisp-2.7.0-release-notes.md)
 
+### Wisp 2.7.6
+
+Wisp 2.7.6 brings Drift Zone angle-bonus guidance back on the current Forza Horizon 6 build, reads a tune that Forza is still loading on the next refresh, and reports a clip recorder stop once with its cause. See the [2.7.6 release notes](docs/releases/Wisp-2.7.6-release-notes.md).
+
 ### Wisp 2.7.5
 
 Wisp 2.7.5 improves automatic update retries, recognizes completed clip requests during recorder shutdown, and adds sleep and lock context to session diagnostics. See the [2.7.5 release notes](docs/releases/Wisp-2.7.5-release-notes.md).

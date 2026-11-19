@@ -2,6 +2,12 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.7.6 - 2026-11-19
+
+- Drift Zone angle-bonus guidance works again on Forza Horizon 6 builds 6.483.970.0 and 3.483.970.0.
+- Tune reads a car or unit profile that Forza is still loading on the next refresh instead of reporting a failed read.
+- A clip recorder stop is reported once and names the step that stopped it.
+
 ## 2.7.5 - 2026-11-16
 
 - Automatic updates retry after slow or interrupted downloads and temporarily refused updater launches.
