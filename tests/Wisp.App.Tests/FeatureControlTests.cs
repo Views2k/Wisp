@@ -348,7 +348,7 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
         protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Assert.Equal(System.Net.Http.HttpMethod.Get, request.Method);
-            Assert.Equal("/api/v1/feature-controls?schema=2", request.RequestUri!.PathAndQuery);
+            Assert.Equal("/api/v1/feature-controls?schema=3", request.RequestUri!.PathAndQuery);
             Assert.Null(request.Content);
             Interlocked.Increment(ref Calls);
             var response = new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
@@ -459,8 +459,12 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
     [Theory]
     [InlineData("purpose")]
     [InlineData("unknown-field")]
-    [InlineData("unknown-feature")]
+    [InlineData("malformed-feature")]
+    [InlineData("non-text-feature")]
+    [InlineData("too-many-features")]
     [InlineData("duplicate-feature")]
+    [InlineData("duplicate-unknown-feature")]
+    [InlineData("duplicate-of-skipped-rule")]
     [InlineData("duplicate-rule")]
     [InlineData("empty-features")]
     [InlineData("too-many-rules")]
@@ -479,8 +483,19 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
         {
             case "purpose": p["purpose"] = "wisp-supplementary-content"; break;
             case "unknown-field": p["execute"] = "invalid"; break;
-            case "unknown-feature": rule["features"] = new JsonArray("arbitrary-command"); break;
+            case "malformed-feature": rule["features"] = new JsonArray("clip-recording", "arbitrary command"); break;
+            case "non-text-feature": rule["features"] = new JsonArray("clip-recording", 7); break;
+            case "too-many-features":
+                rule["features"] = new JsonArray(Enumerable.Range(0, FeatureControlVerifier.MaximumRuleFeatures + 1)
+                    .Select(index => (JsonNode?)$"later-feature-{index}").ToArray());
+                break;
             case "duplicate-feature": rule["features"] = new JsonArray("clip-recording", "clip-recording"); break;
+            case "duplicate-unknown-feature": rule["features"] = new JsonArray("clip-recording", "later-feature", "later-feature"); break;
+            case "duplicate-of-skipped-rule":
+                var skipped = rule.DeepClone();
+                skipped["features"] = new JsonArray("later-feature");
+                p["rules"]!.AsArray().Add(skipped);
+                break;
             case "duplicate-rule": p["rules"]!.AsArray().Add(rule.DeepClone()); break;
             case "empty-features": rule["features"] = new JsonArray(); break;
             case "too-many-rules": p["rules"] = new JsonArray(Enumerable.Range(0, 33).Select(_ => rule.DeepClone()).ToArray()); break;
@@ -492,6 +507,66 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
             case "rule-exceeds-policy": rule["expiresAt"] = Stamp(f.Now.AddHours(3)); break;
         }
         Assert.Throws<SupplementaryValidationException>(() => f.Verifier.Verify(f.Sign(p), f.Now));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void FeatureNamesThisVersionDoesNotKnowAreSkippedAndARuleWithNoneLeftIsDropped(int schemaVersion)
+    {
+        using var f = new Fixture();
+        var payload = f.Payload();
+        payload["schemaVersion"] = schemaVersion;
+        var rules = payload["rules"]!.AsArray();
+        var known = rules[0]!;
+        var mixed = known.DeepClone();
+        mixed["id"] = "mixed";
+        mixed["features"] = new JsonArray("later-feature", "tune-read", "another.later_feature");
+        var later = known.DeepClone();
+        later["id"] = "later-only";
+        later["features"] = new JsonArray(Enumerable.Range(0, FeatureControlVerifier.MaximumRuleFeatures)
+            .Select(index => (JsonNode?)$"later-feature-{index}").ToArray());
+        rules.Add(mixed);
+        rules.Add(later);
+        if (schemaVersion == 2)
+            foreach (var rule in rules)
+            {
+                rule!["gameBuilds"] = new JsonArray();
+                rule["gpuVendors"] = new JsonArray();
+            }
+        var policy = f.Verifier.Verify(f.Sign(payload), f.Now).Policy;
+        Assert.Equal(new[] { "recording-pause", "mixed" }, policy.Rules.Select(rule => rule.Id));
+        Assert.Equal(new[] { "tune-read" }, policy.Rules[1].Features);
+        var disabled = policy.Disabled("2.6.8", "stable", f.Now);
+        Assert.Equal(new[] { "clip-recording", "tune-read" }, disabled.Keys.Order());
+        Assert.Empty(disabled.Keys.Except(ControlledFeatures.All));
+        Assert.True(new FeatureControlGate().Apply(new(policy.Revision, disabled)));
+    }
+
+    [Fact]
+    public async Task DownloadNamingOnlyUnknownFeaturesIsAcceptedAndPausesNothing()
+    {
+        using var f = new Fixture();
+        var observed = new List<SupplementaryObservation>();
+        var previous = SupplementaryObservations.Observer;
+        SupplementaryObservations.Observer = observed.Add;
+        try
+        {
+            var states = new List<FeatureControlState>();
+            var payload = f.Payload();
+            payload["rules"]![0]!["features"] = new JsonArray("later-feature");
+            var transport = new Transport { Response = new(SupplementaryRequestStatus.Success, f.Sign(payload)) };
+            using var client = f.Client(transport, states.Add);
+            await client.RefreshAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(1, states[^1].Revision);
+            Assert.Empty(states[^1].Disabled);
+            Assert.DoesNotContain(observed, o => o.Outcome == "failure");
+            transport.Response = new(SupplementaryRequestStatus.Success, f.Sign(f.Payload(2)));
+            await client.RefreshAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(new[] { "clip-recording" }, client.State.Disabled.Keys);
+            Assert.DoesNotContain(observed, o => o.Outcome == "failure");
+        }
+        finally { SupplementaryObservations.Observer = previous; }
     }
 
     [Fact]
@@ -711,7 +786,7 @@ public sealed class FeatureControlTests(ITestOutputHelper output)
         internal int Calls;
         public async Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximum, CancellationToken cancellation)
         {
-            Assert.Equal("/api/v1/feature-controls?schema=2", route);
+            Assert.Equal("/api/v1/feature-controls?schema=3", route);
             Assert.Null(body);
             Assert.Equal(FeatureControlVerifier.MaximumEnvelopeBytes, maximum);
             Calls++;
