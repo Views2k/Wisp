@@ -18,18 +18,18 @@ public static class ReleaseNotesCatalog
             "2.7.6",
             "November 19, 2026",
             "MAINTENANCE",
-            "Wisp 2.7.6 brings Drift Zone angle-bonus guidance back on the current Forza Horizon 6 build, lets HUD gauges sit against any edge of the screen, reads a tune that Forza is still loading on the next refresh, and reports a clip recorder stop once with its cause.",
+            "Wisp 2.7.6 restores Drift Zone angle-bonus guidance on the current Forza build and lets HUD gauges sit against any edge of the screen.",
             true,
             [
                 Group("Drift",
-                    "Drift Zone angle-bonus guidance works again on Forza Horizon 6 builds 6.483.970.0 (Steam) and 3.483.970.0 (Xbox app / Microsoft Store): the colored scoring guide, the bonus percentage and the scoring captions are back."),
+                    "Drift Zone angle-bonus guidance works again on Forza Horizon 6 builds 6.483.970.0 (Steam) and 3.483.970.0 (Xbox app / Microsoft Store).",
+                    "A Center at top button in Drift Angle settings centers the gauge near the top edge."),
                 Group("Layout",
-                    "The drift gauge, lap delta, live map, G-force, boost, tire temperature, power and torque gauges can be placed against any edge of the screen.",
-                    "Drift Angle settings have a Center at top button that centers the gauge just below the top edge, which is also its default position."),
+                    "HUD gauges can be placed against any edge of the screen."),
                 Group("Tune",
-                    "When Forza is still loading the current car or its unit settings, Tune says the tune isn't ready yet and reads it on the next refresh."),
+                    "A tune that Forza is still loading is read on the next refresh."),
                 Group("Clips",
-                    "A clip recorder stop is reported once and names the step that stopped it.")
+                    "A clip recorder stop is reported once, with its cause.")
             ]),
         new(
             "2.7.5",
