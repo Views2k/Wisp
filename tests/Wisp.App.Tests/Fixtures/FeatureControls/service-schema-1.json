@@ -36,7 +36,8 @@
     "news",
     "support",
     "updates",
-    "gpu-priority"
+    "gpu-priority",
+    "drift-zone-check"
   ],
   "paused": {
     "keyId": "test-key",
