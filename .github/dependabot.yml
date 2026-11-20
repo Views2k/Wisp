@@ -10,6 +10,10 @@ updates:
     directory: /
     patterns: ["*"]
     multi-ecosystem-group: build-dependencies
+    ignore:
+      # Shipped with the pinned source manifest in LICENSES/ and updated by hand with it.
+      - dependency-name: "LibVLCSharp"
+      - dependency-name: "VideoLAN.LibVLC.Windows"
 
   - package-ecosystem: dotnet-sdk
     directory: /
