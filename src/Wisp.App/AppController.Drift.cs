@@ -1,4 +1,6 @@
+using System.IO;
 using Wisp.App.Drift;
+using Wisp.App.Supplementary;
 using Wisp.Core;
 
 namespace Wisp.App;
@@ -11,12 +13,52 @@ public sealed partial class AppController
     public event EventHandler? DriftGaugeStatusChanged;
     public string DriftGaugeStatus { get; private set; } = "Off";
     internal VehicleState? LatestDriftTelemetry => _receiver.Latest;
-    internal DriftZoneScoringProfile? CurrentDriftZoneProfile => DriftZoneProfileCatalog.ForBuild(_nativeHudProcessService.AttachedCompatibilityPack);
+    private DriftZoneCurveCheck? _driftZoneCheck;
+
+    // Read by the drift renderer on every frame; DriftZoneCurveCheck.Resolve never waits.
+    internal DriftZoneScoringProfile? CurrentDriftZoneProfile
+    {
+        get
+        {
+            var pack = _nativeHudProcessService.AttachedCompatibilityPack;
+            var listed = DriftZoneProfileCatalog.ForBuild(pack);
+            return _driftZoneCheck is { } check
+                ? check.Resolve(pack is null ? null : DriftZoneGameKey.For(pack), listed,
+                    _receiver.Latest is { IsRaceOn: true }, FeatureAllowed("drift-zone-check"))
+                : listed;
+        }
+    }
+
+    private static DriftZoneCurveCheck CreateDriftZoneCheck()
+    {
+        var factory = new NativeHudProcessMemoryFactory();
+        return new DriftZoneCurveCheck(
+            DriftZoneProfileCatalog.KnownCurve,
+            cancellation =>
+            {
+                if (!factory.TryOpen(cancellation, out var opened, out _) || opened is null)
+                {
+                    return null;
+                }
+
+                if (opened is not NativeHudProcessMemory game)
+                {
+                    opened.Dispose();
+                    return null;
+                }
+
+                return new DriftZoneScanSession(DriftZoneGameKey.For(game.CompatibilityPack), new DriftZoneGameMemory(game), game);
+            },
+            new DriftZoneCheckStore(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp", "drift-zone-checks.json")),
+            static (outcome, duration) => SupplementaryObservations.Record("feature", "drift", outcome, "check", duration));
+    }
     private bool IsDriftGaugeWindowEnabled => HudFeatureAllowed("drift-hud") && Settings.DriftGaugeEnabled && DriftGaugeOverlay is { RendererFailed: false };
 
     internal void InitializeDriftGaugeWindow()
     {
         if (_disposed || Settings.RequiresSetup || DriftGaugeOverlay is not null) return;
+        _driftZoneCheck ??= CreateDriftZoneCheck();
         DriftGaugeOverlay = new DriftGaugeWindow(this);
         RestoreDriftGaugePlacement();
         DriftGaugeOverlay.SetEditMode(!Settings.OverlayLocked);

@@ -28,9 +28,23 @@ Steam's secondary HUD table is linked to the already verified main HUD table thr
 
 Drift angle is calculated from Data Out. Custom targets and measured angle remain available when a Drift Zone scoring profile cannot be verified. The gauge then says `ANGLE ONLY` and withholds the bonus percentage and colored scoring guide.
 
-Drift Zone bonus rules have a separate compatibility boundary. Successful adaptive HUD or Tune validation does not verify those rules. The scoring code and loaded curve values must be checked separately before a build receives a bonus profile; unchanged code alone cannot establish unchanged configuration. No new game-memory scans or reads have been added to the drift renderer.
+Drift Zone bonus rules have a separate compatibility boundary. Successful adaptive HUD or Tune validation does not verify those rules. The loaded curve values must be checked before a build receives a bonus profile; unchanged code alone cannot establish unchanged configuration. The drift renderer itself reads no game memory: it asks `DriftZoneCurveCheck` for the profile on each frame and gets a stored answer.
 
-Regression tests require the newest bundled Steam and Xbox builds to have drift guidance, in addition to checking the captured identities. This prevents a future bundled compatibility update from silently omitting drift again. Changed identities and unknown adaptive builds still receive no unverified bonus claims. Automatic discovery of future Drift Zone scoring profiles is not implemented.
+Regression tests require the newest bundled Steam and Xbox builds to have drift guidance, in addition to checking the captured identities. This prevents a future bundled compatibility update from silently omitting drift again. Changed identities and unknown adaptive builds still receive no unverified bonus claims from the table.
+
+### Curve check for builds outside the table
+
+A build that is accepted but not in the scoring table gets the bonus guide only after Wisp has read the running game and found the curve. Until then the gauge says `ANGLE ONLY`.
+
+- `DriftZoneCurveCheck` starts the read the first time the gauge needs a profile in Drift Zone mode while the car is driving. One read runs at a time, on a thread at the lowest priority.
+- `DriftZoneCurveScan` goes through the game's committed, private, writable memory with the read-only handle the HUD already holds. It looks for the float32 saturation angle and requires the minimum and maximum angles and both multipliers as float32 within 128 bytes, in one arrangement, at least eight times. It then waits one second and reads every entry again. Both checked builds hold 20 such entries.
+- The read is paced: after each 4 MiB it waits three times as long as that chunk took. It stops after 90 seconds or 32 GiB and then reports no result.
+- The result is kept per exact build identity in `drift-zone-checks.json` in Wisp's local data folder, so a build is read once per PC. A verified build is read again after 14 days. A build without the curve is tried again after 2 minutes, 10 minutes and then hourly.
+- Builds in the table are read once as well. Their guidance does not depend on it; the result shows whether the check agrees with the table before the next game update needs it.
+- Every result is reported once per run as a `drift` `check` observation: `success`, `unsupported` (curve not found), `unknown` (entries changed between the two reads), `timeout` or `failure`.
+- The `drift-zone-check` feature control pauses the read. While it is paused, a build outside the table stays on `ANGLE ONLY`.
+
+Limits: the handle has only the limited query right, so the read cannot tell which pages are currently in memory and reads the others too. The check does not compare scoring code, and it cannot see a single zone whose curve differs while enough others still match.
 
 On October 6, bounded read-only checks of Steam 6.461.691.0 and Xbox 3.461.691.0 each found 20 stable typed scoring configurations. All observed instances matched the existing curve: 10-degree minimum, 110-degree maximum, float32 59.4-degree saturation, and multipliers 30 to 40. The checks completed in 4.77 and 4.56 seconds. Complete captured instruction ranges matched the retained scoring references on both platforms (19 Steam ranges and 21 Xbox ranges), with known scoring relationships checked separately. This qualifies the existing curve for these exact builds; it is not automatic admission of future profiles.
 

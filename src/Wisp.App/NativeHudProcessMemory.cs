@@ -540,6 +540,22 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
 
     internal static SafeProcessHandle OpenReadOnly(int processId) => OpenProcess(RequiredProcessAccess, false, processId);
 
+    // Describes the memory region that holds address. A query only; it uses the same read-only handle.
+    internal bool TryQueryRegion(ulong address, out NativeMemoryRegion region)
+    {
+        region = default;
+        if (_handle.IsInvalid || _handle.IsClosed ||
+            VirtualQueryEx(_handle, (nuint)address, out var information, (nuint)Marshal.SizeOf<MemoryBasicInformation>()) == 0 ||
+            information.RegionSize == 0)
+        {
+            return false;
+        }
+
+        region = new NativeMemoryRegion(
+            (ulong)information.BaseAddress, (ulong)information.RegionSize, information.State, information.Protect, information.Type);
+        return true;
+    }
+
     internal static bool HandleMatchesIdentity(
         SafeProcessHandle handle, NativeHudProcessIdentity identity, bool allowStoreFileAlias = false)
     {
@@ -566,6 +582,22 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern SafeProcessHandle OpenProcess(uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, int processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nuint VirtualQueryEx(SafeProcessHandle process, nuint address, out MemoryBasicInformation information, nuint length);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MemoryBasicInformation
+    {
+        public nuint BaseAddress;
+        public nuint AllocationBase;
+        public uint AllocationProtect;
+        public ushort PartitionId;
+        public nuint RegionSize;
+        public uint State;
+        public uint Protect;
+        public uint Type;
+    }
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -597,6 +629,7 @@ public sealed class NativeHudProcessMemory : INativeHudProcessMemory
 }
 
 internal readonly record struct NativeHudProcessIdentity(int ProcessId, long StartTimeUtcTicks, string ExecutablePath, ulong ModuleBase, uint ImageSize);
+internal readonly record struct NativeMemoryRegion(ulong Base, ulong Size, uint State, uint Protect, uint Type);
 internal readonly record struct NativeHudFileMetadata(long Length, long CreationTimeUtcTicks, long LastWriteTimeUtcTicks, uint VolumeSerialNumber, ulong FileIndex, string Version);
 internal readonly record struct NativeHudExecutableFingerprint(NativeHudFileMetadata Metadata, string Sha256);
 

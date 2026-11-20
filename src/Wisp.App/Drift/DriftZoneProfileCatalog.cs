@@ -9,6 +9,10 @@ internal static class DriftZoneProfileCatalog
     private const string Steam483Hash = "63791D0B686186C23ADE10A1AE02EFD785045BD818CC89816F472CAD9A69FCB9";
     private static readonly DriftZoneScoringProfile CurrentProfile = new(10, 110, (double)59.4f, 30, 40);
 
+    // The one scoring curve every checked build has used. DriftZoneCurveCheck grants it to a build
+    // outside this table only after reading it from the running game.
+    internal static DriftZoneScoringProfile KnownCurve => CurrentProfile;
+
     // Scoring guidance is separate from HUD/Tune attachment. Adaptive validation
     // of those readers does not establish a game's loaded scoring parameters.
     // Unverified scoring retains the measured angle without claiming a bonus.

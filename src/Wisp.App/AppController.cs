@@ -2425,6 +2425,7 @@ public sealed partial class AppController : IAsyncDisposable
         WindowZOrder.DetachFromGame(LapDeltaOverlay);
         WindowZOrder.DetachFromGame(LapMapOverlay);
         DriftGaugeOverlay?.Dispose();
+        _driftZoneCheck?.Dispose();
         LapDeltaOverlay?.Close();
         LapMapOverlay?.Close();
         _lapDelta.Dispose();
