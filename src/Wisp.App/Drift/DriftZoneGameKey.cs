@@ -1,7 +1,7 @@
 namespace Wisp.App.Drift;
 
 // Names one exact game build with the fields the scoring catalog matches on.
-internal static class DriftZoneBuildKey
+internal static class DriftZoneGameKey
 {
     private sealed record Cached(NativeHudCompatibilityPack Pack, string Key);
 

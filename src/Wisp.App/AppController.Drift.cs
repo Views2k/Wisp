@@ -23,7 +23,7 @@ public sealed partial class AppController
             var pack = _nativeHudProcessService.AttachedCompatibilityPack;
             var listed = DriftZoneProfileCatalog.ForBuild(pack);
             return _driftZoneCheck is { } check
-                ? check.Resolve(pack is null ? null : DriftZoneBuildKey.For(pack), listed,
+                ? check.Resolve(pack is null ? null : DriftZoneGameKey.For(pack), listed,
                     _receiver.Latest is { IsRaceOn: true }, FeatureAllowed("drift-zone-check"))
                 : listed;
         }
@@ -47,7 +47,7 @@ public sealed partial class AppController
                     return null;
                 }
 
-                return new DriftZoneScanSession(DriftZoneBuildKey.For(game.CompatibilityPack), new DriftZoneGameMemory(game), game);
+                return new DriftZoneScanSession(DriftZoneGameKey.For(game.CompatibilityPack), new DriftZoneGameMemory(game), game);
             },
             new DriftZoneCheckStore(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wisp", "drift-zone-checks.json")),

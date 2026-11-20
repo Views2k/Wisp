@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Wisp.App.Tests;
 
-public sealed class DriftZoneBuildKeyTests
+public sealed class DriftZoneGameKeyTests
 {
     [Fact]
     public void SteamAndStoreBuildsAreNamedByTheFieldsTheScoringTableMatches()
@@ -14,12 +14,12 @@ public sealed class DriftZoneBuildKeyTests
 
         Assert.Equal(
             $"steam:{steam.GameVersion}:{steam.ExecutableLength}:{steam.ImageSize}:{steam.ExecutableSha256.ToUpperInvariant()}",
-            DriftZoneBuildKey.For(steam));
+            DriftZoneGameKey.For(steam));
         Assert.Equal(
             $"store:{store.StoreIdentity!.PackageFullName}:{store.ImageSize}:{store.StoreIdentity.TimeDateStamp}",
-            DriftZoneBuildKey.For(store));
-        Assert.NotEqual(DriftZoneBuildKey.For(steam), DriftZoneBuildKey.For(NativeHudBuildContract.BuiltIn));
-        Assert.NotEqual(DriftZoneBuildKey.For(store), DriftZoneBuildKey.For(NativeHudBuildContract.StoreBuiltIn));
+            DriftZoneGameKey.For(store));
+        Assert.NotEqual(DriftZoneGameKey.For(steam), DriftZoneGameKey.For(NativeHudBuildContract.BuiltIn));
+        Assert.NotEqual(DriftZoneGameKey.For(store), DriftZoneGameKey.For(NativeHudBuildContract.StoreBuiltIn));
     }
 
     [Theory]
@@ -31,7 +31,7 @@ public sealed class DriftZoneBuildKeyTests
     {
         using var stream = typeof(NativeHudBuildContract).Assembly.GetManifestResourceStream("Wisp.NativeCompatibility.UpdatedSteam.json")!;
         var document = JsonNode.Parse(stream)!.AsObject();
-        var original = DriftZoneBuildKey.For(NativeHudCompatibilityPack.FromRuntimeValidation(JsonNode.Parse(document.ToJsonString())!.AsObject()));
+        var original = DriftZoneGameKey.For(NativeHudCompatibilityPack.FromRuntimeValidation(JsonNode.Parse(document.ToJsonString())!.AsObject()));
         document[field] = field switch
         {
             "gameVersion" => JsonValue.Create("6.999.1.0"),
@@ -40,7 +40,7 @@ public sealed class DriftZoneBuildKeyTests
             _ => JsonValue.Create(document[field]!.GetValue<uint>() + 4096)
         };
 
-        Assert.NotEqual(original, DriftZoneBuildKey.For(NativeHudCompatibilityPack.FromRuntimeValidation(document)));
+        Assert.NotEqual(original, DriftZoneGameKey.For(NativeHudCompatibilityPack.FromRuntimeValidation(document)));
     }
 
     [Fact]
