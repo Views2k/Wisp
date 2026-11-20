@@ -77,7 +77,9 @@ internal sealed class FeatureControlClient : IDisposable
             {
                 using var deadline = new CancellationTokenSource(RequestDeadline, _clock);
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, _cancellation, deadline.Token);
-                var response = await _transport.SendAsync("/api/v1/feature-controls?schema=2", null,
+                // schema=3: rules may name features this version does not know. Earlier versions reject such a
+                // policy and ask for schema=2, where the service leaves those names out.
+                var response = await _transport.SendAsync("/api/v1/feature-controls?schema=3", null,
                     FeatureControlVerifier.MaximumEnvelopeBytes, linked.Token).ConfigureAwait(false);
                 if (!linked.IsCancellationRequested && response.Status == SupplementaryRequestStatus.Success && response.Body.Length > 0)
                     ReportAcceptance(_store.Accept(response.Body, _clock.GetUtcNow()));
