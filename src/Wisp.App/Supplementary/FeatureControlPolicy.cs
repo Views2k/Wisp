@@ -66,6 +66,7 @@ internal sealed class FeatureControlVerifier
 {
     internal const int MaximumEnvelopeBytes = 64 * 1024;
     internal const int MaximumPayloadBytes = 32 * 1024;
+    internal const int MaximumRuleFeatures = 128;
     private readonly IReadOnlyDictionary<string, byte[]> _keys;
     internal bool IsConfigured => _keys.Count > 0;
 
@@ -112,7 +113,9 @@ internal sealed class FeatureControlVerifier
             SupplementaryJson.Require(p["rules"].ValueKind == JsonValueKind.Array && p["rules"].GetArrayLength() <= 32, "rules");
             var rules = p["rules"].EnumerateArray().Select(r => ReadRule(r, issued, expires, schemaVersion)).ToImmutableArray();
             SupplementaryJson.Require(rules.Select(r => r.Id).Distinct(StringComparer.Ordinal).Count() == rules.Length, "duplicate-rule");
-            return new(new(revision, issued, expires, rules), Convert.ToHexString(SHA256.HashData(payload)), envelope.ToArray());
+            // A rule that names only features this version does not have pauses nothing here.
+            return new(new(revision, issued, expires, rules.Where(rule => !rule.Features.IsEmpty).ToImmutableArray()),
+                Convert.ToHexString(SHA256.HashData(payload)), envelope.ToArray());
         }
         catch (SupplementaryValidationException) { throw; }
         catch (Exception error) when (error is JsonException or FormatException or InvalidOperationException or
@@ -126,7 +129,10 @@ internal sealed class FeatureControlVerifier
             ? SupplementaryJson.Object(element, "id", "features", "reason", "minVersion", "maxVersion", "channels", "startsAt", "expiresAt")
             : SupplementaryJson.Object(element, "id", "features", "reason", "minVersion", "maxVersion", "channels", "startsAt", "expiresAt", "gameBuilds", "gpuVendors");
         var id = SupplementaryJson.String(p["id"], 64);
-        var features = SupplementaryJson.StringArray(p["features"], ControlledFeatures.All.Count, ControlledFeatures.All.Contains, nonempty: true);
+        // The service's catalog can be newer than this version's. Names it does not know are well-formed
+        // but skipped; the signature covers the whole payload, so the rest of the rule is still the publisher's.
+        var features = SupplementaryJson.StringArray(p["features"], MaximumRuleFeatures, name => SupplementarySchema.Token(name, 64), nonempty: true)
+            .Where(ControlledFeatures.All.Contains).ToImmutableArray();
         var reason = SupplementaryJson.String(p["reason"], 300);
         var min = SupplementaryJson.NullableString(p["minVersion"], 32);
         var max = SupplementaryJson.NullableString(p["maxVersion"], 32);
