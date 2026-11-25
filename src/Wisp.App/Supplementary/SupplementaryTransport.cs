@@ -11,7 +11,7 @@ internal sealed record SupplementaryConfiguration(Uri? Origin)
     internal static SupplementaryConfiguration Unconfigured { get; } = new((Uri?)null);
 }
 internal sealed record SupplementaryResponse(SupplementaryRequestStatus Status, byte[] Body, int HttpStatus = 0,
-    DateTimeOffset? ServerTime = null, int? UncertaintyMs = null, string? MessagingEnvelope = null);
+    DateTimeOffset? ServerTime = null, int? UncertaintyMs = null, string? MessagingEnvelope = null, bool IncidentLibrary = false);
 internal interface ISupplementaryTransport : IDisposable
 {
     Task<SupplementaryResponse> SendAsync(string route, byte[]? body, int maximumResponseBytes, CancellationToken cancellation);
@@ -86,7 +86,9 @@ internal sealed class SupplementaryHttpTransport : ISupplementaryTransport
                     var values = flags.Take(2).ToArray();
                     if (values.Length == 1 && values[0].Length is > 0 and <= 2048) messaging = values[0];
                 }
-                return new(SupplementaryRequestStatus.Success, bytes, code, serverTime, uncertainty, messaging);
+                var incidentLibrary = route == "/api/v1/content" && code is 200 or 204 && serverTime.HasValue &&
+                    response.Headers.TryGetValues("X-Wisp-Incident-Library", out var libraryFlags) && libraryFlags.SequenceEqual(["1"]);
+                return new(SupplementaryRequestStatus.Success, bytes, code, serverTime, uncertainty, messaging, incidentLibrary);
             }
             if (code == 204 && body is null) return Success([]);
             var supportLimit = route == "/api/v1/support" && code == 429;

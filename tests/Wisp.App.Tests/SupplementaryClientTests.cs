@@ -11,6 +11,32 @@ namespace Wisp.App.Tests;
 
 public sealed class SupplementaryClientTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CalibratedContentSelectsCompatibleLoaderEvidence(bool supported)
+    {
+        using var f = new SupplementaryFixture();
+        var transport = new StubTransport { ServerTime = f.Now, IncidentLibrary = supported };
+        using var client = Client(f, transport);
+        var incident = SupplementaryIncidentSchema.Create("managed-exception", "exception-raised", exceptions:
+            [new("DllNotFoundException", 1, [], "winsqlite3.dll")]);
+        var report = f.Event() with { Kind = "exception", Feature = "app", Outcome = "failure", Stage = "fatal-exception", DurationMs = null, Incident = incident };
+        Assert.True(client.TryEnqueue(report));
+        await client.RefreshContentAsync(TestContext.Current.CancellationToken);
+        Assert.True(await client.FlushBatchAsync(TestContext.Current.CancellationToken));
+        using var body = JsonDocument.Parse(Assert.Single(transport.Bodies));
+        var sent = body.RootElement.GetProperty("events")[0].GetProperty("incident");
+        Assert.Equal(incident.Signature, sent.GetProperty("signature").GetString());
+        var evidence = sent.GetProperty("exceptions")[0];
+        Assert.Equal(supported, evidence.TryGetProperty("library", out var library));
+        if (supported) Assert.Equal("winsqlite3.dll", library.GetString());
+        var history = new SupplementaryDiagnosticBuffer(new FixedClock(f.Now));
+        history.Observe(report);
+        var attached = Assert.Single(history.Snapshot(f.Now).Observations);
+        Assert.Null(Assert.Single(attached.Incident!.Exceptions!.Value).Library);
+    }
+
     [Fact]
     public void InvalidAndMismatchedReportsAreCountedWhileDisabledReportingIsNotLoss()
     {
@@ -857,6 +883,7 @@ public sealed class SupplementaryClientTests
         internal byte[]? Content;
         internal byte[]? EventReceipt;
         internal DateTimeOffset? ServerTime;
+        internal bool IncidentLibrary;
         internal SupplementaryResponse? SupportResponse;
         internal SupplementaryRequestStatus? ForcedStatus;
         internal TaskCompletionSource? Pause;
@@ -873,7 +900,7 @@ public sealed class SupplementaryClientTests
                 if (Pause is not null) await Pause.Task.WaitAsync(IgnoreCancellation || CompleteAcceptedSupport && route.EndsWith("support", StringComparison.Ordinal)
                     ? TestContext.Current.CancellationToken : cancellation);
                 if (ForcedStatus is { } forced) return new(forced, []);
-                if (route.EndsWith("content", StringComparison.Ordinal)) return new(SupplementaryRequestStatus.Success, Content ?? [], ServerTime: ServerTime, UncertaintyMs: 1);
+                if (route.EndsWith("content", StringComparison.Ordinal)) return new(SupplementaryRequestStatus.Success, Content ?? [], ServerTime: ServerTime, UncertaintyMs: 1, IncidentLibrary: IncidentLibrary);
                 if (route.EndsWith("support", StringComparison.Ordinal)) return SupportResponse ?? new(SupplementaryRequestStatus.Success, Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"reference\":\"WISP-ABCDEF\"}"));
                 if (EventReceipt is not null) return new(SupplementaryRequestStatus.Success, EventReceipt);
                 using var doc = JsonDocument.Parse(body!);

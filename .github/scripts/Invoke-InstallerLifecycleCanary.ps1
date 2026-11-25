@@ -33,6 +33,7 @@ function New-InstallerLifecycleWorker {
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $false
     $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $startInfo.RedirectStandardInput = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     $startInfo.WorkingDirectory = (Get-Location).Path
@@ -52,15 +53,39 @@ function New-InstallerLifecycleWorker {
     return $process
 }
 
+function Write-InstallerLifecycleProgress {
+    param([string]$StageLogPath, [ref]$LinesRead)
+
+    if (-not $StageLogPath) { return }
+    try {
+        $lines = [IO.File]::ReadAllText($StageLogPath) -split '\r?\n'
+    }
+    catch [IO.IOException], [UnauthorizedAccessException] { return }
+    $stamp = '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7}Z'
+    $marker = "\A$installerStageLabels $installerStages\. utc=$stamp elapsed_ms=[0-9]+\z"
+    $failure = '\AInstaller lifecycle failure: type=[A-Za-z][A-Za-z0-9]{0,79}; line=[0-9]+(?:; updater_state=(?:failed|installed); updater_error=(?:UPDATE_[A-Z0-9_]{1,80})?)?\z'
+    while ($LinesRead.Value -lt ($lines.Count - 1)) {
+        $line = $lines[$LinesRead.Value]
+        $LinesRead.Value++
+        if ($line -cmatch $marker -or $line -cmatch $failure) {
+            Write-Host "Supervisor diagnostic: $line"
+        }
+    }
+}
+
 function Invoke-InstallerLifecycleWorker {
     param(
         $Process,
         [ValidateRange(1, 240)]
-        [int]$TimeoutSeconds = 240
+        [int]$TimeoutSeconds = 240,
+        [string]$StageLogPath
     )
 
     $started = $false
+    $assigned = $false
     $outputTasks = @()
+    $linesRead = 0
+    $job = [InstallerLifecycleJob]::new()
     try {
         try {
             Write-Host 'Supervisor diagnostic: before worker start.'
@@ -73,18 +98,29 @@ function Invoke-InstallerLifecycleWorker {
         if (-not $started) {
             throw 'The installer lifecycle worker could not start.'
         }
+        try {
+            $job.Assign($Process)
+            $assigned = $true
+        }
+        catch { throw 'The installer lifecycle worker could not join its Windows job.' }
         # A hidden console keeps the Windows installer lifecycle responsive. Drain both
         # streams concurrently; only the sanitized stage file reaches public CI output.
         $outputTasks = @(
             $Process.StandardOutput.BaseStream.CopyToAsync([System.IO.Stream]::Null)
             $Process.StandardError.BaseStream.CopyToAsync([System.IO.Stream]::Null)
         )
+        $Process.StandardInput.WriteLine('run')
+        $Process.StandardInput.Close()
         Write-Host 'Supervisor diagnostic: output drains scheduled; entering process wait.'
-        # The installer launch runs inside this worker, so its entire launch and wait
-        # are bounded even if a native launch call never returns to the inner script.
-        if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
-            Write-Host 'Supervisor diagnostic: process wait reached its deadline.'
-            throw "The installer lifecycle worker exceeded its $TimeoutSeconds-second deadline."
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        while ($true) {
+            $remaining = $TimeoutSeconds * 1000 - $timer.ElapsedMilliseconds
+            if ($Process.WaitForExit([int][Math]::Clamp($remaining, 0, 1000))) { break }
+            Write-InstallerLifecycleProgress $StageLogPath ([ref]$linesRead)
+            if ($timer.ElapsedMilliseconds -ge $TimeoutSeconds * 1000) {
+                Write-Host 'Supervisor diagnostic: process wait reached its deadline.'
+                throw "The installer lifecycle worker exceeded its $TimeoutSeconds-second deadline."
+            }
         }
         Write-Host 'Supervisor diagnostic: process wait completed.'
         if ($Process.ExitCode -ne 0) {
@@ -93,13 +129,15 @@ function Invoke-InstallerLifecycleWorker {
     }
     finally {
         try {
-            if ($started -and -not $Process.HasExited) {
-                Write-Host 'Supervisor diagnostic: terminating the owned worker tree.'
-                $Process.Kill($true)
-                Write-Host 'Supervisor diagnostic: termination returned.'
-                if (-not $Process.WaitForExit(10000)) {
-                    throw 'The installer lifecycle worker did not stop after termination.'
-                }
+            # Closing this handle also stops descendants whose immediate parent
+            # already exited, without enumerating processes on the runner.
+            Write-Host 'Supervisor diagnostic: closing the owned worker job.'
+            $job.Dispose()
+            if ($started -and -not $assigned -and -not $Process.HasExited) {
+                $Process.Kill() # The worker is still waiting for our start signal.
+            }
+            if ($started -and -not $Process.WaitForExit(10000)) {
+                throw 'The installer lifecycle worker did not stop after termination.'
             }
             if ($outputTasks.Count -gt 0) {
                 Write-Host 'Supervisor diagnostic: waiting for output drains.'
@@ -114,9 +152,11 @@ function Invoke-InstallerLifecycleWorker {
             }
         }
         finally {
-            Write-Host 'Supervisor diagnostic: disposing worker handles.'
-            $Process.Dispose()
-            Write-Host 'Supervisor diagnostic: worker handles disposed.'
+            try { Write-InstallerLifecycleProgress $StageLogPath ([ref]$linesRead) }
+            finally {
+                $Process.Dispose()
+                Write-Host 'Supervisor diagnostic: worker handles disposed.'
+            }
         }
     }
 }
@@ -125,6 +165,8 @@ if (-not $IsWindows -or $env:GITHUB_ACTIONS -cne 'true' -or $env:CI -cne 'true')
     throw 'The installer lifecycle supervisor runs only in Windows GitHub Actions CI.'
 }
 
+Add-Type -Path (Join-Path $PSScriptRoot 'InstallerLifecycleJob.cs')
+. (Join-Path $PSScriptRoot 'InstallerLifecycleStages.ps1')
 $installer = (Resolve-Path -LiteralPath $InstallerPath -ErrorAction Stop).Path
 $evidenceDirectory = Join-Path $PSScriptRoot '../../outputs/installer-lifecycle'
 [void][System.IO.Directory]::CreateDirectory($evidenceDirectory)
@@ -136,10 +178,5 @@ $worker = New-InstallerLifecycleWorker (Join-Path $PSHOME 'pwsh.exe') `
     $BaselineInstallerPath $BaselineVersion
 
 Write-Output 'Installer lifecycle supervisor started.'
-try { Invoke-InstallerLifecycleWorker $worker }
-finally {
-    Get-Content -LiteralPath $stageLog -Tail 10 -ErrorAction SilentlyContinue |
-        Where-Object { $_ -cmatch '\AInstaller lifecycle failure: type=[A-Za-z][A-Za-z0-9]{0,79}; line=[0-9]+(?:; updater_state=(?:failed|installed); updater_error=(?:UPDATE_[A-Z0-9_]{1,80})?)?\z' } |
-        Write-Output
-}
+Invoke-InstallerLifecycleWorker $worker -StageLogPath $stageLog
 Write-Output 'Installer lifecycle supervisor completed.'

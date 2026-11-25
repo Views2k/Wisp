@@ -1,5 +1,6 @@
 using System.IO;
 using Wisp.App;
+using Wisp.App.Supplementary;
 using Wisp.App.Tunes;
 using Xunit;
 
@@ -33,10 +34,15 @@ public sealed class TuneAssetPrefixReadTests
     {
         using var memory = new AssetMemory(TuneAssetCapture.MinimumLength - 1024);
 
-        Assert.Throws<TuneAssetStreamValidationException>(() =>
+        var error = Assert.Throws<TuneAssetStreamValidationException>(() =>
             TuneAssetCapture.ReadDecoded(memory, TestContext.Current.CancellationToken, NativeTuneLayout.Steam));
 
         Assert.Equal(0, memory.BulkBytesRead);
+        var incident = TuneCaptureService.TuneIncident(TuneCaptureStage.ReadTune, "tune-read-failed", error);
+        Assert.Equal((uint)TuneReadCheck.AssetStreamLengthBelowMinimum, incident.Code);
+        var stack = Assert.Single(incident.Exceptions!.Value).Methods;
+        Assert.Contains(SupplementaryIncidentSchema.MethodId("Wisp.App.Tunes.TuneAssetCapture.ValidateStreamShape"), stack);
+        Assert.Contains(SupplementaryIncidentSchema.MethodId("Wisp.App.Tunes.TuneAssetCapture.ReadDecoded"), stack);
     }
 
     [Fact]

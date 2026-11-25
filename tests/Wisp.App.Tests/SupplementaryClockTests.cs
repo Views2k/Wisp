@@ -80,6 +80,7 @@ public sealed class SupplementaryClockTests
         using var transport = new SupplementaryHttpTransport(new("https://fixture.invalid/"), time, new Handler(_ =>
         {
             var response = ContentTime(f.Now);
+            response.Headers.TryAddWithoutValidation("X-Wisp-Incident-Library", "1");
             if (mode == "date-only") { response.Headers.Remove("X-Wisp-Server-Time"); response.Headers.Date = f.Now; }
             if (mode == "cacheable") response.Headers.CacheControl = new() { MaxAge = TimeSpan.FromHours(1) };
             if (mode == "duplicate") response.Headers.TryAddWithoutValidation("X-Wisp-Server-Time", f.Now.ToString("O"));
@@ -90,6 +91,26 @@ public sealed class SupplementaryClockTests
         var result = await transport.SendAsync("/api/v1/content", null, 2048, TestContext.Current.CancellationToken);
         Assert.Null(result.ServerTime);
         Assert.Null(result.UncertaintyMs);
+        Assert.False(result.IncidentLibrary);
+    }
+
+    [Theory]
+    [InlineData("1", false, true)]
+    [InlineData("1", true, false)]
+    [InlineData("0", false, false)]
+    public async Task LoaderCapabilityRequiresOneExactContentResponseHeader(string flag, bool duplicate, bool expected)
+    {
+        using var f = new SupplementaryFixture();
+        var time = new ManualClock(f.Now);
+        using var transport = new SupplementaryHttpTransport(new("https://fixture.invalid/"), time, new Handler(_ =>
+        {
+            var response = ContentTime(f.Now);
+            response.Headers.TryAddWithoutValidation("X-Wisp-Incident-Library", flag);
+            if (duplicate) response.Headers.TryAddWithoutValidation("X-Wisp-Incident-Library", flag);
+            return response;
+        }));
+        var result = await transport.SendAsync("/api/v1/content", null, 2048, TestContext.Current.CancellationToken);
+        Assert.Equal(expected, result.IncidentLibrary);
     }
 
     [Fact]

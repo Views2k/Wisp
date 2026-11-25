@@ -19,6 +19,10 @@ if (-not $IsWindows) {
 if ($env:GITHUB_ACTIONS -cne 'true' -or $env:CI -cne 'true') {
     throw 'The installer lifecycle canary runs only in GitHub Actions CI.'
 }
+if (-not [Console]::IsInputRedirected -or [Console]::ReadLine() -cne 'run') {
+    throw 'The lifecycle supervisor must contain the worker before setup starts.'
+}
+. (Join-Path $PSScriptRoot 'InstallerLifecycleStages.ps1')
 
 $installer = (Resolve-Path -LiteralPath $InstallerPath -ErrorAction Stop).Path
 if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
@@ -156,9 +160,7 @@ function Write-InstallerLifecycleMarker {
         [System.Diagnostics.Stopwatch]$Timer
     )
 
-    if ($Label -cnotin @('Fresh installer canary', 'In-place update canary', 'Manual reinstall canary',
-            'Uninstaller canary', 'First-run Wisp Setup', 'Published upgrade canary') -or
-        $Stage -cnotmatch '\A(?:started|launch returned|before process wait|completed|window detected|close requested|parent launch started|parent launch returned|parent window detected|digest check started|digest rejected|handoff started|parent exited|application restarted|native stage observed: (?:restart-manager-(?:registering-files|resources-ready|query-started|query-completed|query-failed|no-applications|application-wisp|application-wisp-updater|application-found)|installation-started|installation-succeeded|setup-deinitializing))\z') {
+    if ($Label -cnotmatch "\A$installerStageLabels\z" -or $Stage -cnotmatch "\A$installerStages\z") {
         return
     }
     $message = "{0} {1}. utc={2:o} elapsed_ms={3}" -f

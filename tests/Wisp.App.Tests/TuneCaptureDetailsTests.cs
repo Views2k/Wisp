@@ -1,4 +1,5 @@
 using System.IO;
+using Wisp.App.Supplementary;
 using Wisp.App.Tunes;
 using Wisp.Core;
 using Wisp.Core.Tunes;
@@ -94,9 +95,11 @@ public sealed class TuneCaptureDetailsTests
     [Fact]
     public void StreamFailureIncludesItsNumericShape()
     {
-        var error = new TuneAssetStreamValidationException(1, 1024, 4096, 2048, 16);
+        var error = Assert.Throws<TuneAssetStreamValidationException>(() =>
+            TuneAssetCapture.ValidateStreamShape(1, 1024, 4096, 2048, 16));
         var details = TuneCaptureDetails.Create(TuneCaptureStage.ReadTune, exception: error);
         Assert.Contains("Asset check: StreamShape", details, StringComparison.Ordinal);
+        Assert.Contains("Tune check: AssetStreamFlag", details, StringComparison.Ordinal);
         Assert.Contains("Actual asset size (bytes): 2048", details, StringComparison.Ordinal);
         Assert.Contains("Stream flag: 1", details, StringComparison.Ordinal);
         Assert.Contains("Chunk size (bytes): 1024", details, StringComparison.Ordinal);
@@ -127,6 +130,32 @@ public sealed class TuneCaptureDetailsTests
         Assert.Equal(TuneCaptureStatus.Unavailable, result.Status);
         Assert.Contains("Decode status: IncompleteCapture", result.Details, StringComparison.Ordinal);
         Assert.Contains("Method: TuneDecoder.TryDecode", result.Details, StringComparison.Ordinal);
+        var incident = Assert.IsType<SupplementaryIncident>(result.Incident);
+        Assert.Equal("tune-decode", incident.FailureStage);
+        Assert.Equal("tune-decode-failed", incident.Reason);
+        Assert.Null(incident.Exceptions);
+    }
+
+    [Fact]
+    public async Task StreamFailureReachesTheCaptureResultWithItsCheckAndThrowingMethod()
+    {
+        await using var service = new TuneCaptureService(new Factory(), (_, _) =>
+        {
+            TuneAssetCapture.ValidateStreamShape(0, 131072, 16221183, 16221184, 992);
+            return NativeTuneCaptureTests.Input();
+        });
+        var result = await service.RequestSnapshotAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(TuneCaptureStatus.Unavailable, result.Status);
+        Assert.Contains("Tune check: AssetStreamAllocationBelowLength", result.Details, StringComparison.Ordinal);
+        var incident = Assert.IsType<SupplementaryIncident>(result.Incident);
+        Assert.Equal("tune-read", incident.FailureStage);
+        Assert.Equal("tune-read-failed", incident.Reason);
+        Assert.Equal(0x8004A61BU, incident.Code);
+        var exception = Assert.Single(incident.Exceptions!.Value);
+        Assert.Equal(nameof(TuneAssetStreamValidationException), exception.Type);
+        Assert.Equal(incident.Code, exception.Code);
+        Assert.Contains(SupplementaryIncidentSchema.MethodId("Wisp.App.Tunes.TuneAssetCapture.ValidateStreamShape"), exception.Methods);
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
     }
 
     [Fact]

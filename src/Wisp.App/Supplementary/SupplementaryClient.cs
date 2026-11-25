@@ -266,6 +266,8 @@ internal sealed class SupplementaryClient : IDisposable
             {
                 var item = _queue.Peek();
                 var value = item.Event with { Clock = _serverClock.Capture(item.QueuedAt, item.OriginalAgeMs) };
+                if (value.Incident is { } incident && !_serverClock.SupportsIncidentLibrary)
+                    value = value with { Incident = incident.WithoutLoaderLibraries() };
                 if (_clock.GetElapsedTime(item.QueuedAt, now) > MaximumEventAge || !SupplementarySchema.Valid(value, _clock.GetUtcNow()))
                 { _queue.Dequeue(); Interlocked.Increment(ref _dropped); }
                 else

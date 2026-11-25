@@ -17,7 +17,7 @@ using Wisp.Update;
 namespace Wisp.App.CrashDiagnostics;
 
 internal enum CrashOrigin { UiDispatcher, BackgroundThread, UnobservedTask, UnexpectedExit, WindowsApplicationFault }
-internal sealed record CrashExceptionInfo(string Type, int HResult, string[] Methods);
+internal sealed record CrashExceptionInfo(string Type, int HResult, string[] Methods, string? Library = null);
 internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispVersion, string? PrivateBuildId,
     string RuntimeVersion, CrashOrigin Origin, bool IsTerminating, CrashExceptionInfo[] Exceptions)
 {
@@ -56,7 +56,7 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
             errors.Add(new(CrashReportSymbols.ExceptionType(error.GetType()), error.HResult,
                 new StackTrace(error, false).GetFrames().Take(64)
                     .Select(frame => CrashReportSymbols.Method(frame.GetMethod())).OfType<string>()
-                    .Distinct(StringComparer.Ordinal).Take(MaximumMethods).ToArray()));
+                    .Distinct(StringComparer.Ordinal).Take(MaximumMethods).ToArray(), LoaderLibrary.FromException(error)));
             if (error is AggregateException aggregate)
             {
                 foreach (var inner in aggregate.InnerExceptions.Take(MaximumExceptions)) pending.Enqueue(inner);
@@ -76,7 +76,8 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
              (Origin == CrashOrigin.WindowsApplicationFault) != (exit.Fault is not null))) return null;
         var exceptions = Exceptions.Where(error => error is not null).Select(error => new CrashExceptionInfo(
             CrashReportSymbols.SafeExceptionType(error.Type), error.HResult,
-            (error.Methods ?? []).Take(MaximumMethods).Where(CrashReportSymbols.IsKnownMethod).ToArray())).ToArray();
+            (error.Methods ?? []).Take(MaximumMethods).Where(CrashReportSymbols.IsKnownMethod).ToArray(),
+            LoaderLibrary.Valid(error.Type, error.Library) ? error.Library : null)).ToArray();
         return this with
         {
             TimeUtc = TimeUtc.ToUniversalTime(),
@@ -141,6 +142,7 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
             var error = safe.Exceptions[i];
             report.AppendLine($"Exception {i + 1}: {error.Type}");
             report.AppendLine($"HRESULT: 0x{error.HResult.ToString("X8", CultureInfo.InvariantCulture)}");
+            if (error.Library is not null) report.AppendLine($"Requested library: {error.Library}");
             if (error.Methods.Length == 0) report.AppendLine("Product methods: Not available");
             else foreach (var method in error.Methods) report.AppendLine($"Method: {method}");
         }
@@ -197,14 +199,25 @@ internal static class CrashReportSymbols
     internal static string? Method(MethodBase? method)
     {
         if (method?.DeclaringType is not { } owner || !ProductAssemblies.Contains(owner.Assembly)) return null;
-        if (owner.GetCustomAttribute<CompilerGeneratedAttribute>() is not null && owner.DeclaringType is { } parent)
+        if (method.Name == "MoveNext" && owner.GetCustomAttribute<CompilerGeneratedAttribute>() is not null && owner.DeclaringType is { } parent)
         {
             method = parent.GetMethods(Members).FirstOrDefault(candidate =>
-                candidate.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType == owner);
+                candidate.GetCustomAttribute<StateMachineAttribute>()?.StateMachineType == owner);
             if (method is null) return null;
             owner = parent;
         }
         var name = method.IsConstructor ? method.IsStatic ? "cctor" : "ctor" : method.Name;
+        // Dispatcher callbacks and local functions can be the only Wisp frames on an exception.
+        // Map the actual compiler-emitted frame to its enclosing compiled method.
+        if (method.IsDefined(typeof(CompilerGeneratedAttribute), false) || owner.IsDefined(typeof(CompilerGeneratedAttribute), false))
+        {
+            var end = name.IndexOf('>');
+            if (name.StartsWith('<') && end > 1 && (name.AsSpan(end + 1).StartsWith("b__") || name.AsSpan(end + 1).StartsWith("g__")))
+            {
+                while (owner.IsDefined(typeof(CompilerGeneratedAttribute), false) && owner.DeclaringType is { } enclosing) owner = enclosing;
+                name = name[1..end] switch { ".ctor" => "ctor", ".cctor" => "cctor", var member => member };
+            }
+        }
         var symbol = $"{owner.FullName}.{name}";
         return IsKnownMethod(symbol) ? symbol : null;
     }

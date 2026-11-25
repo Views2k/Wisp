@@ -1,4 +1,5 @@
 using System.IO;
+using Wisp.App.Supplementary;
 using Wisp.App.Tunes;
 using Xunit;
 
@@ -6,23 +7,23 @@ namespace Wisp.App.Tests;
 
 public sealed class TuneAssetStreamValidationTests
 {
-    public static TheoryData<byte, uint, uint, ulong, long> RejectedStreamShapes => new()
+    public static TheoryData<byte, uint, uint, ulong, long, uint> RejectedStreamShapes => new()
     {
-        { 1, 131072, 16221184, 16221184, 992 },
-        { 0, 131072, 16221184, 16221183, 992 },
-        { 0, 131072, 16221185, 16221185, 992 },
-        { 0, 131072, 1047552, 1047552, 64 },
-        { 0, 131072, 67109888, 67109888, 4104 },
-        { 0, 131072, 67108865, 67108865, 992 },
-        { 0, 1023, 16221184, 16221184, 992 },
-        { 0, 67108865, 16221184, 16221184, 992 },
-        { 0, 131072, 16221183, 16221184, 992 },
-        { 0, 131072, 67108865, 16221184, 992 },
-        { 0, 131072, 16221184, 16221184, -8 },
-        { 0, 131072, 16221184, 16221184, 0 },
-        { 0, 131072, 16221184, 16221184, 7 },
-        { 0, 131072, 16221184, 16221184, 9 },
-        { 0, 131072, 16221184, 16221184, 524296 }
+        { 1, 131072, 16221184, 16221184, 992, 0x8004A615 },
+        { 0, 131072, 16221184, 16221183, 992, 0x8004A618 },
+        { 0, 131072, 16221185, 16221185, 992, 0x8004A618 },
+        { 0, 131072, 1047552, 1047552, 64, 0x8004A616 },
+        { 0, 131072, 67109888, 67109888, 4104, 0x8004A617 },
+        { 0, 131072, 67108865, 67108865, 992, 0x8004A617 },
+        { 0, 1023, 16221184, 16221184, 992, 0x8004A619 },
+        { 0, 67108865, 16221184, 16221184, 992, 0x8004A61A },
+        { 0, 131072, 16221183, 16221184, 992, 0x8004A61B },
+        { 0, 131072, 67108865, 16221184, 992, 0x8004A61C },
+        { 0, 131072, 16221184, 16221184, -8, 0x8004A61D },
+        { 0, 131072, 16221184, 16221184, 0, 0x8004A61D },
+        { 0, 131072, 16221184, 16221184, 7, 0x8004A61D },
+        { 0, 131072, 16221184, 16221184, 9, 0x8004A61F },
+        { 0, 131072, 16221184, 16221184, 524296, 0x8004A61E }
     };
 
     [Fact]
@@ -64,8 +65,8 @@ public sealed class TuneAssetStreamValidationTests
 
     [Theory]
     [MemberData(nameof(RejectedStreamShapes))]
-    public void RejectedOriginalGuardConditionsExposeOnlyTheFiveScalars(byte flag, uint chunkSize,
-        uint allocated, ulong length, long vectorBytes)
+    public void EachRejectedConditionKeepsItsMeasurementsLocalAndReportsTheFirstFailedCheck(byte flag, uint chunkSize,
+        uint allocated, ulong length, long vectorBytes, uint expectedCode)
     {
         var error = Assert.Throws<TuneAssetStreamValidationException>(() =>
             TuneAssetCapture.ValidateStreamShape(flag, chunkSize, allocated, length, vectorBytes));
@@ -80,5 +81,16 @@ public sealed class TuneAssetStreamValidationTests
         Assert.Equal(TuneAssetCapture.MaximumLength, error.MaximumSizeBytes);
         Assert.Null(error.ActualPageCount);
         Assert.Equal("The tuning asset stream shape does not match the supported layout.", error.Message);
+        var incident = TuneCaptureService.TuneIncident(TuneCaptureStage.ReadTune, "tune-read-failed", error);
+        Assert.True(SupplementaryIncidentSchema.Valid(incident));
+        Assert.Equal(expectedCode, incident.Code);
+        var evidence = Assert.Single(incident.Exceptions!.Value);
+        Assert.Equal(nameof(TuneAssetStreamValidationException), evidence.Type);
+        Assert.Equal(expectedCode, evidence.Code);
+        Assert.Contains(SupplementaryIncidentSchema.MethodId("Wisp.App.Tunes.TuneAssetCapture.ValidateStreamShape"), evidence.Methods);
+        var json = System.Text.Json.JsonSerializer.Serialize(incident);
+        Assert.DoesNotContain(error.Message, json, StringComparison.Ordinal);
+        Assert.DoesNotContain("ChunkSize", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("VectorBytes", json, StringComparison.OrdinalIgnoreCase);
     }
 }

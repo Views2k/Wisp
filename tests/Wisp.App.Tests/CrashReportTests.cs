@@ -4,7 +4,11 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Wisp.App.CrashDiagnostics;
 using Wisp.App.DebugLogging;
+using Wisp.App.Laps;
+using Wisp.App.Runs;
+using Wisp.App.Supplementary;
 using Wisp.App.Tunes;
+using Wisp.Core;
 using Xunit;
 
 namespace Wisp.App.Tests;
@@ -12,6 +16,48 @@ namespace Wisp.App.Tests;
 public sealed class CrashReportTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 3, 12, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void FatalCallbackPreservesItsCompiledWispLocationAndRequestedLibraryAfterRestart()
+    {
+        using var directory = new TemporaryDirectory();
+        using var service = new LapDeltaService();
+        service.AttachRunStore(new RunStore(directory.Path));
+        void FailOnce(string status)
+        {
+            service.LapRecordingStatusChanged -= FailOnce;
+            throw new DllNotFoundException("Unable to load DLL 'WinSqlite3.dll' or one of its dependencies: PRIVATE");
+        }
+        service.LapRecordingStatusChanged += FailOnce;
+        var error = Assert.Throws<DllNotFoundException>(() => service.Configure(true, LapDeltaReference.SessionBest, recordLaps: true));
+        new CrashExceptionMonitor(new CrashReportStore(directory.Path), () => Now).UiException(error);
+        var saved = Assert.IsType<CrashReport>(new CrashReportStore(directory.Path).LatestPending());
+        var local = Assert.Single(saved.Exceptions);
+        Assert.Contains("Wisp.App.Laps.LapDeltaService.AttachRunStore", local.Methods);
+        Assert.Equal("winsqlite3.dll", local.Library);
+        var incident = SupplementaryIncidentCapture.Crash(saved);
+        var exception = Assert.Single(incident.Exceptions!.Value);
+        Assert.Contains(SupplementaryIncidentSchema.MethodId("Wisp.App.Laps.LapDeltaService.AttachRunStore"), exception.Methods);
+        Assert.Equal(local.Library, exception.Library);
+        Assert.DoesNotContain("PRIVATE", saved.Format() + JsonSerializer.Serialize(incident));
+    }
+
+    [Theory]
+    [InlineData(false, "Unable to load DLL 'Wisp.NativeRenderer.dll'", "wisp.nativerenderer.dll")]
+    [InlineData(true, "Unable to find an entry point named 'private_entry' in DLL 'WinSqlite3.dll'.", "winsqlite3.dll")]
+    [InlineData(true, "Unable to find an entry point named 'user32.dll' in DLL 'private.dll'.", null)]
+    [InlineData(false, "Unable to load DLL 'private.dll'. Searched 'user32.dll'.", null)]
+    [InlineData(false, "Unable to load DLL 'C:\\PRIVATE\\user32.dll'.", "user32.dll")]
+    public void LoaderProjectionRetainsOnlyTheKnownRequestedLibrary(bool entry, string message, string? expected)
+    {
+        Exception error = entry ? new EntryPointNotFoundException(message) : new DllNotFoundException(message);
+        var report = CrashReport.Capture(error, CrashOrigin.UiDispatcher, true, Now);
+        Assert.Equal(expected, Assert.Single(report.Exceptions).Library);
+        Assert.Empty(Assert.Single(report.Exceptions).Methods);
+        Assert.DoesNotContain("PRIVATE", JsonSerializer.Serialize(report));
+        var forged = report with { Exceptions = [new(nameof(IOException), 1, [], "user32.dll")] };
+        Assert.Null(Assert.Single(forged.Sanitize()!.Exceptions).Library);
+    }
 
     [Fact]
     public void CaptureNeverReadsMessageToStringDataOrPrivateSource()

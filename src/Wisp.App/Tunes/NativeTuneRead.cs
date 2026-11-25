@@ -27,6 +27,17 @@ internal enum TuneReadCheck : uint
     UnitIndex = 0x8004A612,
     UnitIdentity = 0x8004A613,
     UnitCallback = 0x8004A614,
+    AssetStreamFlag = 0x8004A615,
+    AssetStreamLengthBelowMinimum = 0x8004A616,
+    AssetStreamLengthAboveMaximum = 0x8004A617,
+    AssetStreamLengthAlignment = 0x8004A618,
+    AssetStreamChunkBelowMinimum = 0x8004A619,
+    AssetStreamChunkAboveMaximum = 0x8004A61A,
+    AssetStreamAllocationBelowLength = 0x8004A61B,
+    AssetStreamAllocationAboveMaximum = 0x8004A61C,
+    AssetStreamVectorBelowMinimum = 0x8004A61D,
+    AssetStreamVectorAboveMaximum = 0x8004A61E,
+    AssetStreamVectorAlignment = 0x8004A61F,
 }
 
 // Per-request read budget. Nothing here writes to, invokes, or scans the game.
