@@ -51,5 +51,5 @@ Wisp 2.7.2 ships every fix from the 2.7.1 audits: HUD layouts return to the righ
 
 - A connection report names the telemetry listener failure even after the automatic restart brought the listener back.
 - Delete local logs removes native fault records as well.
-- The latest native fault is recorded, so the one that ended Wisp is the one the next launch reports.
+- The next launch reports the most recent native exception captured during the previous run.
 - A Windows shutdown that ends Wisp is classified from the Windows stop record when Wisp’s own shutdown notice is unavailable.

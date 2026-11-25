@@ -4,19 +4,19 @@ using System.Runtime.InteropServices;
 
 namespace Wisp.App.CrashDiagnostics;
 
-// What the native renderer's vectored exception handler wrote when a hardware fault hit the
-// process: the faulting address and a call stack, each as module+offset. Windows' own event
-// only keeps the faulting module and offset; this is what locates the fault.
+// The last exception observed by the native handler. Windows can handle it and continue the run.
 internal sealed record NativeFaultRecord(uint ExceptionCode, string Module, ulong Offset, string? Access,
     ulong? AccessAddress, uint ThreadId, string[] Frames)
 {
     internal const int MaximumFrames = 48;
     internal const int MaximumRecordBytes = 64 * 1024;
+    private static readonly ulong MaximumFileTime = (ulong)DateTimeOffset.MaxValue.ToFileTime();
+    public DateTimeOffset? CapturedAtUtc { get; init; }
 
     internal NativeFaultRecord? Sanitize()
     {
         var module = WindowsFaultEventReader.SafeModule(Module);
-        if (module is null || Frames is null) return null;
+        if (ExceptionCode == 0 || module is null || Frames is null) return null;
         if (Access is not (null or "read" or "write" or "execute")) return null;
         var frames = Frames.Where(ValidFrame).Take(MaximumFrames).ToArray();
         return this with { Module = module, Frames = frames };
@@ -45,6 +45,7 @@ internal sealed record NativeFaultRecord(uint ExceptionCode, string Module, ulon
             var end = block.IndexOf("\nend\n", StringComparison.Ordinal);
             if (end < 0) continue;
             uint code = 0, thread = 0;
+            DateTimeOffset? capturedAtUtc = null;
             string? module = null, access = null;
             ulong offset = 0, accessAddress = 0;
             var hasAccessAddress = false;
@@ -57,6 +58,10 @@ internal sealed record NativeFaultRecord(uint ExceptionCode, string Module, ulon
                 var value = line[(separator + 1)..].Trim();
                 switch (key)
                 {
+                    case "time":
+                        if (!Hex(value, out var ticks) || ticks == 0 || ticks > MaximumFileTime) return null;
+                        capturedAtUtc = new DateTimeOffset(DateTime.FromFileTimeUtc((long)ticks));
+                        break;
                     case "code": if (!Hex(value, out var parsedCode) || parsedCode > uint.MaxValue) return null; code = (uint)parsedCode; break;
                     case "thread": if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out thread)) return null; break;
                     case "address":
@@ -74,7 +79,8 @@ internal sealed record NativeFaultRecord(uint ExceptionCode, string Module, ulon
                 }
             }
             if (module is null) return null;
-            return new NativeFaultRecord(code, module, offset, access, hasAccessAddress ? accessAddress : null, thread, frames.ToArray()).Sanitize();
+            return (new NativeFaultRecord(code, module, offset, access, hasAccessAddress ? accessAddress : null, thread, frames.ToArray())
+                { CapturedAtUtc = capturedAtUtc }).Sanitize();
         }
         return null;
     }

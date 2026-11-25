@@ -26,6 +26,7 @@ public sealed class NativeCrashCaptureTests
         var record = NativeFaultRecord.Parse(Record + partial);
         Assert.NotNull(record);
         Assert.Equal(0xc0000005u, record.ExceptionCode);
+        Assert.Equal(new DateTimeOffset(DateTime.FromFileTimeUtc(0x1dc2a3f4b5c6d7e)), record.CapturedAtUtc);
         Assert.Equal("rtsshooks64.dll", record.Module);
         Assert.Equal(0x1a2bul, record.Offset);
         Assert.Equal("read", record.Access);
@@ -39,6 +40,8 @@ public sealed class NativeCrashCaptureTests
     [InlineData("wisp-native-fault 1\ncode=0xc0000005\nend\n")]
     [InlineData("wisp-native-fault 1\ncode=0xc0000005\naddress=C:\\PRIVATE\\x.dll+0x1\nend\n")]
     [InlineData("wisp-native-fault 1\ncode=zz\naddress=ntdll.dll+0x1\nend\n")]
+    [InlineData("wisp-native-fault 1\naddress=ntdll.dll+0x1\nend\n")]
+    [InlineData("wisp-native-fault 1\ntime=0xffffffffffffffff\ncode=0xc0000005\naddress=ntdll.dll+0x1\nend\n")]
     public void IncompleteOrUnsafeRecordsAreIgnored(string text)
     {
         Assert.Null(NativeFaultRecord.Parse(text));
