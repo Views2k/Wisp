@@ -80,7 +80,7 @@ internal sealed record NativeFaultRecord(uint ExceptionCode, string Module, ulon
             }
             if (module is null) return null;
             return (new NativeFaultRecord(code, module, offset, access, hasAccessAddress ? accessAddress : null, thread, frames.ToArray())
-                { CapturedAtUtc = capturedAtUtc }).Sanitize();
+            { CapturedAtUtc = capturedAtUtc }).Sanitize();
         }
         return null;
     }
