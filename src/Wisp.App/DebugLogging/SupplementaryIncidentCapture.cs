@@ -12,6 +12,7 @@ internal static class SupplementaryIncidentCapture
     internal static SupplementaryIncident Crash(CrashReport report)
     {
         var safe = report.Sanitize();
+        var native = safe?.RecoveredExit?.NativeForIncident(safe.Context);
         var category = safe?.Origin == CrashOrigin.WindowsApplicationFault ? "windows-fault" :
             safe?.Origin == CrashOrigin.UnexpectedExit ? "unexpected-exit" : "managed-exception";
         var origin = safe?.Origin switch
@@ -44,8 +45,7 @@ internal static class SupplementaryIncidentCapture
             exceptions: Exceptions(safe?.Exceptions), context: Context(safe?.Context, report.TimeUtc,
                 recovered: safe?.RecoveredExit is not null), crash: new(origin, lookup, safe?.RecoveredExit?.Fault?.Module,
                 safe?.RecoveredExit?.Fault?.FaultOffset, safe?.RecoveredExit?.Fault?.ModuleVersion,
-                safe?.RecoveredExit?.Native?.Module, safe?.RecoveredExit?.Native?.Offset,
-                safe?.RecoveredExit?.Native is { } native ? native.Frames.ToImmutableArray() : null));
+                native?.Module, native?.Offset, native?.Frames.ToImmutableArray()));
     }
 
     internal static SupplementaryIncident? Export(Exception error, DateTimeOffset now)

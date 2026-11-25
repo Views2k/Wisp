@@ -1,11 +1,58 @@
 using System.IO;
 using Wisp.App.CrashDiagnostics;
+using Wisp.App.DebugLogging;
 using Xunit;
 
 namespace Wisp.App.Tests;
 
 public sealed class PreviousRunRecoveryTests
 {
+    [Theory]
+    [InlineData("c0000374", "ntdll.dll", "112fc5", 60, true)]
+    [InlineData("c0000374", "ntdll.dll", "112fc5", -1, false)]
+    [InlineData("c0000374", "ntdll.dll", "112fc5", 301, false)]
+    [InlineData("c0000374", "ntdll.dll", "112fc5", 61, false)]
+    [InlineData("c0000374", "ntdll.dll", "112fc5", 15, false)]
+    [InlineData("c0000374", "other.dll", "123", 15, false)]
+    [InlineData("c000001d", "dxgi.dll", "15f2", 59, false)]
+    [InlineData("c0000374", "other.dll", "123", 59, true)]
+    [InlineData("c0000374", "ntdll.dll", "112fc5", null, true)]
+    [InlineData("c0000374", "other.dll", "123", null, false)]
+    public async Task WindowsFaultAndNativeObservationKeepTheirOwnEvidence(string code, string module, string offset,
+        int? captureSecond, bool includesNative)
+    {
+        using var fixture = new Fixture();
+        var marker = WindowsFaultEventReaderTests.Marker();
+        var start = marker.StartedAtUtc;
+        var sampleTime = start.AddSeconds(30);
+        marker = marker with { Context = new(sampleTime, [new() { TimestampUtc = sampleTime }], []) };
+        fixture.WriteCapture(marker, code, module, offset, captureSecond);
+        var windows = new WindowsFaultEvidence(start.AddMinutes(1), 0xc0000374u, 0x112fc5, "ntdll.dll", true);
+        var report = await fixture.Recover(marker, new Source(_ => new(WindowsFaultLookupStatus.Matched, windows)));
+        Assert.Equal(windows, report!.RecoveredExit!.Fault);
+        var saved = fixture.Store.LatestPending()!;
+        var incident = SupplementaryIncidentCapture.Crash(saved);
+        Assert.Equal(0xc0000374u, incident.Code);
+        Assert.Equal("ntdll.dll", incident.Crash!.Module);
+        Assert.Equal(includesNative ? module : null, incident.Crash.FaultModule);
+        Assert.Equal(includesNative, incident.Crash.Frames.HasValue);
+        Assert.Equal(captureSecond is null or (>= 0 and <= 300), saved.RecoveredExit!.Native is not null);
+    }
+
+    [Fact]
+    public async Task AnEarlierNativeObservationDoesNotOverrideAConfirmedWindowsStop()
+    {
+        using var fixture = new Fixture();
+        var marker = WindowsFaultEventReaderTests.Marker();
+        fixture.WriteCapture(marker, "c000001d", "dxgi.dll", "15f2", 15);
+        var report = await fixture.Recover(marker, new Source(_ => new(WindowsFaultLookupStatus.NoMatchingEvent)),
+            stops: new Stops(true));
+        var incident = SupplementaryIncidentCapture.Crash(report!);
+        Assert.Equal("system-stopped", incident.Reason);
+        Assert.Null(incident.Crash!.FaultModule);
+        Assert.Contains("Native exception observed: dxgi.dll", report!.Format(), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData((int)ShutdownIntent.Requested, false)]
     [InlineData((int)ShutdownIntent.OperatingSystem, false)]
@@ -295,6 +342,13 @@ public sealed class PreviousRunRecoveryTests
         private readonly string _directory = Path.Combine(Path.GetTempPath(), "WispPreviousRunTests", Guid.NewGuid().ToString("N"));
         internal CrashReportStore Store { get; }
         internal Fixture() { Store = new(_directory); }
+        internal void WriteCapture(RunExitMarker marker, string code, string module, string offset, int? seconds)
+        {
+            Directory.CreateDirectory(_directory);
+            var time = seconds is { } elapsed ? $"time=0x{marker.StartedAtUtc.AddSeconds(elapsed).ToFileTime():x}\n" : "";
+            File.WriteAllText(NativeCrashCapture.PathFor(_directory, marker.RunId),
+                $"wisp-native-fault 1\n{time}code=0x{code}\naddress={module}+0x{offset}\nframe={module}+0x{offset}\nend\n");
+        }
         internal Task<CrashReport?> Recover(RunExitMarker marker, Source source, CancellationToken? token = null, Stops? stops = null) =>
             new PreviousRunRecovery(Store, source, stops).RecoverAsync(marker, WindowsFaultEventReaderTests.Started.AddMinutes(5),
                 token ?? TestContext.Current.CancellationToken);

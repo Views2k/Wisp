@@ -25,13 +25,12 @@ internal sealed class PreviousRunRecovery(CrashReportStore reports, IWindowsFaul
             catch (OperationCanceledException) { throw; }
             catch (Exception) { lookup = new(WindowsFaultLookupStatus.ReadFailed); }
             cancellationToken.ThrowIfCancellationRequested();
-            var exit = new RecoveredExitInfo(safe.StartedAtUtc, nextRunStartedAtUtc, lookup.Status, lookup.Fault).Sanitize();
-            if (exit is null) exit = new(safe.StartedAtUtc, nextRunStartedAtUtc, WindowsFaultLookupStatus.ReadFailed, null);
-            exit = exit with { Native = NativeCrashCapture.TryRead(reports.StoreDirectory, safe.RunId) };
+            var evidence = new RecoveredExitInfo(safe.StartedAtUtc, nextRunStartedAtUtc, lookup.Status, lookup.Fault)
+            { Native = NativeCrashCapture.TryRead(reports.StoreDirectory, safe.RunId) };
+            var exit = evidence.Sanitize() ?? new(safe.StartedAtUtc, nextRunStartedAtUtc, WindowsFaultLookupStatus.ReadFailed, null);
             // A recorded close request is not a crash. A correlated Windows fault still wins.
             if (safe.ShutdownIntent != ShutdownIntent.None && exit.Fault is null) return null;
-            // Windows stopping right after the last checkpoint ended the run, unless Wisp itself recorded a fault.
-            if (exit.Fault is null && exit.Native is null && stops is not null)
+            if (exit.Fault is null && stops is not null)
             {
                 bool stopped;
                 try { stopped = stops.StoppedUnexpectedly(safe.Context?.CapturedAtUtc ?? safe.StartedAtUtc, nextRunStartedAtUtc, cancellationToken); }
@@ -52,7 +51,7 @@ internal sealed class PreviousRunRecovery(CrashReportStore reports, IWindowsFaul
             }
             // Nobody closed Wisp on a PC that was asleep, or whose session was locked, when the run was last
             // seen, and Windows recorded no stop. Markers from earlier versions carry neither state.
-            if (exit.Fault is null && exit.Native is null && !exit.WindowsStopped && !exit.WindowsShutDown)
+            if (exit.Fault is null && !exit.WindowsStopped && !exit.WindowsShutDown)
                 exit = exit with { Suspended = safe.SuspendedAtUtc is not null, SessionLocked = safe.SessionLockedAtUtc is not null };
             var report = safe.ToReport(exit.Fault?.TimeUtc ?? nextRunStartedAtUtc) with
             {

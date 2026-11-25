@@ -131,7 +131,8 @@ internal sealed record CrashReport(Guid Id, DateTimeOffset TimeUtc, string WispV
             else report.AppendLine("The previous run did not finish normal shutdown. The cause is not established; termination or power loss can also leave this marker.");
             if (exit.Native is { } native)
             {
-                report.AppendLine($"Faulting address: {native.Module}+0x{native.Offset.ToString("X", CultureInfo.InvariantCulture)} (code 0x{native.ExceptionCode.ToString("X8", CultureInfo.InvariantCulture)}, thread {native.ThreadId})");
+                report.AppendLine($"Native exception observed: {native.Module}+0x{native.Offset.ToString("X", CultureInfo.InvariantCulture)} (code 0x{native.ExceptionCode.ToString("X8", CultureInfo.InvariantCulture)}, thread {native.ThreadId})");
+                if (native.CapturedAtUtc is { } captured) report.AppendLine($"Native capture UTC: {captured:O}");
                 foreach (var frame in native.Frames) report.AppendLine($"Frame: {frame}");
             }
         }

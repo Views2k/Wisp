@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Xml;
 using System.Xml.Linq;
+using Wisp.App.DebugLogging;
 
 namespace Wisp.App.CrashDiagnostics;
 
@@ -18,7 +19,7 @@ internal sealed record WindowsFaultLookup(WindowsFaultLookupStatus Status, Windo
 internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTimeOffset DetectedAtUtc,
     WindowsFaultLookupStatus LookupStatus, WindowsFaultEvidence? Fault)
 {
-    // The in-process capture of the fault, when the native handler wrote one for that run.
+    // An exception captured in process during this run, independently of the Windows event.
     public NativeFaultRecord? Native { get; init; }
     // Windows stopped without shutting down (power loss, reset or system crash) right after the run was last seen.
     public bool WindowsStopped { get; init; }
@@ -29,10 +30,27 @@ internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTim
     // The Windows session was locked when the run was last seen.
     public bool SessionLocked { get; init; }
 
+    internal NativeFaultRecord? NativeForIncident(HealthContextSnapshot? context)
+    {
+        if (Native is not { } native || WindowsStopped || WindowsShutDown || Suspended || SessionLocked) return null;
+        // A later health sample shows the run continued after this observation, even when
+        // Windows eventually reported another exception at the same instruction.
+        if (native.CapturedAtUtc is { } captured && context is not null && context.Samples.Any(s => s.TimestampUtc > captured)) return null;
+        if (Fault is { } fault)
+        {
+            if (native.ExceptionCode != fault.ExceptionCode || native.CapturedAtUtc > fault.TimeUtc) return null;
+            if (native.CapturedAtUtc is null && (native.Module != fault.Module || native.Offset != fault.FaultOffset)) return null;
+        }
+        return native;
+    }
+
     internal RecoveredExitInfo? Sanitize()
     {
         if (RunStartedAtUtc.Offset != TimeSpan.Zero || RunStartedAtUtc.Ticks <= 0 ||
             DetectedAtUtc.Offset != TimeSpan.Zero || DetectedAtUtc < RunStartedAtUtc || !Enum.IsDefined(LookupStatus)) return null;
+        var native = Native?.Sanitize();
+        if (native?.CapturedAtUtc is { } captured &&
+            (captured.Offset != TimeSpan.Zero || captured < RunStartedAtUtc || captured > DetectedAtUtc)) native = null;
         if (LookupStatus == WindowsFaultLookupStatus.Matched)
         {
             if (Fault is not { } fault || fault.TimeUtc.Offset != TimeSpan.Zero ||
@@ -40,14 +58,14 @@ internal sealed record RecoveredExitInfo(DateTimeOffset RunStartedAtUtc, DateTim
             return this with
             {
                 Fault = fault with { Module = WindowsFaultEventReader.SafeModule(fault.Module), ModuleVersion = WindowsFaultEventReader.SafeVersion(fault.ModuleVersion) },
-                Native = Native?.Sanitize(),
+                Native = native,
                 WindowsStopped = false,
                 WindowsShutDown = false,
                 Suspended = false,
                 SessionLocked = false
             };
         }
-        return this with { Fault = null, Native = Native?.Sanitize() };
+        return this with { Fault = null, Native = native };
     }
 }
 internal interface IWindowsFaultEventSource
