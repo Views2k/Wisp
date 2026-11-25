@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -14,12 +15,14 @@ HARNESS = r"""
 param([string]$Source, [string]$FixtureDirectory, [string]$Shell)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+Add-Type -Path (Join-Path (Split-Path $Source) 'InstallerLifecycleJob.cs')
+. (Join-Path (Split-Path $Source) 'InstallerLifecycleStages.ps1')
 $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     $Source, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw 'Supervisor source does not parse.' }
-$names = @('New-InstallerLifecycleWorker', 'Invoke-InstallerLifecycleWorker')
+$names = @('New-InstallerLifecycleWorker', 'Invoke-InstallerLifecycleWorker', 'Write-InstallerLifecycleProgress')
 $functions = @($ast.FindAll({ param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
     $node.Name -cin $names
@@ -33,6 +36,18 @@ $stageLog = Join-Path $FixtureDirectory 'stages.log'
 __BODY__
 """
 
+START_CHILD = r"""
+$info = [Diagnostics.ProcessStartInfo]::new()
+$info.FileName = (Get-Process -Id $PID).Path
+$info.UseShellExecute = $false
+$info.CreateNoWindow = $true
+foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 18')) {
+    $info.ArgumentList.Add($argument)
+}
+$child = [Diagnostics.Process]::Start($info)
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'child.pid'), [string]$child.Id)
+"""
+
 
 class InstallerSupervisorTests(unittest.TestCase):
     def setUp(self):
@@ -43,13 +58,18 @@ class InstallerSupervisorTests(unittest.TestCase):
         self.shell = shutil.which("pwsh")
         self.assertIsNotNone(self.shell, "PowerShell 7 is required.")
 
-    def evaluate(self, body, worker=""):
-        (self.root / "benign worker.ps1").write_text(worker, encoding="utf-8")
+    def command(self, body, worker):
+        worker_header = "param([string]$InstallerPath, [string]$ExpectedVersion)\n" \
+                        "if ([Console]::ReadLine() -cne 'run') { exit 99 }\n"
+        (self.root / "benign worker.ps1").write_text(worker_header + worker, encoding="utf-8")
         harness = self.root / "helpers.ps1"
         harness.write_text(HARNESS.replace("__BODY__", body), encoding="utf-8")
+        return [self.shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(harness),
+                "-Source", str(SCRIPT), "-FixtureDirectory", str(self.root), "-Shell", self.shell]
+
+    def evaluate(self, body, worker=""):
         result = subprocess.run(
-            [self.shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(harness),
-             "-Source", str(SCRIPT), "-FixtureDirectory", str(self.root), "-Shell", self.shell],
+            self.command(body, worker),
             capture_output=True, text=True, timeout=25)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stderr, "")
@@ -65,7 +85,7 @@ class InstallerSupervisorTests(unittest.TestCase):
                 $s = $p.StartInfo
                 @{ shell = $s.UseShellExecute; noConsole = $s.CreateNoWindow;
                    hidden = ($s.WindowStyle -eq [Diagnostics.ProcessWindowStyle]::Hidden);
-                   stdout = $s.RedirectStandardOutput; stderr = $s.RedirectStandardError;
+                   stdin = $s.RedirectStandardInput; stdout = $s.RedirectStandardOutput; stderr = $s.RedirectStandardError;
                    arguments = @($s.ArgumentList); log = $s.Environment['WISP_INSTALLER_STAGE_LOG']
                 } | ConvertTo-Json -Compress
             } finally { $p.Dispose() }
@@ -73,6 +93,7 @@ class InstallerSupervisorTests(unittest.TestCase):
         self.assertFalse(result["shell"])
         self.assertFalse(result["noConsole"])
         self.assertTrue(result["hidden"])
+        self.assertTrue(result["stdin"])
         self.assertTrue(result["stdout"])
         self.assertTrue(result["stderr"])
         self.assertEqual(result["arguments"], ["-NoLogo", "-NoProfile", "-NonInteractive", "-File",
@@ -80,12 +101,24 @@ class InstallerSupervisorTests(unittest.TestCase):
                          "C:\\fixture folder\\setup.exe", "-ExpectedVersion", "2.6.1"])
         self.assertEqual(result["log"], str(self.root / "stages.log"))
 
+    def test_real_canary_refuses_to_start_without_supervisor_permission(self):
+        # This path does not exist, so even a broken guard cannot run an installer.
+        missing = self.root / "missing-installer.exe"
+        run = subprocess.run(
+            [self.shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
+             str(SCRIPT.with_name("Test-InstallerLifecycle.ps1")), "-InstallerPath", str(missing),
+             "-ExpectedVersion", "2.7.6"],
+            env={**os.environ, "GITHUB_ACTIONS": "true", "CI": "true"},
+            input="", text=True, capture_output=True, timeout=8)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("contain the worker before setup starts", run.stderr)
+
     def test_successful_worker_completes(self):
         result = self.evaluate(r"""
             $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'fixture' '2.6.1' $stageLog
             Invoke-InstallerLifecycleWorker $p -TimeoutSeconds 5
             @{ completed = $true } | ConvertTo-Json -Compress
-        """, "param([string]$InstallerPath, [string]$ExpectedVersion)\nexit 0\n")
+        """, "exit 0")
         self.assertTrue(result["completed"])
         self.assertIn("Supervisor diagnostic: worker start returned.", self.diagnostics)
         self.assertIn("Supervisor diagnostic: process wait completed.", self.diagnostics)
@@ -97,7 +130,6 @@ class InstallerSupervisorTests(unittest.TestCase):
             Invoke-InstallerLifecycleWorker $p -TimeoutSeconds 10
             @{ completed = $true } | ConvertTo-Json -Compress
         """, r"""
-param([string]$InstallerPath, [string]$ExpectedVersion)
 $chunk = 'PRIVATE_FIXTURE_VALUE' * 4096
 for ($index = 0; $index -lt 32; $index++) {
     [Console]::Out.Write($chunk)
@@ -115,6 +147,39 @@ exit 0
         """)
         self.assertEqual(result[-4:], ["-BaselineInstallerPath", "C:\\baseline folder\\setup.exe",
                                       "-BaselineVersion", "2.7.4"])
+
+    def test_wait_reports_completed_allowlisted_stages_before_worker_exits(self):
+        result = self.evaluate(r"""
+            function Write-Host([string]$Message) {
+                Microsoft.PowerShell.Utility\Write-Host $Message
+                if ($Message.StartsWith('Supervisor diagnostic: Published upgrade canary handoff started.')) {
+                    [IO.File]::WriteAllText((Join-Path $FixtureDirectory 'marker-seen'), '')
+                }
+            }
+            $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'fixture' '2.7.6' $stageLog
+            Invoke-InstallerLifecycleWorker $p -TimeoutSeconds 10 -StageLogPath $stageLog
+            @{ completed = $true } | ConvertTo-Json -Compress
+        """, r"""
+$marker = 'Published upgrade canary handoff started. utc=2026-11-19T00:00:00.0000000Z elapsed_ms=71'
+$failure = 'Installer lifecycle failure: type=IOException; line=8'
+[IO.File]::WriteAllText($env:WISP_INSTALLER_STAGE_LOG, "$marker`nPRIVATE_FIXTURE_VALUE`n$($failure.Substring(0, 6))")
+$ack = Join-Path $PSScriptRoot 'marker-seen'
+$timer = [Diagnostics.Stopwatch]::StartNew()
+while (-not [IO.File]::Exists($ack)) {
+    if ($timer.Elapsed.TotalSeconds -gt 7) { exit 9 }
+    Start-Sleep -Milliseconds 50
+}
+[IO.File]::AppendAllText($env:WISP_INSTALLER_STAGE_LOG, $failure.Substring(6) + "`n")
+exit 0
+""")
+        self.assertTrue(result["completed"])
+        marker = "Supervisor diagnostic: Published upgrade canary handoff started."
+        matches = [line for line in self.diagnostics if line.startswith(marker)]
+        self.assertEqual(len(matches), 1)
+        self.assertLess(self.diagnostics.index(matches[0]),
+                        self.diagnostics.index("Supervisor diagnostic: process wait completed."))
+        self.assertIn("Supervisor diagnostic: Installer lifecycle failure: type=IOException; line=8",
+                      self.diagnostics)
 
     def test_incomplete_baseline_arguments_are_rejected(self):
         result = self.evaluate(r"""
@@ -136,7 +201,7 @@ exit 0
             try { Invoke-InstallerLifecycleWorker $p -TimeoutSeconds 5 }
             catch { $message = $_.Exception.Message }
             @{ message = $message } | ConvertTo-Json -Compress
-        """, "param([string]$InstallerPath, [string]$ExpectedVersion)\nexit 7\n")
+        """, "exit 7")
         self.assertIn("failed with exit code 7", result["message"])
         self.assertIn("Supervisor diagnostic: process wait completed.", self.diagnostics)
         self.assertEqual(self.diagnostics[-1], "Supervisor diagnostic: worker handles disposed.")
@@ -152,24 +217,12 @@ exit 0
             $child = Get-Process -Id $childId -ErrorAction SilentlyContinue
             @{ message = $message; childRunning = ($null -ne $child -and -not $child.HasExited);
                elapsed = $timer.Elapsed.TotalSeconds } | ConvertTo-Json -Compress
-        """, r"""
-param([string]$InstallerPath, [string]$ExpectedVersion)
-$info = [Diagnostics.ProcessStartInfo]::new()
-$info.FileName = (Get-Process -Id $PID).Path
-$info.UseShellExecute = $false
-$info.CreateNoWindow = $true
-foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60')) {
-    $info.ArgumentList.Add($argument)
-}
-$child = [Diagnostics.Process]::Start($info)
-[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'child.pid'), [string]$child.Id)
-Start-Sleep -Seconds 60
-""")
+        """, START_CHILD + "Start-Sleep -Seconds 18")
         self.assertIn("exceeded its 3-second deadline", result["message"])
         self.assertFalse(result["childRunning"])
         self.assertLess(result["elapsed"], 13)
         deadline = self.diagnostics.index("Supervisor diagnostic: process wait reached its deadline.")
-        termination = self.diagnostics.index("Supervisor diagnostic: terminating the owned worker tree.")
+        termination = self.diagnostics.index("Supervisor diagnostic: closing the owned worker job.")
         disposed = self.diagnostics.index("Supervisor diagnostic: worker handles disposed.")
         self.assertLess(deadline, termination)
         self.assertLess(termination, disposed)
@@ -188,6 +241,50 @@ Start-Sleep -Seconds 60
         self.assertTrue(result["disposed"])
         self.assertNotIn("Supervisor diagnostic: worker start returned.", self.diagnostics)
         self.assertEqual(self.diagnostics[-1], "Supervisor diagnostic: worker handles disposed.")
+
+    def test_failed_worker_leaving_a_child_preserves_its_error_and_reaps_the_child(self):
+        result = self.evaluate(r"""
+            $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'fixture' '2.7.6' $stageLog
+            $message = ''
+            try { Invoke-InstallerLifecycleWorker $p -TimeoutSeconds 5 }
+            catch { $message = $_.Exception.Message }
+            $childId = [int][IO.File]::ReadAllText((Join-Path $FixtureDirectory 'child.pid'))
+            $child = Get-Process -Id $childId -ErrorAction SilentlyContinue
+            $running = $null -ne $child -and -not $child.HasExited
+            if ($running) { $child.Kill(); [void]$child.WaitForExit(3000) }
+            @{ message = $message; orphan = $running } | ConvertTo-Json -Compress
+        """, START_CHILD + "exit 7")
+        self.assertIn("failed with exit code 7", result["message"])
+        self.assertFalse(result["orphan"])
+
+    def test_abrupt_supervisor_exit_also_stops_its_worker(self):
+        command = self.command(r"""
+            $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'fixture' '2.7.6' $stageLog
+            Invoke-InstallerLifecycleWorker $p -TimeoutSeconds 20
+        """, r"""
+$pending = Join-Path $PSScriptRoot 'worker.tmp'
+[IO.File]::WriteAllText($pending, [string]$PID)
+[IO.File]::Move($pending, (Join-Path $PSScriptRoot 'worker.pid'))
+Start-Sleep -Seconds 20
+""")
+        with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL) as supervisor:
+            try:
+                pid_path = self.root / "worker.pid"
+                deadline = time.monotonic() + 8
+                while not pid_path.exists() and time.monotonic() < deadline and supervisor.poll() is None:
+                    time.sleep(0.05)
+                self.assertTrue(pid_path.exists(), "The contained worker did not start.")
+                worker_pid = int(pid_path.read_text())
+            finally:
+                supervisor.kill()
+                supervisor.wait(timeout=3)
+        check = subprocess.run(
+            [self.shell, "-NoProfile", "-NonInteractive", "-Command",
+             "$p = Get-Process -Id " + str(worker_pid) + " -ErrorAction SilentlyContinue; "
+             "if ($p -and -not $p.WaitForExit(3000)) { exit 1 }; exit 0"],
+            capture_output=True, timeout=6)
+        self.assertEqual(check.returncode, 0, "The worker survived the abrupt loss of its supervisor.")
 
 
 if __name__ == "__main__":

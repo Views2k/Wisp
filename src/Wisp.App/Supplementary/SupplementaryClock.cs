@@ -3,7 +3,7 @@ namespace Wisp.App.Supplementary;
 // Server time is learned only from a successful fixed-origin content response. Wall-clock edits cannot age the anchor.
 internal sealed class SupplementaryClock(TimeProvider clock)
 {
-    private sealed record Anchor(DateTimeOffset ServerTime, long ReceivedAt, int UncertaintyMs);
+    private sealed record Anchor(DateTimeOffset ServerTime, long ReceivedAt, int UncertaintyMs, bool IncidentLibrary);
     private Anchor? _anchor;
     internal bool IsFresh
     {
@@ -19,8 +19,10 @@ internal sealed class SupplementaryClock(TimeProvider clock)
     {
         if (response.Status == SupplementaryRequestStatus.Success && response.ServerTime is { Offset.Ticks: 0 } time &&
             response.UncertaintyMs is >= 0 and <= 15000)
-            Volatile.Write(ref _anchor, new(time, clock.GetTimestamp(), response.UncertaintyMs.Value));
+            Volatile.Write(ref _anchor, new(time, clock.GetTimestamp(), response.UncertaintyMs.Value, response.IncidentLibrary));
     }
+    internal bool SupportsIncidentLibrary => IsFresh && Volatile.Read(ref _anchor)?.IncidentLibrary == true;
+
     internal SupplementaryObservationClock? Capture(long queuedAt, long originalAgeMs)
     {
         var anchor = Volatile.Read(ref _anchor);

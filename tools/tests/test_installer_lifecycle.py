@@ -16,6 +16,7 @@ param([string]$Source, [string]$FixtureDirectory)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 try {
+    . (Join-Path (Split-Path $Source) 'InstallerLifecycleStages.ps1')
     $tokens = $null
     $errors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile(

@@ -141,7 +141,8 @@ internal static class SupplementaryIncidentCapture
         return errors.Take(3).Select(e => new SupplementaryIncidentException(CrashReportSymbols.SafeExceptionType(e.Type), unchecked((uint)e.HResult),
             (e.Methods ?? []).Where(CrashReportSymbols.IsKnownMethod)
                 .Select(m => SupplementaryIncidentSchema.Methods.Contains(m) ? m : SupplementaryIncidentSchema.MethodId(m))
-                .Distinct(StringComparer.Ordinal).Take(4).ToImmutableArray())).ToImmutableArray();
+                .Distinct(StringComparer.Ordinal).Take(4).ToImmutableArray(),
+            LoaderLibrary.Valid(e.Type, e.Library) ? e.Library : null)).ToImmutableArray();
     }
 
     internal static ImmutableArray<SupplementaryIncidentContext>? Context(HealthContextSnapshot? snapshot, DateTimeOffset observedAt, bool recovered = false)

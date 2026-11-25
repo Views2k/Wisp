@@ -74,7 +74,8 @@ internal static class TuneCaptureDetails
             report.AppendLine($"Error code: 0x{exception.HResult.ToString("X8", CultureInfo.InvariantCulture)}");
             report.AppendLine($"Message: {SafeMessage(exception)}");
             report.AppendLine($"Method: {SafeMethod(exception)}");
-            if (exception is InvalidDataException or TuneNotReadyException && Enum.IsDefined((TuneReadCheck)(uint)exception.HResult))
+            if (exception is InvalidDataException or TuneNotReadyException or TuneAssetStreamValidationException &&
+                Enum.IsDefined((TuneReadCheck)(uint)exception.HResult))
                 report.AppendLine($"Tune check: {(TuneReadCheck)(uint)exception.HResult}");
             if (exception is TuneNotReadyException notReady)
                 report.AppendLine(FormattableString.Invariant($"Observed value: {notReady.Observed}"));

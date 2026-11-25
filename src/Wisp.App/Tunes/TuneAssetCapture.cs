@@ -89,10 +89,20 @@ internal static class TuneAssetCapture
         NativeTuneCompatibilityLayout.AssetContract? asset = null)
     {
         // Descriptor lengths describe a retained asset, not the mutable live database size.
-        if (flag != 0 || length is < MinimumLength or > MaximumLength || length % 1024 != 0 ||
-            chunkSize is < 1024 or > 64 * 1024 * 1024 || allocated < length || allocated > 64 * 1024 * 1024 ||
-            vectorBytes is < 8 or > 512 * 1024 || vectorBytes % 8 != 0)
-            throw new TuneAssetStreamValidationException(flag, chunkSize, allocated, length, vectorBytes);
+        TuneReadCheck check;
+        if (flag != 0) check = TuneReadCheck.AssetStreamFlag;
+        else if (length < MinimumLength) check = TuneReadCheck.AssetStreamLengthBelowMinimum;
+        else if (length > MaximumLength) check = TuneReadCheck.AssetStreamLengthAboveMaximum;
+        else if (length % 1024 != 0) check = TuneReadCheck.AssetStreamLengthAlignment;
+        else if (chunkSize < 1024) check = TuneReadCheck.AssetStreamChunkBelowMinimum;
+        else if (chunkSize > 64 * 1024 * 1024) check = TuneReadCheck.AssetStreamChunkAboveMaximum;
+        else if (allocated < length) check = TuneReadCheck.AssetStreamAllocationBelowLength;
+        else if (allocated > 64 * 1024 * 1024) check = TuneReadCheck.AssetStreamAllocationAboveMaximum;
+        else if (vectorBytes < 8) check = TuneReadCheck.AssetStreamVectorBelowMinimum;
+        else if (vectorBytes > 512 * 1024) check = TuneReadCheck.AssetStreamVectorAboveMaximum;
+        else if (vectorBytes % 8 != 0) check = TuneReadCheck.AssetStreamVectorAlignment;
+        else return;
+        throw new TuneAssetStreamValidationException(flag, chunkSize, allocated, length, vectorBytes) { HResult = unchecked((int)check) };
     }
 
     internal static byte[] Decode(byte[] encoded, byte[] crcBytes, byte[] fold, CancellationToken cancellationToken,

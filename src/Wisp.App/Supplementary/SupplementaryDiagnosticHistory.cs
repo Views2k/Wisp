@@ -72,7 +72,7 @@ internal sealed class SupplementaryDiagnosticBuffer(TimeProvider? clock = null)
             if (value.Environment is { } environment &&
                 (_environment is null || environment.CollectedAt >= _environment.CollectedAt)) _environment = environment;
             var point = new SupplementaryDiagnosticObservation(value.ObservedAt, value.Kind, value.Feature, value.Outcome, value.Stage,
-                value.Value, value.DurationMs, value.Measurements, value.Incident?.Reason, value.Incident, value.GameVerification,
+                value.Value, value.DurationMs, value.Measurements, value.Incident?.Reason, value.Incident?.WithoutLoaderLibraries(), value.GameVerification,
                 value.UpdateStatus, value.Platform, value.GameBuild, value.RenderMode, value.ForegroundState, value.SessionAgeMs,
                 value.SessionSummary, value.ActivitySummary, value.RelatedRun);
             _observations.Enqueue(point, (point.At.UtcTicks, _sequence++));

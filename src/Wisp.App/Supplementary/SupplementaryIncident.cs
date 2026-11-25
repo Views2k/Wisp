@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace Wisp.App.Supplementary;
 
-internal sealed record SupplementaryIncidentException(string Type, uint Code, ImmutableArray<string> Methods);
+internal sealed record SupplementaryIncidentException(string Type, uint Code, ImmutableArray<string> Methods, string? Library = null);
 internal sealed record SupplementaryIncidentContext(int AgeMs, string ConnectionState, double? CpuPercent = null,
     long? WorkingSetBytes = null, long? ManagedHeapBytes = null, double? PacketAgeMs = null,
     double? UiHeartbeatAgeMs = null, double? NativeAgeMs = null, string? Foreground = null,
@@ -30,7 +30,13 @@ internal sealed record SupplementaryRecorderEvidence(long? VideoPackets = null, 
 internal sealed record SupplementaryIncident(int SchemaVersion, string Category, string Reason, string Signature,
     string? FailureStage = null, uint? Code = null, ImmutableArray<SupplementaryIncidentException>? Exceptions = null,
     ImmutableArray<SupplementaryIncidentContext>? Context = null, SupplementaryRecorderEvidence? Recorder = null,
-    SupplementaryCrashEvidence? Crash = null, SupplementaryUpdateEvidence? Update = null);
+    SupplementaryCrashEvidence? Crash = null, SupplementaryUpdateEvidence? Update = null)
+{
+    internal SupplementaryIncident WithoutLoaderLibraries() =>
+        Exceptions is { } errors && errors.Any(e => e.Library is not null)
+            ? this with { Exceptions = errors.Select(e => e with { Library = null }).ToImmutableArray() }
+            : this;
+}
 
 // Only this catalog crosses the automatic incident boundary. Context is evidence observed before a
 // failure, never an attribution of its cause. New symbols/categories require the matching service catalog.
@@ -126,7 +132,8 @@ internal static class SupplementaryIncidentSchema
         (value.Update is null || value.SchemaVersion == 3 && value.Category == "update" && ValidUpdate(value.Update)) &&
         (Reasons.Contains(value.Reason) || value.Category == "update" && UpdateFailureReasons.Contains(value.Reason)) && (value.FailureStage is null || FailureStages.Contains(value.FailureStage)) &&
         (value.Exceptions is null || value.Exceptions is { IsDefault: false, Length: > 0 and <= 3 } exceptions && exceptions.All(e =>
-            e is not null && ExceptionTypes.Contains(e.Type) && !e.Methods.IsDefault && e.Methods.Length <= 4 &&
+            e is not null && ExceptionTypes.Contains(e.Type) && (e.Library is null || CrashDiagnostics.LoaderLibrary.Valid(e.Type, e.Library)) &&
+            !e.Methods.IsDefault && e.Methods.Length <= 4 &&
             e.Methods.All(ValidMethod) && e.Methods.Distinct(StringComparer.Ordinal).Count() == e.Methods.Length)) &&
         (value.Context is null || value.Context is { IsDefault: false, Length: > 0 and <= 3 } context &&
             context.All(c => ValidContext(c, value.Category is "unexpected-exit" or "windows-fault" ? 86400000 : 30000)) &&
