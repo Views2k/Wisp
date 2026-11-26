@@ -118,9 +118,9 @@ public sealed class AmbientBackdropLifecycleTests
     }
 
     [Fact]
-    public void OffscreenControlDrawsCompleteFrameZeroWithoutCompositeEffectsOrTimers() => OnSta(() =>
+    public void ClassicBackdropDrawsCompleteFrameZeroWithoutCompositeEffectsOrTimers() => OnSta(() =>
     {
-        var control = new AmbientBackdrop();
+        var control = new AmbientBackdrop { IsWinterModeEnabled = false };
         control.Measure(new Size(1280, 800));
         control.Arrange(new Rect(0, 0, 1280, 800));
 

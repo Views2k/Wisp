@@ -68,6 +68,16 @@ internal static class DashboardRimReview
 
             size = new Size(1440, 1000);
             Arrange(surface, size);
+            Check(rim.IsWinterModeEnabled && rim.WinterParticleColor == ColorCustomization.DefaultWinterParticleColor,
+                "dashboard-rim-winter-default");
+            controller.SetWinterMode(false);
+            Arrange(surface, size);
+            Check(!rim.IsWinterModeEnabled, "dashboard-rim-classic-binding");
+            Capture("classic-particles", 1.2, saveShell: true);
+            controller.SetWinterMode(true);
+            Arrange(surface, size);
+            Check(rim.IsWinterModeEnabled, "dashboard-rim-winter-binding");
+            Capture("winter-snowflakes", 1.2, saveShell: true);
             foreach (var (name, color) in new[] { ("cyan", Colors.Cyan), ("pink", Colors.HotPink), ("gold", Colors.Gold) })
             {
                 var brush = new SolidColorBrush(color); brush.Freeze();
@@ -121,7 +131,10 @@ internal static class DashboardRimReview
 
             CaptureMotion();
             foreach (var dpi in new[] { 1d, 1.5 })
-                benchmarks.Add(Benchmark(new Rect(12, 32, 1200, 360), dpi));
+            {
+                benchmarks.Add(Benchmark(new Rect(12, 32, 1200, 360), dpi, null));
+                benchmarks.Add(Benchmark(new Rect(12, 32, 1200, 360), dpi, ColorCustomization.DefaultWinterParticleColor));
+            }
             Check(activations == 0 && new WindowInteropHelper(window).Handle == IntPtr.Zero, "window-was-shown-or-activated");
             Check(!rim.HasLifecycleSubscriptions && !rim.HasRenderingSubscription, "detached-review-attached-live-events");
 
@@ -147,6 +160,7 @@ internal static class DashboardRimReview
                     radius = rim.CornerRadius.TopLeft,
                     glow = rim.GlowOpacity,
                     particles = rim.ParticlesEnabled,
+                    winter = rim.IsWinterModeEnabled,
                     instrument = Rectangle(Bounds(instrument, surface)),
                     rim = new { x = hero.X, y = hero.Y, width = hero.Width, height = hero.Height },
                     status = expectedStatus,
@@ -165,7 +179,8 @@ internal static class DashboardRimReview
                         var bounds = rim.InstrumentBounds;
                         drawing.PushTransform(new TranslateTransform(bounds.X, bounds.Y));
                         renderer.Draw(drawing, new Rect(bounds.Size), rim.Shape, rim.EffectiveCornerRadius, accent.Color,
-                            rim.GlowOpacity * accent.Opacity, rim.ParticlesEnabled, seconds, VisualTreeHelper.GetDpi(rim), rim.EffectiveRimWidth);
+                            rim.GlowOpacity, rim.ParticlesEnabled, seconds, VisualTreeHelper.GetDpi(rim),
+                            rim.EffectiveRimWidth, rim.IsWinterModeEnabled ? rim.WinterParticleColor : null, accent.Opacity);
                         drawing.Pop();
                     }
                 }
@@ -274,13 +289,14 @@ internal static class DashboardRimReview
         return failures.Count == 0 ? 0 : 2;
     }
 
-    private static object Benchmark(Rect bounds, double dpi)
+    private static object Benchmark(Rect bounds, double dpi, Color? winterColor)
     {
         var renderer = new DashboardRimDrawing(); var visual = new DrawingVisual();
         void Draw(double seconds)
         {
             using var drawing = visual.RenderOpen();
-            renderer.Draw(drawing, bounds, OrbitSurfaceShape.Swept, new CornerRadius(28), Colors.Cyan, 1, true, seconds, new DpiScale(dpi, dpi));
+            renderer.Draw(drawing, bounds, OrbitSurfaceShape.Swept, new CornerRadius(28), Colors.Cyan, 1, true, seconds,
+                new DpiScale(dpi, dpi), winterParticleColor: winterColor);
         }
         var before = GC.GetAllocatedBytesForCurrentThread(); var start = Stopwatch.GetTimestamp(); Draw(0);
         var coldMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
@@ -298,6 +314,7 @@ internal static class DashboardRimReview
         return new
         {
             dpi = dpi * 96,
+            winter = winterColor.HasValue,
             coldMilliseconds,
             coldBytes,
             frames = times.Length,

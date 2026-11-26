@@ -13,7 +13,7 @@ public sealed class HudProfileCompletenessTests
     private static readonly string[] SeparateSettings =
     [
         "SettingsRevision", "UdpPort", "AggregationMode", "StartWithWindows", "StartWithForza", "StartMinimizedWithForza",
-        "BackgroundParticlesEnabled", "AnimatedBackground", "AutomaticApplicationUpdateChecks",
+        "BackgroundParticlesEnabled", "IsWinterModeEnabled", "AnimatedBackground", "AutomaticApplicationUpdateChecks",
         "LastApplicationUpdateCheckUtc", "CpuRenderingEnabled", "HudGpuPriority", "DebugLoggingEnabled", "DebugLoggingExpiresAtUtc",
         "ApplicationStyle", "HudPresets", "SidebarCollapsed", "UseLegacyInterface", "CompletedFeatureTourId", "LastSupportReminderShownUtc",
         "DismissedWhatsNewId", "DismissedDashboardBannerKey", "ResizableDashboardDisplay", "RunWorkspace", "RunStatisticsView", "Clips",

@@ -109,6 +109,7 @@ public sealed class HudPreset
     // would otherwise turn lap delta off and switch Time Attack to race timing.
     public int Revision { get; set; }
     public string? CustomParticleColor { get; set; }
+    public string? CustomWinterParticleColor { get; set; }
     public string? AppBorderColor { get; set; }
     public string? AppTextColor { get; set; }
     public string? AppMutedTextColor { get; set; }
@@ -149,7 +150,7 @@ public sealed class HudPreset
     public Dictionary<string, OverlayPlacement>? LapDeltaPlacements { get; set; }
     public Dictionary<string, OverlayPlacement>? LapMapPlacements { get; set; }
     public Dictionary<int, PowerTorqueGaugeRange>? PowerTorqueGaugeRanges { get; set; }
-    internal const int CurrentRevision = 2;
+    internal const int CurrentRevision = 3;
 
     [JsonIgnore]
     public string Summary => LayoutMode switch
@@ -287,6 +288,7 @@ public sealed class HudPreset
             CustomGForceTrailColor = settings.CustomGForceTrailColor,
             Revision = CurrentRevision,
             CustomParticleColor = settings.CustomParticleColor,
+            CustomWinterParticleColor = settings.CustomWinterParticleColor,
             AppBorderColor = settings.ApplicationStyle?.BorderColor,
             AppTextColor = settings.ApplicationStyle?.TextColor,
             AppMutedTextColor = settings.ApplicationStyle?.MutedTextColor,
@@ -385,6 +387,8 @@ public sealed class HudPreset
         settings.LapDeltaShowBar = LapDeltaShowBar;
         settings.LapDeltaScale = LapDeltaScale;
         settings.CustomParticleColor = CustomParticleColor;
+        if (Revision >= 3)
+            settings.CustomWinterParticleColor = CustomWinterParticleColor;
         var style = (settings.ApplicationStyle ?? new AppStyleSettings()).Clone();
         style.BorderColor = AppBorderColor;
         style.TextColor = AppTextColor;
@@ -504,6 +508,7 @@ public sealed class HudPreset
         LapMapBackgroundColor = ColorCustomization.NormalizeParticle(LapMapBackgroundColor);
         LapDeltaScale = NormalizeScale(LapDeltaScale);
         CustomParticleColor = ColorCustomization.NormalizeParticle(CustomParticleColor);
+        CustomWinterParticleColor = ColorCustomization.NormalizeParticle(CustomWinterParticleColor);
         DriftGaugeScale = NormalizeScale(DriftGaugeScale);
         DriftGaugeBackgroundOpacity = double.IsFinite(DriftGaugeBackgroundOpacity) ? Math.Clamp(DriftGaugeBackgroundOpacity, 0, 1) : .5;
         if (!Enum.IsDefined(LapTimingMode)) LapTimingMode = global::Wisp.Core.LapTimingMode.GameLaps;

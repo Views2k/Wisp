@@ -19,8 +19,8 @@ internal static class OverlayMonitorPlacementTests
                 return true;
             }, IntPtr.Zero));
         Assert.NotEmpty(monitors);
-        var foreground = GetForegroundWindow();
         var reference = new Window { Width = 160, Height = 120, ShowActivated = false, ShowInTaskbar = false };
+        var assertReferenceInactive = ObserveActivation(reference);
         try
         {
             var referenceHandle = new WindowInteropHelper(reference).EnsureHandle();
@@ -37,7 +37,7 @@ internal static class OverlayMonitorPlacementTests
                 AssertGForcePlacement(referenceHandle, preserveSaved: false);
                 AssertGForcePlacement(referenceHandle, preserveSaved: true);
             }
-            Assert.Equal(foreground, GetForegroundWindow());
+            assertReferenceInactive();
         }
         finally { reference.Close(); }
     }
@@ -58,7 +58,9 @@ internal static class OverlayMonitorPlacementTests
         settings.GForcePlacements["Other-1280x720-GForceV2"] = new(60, 70, 1, 1);
         var controller = new AppController(settings, _ => { }, new NoStartupRegistration());
         var overlay = new OverlayWindow(controller);
+        var assertOverlayInactive = ObserveActivation(overlay);
         var gForce = new GForceWindow(controller);
+        var assertGForceInactive = ObserveActivation(gForce);
         controller.Overlay = overlay;
         controller.GForceOverlay = gForce;
         try
@@ -73,6 +75,8 @@ internal static class OverlayMonitorPlacementTests
             Assert.Equal(expected.X, gForce.Left, 5);
             Assert.Equal(expected.Y, gForce.Top, 5);
             Assert.True(settings.GForcePlacements.ContainsKey("Other-1280x720-GForceV2"));
+            assertOverlayInactive();
+            assertGForceInactive();
         }
         finally
         {
@@ -96,6 +100,7 @@ internal static class OverlayMonitorPlacementTests
         };
         var controller = new AppController(settings, _ => { }, new NoStartupRegistration());
         var overlay = new OverlayWindow(controller);
+        var assertOverlayInactive = ObserveActivation(overlay);
         controller.Overlay = overlay;
         try
         {
@@ -171,6 +176,7 @@ internal static class OverlayMonitorPlacementTests
             Assert.NotEqual(savedBounds, overlay.GetPlacementBounds());
             Assert.Equal(overlay.GetPlacementBounds().Left, settings.Placements[settings.LastOverlayPlacementKey!].Left);
             Assert.Equal(overlay.GetPlacementBounds().Top, settings.Placements[settings.LastOverlayPlacementKey!].Top);
+            assertOverlayInactive();
         }
         finally
         {
@@ -181,6 +187,7 @@ internal static class OverlayMonitorPlacementTests
         // A manual drag before the first game detection must also win.
         var manualController = new AppController(new AppSettings { OverlayLocked = true }, _ => { }, new NoStartupRegistration());
         var manualOverlay = new OverlayWindow(manualController);
+        var assertManualOverlayInactive = ObserveActivation(manualOverlay);
         manualController.Overlay = manualOverlay;
         try
         {
@@ -205,12 +212,26 @@ internal static class OverlayMonitorPlacementTests
                 .Invoke(manualController, null);
             Assert.Null(manualController.Settings.LastOverlayPlacementKey);
             Assert.Equal(previousValue, (previousPlacement.Left, previousPlacement.Top, previousPlacement.WidthScale, previousPlacement.HeightScale));
+            assertManualOverlayInactive();
         }
         finally
         {
             manualOverlay.Close();
             manualController.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
+    }
+
+    private static Action ObserveActivation(Window window)
+    {
+        var activated = window.IsActive;
+        window.Activated += (_, _) => activated = true;
+        return () =>
+        {
+            Assert.False(activated, $"{window.GetType().Name} activated during monitor placement.");
+            Assert.False(window.IsActive);
+            var handle = new WindowInteropHelper(window).Handle;
+            if (handle != IntPtr.Zero) Assert.NotEqual(handle, GetActiveWindow());
+        };
     }
 
     private sealed class NoStartupRegistration : IStartupRegistrationService
@@ -223,7 +244,7 @@ internal static class OverlayMonitorPlacementTests
     private delegate bool MonitorCallback(IntPtr monitor, IntPtr dc, ref Rectangle bounds, IntPtr data);
     [DllImport("user32.dll")] private static extern bool EnumDisplayMonitors(IntPtr dc, IntPtr clip, MonitorCallback callback, IntPtr data);
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
-    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern IntPtr GetActiveWindow();
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out Rectangle bounds);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
 }

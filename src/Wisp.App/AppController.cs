@@ -1595,6 +1595,14 @@ public sealed partial class AppController : IAsyncDisposable
         ScheduleSettingsSave();
     }
 
+    internal void SetCustomWinterParticleColor(string? value)
+    {
+        var normalized = ColorCustomization.NormalizeParticle(value);
+        if (Settings.CustomWinterParticleColor == normalized) return;
+        Settings.CustomWinterParticleColor = normalized;
+        ScheduleSettingsSave();
+    }
+
     public void SetCustomHudBorderColor(string? value)
     {
         var normalized = ColorCustomization.NormalizeHudBorder(value);
@@ -1887,6 +1895,26 @@ public sealed partial class AppController : IAsyncDisposable
         ViewModel.UseCelsiusTireTemperature = Settings.TireTemperatureUnit == TireTemperatureUnit.Celsius;
         ViewModel.TireTemperatureGaugeScale = Settings.TireTemperatureGaugeScale;
         ViewModel.TractionCueEnabled = Settings.TractionCueEnabled;
+    }
+
+    internal void SaveBackgroundParticleOptions()
+    {
+        if (Settings.RequiresSetup || _applyingViewOptions ||
+            (Settings.BackgroundParticlesEnabled == ViewModel.BackgroundParticlesEnabled &&
+             Settings.AnimatedBackground == ViewModel.AnimatedBackground))
+            return;
+
+        Settings.BackgroundParticlesEnabled = ViewModel.BackgroundParticlesEnabled;
+        Settings.AnimatedBackground = ViewModel.AnimatedBackground;
+        ScheduleSettingsSave();
+    }
+
+    internal void SetWinterMode(bool enabled)
+    {
+        if (Settings.IsWinterModeEnabled == enabled) return;
+        Settings.IsWinterModeEnabled = enabled;
+        ViewModel.IsWinterModeEnabled = enabled;
+        ScheduleSettingsSave();
     }
 
     public void SetUseLegacyInterface(bool enabled)

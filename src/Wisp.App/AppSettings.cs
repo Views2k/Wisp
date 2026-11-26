@@ -123,6 +123,7 @@ public sealed class AppSettings
     public bool StartWithForza { get; set; }
     public bool StartMinimizedWithForza { get; set; }
     public bool BackgroundParticlesEnabled { get; set; } = true;
+    public bool IsWinterModeEnabled { get; set; } = true;
     public bool AnimatedBackground { get; set; } = true;
     public bool AutomaticApplicationUpdateChecks { get; set; } = true;
     public DateTimeOffset? LastApplicationUpdateCheckUtc { get; set; }
@@ -138,6 +139,7 @@ public sealed class AppSettings
     public string? CustomAccentColor { get; set; }
     public string? CustomBackgroundColor { get; set; }
     public string? CustomParticleColor { get; set; }
+    public string? CustomWinterParticleColor { get; set; }
     public AppStyleSettings ApplicationStyle { get; set; } = new();
     public string? CustomHudBorderColor { get; set; }
     public string? CustomBoostLowColor { get; set; }
@@ -331,6 +333,7 @@ public sealed class AppSettings
         CustomAccentColor = ColorCustomization.NormalizeAccent(CustomAccentColor);
         CustomBackgroundColor = ColorCustomization.NormalizeBackground(CustomBackgroundColor);
         CustomParticleColor = ColorCustomization.NormalizeParticle(CustomParticleColor);
+        CustomWinterParticleColor = ColorCustomization.NormalizeParticle(CustomWinterParticleColor);
         ApplicationStyle ??= new AppStyleSettings();
         ApplicationStyle.Normalize();
         RunWorkspace ??= new Runs.RunWorkspaceSettings();
@@ -802,6 +805,7 @@ public sealed class SettingsService
         settings.CustomAccentColor = ColorCustomization.NormalizeAccent(settings.CustomAccentColor);
         settings.CustomBackgroundColor = ColorCustomization.NormalizeBackground(settings.CustomBackgroundColor);
         settings.CustomParticleColor = ColorCustomization.NormalizeParticle(settings.CustomParticleColor);
+        settings.CustomWinterParticleColor = ColorCustomization.NormalizeParticle(settings.CustomWinterParticleColor);
         settings.ApplicationStyle ??= new AppStyleSettings();
         settings.ApplicationStyle.Normalize();
         settings.RunWorkspace ??= new Runs.RunWorkspaceSettings();

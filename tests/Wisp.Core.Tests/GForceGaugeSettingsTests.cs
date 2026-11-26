@@ -35,6 +35,7 @@ public sealed class GForceGaugeSettingsTests
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
+    [InlineData(3)]
     public void SizeAndShapeRoundTripThroughSettingsAndProfilesWithVersionedPlacements(int revision)
     {
         var source = new AppSettings
@@ -54,7 +55,7 @@ public sealed class GForceGaugeSettingsTests
         Assert.Equal(0.85, restored.GForcePlacements["display"].HeightScale);
 
         var captured = HudPreset.Capture(restored, "G-force size");
-        Assert.Equal(2, captured.Revision);
+        Assert.Equal(3, captured.Revision);
         Assert.NotSame(restored.GForcePlacements, captured.GForcePlacements);
         Assert.NotSame(restored.GForcePlacements["display"], captured.GForcePlacements!["display"]);
         captured.Revision = revision;

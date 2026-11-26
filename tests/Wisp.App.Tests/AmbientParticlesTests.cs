@@ -77,7 +77,7 @@ public sealed class AmbientParticlesTests
     [Fact]
     public void ParticleControlCannotSubscribeToPointerAndDetachesWithTheWindow() => OnSta(() =>
     {
-        var control = new AmbientBackdrop { ParticlesOnly = true, ParticleColor = Colors.Cyan };
+        var control = new AmbientBackdrop { ParticlesOnly = true, IsWinterModeEnabled = false, ParticleColor = Colors.Cyan };
         var host = new Window { Content = control, ShowActivated = false, ShowInTaskbar = false };
         control.Measure(new Size(3840, 2160));
         control.Arrange(new Rect(0, 0, 3840, 2160));
@@ -147,6 +147,158 @@ public sealed class AmbientParticlesTests
             host.Close();
         }
     });
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WinterModeSwitchesImmediatelyAndRestoresBothStillFrames(bool particlesOnly) => OnSta(() =>
+    {
+        var control = new AmbientBackdrop { ParticlesOnly = particlesOnly, IsAnimationEnabled = false };
+        control.Measure(new Size(512, 320));
+        control.Arrange(new Rect(0, 0, 512, 320));
+        Assert.True(control.IsWinterModeEnabled);
+        var snow = CopyFrame(control);
+        control.IsWinterModeEnabled = false;
+        var wisps = CopyFrame(control);
+        Assert.False(wisps.SequenceEqual(snow));
+        control.IsWinterModeEnabled = true;
+        Assert.Equal(snow, CopyFrame(control));
+        control.IsWinterModeEnabled = false;
+        Assert.Equal(wisps, CopyFrame(control));
+        Assert.False(control.HasAnimationTickSubscription);
+        Assert.Equal(0, control.SceneTimeSeconds);
+    });
+
+    [Fact]
+    public void SnowUsesItsOwnBlueDefaultAndRespectsTransparentAndCustomColors() => OnSta(() =>
+    {
+        var control = new AmbientBackdrop { ParticlesOnly = true, IsAnimationEnabled = false, ParticleColor = Colors.Red };
+        control.Measure(new Size(512, 320));
+        control.Arrange(new Rect(0, 0, 512, 320));
+        Assert.Equal(ColorCustomization.DefaultWinterParticleColor, control.WinterParticleColor);
+        var blue = CopyFrame(control);
+        Assert.True(ChannelTotal(blue, 0) > ChannelTotal(blue, 2));
+        control.WinterParticleColor = Colors.Transparent;
+        Assert.Equal(0, ChannelTotal(CopyFrame(control), 3));
+        control.IsWinterModeEnabled = false;
+        var classic = CopyFrame(control);
+        Assert.True(ChannelTotal(classic, 2) > 0);
+        Assert.Equal(0, ChannelTotal(classic, 0));
+        control.WinterParticleColor = Colors.Lime;
+        control.IsWinterModeEnabled = true;
+        var green = CopyFrame(control);
+        Assert.True(ChannelTotal(green, 1) > 0);
+        Assert.Equal(0, ChannelTotal(green, 0));
+        Assert.Equal(0, ChannelTotal(green, 2));
+
+        static long ChannelTotal(byte[] pixels, int channel)
+        {
+            long total = 0;
+            for (var i = channel; i < pixels.Length; i += 4)
+                total += pixels[i];
+            return total;
+        }
+    });
+
+    [Fact]
+    public void SnowFallsAtDifferentSpeedsAndReusesFrozenCrystalDrawings() => OnSta(() =>
+    {
+        var snow = new AmbientSnowfall(7919);
+        var first = SnowFrame(snow, 0, Colors.White);
+        var same = SnowFrame(snow, 0, Colors.White);
+        var later = SnowFrame(snow, 0.25, Colors.White).ToDictionary(flake => flake.Rect.Width);
+        Assert.NotEmpty(first);
+        Assert.Equal(first, same);
+        Assert.All(first, image => Assert.InRange(image.Rect.Width, 3.8, 16));
+        Assert.True(first.Count(image => image.Rect.Width <= 11) > first.Length / 2);
+        Assert.True(first.Select(image => Math.Round(image.Rect.Width)).Distinct().Count() > 3);
+        var speeds = new HashSet<double>();
+        var rotated = 0;
+        foreach (var image in first)
+        {
+            Assert.True(image.Source.IsFrozen);
+            if (!later.TryGetValue(image.Rect.Width, out var next)) continue;
+            var vertical = next.Rect.Y - image.Rect.Y;
+            Assert.True(vertical > 0);
+            speeds.Add(Math.Round(vertical));
+            if (!ReferenceEquals(image.Source, next.Source))
+                rotated++;
+        }
+        Assert.True(speeds.Count > 3 && rotated > 3);
+        Assert.Equal(first, SnowFrame(snow, 0, Colors.White));
+        Assert.Empty(SnowFrame(snow, 0, Colors.Transparent));
+        Assert.NotSame(first[0].Source, SnowFrame(snow, 0, Colors.Coral)[0].Source);
+    });
+
+    [Fact]
+    public void SnowEmissionsAreSparseAndFadeIndependentlyAtDifferentHeights() => OnSta(() =>
+    {
+        var snow = new AmbientSnowfall(2711);
+        var previous = SnowFrame(snow, 0, Colors.White).ToDictionary(flake => flake.Rect.Width);
+        var meltHeights = new List<double>();
+        var births = 0;
+        var lowerFlakes = new HashSet<double>();
+        var activeTotal = 0;
+        var framesWithOpposingFades = 0;
+        for (var step = 1; step <= 160; step++)
+        {
+            var current = SnowFrame(snow, step * 0.25, Colors.White).ToDictionary(flake => flake.Rect.Width);
+            activeTotal += current.Count;
+            bool fadingIn = false, fadingOut = false;
+            foreach (var (width, flake) in current)
+            {
+                if (flake.Rect.Top > 730 && flake.Opacity > 0.08) lowerFlakes.Add(width);
+                if (previous.TryGetValue(width, out var last))
+                {
+                    var delta = flake.Opacity - last.Opacity;
+                    Assert.InRange(Math.Abs(delta), 0, 0.55);
+                    fadingIn |= delta > 0.02;
+                    fadingOut |= delta < -0.02;
+                }
+                else if (Interior(flake.Rect))
+                {
+                    Assert.InRange(flake.Opacity, 0, 0.35);
+                    births++;
+                }
+            }
+            foreach (var (width, flake) in previous)
+            {
+                if (current.ContainsKey(width) || !Interior(flake.Rect)) continue;
+                Assert.InRange(flake.Opacity, 0, 0.18);
+                meltHeights.Add(flake.Rect.Top);
+            }
+            if (fadingIn && fadingOut) framesWithOpposingFades++;
+            previous = current;
+        }
+
+        // The previous full-height renderer submitted about 125 crystals in this viewport.
+        Assert.InRange(activeTotal / 160d, 32, 48);
+        Assert.True(births > 20 && meltHeights.Count > 20);
+        Assert.True(meltHeights.Max() - meltHeights.Min() > 240);
+        Assert.True(lowerFlakes.Count >= 2);
+        Assert.True(framesWithOpposingFades > 80);
+
+        static bool Interior(Rect rect) => rect.Left > 12 && rect.Right < 1268 && rect.Top > 12 && rect.Bottom < 780;
+    });
+
+    private static (Rect Rect, ImageSource Source, double Opacity)[] SnowFrame(AmbientSnowfall snow, double seconds, Color color)
+    {
+        var visual = new DrawingVisual();
+        using (var drawing = visual.RenderOpen())
+            snow.Draw(drawing, new Size(1280, 800), seconds, color, 1);
+        if (visual.Drawing is not { } frame) return [];
+        return frame.Children.Select(command =>
+        {
+            var opacity = 1d;
+            if (command is DrawingGroup group)
+            {
+                opacity = group.Opacity;
+                command = Assert.Single(group.Children);
+            }
+            var image = Assert.IsType<ImageDrawing>(command);
+            return (image.Rect, image.ImageSource, opacity);
+        }).ToArray();
+    }
 
     private static byte[] CopyFrame(AmbientBackdrop control)
     {

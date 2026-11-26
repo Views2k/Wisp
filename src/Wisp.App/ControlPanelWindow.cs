@@ -116,7 +116,8 @@ public abstract partial class ControlPanelWindow : Window
             controller.Settings.CustomAccentColor,
             controller.Settings.CustomBackgroundColor,
             controller.Settings.ApplicationStyle,
-            controller.Settings.CustomParticleColor);
+            controller.Settings.CustomParticleColor,
+            controller.Settings.CustomWinterParticleColor);
         HudBorderThemeResources.Apply(
             Resources,
             hudBorderTheme.Name,
@@ -285,7 +286,7 @@ public abstract partial class ControlPanelWindow : Window
                 break;
             case 12:
                 ColorEditor.Title = "Background particles";
-                ColorEditor.Description = "Particle color only. Use accent color keeps it linked to the app accent.";
+                ColorEditor.Description = settings.IsWinterModeEnabled ? "Color of the falling snowflakes." : "Color of the background wisps.";
                 ColorEditor.MinimumOpacity = 0;
                 ColorEditor.MaximumBrightness = 1;
                 color = ColorCustomization.ResolveParticle(settings);
@@ -410,8 +411,7 @@ public abstract partial class ControlPanelWindow : Window
                 _controller.SetCustomGForceTrailColor(value);
                 break;
             case 12:
-                _controller.SetCustomParticleColor(value);
-                ApplyAppColorResources(_controller.Settings.CustomAccentColor, _controller.Settings.CustomBackgroundColor);
+                SetSelectedParticleColor(value);
                 break;
             case 13:
                 _controller.SetPowerTorqueDriftFlashColor(value);
@@ -440,12 +440,21 @@ public abstract partial class ControlPanelWindow : Window
             customAccent,
             customBackground,
             _controller.Settings.ApplicationStyle,
-            _controller.Settings.CustomParticleColor);
+            _controller.Settings.CustomParticleColor,
+            _controller.Settings.CustomWinterParticleColor);
+
+    private void SetSelectedParticleColor(string? value)
+    {
+        if (_controller.Settings.IsWinterModeEnabled)
+            _controller.SetCustomWinterParticleColor(value);
+        else
+            _controller.SetCustomParticleColor(value);
+        ApplyAppColorResources(_controller.Settings.CustomAccentColor, _controller.Settings.CustomBackgroundColor);
+    }
 
     protected void UseAccentParticleColor_Click(object sender, RoutedEventArgs e)
     {
-        _controller.SetCustomParticleColor(null);
-        ApplyAppColorResources(_controller.Settings.CustomAccentColor, _controller.Settings.CustomBackgroundColor);
+        SetSelectedParticleColor(null);
         LoadSelectedColorTarget();
     }
 
@@ -1086,6 +1095,23 @@ public abstract partial class ControlPanelWindow : Window
         finally
         {
             DebugLogDeleteButton.IsEnabled = true;
+        }
+    }
+
+    protected void BackgroundParticleOption_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || sender is not CheckBox toggle) return;
+        toggle.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateSource();
+        _controller.SaveBackgroundParticleOptions();
+    }
+
+    protected void WinterMode_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loaded && sender is CheckBox toggle)
+        {
+            _controller.SetWinterMode(toggle.IsChecked == true);
+            if (ColorTargetSelector.SelectedIndex == 12)
+                LoadSelectedColorTarget();
         }
     }
 

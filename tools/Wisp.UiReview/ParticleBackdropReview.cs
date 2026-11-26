@@ -37,7 +37,8 @@ internal static class ParticleBackdropReview
                 physicalWidth = (int)(width * dpiScale),
                 physicalHeight = (int)(height * dpiScale),
                 baseline,
-                current
+                current,
+                winter = BenchmarkSnowfall(viewport)
             });
 
             foreach (var (name, color) in new[]
@@ -50,6 +51,10 @@ internal static class ParticleBackdropReview
             }
             captures.Add(SaveCapture(output, $"particles-{identifier}-baseline-accent",
                 RenderBaseline(viewport, dpiScale)));
+            var snowfall = new AmbientSnowfall(2711);
+            foreach (var seconds in new[] { 6, 7 })
+                captures.Add(SaveCapture(output, $"winter-{identifier}-{seconds}s",
+                    RenderSnowfall(snowfall, viewport, dpiScale, seconds)));
         }
 
         File.WriteAllText(Path.Combine(output, "particle-review.json"), JsonSerializer.Serialize(new
@@ -68,6 +73,23 @@ internal static class ParticleBackdropReview
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine("Particle preparation timings, native-resolution images and 1:1 crops saved. GPU/compositor performance and gameplay are not measured.");
         return 0;
+    }
+
+    private static object BenchmarkSnowfall(Size viewport)
+    {
+        var snowfall = new AmbientSnowfall(2711);
+        var visual = new DrawingVisual();
+        void Step(double seconds)
+        {
+            using var drawing = visual.RenderOpen();
+            snowfall.Draw(drawing, viewport, seconds, ColorCustomization.DefaultWinterParticleColor, 1);
+        }
+        return new
+        {
+            cold = MeasurePhase(Step, static () => 0, 0, 1, 60),
+            warming = MeasurePhase(Step, static () => 0, 1, WarmingFrames, 60),
+            warm = MeasurePhase(Step, static () => 0, WarmingFrames + 1, MeasuredFrames, 60)
+        };
     }
 
     private static object BenchmarkBaseline(Size viewport)
@@ -186,6 +208,17 @@ internal static class ParticleBackdropReview
         {
             drawing.DrawRectangle(PreviewBackground, null, new Rect(viewport));
             sprites.Draw(drawing, scene.Particles, viewport, color, 1, new DpiScale(dpiScale, dpiScale));
+        }
+        return Render(visual, viewport, dpiScale);
+    }
+
+    private static RenderTargetBitmap RenderSnowfall(AmbientSnowfall snowfall, Size viewport, double dpiScale, double seconds)
+    {
+        var visual = new DrawingVisual();
+        using (var drawing = visual.RenderOpen())
+        {
+            drawing.DrawRectangle(PreviewBackground, null, new Rect(viewport));
+            snowfall.Draw(drawing, viewport, seconds, ColorCustomization.DefaultWinterParticleColor, 1);
         }
         return Render(visual, viewport, dpiScale);
     }

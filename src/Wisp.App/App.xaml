@@ -65,6 +65,7 @@
         <SolidColorBrush x:Key="WindowBrush" Color="#090C11" />
         <SolidColorBrush x:Key="PanelBrush" Color="#0E131B" />
         <SolidColorBrush x:Key="CardBrush" Color="#141B25" />
+        <SolidColorBrush x:Key="WinterDashboardReadoutBrush" Color="#A0141B25" />
         <SolidColorBrush x:Key="RaisedBrush" Color="#1B2431" />
         <SolidColorBrush x:Key="StrokeBrush" Color="#293646" />
         <SolidColorBrush x:Key="TextBrush" Color="#F5F8FC" />

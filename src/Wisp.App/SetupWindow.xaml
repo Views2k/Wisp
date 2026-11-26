@@ -65,7 +65,18 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <local:AmbientBackdrop x:Name="AmbientScene" Grid.Row="1" Grid.RowSpan="3"
-                                   IsAnimationEnabled="{Binding EffectiveBackgroundAnimation}" />
+                                   IsWinterModeEnabled="{Binding IsWinterModeEnabled}"
+                                   IsAnimationEnabled="{Binding EffectiveBackgroundAnimation}">
+                <local:AmbientBackdrop.Style>
+                    <Style TargetType="local:AmbientBackdrop">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding BackgroundParticlesEnabled}" Value="False">
+                                <Setter Property="Intensity" Value="0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </local:AmbientBackdrop.Style>
+            </local:AmbientBackdrop>
             <Grid Background="{StaticResource PanelBrush}" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
