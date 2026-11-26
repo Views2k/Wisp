@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / ".github/scripts/Invoke-InstallerLifecycleCanary.ps1"
+FIXTURE_TIMEOUT_SECONDS = 25
 HARNESS = r"""
 param([string]$Source, [string]$FixtureDirectory, [string]$Shell)
 $ErrorActionPreference = 'Stop'
@@ -70,7 +71,7 @@ class InstallerSupervisorTests(unittest.TestCase):
     def evaluate(self, body, worker=""):
         result = subprocess.run(
             self.command(body, worker),
-            capture_output=True, text=True, timeout=25)
+            capture_output=True, text=True, timeout=FIXTURE_TIMEOUT_SECONDS)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stderr, "")
         self.assertNotIn("PRIVATE_FIXTURE_VALUE", result.stdout)
@@ -258,33 +259,57 @@ exit 0
         self.assertFalse(result["orphan"])
 
     def test_abrupt_supervisor_exit_also_stops_its_worker(self):
+        import _winapi
+
         command = self.command(r"""
             $p = New-InstallerLifecycleWorker $Shell $fixtureScript 'fixture' '2.7.6' $stageLog
+            [IO.File]::WriteAllText((Join-Path $FixtureDirectory 'supervisor.ready'), '')
             Invoke-InstallerLifecycleWorker $p -TimeoutSeconds 20
         """, r"""
 $pending = Join-Path $PSScriptRoot 'worker.tmp'
 [IO.File]::WriteAllText($pending, [string]$PID)
 [IO.File]::Move($pending, (Join-Path $PSScriptRoot 'worker.pid'))
-Start-Sleep -Seconds 20
+Start-Sleep -Seconds 60
 """)
         with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL) as supervisor:
+            def wait_for_marker(filename, stage):
+                deadline = time.monotonic() + FIXTURE_TIMEOUT_SECONDS
+                while not (self.root / filename).exists():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        self.fail(f"Timed out waiting for {stage}.")
+                    try:
+                        code = supervisor.wait(timeout=min(remaining, 0.1))
+                    except subprocess.TimeoutExpired:
+                        continue
+                    self.fail(f"Supervisor exited with code {code} while waiting for {stage}.")
+
             try:
-                pid_path = self.root / "worker.pid"
-                deadline = time.monotonic() + 8
-                while not pid_path.exists() and time.monotonic() < deadline and supervisor.poll() is None:
-                    time.sleep(0.05)
-                self.assertTrue(pid_path.exists(), "The contained worker did not start.")
-                worker_pid = int(pid_path.read_text())
+                # Cold PowerShell and Add-Type initialization precede the worker's own deadline.
+                wait_for_marker("supervisor.ready", "PowerShell fixture initialization")
+                wait_for_marker("worker.pid", "the contained worker's startup handshake")
+                worker_pid = int((self.root / "worker.pid").read_text())
+                process_terminate = 0x0001
+                worker = _winapi.OpenProcess(_winapi.SYNCHRONIZE | process_terminate, False, worker_pid)
+
+                def cleanup_worker():
+                    try:
+                        if _winapi.WaitForSingleObject(worker, 0) == _winapi.WAIT_TIMEOUT:
+                            _winapi.TerminateProcess(worker, 1)
+                            _winapi.WaitForSingleObject(worker, 3000)
+                    finally:
+                        _winapi.CloseHandle(worker)
+
+                self.addCleanup(cleanup_worker)
+                self.assertEqual(_winapi.WaitForSingleObject(worker, 0), _winapi.WAIT_TIMEOUT,
+                                 "The contained worker exited before its supervisor was killed.")
+                self.assertIsNone(supervisor.poll(), "The supervisor exited before the termination check.")
             finally:
                 supervisor.kill()
                 supervisor.wait(timeout=3)
-        check = subprocess.run(
-            [self.shell, "-NoProfile", "-NonInteractive", "-Command",
-             "$p = Get-Process -Id " + str(worker_pid) + " -ErrorAction SilentlyContinue; "
-             "if ($p -and -not $p.WaitForExit(3000)) { exit 1 }; exit 0"],
-            capture_output=True, timeout=6)
-        self.assertEqual(check.returncode, 0, "The worker survived the abrupt loss of its supervisor.")
+        self.assertEqual(_winapi.WaitForSingleObject(worker, 3000), _winapi.WAIT_OBJECT_0,
+                         "The worker survived the abrupt loss of its supervisor.")
 
 
 if __name__ == "__main__":
