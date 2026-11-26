@@ -5,6 +5,7 @@ namespace Wisp.App;
 
 public static class ColorCustomization
 {
+    public static Color DefaultWinterParticleColor { get; } = Color.FromRgb(165, 228, 255);
     public const string DefaultPowerTorqueDriftFlashColor = "#FFFF0088";
     public const double AccentMinimumOpacity = 0.35;
     public const double BackgroundMinimumOpacity = 0.82;
@@ -18,8 +19,15 @@ public static class ColorCustomization
 
     public static string? NormalizeParticle(string? value) => Normalize(value, 0);
 
-    public static Color ResolveParticle(AppSettings settings) =>
-        TryParse(settings.CustomParticleColor, out var color) ? color : ResolveAccent(settings);
+    internal static Color ResolveWinterParticle(string? value) =>
+        TryParse(value, out var color) ? color : DefaultWinterParticleColor;
+
+    public static Color ResolveParticle(AppSettings settings)
+    {
+        if (settings.IsWinterModeEnabled)
+            return ResolveWinterParticle(settings.CustomWinterParticleColor);
+        return TryParse(settings.CustomParticleColor, out var color) ? color : ResolveAccent(settings);
+    }
 
     public static string? NormalizeBackground(string? value)
     {

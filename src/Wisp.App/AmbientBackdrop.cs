@@ -14,6 +14,10 @@ public sealed class AmbientBackdrop : FrameworkElement
         nameof(IsAnimationEnabled), typeof(bool), typeof(AmbientBackdrop),
         new FrameworkPropertyMetadata(true, OnAnimationChanged));
 
+    public static readonly DependencyProperty IsWinterModeEnabledProperty = DependencyProperty.Register(
+        nameof(IsWinterModeEnabled), typeof(bool), typeof(AmbientBackdrop),
+        new FrameworkPropertyMetadata(true, OnWinterModeChanged));
+
     public static readonly DependencyProperty IntensityProperty = DependencyProperty.Register(
         nameof(Intensity), typeof(double), typeof(AmbientBackdrop),
         new FrameworkPropertyMetadata(1d, OnIntensityChanged, CoerceIntensity));
@@ -26,6 +30,10 @@ public sealed class AmbientBackdrop : FrameworkElement
         nameof(ParticleColor), typeof(Color), typeof(AmbientBackdrop),
         new FrameworkPropertyMetadata(Colors.White, OnParticleColorChanged));
 
+    public static readonly DependencyProperty WinterParticleColorProperty = DependencyProperty.Register(
+        nameof(WinterParticleColor), typeof(Color), typeof(AmbientBackdrop),
+        new FrameworkPropertyMetadata(ColorCustomization.DefaultWinterParticleColor, OnParticleColorChanged));
+
     public static readonly DependencyProperty IsPointerInteractionEnabledProperty = DependencyProperty.Register(
         nameof(IsPointerInteractionEnabled), typeof(bool), typeof(AmbientBackdrop),
         new FrameworkPropertyMetadata(true, OnPointerInteractionChanged));
@@ -37,7 +45,9 @@ public sealed class AmbientBackdrop : FrameworkElement
     private readonly AmbientParticleFrameGate _particleFrames = new();
     private AmbientBackdropRasterizer? _rasterizer;
     private WriteableBitmap? _bitmap;
-    private readonly AmbientBackdropScene _scene = new();
+    private bool _winterBackgroundReady;
+    private AmbientBackdropScene? _wisps;
+    private AmbientSnowfall? _snow;
     private readonly AmbientBackdropClock _clock = new();
     private readonly AmbientBackdropPointer _pointer = new();
     private DispatcherTimer _timer;
@@ -79,6 +89,12 @@ public sealed class AmbientBackdrop : FrameworkElement
         set => SetValue(IntensityProperty, value);
     }
 
+    public bool IsWinterModeEnabled
+    {
+        get => (bool)GetValue(IsWinterModeEnabledProperty);
+        set => SetValue(IsWinterModeEnabledProperty, value);
+    }
+
     public bool ParticlesOnly
     {
         get => (bool)GetValue(ParticlesOnlyProperty);
@@ -89,6 +105,12 @@ public sealed class AmbientBackdrop : FrameworkElement
     {
         get => (Color)GetValue(ParticleColorProperty);
         set => SetValue(ParticleColorProperty, value);
+    }
+
+    public Color WinterParticleColor
+    {
+        get => (Color)GetValue(WinterParticleColorProperty);
+        set => SetValue(WinterParticleColorProperty, value);
     }
 
     public bool IsPointerInteractionEnabled
@@ -257,7 +279,7 @@ public sealed class AmbientBackdrop : FrameworkElement
         RenderingTier = RenderCapability.Tier >> 16,
         HasViewport = _viewport.Width > 0 && _viewport.Height > 0,
         IsDesignMode = _designMode,
-        Intensity = Intensity * Opacity * (ParticlesOnly ? ParticleColor.A / 255d : 1)
+        Intensity = Intensity * Opacity * (IsWinterModeEnabled ? WinterParticleColor.A / 255d : ParticlesOnly ? ParticleColor.A / 255d : 1)
     };
 
     private void UpdateAnimationState() => SetAnimationRunning(PlaybackState().CanAnimate);
@@ -330,9 +352,15 @@ public sealed class AmbientBackdrop : FrameworkElement
         var dpi = VisualTreeHelper.GetDpi(this);
         if (ParticlesOnly)
         {
-            _scene.Update(_viewport.Width, _viewport.Height, seconds);
             using var particles = _frame.RenderOpen();
-            _sprites.Draw(particles, _scene.Particles, _viewport, ParticleColor, Intensity, dpi);
+            if (IsWinterModeEnabled)
+                DrawSnow(particles, seconds);
+            else
+            {
+                var wisps = _wisps ??= new AmbientBackdropScene();
+                wisps.Update(_viewport.Width, _viewport.Height, seconds);
+                _sprites.Draw(particles, wisps.Particles, _viewport, ParticleColor, Intensity, dpi);
+            }
             return;
         }
         var width = Math.Ceiling(_viewport.Width * dpi.DpiScaleX);
@@ -345,18 +373,30 @@ public sealed class AmbientBackdrop : FrameworkElement
         {
             _rasterizer = new AmbientBackdropRasterizer(pixelWidth, pixelHeight);
             _bitmap = new WriteableBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32, null);
+            _winterBackgroundReady = false;
         }
-        _scene.Update(
-            pixelWidth,
-            pixelHeight,
-            seconds,
-            _pointer.Position,
-            _pointer.Activity);
-        _rasterizer.Render(_scene.Particles, Intensity, ParticleColor);
-        _bitmap!.WritePixels(new Int32Rect(0, 0, pixelWidth, pixelHeight), _rasterizer.Pixels, pixelWidth * 4, 0);
+        if (!IsWinterModeEnabled || !_winterBackgroundReady)
+        {
+            if (IsWinterModeEnabled)
+                _rasterizer.Render([], 0);
+            else
+            {
+                var wisps = _wisps ??= new AmbientBackdropScene();
+                wisps.Update(pixelWidth, pixelHeight, seconds, _pointer.Position, _pointer.Activity);
+                _rasterizer.Render(wisps.Particles, Intensity, ParticleColor);
+            }
+            _bitmap!.WritePixels(new Int32Rect(0, 0, pixelWidth, pixelHeight), _rasterizer.Pixels, pixelWidth * 4, 0);
+            _winterBackgroundReady = IsWinterModeEnabled;
+        }
         using var drawing = _frame.RenderOpen();
         drawing.DrawImage(_bitmap, new Rect(_viewport));
+        if (IsWinterModeEnabled)
+            DrawSnow(drawing, seconds);
     }
+
+    private void DrawSnow(DrawingContext drawing, double seconds) =>
+        (_snow ??= new AmbientSnowfall((uint)Random.Shared.Next())).Draw(
+            drawing, _viewport, seconds, WinterParticleColor, Intensity, _pointer.Position, _pointer.Activity);
 
     private void ApplyIntensity()
     {
@@ -365,6 +405,13 @@ public sealed class AmbientBackdrop : FrameworkElement
 
     private static void OnAnimationChanged(DependencyObject sender, DependencyPropertyChangedEventArgs e) =>
         ((AmbientBackdrop)sender).UpdateAnimationState();
+
+    private static void OnWinterModeChanged(DependencyObject sender, DependencyPropertyChangedEventArgs e)
+    {
+        var backdrop = (AmbientBackdrop)sender;
+        backdrop.DrawScene(backdrop._clock.Seconds);
+        backdrop.UpdateAnimationState();
+    }
 
     private DispatcherTimer CreateTimer() => new(DispatcherPriority.Render, Dispatcher)
     {
@@ -386,7 +433,9 @@ public sealed class AmbientBackdrop : FrameworkElement
     private static void OnParticleColorChanged(DependencyObject sender, DependencyPropertyChangedEventArgs e)
     {
         var backdrop = (AmbientBackdrop)sender;
-        if (!backdrop.ParticlesOnly)
+        var active = e.Property == WinterParticleColorProperty ? backdrop.IsWinterModeEnabled :
+            backdrop.ParticlesOnly && !backdrop.IsWinterModeEnabled;
+        if (!active)
             return;
         backdrop.DrawScene(backdrop._clock.Seconds);
         backdrop.UpdateAnimationState();

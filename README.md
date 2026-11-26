@@ -19,6 +19,10 @@ Wisp 2.7 is a reliability update. Clips keep recording when the graphics card is
 
 [Clips](#clips) · [Tune](#tune) · [Lap review](#lap-review) · [Live map and lap delta](#live-map-and-lap-delta) · [Install](#install) · [2.7 release notes](docs/releases/Wisp-2.7.0-release-notes.md)
 
+### Wisp 2.7.7
+
+Wisp 2.7.7 adds falling snow to the dashboard and checks Drift Zone scoring curves on newer Forza Horizon 6 builds. See the [2.7.7 release notes](docs/releases/Wisp-2.7.7-release-notes.md).
+
 ### Wisp 2.7.6
 
 Wisp 2.7.6 restores Drift Zone angle-bonus guidance on the current Forza build and lets HUD gauges sit against any edge of the screen. See the [2.7.6 release notes](docs/releases/Wisp-2.7.6-release-notes.md).

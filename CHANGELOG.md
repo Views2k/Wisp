@@ -2,6 +2,13 @@
 
 Notable changes to Wisp are recorded here.
 
+## 2.7.7 - 2026-11-26
+
+- Winter mode is on by default. Ice-blue snowflakes fall and fade behind the dashboard readouts. Turn Winter mode off in Extras to return to wisps.
+- Select Background particles in Appearance to change the color of the active effect. Snowflakes and wisps each keep their own color.
+- On newer Forza Horizon 6 builds, Drift Zone angle-bonus guidance turns on when Wisp recognizes the game’s scoring curve.
+- Crash reports can name a library that failed to load. Tune reports can identify a failed length or alignment check when reading tune data.
+
 ## 2.7.6 - 2026-11-19
 
 - Drift Zone angle-bonus guidance works again on Forza Horizon 6 builds 6.483.970.0 and 3.483.970.0.

@@ -30,6 +30,14 @@ public sealed class PrivateSetupSkipTests
                 clipLibraryDirectory: Path.Combine(directory, "Clips"),
                 tuneLibraryDirectory: Path.Combine(directory, "Tunes"));
             window = new SetupWindow(controller) { ShowActivated = false, ShowInTaskbar = false };
+            var scene = Assert.IsType<AmbientBackdrop>(window.FindName("AmbientScene"));
+            foreach (var visible in new[] { false, true })
+            {
+                controller.ViewModel.BackgroundParticlesEnabled = visible;
+                window.Dispatcher.Invoke(static () => { }, DispatcherPriority.DataBind);
+                Assert.Equal(visible ? 1d : 0d, scene.Intensity);
+                Assert.False(scene.HasAnimationTickSubscription);
+            }
             var button = Assert.IsType<Button>(window.FindName("PrivateSkipButton"));
             var privateBuild = PrivateSetupPolicy.IsAvailable;
             Assert.True(settings.RequiresSetup);

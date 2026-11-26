@@ -135,7 +135,7 @@ internal sealed class AmbientBackdropScene
     internal static double NormalizeTime(double seconds) =>
         double.IsFinite(seconds) && seconds >= 0 ? seconds : 0;
 
-    private static void ApplyPointer(
+    internal static void ApplyPointer(
         ref AmbientPoint position, double width, double height,
         AmbientPoint pointer, double activity, double depth)
     {

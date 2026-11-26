@@ -333,7 +333,8 @@ public sealed class CalmSidebarTests
             Assert.False(focus.IsHitTestVisible);
             var text = new FormattedText(label.Text, CultureInfo.CurrentCulture, label.FlowDirection,
                 new Typeface(label.FontFamily, label.FontStyle, label.FontWeight, label.FontStretch),
-                label.FontSize, label.Foreground, VisualTreeHelper.GetDpi(label).PixelsPerDip);
+                label.FontSize, label.Foreground, null, TextOptions.GetTextFormattingMode(label),
+                VisualTreeHelper.GetDpi(label).PixelsPerDip);
             if (label.TextWrapping != TextWrapping.NoWrap)
                 text.MaxTextWidth = Math.Max(0.1, label.ActualWidth);
             Assert.True(text.WidthIncludingTrailingWhitespace <= label.ActualWidth + 1.1 &&

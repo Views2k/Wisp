@@ -32,6 +32,12 @@ public sealed class DashboardRimEffect : FrameworkElement
     public static readonly DependencyProperty IsAnimationEnabledProperty = DependencyProperty.Register(
         nameof(IsAnimationEnabled), typeof(bool), typeof(DashboardRimEffect),
         new FrameworkPropertyMetadata(true, Changed));
+    public static readonly DependencyProperty IsWinterModeEnabledProperty = DependencyProperty.Register(
+        nameof(IsWinterModeEnabled), typeof(bool), typeof(DashboardRimEffect),
+        new FrameworkPropertyMetadata(false, Changed));
+    public static readonly DependencyProperty WinterParticleColorProperty = DependencyProperty.Register(
+        nameof(WinterParticleColor), typeof(Color), typeof(DashboardRimEffect),
+        new FrameworkPropertyMetadata(ColorCustomization.DefaultWinterParticleColor, Changed));
 
     private readonly DrawingVisual _visual = new();
     private readonly DashboardRimDrawing _drawing = new();
@@ -68,6 +74,8 @@ public sealed class DashboardRimEffect : FrameworkElement
     public double GlowOpacity { get => (double)GetValue(GlowOpacityProperty); set => SetValue(GlowOpacityProperty, value); }
     public bool ParticlesEnabled { get => (bool)GetValue(ParticlesEnabledProperty); set => SetValue(ParticlesEnabledProperty, value); }
     public bool IsAnimationEnabled { get => (bool)GetValue(IsAnimationEnabledProperty); set => SetValue(IsAnimationEnabledProperty, value); }
+    public bool IsWinterModeEnabled { get => (bool)GetValue(IsWinterModeEnabledProperty); set => SetValue(IsWinterModeEnabledProperty, value); }
+    public Color WinterParticleColor { get => (Color)GetValue(WinterParticleColorProperty); set => SetValue(WinterParticleColorProperty, value); }
     internal bool HasRenderingSubscription => _rendering;
     internal bool HasLifecycleSubscriptions => _attached;
     internal bool HasTargetSubscription => _targetAttached;
@@ -184,7 +192,8 @@ public sealed class DashboardRimEffect : FrameworkElement
 
     private void UpdatePlayback() => SetRunning(_attached && IsVisible && _host?.IsVisible == true &&
         _host.WindowState != WindowState.Minimized && ParticlesEnabled && IsAnimationEnabled &&
-        GlowOpacity > 0 && Opacity > 0 && Accent is SolidColorBrush { Color.A: > 0, Opacity: > 0 } &&
+        GlowOpacity > 0 && Opacity > 0 &&
+        (IsWinterModeEnabled ? WinterParticleColor.A > 0 : Accent is SolidColorBrush { Color.A: > 0, Opacity: > 0 }) &&
         SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast &&
         (RenderCapability.Tier >> 16) >= 1 && !DesignerProperties.GetIsInDesignMode(this) &&
         InstrumentBounds.Width > 0 && InstrumentBounds.Height > 0 && IsInViewport());
@@ -208,7 +217,8 @@ public sealed class DashboardRimEffect : FrameworkElement
     private void Draw(Rect bounds)
     {
         using var context = _visual.RenderOpen();
-        if (bounds.Width <= 0 || bounds.Height <= 0 || GlowOpacity <= 0 || Accent is not SolidColorBrush accent) return;
+        if (bounds.Width <= 0 || bounds.Height <= 0 || GlowOpacity <= 0) return;
+        var accent = Accent as SolidColorBrush;
         if (_scroll is not null && !IsInViewport())
         {
             _redrawPending = true;
@@ -231,9 +241,9 @@ public sealed class DashboardRimEffect : FrameworkElement
             _translation.Freeze();
         }
         context.PushTransform(_translation);
-        _drawing.Draw(context, new Rect(bounds.Size), Shape, EffectiveCornerRadius, accent.Color, GlowOpacity * accent.Opacity,
+        _drawing.Draw(context, new Rect(bounds.Size), Shape, EffectiveCornerRadius, accent?.Color ?? Colors.Transparent, GlowOpacity,
             ParticlesEnabled, _clock.Seconds, VisualTreeHelper.GetDpi(this),
-            EffectiveRimWidth);
+            EffectiveRimWidth, IsWinterModeEnabled ? WinterParticleColor : null, accent?.Opacity ?? 0);
         context.Pop();
         if (_scroll is not null) context.Pop();
         _redrawPending = false;

@@ -22,6 +22,17 @@ internal static class CalmShellReview
 {
     private const int ReviewAutoCloseSeconds = 25;
     private const int ReviewHardLimitSeconds = 30;
+    private static readonly string[] PageNames =
+        ["Dashboard", "Runs", "Tune", "Appearance", "Diagnostics", "Profiles", "Extras", "Clips", "Release Notes"];
+    private static readonly int AppearancePage = Array.IndexOf(PageNames, "Appearance");
+    private static readonly string[] ColorTargets =
+    [
+        "App accent", "Background and surfaces", "HUD border", "Gauge start", "Gauge middle", "Gauge end",
+        "Traction hook cue", "App borders", "Main text", "Secondary text", "G-force dot", "G-force trail",
+        "Background particles", "Drift cut flash", "Shift cue · approach (beta)", "Shift cue · prepare (beta)",
+        "Shift cue · shift (beta)", "Lap delta · ahead", "Lap delta · behind", "Track map · track", "Track map · car",
+        "Track map · background"
+    ];
 
     internal static int Run(string output, Func<ResourceDictionary> loadResources)
     {
@@ -55,6 +66,8 @@ internal static class CalmShellReview
             settings.BackgroundTheme = AppBackgroundThemes.DefaultName;
             settings.CustomAccentColor = null;
             settings.CustomBackgroundColor = null;
+            settings.CustomParticleColor = "#FFFFE0BD";
+            settings.CustomWinterParticleColor = null;
             settings.SidebarCollapsed = false;
             // This synthetic, output-local fixture represents an already configured
             // user. It never completes setup for, or starts services in, the real app.
@@ -116,9 +129,8 @@ internal static class CalmShellReview
 
     private sealed class Session
     {
-        private static readonly string[] PageNames =
-            ["Dashboard", "Runs", "Tune", "Appearance", "Diagnostics", "Profiles", "Extras", "Clips", "Release Notes"];
-        private readonly string _output, _settingsPath, _initialHudSettings;
+        private readonly string _output, _settingsPath;
+        private readonly JsonElement _initialHudSettings;
         private readonly SettingsService _settingsService;
         private readonly Application _application;
         private readonly AppController _controller;
@@ -250,7 +262,7 @@ internal static class CalmShellReview
                 Check(!_window.IsActive, "window-activated");
                 Check(!_controller.SetupTelemetry.IsRunning, "setup-telemetry-running");
                 step.Action();
-                Check(HudSettings(_controller.Settings) == _initialHudSettings, "hud-settings-changed");
+                CheckHudSettings(_controller.Settings);
                 CheckGlobalBrushes();
                 ScheduleNext();
             }
@@ -267,10 +279,9 @@ internal static class CalmShellReview
             {
                 Check(_window.IsLoaded && _report.ContentRendered && _report.NonactivatingStyle, "loaded-nonactivating-window");
                 Check(_tabs.Items.Count == PageNames.Length && _navigation.Items.Count == PageNames.Length, "page-count");
-                string[] colorTargets = ["App accent", "Background and surfaces", "HUD border", "Gauge start", "Gauge middle",
-                    "Gauge end", "Traction hook cue", "App borders", "Main text", "Secondary text", "G-force dot", "G-force trail", "Background particles"];
-                Check(_colorTargets.Items.Cast<ListBoxItem>().Select(item => item.Content as string).SequenceEqual(colorTargets) &&
-                      AppColorThemes.All.Count == 15, "color-choice-count");
+                Check(_colorTargets.Items.Cast<ListBoxItem>().Select(item => item.Content as string).SequenceEqual(ColorTargets),
+                    "color-target-inventory");
+                Check(AppColorThemes.All.Count == 15, "accent-theme-count");
                 Check(_globalBrushes.Length > 0, "global-brush-snapshot-empty");
                 CheckRows(); CheckSettled(open: true);
             });
@@ -296,7 +307,7 @@ internal static class CalmShellReview
                     _report.PagesVerified++;
                 });
             }
-            Add("appearance-select", 1, () => _navigation.SetCurrentValue(Selector.SelectedIndexProperty, Array.IndexOf(PageNames, "Appearance")));
+            Add("appearance-select", 1, () => _navigation.SetCurrentValue(Selector.SelectedIndexProperty, AppearancePage));
             foreach (var category in new[] { "Layout", "Gauges", "Behaviour" })
             {
                 Add("appearance-" + category.ToLowerInvariant() + "-select", 40, () => SelectAppearanceCategory(category));
@@ -333,17 +344,32 @@ internal static class CalmShellReview
             {
                 _colorTargets.SelectedIndex = 12;
                 var background = _window.Resources["WindowBrush"];
-                var accent = ((SolidColorBrush)_window.Resources["AccentBrush"]).Color;
-                Check(_colorEditor.SelectedColor == accent, "particles-follow-accent");
+                var classicColor = Color.FromRgb(255, 224, 189);
+                var defaultColor = ColorCustomization.DefaultWinterParticleColor;
+                Check(_controller.Settings.IsWinterModeEnabled && _colorEditor.SelectedColor == defaultColor &&
+                      Equals(_window.Resources["AppParticleColor"], classicColor), "particles-use-mode-default");
+                CheckSetupSnowColor(defaultColor);
                 var chosen = Color.FromArgb(180, 230, 100, 150);
                 _colorEditor.SelectedColor = chosen;
-                Check(_controller.Settings.CustomParticleColor == ColorCustomization.ToHex(chosen) &&
-                      Equals(_window.Resources["AppParticleColor"], chosen), "particle-custom-color-applied");
+                Check(_controller.Settings.CustomWinterParticleColor == ColorCustomization.ToHex(chosen) &&
+                      Equals(_window.Resources["AppParticleColor"], classicColor) &&
+                      Equals(_window.Resources["AppWinterParticleColor"], chosen), "particle-custom-color-applied");
+                CheckSetupSnowColor(chosen);
+                var winter = Named<CheckBox>(_window, "WinterModeToggle");
+                winter.SetCurrentValue(ToggleButton.IsCheckedProperty, false);
+                _window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+                Check(!_controller.Settings.IsWinterModeEnabled && _colorEditor.SelectedColor == classicColor &&
+                      _controller.Settings.CustomWinterParticleColor == ColorCustomization.ToHex(chosen), "classic-particle-color-restored");
+                winter.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                _window.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+                Check(_controller.Settings.IsWinterModeEnabled && _colorEditor.SelectedColor == chosen,
+                    "chosen-snow-color-restored");
                 Check(ReferenceEquals(background, _window.Resources["WindowBrush"]), "particle-color-preserves-background");
                 var reset = Named<Button>(_window, "UseAccentParticleColorButton");
                 reset.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Check(_controller.Settings.CustomParticleColor is null && _colorEditor.SelectedColor == accent,
-                    "particle-accent-link-restored");
+                Check(_controller.Settings.CustomWinterParticleColor is null && _colorEditor.SelectedColor == defaultColor &&
+                      Equals(_window.Resources["AppParticleColor"], classicColor),
+                    "particle-default-restored");
                 var show = Named<CheckBox>(_window, "ShowBackgroundParticlesToggle");
                 var animate = Named<CheckBox>(_window, "AnimateParticlesToggle");
                 var particles = Named<AmbientBackdrop>(_window, "AppParticles");
@@ -391,6 +417,20 @@ internal static class CalmShellReview
             Add("restore-preferences", 650, RestorePreferences);
         }
 
+        private void CheckSetupSnowColor(Color expected)
+        {
+            var setup = new SetupWindow(_controller);
+            try
+            {
+                var scene = Named<AmbientBackdrop>(setup, "AmbientScene");
+                Check(scene.IsWinterModeEnabled && scene.WinterParticleColor == expected, "setup-snow-color");
+            }
+            finally
+            {
+                setup.Close();
+            }
+        }
+
         private void CheckPage(int index)
         {
             _window.UpdateLayout();
@@ -404,7 +444,7 @@ internal static class CalmShellReview
 
         private void SelectAppearanceCategory(string category)
         {
-            CheckPage(2);
+            CheckPage(AppearancePage);
             var button = Named<RadioButton>(_window, $"Appearance{category}Category");
             Check(button.IsVisible && button.IsEnabled, "appearance-category-unreachable");
             var peer = UIElementAutomationPeer.CreatePeerForElement(button);
@@ -416,7 +456,7 @@ internal static class CalmShellReview
 
         private void CheckAppearanceCategory(string category)
         {
-            CheckPage(2);
+            CheckPage(AppearancePage);
             foreach (var name in new[] { "Layout", "Gauges", "Colors", "Behaviour" })
             {
                 var selected = name == category;
@@ -508,7 +548,7 @@ internal static class CalmShellReview
             var expectedHeight = pageHeight + (wasOpen ? dockHeight : -_dockRow.ActualHeight);
             Check(Math.Abs(_tabs.ActualHeight - expectedHeight) < 0.1, "dock-height-not-reclaimed");
             _report.DockHeightChecks++;
-            CheckPage(2); CheckToggle(); CheckContentBounds();
+            CheckPage(AppearancePage); CheckToggle(); CheckContentBounds();
             Snapshot(_phase + "-after");
         }
 
@@ -530,7 +570,7 @@ internal static class CalmShellReview
             Check(Math.Abs(_contentTranslation.X) < 0.001 && Math.Abs(_contentTranslation.Y) < 0.001 &&
                   Math.Abs(_sidebarTranslation.X) < 0.001 && Math.Abs(_sidebarTranslation.Y) < 0.001 &&
                   Math.Abs(_chevron.Angle - (open ? 0 : 180)) < 0.001, "settled-transform");
-            if (_selectedContent is not null) CheckPage(2);
+            if (_selectedContent is not null) CheckPage(AppearancePage);
             if (open) CheckRows();
             CheckToggle(); CheckContentBounds(); Snapshot(_phase);
             _report.SettledStatesVerified++;
@@ -590,7 +630,8 @@ internal static class CalmShellReview
                       Named<ColorWheelEditor>(restored, "ColorEditor").SelectedColor == warm, "restored-accent-editor");
                 Check(restored.Resources["AccentBrush"] is SolidColorBrush accent &&
                       accent.Color == (Color)ColorConverter.ConvertFromString(AppColorThemes.Resolve("Orange").Accent), "restored-theme-brush");
-                Check(HudSettings(saved) == _initialHudSettings && !restoredController.SetupTelemetry.IsRunning, "restored-non-ui-state");
+                CheckHudSettings(saved);
+                Check(!restoredController.SetupTelemetry.IsRunning, "restored-non-ui-state");
                 _report.SavedPreferencesRestored = true;
             }
             finally
@@ -619,6 +660,17 @@ internal static class CalmShellReview
                 _window.Width, _window.ActualWidth, _window.Height, _window.ActualHeight));
         }
 
+        private void CheckHudSettings(AppSettings settings)
+        {
+            var current = HudSettings(settings);
+            foreach (var property in _initialHudSettings.EnumerateObject())
+            {
+                if (!current.TryGetProperty(property.Name, out var value) || !JsonElement.DeepEquals(property.Value, value))
+                    Check(false, "hud-settings-changed-" + property.Name);
+            }
+            Check(true, "hud-settings-unchanged");
+        }
+
         private void Check(bool condition, string code)
         {
             if (condition) { _report.PassedChecks++; return; }
@@ -627,10 +679,10 @@ internal static class CalmShellReview
         }
     }
 
-    private static T Named<T>(MainWindow window, string name) where T : class =>
+    private static T Named<T>(Window window, string name) where T : class =>
         window.FindName(name) as T ?? throw new InvalidOperationException("The named UI contract changed.");
 
-    private static string HudSettings(AppSettings settings) => JsonSerializer.Serialize(
+    private static JsonElement HudSettings(AppSettings settings) => JsonSerializer.SerializeToElement(
         JsonSerializer.SerializeToElement(settings).EnumerateObject()
             .Where(property => property.Name is not (nameof(AppSettings.ColorTheme) or nameof(AppSettings.CustomAccentColor) or nameof(AppSettings.SidebarCollapsed)))
             .ToDictionary(property => property.Name, property => property.Value.Clone()));
@@ -673,7 +725,8 @@ internal static class CalmShellReview
         public List<CaptureInfo> Captures { get; } = [];
         public List<string> Failures { get; } = [];
         public bool Completed => CloseReason == "completed" && Loaded && ContentRendered && NonactivatingStyle &&
-            ClosedCleanly && PagesVerified == 7 && ThemesVerified == 15 && AppearanceCategoriesVerified == 4 && AccessibleColorTargetsVerified == 13 && GlobalBrushChecks > 0 &&
+            ClosedCleanly && PagesVerified == PageNames.Length && ThemesVerified == AppColorThemes.All.Count &&
+            AppearanceCategoriesVerified == 4 && AccessibleColorTargetsVerified == ColorTargets.Length && GlobalBrushChecks > 0 &&
             DockHeightChecks == 7 && SettledStatesVerified == 9 &&
             RapidTogglesVerified == 3 && SavedPreferencesRestored && Captures.Count == 8 &&
             BindingDiagnosticCount == 0 && Failures.Count == 0;

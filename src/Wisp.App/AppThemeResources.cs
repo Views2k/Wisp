@@ -21,7 +21,8 @@ public static class AppThemeResources
         string? customAccentColor,
         string? customBackgroundColor,
         AppStyleSettings? applicationStyle = null,
-        string? customParticleColor = null)
+        string? customParticleColor = null,
+        string? customWinterParticleColor = null)
     {
         ArgumentNullException.ThrowIfNull(resources);
         ArgumentNullException.ThrowIfNull(accentTheme);
@@ -72,8 +73,13 @@ public static class AppThemeResources
             SetFrozenBrush(resources, key, color);
         }
 
-        SetValue(resources, "AppParticleColor", ColorCustomization.TryParse(customParticleColor, out var particleColor)
-            ? particleColor : accentColor);
+        var hasParticleColor = ColorCustomization.TryParse(customParticleColor, out var particleColor);
+        SetValue(resources, "AppParticleColor", hasParticleColor ? particleColor : accentColor);
+        var winterParticleColor = ColorCustomization.ResolveWinterParticle(customWinterParticleColor);
+        SetValue(resources, "AppWinterParticleColor", winterParticleColor);
+        // Let snow show through the dashboard glass while keeping the readouts fully opaque.
+        var readoutAlpha = winterParticleColor.A == 0 ? cardColor.A : Math.Min(cardColor.A, (byte)160);
+        SetFrozenBrush(resources, "WinterDashboardReadoutBrush", Color.FromArgb(readoutAlpha, cardColor.R, cardColor.G, cardColor.B));
 
         SetFrozenGradientBrush(resources, "OrbitCardBrush", new Point(0.85, 1),
             (AccentTint(cardColor, accentColor, 0.14), 0),

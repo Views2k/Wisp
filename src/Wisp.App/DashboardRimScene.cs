@@ -8,6 +8,7 @@ internal readonly record struct DashboardRimSpark(Point Position, double Radius,
 internal sealed class DashboardRimScene
 {
     internal const int SparkCount = 400;
+    internal const int SnowStride = 16;
     private readonly RimSeed[] _seeds = new RimSeed[SparkCount];
     private readonly RimAnchor[] _anchors = new RimAnchor[SparkCount];
     private readonly DashboardRimSpark[] _sparks = new DashboardRimSpark[SparkCount];
@@ -24,7 +25,7 @@ internal sealed class DashboardRimScene
     internal ReadOnlySpan<DashboardRimSpark> Sparks => _sparks;
     internal int AnchorBuildCount { get; private set; }
 
-    internal void Update(Geometry silhouette, double seconds)
+    internal void Update(Geometry silhouette, double seconds, bool winter = false)
     {
         if (!ReferenceEquals(_silhouette, silhouette))
         {
@@ -44,7 +45,8 @@ internal sealed class DashboardRimScene
             AnchorBuildCount++;
         }
         seconds = double.IsFinite(seconds) && seconds >= 0 ? seconds : 0;
-        for (var index = 0; index < _seeds.Length; index++)
+        var stride = winter ? SnowStride : 1;
+        for (var index = 0; index < _seeds.Length; index += stride)
         {
             var seed = _seeds[index];
             var anchor = _anchors[index];

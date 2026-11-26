@@ -151,6 +151,7 @@ public sealed class PowerTorqueGaugeSettingsTests
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
+    [InlineData(3)]
     public void ProfileRoundTripPreservesSeparateAttachmentsOutputOptionsColorsAndVersionedPlacements(int revision)
     {
         var source = new AppSettings
@@ -171,7 +172,7 @@ public sealed class PowerTorqueGaugeSettingsTests
             TorqueGaugePlacements = new() { ["torque-display"] = new(50, 60, 1.2, 1.4) }
         };
         var captured = HudPreset.Capture(source, "Output options");
-        Assert.Equal(2, captured.Revision);
+        Assert.Equal(3, captured.Revision);
         Assert.NotSame(source.PowerGaugePlacements, captured.PowerGaugePlacements);
         Assert.NotSame(source.PowerGaugePlacements["power-display"], captured.PowerGaugePlacements!["power-display"]);
         Assert.NotSame(source.TorqueGaugePlacements, captured.TorqueGaugePlacements);

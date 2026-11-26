@@ -37,12 +37,14 @@ public sealed class AppColorThemeTests
     private static readonly string[] ModernBrushKeys =
         { "OrbitSurfaceBorderBrush", "OrbitControlBrush", "OrbitSelectionBrush", "OrbitFocusBrush" };
 
-    private static readonly string[] ThemeBrushKeys = SolidBrushKeys.Concat(OrbitBrushKeys).Concat(ModernBrushKeys).ToArray();
+    private static readonly string[] ThemeBrushKeys = SolidBrushKeys.Concat(OrbitBrushKeys).Concat(ModernBrushKeys)
+        .Append("WinterDashboardReadoutBrush").ToArray();
 
     private static readonly string[] StyleResourceKeys =
         { "OrbitGlowOpacity", "OrbitSurfaceOpacity", "OrbitStrokeThickness", "OrbitCornerRadius", "OrbitButtonRadius", "OrbitCardPadding" };
 
-    private static readonly string[] ThemeResourceKeys = ThemeBrushKeys.Concat(StyleResourceKeys).Append("AppParticleColor").ToArray();
+    private static readonly string[] ThemeResourceKeys = ThemeBrushKeys.Concat(StyleResourceKeys)
+        .Append("AppParticleColor").Append("AppWinterParticleColor").ToArray();
 
     private static readonly string[] BackgroundBrushKeys =
     {
@@ -218,6 +220,7 @@ public sealed class AppColorThemeTests
             Assert.Equal(accent, Brush(resources, "AccentBrush").Color);
             Assert.Equal(accent, Brush(resources, "AccentBlueBrush").Color);
             Assert.Equal(accent, Assert.IsType<Color>(resources["AppParticleColor"]));
+            Assert.Equal(ColorCustomization.DefaultWinterParticleColor, Assert.IsType<Color>(resources["AppWinterParticleColor"]));
             foreach (var key in SolidBrushKeys)
             {
                 Assert.True(Brush(resources, key).IsFrozen, key);
@@ -338,6 +341,24 @@ public sealed class AppColorThemeTests
         Assert.Equal(Parse(style.BorderColor!), Brush(resources, "OrbitSurfaceBorderBrush").Color);
         Assert.Equal(new Thickness(0), Assert.IsType<Thickness>(resources["OrbitStrokeThickness"]));
         Assert.Equal(focus, Brush(resources, "OrbitFocusBrush").Color);
+    });
+
+    [Fact]
+    public void WinterReadoutTintPreservesTheSelectedCardColorAndTransparentPreferences() => OnSta(() =>
+    {
+        var resources = new ResourceDictionary();
+        foreach (var (background, snow, alpha) in new[] { ("#FF334455", "#FF6699EE", 160),
+                     ("#55334455", "#806699EE", 85), ("#FF334455", "#006699EE", 255) })
+        {
+            AppThemeResources.Apply(resources, AppColorThemes.All[0], AppBackgroundThemes.All[0],
+                null, background, new AppStyleSettings { SurfaceOpacity = 45 },
+                customParticleColor: "#00000000", customWinterParticleColor: snow);
+            var card = Brush(resources, "CardBrush").Color;
+            var readout = Brush(resources, "WinterDashboardReadoutBrush");
+            Assert.True(readout.IsFrozen);
+            Assert.Equal(Color.FromArgb((byte)alpha, card.R, card.G, card.B), readout.Color);
+            Assert.Equal(0.45, Assert.IsType<double>(resources["OrbitSurfaceOpacity"]));
+        }
     });
 
     [Fact]

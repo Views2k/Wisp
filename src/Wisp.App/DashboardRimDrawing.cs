@@ -7,6 +7,9 @@ internal sealed class DashboardRimDrawing
 {
     private readonly DashboardRimScene _scene = new();
     private readonly SolidColorBrush?[] _sparkBrushes = new SolidColorBrush?[256];
+    private readonly DrawingImage?[,] _snowImages = new DrawingImage?[AmbientSnowfall.Shapes, AmbientSnowfall.RotationSteps];
+    private Pen? _snowPen;
+    private Color _snowColor;
     private DrawingGroup? _halo;
     private Geometry? _silhouette;
     private Geometry? _outside;
@@ -24,29 +27,38 @@ internal sealed class DashboardRimDrawing
 
     internal void Draw(DrawingContext context, Rect bounds, OrbitSurfaceShape shape,
         CornerRadius corners, Color accent, double intensity, bool particlesEnabled,
-        double seconds, DpiScale dpi, double edgeWidth = 1)
+        double seconds, DpiScale dpi, double edgeWidth = 1, Color? winterParticleColor = null,
+        double accentOpacity = 1)
     {
         if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0 ||
             !double.IsFinite(bounds.X) || !double.IsFinite(bounds.Y) ||
             !double.IsFinite(bounds.Width) || !double.IsFinite(bounds.Height) ||
-            !double.IsFinite(intensity) || intensity <= 0 || accent.A == 0)
+            !double.IsFinite(intensity) || intensity <= 0)
             return;
-        intensity = Math.Clamp(intensity, 0, 1) * accent.A / 255d;
+        intensity = Math.Clamp(intensity, 0, 1);
+        var haloIntensity = intensity * accent.A / 255d * accentOpacity;
+        var showSnow = particlesEnabled && winterParticleColor is { A: > 0 };
+        if (haloIntensity <= 0 && !showSnow) return;
         var dpiScale = Math.Max(dpi.DpiScaleX, dpi.DpiScaleY);
         dpiScale = double.IsFinite(dpiScale) && dpiScale > 0 ? dpiScale : 1;
         edgeWidth = double.IsFinite(edgeWidth) ? Math.Clamp(edgeWidth, 0, 3) : 0;
         if (_halo is null || _bounds != bounds || _shape != shape || _corners != corners ||
-            _accent != accent || _intensity != intensity || _dpiScale != dpiScale || _edgeWidth != edgeWidth)
-            Configure(bounds, shape, corners, accent, intensity, dpiScale, edgeWidth);
+            _accent != accent || _intensity != haloIntensity || _dpiScale != dpiScale || _edgeWidth != edgeWidth)
+            Configure(bounds, shape, corners, accent, haloIntensity, dpiScale, edgeWidth);
 
         context.PushClip(_outside!);
-        context.DrawDrawing(_halo!);
-        if (particlesEnabled)
+        if (haloIntensity > 0) context.DrawDrawing(_halo!);
+        if (showSnow)
+        {
+            _scene.Update(_silhouette!, seconds, winter: true);
+            DrawSnow(context, winterParticleColor.GetValueOrDefault(), intensity, AmbientBackdropScene.NormalizeTime(seconds));
+        }
+        else if (particlesEnabled && winterParticleColor is null)
         {
             _scene.Update(_silhouette!, seconds);
             foreach (var spark in _scene.Sparks)
             {
-                var alpha = AlphaIndex(spark.Opacity * intensity);
+                var alpha = AlphaIndex(spark.Opacity * haloIntensity);
                 if (alpha == 0)
                     continue;
                 var brush = _sparkBrushes[alpha] ??= Brush(Hot(accent, 0.30), alpha);
@@ -54,6 +66,40 @@ internal sealed class DashboardRimDrawing
             }
         }
         context.Pop();
+    }
+
+    private void DrawSnow(DrawingContext context, Color color, double intensity, double seconds)
+    {
+        if (_snowPen is null || _snowColor != color)
+        {
+            Array.Clear(_snowImages);
+            _snowColor = color;
+            _snowPen = new Pen(new SolidColorBrush(color), 2.2)
+            {
+                StartLineCap = PenLineCap.Round,
+                EndLineCap = PenLineCap.Round,
+                LineJoin = PenLineJoin.Round
+            };
+            _snowPen.Freeze();
+        }
+        var sparks = _scene.Sparks;
+        for (var index = 0; index < sparks.Length; index += DashboardRimScene.SnowStride)
+        {
+            var spark = sparks[index];
+            var opacity = spark.Opacity * intensity;
+            if (opacity * color.A < 1) continue;
+            var flake = index / DashboardRimScene.SnowStride;
+            var shape = flake % AmbientSnowfall.Shapes;
+            var spin = (flake % 2 == 0 ? 1 : -1) * (8 + flake % 9);
+            var degrees = (flake * 19 + seconds * spin) % 60;
+            var angle = (int)Math.Round((degrees + 60) * AmbientSnowfall.RotationSteps / 60) % AmbientSnowfall.RotationSteps;
+            var image = _snowImages[shape, angle] ??= AmbientSnowfall.CreateCrystalImage(shape, angle, _snowPen);
+            var radius = spark.Radius;
+            var destination = new Rect(spark.Position.X - radius, spark.Position.Y - radius, radius * 2, radius * 2);
+            context.PushOpacity(opacity);
+            context.DrawImage(image, destination);
+            context.Pop();
+        }
     }
 
     private void Configure(Rect bounds, OrbitSurfaceShape shape, CornerRadius corners,

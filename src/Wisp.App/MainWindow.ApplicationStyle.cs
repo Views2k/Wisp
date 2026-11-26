@@ -37,7 +37,7 @@ public partial class MainWindow
         AppColorThemes.Resolve(_dashboardController.Settings.ColorTheme),
         AppBackgroundThemes.Resolve(_dashboardController.Settings.BackgroundTheme),
         _dashboardController.Settings.CustomAccentColor, _dashboardController.Settings.CustomBackgroundColor, style,
-        _dashboardController.Settings.CustomParticleColor);
+        _dashboardController.Settings.CustomParticleColor, _dashboardController.Settings.CustomWinterParticleColor);
 
     private void ApplicationStyle_Commit(object sender, RoutedEventArgs e) => CommitApplicationStyle();
 

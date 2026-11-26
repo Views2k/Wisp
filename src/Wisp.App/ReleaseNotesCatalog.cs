@@ -15,11 +15,26 @@ public static class ReleaseNotesCatalog
     public static IReadOnlyList<ReleaseNoteEntry> Entries { get; } =
     [
         new(
+            "2.7.7",
+            "November 26, 2026",
+            "WINTER",
+            "Wisp 2.7.7 adds falling snow to the dashboard and checks Drift Zone scoring curves on newer Forza Horizon 6 builds.",
+            true,
+            [
+                Group("Appearance",
+                    "Winter mode is on by default. Ice-blue snowflakes fall and fade behind the dashboard readouts. Turn Winter mode off in Extras to return to wisps.",
+                    "Select Background particles in Appearance to change the color of the active effect. Snowflakes and wisps each keep their own color."),
+                Group("Drift",
+                    "On newer Forza Horizon 6 builds, Drift Zone angle-bonus guidance turns on when Wisp recognizes the game’s scoring curve."),
+                Group("Diagnostics",
+                    "Crash reports can name a library that failed to load. Tune reports can identify a failed length or alignment check when reading tune data.")
+            ]),
+        new(
             "2.7.6",
             "November 19, 2026",
             "MAINTENANCE",
             "Wisp 2.7.6 restores Drift Zone angle-bonus guidance on the current Forza build and lets HUD gauges sit against any edge of the screen.",
-            true,
+            false,
             [
                 Group("Drift",
                     "Drift Zone angle-bonus guidance works again on Forza Horizon 6 builds 6.483.970.0 (Steam) and 3.483.970.0 (Xbox app / Microsoft Store).",

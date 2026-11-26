@@ -91,6 +91,120 @@ public sealed class DashboardRimEffectTests
     });
 
     [Fact]
+    public void WinterRimUsesSparseMovingCrystalsAndKeepsTheHaloIndependent() => OnSta(() =>
+    {
+        var renderer = new DashboardRimDrawing();
+        DrawingVisual Frame(Color accent, Color? snow, bool show = true, double seconds = .4)
+        {
+            var visual = new DrawingVisual();
+            using var drawing = visual.RenderOpen();
+            renderer.Draw(drawing, new Rect(12, 32, 1000, 300), OrbitSurfaceShape.Swept,
+                new CornerRadius(28), accent, 1, show, seconds, new DpiScale(1, 1), winterParticleColor: snow);
+            return visual;
+        }
+
+        var tint = Color.FromArgb(180, 40, 80, 250);
+        var first = Frame(Colors.Transparent, tint);
+        var primitives = Drawings(first.Drawing).ToArray();
+        Assert.DoesNotContain(primitives.OfType<GeometryDrawing>(), drawing => drawing.Geometry is EllipseGeometry);
+        var images = primitives.OfType<ImageDrawing>().Select(drawing => Assert.IsType<DrawingImage>(drawing.ImageSource)).ToArray();
+        Assert.InRange(images.Length, 1, DashboardRimScene.SparkCount / DashboardRimScene.SnowStride);
+        var shapes = new HashSet<Geometry>();
+        var orientations = new HashSet<Transform>();
+        foreach (var image in images.Distinct())
+        {
+            Assert.True(image.IsFrozen);
+            var artwork = Drawings(image.Drawing).ToArray();
+            var crystal = Assert.Single(artwork.OfType<GeometryDrawing>(), item => item.Geometry is StreamGeometry);
+            shapes.Add(crystal.Geometry);
+            var rotation = Assert.Single(artwork.OfType<DrawingGroup>(), group => group.Transform is RotateTransform);
+            orientations.Add(rotation.Transform);
+            Assert.Equal(tint, Assert.IsType<SolidColorBrush>(crystal.Pen.Brush).Color);
+        }
+        Assert.Equal(AmbientSnowfall.Shapes, shapes.Count);
+        Assert.True(orientations.Count > 1);
+        var pixels = Pixels(first);
+        Assert.Contains(pixels.Where((_, i) => i % 4 == 3), alpha => alpha > 0);
+        Assert.Equal(0, Alpha(pixels, 512, 182));
+        Assert.False(pixels.SequenceEqual(Pixels(Frame(Colors.Transparent, tint, seconds: 1.2))));
+        var goldHalo = Pixels(Frame(Colors.Gold, tint, show: false));
+        var transparentSnow = Frame(Colors.Gold, Colors.Transparent);
+        Assert.Equal(goldHalo, Pixels(transparentSnow));
+        Assert.DoesNotContain(Drawings(transparentSnow.Drawing), drawing =>
+            drawing is ImageDrawing or GeometryDrawing { Geometry: EllipseGeometry });
+        Assert.False(goldHalo.SequenceEqual(Pixels(Frame(Colors.Gold, tint))));
+        var classic = Drawings(Frame(Colors.Gold, null).Drawing).ToArray();
+        Assert.Empty(classic.OfType<ImageDrawing>());
+        Assert.Contains(classic.OfType<GeometryDrawing>(), drawing => drawing.Geometry is EllipseGeometry);
+    });
+
+    [Fact]
+    public void WinterCrystalsStayWithinTheOriginalSparkFootprintAtBothDisplayScales() => OnSta(() =>
+    {
+        var renderer = new DashboardRimDrawing();
+        DrawingGroup Frame(Color? winter, int scale)
+        {
+            var visual = new DrawingVisual();
+            using (var drawing = visual.RenderOpen())
+                renderer.Draw(drawing, new Rect(12, 32, 1000, 300), OrbitSurfaceShape.Swept, new CornerRadius(28),
+                    Colors.White, 1, true, 0.4, new DpiScale(scale, scale), winterParticleColor: winter);
+            return visual.Drawing;
+        }
+
+        foreach (var scale in new[] { 1, 2 })
+        {
+            var sparks = Drawings(Frame(null, scale)).OfType<GeometryDrawing>()
+                .Where(spark => spark.Geometry is EllipseGeometry).ToArray();
+            var flakes = Drawings(Frame(Colors.White, scale)).OfType<ImageDrawing>().ToArray();
+            var measured = 0;
+            foreach (var flake in flakes)
+            {
+                var rect = flake.Rect;
+                var center = new Point(rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
+                var spark = Assert.Single(sparks, drawing =>
+                    (((EllipseGeometry)drawing.Geometry).Center - center).Length < 0.00001);
+                var ellipse = (EllipseGeometry)spark.Geometry;
+                Assert.Equal(ellipse.RadiusX * 2, rect.Width, precision: 9);
+                if (((SolidColorBrush)spark.Brush).Color.A < 45) continue;
+
+                var classicPixels = PixelSpan(spark, center, scale);
+                var opacity = ((SolidColorBrush)spark.Brush).Color.A / 255d;
+                var crystal = new DrawingGroup { Opacity = opacity };
+                crystal.Children.Add(flake);
+                var winterPixels = PixelSpan(crystal, center, scale);
+                Assert.InRange(winterPixels, Math.Max(1, classicPixels - 1), classicPixels + 1);
+                measured++;
+            }
+            Assert.True(measured >= 5);
+        }
+    });
+
+    private static int PixelSpan(Drawing particle, Point center, int scale)
+    {
+        var visual = new DrawingVisual();
+        using (var drawing = visual.RenderOpen())
+        {
+            drawing.PushTransform(new TranslateTransform(8 - Math.Floor(center.X), 8 - Math.Floor(center.Y)));
+            drawing.DrawDrawing(particle);
+            drawing.Pop();
+        }
+        var size = 16 * scale;
+        var bitmap = new RenderTargetBitmap(size, size, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        var pixels = new byte[size * size * 4];
+        bitmap.CopyPixels(pixels, size * 4, 0);
+        var left = size; var top = size; var right = -1; var bottom = -1;
+        for (var y = 0; y < size; y++)
+            for (var x = 0; x < size; x++)
+            {
+                if (pixels[(y * size + x) * 4 + 3] < 3) continue;
+                left = Math.Min(left, x); right = Math.Max(right, x);
+                top = Math.Min(top, y); bottom = Math.Max(bottom, y);
+            }
+        return Math.Max(0, Math.Max(right - left + 1, bottom - top + 1));
+    }
+
+    [Fact]
     public void CacheTracksGeometryAndAccentButNotAnimationTimeOrParticleVisibility() => OnSta(() =>
     {
         var renderer = new DashboardRimDrawing();

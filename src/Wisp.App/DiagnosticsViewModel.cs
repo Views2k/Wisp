@@ -109,6 +109,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     private bool _startWithForza;
     private bool _startMinimizedWithForza;
     private bool _backgroundParticlesEnabled;
+    private bool _isWinterModeEnabled;
     private bool _animatedBackground;
     private bool _automaticApplicationUpdateChecks;
     private bool _cpuRenderingEnabled;
@@ -191,6 +192,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
         _startWithForza = settings.StartWithForza;
         _startMinimizedWithForza = settings.StartMinimizedWithForza;
         _backgroundParticlesEnabled = settings.BackgroundParticlesEnabled;
+        _isWinterModeEnabled = settings.IsWinterModeEnabled;
         _animatedBackground = settings.AnimatedBackground;
         _automaticApplicationUpdateChecks = settings.AutomaticApplicationUpdateChecks;
         _cpuRenderingEnabled = settings.CpuRenderingEnabled;
@@ -782,6 +784,7 @@ public sealed partial class DiagnosticsViewModel : INotifyPropertyChanged
     public bool CanSetWindowsStartup => !StartWithForza;
     public bool StartMinimizedWithForza { get => _startMinimizedWithForza; set => Set(ref _startMinimizedWithForza, value); }
     public bool BackgroundParticlesEnabled { get => _backgroundParticlesEnabled; set => Set(ref _backgroundParticlesEnabled, value); }
+    public bool IsWinterModeEnabled { get => _isWinterModeEnabled; set => Set(ref _isWinterModeEnabled, value); }
     public bool AnimatedBackground
     {
         get => _animatedBackground;

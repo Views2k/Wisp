@@ -169,7 +169,7 @@ public sealed class HudPresetTests
             "CustomAccentColor", "CustomBackgroundColor", "CustomHudBorderColor",
             "CustomBoostLowColor", "CustomBoostMidColor", "CustomBoostHighColor", "CustomTractionCueColor",
             "CustomGForceColor", "CustomGForceTrailColor",
-            "Revision", "CustomParticleColor", "AppBorderColor", "AppTextColor", "AppMutedTextColor",
+            "Revision", "CustomParticleColor", "CustomWinterParticleColor", "AppBorderColor", "AppTextColor", "AppMutedTextColor",
             "DriftGaugeEnabled", "DriftGaugeScale", "DriftGaugeDarkMode", "DriftGaugeBackgroundEnabled", "DriftGaugeBackgroundOpacity",
             "SpeedSource",
             "Smoothing",
@@ -217,11 +217,30 @@ public sealed class HudPresetTests
     }
 
     [Fact]
+    public void RestoringOldProfilesPreservesSnowWhileNewProfilesCanRestoreItsDefault()
+    {
+        var settings = new AppSettings { CustomParticleColor = "#FF332211", CustomWinterParticleColor = "#8066BBFF" };
+        var current = HudPreset.Capture(new AppSettings { CustomParticleColor = "#FFFFE0BD" }, "Default snow");
+        foreach (var revision in new[] { 0, 1, 2 })
+        {
+            var old = JsonSerializer.Deserialize<HudPreset>(
+                $$"""{"Revision":{{revision}},"Name":"Before snow colors","CustomParticleColor":"#FFFFE0BD"}""")!;
+            old.ApplyTo(settings);
+            Assert.Equal("#8066BBFF", settings.CustomWinterParticleColor);
+            if (revision > 0) Assert.Equal("#FFFFE0BD", settings.CustomParticleColor);
+        }
+        current.ApplyTo(settings);
+        Assert.Null(settings.CustomWinterParticleColor);
+        Assert.Equal("#FFFFE0BD", settings.CustomParticleColor);
+    }
+
+    [Fact]
     public void ProfilesKeepParticleAppTextBorderAndDriftGaugeColors()
     {
         var source = new AppSettings
         {
             CustomParticleColor = "#80FF3366",
+            CustomWinterParticleColor = "#60AACCFF",
             ApplicationStyle = new AppStyleSettings { BorderColor = "#FF223344", TextColor = "#FFEEDDCC", MutedTextColor = "#FF998877", GlowStrength = 40 },
             DriftGaugeEnabled = true,
             DriftGaugeScale = 1.4,
@@ -234,6 +253,7 @@ public sealed class HudPresetTests
         HudPreset.Capture(source, "Night").ApplyTo(target);
 
         Assert.Equal(ColorCustomization.NormalizeParticle(source.CustomParticleColor), target.CustomParticleColor);
+        Assert.Equal(ColorCustomization.NormalizeParticle(source.CustomWinterParticleColor), target.CustomWinterParticleColor);
         Assert.Equal("#FF223344", target.ApplicationStyle.BorderColor);
         Assert.Equal("#FFEEDDCC", target.ApplicationStyle.TextColor);
         Assert.Equal("#FF998877", target.ApplicationStyle.MutedTextColor);
@@ -251,7 +271,7 @@ public sealed class HudPresetTests
     {
         var saved = HudPreset.Capture(new AppSettings(), "Older");
         var json = JsonSerializer.Serialize(saved);
-        foreach (var name in new[] { "Revision", "CustomParticleColor", "AppBorderColor", "AppTextColor", "AppMutedTextColor",
+        foreach (var name in new[] { "Revision", "CustomParticleColor", "CustomWinterParticleColor", "AppBorderColor", "AppTextColor", "AppMutedTextColor",
                      "DriftGaugeEnabled", "DriftGaugeScale", "DriftGaugeDarkMode", "DriftGaugeBackgroundEnabled", "DriftGaugeBackgroundOpacity" })
         {
             using var document = JsonDocument.Parse(json);

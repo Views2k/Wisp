@@ -40,7 +40,9 @@
 
             <local:AmbientBackdrop x:Name="AppParticles" Grid.RowSpan="3" Margin="8"
                                    ParticlesOnly="True" IsPointerInteractionEnabled="False"
+                                   IsWinterModeEnabled="{Binding IsWinterModeEnabled}"
                                    ParticleColor="{DynamicResource AppParticleColor}"
+                                   WinterParticleColor="{DynamicResource AppWinterParticleColor}"
                                    Visibility="{Binding BackgroundParticlesEnabled, Converter={StaticResource ParticleVisibility}}"
                                    IsAnimationEnabled="{Binding EffectiveBackgroundAnimation}" />
 
@@ -167,6 +169,19 @@
                                FontSize="23" FontWeight="SemiBold" Margin="0,0,0,18" />
                     <TabControl x:Name="RootTabs" Grid.Row="1" Style="{StaticResource SidebarPagesStyle}">
                         <TabItem x:Name="DashboardTab" Header="Dashboard">
+                            <TabItem.Resources>
+                                <Style x:Key="DashboardReadoutCardStyle" TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding IsWinterModeEnabled}" Value="True" />
+                                                <Condition Binding="{Binding BackgroundParticlesEnabled}" Value="True" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Background" Value="{DynamicResource WinterDashboardReadoutBrush}" />
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TabItem.Resources>
                             <Grid>
                                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0">
@@ -279,7 +294,7 @@
                                             <ColumnDefinition Width="14" />
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
-                                        <Border Style="{StaticResource CardStyle}">
+                                        <Border Style="{StaticResource DashboardReadoutCardStyle}">
                                             <StackPanel>
                                                 <Grid>
                                                     <TextBlock Text="LIVE DRIVE" Style="{StaticResource EyebrowTextStyle}" />
@@ -333,7 +348,7 @@
                                                 </Grid>
                                             </StackPanel>
                                         </Border>
-                                        <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+                                        <Border Grid.Column="2" Style="{StaticResource DashboardReadoutCardStyle}">
                                             <StackPanel>
                                                 <TextBlock Text="CURRENT VEHICLE" Style="{StaticResource EyebrowTextStyle}" />
                                                 <TextBlock Text="Vehicle profile" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,12" />
@@ -357,7 +372,7 @@
 
                                     <local:FeatureTourBanner x:Name="FeatureTourWelcomeBanner" Visibility="Collapsed" Margin="0,14,0,0" />
                                     <UniformGrid Columns="3" Margin="0,14,0,0">
-                                        <Border Style="{StaticResource CardStyle}" Margin="0,0,5,0">
+                                        <Border Style="{StaticResource DashboardReadoutCardStyle}" Margin="0,0,5,0">
                                             <StackPanel>
                                                 <TextBlock Text="MOTION" Style="{StaticResource EyebrowTextStyle}" />
                                                 <TextBlock Text="Road and chassis" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,12" />
@@ -383,7 +398,7 @@
                                                 </Grid>
                                             </StackPanel>
                                         </Border>
-                                        <Border Style="{StaticResource CardStyle}" Margin="5,0">
+                                        <Border Style="{StaticResource DashboardReadoutCardStyle}" Margin="5,0">
                                             <StackPanel>
                                                 <TextBlock Text="NATIVE HUD" Style="{StaticResource EyebrowTextStyle}" />
                                                 <TextBlock Text="Gauge state" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,12" />
@@ -401,7 +416,7 @@
                                                 </Grid>
                                             </StackPanel>
                                         </Border>
-                                        <Border Style="{StaticResource CardStyle}" Margin="5,0,0,0">
+                                        <Border Style="{StaticResource DashboardReadoutCardStyle}" Margin="5,0,0,0">
                                             <StackPanel>
                                                 <TextBlock Text="CONNECTION" Style="{StaticResource EyebrowTextStyle}" />
                                                 <TextBlock Text="Data Out health" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,12" />
@@ -1746,6 +1761,14 @@
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Margin="0,0,0,22">
                                     <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                                        <CheckBox x:Name="WinterModeToggle" Content="Winter mode"
+                                                  ToolTip="Use snowflakes for the app background."
+                                                  Style="{DynamicResource ToggleSwitchStyle}"
+                                                  IsChecked="{Binding IsWinterModeEnabled}"
+                                                  Checked="WinterMode_Changed" Unchecked="WinterMode_Changed"
+                                                  AutomationProperties.Name="Winter mode" />
+                                    </Border>
+                                    <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
                                         <StackPanel>
                                             <TextBlock Text="WISP TOOLS" Style="{StaticResource EyebrowTextStyle}" />
                                             <TextBlock Text="News and feedback" Style="{StaticResource SectionTitleStyle}" Margin="0,4,0,8" />
@@ -1906,11 +1929,11 @@
                                             <WrapPanel Margin="0,0,0,4">
                                                 <CheckBox x:Name="ShowBackgroundParticlesToggle" Content="Show background particles"
                                                           Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding BackgroundParticlesEnabled}"
-                                                          Checked="Option_Changed" Unchecked="Option_Changed"
+                                                          Checked="BackgroundParticleOption_Changed" Unchecked="BackgroundParticleOption_Changed"
                                                           VerticalAlignment="Center" Margin="0,0,20,8" AutomationProperties.Name="Show background particles" />
                                                 <CheckBox x:Name="AnimateParticlesToggle" Content="Animate particles"
                                                           Style="{DynamicResource ToggleSwitchStyle}" IsChecked="{Binding AnimatedBackground}"
-                                                          IsEnabled="{Binding BackgroundParticlesEnabled}" Checked="Option_Changed" Unchecked="Option_Changed"
+                                                          IsEnabled="{Binding BackgroundParticlesEnabled}" Checked="BackgroundParticleOption_Changed" Unchecked="BackgroundParticleOption_Changed"
                                                           VerticalAlignment="Center" Margin="0,0,0,8" AutomationProperties.Name="Animate background particles" />
                                             </WrapPanel>
                                             <StackPanel Margin="0,0,0,12">
@@ -1921,7 +1944,7 @@
                                                     </Style>
                                                 </StackPanel.Style>
                                                 <WrapPanel>
-                                                    <Button x:Name="UseAccentParticleColorButton" Content="Use accent color" Click="UseAccentParticleColor_Click" Margin="0,0,0,8" AutomationProperties.Name="Use app accent for particles" />
+                                                    <Button x:Name="UseAccentParticleColorButton" Content="Use default color" Click="UseAccentParticleColor_Click" Margin="0,0,0,8" AutomationProperties.Name="Use default particle color" />
                                                 </WrapPanel>
                                                 <TextBlock Text="Particles leave your background color unchanged and do not react to the mouse. Animation pauses when Wisp is minimized." Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" />
                                             </StackPanel>

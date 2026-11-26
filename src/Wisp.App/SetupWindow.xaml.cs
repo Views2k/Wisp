@@ -38,6 +38,7 @@ public partial class SetupWindow : Window
         DataContext = controller.ViewModel;
         PrivateSkipButton.Visibility = PrivateSetupPolicy.IsAvailable ? Visibility.Visible : Visibility.Collapsed;
         var settings = controller.Settings;
+        AmbientScene.WinterParticleColor = ColorCustomization.ResolveWinterParticle(settings.CustomWinterParticleColor);
         PortBox.Text = settings.UdpPort.ToString(CultureInfo.InvariantCulture);
         MinimalChoice.IsChecked = settings.LayoutMode == HudLayoutMode.Minimal;
         CombinedChoice.IsChecked = settings.LayoutMode == HudLayoutMode.Combined;
